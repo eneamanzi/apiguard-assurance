@@ -1,0 +1,100 @@
+version: "3.8"
+
+networks:
+  lab-net:
+    driver: bridge
+
+volumes:
+  forgejo-data:
+  forgejo-db-data:
+
+services:
+
+  # PostgreSQL 15: backend di persistenza per Forgejo.
+  # Versione Alpine per footprint ridotto in ambiente di laboratorio.
+  forgejo-db:
+    image: postgres:15-alpine
+    container_name: forgejo-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=forgejo
+      - POSTGRES_PASSWORD=forgejopassword
+      - POSTGRES_DB=forgejo
+    volumes:
+      - forgejo-db-data:/var/lib/postgresql/data
+    networks:
+      - lab-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forgejo"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Forgejo 14: API REST target dell'assessment.
+  # INSTALL_LOCK=true bypassa il wizard di primo avvio.
+  # ENABLE_SWAGGER=true espone /api/swagger per OpenAPI discovery.
+  forgejo:
+    image: codeberg.org/forgejo/forgejo:14
+    container_name: forgejo
+    restart: unless-stopped
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+      - FORGEJO__database__DB_TYPE=postgres
+      - FORGEJO__database__HOST=forgejo-db:5432
+      - FORGEJO__database__NAME=forgejo
+      - FORGEJO__database__USER=forgejo
+      - FORGEJO__database__PASSWD=forgejopassword
+      - FORGEJO__server__HTTP_PORT=3000
+      - FORGEJO__server__ROOT_URL=http://localhost:3000/
+      - FORGEJO__security__INSTALL_LOCK=true
+      - FORGEJO__security__SECRET_KEY=a8f3b2c1d7e4f9a2b5c8d1e6f3a9b2c5
+      - FORGEJO__api__ENABLE_SWAGGER=true
+      - FORGEJO__log__LEVEL=Info
+    volumes:
+      - forgejo-data:/data
+      - /etc/localtime:/etc/localtime:ro
+    networks:
+      - lab-net
+    ports:
+      - "3000:3000"
+    depends_on:
+      forgejo-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/healthz"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # Kong 3.9 in modalita' DB-less.
+  # La configurazione dichiarativa e' in ./kong/kong.yml.
+  # Admin API esposta su 8001 per i test White Box (Dominio 4/6).
+  kong:
+    image: kong:3.9
+    container_name: kong
+    restart: unless-stopped
+    environment:
+      - KONG_DATABASE=off
+      - KONG_DECLARATIVE_CONFIG=/kong/kong.yml
+      - KONG_PROXY_LISTEN=0.0.0.0:8000
+      - KONG_ADMIN_LISTEN=0.0.0.0:8001
+      - KONG_PROXY_ACCESS_LOG=/dev/stdout
+      - KONG_ADMIN_ACCESS_LOG=/dev/stdout
+      - KONG_PROXY_ERROR_LOG=/dev/stderr
+      - KONG_ADMIN_ERROR_LOG=/dev/stderr
+    volumes:
+      - ./kong:/kong:ro
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+    networks:
+      - lab-net
+    depends_on:
+      forgejo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

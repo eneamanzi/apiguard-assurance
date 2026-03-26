@@ -1,0 +1,14 @@
+_format_version: "3.0"
+
+services:
+  - name: forgejo-service
+    url: http://forgejo:3000
+    connect_timeout: 5000
+    read_timeout: 30000
+    write_timeout: 30000
+    routes:
+      - name: forgejo-api-route
+        paths:
+          - /api
+        strip_path: false
+        preserve_host: false

@@ -1,0 +1,138 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "apiguard-assurance"
+version = "1.0.0"
+description = "Automated security assessment tool for REST APIs in Cloud environments."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+# Runtime dependencies — grouped by architectural layer for traceability.
+dependencies = [
+    # HTTP client: async-capable, used exclusively via SecurityClient wrapper.
+    # No test module is allowed to import httpx directly.
+    "httpx>=0.27",
+
+    # Data validation and settings management (Pydantic v2 only).
+    # TargetContext uses model_config = {"frozen": True}.
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+
+    # YAML parsing for config.yaml loading.
+    "PyYAML>=6.0",
+
+    # OpenAPI spec fetching, $ref dereferencing, and validation.
+    "prance>=23.6",
+    "openapi-spec-validator>=0.7",
+
+    # Structured logging (JSON output, bound context propagation).
+    # No module uses print() or stdlib logging directly.
+    "structlog>=24.1",
+
+    # Rich terminal output for CLI progress and status display.
+    "rich>=13.7",
+
+    # CLI framework: declarative argument parsing with type safety.
+    "typer>=0.12",
+
+    # Jinja2 for HTML report rendering from templates.
+    "Jinja2>=3.1",
+
+    # Retry logic with exponential backoff for SecurityClient.
+    "tenacity>=8.3",
+]
+
+[project.scripts]
+# Exposes the CLI entry point after `pip install -e .`
+apiguard = "src.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+# ---------------------------------------------------------------------------
+# Development dependencies: tooling only, never imported at runtime.
+# ---------------------------------------------------------------------------
+[tool.hatch.envs.dev]
+dependencies = [
+    # End-to-end test runner against real target (no mocks).
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+
+    # HTTP response recording for E2E test fixtures (optional, real server only).
+    "pytest-httpx>=0.30",
+
+    # Static type checking.
+    "mypy>=1.10",
+
+    # Linter and formatter (replaces flake8 + isort + black).
+    "ruff>=0.4",
+]
+
+# ---------------------------------------------------------------------------
+# Ruff: linting and formatting configuration.
+# Target Python 3.11 syntax, strict ruleset appropriate for academic work.
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests_e2e"]
+
+[tool.ruff.lint]
+# E/W: pycodestyle, F: pyflakes, I: isort, N: pep8-naming,
+# UP: pyupgrade, B: flake8-bugbear, S: flake8-bandit (security),
+# ANN: flake8-annotations (enforces type hints on all signatures).
+select = ["E", "W", "F", "I", "N", "UP", "B", "S", "ANN"]
+ignore = [
+    # ANN101/ANN102: missing type annotation for `self`/`cls` — not required.
+    "ANN101",
+    "ANN102",
+    # S101: use of `assert` — acceptable in E2E test files only.
+    "S101",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# E2E tests are allowed to use assert statements and some bandit-flagged calls.
+"tests_e2e/*" = ["S101", "S106", "ANN"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# ---------------------------------------------------------------------------
+# Mypy: strict type checking configuration.
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_reexport = true
+show_error_codes = true
+
+# ---------------------------------------------------------------------------
+# Pytest: test discovery and async mode configuration.
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests_e2e"]
+asyncio_mode = "auto"
+# Markers for selective execution (e.g., pytest -m p0 for critical tests only)
+markers = [
+    "p0: Priority 0 tests — Black Box, no credentials required",
+    "p1: Priority 1 tests — Grey Box, requires valid JWT tokens",
+    "p2: Priority 2 tests — Grey Box/White Box, application logic",
+    "p3: Priority 3 tests — White Box, configuration audit",
+    "domain_0: API Discovery and Inventory Management",
+    "domain_1: Identity and Authentication",
+    "domain_2: Authorization and Access Control",
+    "domain_3: Data Integrity",
+    "domain_4: Availability and Resilience",
+    "domain_5: Visibility and Auditing",
+    "domain_6: Configuration and Hardening",
+    "domain_7: Business Logic and Sensitive Flows",
+]
