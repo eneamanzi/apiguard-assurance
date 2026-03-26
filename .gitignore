@@ -1,0 +1,69 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+*.egg
+MANIFEST
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+nosetests.xml
+
+# Tool outputs (generated at runtime, never committed)
+evidence.json
+assessment_report.html
+*.log
+
+# Secrets and local config overrides
+# config.yaml is committed as a template with no real credentials.
+# Real credentials are always injected via environment variables.
+config.local.yaml
+.env
+.env.*
+!.env.example
+
+# IDE and editor artifacts
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Ruff cache
+.ruff_cache/
+
+# Docker (compose override files with local secrets)
+docker-compose.override.yml
+docker-compose.local.yml
