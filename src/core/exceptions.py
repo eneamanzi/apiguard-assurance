@@ -1,0 +1,319 @@
+"""
+src/core/exceptions.py
+
+Custom exception hierarchy for the APIGuard Assurance tool.
+
+All exceptions inherit from ToolBaseError, which serves as the single
+catch-all root for any caller that needs to distinguish tool-internal
+errors from generic Python exceptions (e.g., ValueError, TypeError).
+
+Pipeline phase mapping (from Implementazione.md, Section 8):
+    Phase 1 - Configuration loading    -> ConfigurationError  [BLOCKS STARTUP]
+    Phase 2 - OpenAPI discovery        -> OpenAPILoadError    [BLOCKS STARTUP]
+    Phase 4 - DAG scheduling           -> DAGCycleError       [BLOCKS STARTUP]
+    Phase 5 - Test execution           -> SecurityClientError [-> TestResult(ERROR)]
+    Phase 6 - Resource teardown        -> TeardownError       [WARNING, not propagated]
+"""
+
+from __future__ import annotations
+
+
+class ToolBaseError(Exception):
+    """
+    Root exception for all tool-internal errors.
+
+    Every custom exception in this module inherits from this class.
+    This design enables selective catching at different pipeline layers:
+
+        except ConfigurationError:   # catch only config errors
+        except ToolBaseError:        # catch any tool error
+        except Exception:            # catch everything (forbidden in this codebase)
+
+    The __str__ implementation delegates to the message attribute so that
+    structlog can serialize instances directly without extra formatting.
+    """
+
+    def __init__(self, message: str) -> None:
+        """
+        Initialize the base error with a human-readable message.
+
+        Args:
+            message: A descriptive error message in English technical prose.
+                     Must not contain sensitive data (credentials, tokens).
+        """
+        super().__init__(message)
+        self.message: str = message
+
+    def __str__(self) -> str:
+        return self.message
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(message={self.message!r})"
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 — Configuration loading
+# ---------------------------------------------------------------------------
+
+
+class ConfigurationError(ToolBaseError):
+    """
+    Raised when config.yaml is invalid or a required environment variable
+    is missing during Phase 1 (Configuration Loading).
+
+    This exception is fatal: it blocks pipeline startup before any test
+    runs. The rationale is that proceeding with a partial or incorrect
+    configuration would produce results without a sound foundation.
+
+    Structured fields allow structlog to emit machine-readable log entries:
+
+        log.error(
+            "configuration_failed",
+            variable=exc.variable_name,
+            detail=exc.message,
+        )
+    """
+
+    def __init__(
+        self,
+        message: str,
+        variable_name: str | None = None,
+        config_path: str | None = None,
+    ) -> None:
+        """
+        Initialize a configuration error.
+
+        Args:
+            message: Human-readable description of what is wrong.
+            variable_name: The name of the missing or invalid environment
+                           variable, if applicable. Must never contain the
+                           variable's value (credentials redaction rule).
+            config_path: The dotted path within config.yaml that failed
+                         validation, e.g. "target.base_url" or "execution.min_priority".
+        """
+        super().__init__(message)
+        self.variable_name: str | None = variable_name
+        self.config_path: str | None = config_path
+
+    def __repr__(self) -> str:
+        return (
+            f"{self.__class__.__name__}("
+            f"message={self.message!r}, "
+            f"variable_name={self.variable_name!r}, "
+            f"config_path={self.config_path!r})"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — OpenAPI discovery
+# ---------------------------------------------------------------------------
+
+
+class OpenAPILoadError(ToolBaseError):
+    """
+    Raised when the OpenAPI specification cannot be fetched, dereferenced,
+    or validated during Phase 2 (OpenAPI Discovery).
+
+    This exception is fatal: without a valid and fully dereferenced spec,
+    the AttackSurface cannot be built and no test has a reliable target.
+
+    The source_url field is logged without masking because the OpenAPI
+    spec URL is not a credential — it is a public or semi-public endpoint.
+    The underlying_error field preserves the original exception message
+    for diagnostic purposes without exposing stack traces to end users.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        source_url: str | None = None,
+        underlying_error: str | None = None,
+    ) -> None:
+        """
+        Initialize an OpenAPI load error.
+
+        Args:
+            message: Human-readable description of the failure.
+            source_url: The URL or filesystem path from which the spec
+                        was being fetched when the error occurred.
+            underlying_error: String representation of the original
+                              exception (e.g., prance.util.url.ResolutionError),
+                              used for structured logging only.
+        """
+        super().__init__(message)
+        self.source_url: str | None = source_url
+        self.underlying_error: str | None = underlying_error
+
+    def __repr__(self) -> str:
+        return (
+            f"{self.__class__.__name__}("
+            f"message={self.message!r}, "
+            f"source_url={self.source_url!r}, "
+            f"underlying_error={self.underlying_error!r})"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — DAG scheduling
+# ---------------------------------------------------------------------------
+
+
+class DAGCycleError(ToolBaseError):
+    """
+    Raised when a circular dependency is detected among test depends_on
+    declarations during Phase 4 (Test Discovery and Scheduling).
+
+    This exception is fatal: a dependency cycle is a design error in the
+    test suite, not a runtime condition. Proceeding with a cyclic graph
+    would cause TopologicalSorter to raise CycleError from stdlib graphlib,
+    which is not a ToolBaseError and would not be handled correctly upstream.
+
+    The cycle field contains the list of test_id values that form the cycle,
+    as reported by graphlib.TopologicalSorter. Example:
+        cycle = ["1.4", "2.2", "1.4"]
+
+    This makes the error immediately actionable: the developer knows exactly
+    which test declarations to inspect and correct.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        cycle: list[str] | None = None,
+    ) -> None:
+        """
+        Initialize a DAG cycle error.
+
+        Args:
+            message: Human-readable description of the circular dependency.
+            cycle: Ordered list of test_id strings that form the cycle,
+                   as extracted from graphlib.TopologicalSorter.
+                   May be None if the cycle cannot be precisely identified.
+        """
+        super().__init__(message)
+        self.cycle: list[str] = cycle if cycle is not None else []
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(message={self.message!r}, cycle={self.cycle!r})"
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — Test execution
+# ---------------------------------------------------------------------------
+
+
+class SecurityClientError(ToolBaseError):
+    """
+    Raised by SecurityClient when an HTTP request fails in a non-recoverable
+    way during Phase 5 (Test Execution).
+
+    Non-recoverable conditions include: connection refused, DNS resolution
+    failure, SSL handshake error, or exhaustion of the retry policy defined
+    by tenacity. Transient errors (connection reset, 503) are retried
+    transparently by SecurityClient before raising this exception.
+
+    This exception is NEVER propagated to the engine. The contract defined
+    in BaseTest.execute() requires that every test catches SecurityClientError
+    internally and converts it to TestResult(status=ERROR, message=str(exc)).
+    The engine only sees TestResult objects, never raw exceptions.
+
+    The status_code field is None when the failure occurs at the transport
+    layer (connection refused, timeout) before any HTTP response is received.
+    When the request completed but the response indicates a non-recoverable
+    condition (e.g., 502 Bad Gateway after all retries), status_code carries
+    the final HTTP status code for structured logging.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        method: str | None = None,
+        url: str | None = None,
+        status_code: int | None = None,
+        attempt_count: int = 1,
+    ) -> None:
+        """
+        Initialize a security client error.
+
+        Args:
+            message: Human-readable description of the HTTP failure.
+            method: HTTP method of the failed request (e.g., "GET", "POST").
+            url: Target URL of the failed request. Must not contain
+                 credentials embedded in the URL (use headers instead).
+            status_code: Final HTTP status code received, or None if the
+                         failure occurred at the transport layer.
+            attempt_count: Total number of attempts made before giving up,
+                           including the initial attempt and all retries.
+        """
+        super().__init__(message)
+        self.method: str | None = method
+        self.url: str | None = url
+        self.status_code: int | None = status_code
+        self.attempt_count: int = attempt_count
+
+    def __repr__(self) -> str:
+        return (
+            f"{self.__class__.__name__}("
+            f"message={self.message!r}, "
+            f"method={self.method!r}, "
+            f"url={self.url!r}, "
+            f"status_code={self.status_code!r}, "
+            f"attempt_count={self.attempt_count!r})"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Phase 6 — Resource teardown
+# ---------------------------------------------------------------------------
+
+
+class TeardownError(ToolBaseError):
+    """
+    Raised when a DELETE request for a test-created resource fails during
+    Phase 6 (Teardown).
+
+    This exception is intentionally NOT propagated beyond the teardown loop
+    in the engine. A cleanup failure does not invalidate the assessment
+    results already collected. The engine catches TeardownError, emits a
+    WARNING log entry with the structured fields below, and continues with
+    the next resource in the drain queue.
+
+    The resource_path field includes the resource ID so that operators can
+    perform manual cleanup if needed. The failed_status_code documents what
+    the API returned instead of the expected 204 No Content or 200 OK.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        resource_method: str | None = None,
+        resource_path: str | None = None,
+        failed_status_code: int | None = None,
+    ) -> None:
+        """
+        Initialize a teardown error.
+
+        Args:
+            message: Human-readable description of why the cleanup failed.
+            resource_method: HTTP method used for the cleanup request
+                             (typically "DELETE").
+            resource_path: Path of the resource that could not be deleted,
+                           including the resource ID (e.g., "/api/v1/users/42").
+                           Used for manual cleanup guidance in the log output.
+            failed_status_code: HTTP status code received from the DELETE
+                                request, or None if a transport error occurred
+                                before a response was received.
+        """
+        super().__init__(message)
+        self.resource_method: str | None = resource_method
+        self.resource_path: str | None = resource_path
+        self.failed_status_code: int | None = failed_status_code
+
+    def __repr__(self) -> str:
+        return (
+            f"{self.__class__.__name__}("
+            f"message={self.message!r}, "
+            f"resource_method={self.resource_method!r}, "
+            f"resource_path={self.resource_path!r}, "
+            f"failed_status_code={self.failed_status_code!r})"
+        )
