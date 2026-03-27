@@ -1,0 +1,31 @@
+# config.yaml — APIGuard Assurance configuration template
+# Credentials must NEVER be written in plain text here.
+# All ${VAR_NAME} placeholders are resolved from environment variables by loader.py.
+
+target:
+  base_url: "http://localhost:8000"
+  openapi_spec_url: "http://localhost:8000/api/swagger"
+  admin_api_url: "http://localhost:8001"
+
+credentials:
+  admin_username: "${ADMIN_USERNAME}"
+  admin_password: "${ADMIN_PASSWORD}"
+  user_a_username: "${USER_A_USERNAME}"
+  user_a_password: "${USER_A_PASSWORD}"
+  user_b_username: "${USER_B_USERNAME}"
+  user_b_password: "${USER_B_PASSWORD}"
+
+execution:
+  min_priority: 3
+  strategies:
+    - BLACK_BOX
+    - GREY_BOX
+    - WHITE_BOX
+  fail_fast: false
+  connect_timeout: 5.0
+  read_timeout: 30.0
+  max_retry_attempts: 3
+
+rate_limit_probe:
+  max_requests: 150
+  request_interval_ms: 50
