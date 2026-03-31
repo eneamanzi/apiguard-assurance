@@ -1,6 +1,6 @@
 # config.yaml — APIGuard Assurance configuration template
 # Credentials must NEVER be written in plain text here.
-# All ${VAR_NAME} placeholders are resolved from environment variables by loader.py.
+# All {} placeholders are resolved from environment variables by loader.py.
 
 target:
   base_url: "http://localhost:8000"

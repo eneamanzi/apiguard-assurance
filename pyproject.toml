@@ -43,6 +43,8 @@ dependencies = [
 
     # Retry logic with exponential backoff for SecurityClient.
     "tenacity>=8.3",
+
+    "python-dotenv>=1.0",
 ]
 
 [project.scripts]
@@ -66,6 +68,7 @@ dependencies = [
 
     # Static type checking.
     "mypy>=1.10",
+    "types-PyYAML>=6.0.12",
 
     # Linter and formatter (replaces flake8 + isort + black).
     "ruff>=0.4",
@@ -86,9 +89,6 @@ src = ["src", "tests_e2e"]
 # ANN: flake8-annotations (enforces type hints on all signatures).
 select = ["E", "W", "F", "I", "N", "UP", "B", "S", "ANN"]
 ignore = [
-    # ANN101/ANN102: missing type annotation for `self`/`cls` — not required.
-    "ANN101",
-    "ANN102",
     # S101: use of `assert` — acceptable in E2E test files only.
     "S101",
 ]
