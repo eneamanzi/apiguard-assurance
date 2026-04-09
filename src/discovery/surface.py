@@ -1,31 +1,54 @@
 """
 src/discovery/surface.py
 
-AttackSurface builder: translates a dereferenced OpenAPI spec dict into the
+AttackSurface builder: translates a dereferenced spec dict into the
 structured AttackSurface object consumed by test implementations.
 
-This module is the boundary between the raw OpenAPI representation (a nested
+This module is the boundary between the raw spec representation (a nested
 Python dict from prance) and the tool's typed domain model (AttackSurface,
 EndpointRecord, ParameterInfo from src.core.models).
 
-After this module runs, no other component in the tool accesses the raw
-OpenAPI dict. All endpoint knowledge is accessed through AttackSurface's
-typed filter methods.
+Dialect-aware extraction
+------------------------
+The module adapts its extraction logic based on the SpecDialect passed in
+from openapi.py. The two dialects differ in three areas:
 
-Translation responsibilities:
-    - Iterate over all (path, method) operation pairs in the spec.
-    - Derive requires_auth from OpenAPI security declarations, respecting
-      the OpenAPI 3.x inheritance rule: operation-level security overrides
-      global security; an empty security array means public (no auth).
-    - Extract and type ParameterInfo from the parameters array of each operation.
-    - Extract deprecation status, operationId, tags, and request body metadata.
-    - Populate AttackSurface.spec_title and spec_version from the info object.
+    1. Base path resolution:
+        Swagger 2.0   -- a global ``basePath`` key (e.g. "/api/v1") defines
+                         the URL prefix shared by all operations. Path entries
+                         in the ``paths`` object are *relative* to this prefix
+                         (e.g. "/repos/search"). The canonical absolute path
+                         is ``basePath + path`` (e.g. "/api/v1/repos/search").
+                         This join is performed by _resolve_absolute_path().
+        OpenAPI 3.x   -- the ``paths`` object already contains absolute paths.
+                         Server-level prefixes live in ``servers[].url`` and
+                         are intentionally not applied here: our tests send
+                         requests to the Gateway base URL and rely on Kong's
+                         route matching, not on path construction from the spec.
+
+    2. Parameter schema location:
+        OpenAPI 3.x   -- type/format are nested under ``param.schema.type``
+                         and ``param.schema.format``.
+        Swagger 2.0   -- type/format are declared directly on the parameter
+                         object (``param.type``, ``param.format``) for
+                         path/query/header/cookie params. ``in: body`` params
+                         carry a ``schema`` child (used only for body
+                         extraction, not ParameterInfo).
+
+    3. Request body representation:
+        OpenAPI 3.x   -- dedicated ``requestBody`` key on the operation object.
+        Swagger 2.0   -- ``parameters`` entries with ``in: body`` (JSON body)
+                         or ``in: formData`` (form fields). Content type comes
+                         from operation-level or global ``consumes``.
+
+    All other aspects (HTTP methods, security inheritance, tags,
+    operationId, deprecated, path-level parameter inheritance) are identical
+    between dialects.
 
 What this module does NOT do:
-    - Substitute path template parameters ({owner}, {repo}) with real values.
-      That is the test's responsibility at request time.
-    - Validate the spec structure. That is openapi.py's responsibility.
-    - Make HTTP requests. All information is derived from the static spec.
+    - Make HTTP requests.
+    - Validate the spec structure (that is openapi.py's responsibility).
+    - Apply server-level prefixes from OpenAPI 3.x ``servers`` objects.
 
 Dependency rule:
     This module imports from stdlib, structlog, src.core.models, and
@@ -35,10 +58,13 @@ Dependency rule:
 
 from __future__ import annotations
 
+import posixpath
+from collections.abc import Sequence
+
 import structlog
 
 from src.core.exceptions import OpenAPILoadError
-from src.core.models import AttackSurface, EndpointRecord, ParameterInfo
+from src.core.models import AttackSurface, EndpointRecord, ParameterInfo, SpecDialect
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -46,33 +72,26 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-# HTTP methods recognized as OpenAPI operation keys within a path item object.
-# Other keys in a path item ('summary', 'description', 'parameters', 'servers')
-# are not operations and must be excluded from endpoint enumeration.
 OPENAPI_HTTP_METHODS: frozenset[str] = frozenset(
-    {
-        "get",
-        "post",
-        "put",
-        "patch",
-        "delete",
-        "head",
-        "options",
-        "trace",
-    }
+    {"get", "post", "put", "patch", "delete", "head", "options", "trace"}
 )
 
-# OpenAPI parameter location values (the 'in' field of a parameter object).
-OPENAPI_PARAMETER_LOCATIONS: frozenset[str] = frozenset(
-    {
-        "path",
-        "query",
-        "header",
-        "cookie",
-    }
-)
+# Valid ``in`` values for ParameterInfo (both dialects).
+OPENAPI_PARAMETER_LOCATIONS: frozenset[str] = frozenset({"path", "query", "header", "cookie"})
 
-# Keys in the OpenAPI spec accessed during surface construction.
+# Swagger 2.0 ``in`` values that represent the request body rather than a
+# discrete parameter. These are extracted as body metadata and excluded from
+# the ParameterInfo list.
+_SWAGGER2_BODY_LOCATIONS: frozenset[str] = frozenset({"body", "formdata"})
+
+# Default content types for Swagger 2.0 when ``consumes`` is absent.
+_SWAGGER2_DEFAULT_CONSUMES_BODY: list[str] = ["application/json"]
+_SWAGGER2_DEFAULT_CONSUMES_FORMDATA: list[str] = ["multipart/form-data"]
+
+# Swagger 2.0 global spec keys.
+_KEY_BASE_PATH: str = "basePath"
+
+# Spec keys accessed during surface construction.
 _KEY_PATHS: str = "paths"
 _KEY_INFO: str = "info"
 _KEY_TITLE: str = "title"
@@ -90,6 +109,7 @@ _KEY_TYPE: str = "type"
 _KEY_FORMAT: str = "format"
 _KEY_NAME: str = "name"
 _KEY_IN: str = "in"
+_KEY_CONSUMES: str = "consumes"
 
 
 # ---------------------------------------------------------------------------
@@ -97,24 +117,24 @@ _KEY_IN: str = "in"
 # ---------------------------------------------------------------------------
 
 
-def build_attack_surface(spec: dict[str, object]) -> AttackSurface:
+def build_attack_surface(
+    spec: dict[str, object],
+    dialect: SpecDialect,
+    source_url: str | None = None,
+) -> AttackSurface:
     """
-    Translate a fully dereferenced OpenAPI spec dict into an AttackSurface.
+    Translate a fully dereferenced spec dict into an AttackSurface.
 
-    This function is called once by engine.py immediately after
-    openapi.load_openapi_spec() returns, during Phase 2 (OpenAPI Discovery).
+    Called once by engine.py immediately after load_openapi_spec() returns.
     The returned AttackSurface is stored in TargetContext and remains
     immutable for the entire pipeline run.
 
-    The function performs a single pass over the spec's paths object,
-    extracting one EndpointRecord per (path, method) operation pair.
-    The global security declaration is extracted first and used as the
-    default for all operations that do not declare their own security array.
-
     Args:
-        spec: Fully dereferenced OpenAPI 3.x specification dict, as returned
-              by src.discovery.openapi.load_openapi_spec(). Must not contain
-              any remaining $ref entries.
+        spec: Fully dereferenced Swagger 2.0 or OpenAPI 3.x spec dict, as
+              returned by src.discovery.openapi.load_openapi_spec().
+              Must not contain any remaining $ref entries.
+        dialect: Detected spec dialect (SWAGGER_2 or OPENAPI_3). Controls
+                 how base paths and parameters are extracted.
 
     Returns:
         A frozen AttackSurface instance populated with one EndpointRecord
@@ -122,17 +142,12 @@ def build_attack_surface(spec: dict[str, object]) -> AttackSurface:
 
     Raises:
         OpenAPILoadError: If the spec's paths object is missing or malformed
-                          in a way that prevents surface construction. This
-                          should not occur if openapi.py's validation passed,
-                          but is guarded against defensively.
+                          in a way that prevents surface construction.
     """
-    log.debug("attack_surface_build_started")
+    log.debug("attack_surface_build_started", dialect=dialect)
 
-    # Extract metadata from the info object.
     spec_title, spec_version = _extract_spec_metadata(spec)
 
-    # Extract the global security declaration.
-    # Used as default for operations without an explicit security array.
     global_security: list[object] = _extract_global_security(spec)
     global_requires_auth: bool = _security_array_requires_auth(global_security)
 
@@ -142,7 +157,22 @@ def build_attack_surface(spec: dict[str, object]) -> AttackSurface:
         global_security_scheme_count=len(global_security),
     )
 
-    # Extract all paths.
+    # Extract the Swagger 2.0 basePath prefix (empty string for OpenAPI 3.x).
+    base_path_prefix: str = _extract_base_path(spec, dialect)
+
+    if base_path_prefix:
+        log.debug(
+            "attack_surface_swagger2_base_path_detected",
+            base_path=base_path_prefix,
+            detail=(
+                "All Swagger 2.0 path entries are relative to this prefix. "
+                "Absolute paths will be resolved as: basePath + path_entry."
+            ),
+        )
+
+    # Global ``consumes`` is Swagger 2.0-only; empty list for OpenAPI 3.x.
+    global_consumes: list[str] = _extract_global_consumes(spec, dialect)
+
     paths = spec.get(_KEY_PATHS)
     if not isinstance(paths, dict):
         raise OpenAPILoadError(
@@ -151,38 +181,44 @@ def build_attack_surface(spec: dict[str, object]) -> AttackSurface:
                 "mapping in the dereferenced spec. This indicates a spec that "
                 "passed validation but has an unexpected structure."
             ),
+            source_url=source_url,
         )
 
-    # Build one EndpointRecord per (path, method) operation pair.
     endpoints: list[EndpointRecord] = []
 
     for raw_path, path_item in paths.items():
-        path = str(raw_path)
+        raw_path_str = str(raw_path)
 
         if not isinstance(path_item, dict):
             log.warning(
                 "attack_surface_skipping_malformed_path_item",
-                path=path,
+                path=raw_path_str,
                 reason="path item is not a dict",
             )
             continue
 
-        # Path-level parameters declared in the path item object.
-        # These are inherited by all operations under this path unless
-        # overridden at the operation level (OpenAPI 3.x spec, Section 4.7.9).
+        # Resolve the absolute path using dialect-appropriate logic.
+        absolute_path: str = _resolve_absolute_path(
+            raw_path=raw_path_str,
+            base_path_prefix=base_path_prefix,
+        )
+
         path_level_parameters: list[object] = _extract_raw_parameters(path_item)
 
         records = _build_records_for_path(
-            path=path,
+            path=absolute_path,
             path_item=path_item,
             path_level_parameters=path_level_parameters,
             global_requires_auth=global_requires_auth,
+            global_consumes=global_consumes,
+            dialect=dialect,
         )
         endpoints.extend(records)
 
     surface = AttackSurface(
         spec_title=spec_title,
         spec_version=spec_version,
+        dialect=dialect,
         endpoints=endpoints,
     )
 
@@ -190,14 +226,147 @@ def build_attack_surface(spec: dict[str, object]) -> AttackSurface:
         "attack_surface_build_completed",
         spec_title=spec_title,
         spec_version=spec_version,
+        dialect=dialect,
         total_endpoints=surface.total_endpoint_count,
         unique_paths=surface.unique_path_count,
         authenticated_endpoints=len(surface.get_authenticated_endpoints()),
         public_endpoints=len(surface.get_public_endpoints()),
         deprecated_endpoints=surface.deprecated_count,
+        base_path_prefix=base_path_prefix if base_path_prefix else "(none)",
     )
 
     return surface
+
+
+# ---------------------------------------------------------------------------
+# Base path resolution — the core fix for Swagger 2.0 relative paths
+# ---------------------------------------------------------------------------
+
+
+def _extract_base_path(
+    spec: dict[str, object],
+    dialect: SpecDialect,
+) -> str:
+    """
+    Extract the Swagger 2.0 ``basePath`` global prefix from the spec root.
+
+    In Swagger 2.0, ``basePath`` is the URL segment shared by all operations.
+    Path entries in the ``paths`` object are relative to this prefix.
+    The canonical absolute path for an operation is ``basePath + path_entry``.
+
+    This key is Swagger 2.0-specific. OpenAPI 3.x uses ``servers[].url`` to
+    express the same concept, but we deliberately do not apply server-level
+    prefixes for OpenAPI 3.x: test requests are sent to the Gateway base URL
+    and rely on Kong's route matching, not on paths constructed from the spec.
+
+    The returned value is normalized:
+        - Leading slash is guaranteed.
+        - Trailing slash is stripped to avoid double-slash when joining with
+          a path entry that itself starts with "/".
+        - The root basePath "/" is normalized to "" (empty string) so that
+          joining it with any path entry is a no-op.
+
+    Args:
+        spec: Fully dereferenced spec dict.
+        dialect: Detected spec dialect.
+
+    Returns:
+        Normalized basePath string (e.g. "/api/v1"), or empty string if
+        the dialect is not SWAGGER_2 or if basePath is absent/root-only.
+    """
+    if dialect is not SpecDialect.SWAGGER_2:
+        return ""
+
+    raw_base_path = spec.get(_KEY_BASE_PATH)
+    if not isinstance(raw_base_path, str) or not raw_base_path.strip():
+        return ""
+
+    # Normalize: ensure leading slash, strip trailing slash.
+    normalized = "/" + raw_base_path.strip("/")
+
+    # A basePath of "/" (root) is semantically equivalent to no prefix.
+    if normalized == "/":
+        return ""
+
+    return normalized
+
+
+def _resolve_absolute_path(
+    raw_path: str,
+    base_path_prefix: str,
+) -> str:
+    """
+    Join a raw spec path entry with the basePath prefix into an absolute path.
+
+    This function implements the double-prefix guard described in the module
+    docstring: if ``raw_path`` already starts with ``base_path_prefix``, the
+    prefix is not applied again. This prevents the ``/api/v1/api/v1/repos``
+    corruption that would occur if a future spec provided absolute paths while
+    also declaring a basePath.
+
+    The join uses ``posixpath.join`` followed by slash normalization to handle
+    edge cases such as double slashes at the join boundary. The result always
+    starts with "/" because both ``base_path_prefix`` (if non-empty) and
+    ``raw_path`` (per OpenAPI spec) must begin with "/".
+
+    Decision table:
+        base_path_prefix=""      + raw_path="/repos"        -> "/repos"
+        base_path_prefix="/api/v1" + raw_path="/repos"      -> "/api/v1/repos"
+        base_path_prefix="/api/v1" + raw_path="/api/v1/repos" -> "/api/v1/repos"
+        base_path_prefix="/api"  + raw_path="/api/v1/repos" -> "/api/api/v1/repos"
+            (intentional: prefix "/api" != prefix of raw_path "/api/v1")
+
+    The last case is intentional because the guard compares the *full* prefix
+    string, not a partial match. If the spec declares basePath="/api" but
+    path entries begin with "/api/v1/...", this indicates a malformed spec and
+    it is more honest to produce a slightly wrong path than to silently guess.
+
+    Args:
+        raw_path: Path entry from the spec's ``paths`` object (e.g. "/repos").
+        base_path_prefix: Normalized basePath from _extract_base_path().
+
+    Returns:
+        Absolute API path string starting with "/".
+    """
+    if not base_path_prefix:
+        # No prefix to apply: return the raw path as-is, ensuring leading slash.
+        return "/" + raw_path.lstrip("/")
+
+    # Double-prefix guard: do not prepend if the path is already absolute
+    # and already starts with the full basePath prefix.
+    if raw_path.startswith(base_path_prefix):
+        return _normalize_slashes(raw_path)
+
+    # Standard case: join prefix + relative path.
+    joined = posixpath.join(base_path_prefix, raw_path.lstrip("/"))
+    return _normalize_slashes(joined)
+
+
+def _normalize_slashes(path: str) -> str:
+    """
+    Collapse any consecutive slashes in a path into a single slash.
+
+    Preserves the leading slash that OpenAPI paths require. Does not alter
+    the trailing character (some OpenAPI specs intentionally use trailing
+    slashes to distinguish resource collections from individual resources,
+    though this is uncommon).
+
+    Args:
+        path: A URL path string, possibly containing consecutive slashes.
+
+    Returns:
+        Path with all consecutive slashes collapsed to one.
+    """
+    # Split on "/" and filter out empty segments that arise from double slashes,
+    # then rejoin. The leading "/" is restored explicitly.
+    segments = [segment for segment in path.split("/") if segment]
+    normalized = "/" + "/".join(segments)
+
+    # Preserve trailing slash if the original had one (and it's not just "/").
+    if path.endswith("/") and normalized != "/":
+        normalized += "/"
+
+    return normalized
 
 
 # ---------------------------------------------------------------------------
@@ -206,26 +375,12 @@ def build_attack_surface(spec: dict[str, object]) -> AttackSurface:
 
 
 def _extract_spec_metadata(spec: dict[str, object]) -> tuple[str, str]:
-    """
-    Extract the spec title and version from the OpenAPI info object.
-
-    Both fields are used in the HTML report header and in structured logs.
-    Defaults to "Unknown" if the info object is absent or incomplete,
-    rather than raising — missing metadata does not affect assessment correctness.
-
-    Args:
-        spec: Root-level dereferenced spec dict.
-
-    Returns:
-        Tuple of (title, version) as strings.
-    """
+    """Extract (title, version) from the spec info object. Dialect-independent."""
     info = spec.get(_KEY_INFO)
     if not isinstance(info, dict):
         return "Unknown", "Unknown"
-
     title = info.get(_KEY_TITLE)
     version = info.get(_KEY_VERSION)
-
     return (
         str(title) if title is not None else "Unknown",
         str(version) if version is not None else "Unknown",
@@ -234,29 +389,34 @@ def _extract_spec_metadata(spec: dict[str, object]) -> tuple[str, str]:
 
 def _extract_global_security(spec: dict[str, object]) -> list[object]:
     """
-    Extract the global security array from the root of the spec.
+    Extract the global security array from the spec root.
 
-    The global security array defines the default security requirements
-    for all operations that do not declare their own security field.
-
-    OpenAPI 3.x global security format:
-        security:
-          - bearerAuth: []
-          - apiKeyAuth: []
-
-    Each element is a Security Requirement Object (a dict mapping scheme
-    names to scope lists). An empty list means no global security is declared.
-
-    Args:
-        spec: Root-level dereferenced spec dict.
-
-    Returns:
-        The security array as a list, or an empty list if absent.
+    Both Swagger 2.0 and OpenAPI 3.x use the same top-level ``security``
+    array structure, so this function is dialect-independent.
     """
     security = spec.get(_KEY_SECURITY)
     if not isinstance(security, list):
         return []
     return security
+
+
+def _extract_global_consumes(
+    spec: dict[str, object],
+    dialect: SpecDialect,
+) -> list[str]:
+    """
+    Extract the global ``consumes`` array (Swagger 2.0 only).
+
+    Returns an empty list for OpenAPI 3.x without inspecting the spec.
+    For Swagger 2.0, this provides the default content type for operations
+    that do not declare their own ``consumes`` field.
+    """
+    if dialect is not SpecDialect.SWAGGER_2:
+        return []
+    consumes = spec.get(_KEY_CONSUMES)
+    if not isinstance(consumes, list):
+        return []
+    return [str(c) for c in consumes if c is not None]
 
 
 # ---------------------------------------------------------------------------
@@ -269,24 +429,10 @@ def _build_records_for_path(
     path_item: dict[str, object],
     path_level_parameters: list[object],
     global_requires_auth: bool,
+    global_consumes: list[str],
+    dialect: SpecDialect,
 ) -> list[EndpointRecord]:
-    """
-    Build all EndpointRecord objects for a single OpenAPI path item.
-
-    Iterates over all keys in the path item dict. Keys matching
-    OPENAPI_HTTP_METHODS are operation objects; all other keys are
-    path item metadata and are skipped.
-
-    Args:
-        path: The API path string, e.g. '/api/v1/repos/{owner}/{repo}'.
-        path_item: The path item object dict from the spec.
-        path_level_parameters: Parameters declared at path level,
-                                inherited by all operations under this path.
-        global_requires_auth: Default auth requirement from global security.
-
-    Returns:
-        List of EndpointRecord, one per HTTP method declared in the path item.
-    """
+    """Build all EndpointRecord objects for a single path item."""
     records: list[EndpointRecord] = []
 
     for key, operation in path_item.items():
@@ -309,6 +455,8 @@ def _build_records_for_path(
             operation=operation,
             path_level_parameters=path_level_parameters,
             global_requires_auth=global_requires_auth,
+            global_consumes=global_consumes,
+            dialect=dialect,
         )
         records.append(record)
 
@@ -321,26 +469,27 @@ def _build_single_record(
     operation: dict[str, object],
     path_level_parameters: list[object],
     global_requires_auth: bool,
+    global_consumes: list[str],
+    dialect: SpecDialect,
 ) -> EndpointRecord:
     """
-    Build a single EndpointRecord from an OpenAPI operation object.
+    Build a single EndpointRecord from a spec operation object.
 
-    Extracts all fields required by EndpointRecord:
-        - operationId, tags, deprecated from the operation object.
-        - requires_auth from operation-level or global security declaration.
-        - parameters by merging path-level and operation-level parameters,
-          with operation-level taking precedence (OpenAPI override semantics).
-        - request body metadata (required, content types).
+    Dialect differences handled here:
 
-    Args:
-        path: API path string.
-        method: HTTP method, lowercase.
-        operation: Operation object dict from the spec.
-        path_level_parameters: Parameters inherited from the path item.
-        global_requires_auth: Default auth requirement.
+        OpenAPI 3.x:
+            - All ``in`` values are path/query/header/cookie.
+            - type/format extracted from ``param.schema.type / .format``.
+            - Request body from dedicated ``requestBody`` key.
 
-    Returns:
-        A fully populated, frozen EndpointRecord.
+        Swagger 2.0:
+            - ``in: body`` and ``in: formData`` represent the request body.
+              They do NOT appear in EndpointRecord.parameters.
+            - type/format extracted directly from ``param.type / .format``
+              for path/query/header/cookie params.
+            - Request body inferred from body/formData params + ``consumes``.
+
+    Security inheritance is identical in both dialects.
     """
     # --- operationId ---
     operation_id_raw = operation.get(_KEY_OPERATION_ID)
@@ -353,42 +502,59 @@ def _build_single_record(
     )
 
     # --- deprecated ---
-    deprecated_raw = operation.get(_KEY_DEPRECATED)
-    is_deprecated: bool = deprecated_raw is True
+    is_deprecated: bool = operation.get(_KEY_DEPRECATED) is True
 
     # --- requires_auth ---
-    # OpenAPI 3.x security inheritance rule:
-    #   1. If the operation declares 'security' (even an empty list), use it.
-    #   2. Otherwise, inherit the global security declaration.
-    # An empty 'security: []' at the operation level explicitly marks the
-    # operation as public, overriding even a global security requirement.
+    # OpenAPI security inheritance rule (identical in both dialects):
+    #   - If the operation declares 'security' (even empty []), use it.
+    #   - Otherwise inherit global security.
     operation_security_raw = operation.get(_KEY_SECURITY)
     if isinstance(operation_security_raw, list):
-        # Operation has an explicit security declaration — use it.
         requires_auth = _security_array_requires_auth(operation_security_raw)
     else:
-        # No operation-level security — inherit from global.
         requires_auth = global_requires_auth
 
     # --- parameters ---
-    # Merge path-level and operation-level parameters.
-    # Operation-level parameters override path-level ones with the same
-    # (name, in) combination (OpenAPI 3.x spec, Section 4.8.12).
     operation_level_parameters = _extract_raw_parameters(operation)
-    merged_parameters = _merge_parameters(
+    merged_all = _merge_parameters(
         path_level=path_level_parameters,
         operation_level=operation_level_parameters,
     )
-    parameter_infos = [
-        _build_parameter_info(raw_param)
-        for raw_param in merged_parameters
-        if isinstance(raw_param, dict)
+
+    if dialect is SpecDialect.SWAGGER_2:
+        # Split: body/formData params go to body extraction; the rest to ParameterInfo.
+        regular_params = [
+            p
+            for p in merged_all
+            if isinstance(p, dict)
+            and str(p.get(_KEY_IN, "")).lower() not in _SWAGGER2_BODY_LOCATIONS
+        ]
+        body_params = [
+            p
+            for p in merged_all
+            if isinstance(p, dict) and str(p.get(_KEY_IN, "")).lower() in _SWAGGER2_BODY_LOCATIONS
+        ]
+    else:
+        regular_params = [p for p in merged_all if isinstance(p, dict)]
+        body_params = []
+
+    valid_parameters: list[ParameterInfo] = [
+        p
+        for p in (
+            _build_parameter_info(param, dialect)
+            for param in regular_params
+            if isinstance(param, dict)
+        )
+        if p is not None
     ]
-    # Filter out None results from malformed parameter objects.
-    valid_parameters: list[ParameterInfo] = [p for p in parameter_infos if p is not None]
 
     # --- request body ---
-    request_body_required, request_body_content_types = _extract_request_body_info(operation)
+    if dialect is SpecDialect.SWAGGER_2:
+        request_body_required, request_body_content_types = _extract_request_body_swagger2(
+            operation, body_params, global_consumes
+        )
+    else:
+        request_body_required, request_body_content_types = _extract_request_body_oas3(operation)
 
     return EndpointRecord(
         path=path,
@@ -410,31 +576,12 @@ def _build_single_record(
 
 def _security_array_requires_auth(security_array: list[object]) -> bool:
     """
-    Determine whether a security array implies authentication is required.
+    Return True if the security array implies authentication is required.
 
-    OpenAPI 3.x semantics:
-        - Empty list []  -> no security requirement -> requires_auth = False
-        - Non-empty list -> at least one scheme required -> requires_auth = True
-        - Each element is a Security Requirement Object (dict). An element
-          with all empty scope lists still counts as a security requirement.
-
-    Args:
-        security_array: The 'security' array from a spec level (global or
-                        operation). Must be a list (not None).
-
-    Returns:
-        True if the array contains at least one non-empty Security Requirement
-        Object, False if the array is empty.
+    Both dialects share the same semantics: empty list = no requirement,
+    non-empty list = at least one scheme required.
     """
-    if not security_array:
-        return False
-
-    # At least one element: authentication is declared as required.
-    # We do not inspect the content of individual requirement objects here:
-    # the presence of any element is sufficient to declare auth required.
-    # The specific scheme (bearer, apiKey, etc.) is not relevant to the
-    # tool's auth bypass tests, which operate at the HTTP level.
-    return True
+    return bool(security_array)
 
 
 # ---------------------------------------------------------------------------
@@ -443,19 +590,7 @@ def _security_array_requires_auth(security_array: list[object]) -> bool:
 
 
 def _extract_raw_parameters(obj: dict[str, object]) -> list[object]:
-    """
-    Extract the raw parameters list from a path item or operation object.
-
-    Returns an empty list if 'parameters' is absent or not a list,
-    rather than raising — malformed parameters are logged at WARNING level
-    and skipped, not treated as fatal.
-
-    Args:
-        obj: A path item or operation object dict.
-
-    Returns:
-        The parameters list, or an empty list.
-    """
+    """Extract the raw parameters list from a path item or operation object."""
     params = obj.get(_KEY_PARAMETERS)
     if not isinstance(params, list):
         return []
@@ -469,23 +604,9 @@ def _merge_parameters(
     """
     Merge path-level and operation-level parameter lists.
 
-    Per OpenAPI 3.x Section 4.8.12, operation-level parameters override
-    path-level parameters with the same (name, 'in') combination.
-    Parameters unique to either level are included as-is.
-
-    Merging strategy:
-        1. Build a dict keyed by (name, in) from path-level parameters.
-        2. For each operation-level parameter, insert or overwrite the entry.
-        3. Return the values of the merged dict.
-
-    Args:
-        path_level: Parameters declared at the path item level.
-        operation_level: Parameters declared at the operation level.
-
-    Returns:
-        Merged list of raw parameter objects, with duplicates resolved.
+    Operation-level parameters override path-level ones with the same
+    (name, ``in``) combination. This rule is identical in both dialects.
     """
-    # Key: (name, location) tuple for deduplication.
     merged: dict[tuple[str, str], object] = {}
 
     for param in path_level:
@@ -507,20 +628,21 @@ def _merge_parameters(
     return list(merged.values())
 
 
-def _build_parameter_info(raw_param: dict[str, object]) -> ParameterInfo | None:
+def _build_parameter_info(
+    raw_param: dict[str, object],
+    dialect: SpecDialect,
+) -> ParameterInfo | None:
     """
-    Build a ParameterInfo from a raw OpenAPI parameter object dict.
+    Build a ParameterInfo from a raw parameter object dict.
 
-    Returns None if the parameter lacks a name or location, logging a
-    WARNING. These are required fields per OpenAPI 3.x; their absence
-    indicates a malformed spec that passed validation (lenient validator)
-    or a prance dereferencing artifact.
+    Schema location by dialect:
+        OpenAPI 3.x  -- type/format under ``param.schema.type / .format``.
+        Swagger 2.0  -- type/format directly on the param object
+                        (``param.type``, ``param.format``). If a ``schema``
+                        child is present it takes precedence (consistent with
+                        the OAS3 branch — some Swagger 2.0 tools emit it).
 
-    Args:
-        raw_param: A single parameter object dict from the spec.
-
-    Returns:
-        A ParameterInfo instance, or None if the parameter is malformed.
+    Returns None if the parameter lacks a name or location.
     """
     name_raw = raw_param.get(_KEY_NAME)
     location_raw = raw_param.get(_KEY_IN)
@@ -544,18 +666,25 @@ def _build_parameter_info(raw_param: dict[str, object]) -> ParameterInfo | None:
             known_locations=sorted(OPENAPI_PARAMETER_LOCATIONS),
         )
 
-    # Path parameters are always required per OpenAPI 3.x.
     required_raw = raw_param.get(_KEY_REQUIRED)
     is_required: bool = (required_raw is True) or (location == "path")
 
-    # Extract schema type and format from the nested schema object.
     schema_type: str | None = None
     schema_format: str | None = None
 
     schema = raw_param.get(_KEY_SCHEMA)
     if isinstance(schema, dict):
+        # Nested schema object: present in OAS3 always, and in Swagger 2.0
+        # body/allOf params (which should already be filtered out before
+        # this function is called, but safe to handle here too).
         type_raw = schema.get(_KEY_TYPE)
         format_raw = schema.get(_KEY_FORMAT)
+        schema_type = str(type_raw) if type_raw is not None else None
+        schema_format = str(format_raw) if format_raw is not None else None
+    elif dialect is SpecDialect.SWAGGER_2:
+        # Swagger 2.0 path/query/header/cookie params carry type/format directly.
+        type_raw = raw_param.get(_KEY_TYPE)
+        format_raw = raw_param.get(_KEY_FORMAT)
         schema_type = str(type_raw) if type_raw is not None else None
         schema_format = str(format_raw) if format_raw is not None else None
 
@@ -569,42 +698,85 @@ def _build_parameter_info(raw_param: dict[str, object]) -> ParameterInfo | None:
 
 
 # ---------------------------------------------------------------------------
-# Request body extraction
+# Request body extraction — OpenAPI 3.x
 # ---------------------------------------------------------------------------
 
 
-def _extract_request_body_info(
+def _extract_request_body_oas3(
     operation: dict[str, object],
 ) -> tuple[bool, list[str]]:
     """
-    Extract request body metadata from an operation object.
+    Extract request body metadata from an OpenAPI 3.x operation.
 
-    OpenAPI 3.x requestBody structure:
+    OAS3 requestBody structure::
+
         requestBody:
           required: true
           content:
             application/json:
               schema: {...}
-            application/xml:
-              schema: {...}
-
-    Args:
-        operation: Operation object dict.
-
-    Returns:
-        Tuple of (is_required, content_types) where:
-            is_required: True if requestBody.required is true.
-            content_types: List of declared media type strings,
-                           e.g. ['application/json', 'application/xml'].
     """
     request_body = operation.get(_KEY_REQUEST_BODY)
     if not isinstance(request_body, dict):
         return False, []
 
-    required_raw = request_body.get(_KEY_REQUIRED)
-    is_required: bool = required_raw is True
-
+    is_required: bool = request_body.get(_KEY_REQUIRED) is True
     content = request_body.get(_KEY_CONTENT)
     content_types: list[str] = list(content.keys()) if isinstance(content, dict) else []
+
+    return is_required, content_types
+
+
+# ---------------------------------------------------------------------------
+# Request body extraction — Swagger 2.0
+# ---------------------------------------------------------------------------
+
+
+def _extract_request_body_swagger2(
+    operation: dict[str, object],
+    body_params: Sequence[object],
+    global_consumes: list[str],
+) -> tuple[bool, list[str]]:
+    """
+    Extract request body metadata from Swagger 2.0 body/formData parameters.
+
+    Swagger 2.0 request body encoding:
+        ``in: body``     -- single JSON (or other type) body parameter.
+        ``in: formData`` -- one or more form fields constituting the body.
+
+    Content-type resolution order:
+        1. Operation-level ``consumes`` (most specific).
+        2. Global ``consumes`` from the spec root.
+        3. Hard-coded defaults: ``application/json`` for body, ``multipart/form-data``
+           for formData.
+
+    Args:
+        operation: Operation object dict.
+        body_params: Pre-filtered params with ``in: body`` or ``in: formData``.
+        global_consumes: Global ``consumes`` from the spec root (may be empty).
+
+    Returns:
+        Tuple of (is_required, content_types).
+    """
+    if not body_params:
+        return False, []
+
+    is_required: bool = any(
+        isinstance(p, dict) and p.get(_KEY_REQUIRED) is True for p in body_params
+    )
+
+    op_consumes_raw = operation.get(_KEY_CONSUMES)
+    if isinstance(op_consumes_raw, list) and op_consumes_raw:
+        content_types = [str(c) for c in op_consumes_raw if c is not None]
+    elif global_consumes:
+        content_types = global_consumes
+    else:
+        has_formdata = any(
+            isinstance(p, dict) and str(p.get(_KEY_IN, "")).lower() == "formdata"
+            for p in body_params
+        )
+        content_types = (
+            _SWAGGER2_DEFAULT_CONSUMES_FORMDATA if has_formdata else _SWAGGER2_DEFAULT_CONSUMES_BODY
+        )
 
     return is_required, content_types

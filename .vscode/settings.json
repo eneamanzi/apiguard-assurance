@@ -8,4 +8,25 @@
       "source.organizeImports.ruff": "explicit"
     }
   },
+  // 1. ESCLUDE DALL'INDICIZZAZIONE (Pylance)
+  // Dice a Pylance di non scansionare questi file in background per l'autocompletamento o la ricerca globale.
+  // ATTENZIONE: Se apri fisicamente il file nell'editor, Pylance te lo controllerà lo stesso e ti darà errore.
+  "python.analysis.exclude": [
+    "scripts/**",
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.*"
+  ],
+  // 2. IL KILLER VISIVO DI PYLANCE
+  // Questo sopprime forzatamente le righine rosse e gli errori generati da Pylance nel pannello "Problemi".
+  // Funziona SEMPRE, anche quando hai il file aperto davanti agli occhi.
+  "python.analysis.ignore": [
+    "scripts/**"
+  ],
+  // 3. IL KILLER DELL'ESTENSIONE MYPY
+  // Questo impedisce fisicamente all'estensione Microsoft di Mypy di lanciare il controllo su questi file.
+  // Uccide tutti gli errori nel pannello che finiscono con la scritta "source: Mypy".
+  "mypy-type-checker.ignorePatterns": [
+    "**/scripts/**/*.py"
+  ]
 }

@@ -160,7 +160,7 @@ class DAGScheduler:
         sorter = self._build_sorter(sanitized)
 
         # Step 3: drain the sorter into batches.
-        batches = self._drain_into_batches(sorter)
+        batches = self._drain_into_batches(sorter, expected_test_ids=set(sanitized.keys()))
 
         total_scheduled = sum(b.size for b in batches)
         log.info(
@@ -292,6 +292,7 @@ class DAGScheduler:
     def _drain_into_batches(
         self,
         sorter: graphlib.TopologicalSorter,  # type: ignore[type-arg]
+        expected_test_ids: set[str],
     ) -> list[ScheduledBatch]:
         """
         Extract topological levels from the prepared sorter into ScheduledBatch objects.
@@ -315,14 +316,28 @@ class DAGScheduler:
         and deterministic output is required by the Reproducibility constraint
         (Implementazione.md, Section 1).
 
+        Stall detection
+        ---------------
+        If is_active() returns True but get_ready() yields no nodes, the sorter
+        has entered an irrecoverable state. This should not occur after a clean
+        prepare() without cycles, but graphlib's internal state is not formally
+        documented against all edge cases. On stall, we log a structured ERROR
+        that names every test_id that was expected but never extracted, then
+        break. This ensures that an operator reading the logs can immediately
+        identify which test declarations to inspect, rather than discovering the
+        problem indirectly via a ``pipeline_phase_5_test_id_not_in_lookup`` error.
+
         Args:
             sorter: A prepared TopologicalSorter (prepare() already called).
+            expected_test_ids: Complete set of test IDs the sorter should yield.
+                               Used exclusively for stall diagnostics.
 
         Returns:
             Ordered list of ScheduledBatch, one per topological level.
         """
         batches: list[ScheduledBatch] = []
         batch_index: int = 0
+        scheduled_so_far: set[str] = set()
 
         while sorter.is_active():
             # get_ready() returns nodes with all dependencies satisfied.
@@ -331,15 +346,22 @@ class DAGScheduler:
 
             if not ready_nodes:
                 # is_active() is True but get_ready() returned nothing.
-                # This should not occur after a successful prepare() with no cycles,
-                # but we guard against it to avoid an infinite loop.
+                # Identify the test IDs that were never scheduled to give
+                # the operator an actionable diagnostic.
+                unscheduled = sorted(expected_test_ids - scheduled_so_far)
                 log.error(
                     "dag_drain_stalled",
                     batch_index=batch_index,
+                    unscheduled_test_ids=unscheduled,
+                    scheduled_count=len(scheduled_so_far),
+                    expected_count=len(expected_test_ids),
                     detail=(
                         "TopologicalSorter reports is_active()=True but get_ready() "
-                        "returned no nodes. This indicates an internal graphlib state "
-                        "inconsistency. Assessment cannot proceed safely."
+                        "returned no nodes. The listed test IDs were never extracted "
+                        "from the sorter and will not be executed. This indicates an "
+                        "internal graphlib state inconsistency — inspect the "
+                        "depends_on declarations of the unscheduled tests and verify "
+                        "that no undeclared cycle exists."
                     ),
                 )
                 break
@@ -349,6 +371,7 @@ class DAGScheduler:
                 test_ids=ready_nodes,
             )
             batches.append(batch)
+            scheduled_so_far.update(ready_nodes)
 
             log.debug(
                 "dag_batch_created",

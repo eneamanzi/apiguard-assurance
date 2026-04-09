@@ -17,10 +17,6 @@ build/
 *.egg
 MANIFEST
 
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
 # Unit test / coverage reports
 htmlcov/
 .tox/
@@ -34,14 +30,17 @@ coverage.xml
 .pytest_cache/
 nosetests.xml
 
-# Tool outputs (generated at runtime, never committed)
+# Tool outputs — generated at runtime, never committed.
+# The outputs/ directory is the canonical location for assessment results.
+# Individual filenames are kept as fallbacks for compatibility with any
+# existing CI scripts that still reference them directly.
+outputs/
 evidence.json
 assessment_report.html
+test_report.html
 *.log
 
 # Secrets and local config overrides
-# config.yaml is committed as a template with no real credentials.
-# Real credentials are always injected via environment variables.
 config.local.yaml
 .env
 .env.*

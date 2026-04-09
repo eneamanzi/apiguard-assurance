@@ -147,6 +147,7 @@ class Test_0_2_DenyByDefault(BaseTest):  # noqa: N801
                         f"unregistered path(s) were not correctly denied by the Gateway."
                     ),
                     findings=findings,
+                    **self._metadata_kwargs(),
                 )
 
             return self._make_pass(

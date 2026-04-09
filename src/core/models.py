@@ -55,6 +55,8 @@ class TestStatus(StrEnum):
         ERROR -> unexpected condition (bug in test or infrastructure issue)
     """
 
+    __test__ = False
+
     PASS = "PASS"  # noqa: S105
     FAIL = "FAIL"
     SKIP = "SKIP"
@@ -74,9 +76,27 @@ class TestStrategy(StrEnum):
                   config files. Corresponds to P3 tests (configuration audit).
     """
 
+    __test__ = False
+
     BLACK_BOX = "BLACK_BOX"
     GREY_BOX = "GREY_BOX"
     WHITE_BOX = "WHITE_BOX"
+
+
+class SpecDialect(StrEnum):
+    """
+    Detected dialect of the API specification source document.
+
+    Populated during Phase 2 (OpenAPI Discovery) and stored on AttackSurface
+    so that any downstream component can adapt its behaviour without
+    re-inspecting the raw spec dict.
+
+    SWAGGER_2  -- Swagger 2.0 specification (top-level ``swagger: "2.0"`` key).
+    OPENAPI_3  -- OpenAPI 3.x specification (top-level ``openapi: "3.x"`` key).
+    """
+
+    SWAGGER_2 = "swagger_2"
+    OPENAPI_3 = "openapi_3"
 
 
 # ---------------------------------------------------------------------------
@@ -162,8 +182,7 @@ class EvidenceRecord(BaseModel):
 
         This validator also enforces credential redaction: any header
         whose key is 'authorization' has its value replaced with '[REDACTED]'
-        before the record is stored. This applies regardless of whether the
-        caller remembered to redact it.
+        before the record is stored.
         """
         if not isinstance(value, dict):
             return {}
@@ -179,13 +198,7 @@ class EvidenceRecord(BaseModel):
     @field_validator("response_body", mode="before")
     @classmethod
     def truncate_response_body(cls, value: Any) -> str | None:  # noqa: ANN401
-        """
-        Truncate response body to prevent unbounded evidence.json growth.
-
-        Large responses (e.g., full HTML pages, binary blobs mistakenly
-        returned as text) are truncated at 10000 characters. A sentinel
-        suffix is appended so that analysts know truncation occurred.
-        """
+        """Truncate response body to prevent unbounded evidence.json growth."""
         max_length = 10_000
         truncation_suffix = "... [TRUNCATED]"
 
@@ -210,33 +223,21 @@ class Finding(BaseModel):
     A Finding is deliberately free of severity judgment. The tool's scope
     is to provide objective technical evidence: what was attempted, what was
     observed, which standard is violated. Severity assessment is delegated
-    to the human analyst or to external risk-scoring systems that consume
-    evidence.json (e.g., CVSS calculators, ML-based classifiers).
+    to the human analyst or to external risk-scoring systems.
 
     One TestResult(status=FAIL) must contain at least one Finding.
     One TestResult may contain multiple Findings if the test detected
     violations on distinct endpoints or under distinct conditions.
-
-    The references field uses a flat list of strings rather than separate
-    cwe_id, owasp_id, rfc_id fields. This design is intentional:
-        - A finding may reference zero, one, or multiple standards.
-        - The format is free-form enough to include new reference types
-          (e.g., "NIST-SP-800-204") without schema changes.
-        - External systems can parse the list with simple prefix matching.
     """
 
     title: str = Field(
         description="Short, human-readable description of the violated guarantee. "
-        "Should complete the sentence: 'The API failed to...' "
         "Example: 'Accept unsigned JWT tokens (alg:none attack)'."
     )
     detail: str = Field(
         description="Technical description of the observed evidence. "
         "Must be specific enough for an analyst to reproduce the finding "
-        "without access to the tool's source code. "
-        "Example: 'Endpoint POST /api/v1/users/tokens returned HTTP 200 "
-        "when presented with a JWT bearing alg=none and an empty signature. "
-        "Expected response: HTTP 401 Unauthorized.'"
+        "without access to the tool's source code."
     )
     references: list[str] = Field(
         default_factory=list,
@@ -248,9 +249,8 @@ class Finding(BaseModel):
     evidence_ref: str | None = Field(
         default=None,
         description="ID of the EvidenceRecord in EvidenceStore that demonstrates "
-        "this finding. Format matches EvidenceRecord.record_id. "
-        "May be None for findings derived from configuration audit "
-        "(WHITE_BOX tests) where no HTTP transaction is produced.",
+        "this finding. May be None for WHITE_BOX configuration audit findings "
+        "where no HTTP transaction is produced.",
     )
 
     @field_validator("title", "detail")
@@ -276,17 +276,28 @@ class TestResult(BaseModel):
     It is also the only object that the engine sees: raw exceptions from tests
     are caught internally by each test and converted to TestResult(status=ERROR).
 
+    Design rationale for metadata fields (test_name, domain, priority,
+    strategy, tags, cwe_id):
+        These fields duplicate information already present in BaseTest ClassVars.
+        The duplication is intentional and necessary to preserve the
+        unidirectional dependency rule: report/builder.py cannot import from
+        tests/ without creating a circular dependency. By storing metadata in
+        TestResult at construction time, builder.py receives a fully
+        self-contained record with everything needed to produce the report,
+        without any knowledge of the test class hierarchy.
+
+        The population of these fields is the responsibility of BaseTest helper
+        methods (_make_pass, _make_fail, _make_skip, _make_error). A TestResult
+        constructed manually without these helpers will have empty defaults,
+        which is acceptable for edge cases (e.g., engine-internal pseudo-results).
+
     Invariants enforced by model_validator:
         - A FAIL result must contain at least one Finding.
         - A PASS result must have an empty findings list.
-        - SKIP and ERROR results may have findings (e.g., ERROR can carry a
-          Finding that documents what was attempted before the exception).
-
-    The skip_reason field is populated only when status=SKIP and provides
-    a human-readable explanation for the report. This is semantically distinct
-    from the message field, which is always present and describes the overall
-    outcome in one line.
+        - SKIP results must have a non-empty skip_reason.
     """
+
+    __test__ = False
 
     test_id: str = Field(
         description="Unique test identifier matching BaseTest.test_id, "
@@ -295,13 +306,7 @@ class TestResult(BaseModel):
     status: TestStatus = Field(
         description="Outcome of the test execution. See TestStatus for semantics."
     )
-    message: str = Field(
-        description="One-line summary of the test outcome. Always present. "
-        "For PASS: describes what was verified. "
-        "For FAIL: describes the violated guarantee. "
-        "For SKIP: duplicates skip_reason for convenience. "
-        "For ERROR: describes the unexpected exception in non-technical terms."
-    )
+    message: str = Field(description="One-line summary of the test outcome. Always present.")
     findings: list[Finding] = Field(
         default_factory=list,
         description="List of technical evidence units. Non-empty only for FAIL "
@@ -310,16 +315,48 @@ class TestResult(BaseModel):
     skip_reason: str | None = Field(
         default=None,
         description="Human-readable explanation of why the test was skipped. "
-        "Populated only when status=SKIP. "
-        "Examples: 'Admin API not configured (WHITE_BOX test requires "
-        "target.admin_api_url in config.yaml)', "
-        "'Prerequisite test 1.1 did not produce a valid token'.",
+        "Populated only when status=SKIP.",
     )
     duration_ms: float | None = Field(
         default=None,
         description="Wall-clock execution time in milliseconds, measured by the "
         "engine from the start to the end of BaseTest.execute(). "
         "None if the measurement was not available (e.g., early ERROR).",
+    )
+
+    # --- Test metadata fields ---
+    # Populated by BaseTest helper methods at result-construction time,
+    # copying the ClassVar values declared on the concrete subclass.
+    # This makes TestResult a self-contained record: builder.py can produce
+    # a complete report without importing from tests/, preserving the
+    # unidirectional dependency rule (Implementazione.md, Section 2).
+    test_name: str = Field(
+        default="",
+        description="Human-readable name of the security guarantee, "
+        "copied from BaseTest.test_name at result-construction time.",
+    )
+    domain: int = Field(
+        default=-1,
+        description="Domain number (0-7) copied from BaseTest.domain. "
+        "Defaults to -1 if not populated (non-standard result).",
+    )
+    priority: int = Field(
+        default=0,
+        description="Priority level (0-3) copied from BaseTest.priority.",
+    )
+    strategy: str = Field(
+        default="",
+        description="Strategy value string copied from BaseTest.strategy, "
+        "e.g. 'BLACK_BOX'. Empty string if not populated.",
+    )
+    tags: list[str] = Field(
+        default_factory=list,
+        description="Tags copied from BaseTest.tags. Empty list if not populated.",
+    )
+    cwe_id: str = Field(
+        default="",
+        description="Primary CWE identifier copied from BaseTest.cwe_id. "
+        "Empty string if not populated.",
     )
 
     @model_validator(mode="after")
@@ -365,12 +402,7 @@ class ResultSet(BaseModel):
     truth for exit code calculation. It is constructed incrementally by the
     engine during Phase 5 and sealed before Phase 7.
 
-    The started_at and completed_at fields bracket the entire assessment
-    duration, from the moment the first test begins to the moment the last
-    test (or teardown) completes. These timestamps appear in the HTML report
-    and in evidence.json for audit traceability.
-
-    Exit code logic (from the revised Section 7 of Implementazione.md):
+    Exit code logic (Implementazione.md, Section 7):
         0  -> all results are PASS or SKIP
         1  -> at least one FAIL (FAIL takes precedence over ERROR)
         2  -> at least one ERROR, no FAIL
@@ -396,9 +428,6 @@ class ResultSet(BaseModel):
         """
         Append a TestResult to the collection.
 
-        Called by the engine after each BaseTest.execute() returns.
-        The append is O(1) on a list; no sorting or deduplication occurs here.
-
         Args:
             result: The TestResult returned by a test. Must not be None.
         """
@@ -407,15 +436,6 @@ class ResultSet(BaseModel):
     def compute_exit_code(self) -> int:
         """
         Compute the process exit code from the current state of the ResultSet.
-
-        Exit code semantics (revised Section 7, Implementazione.md):
-            0  -> all PASS/SKIP, no violations detected
-            1  -> at least one FAIL, vulnerability demonstrated with evidence
-            2  -> at least one ERROR (no FAIL), verification incomplete
-            10 -> infrastructure error (never returned from here)
-
-        FAIL takes precedence over ERROR: a mixed FAIL+ERROR run returns 1,
-        because the demonstrated violation is the primary signal for CI gates.
 
         Returns:
             int: Exit code in {0, 1, 2}.
@@ -460,22 +480,12 @@ class ResultSet(BaseModel):
 
     @property
     def total_finding_count(self) -> int:
-        """
-        Total number of Finding objects across all FAIL results.
-
-        A single test can produce multiple findings (e.g., BOLA detected on
-        two distinct endpoints). This count reflects the total evidence volume,
-        not the number of violated guarantees.
-        """
+        """Total number of Finding objects across all FAIL results."""
         return sum(len(r.findings) for r in self.results)
 
     @property
     def duration_seconds(self) -> float | None:
-        """
-        Total assessment duration in seconds.
-
-        Returns None if completed_at has not been set (pipeline still running).
-        """
+        """Total assessment duration in seconds. None if not yet completed."""
         if self.completed_at is None:
             return None
         delta = self.completed_at - self.started_at
@@ -484,10 +494,6 @@ class ResultSet(BaseModel):
 
 # ---------------------------------------------------------------------------
 # Attack Surface — OpenAPI-derived map of the target's exposed endpoints
-# ---------------------------------------------------------------------------
-# discovery/surface.py imports AttackSurface and EndpointRecord from here
-# to populate the surface from the dereferenced OpenAPI spec.
-# TargetContext in context.py imports AttackSurface to type attack_surface.
 # ---------------------------------------------------------------------------
 
 
@@ -498,11 +504,6 @@ class ParameterInfo(BaseModel):
     Populated from the OpenAPI spec 'parameters' array for each operation.
     Used by Test 3.1 (Input Validation) to generate boundary-value and
     type-confusion payloads appropriate for each field's declared type.
-
-    The schema_type field uses the OpenAPI primitive type vocabulary:
-    'string', 'integer', 'number', 'boolean', 'array', 'object'.
-    A value of None indicates that the spec declared the parameter without
-    a type (valid in OpenAPI 3.x, treated as 'any' by the test).
     """
 
     model_config = {"frozen": True}
@@ -545,15 +546,6 @@ class EndpointRecord(BaseModel):
 
     One EndpointRecord corresponds to one operation object in the OpenAPI spec
     (e.g., GET /api/v1/repos/{owner}/{repo}).
-
-    Tests query the AttackSurface for records matching specific criteria
-    (authenticated endpoints, deprecated operations, endpoints accepting
-    a specific parameter location) using AttackSurface's filter methods.
-
-    The requires_auth field is derived from the OpenAPI security declarations:
-    True if the operation or the global spec declares at least one non-empty
-    security requirement. This is a declaration, not a verified fact — the
-    actual enforcement is what the authentication tests verify empirically.
     """
 
     model_config = {"frozen": True}
@@ -655,8 +647,6 @@ class AttackSurface(BaseModel):
 
     Every test that needs to know what the target exposes queries this object
     via its filter methods rather than parsing the raw OpenAPI spec directly.
-    This centralizes OpenAPI interpretation in one place and keeps test logic
-    free of spec-parsing details.
 
     The surface is frozen: once built from the dereferenced spec, it cannot
     be modified. A test that queries the surface gets the same answer every
@@ -677,6 +667,13 @@ class AttackSurface(BaseModel):
         default="Unknown",
         description="OpenAPI spec info.version, used in the HTML report header.",
     )
+    dialect: SpecDialect = Field(
+        default=SpecDialect.OPENAPI_3,
+        description=(
+            "Detected dialect of the API spec this surface was built from. "
+            "SWAGGER_2 for Swagger 2.0 specs; OPENAPI_3 for OpenAPI 3.x specs."
+        ),
+    )
     endpoints: list[EndpointRecord] = Field(
         default_factory=list,
         description=(
@@ -684,10 +681,6 @@ class AttackSurface(BaseModel):
             "operation declared in the OpenAPI spec."
         ),
     )
-
-    # ------------------------------------------------------------------
-    # Aggregate properties
-    # ------------------------------------------------------------------
 
     @property
     def total_endpoint_count(self) -> int:
@@ -704,103 +697,33 @@ class AttackSurface(BaseModel):
         """Number of operations marked deprecated in the spec."""
         return sum(1 for ep in self.endpoints if ep.is_deprecated)
 
-    # ------------------------------------------------------------------
-    # Filter methods — return copies, never mutable views
-    # ------------------------------------------------------------------
-
     def get_authenticated_endpoints(self) -> list[EndpointRecord]:
-        """
-        Return all endpoints that declare at least one security requirement.
-
-        Used by Test 1.1 to build the list of endpoints that must reject
-        unauthenticated requests with HTTP 401.
-
-        Returns:
-            New list of EndpointRecord where requires_auth is True.
-        """
+        """Return all endpoints that declare at least one security requirement."""
         return [ep for ep in self.endpoints if ep.requires_auth]
 
     def get_public_endpoints(self) -> list[EndpointRecord]:
-        """
-        Return all endpoints declared as publicly accessible (no auth required).
-
-        Used by Test 0.1 to verify that public endpoints are intentional
-        and documented, not accidental information leaks.
-
-        Returns:
-            New list of EndpointRecord where requires_auth is False.
-        """
+        """Return all endpoints declared as publicly accessible."""
         return [ep for ep in self.endpoints if not ep.requires_auth]
 
     def get_deprecated_endpoints(self) -> list[EndpointRecord]:
-        """
-        Return all endpoints marked as deprecated in the OpenAPI spec.
-
-        Used by Test 0.3 to verify sunset enforcement and enhanced monitoring.
-
-        Returns:
-            New list of EndpointRecord where is_deprecated is True.
-        """
+        """Return all endpoints marked as deprecated in the OpenAPI spec."""
         return [ep for ep in self.endpoints if ep.is_deprecated]
 
     def get_endpoints_by_method(self, method: str) -> list[EndpointRecord]:
-        """
-        Return all endpoints that accept a specific HTTP method.
-
-        Used by Test 2.3 to enumerate DELETE/PUT endpoints for privilege
-        verification, and by Test 2.1 to find admin-only operations.
-
-        Args:
-            method: HTTP method, case-insensitive. Normalized to uppercase.
-
-        Returns:
-            New list of EndpointRecord matching the given method.
-        """
+        """Return all endpoints that accept a specific HTTP method."""
         method_upper = method.strip().upper()
         return [ep for ep in self.endpoints if ep.method == method_upper]
 
     def get_endpoints_by_tag(self, tag: str) -> list[EndpointRecord]:
-        """
-        Return all endpoints annotated with a specific OpenAPI tag.
-
-        Used by domain-specific tests to scope their probing to relevant
-        operations (e.g., tag 'user' for Domain 2 tests).
-
-        Args:
-            tag: OpenAPI tag string, case-sensitive.
-
-        Returns:
-            New list of EndpointRecord that include the given tag.
-        """
+        """Return all endpoints annotated with a specific OpenAPI tag."""
         return [ep for ep in self.endpoints if tag in ep.tags]
 
     def get_endpoints_with_path_parameters(self) -> list[EndpointRecord]:
-        """
-        Return all endpoints that declare at least one path parameter.
-
-        Used by Test 2.2 (BOLA) to identify endpoints that accept a
-        resource identifier in the URL path (e.g., /users/{id}), which
-        are the primary candidates for object-level authorization bypass.
-
-        Returns:
-            New list of EndpointRecord with at least one path parameter.
-        """
+        """Return all endpoints that declare at least one path parameter."""
         return [ep for ep in self.endpoints if any(p.location == "path" for p in ep.parameters)]
 
     def find_endpoint(self, path: str, method: str) -> EndpointRecord | None:
-        """
-        Find a specific endpoint by exact path and method match.
-
-        Used by tests that target a specific known operation rather than
-        iterating over all endpoints.
-
-        Args:
-            path: Exact API path as declared in the spec (e.g., '/api/v1/users').
-            method: HTTP method, case-insensitive.
-
-        Returns:
-            The matching EndpointRecord, or None if not found.
-        """
+        """Find a specific endpoint by exact path and method match."""
         method_upper = method.strip().upper()
         for ep in self.endpoints:
             if ep.path == path and ep.method == method_upper:

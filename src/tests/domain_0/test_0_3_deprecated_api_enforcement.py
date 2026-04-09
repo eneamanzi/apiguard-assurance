@@ -18,6 +18,21 @@ Methodology (3_TOP_metodologia.md, Section 0.3):
 
 Strategy: BLACK_BOX -- no credentials required for accessibility checks.
 Priority: P0 -- deprecated endpoints are a common source of unpatched vulnerabilities.
+
+Coverage gap policy
+-------------------
+Deprecated endpoints that contain path template parameters (e.g. {owner},
+{repo}) cannot be probed in Black Box mode because valid resource identifiers
+are unavailable without an authenticated session. These endpoints are NOT
+treated as security failures: the inability to probe them is a documented
+limitation of the Black Box approach, not evidence of a vulnerability.
+
+The distinction is semantic but critical for report validity:
+    - FAIL  -> HTTP evidence of a violated guarantee (active post-sunset,
+               missing Sunset header on a reachable endpoint).
+    - PASS  -> All reachable deprecated endpoints are correctly handled.
+               Coverage gaps (parameterized paths) are noted in the message.
+    - SKIP  -> No deprecated endpoints declared in the spec at all.
 """
 
 from __future__ import annotations
@@ -71,17 +86,21 @@ class Test_0_3_DeprecatedApiEnforcement(BaseTest):  # noqa: N801
     """
     Verify that deprecated API endpoints are disabled or properly sunset.
 
-    Performs two sub-checks on all endpoints marked deprecated:true in spec:
+    Performs two sub-checks on all endpoints marked deprecated:true in spec
+    that do NOT contain path template parameters:
         1. Sunset header presence: deprecated but active endpoints must carry
            a Sunset header per RFC 8594.
         2. Post-sunset enforcement: if the Sunset date is in the past,
            the endpoint must return 410 Gone.
 
+    Endpoints with path template parameters (e.g. {owner}, {repo}) cannot be
+    probed in Black Box mode and are counted as coverage gaps. They are
+    mentioned in the PASS message but do not contribute to FAIL findings.
+
     If no deprecated endpoints are declared in the spec, the test returns
-    SKIP with an explanatory message. This is not a PASS: the absence of
-    deprecated endpoints in the spec does not mean the API has no deprecated
-    functionality -- it may simply be undocumented (a Shadow API concern
-    handled by test 0.1).
+    SKIP. This is not a PASS: the absence of deprecated declarations does not
+    confirm the absence of deprecated functionality (that concern belongs to
+    Test 0.1, Shadow API Discovery).
     """
 
     test_id: ClassVar[str] = "0.3"
@@ -108,11 +127,14 @@ class Test_0_3_DeprecatedApiEnforcement(BaseTest):  # noqa: N801
         """
         Execute deprecated API enforcement verification.
 
-        Returns PASS if all deprecated endpoints are correctly handled.
-        Returns FAIL with Findings for deprecated endpoints missing Sunset
-        headers or serving requests after their sunset date.
-        Returns SKIP if no deprecated endpoints are declared in the spec.
-        Returns ERROR on unexpected exception.
+        The result status is determined exclusively by HTTP-based evidence:
+            - FAIL: at least one reachable deprecated endpoint is missing a
+                    Sunset header, or is active after its sunset date.
+            - PASS: all reachable deprecated endpoints are correctly handled.
+                    Coverage gaps (parameterized paths) are noted in the
+                    result message but do not affect the verdict.
+            - SKIP: no deprecated endpoints found in the spec.
+            - ERROR: unexpected exception during execution.
         """
         try:
             skip = self._requires_attack_surface(target)
@@ -136,17 +158,34 @@ class Test_0_3_DeprecatedApiEnforcement(BaseTest):  # noqa: N801
                     )
                 )
 
-            findings: list[Finding] = []
-            now_utc = datetime.now(UTC)
+            # Separate the endpoint set into probeable and unprobeable.
+            # Only probeable endpoints (no path parameters) produce HTTP evidence.
+            # Parameterized endpoints are coverage gaps — not security failures.
+            probeable: list[EndpointRecord] = []
+            coverage_gaps: list[str] = []
 
             for endpoint in deprecated_endpoints:
-                path = endpoint.path
+                if "{" in endpoint.path:
+                    coverage_gaps.append(f"{endpoint.method} {endpoint.path}")
+                    log.debug(
+                        "deprecated_endpoint_skipped_path_parameters",
+                        path=endpoint.path,
+                        method=endpoint.method,
+                        reason=(
+                            "Path contains template parameters. Cannot construct "
+                            "a valid URL in Black Box mode without resource IDs. "
+                            "This is a coverage gap, not a security failure."
+                        ),
+                    )
+                else:
+                    probeable.append(endpoint)
 
-                # Skip endpoints with path template parameters: we cannot
-                # construct a valid URL without knowing resource IDs.
-                if "{" in path:
-                    findings.extend(self._check_deprecated_with_template(endpoint=endpoint))
-                    continue
+            # HTTP-based findings: only these drive the FAIL/PASS verdict.
+            real_findings: list[Finding] = []
+            now_utc = datetime.now(UTC)
+
+            for endpoint in probeable:
+                path = endpoint.path
 
                 try:
                     response, record = client.request(
@@ -164,13 +203,13 @@ class Test_0_3_DeprecatedApiEnforcement(BaseTest):  # noqa: N801
                     )
                     continue
 
-                # Sub-check 1: if endpoint is active, it must have a Sunset header.
+                # Sub-check 1: active endpoint must carry a Sunset header.
                 if response.status_code in _ACTIVE_STATUS_CODES:
                     sunset_header_value = response.headers.get(_SUNSET_HEADER)
 
                     if sunset_header_value is None:
                         store.add_fail_evidence(record)
-                        findings.append(
+                        real_findings.append(
                             Finding(
                                 title="Deprecated endpoint active without Sunset header",
                                 detail=(
@@ -197,9 +236,9 @@ class Test_0_3_DeprecatedApiEnforcement(BaseTest):  # noqa: N801
                     sunset_dt = self._parse_sunset_header(sunset_header_value)
                     if sunset_dt is not None and sunset_dt < now_utc:
                         store.add_fail_evidence(record)
-                        findings.append(
+                        real_findings.append(
                             Finding(
-                                title=("Post-sunset deprecated endpoint still serving requests"),
+                                title="Post-sunset deprecated endpoint still serving requests",
                                 detail=(
                                     f"{endpoint.method} {path} declared sunset "
                                     f"date {sunset_header_value} "
@@ -223,28 +262,47 @@ class Test_0_3_DeprecatedApiEnforcement(BaseTest):  # noqa: N801
 
                 elif response.status_code == _GONE_STATUS_CODE:
                     # 410 is the correct post-sunset response. Pin as evidence
-                    # that the Gateway is correctly enforcing the sunset policy.
+                    # of correct enforcement for the report.
                     store.pin_evidence(record)
 
-            if findings:
+            # Build a summary of the coverage scope for the result message.
+            probed_count = len(probeable)
+            gap_count = len(coverage_gaps)
+
+            if real_findings:
+                gap_note = (
+                    f" Additionally, {gap_count} parameterized endpoint(s) were "
+                    f"not probed in Black Box mode (coverage gap, not a failure)."
+                    if gap_count
+                    else ""
+                )
                 return TestResult(
                     test_id=self.test_id,
                     status=TestStatus.FAIL,
                     message=(
                         f"Deprecated API enforcement issues detected: "
-                        f"{len(findings)} deprecated endpoint(s) lack proper "
-                        f"sunset handling."
+                        f"{len(real_findings)} deprecated endpoint(s) lack proper "
+                        f"sunset handling (probed: {probed_count})."
+                        f"{gap_note}"
                     ),
-                    findings=findings,
+                    findings=real_findings,
+                    **self._metadata_kwargs(),
                 )
 
-            return self._make_pass(
-                message=(
-                    f"All {len(deprecated_endpoints)} deprecated endpoint(s) "
-                    f"are correctly handled: either disabled (410 Gone) or "
-                    f"carrying a valid Sunset header."
+            # All probeable endpoints passed. Build an informative PASS message
+            # that documents coverage gaps transparently.
+            pass_message_parts = [
+                f"All {probed_count} probed deprecated endpoint(s) are correctly "
+                f"handled: either disabled (410 Gone) or carrying a valid Sunset header."
+            ]
+            if gap_count:
+                pass_message_parts.append(
+                    f"{gap_count} deprecated endpoint(s) with path parameters "
+                    f"({', '.join(coverage_gaps)}) were not probed in Black Box mode. "
+                    f"Manual verification required for these endpoints."
                 )
-            )
+
+            return self._make_pass(message=" ".join(pass_message_parts))
 
         except Exception as exc:
             return self._make_error(exc)
@@ -273,35 +331,3 @@ class Test_0_3_DeprecatedApiEnforcement(BaseTest):  # noqa: N801
             return parsed
         except Exception:  # noqa: BLE001
             return None
-
-    @staticmethod
-    def _check_deprecated_with_template(
-        endpoint: EndpointRecord,
-    ) -> list[Finding]:
-        """
-        Generate an informational Finding for deprecated endpoints with path parameters.
-
-        These endpoints cannot be probed in Black Box mode without valid
-        resource IDs. The Finding documents the gap for the analyst.
-
-        Args:
-            endpoint: EndpointRecord with template path parameters.
-
-        Returns:
-            List with one informational Finding.
-        """
-        return [
-            Finding(
-                title=("Deprecated endpoint with path parameters cannot be probed (Black Box)"),
-                detail=(
-                    f"{endpoint.method} {endpoint.path} is marked deprecated "
-                    f"but contains path template parameters (e.g., {{id}}). "
-                    f"Automated probing requires valid resource identifiers not "
-                    f"available in Black Box mode. "
-                    f"Manual verification of sunset enforcement is required for "
-                    f"this endpoint."
-                ),
-                references=["CWE-1059", "OWASP-API9:2023"],
-                evidence_ref=None,
-            )
-        ]

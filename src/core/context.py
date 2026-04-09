@@ -178,6 +178,8 @@ class TestContext(BaseModel):
     Tests interact exclusively through the typed methods below.
     """
 
+    __test__ = False
+
     _tokens: dict[str, str] = PrivateAttr(default_factory=dict)
     _resources: list[tuple[str, str]] = PrivateAttr(default_factory=list)
 
