@@ -13,9 +13,14 @@ Separation of concerns:
     builder.py  -- aggregation and computation (this module)
     renderer.py -- Jinja2 template rendering and file I/O
 
-This separation allows the correctness of statistical aggregation to be
-verified independently of the template engine, and allows the output
-format to change (HTML -> PDF, JSON, Markdown) without touching this module.
+Previously, this module contained two stub functions (_parse_domain_from_test_id
+and _parse_priority_from_test_id) that inferred metadata from the test_id string
+format. This was a workaround for the fact that TestResult did not carry the full
+metadata from the BaseTest ClassVar declarations. Now that TestResult includes
+test_name, domain, priority, strategy, tags, and cwe_id as proper fields (populated
+by BaseTest helper methods at construction time), this module simply reads them
+directly from each TestResult — no inference, no workarounds, no dependency on
+the tests/ package needed.
 
 Dependency rule:
     This module imports from stdlib, pydantic, structlog,
@@ -40,8 +45,6 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-# Domain names from the methodology, indexed by domain number.
-# Used to render human-readable section headers in the HTML report.
 DOMAIN_NAMES: dict[int, str] = {
     0: "API Discovery and Inventory Management",
     1: "Identity and Authentication",
@@ -53,7 +56,6 @@ DOMAIN_NAMES: dict[int, str] = {
     7: "Business Logic and Sensitive Flows",
 }
 
-# Priority labels for the HTML report.
 PRIORITY_LABELS: dict[int, str] = {
     0: "P0 — Critical",
     1: "P1 — High",
@@ -75,6 +77,10 @@ class TestResultRow(BaseModel):
     template, which has no type safety and where attribute errors manifest
     as silent empty strings rather than exceptions. Pre-computing all
     display values here keeps the template logic minimal.
+
+    All fields are directly sourced from TestResult, which now carries the
+    full BaseTest metadata (test_name, domain, priority, strategy, tags,
+    cwe_id) populated at result-construction time.
     """
 
     model_config = {"frozen": True}
@@ -85,7 +91,7 @@ class TestResultRow(BaseModel):
     domain_name: str = Field(description="Human-readable domain name.")
     priority: int = Field(description="Priority level (0-3).")
     priority_label: str = Field(description="Human-readable priority label.")
-    strategy: str = Field(description="Execution strategy value string.")
+    strategy: str = Field(description="Strategy value string.")
     status: str = Field(description="Status value string (PASS/FAIL/SKIP/ERROR).")
     message: str = Field(description="One-line outcome summary.")
     skip_reason: str | None = Field(
@@ -119,8 +125,7 @@ class DomainSummary(BaseModel):
     Aggregated statistics and test rows for a single methodology domain.
 
     One DomainSummary per domain (0-7) is included in ReportData.domains.
-    Domains with no active tests (all filtered out by priority/strategy)
-    are excluded from the list entirely to avoid empty sections in the report.
+    Domains with no active tests are excluded from the list entirely.
     """
 
     model_config = {"frozen": True}
@@ -150,10 +155,6 @@ class DomainSummary(BaseModel):
 class ExecutiveSummary(BaseModel):
     """
     High-level statistics for the report header and executive overview section.
-
-    These figures appear at the top of the HTML report before the per-domain
-    breakdown. They give a quick snapshot of the assessment outcome for
-    stakeholders who may not read the full domain breakdown.
     """
 
     model_config = {"frozen": True}
@@ -174,7 +175,7 @@ class ExecutiveSummary(BaseModel):
     exit_code_label: str = Field(description="Human-readable label for the exit code.")
     pass_rate_pct: float = Field(
         description="Percentage of executed tests (excluding SKIP) that passed. "
-        "Range: 0.0 to 100.0. Zero if no tests were executed.",
+        "Range: 0.0 to 100.0.",
         default=0.0,
     )
     assessment_duration_seconds: float | None = Field(
@@ -189,10 +190,7 @@ class ReportData(BaseModel):
 
     This model is the single input to renderer.py. The Jinja2 template
     accesses fields on this object directly, with no further computation.
-
-    All display-ready values (labels, percentages, formatted timestamps)
-    are computed here, not in the template. This keeps the template free
-    of logic and makes the report data independently testable.
+    All display-ready values are computed here, not in the template.
     """
 
     model_config = {"frozen": True}
@@ -240,21 +238,26 @@ def build_report_data(
     result_set: ResultSet,
     run_id: str,
     config: ToolConfig,
+    spec_title: str = "Unknown",
+    spec_version: str = "Unknown",
 ) -> ReportData:
     """
     Aggregate a completed ResultSet into a ReportData object for rendering.
 
-    This function performs all statistical computation required by the HTML
-    report in a single pass over the ResultSet. The returned ReportData
-    is frozen and contains no references to the original ResultSet or
-    EvidenceStore: it is a self-contained snapshot of the assessment outcome.
+    The spec_title and spec_version parameters allow the engine to pass
+    metadata from the AttackSurface without requiring this module to import
+    from discovery/. The previous two-function API (build_report_data and
+    build_report_data_with_surface) has been unified into this single function
+    with optional parameters and sensible defaults.
 
     Args:
         result_set: Completed ResultSet from the engine after Phase 6.
-                    May be empty if no tests were executed (zero active tests).
-        run_id: Unique run identifier from the engine, included in the report
-                header for traceability.
+        run_id: Unique run identifier from the engine.
         config: ToolConfig for report metadata (target URL, strategies, etc.).
+        spec_title: OpenAPI spec title from AttackSurface.spec_title.
+                    Defaults to 'Unknown' when not provided.
+        spec_version: OpenAPI spec version from AttackSurface.spec_version.
+                      Defaults to 'Unknown' when not provided.
 
     Returns:
         Frozen ReportData ready for renderer.py.
@@ -265,24 +268,9 @@ def build_report_data(
         run_id=run_id,
     )
 
-    # Build the per-test metadata lookup for fields not in TestResult.
-    # TestResult stores test_id and status but not test_name, domain, etc.
-    # Those fields live in the BaseTest ClassVar declarations and are not
-    # accessible from TestResult alone.
-    # Solution: build the lookup from test_id patterns and the methodology.
-    # Since we cannot import BaseTest subclasses here (would violate the
-    # dependency rule: report/ must not import from tests/), we reconstruct
-    # domain and metadata from test_id string parsing.
-    # Convention: test_id format is '{domain}.{sequence}', e.g. '1.2'.
-    # Domain is always the integer part before the first dot.
-
-    # Build TestResultRow list from all results.
     all_rows = _build_all_rows(result_set)
-
-    # Build per-domain summaries.
     domains = _build_domain_summaries(all_rows)
 
-    # Compute executive summary.
     exit_code = result_set.compute_exit_code()
     executive_summary = _build_executive_summary(
         result_set=result_set,
@@ -290,7 +278,6 @@ def build_report_data(
         exit_code=exit_code,
     )
 
-    # Build metadata strings for report header.
     min_priority_label = PRIORITY_LABELS.get(
         config.execution.min_priority,
         f"P{config.execution.min_priority}",
@@ -298,18 +285,6 @@ def build_report_data(
     strategies_label = ", ".join(
         s.value for s in sorted(config.execution.strategies, key=lambda s: s.value)
     )
-
-    # Extract spec metadata from the attack surface if available.
-    # The config does not store spec_title/spec_version directly;
-    # they are runtime-discovered. We use the target URL as fallback.
-    spec_title = "Unknown"
-    spec_version = "Unknown"
-    if config.target.admin_api_url is not None:
-        # attack_surface is not accessible from config; these fields are
-        # populated by the engine calling build_report_data with an optional
-        # surface parameter. For now, we use sensible defaults.
-        # The renderer template handles "Unknown" gracefully.
-        pass
 
     report_data = ReportData(
         run_id=run_id,
@@ -337,43 +312,6 @@ def build_report_data(
     return report_data
 
 
-def build_report_data_with_surface(
-    result_set: ResultSet,
-    run_id: str,
-    config: ToolConfig,
-    spec_title: str,
-    spec_version: str,
-) -> ReportData:
-    """
-    Extended variant of build_report_data that accepts spec metadata.
-
-    Called by engine.py, which has access to the AttackSurface and can
-    pass spec_title and spec_version directly. This avoids duplicating
-    the AttackSurface reference in ToolConfig (which is config-only).
-
-    Args:
-        result_set: Completed ResultSet.
-        run_id: Unique run identifier.
-        config: ToolConfig for execution metadata.
-        spec_title: OpenAPI spec title from AttackSurface.spec_title.
-        spec_version: OpenAPI spec version from AttackSurface.spec_version.
-
-    Returns:
-        Frozen ReportData with populated spec_title and spec_version.
-    """
-    base_data = build_report_data(
-        result_set=result_set,
-        run_id=run_id,
-        config=config,
-    )
-    return base_data.model_copy(
-        update={
-            "spec_title": spec_title,
-            "spec_version": spec_version,
-        }
-    )
-
-
 # ---------------------------------------------------------------------------
 # Internal aggregation helpers
 # ---------------------------------------------------------------------------
@@ -383,26 +321,16 @@ def _build_all_rows(result_set: ResultSet) -> list[TestResultRow]:
     """
     Build a flat list of TestResultRow from all TestResult objects.
 
-    Domain number and name are derived from the test_id convention:
-        test_id format: '{domain}.{sequence}', e.g. '2.2'
-        domain = int(test_id.split('.')[0])
+    Previously this function had to infer domain and priority from the
+    test_id string (e.g., splitting '2.2' to get domain=2). That was a
+    workaround for the absence of metadata on TestResult. Now that TestResult
+    carries full metadata, this function is a straightforward mapping:
+    each field on TestResultRow is read directly from the corresponding
+    TestResult field.
 
-    If the test_id does not follow the convention, domain defaults to -1
-    and domain_name defaults to 'Unknown Domain'. This is a defensive
-    measure for tests with non-standard IDs (e.g., the 'teardown' pseudo-ID
-    used internally by the engine).
-
-    Tags, cwe_id, test_name, priority, and strategy are not stored in
-    TestResult — they live in BaseTest ClassVars. Since report/ cannot import
-    from tests/, we reconstruct what we can from test_id and store empty
-    strings/lists for the rest. The HTML template handles empty gracefully.
-
-    Note: This is an acknowledged limitation of the strict dependency rule.
-    The alternative — relaxing the rule and importing BaseTest in builder.py
-    — would create a circular dependency (engine -> report -> tests -> core
-    vs engine -> tests -> core). The clean solution for a future version is
-    to store all metadata in TestResult at construction time. For the thesis
-    scope, the current approach is correct and documented.
+    The domain_name is resolved from DOMAIN_NAMES using result.domain.
+    If a result carries domain=-1 (default for results not constructed via
+    BaseTest helpers), the domain_name falls back to 'Unknown Domain'.
 
     Args:
         result_set: Completed ResultSet.
@@ -413,25 +341,26 @@ def _build_all_rows(result_set: ResultSet) -> list[TestResultRow]:
     rows: list[TestResultRow] = []
 
     for result in result_set.results:
-        domain, domain_name = _parse_domain_from_test_id(result.test_id)
-        priority = _parse_priority_from_test_id(result.test_id)
+        domain_name = DOMAIN_NAMES.get(result.domain, f"Domain {result.domain}")
+        if result.domain == -1:
+            domain_name = "Unknown Domain"
 
         row = TestResultRow(
             test_id=result.test_id,
-            test_name=result.message,
-            domain=domain,
+            test_name=result.test_name if result.test_name else result.message,
+            domain=result.domain,
             domain_name=domain_name,
-            priority=priority,
-            priority_label=PRIORITY_LABELS.get(priority, f"P{priority}"),
-            strategy="",
+            priority=result.priority,
+            priority_label=PRIORITY_LABELS.get(result.priority, f"P{result.priority}"),
+            strategy=result.strategy,
             status=result.status.value,
             message=result.message,
             skip_reason=result.skip_reason,
             duration_ms=result.duration_ms,
             finding_count=len(result.findings),
             findings=list(result.findings),
-            tags=[],
-            cwe_id="",
+            tags=list(result.tags),
+            cwe_id=result.cwe_id,
         )
         rows.append(row)
 
@@ -452,7 +381,6 @@ def _build_domain_summaries(all_rows: list[TestResultRow]) -> list[DomainSummary
     Returns:
         List of DomainSummary, sorted by domain number, non-empty domains only.
     """
-    # Group rows by domain number.
     domain_rows: dict[int, list[TestResultRow]] = {}
     for row in all_rows:
         domain_rows.setdefault(row.domain, []).append(row)
@@ -462,6 +390,8 @@ def _build_domain_summaries(all_rows: list[TestResultRow]) -> list[DomainSummary
     for domain_num in sorted(domain_rows.keys()):
         rows = domain_rows[domain_num]
         domain_name = DOMAIN_NAMES.get(domain_num, f"Domain {domain_num}")
+        if domain_num == -1:
+            domain_name = "Unknown Domain"
 
         pass_count = sum(1 for r in rows if r.status == TestStatus.PASS.value)
         fail_count = sum(1 for r in rows if r.status == TestStatus.FAIL.value)
@@ -520,56 +450,7 @@ def _build_executive_summary(
         error_count=result_set.error_count,
         total_finding_count=total_findings,
         exit_code=exit_code,
-        exit_code_label=_EXIT_CODE_LABELS.get(
-            exit_code,
-            f"Exit code {exit_code}",
-        ),
+        exit_code_label=_EXIT_CODE_LABELS.get(exit_code, f"Exit code {exit_code}"),
         pass_rate_pct=pass_rate,
         assessment_duration_seconds=result_set.duration_seconds,
     )
-
-
-# ---------------------------------------------------------------------------
-# test_id parsing helpers
-# ---------------------------------------------------------------------------
-
-
-def _parse_domain_from_test_id(test_id: str) -> tuple[int, str]:
-    """
-    Extract the domain number and name from a test_id string.
-
-    Convention: test_id format is '{domain}.{sequence}', e.g. '2.2'.
-    The domain is the integer part before the first dot.
-
-    Args:
-        test_id: Test identifier string.
-
-    Returns:
-        Tuple of (domain_int, domain_name_str).
-        Returns (-1, 'Unknown Domain') for non-conforming test_ids.
-    """
-    try:
-        domain_int = int(test_id.split(".")[0])
-        domain_name = DOMAIN_NAMES.get(domain_int, f"Domain {domain_int}")
-        return domain_int, domain_name
-    except (ValueError, IndexError):
-        return -1, "Unknown Domain"
-
-
-def _parse_priority_from_test_id(test_id: str) -> int:
-    """
-    Infer a default priority from the test_id for display purposes.
-
-    Since priority is stored in BaseTest ClassVars and not in TestResult,
-    this function provides a best-effort default for the report. The actual
-    priority used for execution filtering is the ClassVar value.
-
-    The methodology assigns priority based on domain and sequence number.
-    For display purposes, we default all rows to priority 0 (P0) and rely
-    on the test author to declare the correct priority in the ClassVar.
-    The report displays "-" for rows where priority cannot be determined.
-
-    Returns:
-        int: Always 0 as a safe default. The report template handles this.
-    """
-    return 0

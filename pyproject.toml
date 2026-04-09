@@ -11,6 +11,20 @@ requires-python = ">=3.11"
 license = { text = "MIT" }
 
 # Runtime dependencies — grouped by architectural layer for traceability.
+#
+# Pinning policy
+# --------------
+# Most dependencies use ">=" lower-bound pins to allow compatible upgrades.
+# prance is the sole exception: it is pinned to an exact version ("==") because
+# src/discovery/openapi.py accesses prance's internal attribute
+# _ResolvingParser__reference_cache via Python name-mangling. This is a
+# documented workaround for prance's lack of a public API for skipping backend
+# validation (required to handle Swagger 2.0 specs that use "type: file").
+# Any refactoring of prance's internals in a new release could silently break
+# Phase 2 (OpenAPI Discovery) with an AttributeError at runtime. The exact pin
+# eliminates this risk. When upgrading prance, re-run the full E2E smoke test
+# suite (tests_e2e/test_01_smoke_connectivity.py) to verify compatibility before
+# removing the pin.
 dependencies = [
     # HTTP client: async-capable, used exclusively via SecurityClient wrapper.
     # No test module is allowed to import httpx directly.
@@ -24,8 +38,16 @@ dependencies = [
     # YAML parsing for config.yaml loading.
     "PyYAML>=6.0",
 
-    # OpenAPI spec fetching, $ref dereferencing, and validation.
-    "prance>=23.6",
+    # OpenAPI spec fetching and $ref dereferencing.
+    # PINNED to exact version — see "Pinning policy" note above.
+    # Accessing _ResolvingParser__reference_cache is a name-mangled internal
+    # attribute of prance.ResolvingParser. Any change to prance's internals
+    # in a new release may break Phase 2 with AttributeError.
+    # To upgrade: change the pin, run tests_e2e/test_01_smoke_connectivity.py,
+    # and verify that build_attack_surface() still succeeds on the real target.
+    "prance==23.6.21.141549",
+
+    # OpenAPI spec structural validation (dialect-aware: OAS 3.0.x / 3.1.x).
     "openapi-spec-validator>=0.7",
 
     # Structured logging (JSON output, bound context propagation).
@@ -44,6 +66,8 @@ dependencies = [
     # Retry logic with exponential backoff for SecurityClient.
     "tenacity>=8.3",
 
+    # Environment variable loading from .env files.
+    # Called once at process startup in cli.py — not in loader.py.
     "python-dotenv>=1.0",
 ]
 
@@ -81,21 +105,19 @@ dependencies = [
 [tool.ruff]
 target-version = "py311"
 line-length = 100
-src = ["src", "tests_e2e"]
+src = ["src", "tests_integration"]
+exclude = ["scripts"]
 
 [tool.ruff.lint]
-# E/W: pycodestyle, F: pyflakes, I: isort, N: pep8-naming,
-# UP: pyupgrade, B: flake8-bugbear, S: flake8-bandit (security),
-# ANN: flake8-annotations (enforces type hints on all signatures).
 select = ["E", "W", "F", "I", "N", "UP", "B", "S", "ANN"]
 ignore = [
-    # S101: use of `assert` — acceptable in E2E test files only.
     "S101",
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# E2E tests are allowed to use assert statements and some bandit-flagged calls.
-"tests_e2e/*" = ["S101", "S106", "ANN"]
+"tests_integration/*" = ["S101", "S106", "ANN", "N806"]
+"tests_e2e/*"         = ["S101", "S106", "ANN", "N806"]
+"scripts/*"           = ["E402", "S101", "S105", "S106", "ANN", "N817"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -106,6 +128,7 @@ indent-style = "space"
 # ---------------------------------------------------------------------------
 [tool.mypy]
 python_version = "3.11"
+exclude = ["^scripts/"]
 strict = true
 warn_return_any = true
 warn_unused_ignores = true
@@ -116,12 +139,14 @@ no_implicit_reexport = true
 show_error_codes = true
 
 # ---------------------------------------------------------------------------
-# Pytest: test discovery and async mode configuration.
+# Pytest: test discovery configuration.
+# The default testpaths covers only the integration suite (no network required).
+# To run E2E tests against the live Docker stack:
+#     pytest tests_e2e/ -v
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
-testpaths = ["tests_e2e"]
+testpaths = ["tests_integration"]
 asyncio_mode = "auto"
-# Markers for selective execution (e.g., pytest -m p0 for critical tests only)
 markers = [
     "p0: Priority 0 tests — Black Box, no credentials required",
     "p1: Priority 1 tests — Grey Box, requires valid JWT tokens",

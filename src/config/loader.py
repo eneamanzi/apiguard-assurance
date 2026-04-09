@@ -8,6 +8,15 @@ environment (filesystem + OS environment variables). After load_config() returns
 the rest of the pipeline operates exclusively on the returned ToolConfig object.
 No other module in src/ reads files or calls os.environ directly.
 
+Environment variable loading
+-----------------------------
+This module does NOT call load_dotenv(). The authoritative call lives in
+src/cli.py, which is the process entry point. Centralising the call there
+guarantees a single, predictable point of environment initialisation regardless
+of how the tool is invoked (CLI, tests, scripts). If load_config() is called
+from tests without going through the CLI, the test's own conftest.py is
+responsible for loading the .env file before the call.
+
 Loading pipeline (three sequential, non-overlapping phases):
 
     Phase A — Raw read:

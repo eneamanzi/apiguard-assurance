@@ -1,10 +1,10 @@
 # config.yaml — APIGuard Assurance configuration template
 # Credentials must NEVER be written in plain text here.
-# All {} placeholders are resolved from environment variables by loader.py.
+# All ${...} placeholders are resolved from environment variables by loader.py.
 
 target:
   base_url: "http://localhost:8000"
-  openapi_spec_url: "http://localhost:8000/api/swagger"
+  openapi_spec_url: "http://localhost:3000/swagger.v1.json"
   admin_api_url: "http://localhost:8001"
 
 credentials:
@@ -25,6 +25,14 @@ execution:
   connect_timeout: 5.0
   read_timeout: 30.0
   max_retry_attempts: 3
+  openapi_fetch_timeout_seconds: 60.0
+
+# Output directory for assessment results.
+# Both evidence.json and assessment_report.html are written here.
+# Accepts relative paths (from the working directory) or absolute paths.
+# The directory is created automatically if it does not exist.
+output:
+  directory: "outputs"
 
 rate_limit_probe:
   max_requests: 150
