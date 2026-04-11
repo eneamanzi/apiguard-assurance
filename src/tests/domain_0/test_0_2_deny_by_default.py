@@ -147,6 +147,7 @@ class Test_0_2_DenyByDefault(BaseTest):  # noqa: N801
                         f"unregistered path(s) were not correctly denied by the Gateway."
                     ),
                     findings=findings,
+                    transaction_log=list(self._transaction_log),
                     **self._metadata_kwargs(),
                 )
 
@@ -200,6 +201,11 @@ class Test_0_2_DenyByDefault(BaseTest):  # noqa: N801
             # Check 1a: status code must be in _DENY_STATUS_CODES.
             if response.status_code not in _DENY_STATUS_CODES:
                 store.add_fail_evidence(record)
+                self._log_transaction(
+                    record,
+                    oracle_state="GATEWAY_BYPASS",
+                    is_fail=True,
+                )
                 findings.append(
                     Finding(
                         title="Unregistered path not denied by Gateway",
@@ -228,7 +234,16 @@ class Test_0_2_DenyByDefault(BaseTest):  # noqa: N801
                 store=store,
             )
             if backend_header_finding is not None:
+                # _check_backend_headers already called store.add_fail_evidence().
+                self._log_transaction(
+                    record,
+                    oracle_state="BACKEND_LEAKED",
+                    is_fail=True,
+                )
                 findings.append(backend_header_finding)
+            else:
+                # Status in _DENY_STATUS_CODES and no backend header leak.
+                self._log_transaction(record, oracle_state="CORRECTLY_DENIED")
 
         return findings
 
@@ -348,6 +363,11 @@ class Test_0_2_DenyByDefault(BaseTest):  # noqa: N801
             # 404 is acceptable: the Gateway rejected the non-normalized path.
             if response.status_code == 200:
                 store.add_fail_evidence(record)
+                self._log_transaction(
+                    record,
+                    oracle_state="AUTH_BYPASS_VIA_NORMALIZATION",
+                    is_fail=True,
+                )
                 findings.append(
                     Finding(
                         title=(
@@ -370,6 +390,10 @@ class Test_0_2_DenyByDefault(BaseTest):  # noqa: N801
                         evidence_ref=record.record_id,
                     )
                 )
+            else:
+                # 401/403 (auth enforced on variant) or 404 (path rejected):
+                # both satisfy the deny-by-default oracle.
+                self._log_transaction(record, oracle_state="CORRECTLY_DENIED")
 
         return findings
 

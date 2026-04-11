@@ -209,6 +209,11 @@ class Test_0_3_DeprecatedApiEnforcement(BaseTest):  # noqa: N801
 
                     if sunset_header_value is None:
                         store.add_fail_evidence(record)
+                        self._log_transaction(
+                            record,
+                            oracle_state="SUNSET_MISSING",
+                            is_fail=True,
+                        )
                         real_findings.append(
                             Finding(
                                 title="Deprecated endpoint active without Sunset header",
@@ -236,6 +241,11 @@ class Test_0_3_DeprecatedApiEnforcement(BaseTest):  # noqa: N801
                     sunset_dt = self._parse_sunset_header(sunset_header_value)
                     if sunset_dt is not None and sunset_dt < now_utc:
                         store.add_fail_evidence(record)
+                        self._log_transaction(
+                            record,
+                            oracle_state="POST_SUNSET_ACTIVE",
+                            is_fail=True,
+                        )
                         real_findings.append(
                             Finding(
                                 title="Post-sunset deprecated endpoint still serving requests",
@@ -259,11 +269,29 @@ class Test_0_3_DeprecatedApiEnforcement(BaseTest):  # noqa: N801
                                 evidence_ref=record.record_id,
                             )
                         )
+                    else:
+                        # Active and Sunset header present with a future date:
+                        # endpoint is correctly in its deprecation window.
+                        self._log_transaction(
+                            record,
+                            oracle_state="DEPRECATED_ACTIVE_SUNSET_OK",
+                        )
 
                 elif response.status_code == _GONE_STATUS_CODE:
                     # 410 is the correct post-sunset response. Pin as evidence
                     # of correct enforcement for the report.
                     store.pin_evidence(record)
+                    self._log_transaction(
+                        record,
+                        oracle_state="CORRECTLY_DECOMMISSIONED",
+                    )
+                else:
+                    # Any other status (e.g. 404 from a misconfigured route):
+                    # neither a positive enforcement signal nor a finding.
+                    self._log_transaction(
+                        record,
+                        oracle_state="OTHER_STATUS",
+                    )
 
             # Build a summary of the coverage scope for the result message.
             probed_count = len(probeable)
@@ -286,6 +314,7 @@ class Test_0_3_DeprecatedApiEnforcement(BaseTest):  # noqa: N801
                         f"{gap_note}"
                     ),
                     findings=real_findings,
+                    transaction_log=list(self._transaction_log),
                     **self._metadata_kwargs(),
                 )
 

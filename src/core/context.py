@@ -33,7 +33,7 @@ from __future__ import annotations
 import structlog
 from pydantic import AnyHttpUrl, BaseModel, Field, PrivateAttr, computed_field
 
-from src.core.models import AttackSurface
+from src.core.models import AttackSurface, RuntimeCredentials, RuntimeTestsConfig
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -105,6 +105,30 @@ class TargetContext(BaseModel):
             "between TargetContext construction and the completion of Phase 2. "
             "Every test that calls execute() is guaranteed to receive a "
             "TargetContext where attack_surface is fully populated."
+        ),
+    )
+    credentials: RuntimeCredentials = Field(
+        default_factory=RuntimeCredentials,
+        description=(
+            "Immutable credentials for GREY_BOX (P1/P2) test execution. "
+            "Populated by engine.py from ToolConfig.credentials during Phase 3. "
+            "GREY_BOX tests read credentials from here via the auth helper "
+            "(src/tests/helpers/auth.py) to acquire JWT tokens for Forgejo. "
+            "If all fields are None, GREY_BOX tests return SKIP with reason "
+            "'No credentials configured for Grey Box testing'. "
+            "SECURITY: this field must never appear in log output. "
+            "engine.py must not include TargetContext in any structlog call."
+        ),
+    )
+    tests_config: RuntimeTestsConfig = Field(
+        default_factory=RuntimeTestsConfig,
+        description=(
+            "Immutable per-test tuning parameters, populated from config.yaml "
+            "tests section by engine.py during Phase 3. "
+            "Test implementations access parameters via: "
+            "  target.tests_config.test_1_1.max_endpoints_cap "
+            "Never log this field: future extensions may carry sensitive tuning "
+            "data (e.g. custom injection payloads)."
         ),
     )
 
@@ -181,7 +205,7 @@ class TestContext(BaseModel):
     __test__ = False
 
     _tokens: dict[str, str] = PrivateAttr(default_factory=dict)
-    _resources: list[tuple[str, str]] = PrivateAttr(default_factory=list)
+    _resources: list[tuple[str, str, dict[str, str]]] = PrivateAttr(default_factory=list)
 
     # ------------------------------------------------------------------
     # Token interface
@@ -266,7 +290,12 @@ class TestContext(BaseModel):
     # Teardown resource interface
     # ------------------------------------------------------------------
 
-    def register_resource_for_teardown(self, method: str, path: str) -> None:
+    def register_resource_for_teardown(
+        self,
+        method: str,
+        path: str,
+        headers: dict[str, str] | None = None,
+    ) -> None:
         """
         Register a resource for cleanup during Phase 6 (Teardown).
 
@@ -275,15 +304,29 @@ class TestContext(BaseModel):
         in the same test, so that cleanup is guaranteed even if a later
         assertion raises an exception that causes execute() to return ERROR.
 
+        The optional headers parameter exists for resources whose DELETE
+        endpoint requires explicit authentication — specifically Forgejo API
+        tokens, which require Basic Auth from the token owner.  For all other
+        Forgejo resources (repositories, issues) where the Gateway forwards
+        the Bearer token automatically, headers should be omitted and the
+        engine will send the DELETE without extra headers.
+
         Args:
-            method: HTTP method for the cleanup request, uppercase.
-                    Typically 'DELETE'. Stored uppercase regardless of input.
-            path:   Absolute API path including the resource ID.
-                    Example: '/api/v1/repos/user-a/test-repo-1234'.
-                    Must start with '/'.
+            method:  HTTP method for the cleanup request, uppercase.
+                     Typically 'DELETE'. Stored uppercase regardless of input.
+            path:    Absolute API path including the resource ID.
+                     Example: '/api/v1/repos/user-a/test-repo-1234'.
+                     Must start with '/'.
+            headers: Optional HTTP headers to include in the cleanup request.
+                     Use only when the DELETE endpoint requires authentication
+                     that the engine cannot infer from context, e.g. Basic Auth
+                     for Forgejo token deletion.  Values containing credentials
+                     must be pre-formatted by the caller (e.g. 'Basic <b64>').
+                     Stored as-is; never logged by the engine.
 
         Raises:
-            ValueError: If method or path is empty, or path does not start with '/'.
+            ValueError: If method or path is empty, or path does not start
+                        with '/'.
         """
         method_upper = method.strip().upper()
         path_stripped = path.strip()
@@ -295,15 +338,16 @@ class TestContext(BaseModel):
         if not path_stripped.startswith("/"):
             raise ValueError(f"Teardown resource path must start with '/'. Got: '{path_stripped}'.")
 
-        self._resources.append((method_upper, path_stripped))
+        self._resources.append((method_upper, path_stripped, headers or {}))
         log.debug(
             "resource_registered_for_teardown",
             method=method_upper,
             path=path_stripped,
+            has_auth_headers=bool(headers),
             total_registered=len(self._resources),
         )
 
-    def drain_resources(self) -> list[tuple[str, str]]:
+    def drain_resources(self) -> list[tuple[str, str, dict[str, str]]]:
         """
         Return all registered resources in LIFO order and clear the registry.
 
@@ -316,7 +360,8 @@ class TestContext(BaseModel):
         resources.
 
         Returns:
-            List of (method, path) tuples in LIFO order.
+            List of (method, path, headers) tuples in LIFO order.
+            headers is an empty dict when no explicit headers were registered.
             Empty list if no resources were registered.
         """
         if not self._resources:

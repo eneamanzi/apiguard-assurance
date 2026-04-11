@@ -465,7 +465,11 @@ def _display_completion_summary(exit_code: int) -> None:
         )
     )
     _console_out.print(
-        "[dim]Outputs: [white]assessment_report.html[/white]  [white]evidence.json[/white][/dim]"
+        "[dim]Outputs: "
+        "[white]assessment_report.html[/white]  "
+        "[white]evidence.json[/white]  "
+        "[white]apiguard_report.json[/white]"
+        "[/dim]"
     )
 
 

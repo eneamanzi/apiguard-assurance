@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>APIGuard Assessment Report — {{ run_id }}</title>
+  <title>APIGuard Assessment Report &mdash; {{ run_id }}</title>
   <style>
     /* ------------------------------------------------------------------ */
     /* Reset and base                                                        */
@@ -48,7 +48,7 @@
     }
 
     .container {
-      max-width: 1200px;
+      max-width: 1280px;
       margin: 0 auto;
     }
 
@@ -61,6 +61,13 @@
       border-radius: var(--radius);
       padding: 2rem 2.5rem;
       margin-bottom: 2rem;
+    }
+
+    .page-header-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
     }
 
     .page-header h1 {
@@ -108,7 +115,7 @@
     /* ------------------------------------------------------------------ */
     .exec-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
       gap: 1rem;
       margin-bottom: 2rem;
     }
@@ -192,6 +199,173 @@
     }
 
     /* ------------------------------------------------------------------ */
+    /* Filter bar                                                            */
+    /* ------------------------------------------------------------------ */
+    .filter-bar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius);
+      padding: 0.9rem 1.2rem;
+      margin-bottom: 2rem;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    }
+
+    .filter-bar-row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .filter-bar-row+.filter-bar-row {
+      margin-top: 0.6rem;
+      padding-top: 0.6rem;
+      border-top: 1px solid var(--color-border);
+    }
+
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      flex-wrap: wrap;
+    }
+
+    .filter-label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--color-muted);
+      white-space: nowrap;
+      min-width: 52px;
+    }
+
+    .filter-btn {
+      font-size: 0.75rem;
+      font-weight: 500;
+      padding: 0.28rem 0.7rem;
+      border-radius: 999px;
+      border: 1px solid var(--color-border);
+      background: var(--color-bg);
+      color: var(--color-muted);
+      cursor: pointer;
+      transition: background 0.12s, color 0.12s, border-color 0.12s;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      white-space: nowrap;
+    }
+
+    .filter-btn:hover {
+      background: #f1f5f9;
+      color: var(--color-text);
+    }
+
+    .filter-btn.active {
+      background: var(--color-accent);
+      color: #fff;
+      border-color: var(--color-accent);
+    }
+
+    .filter-btn[data-value="PASS"].active {
+      background: var(--color-pass);
+      border-color: var(--color-pass);
+    }
+
+    .filter-btn[data-value="FAIL"].active {
+      background: var(--color-fail);
+      border-color: var(--color-fail);
+    }
+
+    .filter-btn[data-value="SKIP"].active {
+      background: var(--color-skip);
+      border-color: var(--color-skip);
+    }
+
+    .filter-btn[data-value="ERROR"].active {
+      background: var(--color-error);
+      border-color: var(--color-error);
+    }
+
+    .filter-btn[data-value="0"].active {
+      background: var(--color-fail);
+      border-color: var(--color-fail);
+    }
+
+    .search-input {
+      font-size: 0.82rem;
+      padding: 0.32rem 0.75rem;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius);
+      background: var(--color-bg);
+      color: var(--color-text);
+      min-width: 220px;
+      outline: none;
+    }
+
+    .search-input:focus {
+      border-color: var(--color-accent);
+      background: #fff;
+    }
+
+    .match-count {
+      font-size: 0.78rem;
+      color: var(--color-muted);
+      white-space: nowrap;
+      font-style: italic;
+    }
+
+    .filter-bar-actions {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Action buttons                                                        */
+    /* ------------------------------------------------------------------ */
+    .btn {
+      font-size: 0.78rem;
+      font-weight: 600;
+      padding: 0.35rem 0.85rem;
+      border-radius: var(--radius);
+      border: 1px solid var(--color-border);
+      background: var(--color-surface);
+      color: var(--color-text);
+      cursor: pointer;
+      transition: background 0.12s, box-shadow 0.12s;
+      white-space: nowrap;
+    }
+
+    .btn:hover {
+      background: #f1f5f9;
+      box-shadow: var(--shadow);
+    }
+
+    .btn:active {
+      background: #e2e8f0;
+    }
+
+    .btn-primary {
+      background: var(--color-accent);
+      color: #fff;
+      border-color: var(--color-accent);
+    }
+
+    .btn-primary:hover {
+      background: #1e293b;
+    }
+
+    .btn-sm {
+      font-size: 0.72rem;
+      padding: 0.22rem 0.6rem;
+    }
+
+    /* ------------------------------------------------------------------ */
     /* Section headers                                                       */
     /* ------------------------------------------------------------------ */
     .section {
@@ -200,8 +374,9 @@
 
     .section-header {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: space-between;
+      gap: 1rem;
       margin-bottom: 1rem;
       padding-bottom: 0.6rem;
       border-bottom: 2px solid var(--color-border);
@@ -211,6 +386,17 @@
       font-size: 1.1rem;
       font-weight: 700;
       color: var(--color-accent);
+    }
+
+    .section-header-left {
+      flex: 1;
+    }
+
+    .section-header-right {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-shrink: 0;
     }
 
     /* ------------------------------------------------------------------ */
@@ -252,141 +438,15 @@
     }
 
     /* ------------------------------------------------------------------ */
-    /* Tables                                                                */
-    /* ------------------------------------------------------------------ */
-    .table-wrapper {
-      overflow-x: auto;
-      border-radius: var(--radius);
-      border: 1px solid var(--color-border);
-      box-shadow: var(--shadow);
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      background: var(--color-surface);
-    }
-
-    thead th {
-      background: #f1f5f9;
-      font-size: 0.72rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--color-muted);
-      padding: 0.65rem 1rem;
-      text-align: left;
-      border-bottom: 1px solid var(--color-border);
-      white-space: nowrap;
-    }
-
-    tbody tr {
-      border-bottom: 1px solid var(--color-border);
-    }
-
-    tbody tr:last-child {
-      border-bottom: none;
-    }
-
-    tbody tr:hover {
-      background: #f8fafc;
-    }
-
-    tbody td {
-      padding: 0.75rem 1rem;
-      vertical-align: top;
-    }
-
-    .td-id {
-      font-family: ui-monospace, monospace;
-      font-size: 0.8rem;
-      white-space: nowrap;
-      color: var(--color-muted);
-    }
-
-    .td-msg {
-      font-size: 0.85rem;
-      max-width: 380px;
-    }
-
-    .td-dur {
-      font-size: 0.8rem;
-      color: var(--color-muted);
-      white-space: nowrap;
-      text-align: right;
-    }
-
-    .td-count {
-      font-size: 0.85rem;
-      text-align: center;
-      font-weight: 600;
-    }
-
-    /* ------------------------------------------------------------------ */
-    /* Finding cards                                                          */
-    /* ------------------------------------------------------------------ */
-    .findings-cell {
-      padding: 0;
-    }
-
-    .finding-card {
-      background: #fef2f2;
-      border-left: 3px solid var(--color-fail);
-      border-radius: 0 4px 4px 0;
-      padding: 0.6rem 0.9rem;
-      margin: 0.4rem 1rem;
-      font-size: 0.82rem;
-    }
-
-    .finding-title {
-      font-weight: 600;
-      color: var(--color-fail);
-      margin-bottom: 0.25rem;
-    }
-
-    .finding-detail {
-      color: var(--color-text);
-      line-height: 1.5;
-    }
-
-    .finding-refs {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.35rem;
-      margin-top: 0.4rem;
-    }
-
-    .ref-tag {
-      font-size: 0.68rem;
-      background: #fee2e2;
-      color: var(--color-fail);
-      padding: 0.1rem 0.45rem;
-      border-radius: 3px;
-      font-family: ui-monospace, monospace;
-    }
-
-    .finding-evidence {
-      margin-top: 0.3rem;
-      font-size: 0.72rem;
-      color: var(--color-muted);
-      font-family: ui-monospace, monospace;
-    }
-
-    .skip-reason {
-      font-size: 0.78rem;
-      color: var(--color-skip);
-      margin-top: 0.25rem;
-      font-style: italic;
-    }
-
-    /* ------------------------------------------------------------------ */
-    /* Domain summary strip                                                  */
+    /* Dots and domain strip                                                 */
     /* ------------------------------------------------------------------ */
     .domain-strip {
       display: flex;
       gap: 1rem;
       font-size: 0.8rem;
       color: var(--color-muted);
+      flex-wrap: wrap;
+      margin-top: 0.3rem;
     }
 
     .domain-strip span {
@@ -418,6 +478,625 @@
       background: var(--color-error);
     }
 
+    .finding-count-badge {
+      font-size: 0.75rem;
+      font-weight: 700;
+      background: #fee2e2;
+      color: var(--color-fail);
+      padding: 0.1rem 0.5rem;
+      border-radius: 999px;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Tables                                                                */
+    /* ------------------------------------------------------------------ */
+    .table-wrapper {
+      overflow-x: auto;
+      border-radius: var(--radius);
+      border: 1px solid var(--color-border);
+      box-shadow: var(--shadow);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--color-surface);
+    }
+
+    thead th {
+      background: #f1f5f9;
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--color-muted);
+      padding: 0.65rem 0.85rem;
+      text-align: left;
+      border-bottom: 1px solid var(--color-border);
+      white-space: nowrap;
+    }
+
+    tbody tr {
+      border-bottom: 1px solid var(--color-border);
+    }
+
+    tbody tr:last-child {
+      border-bottom: none;
+    }
+
+    tbody td {
+      padding: 0.7rem 0.85rem;
+      vertical-align: middle;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Test rows (expandable)                                                */
+    /* ------------------------------------------------------------------ */
+    tr.test-row {
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+
+    tr.test-row:hover {
+      background: #f8fafc;
+    }
+
+    .td-expand {
+      width: 28px;
+      text-align: center;
+      padding: 0.5rem 0.25rem;
+    }
+
+    .expand-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+      border-radius: 4px;
+      background: #f1f5f9;
+      color: var(--color-muted);
+      font-size: 0.9rem;
+      font-weight: 700;
+      line-height: 1;
+      transition: background 0.1s, color 0.1s;
+      user-select: none;
+    }
+
+    tr.test-row.is-open .expand-icon {
+      background: var(--color-accent);
+      color: #fff;
+    }
+
+    .td-id {
+      font-family: ui-monospace, monospace;
+      font-size: 0.8rem;
+      white-space: nowrap;
+      color: var(--color-muted);
+    }
+
+    .td-msg {
+      font-size: 0.85rem;
+      max-width: 340px;
+    }
+
+    .test-name {
+      font-weight: 500;
+      color: var(--color-text);
+    }
+
+    .test-message {
+      font-size: 0.78rem;
+      color: var(--color-muted);
+      margin-top: 0.15rem;
+    }
+
+    .skip-reason {
+      font-size: 0.75rem;
+      color: var(--color-skip);
+      margin-top: 0.2rem;
+      font-style: italic;
+    }
+
+    .td-dur {
+      font-size: 0.8rem;
+      color: var(--color-muted);
+      white-space: nowrap;
+      text-align: right;
+    }
+
+    .finding-count-inline {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 22px;
+      height: 22px;
+      padding: 0 0.4rem;
+      background: #fee2e2;
+      color: var(--color-fail);
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Detail (expanded) row                                                 */
+    /* ------------------------------------------------------------------ */
+    tr.detail-row {
+      display: none;
+    }
+
+    tr.detail-row.is-open {
+      display: table-row;
+    }
+
+    td.detail-cell {
+      padding: 0;
+      background: #fafbfc;
+      border-top: 1px solid var(--color-border);
+    }
+
+    .detail-panel {
+      padding: 1rem 1.25rem;
+      border-left: 3px solid var(--color-accent);
+    }
+
+    .detail-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.2rem;
+      margin-bottom: 0.85rem;
+    }
+
+    .detail-meta-item {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+
+    /* Always push the "View Audit Trail" button to the far right of the
+       metadata strip, regardless of how many meta-items precede it.     */
+    .detail-meta-audit-action {
+      margin-left: auto;
+      display: flex;
+      align-items: flex-end;
+    }
+
+    .detail-meta-label {
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--color-muted);
+    }
+
+    .detail-meta-value {
+      font-size: 0.82rem;
+      color: var(--color-text);
+    }
+
+    .tag-chip {
+      display: inline-block;
+      font-size: 0.7rem;
+      padding: 0.1rem 0.45rem;
+      background: #eff6ff;
+      color: #1d4ed8;
+      border-radius: 3px;
+      font-family: ui-monospace, monospace;
+      margin-right: 0.25rem;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Finding cards (expanded view)                                         */
+    /* ------------------------------------------------------------------ */
+    .detail-findings-section {
+      margin-top: 0.75rem;
+    }
+
+    .detail-section-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 0.6rem;
+    }
+
+    .detail-section-title {
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: var(--color-fail);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .finding-card-expanded {
+      background: #fff;
+      border: 1px solid #fecaca;
+      border-left: 3px solid var(--color-fail);
+      border-radius: 0 var(--radius) var(--radius) 0;
+      padding: 0.7rem 1rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .finding-card-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.5rem;
+      margin-bottom: 0.35rem;
+    }
+
+    .finding-title {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--color-fail);
+      flex: 1;
+    }
+
+    .finding-detail {
+      font-size: 0.82rem;
+      color: var(--color-text);
+      line-height: 1.5;
+    }
+
+    .finding-refs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.3rem;
+      margin-top: 0.45rem;
+    }
+
+    .ref-tag {
+      font-size: 0.68rem;
+      background: #fee2e2;
+      color: var(--color-fail);
+      padding: 0.1rem 0.45rem;
+      border-radius: 3px;
+      font-family: ui-monospace, monospace;
+    }
+
+    .finding-evidence {
+      margin-top: 0.35rem;
+      font-size: 0.72rem;
+      color: var(--color-muted);
+    }
+
+    .finding-evidence code {
+      font-family: ui-monospace, monospace;
+      background: #f1f5f9;
+      padding: 0.05rem 0.35rem;
+      border-radius: 3px;
+    }
+
+    .evidence-note {
+      font-style: italic;
+      margin-left: 0.35rem;
+      color: #94a3b8;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Status messages in detail panel                                       */
+    /* ------------------------------------------------------------------ */
+    .detail-pass-msg {
+      font-size: 0.82rem;
+      color: var(--color-pass);
+      font-style: italic;
+      padding: 0.5rem 0;
+    }
+
+    .detail-skip-msg {
+      font-size: 0.82rem;
+      color: var(--color-skip);
+      font-style: italic;
+      padding: 0.5rem 0;
+    }
+
+    .detail-error-msg {
+      font-size: 0.82rem;
+      color: var(--color-error);
+      font-style: italic;
+      padding: 0.5rem 0;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Audit Trail — trigger button in detail panel                        */
+    /* ------------------------------------------------------------------ */
+    .detail-audit-trail-trigger {
+      margin-top: 0.9rem;
+      padding-top: 0.7rem;
+      border-top: 1px solid var(--color-border);
+    }
+
+    .audit-trail-trigger-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--color-accent);
+    }
+
+    .audit-trail-trigger-btn:hover {
+      background: var(--color-accent);
+      color: #fff;
+      border-color: var(--color-accent);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Audit Trail Modal Overlay                                            */
+    /* ------------------------------------------------------------------ */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      background: rgba(15, 23, 42, 0.6);
+      backdrop-filter: blur(2px);
+      -webkit-backdrop-filter: blur(2px);
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+
+    .modal-overlay.is-open {
+      display: flex;
+    }
+
+    .modal-panel {
+      background: var(--color-surface);
+      border-radius: 8px;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.30), 0 4px 16px rgba(0, 0, 0, 0.12);
+      width: 100%;
+      max-width: 1100px;
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transform: translateY(10px);
+      opacity: 0;
+      transition: transform 0.18s ease, opacity 0.18s ease;
+    }
+
+    .modal-overlay.is-open .modal-panel {
+      transform: translateY(0);
+      opacity: 1;
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.85rem 1.25rem;
+      border-bottom: 1px solid var(--color-border);
+      background: #f8fafc;
+      flex-shrink: 0;
+    }
+
+    .modal-title-group {
+      display: flex;
+      align-items: center;
+      gap: 0.7rem;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .modal-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--color-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .modal-subtitle {
+      font-size: 0.82rem;
+      color: var(--color-text);
+      font-weight: 500;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .modal-count-badge {
+      font-size: 0.72rem;
+      padding: 0.1rem 0.5rem;
+      background: #f1f5f9;
+      color: var(--color-muted);
+      border-radius: 10px;
+      font-family: ui-monospace, monospace;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .modal-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      flex-shrink: 0;
+    }
+
+    .modal-search-wrap {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .modal-search-input {
+      font-size: 0.82rem;
+      padding: 0.32rem 0.75rem;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius);
+      background: #fff;
+      color: var(--color-text);
+      width: 260px;
+      outline: none;
+      transition: border-color 0.12s;
+    }
+
+    .modal-search-input:focus {
+      border-color: var(--color-accent);
+    }
+
+    .modal-search-count {
+      font-size: 0.75rem;
+      color: var(--color-muted);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      min-width: 7ch;
+      font-family: ui-monospace, monospace;
+    }
+
+    .modal-close-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 6px;
+      border: 1px solid var(--color-border);
+      background: var(--color-surface);
+      color: var(--color-muted);
+      cursor: pointer;
+      font-size: 0.85rem;
+      line-height: 1;
+      transition: background 0.1s, color 0.1s, border-color 0.1s;
+    }
+
+    .modal-close-btn:hover {
+      background: var(--color-accent);
+      color: #fff;
+      border-color: var(--color-accent);
+    }
+
+    .modal-body {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: auto;
+    }
+
+    /* Audit trail table — used inside the modal */
+    .audit-trail-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.75rem;
+      font-family: ui-monospace, monospace;
+    }
+
+    .audit-trail-table .tx-th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      padding: 0.4rem 0.75rem;
+      background: #f1f5f9;
+      border-bottom: 1px solid var(--color-border);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--color-muted);
+      white-space: nowrap;
+      text-align: left;
+    }
+
+    .audit-trail-table .tx-cell {
+      padding: 0.3rem 0.75rem;
+      border-bottom: 1px solid #f0f4f8;
+      vertical-align: middle;
+      white-space: nowrap;
+    }
+
+    .audit-trail-table .tx-row:last-child .tx-cell {
+      border-bottom: none;
+    }
+
+    .audit-trail-table .tx-row-fail {
+      background: #fff5f5;
+    }
+
+    .audit-trail-table .tx-row-fail .tx-cell {
+      border-bottom-color: #fed7d7;
+    }
+
+    .tx-status-ok {
+      color: #16a34a;
+      font-weight: 600;
+    }
+
+    .tx-status-warn {
+      color: #ca8a04;
+      font-weight: 600;
+    }
+
+    .tx-status-err {
+      color: #dc2626;
+      font-weight: 600;
+    }
+
+    .tx-status-info {
+      color: #2563eb;
+      font-weight: 600;
+    }
+
+    .tx-status-other {
+      color: var(--color-muted);
+    }
+
+    .tx-fail-badge {
+      display: inline-block;
+      font-size: 0.62rem;
+      padding: 0.05rem 0.3rem;
+      background: var(--color-fail);
+      color: #fff;
+      border-radius: 3px;
+      vertical-align: middle;
+      margin-left: 0.3rem;
+    }
+
+    .tx-oracle-label {
+      color: #7c3aed;
+      font-weight: 500;
+    }
+
+    .modal-no-results {
+      display: none;
+      padding: 2.5rem;
+      text-align: center;
+      color: var(--color-muted);
+      font-size: 0.85rem;
+      font-style: italic;
+    }
+
+    .tx-fail-badge {
+      display: inline-block;
+      font-size: 0.62rem;
+      padding: 0.05rem 0.3rem;
+      background: var(--color-fail);
+      color: #fff;
+      border-radius: 3px;
+      vertical-align: middle;
+      margin-left: 0.3rem;
+    }
+
+    .tx-oracle-label {
+      color: #7c3aed;
+      font-weight: 500;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* No-results placeholder                                                */
+    /* ------------------------------------------------------------------ */
+    .domain-no-match {
+      display: none;
+      padding: 1rem;
+      font-size: 0.85rem;
+      color: var(--color-muted);
+      font-style: italic;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius);
+      background: var(--color-surface);
+    }
+
     /* ------------------------------------------------------------------ */
     /* Footer                                                                */
     /* ------------------------------------------------------------------ */
@@ -438,6 +1117,131 @@
       border-radius: 3px;
     }
 
+    /* ------------------------------------------------------------------ */
+    /* Copy feedback                                                         */
+    /* ------------------------------------------------------------------ */
+    .btn.copied {
+      background: var(--color-pass);
+      color: #fff;
+      border-color: var(--color-pass);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Transaction detail sub-row (Audit Trail modal expand)               */
+    /* ------------------------------------------------------------------ */
+    .tx-expand-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 3px;
+      background: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      color: var(--color-muted);
+      font-size: 0.72rem;
+      font-weight: 700;
+      cursor: pointer;
+      line-height: 1;
+      transition: background 0.1s, color 0.1s;
+      user-select: none;
+      flex-shrink: 0;
+    }
+
+    .tx-expand-btn.is-open {
+      background: var(--color-accent);
+      color: #fff;
+      border-color: var(--color-accent);
+    }
+
+    .tx-curl-btn {
+      font-size: 0.68rem;
+      font-weight: 600;
+      padding: 0.15rem 0.45rem;
+      border-radius: 3px;
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      color: #334155;
+      cursor: pointer;
+      font-family: ui-monospace, monospace;
+      white-space: nowrap;
+      transition: background 0.1s, color 0.1s;
+    }
+
+    .tx-curl-btn:hover {
+      background: var(--color-accent);
+      color: #fff;
+      border-color: var(--color-accent);
+    }
+
+    .tx-curl-btn.copied {
+      background: var(--color-pass);
+      color: #fff;
+      border-color: var(--color-pass);
+    }
+
+    .tx-detail-row {
+      background: #f8fafc;
+    }
+
+    .tx-detail-cell {
+      padding: 0.55rem 0.75rem 0.75rem 2.5rem;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    .tx-detail-panel {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.6rem 1.25rem;
+    }
+
+    .tx-detail-section {
+      min-width: 0;
+    }
+
+    .tx-detail-section-full {
+      grid-column: 1 / -1;
+    }
+
+    .tx-detail-label {
+      font-size: 0.62rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--color-muted);
+      margin-bottom: 0.25rem;
+    }
+
+    .tx-detail-content {
+      font-size: 0.72rem;
+      font-family: ui-monospace, monospace;
+      background: #fff;
+      border: 1px solid var(--color-border);
+      border-radius: 4px;
+      padding: 0.4rem 0.6rem;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 150px;
+      overflow-y: auto;
+      color: var(--color-text);
+      line-height: 1.45;
+    }
+
+    .tx-detail-content.is-empty {
+      color: var(--color-muted);
+      font-style: italic;
+    }
+
+    .tx-detail-record-id {
+      font-size: 0.68rem;
+      color: var(--color-muted);
+      font-family: ui-monospace, monospace;
+      margin-top: 0.2rem;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Print                                                                 */
+    /* ------------------------------------------------------------------ */
     @media print {
       body {
         padding: 0;
@@ -448,9 +1252,21 @@
         border-radius: 0;
       }
 
+      .filter-bar {
+        display: none;
+      }
+
       .table-wrapper {
         box-shadow: none;
         border: 1px solid #ccc;
+      }
+
+      tr.detail-row {
+        display: table-row !important;
+      }
+
+      .modal-overlay {
+        display: none !important;
       }
     }
   </style>
@@ -461,8 +1277,13 @@
 
     <!-- PAGE HEADER -->
     <header class="page-header">
-      <h1>API Security Assessment Report</h1>
-      <div class="subtitle">APIGuard Assurance Tool &mdash; Automated Security Assessment</div>
+      <div class="page-header-top">
+        <div>
+          <h1>API Security Assessment Report</h1>
+          <div class="subtitle">APIGuard Assurance Tool &mdash; Automated Security Assessment</div>
+        </div>
+        <button class="btn btn-primary" id="exportBtn" onclick="exportJSON()">Export JSON</button>
+      </div>
       <div class="meta-grid">
         <div class="meta-item">
           <div class="label">Target</div>
@@ -525,7 +1346,7 @@
         </div>
         <div class="stat-card stat-neutral">
           <div class="stat-value">{{ report.executive_summary.total_finding_count }}</div>
-          <div class="stat-label">Findings</div>
+          <div class="stat-label">Total Findings</div>
         </div>
         <div class="stat-card stat-neutral">
           <div class="stat-value">{{ report.executive_summary.pass_rate_pct }}%</div>
@@ -540,81 +1361,239 @@
       </div>
     </section>
 
+    <!-- FILTER BAR -->
+    <div class="filter-bar" id="filterBar">
+      <div class="filter-bar-row">
+        <!-- Status filter -->
+        <div class="filter-group">
+          <span class="filter-label">Status</span>
+          <button class="filter-btn active" data-filter="status" data-value="ALL">All</button>
+          <button class="filter-btn" data-filter="status" data-value="PASS">
+            <span class="dot dot-pass"></span>Pass
+          </button>
+          <button class="filter-btn" data-filter="status" data-value="FAIL">
+            <span class="dot dot-fail"></span>Fail
+          </button>
+          <button class="filter-btn" data-filter="status" data-value="SKIP">
+            <span class="dot dot-skip"></span>Skip
+          </button>
+          <button class="filter-btn" data-filter="status" data-value="ERROR">
+            <span class="dot dot-error"></span>Error
+          </button>
+        </div>
+        <!-- Priority filter -->
+        <div class="filter-group">
+          <span class="filter-label">Priority</span>
+          <button class="filter-btn active" data-filter="priority" data-value="ALL">All</button>
+          <button class="filter-btn" data-filter="priority" data-value="0">P0 Critical</button>
+          <button class="filter-btn" data-filter="priority" data-value="1">P1 High</button>
+          <button class="filter-btn" data-filter="priority" data-value="2">P2 Medium</button>
+          <button class="filter-btn" data-filter="priority" data-value="3">P3 Low</button>
+        </div>
+      </div>
+      <div class="filter-bar-row">
+        <!-- Domain filter -->
+        <div class="filter-group">
+          <span class="filter-label">Domain</span>
+          <button class="filter-btn active" data-filter="domain" data-value="ALL">All</button>
+          {% for domain in report.domains %}
+          <button class="filter-btn" data-filter="domain" data-value="{{ domain.domain }}"
+            title="{{ domain.domain_name }}">
+            D{{ domain.domain }} {{ domain.domain_name | truncate(18, True, '') }}
+          </button>
+          {% endfor %}
+        </div>
+        <!-- Search + actions -->
+        <div class="filter-bar-actions">
+          <input type="text" id="searchInput" class="search-input" placeholder="Search test ID, name, message&hellip;">
+          <span class="match-count" id="matchCount"></span>
+          <button class="btn btn-sm" onclick="clearFilters()">Clear</button>
+          <button class="btn btn-sm" onclick="expandAll()">Expand All</button>
+          <button class="btn btn-sm" onclick="collapseAll()">Collapse All</button>
+        </div>
+      </div>
+    </div>
+
     <!-- PER-DOMAIN BREAKDOWN -->
     {% for domain in report.domains %}
-    <section class="section">
+    <section class="section" data-domain-section="{{ domain.domain }}" id="domain-section-{{ domain.domain }}">
       <div class="section-header">
-        <h2>Domain {{ domain.domain }} &mdash; {{ domain.domain_name }}</h2>
-        <div class="domain-strip">
-          <span><span class="dot dot-pass"></span>{{ domain.pass_count }} pass</span>
-          <span><span class="dot dot-fail"></span>{{ domain.fail_count }} fail</span>
-          <span><span class="dot dot-skip"></span>{{ domain.skip_count }} skip</span>
-          <span><span class="dot dot-error"></span>{{ domain.error_count }} error</span>
-          {% if domain.total_finding_count > 0 %}
-          <span>&#9632; {{ domain.total_finding_count }} finding{{ 's' if domain.total_finding_count != 1 }}</span>
+        <div class="section-header-left">
+          <h2>Domain {{ domain.domain }} &mdash; {{ domain.domain_name }}</h2>
+          <div class="domain-strip">
+            <span><span class="dot dot-pass"></span>{{ domain.pass_count }} pass</span>
+            <span><span class="dot dot-fail"></span>{{ domain.fail_count }} fail</span>
+            <span><span class="dot dot-skip"></span>{{ domain.skip_count }} skip</span>
+            <span><span class="dot dot-error"></span>{{ domain.error_count }} error</span>
+            {% if domain.total_finding_count > 0 %}
+            <span class="finding-count-badge">{{ domain.total_finding_count }} finding{{ 's' if
+              domain.total_finding_count != 1 }}</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="section-header-right">
+          {% if domain.fail_count > 0 %}
+          <button class="btn btn-sm" data-action="copy-domain" data-domain="{{ domain.domain }}">
+            Copy Domain Findings
+          </button>
           {% endif %}
         </div>
       </div>
 
-      <div class="table-wrapper">
+      <!-- Domain table -->
+      <div class="table-wrapper" id="domain-table-{{ domain.domain }}">
         <table>
           <thead>
             <tr>
+              <th style="width:32px;"></th>
               <th>ID</th>
               <th>Priority</th>
               <th>Strategy</th>
               <th>Status</th>
               <th>Test / Outcome</th>
-              <th>Findings</th>
+              <th style="text-align:center;">Findings</th>
               <th>Duration</th>
             </tr>
           </thead>
           <tbody>
             {% for row in domain.rows %}
-            <tr>
+            {# Normalise test_id for use in HTML id attributes: replace '.' with '_' #}
+            {% set row_id = row.test_id | replace('.', '_') %}
+            <!-- Main test row -->
+            <tr class="test-row" data-status="{{ row.status }}" data-domain="{{ row.domain }}"
+              data-priority="{{ row.priority }}" data-test-id="{{ row.test_id }}" data-row-id="{{ row_id }}"
+              data-search="{{ (row.test_name ~ ' ' ~ row.test_id ~ ' ' ~ row.message) | lower }}">
+              <td class="td-expand">
+                <span class="expand-icon" id="expand-icon-{{ row_id }}">+</span>
+              </td>
               <td class="td-id">{{ row.test_id }}</td>
               <td style="font-size:0.8rem;white-space:nowrap;">{{ row.priority_label }}</td>
               <td style="font-size:0.78rem;color:var(--color-muted);white-space:nowrap;">{{ row.strategy }}</td>
               <td>
-                <span class="badge {{ row.status | status_badge_class }}">
-                  {{ row.status }}
-                </span>
+                <span class="badge {{ row.status | status_badge_class }}">{{ row.status }}</span>
               </td>
               <td class="td-msg">
-                {{ row.message }}
+                <div class="test-name">{{ row.test_name if row.test_name else row.test_id }}</div>
+                <div class="test-message">{{ row.message }}</div>
                 {% if row.skip_reason %}
                 <div class="skip-reason">{{ row.skip_reason }}</div>
                 {% endif %}
               </td>
-              <td class="findings-cell">
-                {% if row.findings %}
-                {% for finding in row.findings %}
-                <div class="finding-card">
-                  <div class="finding-title">{{ finding.title }}</div>
-                  <div class="finding-detail">{{ finding.detail }}</div>
-                  {% if finding.references %}
-                  <div class="finding-refs">
-                    {% for ref in finding.references %}
-                    <span class="ref-tag">{{ ref }}</span>
-                    {% endfor %}
-                  </div>
-                  {% endif %}
-                  {% if finding.evidence_ref %}
-                  <div class="finding-evidence">evidence: {{ finding.evidence_ref }}</div>
-                  {% endif %}
-                </div>
-                {% endfor %}
+              <td style="text-align:center;">
+                {% if row.finding_count > 0 %}
+                <span class="finding-count-inline">{{ row.finding_count }}</span>
                 {% else %}
-                <span style="color:var(--color-muted);font-size:0.8rem;">
-                  {{ row.finding_count | default_dash }}
-                </span>
+                <span style="color:var(--color-muted);font-size:0.8rem;">&mdash;</span>
                 {% endif %}
               </td>
               <td class="td-dur">{{ row.duration_ms | duration_display }}</td>
             </tr>
+
+            <!-- Detail expansion row (hidden by default) -->
+            <tr class="detail-row" id="detail-row-{{ row_id }}">
+              <td class="detail-cell" colspan="8">
+                <div class="detail-panel">
+
+                  <!-- Metadata strip -->
+                  <div class="detail-meta">
+                    {% if row.cwe_id %}
+                    <div class="detail-meta-item">
+                      <span class="detail-meta-label">CWE</span>
+                      <span class="detail-meta-value">{{ row.cwe_id }}</span>
+                    </div>
+                    {% endif %}
+                    {% if row.tags %}
+                    <div class="detail-meta-item">
+                      <span class="detail-meta-label">Tags</span>
+                      <span class="detail-meta-value">
+                        {% for tag in row.tags %}
+                        <span class="tag-chip">{{ tag }}</span>
+                        {% endfor %}
+                      </span>
+                    </div>
+                    {% endif %}
+                    <div class="detail-meta-item">
+                      <span class="detail-meta-label">Duration</span>
+                      <span class="detail-meta-value">{{ row.duration_ms | duration_display }}</span>
+                    </div>
+                    <div class="detail-meta-item">
+                      <span class="detail-meta-label">Strategy</span>
+                      <span class="detail-meta-value">{{ row.strategy }}</span>
+                    </div>
+                    {%- set tx_count = row.transaction_log | length %}
+                    {%- if tx_count > 0 %}
+                    <div class="detail-meta-audit-action">
+                      <button class="btn btn-sm audit-trail-trigger-btn" data-action="open-audit-trail"
+                        data-row-id="{{ row_id }}">
+                        View Audit Trail ({{ tx_count }})&nbsp;&#8599;
+                      </button>
+                    </div>
+                    {%- endif %}
+                  </div>
+
+                  <!-- Findings (FAIL) -->
+                  {% if row.findings %}
+                  <div class="detail-findings-section">
+                    <div class="detail-section-header">
+                      <span class="detail-section-title">Findings ({{ row.finding_count }})</span>
+                      <button class="btn btn-sm" data-action="copy-test" data-test-id="{{ row.test_id }}">
+                        Copy All Findings
+                      </button>
+                    </div>
+                    {% for finding in row.findings %}
+                    <div class="finding-card-expanded">
+                      <div class="finding-card-header">
+                        <span class="finding-title">{{ finding.title }}</span>
+                        <button class="btn btn-sm" data-action="copy-finding" data-test-id="{{ row.test_id }}"
+                          data-idx="{{ loop.index0 }}">
+                          Copy
+                        </button>
+                      </div>
+                      <div class="finding-detail">{{ finding.detail }}</div>
+                      {% if finding.references %}
+                      <div class="finding-refs">
+                        {% for ref in finding.references %}
+                        <span class="ref-tag">{{ ref }}</span>
+                        {% endfor %}
+                      </div>
+                      {% endif %}
+                      {% if finding.evidence_ref %}
+                      <div class="finding-evidence">
+                        Evidence ID: <code>{{ finding.evidence_ref }}</code>
+                        <span class="evidence-note">&rarr; see evidence.json</span>
+                      </div>
+                      {% endif %}
+                    </div>
+                    {% endfor %}
+                  </div>
+
+                  {% elif row.status == 'PASS' %}
+                  <div class="detail-pass-msg">
+                    &#10003; All checks passed &mdash; no findings for this test.
+                  </div>
+
+                  {% elif row.status == 'SKIP' %}
+                  <div class="detail-skip-msg">
+                    Skipped: {{ row.skip_reason if row.skip_reason else 'No reason specified.' }}
+                  </div>
+
+                  {% elif row.status == 'ERROR' %}
+                  <div class="detail-error-msg">
+                    Unexpected error during execution. Details: {{ row.message }}
+                  </div>
+                  {% endif %}
+
+                </div>
+              </td>
+            </tr>
             {% endfor %}
           </tbody>
         </table>
+      </div>
+
+      <!-- No-results message for this domain (shown when all rows filtered out) -->
+      <div class="domain-no-match" id="no-match-{{ domain.domain }}">
+        No tests match the current filter criteria in this domain.
       </div>
     </section>
     {% else %}
@@ -629,53 +1608,6 @@
     </section>
     {% endfor %}
 
-    <!-- FULL RESULTS TABLE (APPENDIX) -->
-    {% if report.all_rows %}
-    <section class="section">
-      <div class="section-header">
-        <h2>Appendix — Full Results Table</h2>
-      </div>
-      <div class="table-wrapper">
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Status</th>
-              <th>Domain</th>
-              <th>Priority</th>
-              <th>Strategy</th>
-              <th>Findings</th>
-              <th>Duration</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in report.all_rows %}
-            <tr>
-              <td class="td-id">{{ row.test_id }}</td>
-              <td>
-                <span class="badge {{ row.status | status_badge_class }}">
-                  {{ row.status }}
-                </span>
-              </td>
-              <td style="font-size:0.82rem;">{{ row.domain_name }}</td>
-              <td style="font-size:0.82rem;">{{ row.priority_label }}</td>
-              <td style="font-size:0.78rem;color:var(--color-muted);">{{ row.strategy }}</td>
-              <td class="td-count">
-                {% if row.finding_count > 0 %}
-                <span style="color:var(--color-fail);">{{ row.finding_count }}</span>
-                {% else %}
-                <span style="color:var(--color-muted);">0</span>
-                {% endif %}
-              </td>
-              <td class="td-dur">{{ row.duration_ms | duration_display }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </section>
-    {% endif %}
-
     <!-- FOOTER -->
     <footer class="page-footer">
       <p>
@@ -683,12 +1615,1063 @@
         Run ID: <code>{{ run_id }}</code> &mdash;
         {{ generated_at_utc }}
       </p>
-      <p style="margin-top:0.4rem;">
-        Evidence archive: <code>evidence.json</code>
+      <p style="margin-top:0.5rem;">
+        Evidence archive: <code>evidence.json</code> &mdash;
+        <button class="btn btn-sm" onclick="exportJSON()">Download report as JSON</button>
       </p>
     </footer>
 
+  </div><!-- /.container -->
+
+  <!-- ================================================================== -->
+  <!-- Audit Trail Modal                                                    -->
+  <!--                                                                      -->
+  <!-- Single reusable overlay, outside .container so il suo z-index non   -->
+  <!-- viene schiacciato da nessun ancestor con transform/isolation.        -->
+  <!-- Popolato on-demand da REPORT_DATA; nessuna richiesta di rete.        -->
+  <!-- ================================================================== -->
+  <div id="audit-trail-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title-label">
+    <div class="modal-panel" id="audit-trail-modal-panel">
+
+      <!-- Header: identità del test + barra di ricerca + pulsante chiudi -->
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <span class="modal-title" id="modal-title-label">Audit Trail</span>
+          <span class="modal-subtitle" id="modal-subtitle"></span>
+          <span class="modal-count-badge" id="modal-count-badge"></span>
+        </div>
+        <div class="modal-header-actions">
+          <div class="modal-search-wrap">
+            <input type="text" id="modal-search-input" class="modal-search-input"
+              placeholder="Filter by method, path, status, oracle&hellip;" autocomplete="off" spellcheck="false">
+            <span class="modal-search-count" id="modal-search-count"></span>
+          </div>
+          <button class="btn btn-sm" id="modal-export-csv-btn" title="Export currently visible rows as CSV"
+            onclick="exportModalCSV()">&#8595; Export CSV</button>
+          <button class="modal-close-btn" id="modal-close-btn" title="Close (Esc)"
+            aria-label="Close audit trail">&#10005;</button>
+        </div>
+      </div>
+
+      <!-- Body: tabella scrollabile a tutta altezza -->
+      <div class="modal-body">
+        <table class="audit-trail-table" id="modal-audit-table">
+          <thead>
+            <tr>
+              <th class="tx-th" style="width:28px;"></th>
+              <th class="tx-th" style="width:110px;">Record ID</th>
+              <th class="tx-th" style="width:54px;">Method</th>
+              <th class="tx-th">Path</th>
+              <th class="tx-th" style="width:58px;">HTTP</th>
+              <th class="tx-th" style="width:140px;">Oracle State</th>
+              <th class="tx-th" style="width:82px;">Duration</th>
+              <th class="tx-th" style="width:60px;">cURL</th>
+            </tr>
+          </thead>
+          <tbody id="modal-audit-tbody"></tbody>
+        </table>
+        <div class="modal-no-results" id="modal-no-results">
+          No requests match the current filter.
+        </div>
+      </div>
+
+    </div>
   </div>
+
+  <!-- ================================================================== -->
+  <!-- Embedded report data (JSON).                                         -->
+  <!-- Placed inside <script type="application/json"> which the browser    -->
+  <!-- treats as inert text, not executable JavaScript. This prevents any  -->
+  <!-- accidental execution of injected payloads present in finding detail  -->
+  <!-- strings. The JSON is parsed explicitly below via JSON.parse().       -->
+  <!-- ================================================================== -->
+  <script type="application/json" id="report-data-json">
+  {{ report_json | safe }}
+  </script>
+
+  <!-- ================================================================== -->
+  <!-- Interactive report script                                            -->
+  <!-- All logic is self-contained; no external dependencies required.     -->
+  <!-- ================================================================== -->
+  <script>
+    "use strict";
+
+    // ---------------------------------------------------------------------------
+    // Parse embedded report data
+    // ---------------------------------------------------------------------------
+    var REPORT_DATA = JSON.parse(
+      document.getElementById("report-data-json").textContent
+    );
+
+    // ---------------------------------------------------------------------------
+    // Filter state
+    // ---------------------------------------------------------------------------
+    var filterState = {
+      status: "ALL",
+      domain: "ALL",
+      priority: "ALL",
+      search: ""
+    };
+
+    // Tracks which detail rows are currently open (by normalised row ID).
+    var openRows = {};
+
+    // ---------------------------------------------------------------------------
+    // Filter button click handlers
+    // ---------------------------------------------------------------------------
+    document.querySelectorAll(".filter-btn[data-filter]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var filterType = this.dataset.filter;
+        var filterValue = this.dataset.value;
+
+        // Deactivate all buttons in the same group.
+        document.querySelectorAll(
+          ".filter-btn[data-filter='" + filterType + "']"
+        ).forEach(function (b) { b.classList.remove("active"); });
+
+        // Activate clicked button.
+        this.classList.add("active");
+
+        // Update state and re-apply.
+        filterState[filterType] = filterValue;
+        applyFilters();
+      });
+    });
+
+    // Search input debounced handler.
+    var searchTimer = null;
+    document.getElementById("searchInput").addEventListener("input", function () {
+      var val = this.value;
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(function () {
+        filterState.search = val.toLowerCase().trim();
+        applyFilters();
+      }, 150);
+    });
+
+    // ---------------------------------------------------------------------------
+    // Apply filters: show/hide rows and update domain section visibility.
+    // ---------------------------------------------------------------------------
+    function applyFilters() {
+      var testRows = document.querySelectorAll(".test-row");
+      var visibleCount = 0;
+      var totalCount = testRows.length;
+
+      testRows.forEach(function (row) {
+        var status = row.dataset.status || "";
+        var domain = row.dataset.domain || "";
+        var priority = row.dataset.priority || "";
+        var testId = row.dataset.testId || "";
+        var search = row.dataset.search || "";
+
+        var matchesStatus = filterState.status === "ALL" || status === filterState.status;
+        var matchesDomain = filterState.domain === "ALL" || domain === filterState.domain;
+        var matchesPriority = filterState.priority === "ALL" || priority === filterState.priority;
+        var matchesSearch = !filterState.search ||
+          search.includes(filterState.search) ||
+          testId.includes(filterState.search);
+
+        var visible = matchesStatus && matchesDomain && matchesPriority && matchesSearch;
+
+        row.style.display = visible ? "" : "none";
+
+        // Manage the detail row: if the main row is hidden, hide its detail row
+        // regardless of open state. If the main row is visible, restore the
+        // detail row to its open/closed state.
+        var rowId = testId.replace(/\./g, "_");
+        var detailRow = document.getElementById("detail-row-" + rowId);
+        if (detailRow) {
+          if (!visible) {
+            detailRow.style.display = "none";
+          } else {
+            // Restore previous open state.
+            if (openRows[rowId]) {
+              detailRow.style.display = "";
+              detailRow.classList.add("is-open");
+            } else {
+              detailRow.style.display = "none";
+            }
+          }
+        }
+
+        if (visible) visibleCount++;
+      });
+
+      // Update domain section visibility.
+      document.querySelectorAll("section[data-domain-section]").forEach(function (section) {
+        var domainNum = section.dataset.domainSection;
+        var tableEl = document.getElementById("domain-table-" + domainNum);
+        var noMatchEl = document.getElementById("no-match-" + domainNum);
+
+        // Count visible test rows within this section.
+        var visible = section.querySelectorAll(".test-row:not([style*='display: none'])").length;
+
+        // If filtering by a specific domain, hide sections for other domains entirely.
+        if (filterState.domain !== "ALL" && domainNum !== filterState.domain) {
+          section.style.display = "none";
+          return;
+        }
+        section.style.display = "";
+
+        if (tableEl) tableEl.style.display = visible > 0 ? "" : "none";
+        if (noMatchEl) noMatchEl.style.display = visible > 0 ? "none" : "";
+      });
+
+      // Update the match counter badge.
+      var matchCountEl = document.getElementById("matchCount");
+      if (matchCountEl) {
+        if (visibleCount === totalCount) {
+          matchCountEl.textContent = "";
+        } else {
+          matchCountEl.textContent = visibleCount + " of " + totalCount + " tests shown";
+        }
+      }
+    }
+
+    function clearFilters() {
+      filterState.status = "ALL";
+      filterState.domain = "ALL";
+      filterState.priority = "ALL";
+      filterState.search = "";
+
+      document.querySelectorAll(".filter-btn").forEach(function (btn) {
+        btn.classList.toggle("active", btn.dataset.value === "ALL");
+      });
+
+      var searchInput = document.getElementById("searchInput");
+      if (searchInput) searchInput.value = "";
+
+      applyFilters();
+    }
+
+    // ---------------------------------------------------------------------------
+    // HTML-escape helper — prevents XSS from URL / oracle_state / record_id.
+    // Used by both the modal engine and the copy utilities below.
+    // ---------------------------------------------------------------------------
+    function _escHtml(str) {
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    // ---------------------------------------------------------------------------
+    // _prettyPrint(text) -> string
+    //
+    // Attempts to parse `text` as JSON and returns a 2-space-indented string.
+    // Falls back to the original text if parsing fails (plain text, HTML, XML).
+    // Applied to request_body and response_body_preview before embedding in the
+    // detail sub-row so that minified JSON payloads become human-readable without
+    // any external dependency.
+    // ---------------------------------------------------------------------------
+    function _prettyPrint(text) {
+      if (!text) return text;
+      try {
+        var parsed = JSON.parse(text);
+        return JSON.stringify(parsed, null, 2);
+      } catch (e) {
+        return text;
+      }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Audit Trail Modal — state
+    //
+    // Cache structure per rowId:
+    //   _auditTrailCache[rowId] = {
+    //     html:   string[],   // pre-built <tr> HTML, one entry per transaction
+    //     search: string[]    // parallel array of lowercase searchable strings
+    //   }
+    //
+    // Design rationale:
+    //   Building the HTML once on first open and caching it means subsequent
+    //   opens (and filter operations) are pure array iteration + innerHTML
+    //   assignment, with no DOM traversal and no re-parsing of REPORT_DATA.
+    //   For 2000 rows this runs in single-digit milliseconds.
+    //
+    //   Storing the searchable string separately (not as a data-attribute in
+    //   the pre-built HTML) avoids the need for a regex parse on every filter
+    //   keystroke and sidesteps HTML-encoding ambiguity in the search values.
+    // ---------------------------------------------------------------------------
+    var _auditTrailCache = {};
+    var _modalActiveRowId = null;
+    var _modalSearchTimer = null;
+    // Lookup from txKey ("{rowId}_{j}") to raw tx object — used by the cURL
+    // builder and the expand handler without re-scanning REPORT_DATA.
+    var _txDataCache = {};
+    // Per-render expand state: txKey -> bool. Cleared on every _renderModalRows
+    // call so expand state does not bleed across filter changes.
+    var _txExpandState = {};
+
+    // ---------------------------------------------------------------------------
+    // openAuditTrailModal(rowId)
+    // ---------------------------------------------------------------------------
+    function openAuditTrailModal(rowId) {
+      var testId = rowId.replace(/_/g, ".");
+      var rowData = null;
+
+      for (var i = 0; i < REPORT_DATA.all_rows.length; i++) {
+        if (REPORT_DATA.all_rows[i].test_id === testId) {
+          rowData = REPORT_DATA.all_rows[i];
+          break;
+        }
+      }
+      if (!rowData || !rowData.transaction_log || rowData.transaction_log.length === 0) return;
+
+      var txLog = rowData.transaction_log;
+      _modalActiveRowId = rowId;
+
+      // Populate header metadata.
+      var subtitleEl = document.getElementById("modal-subtitle");
+      var countEl = document.getElementById("modal-count-badge");
+      if (subtitleEl) {
+        subtitleEl.textContent = testId + " \u2014 " + (rowData.test_name || "");
+      }
+      if (countEl) {
+        countEl.textContent = txLog.length + " request" + (txLog.length !== 1 ? "s" : "");
+      }
+
+      // Reset search input on every open — the user is looking at a different
+      // test's log and the previous filter term is irrelevant.
+      var searchInput = document.getElementById("modal-search-input");
+      var searchCount = document.getElementById("modal-search-count");
+      if (searchInput) searchInput.value = "";
+      if (searchCount) searchCount.textContent = "";
+
+      // Build and cache row data if this is the first open for this rowId.
+      if (!_auditTrailCache[rowId]) {
+        var htmlParts = [];
+        var searchParts = [];
+
+        for (var j = 0; j < txLog.length; j++) {
+          var tx = txLog[j];
+          var txKey = rowId + "_" + j;
+
+          // Store tx reference for event handlers (cURL builder, expand detail).
+          _txDataCache[txKey] = tx;
+
+          // Extract URL path for display; fall back to the full URL.
+          var path = tx.request_url || "";
+          try { path = new URL(tx.request_url).pathname; } catch (e) { /* keep full URL */ }
+
+          var sc = tx.response_status_code;
+          var scClass = sc >= 500 ? "tx-status-err"
+            : sc >= 400 ? "tx-status-warn"
+              : sc >= 300 ? "tx-status-info"
+                : sc >= 200 ? "tx-status-ok"
+                  : "tx-status-other";
+
+          var oracle = tx.oracle_state || "\u2014";
+          var dur = (tx.duration_ms != null)
+            ? tx.duration_ms.toFixed(1) + "\u00a0ms"
+            : "\u2014";
+          var rowClass = tx.is_fail_evidence ? " tx-row-fail" : "";
+          var failBadge = tx.is_fail_evidence
+            ? " <span class=\"tx-fail-badge\" title=\"evidence.json \u2192 " +
+            _escHtml(tx.record_id) + "\">FAIL</span>"
+            : "";
+
+          // ---- Main row (8 columns) ----------------------------------------
+          var mainRow = (
+            "<tr class=\"tx-row" + rowClass + "\" data-tx-key=\"" + txKey + "\">" +
+            // col 1: expand toggle
+            "<td class=\"tx-cell\" style=\"padding:0.3rem 0.35rem;text-align:center;\">" +
+            "<button class=\"tx-expand-btn\" data-action=\"expand-tx\"" +
+            " data-tx-key=\"" + txKey + "\"" +
+            " id=\"tx-exp-btn-" + txKey + "\"" +
+            " title=\"Show request/response details\">+</button>" +
+            "</td>" +
+            // col 2: record id
+            "<td class=\"tx-cell\" style=\"font-family:ui-monospace,monospace;font-size:0.72rem;color:var(--color-muted);\">" +
+            _escHtml(tx.record_id || "\u2014") + "</td>" +
+            // col 3: method
+            "<td class=\"tx-cell\" style=\"font-weight:600\">" +
+            _escHtml(tx.request_method || "") + "</td>" +
+            // col 4: path (full URL in title for hover)
+            "<td class=\"tx-cell\" title=\"" + _escHtml(tx.request_url || "") + "\">" +
+            _escHtml(path) + "</td>" +
+            // col 5: HTTP status + FAIL badge
+            "<td class=\"tx-cell\"><span class=\"" + scClass + "\">" + sc + "</span>" +
+            failBadge + "</td>" +
+            // col 6: oracle state
+            "<td class=\"tx-cell\"><span class=\"tx-oracle-label\">" +
+            _escHtml(oracle) + "</span></td>" +
+            // col 7: duration
+            "<td class=\"tx-cell\">" + _escHtml(dur) + "</td>" +
+            // col 8: cURL copy button
+            "<td class=\"tx-cell\" style=\"padding:0.3rem 0.45rem;\">" +
+            "<button class=\"tx-curl-btn\" data-action=\"copy-tx-curl\"" +
+            " data-tx-key=\"" + txKey + "\">cURL</button>" +
+            "</td>" +
+            "</tr>"
+          );
+
+          // ---- Detail sub-row (full-width, hidden by default) ---------------
+          // Build request headers block.
+          var headersText = "";
+          if (tx.request_headers && Object.keys(tx.request_headers).length > 0) {
+            var hLines = [];
+            Object.keys(tx.request_headers).forEach(function (k) {
+              hLines.push(k + ": " + tx.request_headers[k]);
+            });
+            headersText = hLines.join("\n");
+          }
+          var headersIsEmpty = !headersText;
+          var headersContent = (
+            "<div class=\"tx-detail-content" + (headersIsEmpty ? " is-empty" : "") + "\">" +
+            (headersIsEmpty ? "(none)" : _escHtml(headersText)) +
+            "</div>"
+          );
+
+          // Build response preview block.
+          // _prettyPrint() formats minified JSON into 2-space-indented text.
+          // If the preview is not valid JSON (plain text, HTML) it is displayed as-is.
+          var respText = tx.response_body_preview || "";
+          var respIsEmpty = !respText;
+          var respPretty = _prettyPrint(respText);
+          var respContent = (
+            "<div class=\"tx-detail-content" + (respIsEmpty ? " is-empty" : "") + "\">" +
+            (respIsEmpty
+              ? "(empty \u2014 full body in evidence.json)"
+              : _escHtml(respPretty)) +
+            "</div>"
+          );
+
+          // Build request body block (full-width row, shown only when present).
+          // Same pretty-print treatment: a JSON body submitted by the tool
+          // (e.g. {"$ne": null}) is much easier to read when indented.
+          var bodySection = "";
+          if (tx.request_body) {
+            var bodyPretty = _prettyPrint(tx.request_body);
+            bodySection = (
+              "<div class=\"tx-detail-section tx-detail-section-full\">" +
+              "<div class=\"tx-detail-label\">Request Body</div>" +
+              "<div class=\"tx-detail-content\">" + _escHtml(bodyPretty) + "</div>" +
+              "</div>"
+            );
+          }
+
+          var detailRow = (
+            "<tr class=\"tx-detail-row\" id=\"tx-detail-" + txKey + "\" style=\"display:none\">" +
+            "<td class=\"tx-detail-cell\" colspan=\"8\">" +
+            "<div class=\"tx-detail-panel\">" +
+            // Request headers
+            "<div class=\"tx-detail-section\">" +
+            "<div class=\"tx-detail-label\">Request Headers</div>" +
+            headersContent +
+            "</div>" +
+            // Response preview
+            "<div class=\"tx-detail-section\">" +
+            "<div class=\"tx-detail-label\">Response Preview</div>" +
+            respContent +
+            "</div>" +
+            // Request body (full-width, conditional)
+            bodySection +
+            // Record ID reference line
+            "<div class=\"tx-detail-section tx-detail-section-full\">" +
+            "<div class=\"tx-detail-record-id\">Record ID: " +
+            _escHtml(tx.record_id || "\u2014") +
+            (tx.is_fail_evidence ? " \u2192 full transaction in evidence.json" : "") +
+            "</div></div>" +
+            "</div></td></tr>"
+          );
+
+          // Each htmlParts entry = main row + detail row concatenated so that
+          // _renderModalRows can filter by transaction without splitting pairs.
+          htmlParts.push(mainRow + detailRow);
+
+          // Composite search string: method + path + status + oracle + record_id.
+          searchParts.push(
+            [
+              tx.request_method || "",
+              path,
+              String(sc),
+              oracle,
+              tx.record_id || ""
+            ].join(" ").toLowerCase()
+          );
+        }
+
+        _auditTrailCache[rowId] = { html: htmlParts, search: searchParts };
+      }
+
+      // Render all rows (no active filter on open).
+      _renderModalRows(_auditTrailCache[rowId], "");
+
+      // Open the overlay and prevent background scroll.
+      var overlay = document.getElementById("audit-trail-modal");
+      if (overlay) {
+        overlay.classList.add("is-open");
+        document.body.style.overflow = "hidden";
+        // Auto-focus the search input so the auditor can type immediately.
+        if (searchInput) {
+          setTimeout(function () { searchInput.focus(); }, 60);
+        }
+      }
+    }
+
+    // ---------------------------------------------------------------------------
+    // _renderModalRows(cache, filterTerm)
+    //
+    // Filters the cached row HTML array using the parallel search array and
+    // writes the result to the modal tbody via a single innerHTML assignment.
+    // A single assignment is substantially faster than N appendChild calls for
+    // large row counts, and avoids layout thrashing from incremental updates.
+    // ---------------------------------------------------------------------------
+    function _renderModalRows(cache, filterTerm) {
+      var tbody = document.getElementById("modal-audit-tbody");
+      var noResultsEl = document.getElementById("modal-no-results");
+      var searchCount = document.getElementById("modal-search-count");
+      if (!tbody) return;
+
+      // Clear expand state so hidden detail rows do not persist across
+      // filter changes. Each _renderModalRows call rebuilds the DOM
+      // entirely via innerHTML, so old expand buttons no longer exist.
+      _txExpandState = {};
+
+      var term = (filterTerm || "").toLowerCase().trim();
+      var filtered = [];
+
+      for (var i = 0; i < cache.html.length; i++) {
+        if (!term || cache.search[i].indexOf(term) !== -1) {
+          filtered.push(cache.html[i]);
+        }
+      }
+
+      tbody.innerHTML = filtered.join("");
+
+      var total = cache.html.length;
+      var shown = filtered.length;
+
+      if (searchCount) {
+        searchCount.textContent = (term && shown < total)
+          ? shown + "\u202f/\u202f" + total
+          : "";
+      }
+      if (noResultsEl) {
+        noResultsEl.style.display = (shown === 0) ? "block" : "none";
+      }
+    }
+
+    // ---------------------------------------------------------------------------
+    // _buildCurlCommand(tx) -> string
+    //
+    // Constructs a copy-pasteable cURL command from a TransactionSummary object.
+    // Authorization header value is already '[REDACTED]' by the Python backend;
+    // this function never sees raw credentials.
+    //
+    // The produced command uses:
+    //   -s            silent mode (no progress bar)
+    //   -X METHOD     explicit HTTP verb
+    //   -H "k: v"     one flag per request header
+    //   --data-raw    request body when present (preserves special chars)
+    //   "URL"         the full request URL
+    // ---------------------------------------------------------------------------
+    function _buildCurlCommand(tx) {
+      var parts = ["curl -s"];
+      var method = (tx.request_method || "GET").toUpperCase();
+      parts.push("-X " + method);
+
+      // Add headers. The dict keys are already lowercase (normalized by Python).
+      var headers = tx.request_headers || {};
+      Object.keys(headers).forEach(function (k) {
+        parts.push("-H " + JSON.stringify(k + ": " + headers[k]));
+      });
+
+      // Add body when present.
+      if (tx.request_body) {
+        parts.push("--data-raw " + JSON.stringify(tx.request_body));
+      }
+
+      // URL last — conventional placement and visually easiest to edit.
+      parts.push(JSON.stringify(tx.request_url || ""));
+
+      return parts.join(" ");
+    }
+
+    // ---------------------------------------------------------------------------
+    // _toggleTxDetail(txKey)
+    //
+    // Shows / hides the detail sub-row for a transaction entry in the modal.
+    // Called by the event delegation block on "expand-tx" data-action.
+    // ---------------------------------------------------------------------------
+    function _toggleTxDetail(txKey) {
+      var detailRow = document.getElementById("tx-detail-" + txKey);
+      var expandBtn = document.getElementById("tx-exp-btn-" + txKey);
+      if (!detailRow) return;
+
+      var isOpen = _txExpandState[txKey];
+      if (isOpen) {
+        _txExpandState[txKey] = false;
+        detailRow.style.display = "none";
+        if (expandBtn) {
+          expandBtn.textContent = "+";
+          expandBtn.classList.remove("is-open");
+        }
+      } else {
+        _txExpandState[txKey] = true;
+        detailRow.style.display = "";
+        if (expandBtn) {
+          expandBtn.textContent = "\u2212";
+          expandBtn.classList.add("is-open");
+        }
+      }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Event delegation inside the modal tbody — handles both expand-tx and
+    // copy-tx-curl actions without attaching per-row listeners (which would
+    // be destroyed and require re-attachment on every innerHTML rebuild).
+    //
+    // Using tbody-level delegation means a single listener survives across
+    // all _renderModalRows calls regardless of how many times the filter
+    // rebuilds the DOM content.
+    // ---------------------------------------------------------------------------
+    document.getElementById("modal-audit-tbody").addEventListener("click", function (evt) {
+      var btn = evt.target.closest("button[data-action]");
+      if (!btn) return;
+      evt.stopPropagation();
+
+      var action = btn.dataset.action;
+      var txKey = btn.dataset.txKey;
+
+      if (action === "expand-tx") {
+        _toggleTxDetail(txKey);
+        return;
+      }
+
+      if (action === "copy-tx-curl") {
+        var tx = _txDataCache[txKey];
+        if (!tx) return;
+        var curlText = _buildCurlCommand(tx);
+        writeToClipboard(curlText);
+        flashCopied(btn);
+        return;
+      }
+    });
+    // ---------------------------------------------------------------------------
+    function closeAuditTrailModal() {
+      var overlay = document.getElementById("audit-trail-modal");
+      if (overlay) overlay.classList.remove("is-open");
+      // Restore background scroll. The main page position is untouched because
+      // the modal uses position:fixed and we never manipulated window.scrollY.
+      document.body.style.overflow = "";
+      _modalActiveRowId = null;
+    }
+
+    // ---------------------------------------------------------------------------
+    // exportModalCSV()
+    //
+    // Exports only the currently visible/filtered transactions from the active
+    // audit trail as a CSV file download.
+    //
+    // Design decisions:
+    //   - Works on _auditTrailCache (raw data), not the DOM, for robustness.
+    //   - Applies the same filter term used by _renderModalRows so the exported
+    //     rows match exactly what the auditor sees on screen.
+    //   - CSV fields containing commas, double-quotes, or newlines are wrapped
+    //     in double-quotes and internal double-quotes are escaped as "".
+    //   - The filename encodes the test ID and the UTC timestamp of the export
+    //     for unambiguous identification when multiple exports are compared.
+    //   - request_body and response_body_preview are pretty-printed for the
+    //     same readability reason as the detail panel: an analyst pasting JSON
+    //     into a spreadsheet cell wants it formatted, not minified.
+    // ---------------------------------------------------------------------------
+    function exportModalCSV() {
+      if (!_modalActiveRowId) return;
+      var cache = _auditTrailCache[_modalActiveRowId];
+      if (!cache) return;
+
+      // Retrieve the current filter term from the search input.
+      var searchInput = document.getElementById("modal-search-input");
+      var term = (searchInput ? searchInput.value : "").toLowerCase().trim();
+
+      // Collect the txKey values of all currently visible transactions.
+      // The cache.search array is the parallel text used by _renderModalRows.
+      var visibleKeys = [];
+      for (var i = 0; i < cache.search.length; i++) {
+        if (!term || cache.search[i].indexOf(term) !== -1) {
+          visibleKeys.push(_modalActiveRowId + "_" + i);
+        }
+      }
+
+      if (visibleKeys.length === 0) return;
+
+      // ---------------------------------------------------------------------------
+      // _csvCell(value) -> string
+      // RFC 4180 CSV cell escaping: wrap in double-quotes and escape internal
+      // double-quotes as "" (two consecutive double-quotes).
+      // Applied to every field value to handle commas, newlines, and quotes that
+      // appear in JSON bodies and oracle state labels without breaking the CSV.
+      // ---------------------------------------------------------------------------
+      function _csvCell(value) {
+        var str = (value == null) ? "" : String(value);
+        // Replace internal double-quotes with two double-quotes (RFC 4180 §2.7).
+        str = str.replace(/"/g, '""');
+        return '"' + str + '"';
+      }
+
+      // Column headers — must match the column order in the data rows below.
+      var headers = [
+        "Record ID",
+        "Method",
+        "Path",
+        "HTTP Status",
+        "Oracle State",
+        "Duration (ms)",
+        "Is Fail Evidence",
+        "Request Body",
+        "Response Preview"
+      ];
+
+      var lines = [headers.map(_csvCell).join(",")];
+
+      for (var j = 0; j < visibleKeys.length; j++) {
+        var tx = _txDataCache[visibleKeys[j]];
+        if (!tx) continue;
+
+        // Extract the path component from the full URL for a compact cell value.
+        var path = tx.request_url || "";
+        try { path = new URL(tx.request_url).pathname; } catch (e) { /* keep full URL */ }
+
+        var dur = (tx.duration_ms != null) ? String(tx.duration_ms) : "";
+
+        // Apply the same pretty-print as the detail panel for readability.
+        var reqBody = _prettyPrint(tx.request_body || "");
+        var respPreview = _prettyPrint(tx.response_body_preview || "");
+
+        var row = [
+          tx.record_id || "",
+          tx.request_method || "",
+          path,
+          String(tx.response_status_code),
+          tx.oracle_state || "",
+          dur,
+          tx.is_fail_evidence ? "TRUE" : "FALSE",
+          reqBody,
+          respPreview
+        ];
+
+        lines.push(row.map(_csvCell).join(","));
+      }
+
+      // Build the CSV string. BOM prefix (\uFEFF) ensures Excel on Windows
+      // correctly interprets UTF-8 encoding when opening the downloaded file.
+      var csvContent = "\uFEFF" + lines.join("\r\n");
+
+      // Derive a timestamped filename: audit_trail_{testId}_{UTC}.csv
+      var testIdForFile = _modalActiveRowId.replace(/_/g, ".");
+      var timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      var filename = "audit_trail_" + testIdForFile + "_" + timestamp + ".csv";
+
+      // Trigger a browser download without a server round-trip.
+      var blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      var url = URL.createObjectURL(blob);
+      var anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Modal event listeners
+    // ---------------------------------------------------------------------------
+
+    // Close button.
+    document.getElementById("modal-close-btn").addEventListener("click", closeAuditTrailModal);
+
+    // Click on the dark backdrop (outside the panel) closes the modal.
+    document.getElementById("audit-trail-modal").addEventListener("click", function (evt) {
+      if (evt.target === this) closeAuditTrailModal();
+    });
+
+    // Escape key closes the modal.
+    document.addEventListener("keydown", function (evt) {
+      if ((evt.key === "Escape" || evt.keyCode === 27) &&
+        document.getElementById("audit-trail-modal").classList.contains("is-open")) {
+        closeAuditTrailModal();
+      }
+    });
+
+    // Live search / filter — debounced at 80 ms to avoid rebuilding tbody on
+    // every single keystroke during fast typing, while still feeling instant.
+    document.getElementById("modal-search-input").addEventListener("input", function () {
+      var term = this.value;
+      clearTimeout(_modalSearchTimer);
+      _modalSearchTimer = setTimeout(function () {
+        if (_modalActiveRowId && _auditTrailCache[_modalActiveRowId]) {
+          _renderModalRows(_auditTrailCache[_modalActiveRowId], term);
+        }
+      }, 80);
+    });
+
+
+
+    // ---------------------------------------------------------------------------
+    // Row expand / collapse
+    // ---------------------------------------------------------------------------
+    function toggleRow(rowId) {
+      var detailRow = document.getElementById("detail-row-" + rowId);
+      var icon = document.getElementById("expand-icon-" + rowId);
+      var testRow = document.querySelector("[data-test-id='" + rowId.replace(/_/g, ".") + "']");
+      if (!detailRow) return;
+
+      var isOpen = openRows[rowId];
+
+      if (isOpen) {
+        openRows[rowId] = false;
+        detailRow.style.display = "none";
+        detailRow.classList.remove("is-open");
+        if (icon) icon.textContent = "+";
+        if (testRow) testRow.classList.remove("is-open");
+      } else {
+        openRows[rowId] = true;
+        detailRow.style.display = "";
+        detailRow.classList.add("is-open");
+        if (icon) icon.textContent = "\u2212"; // minus sign
+        if (testRow) testRow.classList.add("is-open");
+      }
+    }
+
+    function expandAll() {
+      document.querySelectorAll(".test-row:not([style*='display: none'])").forEach(function (row) {
+        var testId = (row.dataset.testId || "").replace(/\./g, "_");
+        if (!openRows[testId]) toggleRow(testId);
+      });
+    }
+
+    function collapseAll() {
+      document.querySelectorAll(".test-row").forEach(function (row) {
+        var testId = (row.dataset.testId || "").replace(/\./g, "_");
+        if (openRows[testId]) toggleRow(testId);
+      });
+    }
+
+    // ---------------------------------------------------------------------------
+    // Clipboard utilities
+    // ---------------------------------------------------------------------------
+    function writeToClipboard(text) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(function () { fallbackCopy(text); });
+      } else {
+        fallbackCopy(text);
+      }
+    }
+
+    function fallbackCopy(text) {
+      var el = document.createElement("textarea");
+      el.value = text;
+      el.style.position = "fixed";
+      el.style.opacity = "0";
+      document.body.appendChild(el);
+      el.select();
+      try { document.execCommand("copy"); } catch (e) { }
+      document.body.removeChild(el);
+    }
+
+    function flashCopied(btn) {
+      if (!btn) return;
+      var original = btn.textContent;
+      btn.textContent = "Copied!";
+      btn.classList.add("copied");
+      btn.disabled = true;
+      setTimeout(function () {
+        btn.textContent = original;
+        btn.classList.remove("copied");
+        btn.disabled = false;
+      }, 1600);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Finding text formatter
+    // ---------------------------------------------------------------------------
+    function findingToText(finding) {
+      var lines = [];
+      lines.push("[FINDING] " + finding.title);
+      lines.push("Detail:   " + finding.detail);
+      if (finding.references && finding.references.length > 0) {
+        lines.push("Refs:     " + finding.references.join(", "));
+      }
+      if (finding.evidence_ref) {
+        lines.push("Evidence: " + finding.evidence_ref + " (see evidence.json)");
+      }
+      return lines.join("\n");
+    }
+
+    // ---------------------------------------------------------------------------
+    // Copy a single finding (by test ID and finding index)
+    // ---------------------------------------------------------------------------
+    function copySingleFinding(testId, findingIdx, btn) {
+      // Prevent the click from bubbling up and toggling the row.
+      event.stopPropagation();
+
+      var finding = null;
+      for (var i = 0; i < REPORT_DATA.all_rows.length; i++) {
+        var row = REPORT_DATA.all_rows[i];
+        if (row.test_id === testId && row.findings && row.findings[findingIdx]) {
+          finding = row.findings[findingIdx];
+          break;
+        }
+      }
+      if (!finding) return;
+
+      var text = "=== Finding from Test " + testId + " ===\n" + findingToText(finding);
+      writeToClipboard(text);
+      flashCopied(btn);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Copy all findings for a single test
+    // ---------------------------------------------------------------------------
+    function copyTestFindings(testId, btn) {
+      event.stopPropagation();
+
+      var text = "=== Findings for Test " + testId + " ===\n\n";
+      var found = false;
+
+      for (var i = 0; i < REPORT_DATA.all_rows.length; i++) {
+        var row = REPORT_DATA.all_rows[i];
+        if (row.test_id !== testId) continue;
+
+        if (!row.findings || row.findings.length === 0) {
+          text += "(No findings for this test)\n";
+        } else {
+          row.findings.forEach(function (f, idx) {
+            text += "Finding " + (idx + 1) + ":\n" + findingToText(f) + "\n\n";
+          });
+        }
+        found = true;
+        break;
+      }
+
+      if (!found) text += "(Test not found in report data)\n";
+
+      writeToClipboard(text);
+      flashCopied(btn);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Copy all FAIL findings for an entire domain
+    // ---------------------------------------------------------------------------
+    function copyDomainFindings(domainNum, btn) {
+      // Find the domain in report data.
+      var domainData = null;
+      for (var i = 0; i < REPORT_DATA.domains.length; i++) {
+        if (REPORT_DATA.domains[i].domain === domainNum) {
+          domainData = REPORT_DATA.domains[i];
+          break;
+        }
+      }
+      if (!domainData) return;
+
+      var text = "=== Findings: Domain " + domainNum +
+        " \u2014 " + domainData.domain_name + " ===\n\n";
+      var totalFindings = 0;
+
+      domainData.rows.forEach(function (row) {
+        if (!row.findings || row.findings.length === 0) return;
+        text += "--- Test " + row.test_id + ": " + row.test_name + " ---\n";
+        row.findings.forEach(function (f, idx) {
+          text += "Finding " + (idx + 1) + ":\n" + findingToText(f) + "\n\n";
+          totalFindings++;
+        });
+      });
+
+      if (totalFindings === 0) {
+        text += "(No findings in this domain)\n";
+      } else {
+        text = text.trimEnd() + "\n\nTotal: " + totalFindings + " finding" +
+          (totalFindings !== 1 ? "s" : "") + "\n";
+      }
+
+      writeToClipboard(text);
+      flashCopied(btn);
+    }
+
+    // ---------------------------------------------------------------------------
+    // JSON export — triggers a browser file download of the full report data.
+    //
+    // The exported JSON is the same serialised ReportData that powers this
+    // interactive report. It contains all test results, findings, statistics,
+    // and metadata, but NOT the raw HTTP evidence records (those live in
+    // evidence.json which is written separately by the tool pipeline).
+    // ---------------------------------------------------------------------------
+    function exportJSON() {
+      var jsonStr = JSON.stringify(REPORT_DATA, null, 2);
+      var blob = new Blob([jsonStr], { type: "application/json" });
+      var url = URL.createObjectURL(blob);
+      var anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "apiguard_report_" + REPORT_DATA.run_id + ".json";
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Event delegation — single listener wires up all data-action buttons and
+    // test-row click-to-expand without any Jinja2 expressions inside JS.
+    //
+    // Handled data-action values:
+    //   "copy-domain"  — Copy all FAIL findings for a domain (data-domain attr)
+    //   "copy-test"    — Copy all findings for a single test (data-test-id)
+    //   "copy-finding" — Copy a single finding (data-test-id + data-idx)
+    //
+    // Test rows carry data-row-id on the <tr>. A click on any child element
+    // bubbles up to the tr and triggers toggleRow(). Clicks originating from
+    // a button[data-action] are intercepted first and stopped from bubbling,
+    // so pressing a copy button inside the expanded panel does not toggle
+    // the row.
+    // ---------------------------------------------------------------------------
+    document.addEventListener("click", function (evt) {
+      // Check if the click originated from (or bubbled through) a data-action
+      // button. Element.closest() traverses shadow ancestors safely.
+      var btn = evt.target.closest("button[data-action]");
+      if (btn) {
+        evt.stopPropagation();
+        var action = btn.dataset.action;
+
+        if (action === "open-audit-trail") {
+          openAuditTrailModal(btn.dataset.rowId);
+          return;
+        }
+        if (action === "copy-domain") {
+          copyDomainFindings(parseInt(btn.dataset.domain, 10), btn);
+          return;
+        }
+        if (action === "copy-test") {
+          copyTestFindings(btn.dataset.testId, btn);
+          return;
+        }
+        if (action === "copy-finding") {
+          copySingleFinding(btn.dataset.testId, parseInt(btn.dataset.idx, 10), btn);
+          return;
+        }
+        return;
+      }
+
+      // If no data-action button was hit, check if the click landed on a
+      // test row (or a descendant). The row's data-row-id attribute holds
+      // the normalised ID used by toggleRow().
+      var tr = evt.target.closest("tr.test-row");
+      if (tr && tr.dataset.rowId) {
+        toggleRow(tr.dataset.rowId);
+      }
+    });
+
+    // ---------------------------------------------------------------------------
+    // Initialise: apply filters (no-op on first load) to initialise the
+    // match counter and ensure all sections are visible.
+    // ---------------------------------------------------------------------------
+    applyFilters();
+  </script>
+
 </body>
 
 </html>
