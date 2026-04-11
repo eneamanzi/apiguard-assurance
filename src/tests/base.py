@@ -13,22 +13,45 @@ Contract guarantees that BaseTest enforces:
 
     1. Class-level metadata attributes (test_id, priority, strategy, etc.)
        must be declared on every concrete subclass. TestRegistry inspects
-       these attributes at discovery time; tests with missing attributes are
-       logged as WARNING and excluded from execution.
+       these at discovery time; tests with missing attributes are excluded.
 
-    2. execute() must always return a TestResult. It must never raise an
-       exception. Any exception that escapes execute() is a contract violation.
-       The engine is not required to handle exceptions from execute() — it
-       will propagate them unhandled, causing the pipeline to abort.
+    2. execute() must always return a TestResult. It must never raise.
+       Any exception that escapes execute() is a contract violation — the
+       engine is not required to handle it and will abort the pipeline.
 
     3. A TestResult(status=FAIL) must contain at least one Finding.
-       This invariant is enforced by TestResult's model_validator, not here.
+       Enforced by TestResult's model_validator, not here.
 
-    4. Metadata propagation: every _make_* helper method populates the
-       metadata fields of the returned TestResult (test_name, domain,
-       priority, strategy, tags, cwe_id) by copying from the ClassVar
-       declarations of the concrete subclass. This ensures that builder.py
-       receives a fully self-contained record without importing from tests/.
+    4. Metadata propagation: every _make_* helper copies ClassVar metadata
+       (test_name, domain, priority, strategy, tags, cwe_id) into the
+       returned TestResult, so builder.py needs no knowledge of tests/.
+
+    5. Transaction log propagation: every _make_* helper includes
+       list(self._transaction_log) in the returned TestResult.
+       The log accumulates via _log_transaction() during execute() and is
+       automatically included in the result regardless of which exit path
+       the test takes (PASS, FAIL, SKIP, or ERROR).
+
+_log_transaction() calling convention:
+    After every client.request() call, the test must call _log_transaction()
+    to record the interaction in the audit trail. The method accepts the
+    oracle_state so the test can annotate the semantic meaning of the
+    response (e.g. 'ENFORCED', 'BYPASS', 'RATE_LIMIT_HIT') independently
+    of the HTTP status code.
+
+    Pattern:
+        response, record = client.request(method, path, test_id=self.test_id)
+
+        if response.status_code in BYPASS_CODES:
+            store.add_fail_evidence(record)
+            self._log_transaction(record, oracle_state="BYPASS", is_fail=True)
+            findings.append(Finding(...))
+        else:
+            self._log_transaction(record, oracle_state="ENFORCED")
+
+    The is_fail=True flag links the TransactionSummary to the corresponding
+    EvidenceRecord in evidence.json via record_id, so the HTML report can
+    highlight the entry and provide a cross-reference for the analyst.
 
 Dependency rule:
     This module imports from stdlib, structlog, abc, and src.core only.
@@ -48,7 +71,14 @@ import structlog
 from src.core.client import SecurityClient
 from src.core.context import ROLE_ADMIN, ROLE_USER_A, ROLE_USER_B, TargetContext, TestContext
 from src.core.evidence import EvidenceStore
-from src.core.models import Finding, TestResult, TestStatus, TestStrategy
+from src.core.models import (
+    EvidenceRecord,
+    Finding,
+    TestResult,
+    TestStatus,
+    TestStrategy,
+    TransactionSummary,
+)
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -58,6 +88,8 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 
 
 class _MetadataKwargs(TypedDict):
+    """TypedDict for the metadata keyword arguments passed to TestResult."""
+
     test_name: str
     domain: int
     priority: int
@@ -85,11 +117,16 @@ class BaseTest(ABC):
     Concrete subclasses must:
         1. Declare all ClassVar metadata attributes listed below.
         2. Implement the execute() method.
-        3. Ensure execute() never raises — all exceptions must be caught
+        3. Call self._log_transaction() after every SecurityClient.request().
+        4. Ensure execute() never raises — all exceptions must be caught
            internally and returned as TestResult(status=ERROR).
 
-    Naming convention for concrete subclass files (required by TestRegistry):
-        src/tests/domain_{X}/test_{X}_{Y}_{description}.py
+    Instance-level state:
+        __init__ initialises self._transaction_log as an empty list.
+        This is an instance variable — not a ClassVar — so each test instance
+        maintains its own independent audit trail. Since TestRegistry creates
+        each test class exactly once and the engine calls execute() exactly
+        once per instance, no reset mechanism is needed.
 
     ClassVar attributes (inspected by TestRegistry at discovery time):
 
@@ -127,6 +164,25 @@ class BaseTest(ABC):
     tags: ClassVar[list[str]]
     cwe_id: ClassVar[str]
 
+    def __init__(self) -> None:
+        """
+        Initialise the per-instance transaction log.
+
+        This is a concrete __init__ on an ABC, which is valid and necessary.
+        Without it, each test subclass would need to explicitly define __init__
+        or the _transaction_log attribute would not exist before execute() runs.
+
+        The list is instance-level (not ClassVar) to ensure that each test
+        instance accumulates its own independent audit trail. A ClassVar would
+        cause all instances of the same class to share one list, which would
+        corrupt the audit trail if the class were instantiated more than once
+        within a single pipeline run.
+
+        No other instance state is initialised here. All data required by
+        execute() arrives via its parameters (target, context, client, store).
+        """
+        self._transaction_log: list[TransactionSummary] = []
+
     @abstractmethod
     def execute(
         self,
@@ -142,19 +198,108 @@ class BaseTest(ABC):
         It must NEVER raise an exception. Use _make_error() in a top-level
         try/except to catch unexpected exceptions.
 
+        Transaction log usage:
+            Call self._log_transaction(record, oracle_state=...) after every
+            client.request(). The _make_* helpers automatically include the
+            accumulated log in the returned TestResult. Example:
+
+                try:
+                    response, record = client.request(
+                        method="GET", path=path, test_id=self.test_id
+                    )
+                except SecurityClientError as exc:
+                    return self._make_error(exc)
+
+                if response.status_code in BYPASS_CODES:
+                    store.add_fail_evidence(record)
+                    self._log_transaction(record, oracle_state="BYPASS", is_fail=True)
+                    findings.append(Finding(..., evidence_ref=record.record_id))
+                else:
+                    self._log_transaction(record, oracle_state="ENFORCED")
+
         Args:
-            target: Immutable knowledge about the target API.
+            target:  Immutable knowledge about the target API.
             context: Mutable state accumulated during the assessment.
-            client: Centralized HTTP client. Use client.request() for all HTTP
-                    traffic. Never import httpx directly in a test module.
-            store: Evidence buffer.
+            client:  Centralized HTTP client. Never import httpx directly.
+            store:   Evidence buffer for FAIL and pinned transactions.
 
         Returns:
             A TestResult with status PASS, FAIL, SKIP, or ERROR.
         """
 
     # ------------------------------------------------------------------
-    # Metadata injection helper — used by all _make_* methods
+    # Transaction log — audit trail
+    # ------------------------------------------------------------------
+
+    def _log_transaction(
+        self,
+        record: EvidenceRecord,
+        *,
+        oracle_state: str | None = None,
+        is_fail: bool = False,
+        duration_ms: float | None = None,
+    ) -> None:
+        """
+        Append a TransactionSummary to the per-test audit trail.
+
+        Must be called after every SecurityClient.request() call, regardless
+        of outcome. The accumulated trail is automatically included in the
+        TestResult returned by any _make_* method.
+
+        No entry count cap is applied. The hybrid TransactionSummary model
+        (~860 bytes with airbag body previews) keeps even high-volume test
+        impact bounded: 2000 entries (worst-case Test 4.1) add ~1.7 MB to
+        the HTML report — still safe for all modern browsers.
+
+        TransactionSummary.from_evidence_record() applies airbag truncation
+        transparently: request_body is capped at 2 000 chars and
+        response_body_preview at 1 000 chars. No truncation logic is
+        needed here — the factory method handles it entirely.
+        Full payloads for FAIL transactions remain in EvidenceRecord /
+        evidence.json for every is_fail=True transaction.
+
+        Args:
+            record:       EvidenceRecord returned by SecurityClient.request().
+                          Used as the source for metadata extraction.
+            oracle_state: Semantic label for this transaction's outcome.
+                          Set this to the label that best describes what the
+                          response means for the security control under test.
+                          Examples: 'ENFORCED' (401/403 on protected path),
+                          'BYPASS' (2xx without credentials), 'RATE_LIMIT_HIT'
+                          (429 during probe loop), 'CORRECTLY_DENIED' (404 on
+                          nonexistent path), 'SUNSET_MISSING' (deprecated endpoint
+                          active without Sunset header), 'INCONCLUSIVE_PARAMETRIC'
+                          (404 expected due to placeholder resource ID).
+                          None when no semantic classification applies.
+            is_fail:      True if store.add_fail_evidence(record) was also called
+                          for this transaction. The HTML report highlights these
+                          entries and displays: "Full transaction in evidence.json
+                          → {record_id}". The caller is responsible for calling
+                          store.add_fail_evidence() separately — this method only
+                          updates the audit log.
+            duration_ms:  Per-request timing in milliseconds when relevant
+                          (e.g., timeout enforcement tests). None otherwise.
+        """
+        summary = TransactionSummary.from_evidence_record(
+            record=record,
+            is_fail=is_fail,
+            oracle_state=oracle_state,
+            duration_ms=duration_ms,
+        )
+        self._transaction_log.append(summary)
+
+        log.debug(
+            "transaction_logged",
+            test_id=self.__class__.test_id,
+            record_id=record.record_id,
+            status_code=record.response_status_code,
+            oracle_state=oracle_state,
+            is_fail=is_fail,
+            log_size_after=len(self._transaction_log),
+        )
+
+    # ------------------------------------------------------------------
+    # Metadata injection — shared by all _make_* helpers
     # ------------------------------------------------------------------
 
     def _metadata_kwargs(self) -> _MetadataKwargs:
@@ -163,7 +308,7 @@ class BaseTest(ABC):
 
         This is the single point where ClassVar metadata is read from the
         concrete subclass and packaged for injection into TestResult. All
-        _make_* helpers call this method, ensuring consistent and centralized
+        _make_* helpers call this method, ensuring consistent and centralised
         population of the metadata fields.
 
         The 'strategy' value is stored as a string (TestStrategy.value) rather
@@ -171,7 +316,7 @@ class BaseTest(ABC):
         This avoids a Pydantic coercion on every result construction.
 
         Returns:
-            Dict of keyword arguments covering all metadata fields on TestResult.
+            _MetadataKwargs TypedDict with all six metadata fields populated.
         """
         return _MetadataKwargs(
             test_name=str(getattr(self.__class__, "test_name", "")),
@@ -183,28 +328,31 @@ class BaseTest(ABC):
         )
 
     # ------------------------------------------------------------------
-    # Helper methods — reduce boilerplate in concrete implementations
+    # Result constructors — reduce boilerplate in concrete implementations
     # ------------------------------------------------------------------
 
     def _make_pass(self, message: str) -> TestResult:
         """
         Construct a TestResult(status=PASS) with no findings.
 
-        All metadata ClassVar fields (test_name, domain, priority, strategy,
-        tags, cwe_id) are automatically copied from the subclass declaration
-        into the returned TestResult via _metadata_kwargs().
+        Includes the full transaction_log accumulated so far. The log is
+        copied (not referenced) so that any subsequent _log_transaction()
+        call after _make_pass() — which would be a programming error but
+        is technically possible — does not mutate the returned TestResult.
 
         Args:
             message: One-line summary of what was verified and confirmed.
 
         Returns:
-            TestResult with status=PASS and empty findings list.
+            TestResult with status=PASS, empty findings, and the full
+            transaction_log accumulated during execute().
         """
         return TestResult(
             test_id=self.test_id,
             status=TestStatus.PASS,
             message=message,
             findings=[],
+            transaction_log=list(self._transaction_log),
             **self._metadata_kwargs(),
         )
 
@@ -218,24 +366,31 @@ class BaseTest(ABC):
         """
         Construct a TestResult(status=FAIL) with a single Finding.
 
-        The Finding is populated with the test's declared cwe_id and any
-        additional references provided. All metadata ClassVar fields are
-        automatically propagated.
+        The Finding uses the test's declared cwe_id as the primary reference
+        and any additional_references provided. All metadata ClassVar fields
+        and the accumulated transaction_log are automatically propagated.
 
-        The caller is responsible for calling store.add_fail_evidence(record)
-        BEFORE calling _make_fail(). The record_id passed here is used only
-        to populate Finding.evidence_ref for the report linkage.
+        Usage note:
+            Call store.add_fail_evidence(record) BEFORE calling _make_fail().
+            Pass record.record_id as evidence_record_id so the Finding.evidence_ref
+            links to the correct EvidenceRecord in evidence.json.
+
+            Also call self._log_transaction(record, oracle_state=..., is_fail=True)
+            BEFORE calling _make_fail() to include the transaction in the audit trail.
+            The is_fail=True flag will cause the HTML report to highlight that entry
+            and show the cross-reference to evidence.json.
 
         Args:
-            message: One-line summary of the violated guarantee.
-            detail: Technical description of the observed evidence.
-            evidence_record_id: The record_id of the EvidenceRecord already
-                                 stored via store.add_fail_evidence(). None for
-                                 WHITE_BOX audit findings with no HTTP transaction.
-            additional_references: Extra standard references beyond cwe_id.
+            message:              One-line summary of the violated guarantee.
+            detail:               Technical description, specific enough to reproduce.
+            evidence_record_id:   record_id of the EvidenceRecord stored via
+                                  store.add_fail_evidence(). None for WHITE_BOX
+                                  configuration audit findings with no HTTP transaction.
+            additional_references: Extra standard references appended after cwe_id.
 
         Returns:
-            TestResult with status=FAIL and exactly one Finding.
+            TestResult with status=FAIL, exactly one Finding, and the
+            transaction_log accumulated during execute().
         """
         references: list[str] = [self.cwe_id]
         if additional_references:
@@ -253,6 +408,7 @@ class BaseTest(ABC):
             status=TestStatus.FAIL,
             message=message,
             findings=[finding],
+            transaction_log=list(self._transaction_log),
             **self._metadata_kwargs(),
         )
 
@@ -262,19 +418,25 @@ class BaseTest(ABC):
 
         SKIP communicates that the test was not executed for a known, expected
         reason rather than an unexpected failure. All metadata ClassVar fields
-        are automatically propagated.
+        and the (typically empty) transaction_log are included.
+
+        Note: SKIP guard clauses at the top of execute() fire before any HTTP
+        request is made, so transaction_log is almost always empty for SKIP
+        results. Including it maintains a consistent API across all _make_* methods.
 
         Args:
             reason: Human-readable explanation of why the test was skipped.
 
         Returns:
-            TestResult with status=SKIP and skip_reason populated.
+            TestResult with status=SKIP, skip_reason populated, and the
+            (usually empty) transaction_log.
         """
         return TestResult(
             test_id=self.test_id,
             status=TestStatus.SKIP,
             message=reason,
             skip_reason=reason,
+            transaction_log=list(self._transaction_log),
             **self._metadata_kwargs(),
         )
 
@@ -282,24 +444,30 @@ class BaseTest(ABC):
         """
         Construct a TestResult(status=ERROR) from an unexpected exception.
 
-        Designed to be called from the outermost try/except block in execute().
-        Converts any unhandled exception into a structured ERROR result,
-        preventing the exception from propagating to the engine. All metadata
-        ClassVar fields are automatically propagated.
+        Designed for the outermost try/except block in execute(). Converts any
+        unhandled exception into a structured ERROR result so it does not
+        propagate to the engine. All metadata fields and the partial
+        transaction_log (entries logged before the exception occurred) are
+        automatically included.
+
+        Including the partial transaction_log in ERROR results is diagnostically
+        valuable: it shows which HTTP interactions had already completed before
+        the exception, helping identify the failure point.
 
         Args:
             exc: The unhandled exception caught in execute().
 
         Returns:
-            TestResult with status=ERROR and a diagnostic message.
+            TestResult with status=ERROR, a diagnostic message, and the
+            partial transaction_log accumulated before the exception.
         """
         exc_type = type(exc).__name__
         exc_message = str(exc)
 
-        max_message_length = 500
+        _max_message_length: int = 500
         truncated_message = (
-            exc_message[:max_message_length] + "... [TRUNCATED]"
-            if len(exc_message) > max_message_length
+            exc_message[:_max_message_length] + "... [TRUNCATED]"
+            if len(exc_message) > _max_message_length
             else exc_message
         )
 
@@ -308,15 +476,21 @@ class BaseTest(ABC):
             test_id=self.test_id,
             exc_type=exc_type,
             exc_message=truncated_message,
+            transaction_log_entries_before_error=len(self._transaction_log),
             traceback=traceback.format_exc(),
         )
 
         return TestResult(
             test_id=self.test_id,
             status=TestStatus.ERROR,
-            message=(f"Unexpected {exc_type} during test execution: {truncated_message}"),
+            message=f"Unexpected {exc_type} during test execution: {truncated_message}",
+            transaction_log=list(self._transaction_log),
             **self._metadata_kwargs(),
         )
+
+    # ------------------------------------------------------------------
+    # Guard clauses — early SKIP returns for precondition failures
+    # ------------------------------------------------------------------
 
     def _requires_token(
         self,
@@ -326,8 +500,7 @@ class BaseTest(ABC):
         """
         Guard clause: return a SKIP result if the required token is absent.
 
-        Canonical usage pattern:
-
+        Canonical usage:
             skip = self._requires_token(context, ROLE_USER_A)
             if skip is not None:
                 return skip
@@ -335,7 +508,7 @@ class BaseTest(ABC):
 
         Args:
             context: The current TestContext.
-            role: The role whose token is required. Use ROLE_* constants.
+            role:    The role whose token is required. Use ROLE_* constants.
 
         Returns:
             None if the token is present (test may proceed).
@@ -350,15 +523,12 @@ class BaseTest(ABC):
                 f"No JWT token available for role '{role_display}' in TestContext. "
                 f"The prerequisite authentication test that acquires this token "
                 f"did not run, returned SKIP, or returned ERROR. "
-                f"Ensure the Domain 1 authentication tests are included in the "
+                f"Ensure Domain 1 authentication tests are included in the "
                 f"execution scope (min_priority >= 0) and completed successfully."
             )
         )
 
-    def _requires_attack_surface(
-        self,
-        target: TargetContext,
-    ) -> TestResult | None:
+    def _requires_attack_surface(self, target: TargetContext) -> TestResult | None:
         """
         Guard clause: return a SKIP result if the AttackSurface is absent.
 
@@ -375,23 +545,49 @@ class BaseTest(ABC):
         return self._make_skip(
             reason=(
                 "AttackSurface is not available in TargetContext. "
-                "This indicates that Phase 2 (OpenAPI Discovery) did not complete "
+                "This indicates Phase 2 (OpenAPI Discovery) did not complete "
                 "successfully before this test was invoked. "
                 "This is an infrastructure error; the pipeline should have been "
                 "aborted during Phase 2."
             )
         )
 
-    def _requires_admin_api(
-        self,
-        target: TargetContext,
-    ) -> TestResult | None:
+    def _requires_grey_box_credentials(self, target: TargetContext) -> TestResult | None:
+        """
+        Guard clause: return a SKIP result if no Grey Box credentials are configured.
+
+        Distinguishes 'no credentials configured' (SKIP) from 'credentials present
+        but login failed' (ERROR). Called at the top of GREY_BOX execute() methods
+        before any token acquisition attempt.
+
+        Args:
+            target: The current TargetContext.
+
+        Returns:
+            None if at least one role has complete credentials.
+            TestResult(status=SKIP) if no credentials are configured.
+        """
+        if target.credentials.has_any_grey_box_credentials():
+            return None
+
+        return self._make_skip(
+            reason=(
+                "No Grey Box credentials configured: config.yaml credentials section "
+                "is empty or all credential pairs are missing. "
+                "GREY_BOX tests require at least one role with complete "
+                "username + password to acquire tokens via the Forgejo API. "
+                "Set ADMIN_USERNAME/ADMIN_PASSWORD or USER_A_USERNAME/USER_A_PASSWORD "
+                "environment variables and re-run to enable Grey Box testing."
+            )
+        )
+
+    def _requires_admin_api(self, target: TargetContext) -> TestResult | None:
         """
         Guard clause: return a SKIP result if the Admin API is not configured.
 
         Used by all WHITE_BOX tests (P3) that query the Kong Admin API.
         A DB-less Kong without Admin API is often an intentional security choice,
-        not a gap. SKIP communicates this honestly.
+        not a gap — SKIP communicates this honestly.
 
         Args:
             target: The current TargetContext.
@@ -408,18 +604,22 @@ class BaseTest(ABC):
                 "Admin API not configured: target.admin_api_url is absent from "
                 "config.yaml. This WHITE_BOX test requires read access to the "
                 "Kong Admin API to perform configuration audit. "
-                "Set target.admin_api_url (e.g., http://localhost:8001) to "
-                "enable this test. If the Gateway is deployed in DB-less mode "
-                "without Admin API, this SKIP is expected and correct."
+                "Set target.admin_api_url (e.g., http://localhost:8001) to enable. "
+                "If the Gateway is in DB-less mode without Admin API, this SKIP "
+                "is expected and correct."
             )
         )
+
+    # ------------------------------------------------------------------
+    # Discovery metadata validation
+    # ------------------------------------------------------------------
 
     @classmethod
     def has_required_metadata(cls) -> bool:
         """
         Check whether all required ClassVar metadata attributes are declared.
 
-        TestRegistry calls this on each discovered subclass before adding it
+        Called by TestRegistry on each discovered subclass before adding it
         to the active test set.
 
         Returns:

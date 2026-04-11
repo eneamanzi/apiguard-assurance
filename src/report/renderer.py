@@ -28,7 +28,9 @@ Dependency rule:
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import Any
 
 import structlog
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
@@ -59,7 +61,7 @@ def render_html_report(
     report_data: ReportData,
     output_path: Path,
 ) -> None:
-    """
+    r"""
     Render the assessment report as a self-contained HTML file.
 
     Loads the Jinja2 template from src/report/templates/report.html,
@@ -69,6 +71,13 @@ def render_html_report(
     The output directory is created if it does not exist. An existing file
     at output_path is overwritten without warning: each pipeline run produces
     a fresh report, and the run_id in the report header distinguishes runs.
+
+    The context includes a ``report_json`` key: a pre-serialised JSON string
+    of the complete ReportData (mode="json"), safe for embedding inside an
+    HTML ``<script type="application/json">`` block.  The string has all
+    ``</`` sequences replaced with ``<\/`` (valid JSON, prevents the browser
+    from interpreting the closing tag and triggering premature script-block
+    termination).
 
     Args:
         report_data: Frozen ReportData from builder.build_report_data().
@@ -105,6 +114,13 @@ def render_html_report(
     # Also expose the original ReportData object for template code that
     # benefits from Pydantic's property methods (e.g., domain.has_failures).
     context["report"] = report_data
+
+    # Pre-serialise a JSON-safe string for JavaScript embedding.
+    # The template embeds this inside a <script type="application/json"> block
+    # so that the interactive report (filters, copy, export) can operate on
+    # the full dataset without any additional network round-trips.
+    # _safe_json_dumps ensures the string will not prematurely close the block.
+    context["report_json"] = _safe_json_dumps(report_data.model_dump(mode="json"))
 
     rendered_html = template.render(**context)
 
@@ -220,3 +236,38 @@ def _filter_default_dash(value: object) -> str:
     if not value:
         return "\u2014"
     return str(value)
+
+
+# ---------------------------------------------------------------------------
+# Internal serialisation helpers
+# ---------------------------------------------------------------------------
+
+
+def _safe_json_dumps(data: Any) -> str:  # noqa: ANN401
+    """
+    Serialise *data* to a JSON string that is safe for embedding inside an
+    HTML ``<script>`` block.
+
+    The standard :func:`json.dumps` does not escape forward slashes, so a
+    string value containing ``</script>`` inside the JSON would prematurely
+    terminate the enclosing script element in the browser's HTML parser.
+
+    This function applies the standard mitigation: all occurrences of ``</``
+    are replaced with ``<\\/`` (the JSON-legal escape for the forward slash),
+    which the browser's HTML parser will not interpret as a closing tag while
+    the JavaScript ``JSON.parse`` will decode correctly.
+
+    ``datetime`` objects and other non-JSON-serialisable values are converted
+    to their ISO string representation via the ``default=str`` fallback.
+
+    Args:
+        data: Any JSON-serialisable value produced by
+              ``ReportData.model_dump(mode="json")``.
+
+    Returns:
+        JSON string safe for ``{{ report_json | safe }}`` in an HTML template.
+    """
+    raw: str = json.dumps(data, default=str, ensure_ascii=False)
+    # Replace '</' with '<\/' to prevent </script> injection.
+    # This is a well-established technique for safely embedding JSON in HTML.
+    return raw.replace("</", r"<\/")

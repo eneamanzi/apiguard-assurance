@@ -63,8 +63,11 @@ OPENAPI_FETCH_TIMEOUT_DEFAULT: float = 60.0
 OPENAPI_FETCH_TIMEOUT_MIN: float = 10.0
 OPENAPI_FETCH_TIMEOUT_MAX: float = 300.0
 
+# Outputs values
 OUTPUT_DIRECTORY_DEFAULT: str = "outputs"
-
+EVIDENCE_FILENAME: str = "evidence.json"
+HTML_REPORT_FILENAME: str = "assessment_report.html"
+JSON_REPORT_FILENAME: str = "apiguard_report.json"
 
 # ---------------------------------------------------------------------------
 # TargetConfig
@@ -280,12 +283,28 @@ class OutputConfig(BaseModel):
     @property
     def evidence_path(self) -> Path:
         """Full path to the evidence JSON output file."""
-        return self.directory / "evidence.json"
+        return self.directory / EVIDENCE_FILENAME
 
     @property
     def report_path(self) -> Path:
         """Full path to the HTML assessment report output file."""
-        return self.directory / "assessment_report.html"
+        return self.directory / HTML_REPORT_FILENAME
+
+    @property
+    def json_report_path(self) -> Path:
+        """Full path to the machine-readable JSON report output file.
+
+        This file contains a serialised ReportData (Pydantic model,
+        indent=2 JSON) intended for consumption by CI/CD pipelines and
+        external Vulnerability Management systems. It is a compact,
+        structured alternative to evidence.json, which carries the full
+        raw HTTP transaction payloads.
+
+        Filename: defined by JSON_REPORT_FILENAME constant to prevent
+        magic strings and allow a single point of change if the name
+        must ever be updated.
+        """
+        return self.directory / JSON_REPORT_FILENAME
 
 
 # ---------------------------------------------------------------------------
@@ -317,6 +336,56 @@ class RateLimitProbeConfig(BaseModel):
     def request_interval_seconds(self) -> float:
         """Convert request_interval_ms to seconds for use in time.sleep() calls."""
         return self.request_interval_ms / 1000.0
+
+
+# ---------------------------------------------------------------------------
+# TestDomain1Config / TestsConfig — per-test tuning parameters
+# ---------------------------------------------------------------------------
+
+
+class TestDomain1Config(BaseModel):
+    """
+    Tuning parameters for Domain 1 (Identity and Authentication) tests.
+
+    These parameters control the execution behaviour of individual tests
+    without altering their security oracle logic. All values are conservative
+    defaults that produce a complete, correct assessment on any target API
+    without requiring operator intervention.
+    """
+
+    model_config = {"frozen": True}
+
+    max_endpoints_cap: Annotated[int, Field(ge=0)] = Field(
+        default=0,
+        description=(
+            "Maximum number of protected endpoints that Test 1.1 will probe. "
+            "0 means test ALL protected endpoints declared in the OpenAPI spec "
+            "(recommended for complete academic coverage). "
+            "Set to a positive integer only when the target API enforces strict "
+            "rate limiting that would cause 429 responses during a full scan, "
+            "or when the operator requires a time-bounded assessment. "
+            "Note: a cap reduces coverage — always document this trade-off in "
+            "the assessment report."
+        ),
+    )
+
+
+class TestsConfig(BaseModel):
+    """
+    Container for per-domain test tuning parameters.
+
+    Each sub-model corresponds to one methodology domain (0-7). Only domains
+    with tunable parameters have an entry here. Domains without tunable
+    parameters have no sub-model because their oracle logic is not
+    parameterised.
+    """
+
+    model_config = {"frozen": True}
+
+    domain_1: TestDomain1Config = Field(
+        default_factory=TestDomain1Config,
+        description="Tuning parameters for Domain 1 (Identity and Authentication) tests.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -353,6 +422,14 @@ class ToolConfig(BaseModel):
     rate_limit_probe: RateLimitProbeConfig = Field(
         default_factory=RateLimitProbeConfig,
         description="Parameters for Test 4.1 empirical rate-limit discovery.",
+    )
+    tests: TestsConfig = Field(
+        default_factory=TestsConfig,
+        description=(
+            "Per-domain test tuning parameters. "
+            "Default values produce a complete assessment without operator intervention. "
+            "Override specific fields to adapt to rate-limited or time-constrained targets."
+        ),
     )
 
     _white_box_without_admin_api: bool = PrivateAttr(default=False)

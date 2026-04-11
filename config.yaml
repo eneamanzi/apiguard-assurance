@@ -37,3 +37,13 @@ output:
 rate_limit_probe:
   max_requests: 150
   request_interval_ms: 50
+
+tests:
+  # Per-domain test tuning parameters.
+  # Default values (shown below) produce a complete assessment.
+  # Override only when strictly necessary (e.g. rate-limited environments).
+  domain_1:
+    # Test 1.1 — Authentication Required
+    # 0 = test ALL protected endpoints (recommended for academic completeness).
+    # Set to a positive integer to cap the scan on rate-limited targets.
+    max_endpoints_cap: 0

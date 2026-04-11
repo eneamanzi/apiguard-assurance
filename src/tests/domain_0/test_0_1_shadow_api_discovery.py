@@ -223,6 +223,7 @@ class Test_0_1_ShadowApiDiscovery(BaseTest):  # noqa: N801
                         f"active endpoint(s) or undeclared method(s)."
                     ),
                     findings=findings,
+                    transaction_log=list(self._transaction_log),
                     **self._metadata_kwargs(),
                 )
 
@@ -300,6 +301,11 @@ class Test_0_1_ShadowApiDiscovery(BaseTest):  # noqa: N801
 
             if response.status_code in _ACTIVE_STATUS_CODES:
                 store.add_fail_evidence(record)
+                self._log_transaction(
+                    record,
+                    oracle_state="SHADOW_API_ACTIVE",
+                    is_fail=True,
+                )
                 findings.append(
                     Finding(
                         title="Shadow API endpoint detected (undocumented active path)",
@@ -317,6 +323,9 @@ class Test_0_1_ShadowApiDiscovery(BaseTest):  # noqa: N801
                         evidence_ref=record.record_id,
                     )
                 )
+            else:
+                # 404/410: path correctly denied by the Gateway deny-by-default policy.
+                self._log_transaction(record, oracle_state="CORRECTLY_DENIED")
 
         return findings
 
@@ -378,6 +387,11 @@ class Test_0_1_ShadowApiDiscovery(BaseTest):  # noqa: N801
                 # method is accepted without being declared in the spec.
                 if response.status_code in _ACTIVE_STATUS_CODES and response.status_code != 405:
                     store.add_fail_evidence(record)
+                    self._log_transaction(
+                        record,
+                        oracle_state="UNDECLARED_METHOD_ACTIVE",
+                        is_fail=True,
+                    )
                     findings.append(
                         Finding(
                             title="Undeclared HTTP method accepted by endpoint",
@@ -396,6 +410,13 @@ class Test_0_1_ShadowApiDiscovery(BaseTest):  # noqa: N801
                             evidence_ref=record.record_id,
                         )
                     )
+                else:
+                    # 405 or non-active: method correctly not allowed or path
+                    # not matched. Either outcome satisfies the oracle.
+                    oracle = (
+                        "METHOD_NOT_ALLOWED" if response.status_code == 405 else "CORRECTLY_DENIED"
+                    )
+                    self._log_transaction(record, oracle_state=oracle)
 
         return findings
 

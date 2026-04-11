@@ -82,7 +82,15 @@ from src.core.exceptions import (
     OpenAPILoadError,
     TeardownError,
 )
-from src.core.models import AttackSurface, ResultSet, TestResult, TestStatus
+from src.core.models import (
+    AttackSurface,
+    ResultSet,
+    RuntimeCredentials,
+    RuntimeTest11Config,
+    RuntimeTestsConfig,
+    TestResult,
+    TestStatus,
+)
 from src.discovery.openapi import load_openapi_spec
 from src.discovery.surface import build_attack_surface
 from src.report.builder import build_report_data
@@ -334,11 +342,19 @@ class AssessmentEngine:
         """
         log.info("pipeline_phase_3_context_construction_started")
 
+        tests_config = RuntimeTestsConfig(
+            test_1_1=RuntimeTest11Config(
+                max_endpoints_cap=config.tests.domain_1.max_endpoints_cap,
+            ),
+        )
+
         target = TargetContext(
             base_url=config.target.base_url,
             openapi_spec_url=config.target.openapi_spec_url,
             admin_api_url=config.target.admin_api_url,
             attack_surface=attack_surface,
+            credentials=RuntimeCredentials.model_validate(config.credentials.model_dump()),
+            tests_config=tests_config,
         )
 
         context = TestContext()
@@ -604,12 +620,13 @@ class AssessmentEngine:
         failure_count = 0
         acceptable_codes = {200, 204, 404}
 
-        for method, path in resources:
+        for method, path, teardown_headers in resources:
             try:
                 response, _ = client.request(
                     method=method,
                     path=path,
                     test_id="teardown",
+                    headers=teardown_headers if teardown_headers else None,
                 )
                 if response.status_code not in acceptable_codes:
                     raise TeardownError(
@@ -679,6 +696,7 @@ class AssessmentEngine:
         """
         evidence_path = config.output.evidence_path
         report_path = config.output.report_path
+        json_report_path = config.output.json_report_path
 
         log.info(
             "pipeline_phase_7_report_generation_started",
@@ -731,6 +749,29 @@ class AssessmentEngine:
             log.error(
                 "pipeline_phase_7_html_report_render_failed",
                 exc_type=type(exc).__name__,
+                detail=str(exc),
+            )
+
+        try:
+            # The output directory is guaranteed to exist at this point because
+            # render_html_report() already called output_path.parent.mkdir(...).
+            # The explicit mkdir here is defensive: if the HTML render block raised
+            # an OSError that was caught and swallowed above, the directory may not
+            # exist yet. mkdir(exist_ok=True) is idempotent and costs nothing.
+            json_report_path.parent.mkdir(parents=True, exist_ok=True)
+            json_report_path.write_text(
+                report_data.model_dump_json(indent=2),
+                encoding="utf-8",
+            )
+            log.info(
+                "pipeline_phase_7_json_report_written",
+                output_path=str(json_report_path),
+                size_bytes=json_report_path.stat().st_size,
+            )
+        except OSError as exc:
+            log.error(
+                "pipeline_phase_7_json_report_write_failed",
+                output_path=str(json_report_path),
                 detail=str(exc),
             )
 

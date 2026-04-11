@@ -37,7 +37,7 @@ import structlog
 from pydantic import BaseModel, Field
 
 from src.config.schema import ToolConfig
-from src.core.models import Finding, ResultSet, TestStatus
+from src.core.models import Finding, ResultSet, TestStatus, TransactionSummary
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -117,6 +117,15 @@ class TestResultRow(BaseModel):
     cwe_id: str = Field(
         default="",
         description="Primary CWE identifier from the BaseTest class declaration.",
+    )
+    transaction_log: list[TransactionSummary] = Field(
+        default_factory=list,
+        description=(
+            "Complete ordered audit trail of all HTTP transactions performed during "
+            "this test execution. Sourced from TestResult.transaction_log. "
+            "Embedded in REPORT_DATA JSON for lazy rendering via the HTML audit trail "
+            "section. Body content is absent by design — only metadata fields."
+        ),
     )
 
 
@@ -361,6 +370,7 @@ def _build_all_rows(result_set: ResultSet) -> list[TestResultRow]:
             findings=list(result.findings),
             tags=list(result.tags),
             cwe_id=result.cwe_id,
+            transaction_log=list(result.transaction_log),
         )
         rows.append(row)
 

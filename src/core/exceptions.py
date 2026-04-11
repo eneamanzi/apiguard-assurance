@@ -263,6 +263,59 @@ class SecurityClientError(ToolBaseError):
 
 
 # ---------------------------------------------------------------------------
+# Helpers — authentication setup
+# ---------------------------------------------------------------------------
+
+
+class AuthenticationSetupError(ToolBaseError):
+    """
+    Raised by src/tests/helpers/auth.py when the target API rejects the
+    configured credentials during token acquisition.
+
+    This exception is semantically distinct from SecurityClientError:
+        - SecurityClientError  -> transport-layer failure (no response received)
+        - AuthenticationSetupError -> valid HTTP response received, but the
+          credentials were rejected (HTTP 401) or forbidden (HTTP 403).
+
+    When this exception reaches a test's execute() method, the test must
+    catch it and return TestResult(status=ERROR) with a message that
+    instructs the operator to verify the credentials in config.yaml.
+
+    The role field identifies which role's credentials were rejected,
+    enabling the operator to target the fix precisely without exposing
+    the credential values themselves.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        role: str | None = None,
+        status_code: int | None = None,
+    ) -> None:
+        """
+        Initialize an authentication setup error.
+
+        Args:
+            message: Human-readable description of the failure.
+            role: The role whose credentials were rejected, e.g. 'admin',
+                  'user_a'. Never includes the credential value itself.
+            status_code: HTTP status code returned by the target (typically
+                         401 Unauthorized or 403 Forbidden).
+        """
+        super().__init__(message)
+        self.role: str | None = role
+        self.status_code: int | None = status_code
+
+    def __repr__(self) -> str:
+        return (
+            f"{self.__class__.__name__}("
+            f"message={self.message!r}, "
+            f"role={self.role!r}, "
+            f"status_code={self.status_code!r})"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Phase 6 — Resource teardown
 # ---------------------------------------------------------------------------
 
