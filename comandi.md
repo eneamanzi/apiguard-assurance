@@ -1,4 +1,19 @@
 # APIGuard Assurance - Cheat Sheet Comandi
+## Utility: Export
+Creare uno ZIP aggiornato con tutti i sorgenti e i test (escludendo cache, pycache e report):
+
+```bash
+zip -r apiguard-assurance.zip . -x "*.git/*" -x "*__pycache__*" -x "*.pyc" -x "*.ruff_cache*" -x "*.pytest_cache*" -x "*.mypy_cache*" -x "*.vscode*" -x "*outputs*" -x "*.zip" -x ".env"
+```
+
+## Visualizzazione Report (VS Code Remote)
+Avviare un server web locale per visualizzare il report HTML in tempo reale tramite il Port Forwarding:
+\`\`\`bash
+cd outputs
+python3 -m http.server 8080
+\`\`\`
+*(Dopo averlo lanciato, apri il browser sul tuo PC all'indirizzo `http://localhost:8080` e clicca su `assessment_report.html`. Premi `Ctrl+C` nel terminale per spegnerlo).*
+
 
 ## Gestione Ambiente (Hatch)
 Attivare l'ambiente virtuale:
@@ -23,13 +38,6 @@ apiguard run
 \`\`\`
 *(Questo è il "pulsante di accensione" che lancia l'intero assessment contro il target configurato).*
 
-## Visualizzazione Report (VS Code Remote)
-Avviare un server web locale per visualizzare il report HTML in tempo reale tramite il Port Forwarding:
-\`\`\`bash
-cd outputs
-python3 -m http.server 8080
-\`\`\`
-*(Dopo averlo lanciato, apri il browser sul tuo PC all'indirizzo `http://localhost:8080` e clicca su `assessment_report.html`. Premi `Ctrl+C` nel terminale per spegnerlo).*
 
 ## Esecuzione dei Test (Pytest)
 
@@ -58,10 +66,4 @@ ruff check .
 Controllare i tipi rigorosi (Mypy):
 \`\`\`bash
 mypy src/ tests_integration/ tests_e2e/
-\`\`\`
-
-## Utility: Export
-Creare uno ZIP aggiornato con tutti i sorgenti e i test (escludendo cache, pycache e report):
-\`\`\`bash
-zip -r files.zip src/ tests_integration/ tests_e2e/ pyproject.toml config.yaml .env -x "*/__pycache__/*" "*.pytest_cache*" "*outputs/*"
 \`\`\`
