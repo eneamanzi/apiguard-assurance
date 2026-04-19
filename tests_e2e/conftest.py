@@ -5,7 +5,7 @@ Shared fixtures for the APIGuard Assurance End-to-End test suite.
 
 Design principles
 -----------------
-Every fixture in this file represents a real system state — no mocks, no
+Every fixture in this file represents a real system state -- no mocks, no
 in-memory fakes. When a fixture requires a live network connection (e.g.,
 to fetch the Forgejo OpenAPI spec), it will skip the test automatically if
 the target is unreachable rather than failing with a confusing connection error.
@@ -14,6 +14,15 @@ The "skip on unavailability" pattern is implemented via a dedicated
 connectivity check fixture (_assert_target_reachable) that every test which
 requires a live target depends on. This separates the concern of "is the
 infrastructure up?" from the concern of "does the tool behave correctly?".
+
+OpenAPI spec source
+-------------------
+The e2e_attack_surface fixture resolves the spec source via
+e2e_config.target.get_openapi_source() instead of accessing
+e2e_config.target.openapi_spec_url directly. This makes the fixture work
+transparently regardless of whether the spec is configured as a URL
+(openapi_spec_url) or a local filesystem path (openapi_spec_path) in
+config.yaml -- the distinction is encapsulated inside TargetConfig.
 
 Fixture scoping
 ---------------
@@ -127,7 +136,8 @@ def e2e_config() -> ToolConfig:
     log.info(
         "e2e_config_loaded",
         base_url=str(config.target.base_url),
-        openapi_spec_url=str(config.target.openapi_spec_url),
+        openapi_source=config.target.get_openapi_source(),
+        openapi_source_type="local_path" if config.target.is_local_spec else "url",
     )
     return config
 
@@ -166,23 +176,39 @@ def e2e_attack_surface(
     e2e_target_reachable: None,
 ) -> AttackSurface:
     """
-    Fetch and parse the real OpenAPI specification from the live target.
+    Fetch or read the OpenAPI specification and build the real AttackSurface.
 
-    This is the most expensive E2E fixture: it performs a real HTTP fetch
-    of the Forgejo Swagger spec and runs the full prance dereferencing and
-    surface-building pipeline. Session-scoped so the fetch happens once.
+    Resolves the spec source via e2e_config.target.get_openapi_source(), which
+    returns either an HTTP/HTTPS URL (when openapi_spec_url is configured) or
+    an absolute filesystem path (when openapi_spec_path is configured). The
+    distinction is transparent: load_openapi_spec() accepts both formats.
+
+    This is the most expensive E2E fixture when using a URL source: it performs
+    a real HTTP fetch of the Forgejo Swagger spec and runs the full prance
+    dereferencing and surface-building pipeline. Session-scoped so the fetch
+    happens once. For local path sources, the read is fast and the session
+    scope is retained for consistency.
 
     The result is a real AttackSurface populated with Forgejo's actual
-    endpoints — used by tests to verify that the discovery pipeline produces
+    endpoints -- used by tests to verify that the discovery pipeline produces
     meaningful, non-trivial output.
 
-    Skips if the spec URL is unreachable (separate from Kong reachability:
-    the spec is fetched from Forgejo directly on port 3000).
+    Skips if the spec source is unreachable (for URL sources; local paths are
+    verified by discovery/openapi.py's pre-flight check).
     """
-    spec_url = str(e2e_config.target.openapi_spec_url)
-    log.info("e2e_fetching_openapi_spec", spec_url=spec_url)
+    # get_openapi_source() returns the canonical string (URL or absolute path)
+    # without exposing which field is set. This single call works for both
+    # config variants without any branching in this fixture.
+    spec_source = e2e_config.target.get_openapi_source()
+    source_type = "local_path" if e2e_config.target.is_local_spec else "url"
 
-    spec, dialect = load_openapi_spec(spec_url)
+    log.info(
+        "e2e_fetching_openapi_spec",
+        spec_source=spec_source,
+        source_type=source_type,
+    )
+
+    spec, dialect = load_openapi_spec(spec_source)
     surface = build_attack_surface(spec, dialect)
 
     log.info(
@@ -204,11 +230,20 @@ def e2e_target_context(
     """
     Build a real TargetContext from the live configuration and attack surface.
 
+    Propagates both openapi_spec_url and openapi_spec_path from ToolConfig to
+    TargetContext. Exactly one will be non-None, consistent with the mutual
+    exclusion invariant enforced by both models' validators.
+
     Session-scoped because TargetContext is frozen and shared safely.
     """
     return TargetContext(
         base_url=e2e_config.target.base_url,
         openapi_spec_url=e2e_config.target.openapi_spec_url,
+        openapi_spec_path=(
+            e2e_config.target.openapi_spec_path.resolve()
+            if e2e_config.target.openapi_spec_path is not None
+            else None
+        ),
         admin_api_url=e2e_config.target.admin_api_url,
         attack_surface=e2e_attack_surface,
     )

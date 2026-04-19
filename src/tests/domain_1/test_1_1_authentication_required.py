@@ -138,6 +138,7 @@ _OUTCOME_INCONCLUSIVE_PARAMETRIC: str = "inconclusive_parametric"
 _OUTCOME_INCONCLUSIVE_NOT_FOUND: str = "inconclusive_not_found"
 _OUTCOME_INCONCLUSIVE_REDIRECT: str = "inconclusive_redirect"
 _OUTCOME_INCONCLUSIVE_SERVER_ERROR: str = "inconclusive_server_error"
+_OUTCOME_INCONCLUSIVE_RATELIMITED: str = "inconclusive_ratelimited"
 _OUTCOME_TRANSPORT_ERROR: str = "transport_error"
 
 # ---------------------------------------------------------------------------
@@ -254,7 +255,11 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
             if skip is not None:
                 return skip
 
-            assert target.attack_surface is not None
+            # _requires_attack_surface guarantees attack_surface is non-None here.
+            # Direct access is safe; no assert needed (assert is stripped by -O).
+            if target.attack_surface is None:
+                return self._make_skip(reason="AttackSurface non disponibile.")
+
             surface = target.attack_surface
 
             protected = surface.get_authenticated_endpoints()
@@ -290,6 +295,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
                 _OUTCOME_INCONCLUSIVE_NOT_FOUND: 0,
                 _OUTCOME_INCONCLUSIVE_REDIRECT: 0,
                 _OUTCOME_INCONCLUSIVE_SERVER_ERROR: 0,
+                _OUTCOME_INCONCLUSIVE_RATELIMITED: 0,
                 _OUTCOME_TRANSPORT_ERROR: 0,
             }
             findings: list[Finding] = []
@@ -350,6 +356,23 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
                         "protected endpoint. Sub-check omitted."
                     ),
                 )
+
+            # ------------------------------------------------------------------
+            # Phase B.5 -- Header case variation sub-check (same anchor as B)
+            # RFC 9110 mandates that HTTP header names are case-insensitive.
+            # A Gateway that only matches the canonical 'Authorization' casing
+            # and ignores lowercase/uppercase variants would silently bypass
+            # the auth check for clients sending non-canonical headers.
+            # ------------------------------------------------------------------
+
+            if enforced_tier_a_anchor is not None:
+                header_case_findings = self._check_header_case_variations(
+                    anchor=enforced_tier_a_anchor,
+                    client=client,
+                    store=store,
+                )
+                findings.extend(header_case_findings)
+                counters[_OUTCOME_BYPASS] += len(header_case_findings)
 
             # ------------------------------------------------------------------
             # Phase C -- Path normalization sub-check (same anchor as Phase B)
@@ -566,7 +589,25 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
             self._log_transaction(record, oracle_state="INCONCLUSIVE_SERVER_ERROR")
             return _OUTCOME_INCONCLUSIVE_SERVER_ERROR, None
 
-        # Catch-all for any other status (429 Too Many Requests, etc.).
+        # Catch-all: 429 Too Many Requests gets its own semantic label so it
+        # is distinguishable from genuine not-found responses in the coverage
+        # summary and audit trail. Any other unclassified status falls back to
+        # INCONCLUSIVE_NOT_FOUND.
+        if status == 429:  # noqa: PLR2004
+            log.debug(
+                "test_1_1_probe_ratelimited",
+                path=path,
+                status_code=status,
+                detail=(
+                    "The probe endpoint returned 429 Too Many Requests. "
+                    "The auth check outcome is inconclusive: the rate limiter "
+                    "may have fired before or after the auth layer. "
+                    "Test 4.1 covers rate limiting specifically."
+                ),
+            )
+            self._log_transaction(record, oracle_state="INCONCLUSIVE_RATELIMITED")
+            return _OUTCOME_INCONCLUSIVE_RATELIMITED, None
+
         log.debug(
             "test_1_1_probe_unclassified_status",
             path=path,
@@ -790,6 +831,119 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
 
         return findings
 
+    # ------------------------------------------------------------------
+    # Sub-check B.5 -- Authorization header case variations
+    # ------------------------------------------------------------------
+
+    def _check_header_case_variations(
+        self,
+        anchor: EndpointRecord,
+        client: SecurityClient,
+        store: EvidenceStore,
+    ) -> list[Finding]:
+        """
+        Send the anchor endpoint requests with non-canonical Authorization header casing.
+
+        RFC 9110 Section 5.1 specifies that HTTP header names are case-insensitive.
+        A conforming Gateway must apply auth enforcement regardless of the casing
+        used for the Authorization header name. If a variant like 'authorization'
+        (lowercase) or 'AUTHORIZATION' (uppercase) is accepted as authenticated
+        despite carrying no valid token, the Gateway is performing a case-sensitive
+        header lookup that an attacker could exploit by sending credentials in a
+        non-standard casing to bypass enforcement.
+
+        Oracle: all variants carrying no token value must produce 401/403.
+        A 2xx response for any variant is a BYPASS finding.
+
+        Note: most modern reverse proxies (nginx, Kong) normalise header names
+        to lowercase internally before policy evaluation, so this sub-check is
+        expected to PASS on well-configured stacks. Its value is in detecting
+        misconfigurations in custom middleware or legacy gateways.
+
+        Args:
+            anchor: First Tier A endpoint confirmed as ENFORCED.
+            client: SecurityClient for HTTP requests.
+            store:  EvidenceStore for FAIL evidence.
+
+        Returns:
+            List of Findings for any casing variant that produced a BYPASS response.
+        """
+        findings: list[Finding] = []
+        path = _resolve_path(anchor.path)
+
+        # Each tuple: (header_name, label).
+        # We send no token value -- just the header name with a meaningless value
+        # that would never authenticate. The goal is to verify that the Gateway
+        # enforces auth on these variants, not to test token validation.
+        header_variants: tuple[tuple[str, str], ...] = (
+            ("authorization", "all-lowercase header name"),
+            ("AUTHORIZATION", "all-uppercase header name"),
+            ("AuThOrIzAtIoN", "mixed-case header name"),
+        )
+
+        for header_name, variant_label in header_variants:
+            try:
+                response, record = client.request(
+                    method="GET",
+                    path=path,
+                    test_id=self.test_id,
+                    headers={header_name: "Bearer apiguard-case-probe"},
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.debug(
+                    "test_1_1_header_case_transport_error",
+                    path=path,
+                    header_name=header_name,
+                    exc_type=type(exc).__name__,
+                    detail=str(exc),
+                )
+                continue
+
+            if response.status_code in _BYPASS_STATUS_CODES:
+                log.warning(
+                    "test_1_1_header_case_bypass",
+                    path=path,
+                    header_name=header_name,
+                    status_code=response.status_code,
+                )
+                store.add_fail_evidence(record)
+                self._log_transaction(
+                    record,
+                    oracle_state="HEADER_CASE_BYPASS",
+                    is_fail=True,
+                )
+                findings.append(
+                    Finding(
+                        title="Auth enforcement bypassed via non-canonical header casing",
+                        detail=(
+                            f"GET {path} with header '{header_name}: Bearer apiguard-case-probe' "
+                            f"({variant_label}) returned HTTP {response.status_code}. "
+                            f"RFC 9110 requires HTTP header names to be treated as "
+                            f"case-insensitive. The Gateway appears to perform auth "
+                            f"enforcement only on the canonical 'Authorization' casing, "
+                            f"allowing an attacker to send credentials (or no credentials) "
+                            f"in a non-standard casing to bypass the auth layer."
+                        ),
+                        references=[
+                            self.cwe_id,
+                            "OWASP-API2:2023",
+                            "RFC-9110-S5.1",
+                            "OWASP-ASVS-V6.3",
+                        ],
+                        evidence_ref=record.record_id,
+                    )
+                )
+            else:
+                log.debug(
+                    "test_1_1_header_case_enforced",
+                    path=path,
+                    header_name=header_name,
+                    status_code=response.status_code,
+                )
+                self._log_transaction(record, oracle_state="HEADER_CASE_ENFORCED")
+
+        return findings
+
 
 # ---------------------------------------------------------------------------
 # Module-level helpers (pure functions, no HTTP, no state)
@@ -854,6 +1008,7 @@ def _build_coverage_summary(
     inconclusive_not_found = counters[_OUTCOME_INCONCLUSIVE_NOT_FOUND]
     inconclusive_redirect = counters[_OUTCOME_INCONCLUSIVE_REDIRECT]
     inconclusive_server_error = counters[_OUTCOME_INCONCLUSIVE_SERVER_ERROR]
+    inconclusive_ratelimited = counters[_OUTCOME_INCONCLUSIVE_RATELIMITED]
     transport_error = counters[_OUTCOME_TRANSPORT_ERROR]
 
     outcomes_line = (
@@ -863,6 +1018,7 @@ def _build_coverage_summary(
         f"{inconclusive_not_found} inconclusive-not-found (Tier A endpoint absent on server), "
         f"{inconclusive_redirect} redirect, "
         f"{inconclusive_server_error} server-error, "
+        f"{inconclusive_ratelimited} rate-limited (429, auth outcome indeterminate), "
         f"{transport_error} transport-error."
     )
 
