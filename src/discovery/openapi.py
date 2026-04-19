@@ -7,6 +7,28 @@ This module implements Phase 2 (OpenAPI Discovery) of the assessment pipeline.
 It produces a fully dereferenced specification as a plain Python dict and a
 SpecDialect tag, both consumed by discovery/surface.py.
 
+Supported spec sources
+----------------------
+The source parameter accepts two formats:
+
+    HTTP/HTTPS URL  -- the spec is fetched over the network using prance's
+                       built-in requests-based transport. An explicit timeout
+                       watchdog (threading) prevents indefinite hangs on
+                       unresponsive servers.
+
+    Filesystem path -- the spec is read from a local file. prance.ResolvingParser
+                       accepts absolute filesystem paths natively alongside
+                       'file://' URLs, so no format conversion is required.
+                       Relative paths are resolved to absolute by the caller
+                       (TargetConfig.get_openapi_source() calls Path.resolve())
+                       before being passed here.
+                       A pre-flight existence check raises OpenAPILoadError with
+                       a clear message before prance is even invoked, avoiding
+                       confusing exceptions from prance's internal transport layer.
+                       Local file reads complete far faster than the configured
+                       timeout; the threading watchdog still runs but is not the
+                       limiting factor.
+
 Supported dialects
 ------------------
     SWAGGER_2   Swagger 2.0  (top-level ``swagger: "2.0"`` key)
@@ -21,25 +43,31 @@ dialect tag and apply matching extraction logic.
 
 Three sequential phases
 -----------------------
-    Phase 2a — Fetch and dereference (with timeout watchdog):
-        Download the spec and resolve all $ref pointers using
+    Phase 2a -- Fetch and dereference (with timeout watchdog):
+        Download or read the spec and resolve all $ref pointers using
         _NonValidatingResolvingParser, a thin subclass of prance.ResolvingParser
         that overrides _validate() to perform $ref resolution only, skipping
         prance's backend validation step.
 
         Timeout implementation
         ----------------------
-        Prance uses the requests library internally. requests has no default
-        timeout (it waits indefinitely). To prevent the pipeline from hanging
-        on an unresponsive spec URL, _fetch_and_dereference() runs the entire
-        prance operation in a background thread via concurrent.futures and
-        waits for it with an explicit timeout_seconds parameter. If the thread
+        Prance uses the requests library internally for HTTP sources. requests
+        has no default timeout (it waits indefinitely). To prevent the pipeline
+        from hanging on an unresponsive spec URL, _fetch_and_dereference() runs
+        the entire prance operation in a background thread via concurrent.futures
+        and waits for it with an explicit timeout_seconds parameter. If the thread
         does not complete within the deadline, a TimeoutError is converted to
-        OpenAPILoadError. The background thread may continue running briefly
-        after abandonment (Python threads cannot be killed), but since the
-        main thread raises immediately and the CLI process exits shortly after,
-        this is acceptable for a CLI tool. It would NOT be acceptable in a
-        long-running server context.
+        OpenAPILoadError. For local file sources the timeout is still enforced but
+        file I/O completes well within any reasonable budget.
+
+        Pre-flight check for local paths
+        ---------------------------------
+        Before invoking prance, _fetch_and_dereference() detects whether the
+        source string looks like a filesystem path (does not start with
+        'http://', 'https://', or 'file://') and verifies that the path exists
+        and is a regular file. This surfaces a clean OpenAPILoadError rather
+        than the opaque exception prance would raise when trying to open a
+        missing file through its internal transport layer.
 
         Why subclassing prance is necessary
         ------------------------------------
@@ -53,11 +81,11 @@ Three sequential phases
         but is not a JSON Schema Draft 4 type. The subclass skips step 2;
         our own dialect-aware validation in Phase 2b replaces it.
 
-    Phase 2b — Dialect detection and structural validation:
+    Phase 2b -- Dialect detection and structural validation:
         Detect the dialect from the root-level version key and validate with
         the appropriate openapi-spec-validator class.
 
-    Phase 2c — Content sanity checks:
+    Phase 2c -- Content sanity checks:
         Verify that the spec contains at least one path with at least one
         operation.
 
@@ -102,9 +130,14 @@ OPENAPI_INFO_KEY: str = "info"
 # timeout argument (e.g. from tests or scripts that bypass the config layer).
 _DEFAULT_FETCH_TIMEOUT_SECONDS: float = 60.0
 
+# URL scheme prefixes that indicate a network resource (not a filesystem path).
+# Used by the pre-flight check in _fetch_and_dereference() to decide whether
+# to verify file existence before invoking prance.
+_NETWORK_SCHEME_PREFIXES: tuple[str, ...] = ("http://", "https://", "file://")
+
 
 # ---------------------------------------------------------------------------
-# prance subclass — $ref resolution without backend validation
+# prance subclass -- $ref resolution without backend validation
 # ---------------------------------------------------------------------------
 
 
@@ -165,22 +198,32 @@ def load_openapi_spec(
     timeout_seconds: float = _DEFAULT_FETCH_TIMEOUT_SECONDS,
 ) -> tuple[dict[str, object], SpecDialect]:
     """
-    Fetch, dereference, and validate an API specification.
+    Fetch or read, dereference, and validate an API specification.
+
+    Accepts both a remote HTTP/HTTPS URL and a local filesystem path as the
+    source_url parameter (despite the name, which is kept for backwards
+    compatibility with existing call sites). For local paths, a pre-flight
+    existence check raises OpenAPILoadError with a clear message before prance
+    is invoked, avoiding opaque errors from prance's internal file transport.
 
     Supports both Swagger 2.0 and OpenAPI 3.x documents. The dialect is
     detected automatically from the root-level version key and returned
     alongside the dereferenced spec dict so that downstream modules can
     apply dialect-appropriate parsing logic.
 
-    The entire prance fetch + dereference operation runs in a background
-    thread. If it does not complete within timeout_seconds, an
-    OpenAPILoadError is raised immediately and the thread is abandoned.
+    The entire prance operation (fetch/read + $ref resolution) runs in a
+    background thread. If it does not complete within timeout_seconds, an
+    OpenAPILoadError is raised immediately. For local files this timeout is
+    effectively never reached, but it is enforced unconditionally to keep
+    the implementation uniform.
 
     Args:
-        source_url: URL or local filesystem path of the specification.
-                    HTTP/HTTPS URLs are fetched via prance's HTTP transport.
+        source_url: HTTP/HTTPS URL or absolute filesystem path of the
+                    specification file. Relative paths must be resolved to
+                    absolute by the caller (TargetConfig.get_openapi_source()
+                    does this via Path.resolve()) before being passed here.
                     Both JSON and YAML formats are supported.
-        timeout_seconds: Maximum wall-clock time in seconds for the fetch
+        timeout_seconds: Maximum wall-clock time in seconds for the fetch/read
                          and dereference step. Defaults to 60.0 seconds.
                          Set via config.execution.openapi_fetch_timeout_seconds.
 
@@ -190,12 +233,19 @@ def load_openapi_spec(
             dialect -- SpecDialect.SWAGGER_2 or SpecDialect.OPENAPI_3.
 
     Raises:
-        OpenAPILoadError: For any failure condition during fetch, validation,
-                          or content sanity checks — including timeout.
+        OpenAPILoadError: For any failure condition during the pre-flight check,
+                          fetch/read, $ref resolution, dialect detection,
+                          structural validation, or content sanity checks --
+                          including timeout and file-not-found.
     """
-    log.info("openapi_discovery_started", source_url=source_url, timeout_seconds=timeout_seconds)
+    log.info(
+        "openapi_discovery_started",
+        source_url=source_url,
+        timeout_seconds=timeout_seconds,
+        is_local=not source_url.startswith(_NETWORK_SCHEME_PREFIXES),
+    )
 
-    # Phase 2a: fetch and dereference (skip prance backend validation).
+    # Phase 2a: fetch/read and dereference (skip prance backend validation).
     dereferenced_spec = _fetch_and_dereference(source_url, timeout_seconds)
 
     # Phase 2b: detect dialect, then validate against the correct schema.
@@ -225,23 +275,106 @@ def load_openapi_spec(
 
 
 # ---------------------------------------------------------------------------
-# Phase 2a — Fetch and dereference (with timeout watchdog)
+# Phase 2a -- Pre-flight check and fetch/read + dereference
 # ---------------------------------------------------------------------------
+
+
+def _is_local_path(source_url: str) -> bool:
+    """
+    Return True if source_url looks like a filesystem path rather than a URL.
+
+    A source is treated as a local path when it does not start with any of the
+    recognised network scheme prefixes ('http://', 'https://', 'file://').
+    This heuristic is intentionally simple: the caller (TargetConfig /
+    TargetContext) already normalises the source to an absolute path string via
+    Path.resolve(), so the result is unambiguous in practice.
+
+    Args:
+        source_url: The source string to classify.
+
+    Returns:
+        True if the source is a local filesystem path, False if it is a URL.
+    """
+    return not source_url.startswith(_NETWORK_SCHEME_PREFIXES)
+
+
+def _preflight_check_local_path(source_url: str) -> None:
+    """
+    Verify that a local filesystem path exists and is a regular file.
+
+    Called by _fetch_and_dereference() before invoking prance when the source
+    is detected as a local path. This surfaces a clean, actionable
+    OpenAPILoadError instead of the opaque exception that prance's internal
+    file transport layer would raise for a missing path.
+
+    The check is not performed for network URLs because their reachability
+    can only be determined by attempting the connection.
+
+    Args:
+        source_url: Absolute filesystem path to verify.
+
+    Raises:
+        OpenAPILoadError: If the path does not exist, is not a regular file
+                          (e.g. a directory), or cannot be stat-ed.
+    """
+    from pathlib import Path as _Path
+
+    path_obj = _Path(source_url)
+
+    try:
+        exists = path_obj.exists()
+    except OSError as exc:
+        raise OpenAPILoadError(
+            message=(
+                f"Cannot access OpenAPI spec path '{source_url}': {exc}. "
+                "Verify that the path is readable and the filesystem is mounted."
+            ),
+            source_url=source_url,
+            underlying_error=str(exc),
+        ) from exc
+
+    if not exists:
+        raise OpenAPILoadError(
+            message=(
+                f"OpenAPI spec file not found: '{source_url}'. "
+                "Verify that openapi_spec_path in config.yaml points to an "
+                "existing file. Relative paths are resolved from the directory "
+                "where the tool is invoked (cwd at process start)."
+            ),
+            source_url=source_url,
+        )
+
+    if not path_obj.is_file():
+        raise OpenAPILoadError(
+            message=(
+                f"OpenAPI spec path exists but is not a regular file: '{source_url}'. "
+                "Provide the path to a JSON or YAML file, not a directory or "
+                "special filesystem node."
+            ),
+            source_url=source_url,
+        )
+
+    log.debug(
+        "openapi_local_path_preflight_passed",
+        source_url=source_url,
+        file_size_bytes=path_obj.stat().st_size,
+    )
 
 
 def _prance_worker(source_url: str) -> dict[str, object]:
     """
     Worker function executed in a background thread by _fetch_and_dereference.
 
-    Runs the full prance fetch + $ref resolution pipeline and returns the
+    Runs the full prance fetch/read + $ref resolution pipeline and returns the
     dereferenced spec dict. Any exception raised here is propagated back
     to the calling thread via concurrent.futures.Future.result().
 
-    This function is intentionally isolated so that the threading boundary
-    is explicit and the main thread's exception handling is clean.
+    prance.ResolvingParser accepts both HTTP URLs and absolute filesystem paths
+    as its first argument. For local paths it uses Python's built-in file I/O
+    rather than the requests transport, so no network connection is established.
 
     Args:
-        source_url: URL or filesystem path of the spec to fetch.
+        source_url: HTTP/HTTPS URL or absolute filesystem path of the spec.
 
     Returns:
         Fully dereferenced spec as a nested dict.
@@ -262,32 +395,36 @@ def _prance_worker(source_url: str) -> dict[str, object]:
 
 def _fetch_and_dereference(source_url: str, timeout_seconds: float) -> dict[str, object]:
     """
-    Fetch the spec and resolve all $ref pointers with an explicit timeout.
+    Pre-flight check (for local paths) then fetch/read + dereference with watchdog.
 
-    Runs _prance_worker in a ThreadPoolExecutor with a single worker thread.
-    Waits for the future to complete within timeout_seconds. If the deadline
-    is exceeded, OpenAPILoadError is raised immediately.
+    For local filesystem paths, verifies existence before invoking prance.
+    For all sources, runs _prance_worker in a ThreadPoolExecutor with an
+    explicit timeout. If the deadline is exceeded, OpenAPILoadError is raised.
 
     The abandoned background thread may continue running briefly (Python
     threads cannot be forcibly terminated), but this is acceptable in the
     CLI context where the process exits after raising the error.
 
     Args:
-        source_url: URL or filesystem path of the spec.
+        source_url: HTTP/HTTPS URL or absolute filesystem path of the spec.
         timeout_seconds: Maximum time to wait for the prance operation.
 
     Returns:
         Fully dereferenced spec as a nested dict.
 
     Raises:
-        OpenAPILoadError: On timeout, $ref resolution failure, or any
-                          other transport / parse failure.
+        OpenAPILoadError: On pre-flight failure, timeout, $ref resolution
+                          failure, or any other transport / parse failure.
     """
-    log.debug(
-        "openapi_fetching_spec",
-        source_url=source_url,
-        timeout_seconds=timeout_seconds,
-    )
+    if _is_local_path(source_url):
+        _preflight_check_local_path(source_url)
+        log.debug(
+            "openapi_reading_local_spec",
+            source_url=source_url,
+            detail="Source is a local filesystem path; skipping network fetch.",
+        )
+    else:
+        log.debug("openapi_fetching_remote_spec", source_url=source_url)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(_prance_worker, source_url)
@@ -325,7 +462,7 @@ def _fetch_and_dereference(source_url: str, timeout_seconds: float) -> dict[str,
             raise OpenAPILoadError(
                 message=(
                     f"Failed to fetch or parse the spec from '{source_url}'. "
-                    f"Verify that the URL is reachable and returns a valid "
+                    f"Verify that the source is a valid "
                     f"Swagger 2.0 or OpenAPI 3.x JSON/YAML document. "
                     f"Underlying error: {type(exc).__name__}: {exc}"
                 ),
@@ -353,7 +490,7 @@ def _fetch_and_dereference(source_url: str, timeout_seconds: float) -> dict[str,
 
 
 # ---------------------------------------------------------------------------
-# Phase 2b — Dialect detection
+# Phase 2b -- Dialect detection
 # ---------------------------------------------------------------------------
 
 
@@ -366,7 +503,7 @@ def _detect_dialect(
 
     Args:
         spec: Dereferenced spec dict.
-        source_url: Original source URL, used only for error messages.
+        source_url: Original source URL or path, used only for error messages.
 
     Returns:
         SpecDialect.SWAGGER_2 or SpecDialect.OPENAPI_3.
@@ -431,7 +568,7 @@ def _detect_dialect(
 
 
 # ---------------------------------------------------------------------------
-# Phase 2b — Structural validation
+# Phase 2b -- Structural validation
 # ---------------------------------------------------------------------------
 
 
@@ -449,7 +586,8 @@ def _validate_spec_structure(
     not in JSON Schema Draft 4). Phase 2a and 2c guarantees still apply.
 
     For OpenAPI 3.x, the appropriate validator class is selected based on
-    the minor version (3.0.x -> OpenAPIV30SpecValidator, 3.1.x -> OpenAPIV31SpecValidator).
+    the minor version (3.0.x -> OpenAPIV30SpecValidator, 3.1.x ->
+    OpenAPIV31SpecValidator).
     """
     if dialect is SpecDialect.SWAGGER_2:
         log.debug(
@@ -504,7 +642,7 @@ def _validate_spec_structure(
 
 
 # ---------------------------------------------------------------------------
-# Phase 2c — Content sanity checks
+# Phase 2c -- Content sanity checks
 # ---------------------------------------------------------------------------
 
 
@@ -517,7 +655,7 @@ def _assert_spec_has_operations(
 
     Args:
         spec: Fully dereferenced and validated spec dict.
-        source_url: Original source URL, used only for error messages.
+        source_url: Original source URL or path, used only for error messages.
 
     Raises:
         OpenAPILoadError: If the spec has no paths or no HTTP operations.
@@ -533,7 +671,7 @@ def _assert_spec_has_operations(
             message=(
                 f"Spec at '{source_url}' declares no paths. "
                 "An assessment against a spec with no endpoints produces no "
-                "testable attack surface. Verify that the spec URL points to "
+                "testable attack surface. Verify that the spec source points to "
                 "the correct document and that the 'paths' key is present."
             ),
             source_url=source_url,

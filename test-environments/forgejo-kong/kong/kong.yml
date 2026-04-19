@@ -13,10 +13,10 @@ services:
         strip_path: false
         preserve_host: false
     plugins:
-      - name: rate-limiting    # rimuovere il plugin per mostrare i finding del rate limiting
-        config:
-          minute: 100          # soglia: 100 request al minuto per IP
-          policy: local        # contatore in RAM, unica opzione in DB-less
-          limit_by: ip         # chiave = IP TCP reale, non X-Forwarded-For
-          hide_client_headers: false  # espone X-RateLimit-* e Retry-After
-          fault_tolerant: true        # se il contatore è irraggiungibile, passa
+      #- name: rate-limiting    # rimuovere il plugin per mostrare i finding del rate limiting
+      #  config:
+      #    minute: 100          # soglia: 100 request al minuto per IP
+      #    policy: local        # contatore in RAM, unica opzione in DB-less
+      #    limit_by: ip         # chiave = IP TCP reale, non X-Forwarded-For
+      #    hide_client_headers: false  # espone X-RateLimit-* e Retry-After
+      #    fault_tolerant: true        # se il contatore è irraggiungibile, passa

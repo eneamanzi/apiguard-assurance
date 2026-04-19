@@ -23,6 +23,18 @@ a test cannot accidentally corrupt the base information read by all other tests
 (TargetContext is frozen) while still being able to share discovered state with
 dependent tests (TestContext is mutable via explicit typed interfaces).
 
+OpenAPI spec source in TargetContext
+-------------------------------------
+TargetContext mirrors the URL-vs-path duality of TargetConfig:
+
+    openapi_spec_url  -- set when the spec was fetched over HTTP/HTTPS.
+    openapi_spec_path -- set when the spec was read from a local filesystem path.
+
+Exactly one is non-None at runtime, enforced by the model_validator
+enforce_exactly_one_openapi_source. The helper method get_openapi_source()
+returns the canonical string representation (URL string or resolved absolute
+path string) for use in display, logging, and the shadow-API exclusion set.
+
 Dependency rule: this module imports only from pydantic, stdlib, structlog, and
 src.core.models. It must never import from config/, discovery/, tests/, or
 report/ to avoid circular dependencies.
@@ -30,8 +42,10 @@ report/ to avoid circular dependencies.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import structlog
-from pydantic import AnyHttpUrl, BaseModel, Field, PrivateAttr, computed_field
+from pydantic import AnyHttpUrl, BaseModel, Field, PrivateAttr, computed_field, model_validator
 
 from src.core.models import AttackSurface, RuntimeCredentials, RuntimeTestsConfig
 
@@ -49,7 +63,7 @@ ROLE_USER_B: str = "user_b"
 
 
 # ---------------------------------------------------------------------------
-# TargetContext — immutable knowledge about the target API
+# TargetContext -- immutable knowledge about the target API
 # ---------------------------------------------------------------------------
 
 
@@ -63,7 +77,14 @@ class TargetContext(BaseModel):
     this immutability at the type level: any attempt to set an attribute after
     construction raises a ValidationError.
 
-    The admin_api_available computed field centralizes the check for WHITE_BOX
+    OpenAPI spec source
+    -------------------
+    openapi_spec_url and openapi_spec_path are mutually exclusive. The
+    model_validator enforce_exactly_one_openapi_source ensures exactly one is
+    set, mirroring the constraint in TargetConfig. Use get_openapi_source() in
+    all consuming code instead of accessing either field directly.
+
+    The admin_api_available computed field centralises the check for WHITE_BOX
     test eligibility. A test that checks target.admin_api_available instead of
     target.admin_api_url is not None is more readable and semantically precise:
     it expresses capability, not implementation detail.
@@ -75,18 +96,28 @@ class TargetContext(BaseModel):
         description=(
             "Base URL of the target API as exposed through the Kong proxy. "
             "All test HTTP requests are constructed relative to this URL. "
-            "Example: http://localhost:8000. "
-            "Typed as AnyHttpUrl so that Pydantic validates the URL format at "
-            "construction time. A malformed base_url is caught in Phase 1/3, "
-            "not silently propagated to every test."
+            "Example: http://localhost:8000."
         )
     )
-    openapi_spec_url: AnyHttpUrl = Field(
+    openapi_spec_url: AnyHttpUrl | None = Field(
+        default=None,
         description=(
             "URL from which the OpenAPI specification was fetched. "
+            "Mutually exclusive with openapi_spec_path: exactly one must be set. "
             "Stored for traceability in the HTML report and evidence.json metadata. "
-            "Example: http://localhost:8000/api/swagger"
-        )
+            "Example: http://localhost:3000/swagger.v1.json"
+        ),
+    )
+    openapi_spec_path: Path | None = Field(
+        default=None,
+        description=(
+            "Absolute filesystem path to the locally stored OpenAPI specification. "
+            "Mutually exclusive with openapi_spec_url: exactly one must be set. "
+            "Always stored as an absolute path (engine.py calls Path.resolve() "
+            "before constructing TargetContext) so that the value is unambiguous "
+            "regardless of the process working directory at display time. "
+            "Example: /home/user/apiguard/specs/forgejo-swagger.v1.json"
+        ),
     )
     admin_api_url: AnyHttpUrl | None = Field(
         default=None,
@@ -111,26 +142,40 @@ class TargetContext(BaseModel):
         default_factory=RuntimeCredentials,
         description=(
             "Immutable credentials for GREY_BOX (P1/P2) test execution. "
-            "Populated by engine.py from ToolConfig.credentials during Phase 3. "
-            "GREY_BOX tests read credentials from here via the auth helper "
-            "(src/tests/helpers/auth.py) to acquire JWT tokens for Forgejo. "
-            "If all fields are None, GREY_BOX tests return SKIP with reason "
-            "'No credentials configured for Grey Box testing'. "
-            "SECURITY: this field must never appear in log output. "
-            "engine.py must not include TargetContext in any structlog call."
+            "SECURITY: this field must never appear in log output."
         ),
     )
     tests_config: RuntimeTestsConfig = Field(
         default_factory=RuntimeTestsConfig,
         description=(
-            "Immutable per-test tuning parameters, populated from config.yaml "
-            "tests section by engine.py during Phase 3. "
-            "Test implementations access parameters via: "
-            "  target.tests_config.test_1_1.max_endpoints_cap "
-            "Never log this field: future extensions may carry sensitive tuning "
-            "data (e.g. custom injection payloads)."
+            "Immutable per-test tuning parameters populated from config.yaml. Never log this field."
         ),
     )
+
+    @model_validator(mode="after")
+    def enforce_exactly_one_openapi_source(self) -> TargetContext:
+        """
+        Enforce the mutual exclusion invariant between openapi_spec_url and
+        openapi_spec_path, mirroring the constraint in TargetConfig.
+
+        This validator is a safety net: engine.py Phase 3 builds TargetContext
+        from a TargetConfig that already passed its own validator. The redundant
+        check here guarantees the invariant even if TargetContext is constructed
+        directly in tests or other code paths that bypass TargetConfig.
+        """
+        url_set = self.openapi_spec_url is not None
+        path_set = self.openapi_spec_path is not None
+
+        if url_set and path_set:
+            raise ValueError(
+                "Exactly one of 'openapi_spec_url' and 'openapi_spec_path' must be "
+                "set on TargetContext, not both."
+            )
+        if not url_set and not path_set:
+            raise ValueError(
+                "One of 'openapi_spec_url' or 'openapi_spec_path' must be set on TargetContext."
+            )
+        return self
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -143,6 +188,53 @@ class TargetContext(BaseModel):
         which is semantically correct: the capability is absent, not broken.
         """
         return self.admin_api_url is not None
+
+    def get_openapi_source(self) -> str:
+        """
+        Return the canonical string representation of the OpenAPI spec source.
+
+        This is the single access point for the spec source across all consuming
+        code. It mirrors TargetConfig.get_openapi_source() so that code which
+        holds a TargetContext (e.g., test implementations, e2e fixtures) does
+        not need to distinguish between the two source types.
+
+        For URL sources   -- returns the URL string (str(AnyHttpUrl)).
+        For path sources  -- returns the absolute filesystem path string.
+                             The path is stored as absolute on construction
+                             (engine.py calls Path.resolve()), so no further
+                             resolution is needed here.
+
+        Returns:
+            str: Either the HTTP URL string or the absolute filesystem path
+                 string. Both are valid inputs to discovery/openapi.py's
+                 load_openapi_spec() function.
+
+        Raises:
+            RuntimeError: If neither field is set, which is unreachable because
+                          enforce_exactly_one_openapi_source catches it at
+                          construction time.
+        """
+        if self.openapi_spec_url is not None:
+            return str(self.openapi_spec_url)
+        if self.openapi_spec_path is not None:
+            return str(self.openapi_spec_path)
+        # Unreachable: the model_validator guarantees exactly one is set.
+        raise RuntimeError(
+            "TargetContext.get_openapi_source() called but neither "
+            "openapi_spec_url nor openapi_spec_path is set. "
+            "This state should have been caught by enforce_exactly_one_openapi_source."
+        )
+
+    @property
+    def is_local_spec(self) -> bool:
+        """
+        True if the OpenAPI specification was sourced from a local filesystem path.
+
+        Convenience property for logging and display code that needs to
+        distinguish between a network-fetched and a locally-read spec without
+        checking which field is non-None.
+        """
+        return self.openapi_spec_path is not None
 
     def endpoint_base_url(self) -> str:
         """
@@ -176,7 +268,7 @@ class TargetContext(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# TestContext — mutable state accumulated during assessment
+# TestContext -- mutable state accumulated during assessment
 # ---------------------------------------------------------------------------
 
 
@@ -305,11 +397,10 @@ class TestContext(BaseModel):
         assertion raises an exception that causes execute() to return ERROR.
 
         The optional headers parameter exists for resources whose DELETE
-        endpoint requires explicit authentication — specifically Forgejo API
-        tokens, which require Basic Auth from the token owner.  For all other
+        endpoint requires explicit authentication -- specifically Forgejo API
+        tokens, which require Basic Auth from the token owner. For all other
         Forgejo resources (repositories, issues) where the Gateway forwards
-        the Bearer token automatically, headers should be omitted and the
-        engine will send the DELETE without extra headers.
+        the Bearer token automatically, headers should be omitted.
 
         Args:
             method:  HTTP method for the cleanup request, uppercase.
@@ -318,11 +409,6 @@ class TestContext(BaseModel):
                      Example: '/api/v1/repos/user-a/test-repo-1234'.
                      Must start with '/'.
             headers: Optional HTTP headers to include in the cleanup request.
-                     Use only when the DELETE endpoint requires authentication
-                     that the engine cannot infer from context, e.g. Basic Auth
-                     for Forgejo token deletion.  Values containing credentials
-                     must be pre-formatted by the caller (e.g. 'Basic <b64>').
-                     Stored as-is; never logged by the engine.
 
         Raises:
             ValueError: If method or path is empty, or path does not start
@@ -353,11 +439,7 @@ class TestContext(BaseModel):
 
         Called once by the engine at the start of Phase 6 (Teardown).
         LIFO ordering ensures that resources with implicit creation dependencies
-        are deleted in the correct reverse order (e.g., repository before user).
-
-        The internal list is cleared after draining, so that a second call
-        returns an empty list rather than attempting to delete already-cleaned
-        resources.
+        are deleted in the correct reverse order.
 
         Returns:
             List of (method, path, headers) tuples in LIFO order.

@@ -80,7 +80,7 @@ EvidenceStore policy:
     that rate limiting triggered. This is an intentional deviation from
     the "FAIL only" rule -- a pinned 429 response is the most important
     artifact of this test regardless of outcome.
-"""
+"""  # noqa: N999
 
 from __future__ import annotations
 

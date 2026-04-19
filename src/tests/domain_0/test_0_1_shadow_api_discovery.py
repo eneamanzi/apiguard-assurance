@@ -26,8 +26,16 @@ The OpenAPI spec URL itself (e.g. /swagger.v1.json, /api/swagger, /openapi.yaml)
 is excluded from the shadow-API wordlist at runtime. The rationale is that the
 spec endpoint is the source of truth for the AttackSurface: flagging the very
 document we fetched the surface from as a "shadow API" would be a circular and
-misleading finding. The exclusion is derived dynamically from
-``target.openapi_spec_url`` so that it works across any target, not only Forgejo.
+misleading finding.
+
+This exclusion only applies when the spec was sourced via a URL
+(target.openapi_spec_url is not None). When the spec was read from a local
+filesystem path (target.openapi_spec_path is not None), there is no web-accessible
+path to exclude -- the file lives on disk, not behind an HTTP route -- so the
+exclusion set is left empty in that case.
+
+The exclusion is derived dynamically from target.get_openapi_source() /
+target.openapi_spec_url so that it works across any target configuration.
 """
 
 from __future__ import annotations
@@ -138,7 +146,8 @@ class Test_0_1_ShadowApiDiscovery(BaseTest):  # noqa: N801
 
     Performs three sub-checks:
         1. Path fuzzing: probes a wordlist of common undocumented paths,
-           excluding the spec URL itself to prevent false positives.
+           excluding the spec URL path (when using URL-sourced spec) to
+           prevent false positives.
         2. Method discovery: for each documented endpoint, tests whether
            undeclared HTTP methods are accepted.
         3. Version discovery: probes common version prefix variants.
@@ -187,6 +196,8 @@ class Test_0_1_ShadowApiDiscovery(BaseTest):  # noqa: N801
             # probed. This prevents the false positive where the OpenAPI
             # document endpoint (e.g. /swagger.v1.json) is flagged as a
             # Shadow API because it is not listed inside its own spec.
+            # When the spec was loaded from a local path, the exclusion set
+            # is empty because there is no web-accessible path to exclude.
             exclusion_set: frozenset[str] = _build_exclusion_set(target)
 
             findings: list[Finding] = []
@@ -251,11 +262,8 @@ class Test_0_1_ShadowApiDiscovery(BaseTest):  # noqa: N801
         A path is considered a shadow API candidate if ALL of the following
         conditions hold simultaneously:
             - It is NOT in the documented paths set from the AttackSurface.
-            - It is NOT in the exclusion_set (e.g. the spec URL itself).
+            - It is NOT in the exclusion_set (e.g. the spec URL path).
             - It returns a status code in _ACTIVE_STATUS_CODES (not 404/410).
-
-        The three-condition gate prevents the circular false positive where the
-        spec's own serving path is flagged as a shadow endpoint.
 
         Args:
             wordlist: List of candidate shadow API paths.
@@ -411,8 +419,6 @@ class Test_0_1_ShadowApiDiscovery(BaseTest):  # noqa: N801
                         )
                     )
                 else:
-                    # 405 or non-active: method correctly not allowed or path
-                    # not matched. Either outcome satisfies the oracle.
                     oracle = (
                         "METHOD_NOT_ALLOWED" if response.status_code == 405 else "CORRECTLY_DENIED"
                     )
@@ -422,39 +428,66 @@ class Test_0_1_ShadowApiDiscovery(BaseTest):  # noqa: N801
 
 
 # ---------------------------------------------------------------------------
-# Module-level helper — dynamic exclusion set construction
+# Module-level helper -- dynamic exclusion set construction
 # ---------------------------------------------------------------------------
 
 
 def _build_exclusion_set(target: TargetContext) -> frozenset[str]:
     """
-    Build the set of paths that must never be flagged as shadow endpoints.
+    Build the set of web paths that must never be flagged as shadow endpoints.
 
-    The primary member of this set is the path component of
-    ``target.openapi_spec_url``. This prevents the circular false positive
-    where the OpenAPI spec endpoint is reported as undocumented, even though
-    it is the document from which the AttackSurface was derived.
+    URL-sourced spec
+    ----------------
+    When the OpenAPI spec was fetched over HTTP (target.openapi_spec_url is
+    not None), the path component of that URL is added to the exclusion set.
+    This prevents the circular false positive where the spec's own serving
+    endpoint (e.g. /swagger.v1.json) is reported as an undocumented active
+    path, because it is not listed inside the spec it exposes.
 
-    The path is extracted via ``urllib.parse.urlparse`` and normalized to
-    remove any trailing slash. Only the path component is used — scheme,
-    host, and query string are irrelevant for path comparison.
+    The path is extracted via urllib.parse.urlparse and normalised to remove
+    any trailing slash. Only the path component is used -- scheme, host, and
+    query string are irrelevant for path comparison against the wordlist.
 
     Example:
         openapi_spec_url = "http://localhost:3000/swagger.v1.json"
         extracted path   = "/swagger.v1.json"
         exclusion_set    = frozenset({"/swagger.v1.json"})
 
-    If the URL cannot be parsed (e.g. due to an unusual format), the
-    exclusion set is returned empty rather than raising. The consequence
-    is a potential false positive on that specific path — acceptable because
-    the alternative (crashing the test) is worse.
+    Path-sourced spec
+    -----------------
+    When the OpenAPI spec was read from a local filesystem path
+    (target.openapi_spec_path is not None), there is no web-accessible HTTP
+    path to exclude -- the file lives on disk and is not served by the Gateway.
+    In this case the exclusion set is empty and all wordlist paths are probed
+    normally.
+
+    Error handling
+    --------------
+    If the URL cannot be parsed (unusual format), the exclusion set is returned
+    empty rather than raising. The consequence is a potential false positive on
+    that specific path -- acceptable because the alternative (crashing the test)
+    is worse.
 
     Args:
-        target: The current TargetContext carrying the spec URL.
+        target: The current TargetContext carrying the spec source info.
 
     Returns:
-        frozenset of path strings to exclude from shadow-API probing.
+        frozenset of web path strings to exclude from shadow-API probing.
+        Empty frozenset when the spec was sourced from a local filesystem path.
     """
+    # Local path: no web route to exclude.
+    if target.openapi_spec_url is None:
+        log.debug(
+            "shadow_probe_exclusion_set_empty",
+            reason=(
+                "OpenAPI spec was sourced from a local filesystem path "
+                "(target.openapi_spec_path). No web-accessible spec path "
+                "to exclude from shadow-API probing."
+            ),
+        )
+        return frozenset()
+
+    # URL source: extract and exclude the path component.
     excluded: set[str] = set()
 
     try:

@@ -18,39 +18,46 @@ component:
 
 Pipeline phases (Implementazione.md, Section 5):
 
-    Phase 1 — Initialization:
+    Phase 1 -- Initialization:
         Load and validate config.yaml via config/loader.py.
         Raises ConfigurationError on failure [BLOCKS STARTUP].
 
-    Phase 2 — OpenAPI Discovery:
-        Fetch, dereference, and validate the OpenAPI spec (with timeout watchdog).
+    Phase 2 -- OpenAPI Discovery:
+        Resolve the spec source via TargetConfig.get_openapi_source().
+        This returns either an HTTP/HTTPS URL or a local filesystem path,
+        depending on which field is set in config.yaml. The distinction is
+        transparent to the rest of the engine: load_openapi_spec() accepts
+        both formats natively.
+        Fetch or read, dereference, and validate the OpenAPI spec.
         Build AttackSurface from the dereferenced spec.
         Raises OpenAPILoadError on failure [BLOCKS STARTUP].
 
-    Phase 3 — Context Construction:
+    Phase 3 -- Context Construction:
         Build TargetContext (frozen) from ToolConfig + AttackSurface.
+        Propagates both openapi_spec_url and openapi_spec_path from
+        TargetConfig to TargetContext (exactly one will be non-None).
         Build TestContext (mutable, empty).
         Build EvidenceStore (deque, maxlen=100).
         Build SecurityClient (context manager, not yet open).
 
-    Phase 4 — Test Discovery and Scheduling:
+    Phase 4 -- Test Discovery and Scheduling:
         TestRegistry discovers and filters active tests.
         DAGScheduler builds the topological execution order.
         Raises DAGCycleError on dependency cycle [BLOCKS STARTUP].
 
-    Phase 5 — Execution:
+    Phase 5 -- Execution:
         For each ScheduledBatch in topological order:
             For each test in the batch (sequential):
                 Call test.execute(target, context, client, store).
                 Add TestResult to ResultSet.
                 Check fail-fast condition.
 
-    Phase 6 — Teardown (Best-Effort):
+    Phase 6 -- Teardown (Best-Effort):
         Drain TestContext resource registry in LIFO order.
         DELETE each registered resource via SecurityClient.
         Log TeardownError as WARNING; continue on failure.
 
-    Phase 7 — Report Generation:
+    Phase 7 -- Report Generation:
         Aggregate ResultSet statistics via report/builder.py.
         Serialize EvidenceStore to config.output.evidence_path.
         Render HTML report to config.output.report_path.
@@ -243,7 +250,7 @@ class AssessmentEngine:
         return result_set.compute_exit_code()
 
     # ------------------------------------------------------------------
-    # Phase 1 — Initialization
+    # Phase 1 -- Initialization
     # ------------------------------------------------------------------
 
     def _phase_1_initialize(self) -> ToolConfig:
@@ -265,6 +272,8 @@ class AssessmentEngine:
         log.info(
             "pipeline_phase_1_initialization_completed",
             base_url=str(config.target.base_url),
+            openapi_source=config.target.get_openapi_source(),
+            openapi_source_type="local_path" if config.target.is_local_spec else "url",
             min_priority=config.execution.min_priority,
             strategies=[s.value for s in config.execution.strategies],
             fail_fast=config.execution.fail_fast,
@@ -275,41 +284,47 @@ class AssessmentEngine:
         return config
 
     # ------------------------------------------------------------------
-    # Phase 2 — OpenAPI Discovery
+    # Phase 2 -- OpenAPI Discovery
     # ------------------------------------------------------------------
 
     def _phase_2_openapi_discovery(self, config: ToolConfig) -> AttackSurface:
         """
-        Fetch the OpenAPI spec and build the AttackSurface.
+        Fetch or read the OpenAPI spec and build the AttackSurface.
 
-        The spec fetch runs with an explicit timeout from
-        config.execution.openapi_fetch_timeout_seconds. If prance does not
-        complete within that budget, OpenAPILoadError is raised and the
-        pipeline is aborted (Phase 2 is blocking).
+        The spec source is resolved via TargetConfig.get_openapi_source(),
+        which returns either an HTTP/HTTPS URL or an absolute filesystem path
+        depending on which config field is set. load_openapi_spec() accepts
+        both formats; the distinction is handled transparently inside that
+        function, including a pre-flight existence check for local paths.
 
-        The source_url is forwarded to build_attack_surface() so that any
-        OpenAPILoadError raised in surface.py carries the full context needed
-        for structured error logging.
+        For local files the network timeout still applies but is never the
+        limiting factor: file I/O completes well within any reasonable budget.
 
         Returns:
             Populated AttackSurface instance.
 
         Raises:
-            OpenAPILoadError: If the spec cannot be fetched, dereferenced,
-                              validated, or if the fetch times out.
+            OpenAPILoadError: If the spec cannot be fetched/read, dereferenced,
+                              validated, or if a network fetch times out.
         """
         log.info("pipeline_phase_2_openapi_discovery_started")
 
-        # Capture the spec URL string once to pass consistently to both
-        # load_openapi_spec (for prance) and build_attack_surface (for
-        # diagnostic context in any OpenAPILoadError raised there).
-        spec_url: str = str(config.target.openapi_spec_url)
+        # get_openapi_source() returns either the URL string or the resolved
+        # absolute path string -- the single source of truth for Phase 2 and
+        # for display in TargetContext / the HTML report.
+        spec_source: str = config.target.get_openapi_source()
+
+        log.info(
+            "pipeline_phase_2_openapi_source_resolved",
+            spec_source=spec_source,
+            source_type="local_path" if config.target.is_local_spec else "url",
+        )
 
         spec, dialect = load_openapi_spec(
-            spec_url,
+            spec_source,
             timeout_seconds=config.execution.openapi_fetch_timeout_seconds,
         )
-        attack_surface = build_attack_surface(spec, dialect, source_url=spec_url)
+        attack_surface = build_attack_surface(spec, dialect, source_url=spec_source)
 
         log.info(
             "pipeline_phase_2_openapi_discovery_completed",
@@ -323,7 +338,7 @@ class AssessmentEngine:
         return attack_surface
 
     # ------------------------------------------------------------------
-    # Phase 3 — Context Construction
+    # Phase 3 -- Context Construction
     # ------------------------------------------------------------------
 
     def _phase_3_build_contexts(
@@ -335,6 +350,11 @@ class AssessmentEngine:
         Construct the three shared state objects for the pipeline run.
 
         TargetContext is frozen and populated from config + attack_surface.
+        Both openapi_spec_url and openapi_spec_path are propagated from
+        TargetConfig; exactly one will be non-None, preserving the source
+        type information for test_0_1's shadow-API exclusion set builder
+        and for the HTML report header.
+
         TestContext is mutable and starts empty.
         EvidenceStore starts empty.
 
@@ -355,7 +375,15 @@ class AssessmentEngine:
 
         target = TargetContext(
             base_url=config.target.base_url,
+            # Propagate both fields: TargetContext's model_validator enforces
+            # the mutual exclusion invariant, mirroring TargetConfig's own
+            # validator. Exactly one will be non-None.
             openapi_spec_url=config.target.openapi_spec_url,
+            openapi_spec_path=(
+                config.target.openapi_spec_path.resolve()
+                if config.target.openapi_spec_path is not None
+                else None
+            ),
             admin_api_url=config.target.admin_api_url,
             attack_surface=attack_surface,
             credentials=RuntimeCredentials.model_validate(config.credentials.model_dump()),
@@ -368,12 +396,14 @@ class AssessmentEngine:
         log.info(
             "pipeline_phase_3_context_construction_completed",
             admin_api_available=target.admin_api_available,
+            openapi_source=target.get_openapi_source(),
+            is_local_spec=target.is_local_spec,
         )
 
         return target, context, store
 
     # ------------------------------------------------------------------
-    # Phase 4 — Test Discovery and Scheduling
+    # Phase 4 -- Test Discovery and Scheduling
     # ------------------------------------------------------------------
 
     def _phase_4_discover_and_schedule(
@@ -430,7 +460,7 @@ class AssessmentEngine:
         return scheduled_batches, active_tests
 
     # ------------------------------------------------------------------
-    # Phase 5 — Execution
+    # Phase 5 -- Execution
     # ------------------------------------------------------------------
 
     def _phase_5_execute(
@@ -516,7 +546,9 @@ class AssessmentEngine:
             log.warning(
                 "pipeline_phase_5_fail_fast_triggered",
                 results_recorded=result_set.total_count,
-                detail="Execution aborted by fail-fast condition. A P0 test returned FAIL or ERROR.",  # noqa: E501
+                detail=(
+                    "Execution aborted by fail-fast condition. A P0 test returned FAIL or ERROR."
+                ),
             )
 
         log.info(
@@ -578,7 +610,7 @@ class AssessmentEngine:
         Condition: test has priority P0 AND status is FAIL or ERROR.
         Both FAIL and ERROR are treated as blocking for P0 tests because
         an ERROR means the verification of a critical guarantee did not
-        complete — proceeding would produce an assessment without foundation.
+        complete -- proceeding would produce an assessment without foundation.
         """
         is_p0 = test.__class__.priority == 0
         is_blocking_status = result.status in (TestStatus.FAIL, TestStatus.ERROR)
@@ -595,7 +627,7 @@ class AssessmentEngine:
         return False
 
     # ------------------------------------------------------------------
-    # Phase 6 — Teardown
+    # Phase 6 -- Teardown
     # ------------------------------------------------------------------
 
     def _phase_6_teardown(
@@ -683,7 +715,7 @@ class AssessmentEngine:
         )
 
     # ------------------------------------------------------------------
-    # Phase 7 — Report Generation
+    # Phase 7 -- Report Generation
     # ------------------------------------------------------------------
 
     def _phase_7_report(
@@ -759,11 +791,6 @@ class AssessmentEngine:
             )
 
         try:
-            # The output directory is guaranteed to exist at this point because
-            # render_html_report() already called output_path.parent.mkdir(...).
-            # The explicit mkdir here is defensive: if the HTML render block raised
-            # an OSError that was caught and swallowed above, the directory may not
-            # exist yet. mkdir(exist_ok=True) is idempotent and costs nothing.
             json_report_path.parent.mkdir(parents=True, exist_ok=True)
             json_report_path.write_text(
                 report_data.model_dump_json(indent=2),

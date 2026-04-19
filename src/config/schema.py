@@ -3,7 +3,7 @@ src/config/schema.py
 
 Pydantic v2 schema for the APIGuard Assurance tool configuration file (config.yaml).
 
-Design note — PrivateAttr for computed coherence flags
+Design note -- PrivateAttr for computed coherence flags
 -------------------------------------------------------
 ToolConfig uses two PrivateAttr fields (_white_box_without_admin_api and
 _grey_box_without_credentials) to store boolean flags computed by the
@@ -12,6 +12,22 @@ first-class Pydantic citizens that survive model_copy() calls without loss
 and are excluded from model_dump() output. The assignment in model_validator
 uses self._flag = True, routed by Pydantic v2 through __pydantic_private__
 which is the only mutable slot on a frozen model by design.
+
+Design note -- OpenAPI spec source (URL vs. local path)
+--------------------------------------------------------
+TargetConfig supports two mutually exclusive sources for the OpenAPI
+specification:
+
+    openapi_spec_url  -- fetch over HTTP/HTTPS at Phase 2 runtime.
+                         Pydantic AnyHttpUrl validates format at load time.
+    openapi_spec_path -- read from the local filesystem at Phase 2 runtime.
+                         Pydantic Path coerces a YAML string (e.g.
+                         "./specs/forgejo.json") to a Path object automatically.
+
+Exactly one of the two must be present; the model_validator raises
+ValueError when both or neither are provided. The helper method
+get_openapi_source() centralises the URL-vs-path decision so that all
+downstream code (engine.py, discovery/openapi.py) is free of branching.
 """
 
 from __future__ import annotations
@@ -75,7 +91,16 @@ JSON_REPORT_FILENAME: str = "apiguard_report.json"
 
 
 class TargetConfig(BaseModel):
-    """Connection parameters for the target API and its infrastructure."""
+    """
+    Connection parameters for the target API and its infrastructure.
+
+    OpenAPI spec source
+    -------------------
+    Exactly one of openapi_spec_url or openapi_spec_path must be provided.
+    The model_validator enforce_exactly_one_openapi_source verifies this at
+    load time. Use get_openapi_source() in all downstream code to obtain the
+    canonical string representation without if/else branching on source type.
+    """
 
     model_config = {"frozen": True}
 
@@ -85,11 +110,31 @@ class TargetConfig(BaseModel):
             "Example: http://localhost:8000"
         )
     )
-    openapi_spec_url: AnyHttpUrl = Field(
+    openapi_spec_url: AnyHttpUrl | None = Field(
+        default=None,
         description=(
-            "URL from which the OpenAPI specification will be fetched. "
+            "URL from which the OpenAPI specification will be fetched at runtime. "
+            "Mutually exclusive with openapi_spec_path: set exactly one. "
+            "Pydantic validates the URL format at config load time. "
             "Example: http://localhost:3000/swagger.v1.json"
-        )
+        ),
+    )
+    openapi_spec_path: Path | None = Field(
+        default=None,
+        description=(
+            "Absolute or relative filesystem path to a locally stored OpenAPI "
+            "specification file (JSON or YAML). "
+            "Mutually exclusive with openapi_spec_url: set exactly one. "
+            "Pydantic coerces a plain string from config.yaml to a Path object. "
+            "Relative paths are resolved to absolute at call time via Path.resolve(), "
+            "anchored to the working directory of the process. "
+            "prance resolves intra-file $ref pointers normally; remote $ref entries "
+            "inside a local spec still require network access. "
+            "The file's existence is validated by discovery/openapi.py at Phase 2 "
+            "runtime (not here) so that the error message includes the resolved "
+            "absolute path rather than the raw config value. "
+            "Example: ./specs/forgejo-swagger.v1.json"
+        ),
     )
     admin_api_url: AnyHttpUrl | None = Field(
         default=None,
@@ -100,10 +145,98 @@ class TargetConfig(BaseModel):
         ),
     )
 
+    @model_validator(mode="after")
+    def enforce_exactly_one_openapi_source(self) -> TargetConfig:
+        """
+        Enforce the mutual exclusion invariant between openapi_spec_url and
+        openapi_spec_path.
+
+        Exactly one of the two must be provided. Rationale:
+
+            Neither set  -- Phase 2 cannot build an AttackSurface; the error
+                            would only surface at Phase 2 runtime with a
+                            confusing NoneType exception instead of a clear
+                            configuration error at startup.
+
+            Both set     -- Ambiguity about which source to use. Silently
+                            applying a precedence rule would hide the likely
+                            operator mistake of leaving an old field in the
+                            config when switching source type.
+
+        File existence on disk is NOT validated here; it is deferred to
+        discovery/openapi.py so that the error message includes the resolved
+        absolute path.
+        """
+        url_set = self.openapi_spec_url is not None
+        path_set = self.openapi_spec_path is not None
+
+        if url_set and path_set:
+            raise ValueError(
+                "Exactly one of 'openapi_spec_url' and 'openapi_spec_path' must be "
+                "set, not both. Remove the field you do not intend to use from "
+                "config.yaml."
+            )
+        if not url_set and not path_set:
+            raise ValueError(
+                "One of 'openapi_spec_url' or 'openapi_spec_path' must be set in "
+                "config.yaml under the 'target' section. "
+                "Provide a URL (e.g. http://localhost:3000/swagger.v1.json) or a "
+                "local file path (e.g. ./specs/forgejo-swagger.v1.json)."
+            )
+        return self
+
+    def get_openapi_source(self) -> str:
+        """
+        Return the canonical string representation of the OpenAPI spec source.
+
+        This is the single point where the URL-vs-path decision is made.
+        All downstream code (engine.py Phase 2, discovery/openapi.py,
+        tests_e2e/conftest.py) calls this method instead of accessing
+        openapi_spec_url or openapi_spec_path directly, keeping those
+        modules free of branching logic.
+
+        For URL sources   -- returns the URL string as-is (str(AnyHttpUrl)).
+        For path sources  -- returns the resolved absolute path as a string.
+                             Path.resolve() converts a relative path to
+                             absolute anchored at the current working directory,
+                             which is critical for prance's $ref resolver to
+                             locate sibling files correctly.
+
+        Returns:
+            str: Either the HTTP URL string or the absolute filesystem path
+                 string. prance.ResolvingParser accepts both formats natively.
+
+        Raises:
+            RuntimeError: If neither field is set, which should be unreachable
+                          because enforce_exactly_one_openapi_source catches it
+                          at construction time.
+        """
+        if self.openapi_spec_url is not None:
+            return str(self.openapi_spec_url)
+        if self.openapi_spec_path is not None:
+            return str(self.openapi_spec_path.resolve())
+        # Unreachable: the model_validator guarantees exactly one is set.
+        raise RuntimeError(
+            "TargetConfig.get_openapi_source() called but neither "
+            "openapi_spec_url nor openapi_spec_path is set. "
+            "This state should have been caught by enforce_exactly_one_openapi_source."
+        )
+
+    @property
+    def is_local_spec(self) -> bool:
+        """
+        True if the OpenAPI specification is sourced from a local filesystem path.
+
+        Used by engine.py Phase 2 logging to emit a diagnostic message that
+        distinguishes a network fetch (which may time out) from a local file
+        read (which is expected to be near-instantaneous).
+        """
+        return self.openapi_spec_path is not None
+
     @field_validator("base_url", "openapi_spec_url", "admin_api_url", mode="before")
     @classmethod
     def url_passthrough(cls, value: object) -> object:
-        """Passthrough — trailing slash normalization happens in TargetContext."""
+        """Passthrough -- trailing slash normalisation happens in TargetContext."""
         return value
 
 
@@ -215,18 +348,26 @@ class ExecutionConfig(BaseModel):
     connect_timeout: Annotated[float, Field(ge=TIMEOUT_CONNECT_MIN, le=TIMEOUT_CONNECT_MAX)] = (
         Field(
             default=TIMEOUT_CONNECT_DEFAULT,
-            description=f"TCP connection timeout in seconds for SecurityClient. Default: {TIMEOUT_CONNECT_DEFAULT}s.",  # noqa: E501
+            description=(
+                f"TCP connection timeout in seconds for SecurityClient. "
+                f"Default: {TIMEOUT_CONNECT_DEFAULT}s."
+            ),
         )
     )
     read_timeout: Annotated[float, Field(ge=TIMEOUT_READ_MIN, le=TIMEOUT_READ_MAX)] = Field(
         default=TIMEOUT_READ_DEFAULT,
-        description=f"HTTP read timeout in seconds for SecurityClient. Default: {TIMEOUT_READ_DEFAULT}s.",  # noqa: E501
+        description=(
+            f"HTTP read timeout in seconds for SecurityClient. Default: {TIMEOUT_READ_DEFAULT}s."
+        ),
     )
     max_retry_attempts: Annotated[
         int, Field(ge=RETRY_MAX_ATTEMPTS_MIN, le=RETRY_MAX_ATTEMPTS_MAX)
     ] = Field(
         default=RETRY_MAX_ATTEMPTS_DEFAULT,
-        description=f"Maximum HTTP attempts (initial + retries) for SecurityClient. Default: {RETRY_MAX_ATTEMPTS_DEFAULT}.",  # noqa: E501
+        description=(
+            f"Maximum HTTP attempts (initial + retries) for SecurityClient. "
+            f"Default: {RETRY_MAX_ATTEMPTS_DEFAULT}."
+        ),
     )
     openapi_fetch_timeout_seconds: Annotated[
         float,
@@ -240,20 +381,19 @@ class ExecutionConfig(BaseModel):
             "the pipeline would hang indefinitely on an unresponsive spec URL. "
             "Implemented as a threading watchdog: prance runs in a background "
             "thread and the main thread raises OpenAPILoadError if the timeout "
-            f"expires. Range: [{OPENAPI_FETCH_TIMEOUT_MIN}, {OPENAPI_FETCH_TIMEOUT_MAX}]. "
+            f"expires. Only relevant when openapi_spec_url is used; local file "
+            f"reads (openapi_spec_path) complete well within this budget. "
+            f"Range: [{OPENAPI_FETCH_TIMEOUT_MIN}, {OPENAPI_FETCH_TIMEOUT_MAX}]. "
             f"Default: {OPENAPI_FETCH_TIMEOUT_DEFAULT}s."
         ),
     )
-
     test_ids: list[str] = Field(
         default_factory=list,
         description=(
             "If non-empty, run ONLY the tests whose test_id is in this list. "
-            "Overrides min_priority and strategies filters entirely: a test "
-            "listed here is included regardless of its priority or strategy. "
+            "Overrides min_priority and strategies filters entirely. "
             "Intended for development and targeted verification. "
             "Example: ['4.1'] runs only Test 4.1. "
-            "Example: ['0.1', '1.1', '1.2'] runs only those three tests. "
             "Leave empty (default) for normal priority+strategy filtering."
         ),
     )
@@ -296,7 +436,7 @@ class ExecutionConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_strategy_credential_coherence(self) -> ExecutionConfig:
-        """Placeholder — cross-sub-model check deferred to ToolConfig validator."""
+        """Placeholder -- cross-sub-model check deferred to ToolConfig validator."""
         return self
 
 
@@ -330,18 +470,7 @@ class OutputConfig(BaseModel):
 
     @property
     def json_report_path(self) -> Path:
-        """Full path to the machine-readable JSON report output file.
-
-        This file contains a serialised ReportData (Pydantic model,
-        indent=2 JSON) intended for consumption by CI/CD pipelines and
-        external Vulnerability Management systems. It is a compact,
-        structured alternative to evidence.json, which carries the full
-        raw HTTP transaction payloads.
-
-        Filename: defined by JSON_REPORT_FILENAME constant to prevent
-        magic strings and allow a single point of change if the name
-        must ever be updated.
-        """
+        """Full path to the machine-readable JSON report output file."""
         return self.directory / JSON_REPORT_FILENAME
 
 
@@ -377,19 +506,12 @@ class RateLimitProbeConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# TestDomain1Config / TestsConfig — per-test tuning parameters
+# TestDomain1Config / TestsConfig -- per-test tuning parameters
 # ---------------------------------------------------------------------------
 
 
 class TestDomain1Config(BaseModel):
-    """
-    Tuning parameters for Domain 1 (Identity and Authentication) tests.
-
-    These parameters control the execution behaviour of individual tests
-    without altering their security oracle logic. All values are conservative
-    defaults that produce a complete, correct assessment on any target API
-    without requiring operator intervention.
-    """
+    """Tuning parameters for Domain 1 (Identity and Authentication) tests."""
 
     model_config = {"frozen": True}
 
@@ -401,22 +523,13 @@ class TestDomain1Config(BaseModel):
             "(recommended for complete academic coverage). "
             "Set to a positive integer only when the target API enforces strict "
             "rate limiting that would cause 429 responses during a full scan, "
-            "or when the operator requires a time-bounded assessment. "
-            "Note: a cap reduces coverage — always document this trade-off in "
-            "the assessment report."
+            "or when the operator requires a time-bounded assessment."
         ),
     )
 
 
 class TestsConfig(BaseModel):
-    """
-    Container for per-domain test tuning parameters.
-
-    Each sub-model corresponds to one methodology domain (0-7). Only domains
-    with tunable parameters have an entry here. Domains without tunable
-    parameters have no sub-model because their oracle logic is not
-    parameterised.
-    """
+    """Container for per-domain test tuning parameters."""
 
     model_config = {"frozen": True}
 
@@ -436,7 +549,7 @@ class ToolConfig(BaseModel):
     Root configuration model for the APIGuard Assurance tool.
 
     Frozen after construction. PrivateAttr fields store cross-submodel
-    coherence flags computed by the model_validator — they survive
+    coherence flags computed by the model_validator -- they survive
     model_copy() and are excluded from model_dump().
     """
 
@@ -465,8 +578,7 @@ class ToolConfig(BaseModel):
         default_factory=TestsConfig,
         description=(
             "Per-domain test tuning parameters. "
-            "Default values produce a complete assessment without operator intervention. "
-            "Override specific fields to adapt to rate-limited or time-constrained targets."
+            "Default values produce a complete assessment without operator intervention."
         ),
     )
 

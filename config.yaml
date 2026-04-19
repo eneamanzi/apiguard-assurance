@@ -4,7 +4,8 @@
 
 target:
   base_url: "http://localhost:8000"
-  openapi_spec_url: "http://localhost:3000/swagger.v1.json"
+  #openapi_spec_url: "http://localhost:3000/swagger.v1.json"   # Forma 1 — URL
+  openapi_spec_path: "./specs/forgejo-swagger.v1.json"        # Forma 2 — path locale
   admin_api_url: "http://localhost:8001"
 
 credentials:
