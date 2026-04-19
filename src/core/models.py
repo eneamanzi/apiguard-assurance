@@ -708,12 +708,58 @@ class RuntimeTest11Config(BaseModel):
     )
 
 
+class RuntimeTest41Config(BaseModel):
+    """
+    Runtime mirror of RateLimitProbeConfig fields consumed by Test 4.1.
+
+    Mirrors config/schema.py:RateLimitProbeConfig, which is defined at the
+    root level of ToolConfig (not nested under tests.domain_4) because rate
+    limiting is an infrastructure-level parameter, not a domain-specific one.
+
+    Access pattern in the test:
+        target.tests_config.test_4_1.max_requests
+        target.tests_config.test_4_1.request_interval_seconds
+    """
+
+    model_config = {"frozen": True}
+
+    max_requests: int = Field(
+        default=150,
+        ge=1,
+        description=(
+            "Maximum probe requests sent before concluding rate limiting is absent. "
+            "Mirrors RateLimitProbeConfig.max_requests. Default: 150."
+        ),
+    )
+    request_interval_ms: int = Field(
+        default=50,
+        ge=10,
+        description=(
+            "Interval in milliseconds between consecutive probe requests. "
+            "Mirrors RateLimitProbeConfig.request_interval_ms. Default: 50ms."
+        ),
+    )
+
+    @property
+    def request_interval_seconds(self) -> float:
+        """Convert request_interval_ms to seconds for use in time.sleep() calls."""
+        return self.request_interval_ms / 1000.0
+
+
 class RuntimeTestsConfig(BaseModel):
     """
     Immutable container for all per-test runtime configurations.
 
-    Populated by engine.py in Phase 3 from config.tests. Stored in TargetContext
-    and accessed by test implementations via target.tests_config.
+    Populated by engine.py in Phase 3 from config.tests and sibling
+    config blocks. Stored in TargetContext and accessed by test
+    implementations via target.tests_config.
+
+    Convention: one field per test, named test_X_Y where X is the domain
+    number and Y is the test number within that domain. Each field holds
+    an immutable RuntimeTest{XY}Config model with only the parameters
+    that specific test needs. This pattern scales cleanly as new tests
+    are added: adding a test requires only adding one field here and
+    one population line in engine.py Phase 3.
 
     Transaction log parameters are absent by design:
         transaction_log_max_entries_per_test -> removed (no cap needed with
@@ -726,6 +772,13 @@ class RuntimeTestsConfig(BaseModel):
     test_1_1: RuntimeTest11Config = Field(
         default_factory=RuntimeTest11Config,
         description="Runtime parameters for Test 1.1 (Authentication Required).",
+    )
+    test_4_1: RuntimeTest41Config = Field(
+        default_factory=RuntimeTest41Config,
+        description=(
+            "Runtime parameters for Test 4.1 (Rate Limiting — Resource Exhaustion Prevention). "
+            "Mirrors RateLimitProbeConfig from config/schema.py."
+        ),
     )
 
 

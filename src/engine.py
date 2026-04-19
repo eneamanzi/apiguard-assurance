@@ -87,6 +87,7 @@ from src.core.models import (
     ResultSet,
     RuntimeCredentials,
     RuntimeTest11Config,
+    RuntimeTest41Config,
     RuntimeTestsConfig,
     TestResult,
     TestStatus,
@@ -345,6 +346,10 @@ class AssessmentEngine:
         tests_config = RuntimeTestsConfig(
             test_1_1=RuntimeTest11Config(
                 max_endpoints_cap=config.tests.domain_1.max_endpoints_cap,
+            ),
+            test_4_1=RuntimeTest41Config(
+                max_requests=config.rate_limit_probe.max_requests,
+                request_interval_ms=config.rate_limit_probe.request_interval_ms,
             ),
         )
 
