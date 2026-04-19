@@ -245,6 +245,19 @@ class ExecutionConfig(BaseModel):
         ),
     )
 
+    test_ids: list[str] = Field(
+        default_factory=list,
+        description=(
+            "If non-empty, run ONLY the tests whose test_id is in this list. "
+            "Overrides min_priority and strategies filters entirely: a test "
+            "listed here is included regardless of its priority or strategy. "
+            "Intended for development and targeted verification. "
+            "Example: ['4.1'] runs only Test 4.1. "
+            "Example: ['0.1', '1.1', '1.2'] runs only those three tests. "
+            "Leave empty (default) for normal priority+strategy filtering."
+        ),
+    )
+
     @field_validator("strategies", mode="before")
     @classmethod
     def strategies_must_not_be_empty(cls, value: object) -> object:
@@ -254,6 +267,31 @@ class ExecutionConfig(BaseModel):
                 "execution.strategies must contain at least one strategy. "
                 "Valid values: BLACK_BOX, GREY_BOX, WHITE_BOX."
             )
+        return value
+
+    @field_validator("test_ids", mode="before")
+    @classmethod
+    def test_ids_must_be_valid_format(cls, value: object) -> object:
+        """
+        Validate that each test_id follows the 'X.Y' format.
+
+        A test_id is a string of the form '<domain>.<sequence>', where
+        both parts are non-negative integers (e.g. '0.1', '4.1', '7.2').
+        This validator catches obvious typos early, before the registry
+        attempts the lookup and silently produces an empty filtered list.
+        """
+        if not isinstance(value, list):
+            return value
+        for item in value:
+            if not isinstance(item, str):
+                raise ValueError(f"Each test_id must be a string. Got: {item!r}")
+            parts = item.split(".")
+            if len(parts) != 2 or not all(p.isdigit() for p in parts):  # noqa: PLR2004
+                raise ValueError(
+                    f"Invalid test_id format: {item!r}. "
+                    "Expected 'X.Y' where X is the domain number and Y is "
+                    "the test number (e.g. '4.1', '0.2', '1.3')."
+                )
         return value
 
     @model_validator(mode="after")

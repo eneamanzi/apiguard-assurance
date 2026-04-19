@@ -395,6 +395,7 @@ class AssessmentEngine:
         active_tests = registry.discover(
             min_priority=config.execution.min_priority,
             enabled_strategies=set(config.execution.strategies),
+            allowed_ids=set(config.execution.test_ids) if config.execution.test_ids else set(),
         )
 
         if not active_tests:

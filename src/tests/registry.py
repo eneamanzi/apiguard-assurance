@@ -113,6 +113,7 @@ class TestRegistry:
         self,
         min_priority: int,
         enabled_strategies: set[TestStrategy],
+        allowed_ids: set[str] | None = None,
     ) -> list[BaseTest]:
         """
         Discover, instantiate, and filter all concrete BaseTest subclasses.
@@ -129,9 +130,15 @@ class TestRegistry:
             min_priority: Maximum priority level (inclusive) to include.
                           Tests with priority > min_priority are excluded.
                           Range: 0 (P0 only) to 3 (all tests).
+                          Ignored when allowed_ids is non-empty.
             enabled_strategies: Set of TestStrategy values to include.
                                  Tests whose strategy is not in this set are excluded.
                                  Must not be empty (validated by ToolConfig schema).
+                                 Ignored when allowed_ids is non-empty.
+            allowed_ids: If non-empty, include ONLY tests whose test_id is in
+                         this set. Overrides min_priority and enabled_strategies
+                         entirely. Intended for development and targeted runs.
+                         None or empty set means normal priority+strategy filtering.
 
         Returns:
             Sorted list of instantiated BaseTest subclasses that passed all
@@ -141,6 +148,7 @@ class TestRegistry:
             "test_registry_discovery_started",
             min_priority=min_priority,
             enabled_strategies=[s.value for s in enabled_strategies],
+            allowed_ids=sorted(allowed_ids) if allowed_ids else [],
         )
 
         # Phase R1: scan and import test modules.
@@ -149,11 +157,12 @@ class TestRegistry:
         # Phase R2: extract concrete BaseTest subclasses.
         all_tests = self._extract_concrete_subclasses(imported_modules)
 
-        # Phase R3: apply priority and strategy filters.
+        # Phase R3: apply filters.
         active_tests = self._apply_filters(
             tests=all_tests,
             min_priority=min_priority,
             enabled_strategies=enabled_strategies,
+            allowed_ids=allowed_ids or set(),
         )
 
         # Sort by test_id for deterministic ordering.
@@ -466,35 +475,72 @@ class TestRegistry:
         tests: list[BaseTest],
         min_priority: int,
         enabled_strategies: set[TestStrategy],
+        allowed_ids: set[str],
     ) -> list[BaseTest]:
         """
-        Apply priority and strategy filters to the discovered test list.
+        Apply filters to the discovered test list.
 
-        Filter order:
+        Filter mode is determined by whether allowed_ids is non-empty:
+
+        ID filter mode (allowed_ids non-empty):
+            Include ONLY tests whose test_id is in allowed_ids.
+            The min_priority and enabled_strategies parameters are ignored
+            entirely. This is the intended behaviour: when the operator
+            explicitly names specific tests, priority and strategy are not
+            relevant constraints.
+
+        Normal filter mode (allowed_ids empty):
             1. Priority: exclude tests with priority > min_priority.
             2. Strategy: exclude tests whose strategy is not in enabled_strategies.
-
-        Both filters are applied in a single pass over the list.
-        Each excluded test is logged at DEBUG level with the exclusion reason,
-        providing a complete audit trail of what was excluded and why.
+            Both filters are applied in a single pass. Each excluded test is
+            logged at DEBUG level with the exclusion reason.
 
         Args:
-            tests: Full list of discovered BaseTest instances.
-            min_priority: Maximum priority value to include (inclusive).
+            tests:             Full list of discovered BaseTest instances.
+            min_priority:      Maximum priority value to include (inclusive).
             enabled_strategies: Set of strategies to include.
+            allowed_ids:       If non-empty, the only filter applied is
+                               membership in this set.
 
         Returns:
             Filtered list of BaseTest instances.
         """
         active: list[BaseTest] = []
 
+        if allowed_ids:
+            # ID filter mode: allowed_ids overrides everything else.
+            for test in tests:
+                test_id = test.__class__.test_id
+                if test_id in allowed_ids:
+                    active.append(test)
+                else:
+                    log.debug(
+                        "test_registry_excluded_by_id_filter",
+                        test_id=test_id,
+                        allowed_ids=sorted(allowed_ids),
+                    )
+            # Warn if any requested ID was not found among discovered tests.
+            discovered_ids = {t.__class__.test_id for t in active}
+            missing = allowed_ids - discovered_ids
+            if missing:
+                log.warning(
+                    "test_registry_requested_ids_not_found",
+                    missing_ids=sorted(missing),
+                    detail=(
+                        "One or more test_ids specified in execution.test_ids "
+                        "were not found among discovered tests. Check for "
+                        "typos or missing test files."
+                    ),
+                )
+            return active
+
+        # Normal filter mode: priority + strategy.
         for test in tests:
             cls = test.__class__
             test_id = cls.test_id
             priority = cls.priority
             strategy = cls.strategy
 
-            # Priority filter.
             if priority > min_priority:
                 log.debug(
                     "test_registry_excluded_by_priority",
@@ -504,7 +550,6 @@ class TestRegistry:
                 )
                 continue
 
-            # Strategy filter.
             if strategy not in enabled_strategies:
                 log.debug(
                     "test_registry_excluded_by_strategy",

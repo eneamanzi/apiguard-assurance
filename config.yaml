@@ -16,12 +16,17 @@ credentials:
   user_b_password: "${USER_B_PASSWORD}"
 
 execution:
-  min_priority: 3
+  min_priority: 3       # esegue solo i test con priorità <= a quella specificata
+                        # 0 = solo P0 | 1 = P0+P1 | 2 = P0-P2 | 3 = tutti (default)
   strategies:
     - BLACK_BOX
     - GREY_BOX
     - WHITE_BOX
-  fail_fast: false
+  test_ids: []     # esegue solo test specificati, se vuota comportamento normale
+  # test_ids: ["0.1", "1.1"]  # più test specifici
+  # test_ids: []          # lista vuota = comportamento normale
+
+  fail_fast: false      # Se true, interrompe l'esecuzione al primo FAIL su test P0
   connect_timeout: 5.0
   read_timeout: 30.0
   max_retry_attempts: 3
