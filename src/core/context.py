@@ -151,6 +151,19 @@ class TargetContext(BaseModel):
             "Immutable per-test tuning parameters populated from config.yaml. Never log this field."
         ),
     )
+    path_seed: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Operator-supplied mapping of OpenAPI path parameter names to real resource "
+            "identifiers on the target deployment.  Populated from config.target.path_seed "
+            "during Phase 3 (Context Construction) and consumed by test implementations "
+            "via src.tests.helpers.path_resolver.resolve_path_with_seed(). "
+            "An empty dict (default) causes all path parameters to be substituted with "
+            "the test-specific fallback placeholder, preserving pre-seed behaviour. "
+            "SECURITY: this field must never appear in log output, as values may contain "
+            "real usernames or resource identifiers that could reveal target topology."
+        ),
+    )
 
     @model_validator(mode="after")
     def enforce_exactly_one_openapi_source(self) -> TargetContext:

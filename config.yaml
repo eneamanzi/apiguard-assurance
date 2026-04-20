@@ -4,9 +4,43 @@
 
 target:
   base_url: "http://localhost:8000"
-  #openapi_spec_url: "http://localhost:3000/swagger.v1.json"   # Forma 1 — URL
-  openapi_spec_path: "./specs/forgejo-swagger.v1.json"        # Forma 2 — path locale
+  openapi_spec_url: "http://localhost:3000/swagger.v1.json"   # Forma 1 — URL
+  #openapi_spec_path: "./specs/forgejo-swagger.v1.json"        # Forma 2 — path locale
   admin_api_url: "http://localhost:8001"
+
+  # ---------------------------------------------------------------------------
+  # path_seed — context-aware path parameter seeding (optional)
+  # ---------------------------------------------------------------------------
+  # Maps OpenAPI path parameter names to real resource identifiers on the target.
+  #
+  # WHY THIS MATTERS:
+  #   Parametric endpoints like /api/v1/repos/{owner}/{repo}/issues resolve to
+  #   /api/v1/repos/1/1/issues with the generic fallback placeholder. The backend
+  #   returns 404 before the request reaches the authentication middleware, making
+  #   the probe result INCONCLUSIVE_PARAMETRIC instead of ENFORCED or BYPASS.
+  #   Real values route the probe to an existing resource, ensuring the auth
+  #   layer fires and the test produces meaningful results.
+  #
+  # HOW TO POPULATE:
+  #   Run: apiguard generate-seed <openapi_spec_url_or_path> --output seed.yaml
+  #   This command reads the spec, extracts all {param} names, and generates a
+  #   template with FILL_ME placeholders. Replace each FILL_ME with a real value
+  #   from your target deployment and paste the block here.
+  #
+  # EXAMPLE (Forgejo):
+  #   path_seed:
+  #     owner: "mario_rossi"          # A real Forgejo username
+  #     repo: "my-test-repo"          # A real repository belonging to that user
+  #     username: "mario_rossi"       # Same user (aliased under different param name)
+  #     id: "1"                       # Generic integer ID for issue/comment/etc.
+  #     index: "1"                    # Issue index within a repository
+  #     sha: "main"                   # A real branch name or commit SHA
+  #
+  # FALLBACK BEHAVIOUR:
+  #   Parameters absent from path_seed fall back to the test's default placeholder
+  #   ("1" for most probes, "apiguard-probe" for parametric DELETE probes).
+  #   An empty dict {} preserves the pre-seed behaviour entirely.
+  path_seed: {}
 
 credentials:
   admin_username: "${ADMIN_USERNAME}"
@@ -53,3 +87,29 @@ tests:
     # 0 = test ALL protected endpoints (recommended for academic completeness).
     # Set to a positive integer to cap the scan on rate-limited targets.
     max_endpoints_cap: 0
+
+  domain_4:
+    # Test 4.2 — Timeout Configuration Audit (WHITE_BOX, P1)
+    # Oracle thresholds from the methodology (section 4.2, NIST SP 800-204A Section 4.3).
+    # Kong stores all timeout values as plain integers in milliseconds.
+    test_4_2:
+      max_connect_timeout_ms: 5000    # <= 5 s — methodology oracle
+      max_read_timeout_ms: 30000      # <= 30 s — methodology oracle
+      max_write_timeout_ms: 30000     # <= 30 s — methodology oracle
+
+    # Test 4.3 — Circuit Breaker Configuration Audit (WHITE_BOX, P1)
+    # Kong OSS DB-less has no native circuit-breaker plugin; the expected finding
+    # on a vanilla deployment is FAIL ("No circuit-breaker plugin detected"), which
+    # correctly documents the architectural gap per OWASP ASVS v5.0.0 V16.5.2.
+    test_4_3:
+      # Plugin names accepted as circuit-breaker equivalents (evaluated in order).
+      # 'circuit-breaker' is Kong Enterprise only.
+      # 'response-ratelimiting' is the closest Kong OSS substitute.
+      accepted_cb_plugin_names:
+        - "circuit-breaker"
+        - "response-ratelimiting"
+      # Parameter ranges (methodology section 4.3, Martin Fowler Circuit Breaker Pattern).
+      failure_threshold_min: 3        # minimum consecutive failures to open circuit
+      failure_threshold_max: 10       # maximum consecutive failures to open circuit
+      timeout_duration_min_seconds: 30   # min Open-state duration before Half-Open probe
+      timeout_duration_max_seconds: 120  # max Open-state duration before Half-Open probe
