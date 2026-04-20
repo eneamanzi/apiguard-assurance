@@ -69,3 +69,6 @@ dmypy.json
 # Docker (compose override files with local secrets)
 docker-compose.override.yml
 docker-compose.local.yml
+
+# Apiguard 
+specs/

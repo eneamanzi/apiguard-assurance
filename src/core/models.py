@@ -746,6 +746,96 @@ class RuntimeTest41Config(BaseModel):
         return self.request_interval_ms / 1000.0
 
 
+class RuntimeTest42Config(BaseModel):
+    """
+    Runtime mirror of Test42AuditConfig fields consumed by Test 4.2.
+
+    Stores the maximum acceptable timeout values (in milliseconds) for Kong
+    service objects. Mirrored from config/schema.py:Test42AuditConfig, which
+    is nested under config.tests.domain_4.test_4_2.
+
+    Access pattern in the test:
+        target.tests_config.test_4_2.max_connect_timeout_ms
+        target.tests_config.test_4_2.max_read_timeout_ms
+        target.tests_config.test_4_2.max_write_timeout_ms
+    """
+
+    model_config = {"frozen": True}
+
+    max_connect_timeout_ms: int = Field(
+        default=5_000,
+        ge=1,
+        description=(
+            "Maximum acceptable Kong service connect_timeout in milliseconds. "
+            "Methodology oracle: <= 5 000 ms. Default: 5 000."
+        ),
+    )
+    max_read_timeout_ms: int = Field(
+        default=30_000,
+        ge=1,
+        description=(
+            "Maximum acceptable Kong service read_timeout in milliseconds. "
+            "Methodology oracle: <= 30 000 ms. Default: 30 000."
+        ),
+    )
+    max_write_timeout_ms: int = Field(
+        default=30_000,
+        ge=1,
+        description=(
+            "Maximum acceptable Kong service write_timeout in milliseconds. "
+            "Methodology oracle: <= 30 000 ms. Default: 30 000."
+        ),
+    )
+
+
+class RuntimeTest43Config(BaseModel):
+    """
+    Runtime mirror of Test43AuditConfig fields consumed by Test 4.3.
+
+    Stores accepted circuit-breaker plugin names and the parameter ranges used
+    to validate a detected plugin's configuration. Mirrored from
+    config/schema.py:Test43AuditConfig, nested under config.tests.domain_4.test_4_3.
+
+    Access pattern in the test:
+        target.tests_config.test_4_3.accepted_cb_plugin_names
+        target.tests_config.test_4_3.failure_threshold_min
+        target.tests_config.test_4_3.failure_threshold_max
+        target.tests_config.test_4_3.timeout_duration_min_seconds
+        target.tests_config.test_4_3.timeout_duration_max_seconds
+    """
+
+    model_config = {"frozen": True}
+
+    accepted_cb_plugin_names: list[str] = Field(
+        default_factory=lambda: ["circuit-breaker", "response-ratelimiting"],
+        description=(
+            "Kong plugin names considered equivalent to a circuit breaker. "
+            "The first enabled match drives parameter validation. "
+            "Default: ['circuit-breaker', 'response-ratelimiting']."
+        ),
+    )
+    failure_threshold_min: int = Field(
+        default=3,
+        ge=1,
+        description="Minimum acceptable consecutive-failure threshold to open circuit. Default: 3.",
+    )
+    failure_threshold_max: int = Field(
+        default=10,
+        ge=1,
+        description="Maximum acceptable consecutive-failure threshold to open circuit. Default: 10.",  # noqa: E501
+    )
+    timeout_duration_min_seconds: int = Field(
+        default=30,
+        ge=1,
+        description="Minimum acceptable Open-state duration in seconds. Default: 30.",
+    )
+    timeout_duration_max_seconds: int = Field(
+        default=120,
+        ge=1,
+        description="Maximum acceptable Open-state duration in seconds. Default: 120.",
+    )
+
+
 class RuntimeTestsConfig(BaseModel):
     """
     Immutable container for all per-test runtime configurations.
@@ -778,6 +868,20 @@ class RuntimeTestsConfig(BaseModel):
         description=(
             "Runtime parameters for Test 4.1 (Rate Limiting — Resource Exhaustion Prevention). "
             "Mirrors RateLimitProbeConfig from config/schema.py."
+        ),
+    )
+    test_4_2: RuntimeTest42Config = Field(
+        default_factory=RuntimeTest42Config,
+        description=(
+            "Runtime parameters for Test 4.2 (Timeout Configuration Audit). "
+            "Mirrors Test42AuditConfig from config.tests.domain_4.test_4_2."
+        ),
+    )
+    test_4_3: RuntimeTest43Config = Field(
+        default_factory=RuntimeTest43Config,
+        description=(
+            "Runtime parameters for Test 4.3 (Circuit Breaker Configuration Audit). "
+            "Mirrors Test43AuditConfig from config.tests.domain_4.test_4_3."
         ),
     )
 

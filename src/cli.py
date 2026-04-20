@@ -304,6 +304,174 @@ def validate_config(
         raise typer.Exit(code=10) from None
 
 
+@app.command(name="generate-seed")
+def generate_seed(
+    spec: Annotated[
+        str,
+        typer.Argument(
+            help=(
+                "OpenAPI specification source. Accepts either: "
+                "(1) an HTTP/HTTPS URL (e.g. http://localhost:3000/swagger.v1.json), or "
+                "(2) a local filesystem path (e.g. ./specs/openapi.yaml). "
+                "The spec is fetched or read as-is without full $ref dereferencing, "
+                "which makes this command fast and usable before the target is fully running."
+            ),
+        ),
+    ],
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help=(
+                "Path where the generated seed template YAML file will be written. "
+                "If omitted, the template is printed to stdout so it can be "
+                "piped or redirected manually. "
+                "Example: --output seed_template.yaml"
+            ),
+            file_okay=True,
+            dir_okay=False,
+            resolve_path=False,
+        ),
+    ] = None,
+    timeout: Annotated[
+        float,
+        typer.Option(
+            "--timeout",
+            help=(
+                "HTTP fetch timeout in seconds for remote spec URLs. "
+                "Ignored for local filesystem paths. Default: 30s."
+            ),
+            min=1.0,
+            max=120.0,
+        ),
+    ] = 30.0,
+    log_format: Annotated[
+        LogFormat,
+        typer.Option(
+            "--log-format",
+            help="Log output format.",
+            case_sensitive=False,
+        ),
+    ] = LogFormat.CONSOLE,
+) -> None:
+    """
+    Generate a path_seed YAML template from an OpenAPI specification.
+
+    Reads the specification, extracts all unique path parameter names declared
+    inside curly braces (e.g. ``{owner}``, ``{repo}``, ``{id}``), and writes a
+    YAML template where every parameter is pre-filled with the placeholder value
+    ``FILL_ME``.
+
+    The generated template is designed to be pasted directly under the
+    ``target:`` section of ``config.yaml``.  After replacing every ``FILL_ME``
+    with a real resource identifier from the target deployment, parametric
+    endpoints (e.g. ``/repos/{owner}/{repo}``) will receive real, routable paths
+    during the assessment instead of generic placeholders that return 404 before
+    reaching the authentication middleware.
+
+    Examples:
+
+        # Generate from a running target and print to stdout
+        apiguard generate-seed http://localhost:3000/swagger.v1.json
+
+        # Generate from a local spec file and save to disk
+        apiguard generate-seed ./specs/openapi.yaml --output seed_template.yaml
+
+        # Generate from URL with extended timeout and save
+        apiguard generate-seed https://api.example.com/openapi.json \\
+            --output my_seed.yaml --timeout 60
+
+    Exit codes:
+        0   Template generated successfully.
+        1   Fetch or parse error (spec unreachable or malformed).
+    """
+    _configure_logging(log_format=log_format, log_level=LogLevel.INFO)
+
+    from src.discovery.seed_generator import (
+        SeedGeneratorFetchError,
+        SeedGeneratorParseError,
+        extract_path_param_names,
+        render_seed_template,
+    )
+
+    log_inner = structlog.get_logger("cli.generate_seed")
+
+    if log_format == LogFormat.CONSOLE:
+        _console_out.print(
+            Panel(
+                f"[dim]Spec source:[/dim] [white]{spec}[/white]",
+                title="[bold cyan]APIGuard — Generate Seed[/bold cyan]",
+                border_style="bright_blue",
+                padding=(0, 2),
+                expand=False,
+            )
+        )
+
+    try:
+        param_names = extract_path_param_names(
+            spec_source=spec,
+            timeout_seconds=timeout,
+        )
+    except SeedGeneratorFetchError as exc:
+        log_inner.error(
+            "generate_seed_fetch_failed",
+            spec_source=exc.spec_source,
+            reason=exc.reason,
+        )
+        _console_err.print(
+            f"[bold red]Fetch error:[/bold red] {exc.reason}\n[dim]Source:[/dim] {exc.spec_source}"
+        )
+        raise typer.Exit(code=1) from None
+    except SeedGeneratorParseError as exc:
+        log_inner.error(
+            "generate_seed_parse_failed",
+            spec_source=exc.spec_source,
+            reason=exc.reason,
+        )
+        _console_err.print(
+            f"[bold red]Parse error:[/bold red] {exc.reason}\n[dim]Source:[/dim] {exc.spec_source}"
+        )
+        raise typer.Exit(code=1) from None
+
+    yaml_content = render_seed_template(param_names=param_names, spec_source=spec)
+
+    if output is None:
+        # Print to stdout: the user can redirect or copy-paste manually.
+        _console_out.print(yaml_content)
+        if log_format == LogFormat.CONSOLE:
+            _console_out.print(
+                f"[dim]Found [bold]{len(param_names)}[/bold] unique path parameter(s). "
+                "Paste the block above under 'target:' in config.yaml.[/dim]"
+            )
+    else:
+        output_path = Path(output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(yaml_content, encoding="utf-8")
+
+        log_inner.info(
+            "generate_seed_template_written",
+            output_path=str(output_path.resolve()),
+            param_count=len(param_names),
+            param_names=param_names,
+        )
+
+        if log_format == LogFormat.CONSOLE:
+            _console_out.print(
+                f"[bold green]Seed template written:[/bold green] {output_path.resolve()}\n"
+                f"[dim]Found [bold]{len(param_names)}[/bold] unique path parameter(s): "
+                f"{', '.join(param_names) if param_names else '(none)'}[/dim]\n"
+                "[dim]Next steps:[/dim]\n"
+                "  [white]1.[/white] Open the generated file and replace each [yellow]FILL_ME[/yellow] "  # noqa: E501
+                "with a real resource identifier.\n"
+                "  [white]2.[/white] Paste the [cyan]path_seed:[/cyan] block under [cyan]target:[/cyan] "  # noqa: E501
+                "in your [white]config.yaml[/white].\n"
+                "  [white]3.[/white] Re-run [bold]apiguard run[/bold] for an assessment with real paths."  # noqa: E501
+            )
+
+    raise typer.Exit(code=0)
+
+
 # ---------------------------------------------------------------------------
 # Logging configuration
 # ---------------------------------------------------------------------------

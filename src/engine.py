@@ -95,6 +95,8 @@ from src.core.models import (
     RuntimeCredentials,
     RuntimeTest11Config,
     RuntimeTest41Config,
+    RuntimeTest42Config,
+    RuntimeTest43Config,
     RuntimeTestsConfig,
     TestResult,
     TestStatus,
@@ -371,6 +373,24 @@ class AssessmentEngine:
                 max_requests=config.rate_limit_probe.max_requests,
                 request_interval_ms=config.rate_limit_probe.request_interval_ms,
             ),
+            test_4_2=RuntimeTest42Config(
+                max_connect_timeout_ms=config.tests.domain_4.test_4_2.max_connect_timeout_ms,
+                max_read_timeout_ms=config.tests.domain_4.test_4_2.max_read_timeout_ms,
+                max_write_timeout_ms=config.tests.domain_4.test_4_2.max_write_timeout_ms,
+            ),
+            test_4_3=RuntimeTest43Config(
+                accepted_cb_plugin_names=list(
+                    config.tests.domain_4.test_4_3.accepted_cb_plugin_names
+                ),
+                failure_threshold_min=config.tests.domain_4.test_4_3.failure_threshold_min,
+                failure_threshold_max=config.tests.domain_4.test_4_3.failure_threshold_max,
+                timeout_duration_min_seconds=(
+                    config.tests.domain_4.test_4_3.timeout_duration_min_seconds
+                ),
+                timeout_duration_max_seconds=(
+                    config.tests.domain_4.test_4_3.timeout_duration_max_seconds
+                ),
+            ),
         )
 
         target = TargetContext(
@@ -388,6 +408,10 @@ class AssessmentEngine:
             attack_surface=attack_surface,
             credentials=RuntimeCredentials.model_validate(config.credentials.model_dump()),
             tests_config=tests_config,
+            # Propagate the operator-supplied seed dict.  dict() constructs a
+            # shallow copy, ensuring TargetContext's internal state is decoupled
+            # from the ToolConfig object even though both are in practice frozen.
+            path_seed=dict(config.target.path_seed),
         )
 
         context = TestContext()
@@ -398,6 +422,8 @@ class AssessmentEngine:
             admin_api_available=target.admin_api_available,
             openapi_source=target.get_openapi_source(),
             is_local_spec=target.is_local_spec,
+            path_seed_param_count=len(target.path_seed),
+            path_seed_param_names=sorted(target.path_seed.keys()),
         )
 
         return target, context, store

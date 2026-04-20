@@ -3,7 +3,7 @@
 Creare uno ZIP aggiornato con tutti i sorgenti e i test (escludendo cache, pycache e report):
 
 ```bash
-zip -r apiguard-assurance.zip . -x "*.git/*" -x "*__pycache__*" -x "*.pyc" -x "*.ruff_cache*" -x "*.pytest_cache*" -x "*.mypy_cache*" -x "*.vscode*" -x "*outputs*" -x "*.zip" -x ".env"
+zip -r apiguard-assurance.zip . -x "*.git/*" -x "*__pycache__*" -x "*.pyc" -x "*.ruff_cache*" -x "*.pytest_cache*" -x "*.mypy_cache*" -x "*.vscode*" -x "*outputs/*" -x "*specs/*" -x "*.zip" -x ".env"
 ```
 
 ## Visualizzazione Report (VS Code Remote)

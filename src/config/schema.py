@@ -233,6 +233,22 @@ class TargetConfig(BaseModel):
         """
         return self.openapi_spec_path is not None
 
+    path_seed: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Optional mapping of OpenAPI path parameter names to real resource "
+            "identifiers on the target deployment.  Used by the path resolver to "
+            'substitute parametric path segments (e.g. "{owner}") with values that '
+            "route to real resources, ensuring probes reach the authentication "
+            "middleware instead of receiving a 404 at the routing layer. "
+            "Example: {owner: 'mario_rossi', repo: 'my-repo', id: '1'}. "
+            "Parameters absent from this dict fall back to the test's default "
+            "placeholder (typically '1'). "
+            "Run 'apiguard generate-seed' to auto-generate a template with all "
+            "parameter names found in the OpenAPI specification."
+        ),
+    )
+
     @field_validator("base_url", "openapi_spec_url", "admin_api_url", mode="before")
     @classmethod
     def url_passthrough(cls, value: object) -> object:
@@ -528,6 +544,139 @@ class TestDomain1Config(BaseModel):
     )
 
 
+class Test42AuditConfig(BaseModel):
+    """
+    Tuning parameters for Test 4.2 (Timeout Configuration Audit).
+
+    Oracle thresholds are taken directly from the methodology (section 4.2):
+        connect_timeout  <= 5 000 ms  (5 s)
+        read_timeout     <= 30 000 ms (30 s)
+        write_timeout    <= 30 000 ms (30 s)
+
+    Kong stores all timeout values in milliseconds as plain integers.
+    Adjust these only when the target gateway is intentionally configured
+    with different timeouts and the deviation is accepted as a documented risk.
+    """
+
+    model_config = {"frozen": True}
+
+    max_connect_timeout_ms: Annotated[int, Field(ge=1)] = Field(
+        default=5_000,
+        description=(
+            "Maximum acceptable Kong service connect_timeout in milliseconds. "
+            "Methodology oracle: connect_timeout <= 5 000 ms (NIST SP 800-204A Section 4.3). "
+            "Services with a higher value will produce a FAIL finding."
+        ),
+    )
+    max_read_timeout_ms: Annotated[int, Field(ge=1)] = Field(
+        default=30_000,
+        description=(
+            "Maximum acceptable Kong service read_timeout in milliseconds. "
+            "Methodology oracle: read_timeout <= 30 000 ms (NIST SP 800-204A Section 4.3). "
+            "Services with a higher value will produce a FAIL finding."
+        ),
+    )
+    max_write_timeout_ms: Annotated[int, Field(ge=1)] = Field(
+        default=30_000,
+        description=(
+            "Maximum acceptable Kong service write_timeout in milliseconds. "
+            "Methodology oracle: write_timeout <= 30 000 ms. "
+            "Services with a higher value will produce a FAIL finding."
+        ),
+    )
+
+
+class Test43AuditConfig(BaseModel):
+    """
+    Tuning parameters for Test 4.3 (Circuit Breaker Configuration Audit).
+
+    accepted_cb_plugin_names controls which Kong plugin names are treated as
+    circuit-breaker equivalents. Kong OSS does not ship a native circuit-breaker
+    plugin; the expected finding on a vanilla Kong OSS deployment is therefore
+    FAIL ('No circuit-breaker plugin detected'), which documents the gap.
+
+    When a recognised plugin IS present, its configuration is validated against
+    the failure_threshold and timeout_duration ranges drawn from the methodology
+    (section 4.3): failure_threshold in [3, 10], timeout_duration in [30, 120] s.
+    """
+
+    model_config = {"frozen": True}
+
+    accepted_cb_plugin_names: list[str] = Field(
+        default_factory=lambda: ["circuit-breaker", "response-ratelimiting"],
+        description=(
+            "Kong plugin names that are accepted as circuit-breaker equivalents. "
+            "Evaluated in order; the first enabled match is used for parameter "
+            "validation. 'circuit-breaker' is Kong Enterprise only. "
+            "'response-ratelimiting' is the closest OSS substitute but is not "
+            "a true circuit breaker. "
+            "Extend this list when custom or third-party plugins are deployed."
+        ),
+    )
+    failure_threshold_min: Annotated[int, Field(ge=1)] = Field(
+        default=3,
+        description=(
+            "Minimum acceptable failure threshold to open the circuit. "
+            "Methodology range: [3, 10] consecutive failures. "
+            "A threshold below this minimum is too sensitive (alert fatigue)."
+        ),
+    )
+    failure_threshold_max: Annotated[int, Field(ge=1)] = Field(
+        default=10,
+        description=(
+            "Maximum acceptable failure threshold to open the circuit. "
+            "Methodology range: [3, 10] consecutive failures. "
+            "A threshold above this maximum leaves the system exposed too long."
+        ),
+    )
+    timeout_duration_min_seconds: Annotated[int, Field(ge=1)] = Field(
+        default=30,
+        description=(
+            "Minimum acceptable Open-state duration in seconds before Half-Open probe. "
+            "Methodology range: [30, 120] s (Martin Fowler Circuit Breaker Pattern). "
+            "A shorter window may not allow the downstream service to recover."
+        ),
+    )
+    timeout_duration_max_seconds: Annotated[int, Field(ge=1)] = Field(
+        default=120,
+        description=(
+            "Maximum acceptable Open-state duration in seconds before Half-Open probe. "
+            "Methodology range: [30, 120] s. "
+            "A longer window unnecessarily degrades availability."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_threshold_range_coherence(self) -> Test43AuditConfig:
+        """Ensure min <= max for both parameter ranges."""
+        if self.failure_threshold_min > self.failure_threshold_max:
+            raise ValueError(
+                f"failure_threshold_min ({self.failure_threshold_min}) must be "
+                f"<= failure_threshold_max ({self.failure_threshold_max})."
+            )
+        if self.timeout_duration_min_seconds > self.timeout_duration_max_seconds:
+            raise ValueError(
+                f"timeout_duration_min_seconds ({self.timeout_duration_min_seconds}) must be "
+                f"<= timeout_duration_max_seconds ({self.timeout_duration_max_seconds})."
+            )
+        return self
+
+
+class TestDomain4Config(BaseModel):
+    """Tuning parameters for Domain 4 (Availability and Resilience) tests."""
+
+    model_config = {"frozen": True}
+
+    test_4_2: Test42AuditConfig = Field(
+        default_factory=Test42AuditConfig,
+        description="Oracle thresholds for Test 4.2 (Timeout Configuration Audit).",
+    )
+    test_4_3: Test43AuditConfig = Field(
+        default_factory=Test43AuditConfig,
+        description="Accepted plugins and parameter ranges for Test 4.3 (Circuit Breaker Audit).",
+    )
+
+
 class TestsConfig(BaseModel):
     """Container for per-domain test tuning parameters."""
 
@@ -536,6 +685,10 @@ class TestsConfig(BaseModel):
     domain_1: TestDomain1Config = Field(
         default_factory=TestDomain1Config,
         description="Tuning parameters for Domain 1 (Identity and Authentication) tests.",
+    )
+    domain_4: TestDomain4Config = Field(
+        default_factory=TestDomain4Config,
+        description="Tuning parameters for Domain 4 (Availability and Resilience) tests.",
     )
 
 
