@@ -147,7 +147,7 @@ class TestEvidenceSerializiation:
 
         result_set = ResultSet()
         result_set.add_result(_make_pass_result())
-        store = EvidenceStore()
+        store = EvidenceStore(tmp_path / "evidence_tmp")
 
         engine = _build_engine(minimal_config_file)
 
@@ -182,7 +182,7 @@ class TestEvidenceSerializiation:
         report_path = tmp_path / "report.html"
         config = _make_loaded_config(tmp_path, minimal_config_file)
 
-        store = EvidenceStore()
+        store = EvidenceStore(tmp_path / "evidence_tmp")
         record = _make_evidence_record("0.1")
         store.add_fail_evidence(record)
 
@@ -221,7 +221,7 @@ class TestEvidenceSerializiation:
         report_path = tmp_path / "report.html"
         config = _make_loaded_config(tmp_path, minimal_config_file)
 
-        store = EvidenceStore()
+        store = EvidenceStore(tmp_path / "evidence_tmp")
         store.add_fail_evidence(_make_evidence_record("0.1", 1))
         store.add_fail_evidence(_make_evidence_record("0.2", 2))
         store.add_fail_evidence(_make_evidence_record("0.3", 3))
@@ -273,7 +273,7 @@ class TestEvidenceSerializiation:
             # Must not raise
             engine._phase_7_report(
                 result_set=ResultSet(),
-                store=EvidenceStore(),
+                store=EvidenceStore(tmp_path / "evidence_tmp"),
                 config=config,
                 attack_surface=reference_surface,
             )
@@ -324,7 +324,7 @@ class TestHTMLReportRendering:
 
             engine._phase_7_report(
                 result_set=result_set,
-                store=EvidenceStore(),
+                store=EvidenceStore(tmp_path / "evidence_tmp"),
                 config=config,
                 attack_surface=reference_surface,
             )
@@ -360,7 +360,7 @@ class TestHTMLReportRendering:
 
             engine._phase_7_report(
                 result_set=result_set,
-                store=EvidenceStore(),
+                store=EvidenceStore(tmp_path / "evidence_tmp"),
                 config=config,
                 attack_surface=reference_surface,
             )
@@ -398,7 +398,7 @@ class TestHTMLReportRendering:
             # Must not raise
             engine._phase_7_report(
                 result_set=ResultSet(),
-                store=EvidenceStore(),
+                store=EvidenceStore(tmp_path / "evidence_tmp"),
                 config=config,
                 attack_surface=reference_surface,
             )
@@ -659,7 +659,7 @@ class TestReportDataBuildFailure:
             # Must not raise
             engine._phase_7_report(
                 result_set=ResultSet(),
-                store=EvidenceStore(),
+                store=EvidenceStore(tmp_path / "evidence_tmp"),
                 config=config,
                 attack_surface=reference_surface,
             )
@@ -691,7 +691,7 @@ class TestReportDataBuildFailure:
 
             engine._phase_7_report(
                 result_set=ResultSet(),
-                store=EvidenceStore(),
+                store=EvidenceStore(tmp_path / "evidence_tmp"),
                 config=config,
                 attack_surface=reference_surface,
             )

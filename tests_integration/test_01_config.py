@@ -113,7 +113,7 @@ class TestValidConfigLoading:
         """
         config = load_config(minimal_config_file)
         with pytest.raises(ValidationError):
-            config.execution = config.execution
+            config.execution = config.execution  # type: ignore[misc]
 
     def test_admin_api_url_defaults_to_none(self, minimal_config_file: Path) -> None:
         """
