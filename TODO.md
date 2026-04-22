@@ -1,36 +1,34 @@
-Parametri per API
+Hai fatto un riassunto perfetto. I tre cantieri aperti sono esattamente questi e sono tutti fondamentali per far fare il salto di qualità definitivo al tuo tool. 
 
-> Ciao! Stiamo lavorando allo sviluppo di **APIGuard**, il nostro framework DAST. Dobbiamo implementare definitivamente il test **4.3 (Circuit Breaker Configuration Audit)** del Dominio 4 (Resilienza) su un API Gateway Kong (OSS/DB-less).
-> 
-> Abbiamo già completato l'analisi metodologica. Poiché Kong OSS non dispone di un plugin "circuit-breaker" nativo (presente solo in Enterprise), abbiamo architettato un approccio **"Dual-Check" a 3 Livelli** per evitare falsi negativi e documentare correttamente i controlli compensativi.
-> 
-> **La Metodologia (Logica del Test):**
-> * **LIVELLO 1 (Nativo):** Cerca il plugin `"circuit-breaker"` (tramite l'helper `get_plugins()`). *Nota bene: NON accettare "response-ratelimiting" in quanto gestisce i volumi, non i cascading failures*. Se il plugin nativo c'è e le sue soglie sono valide -> `PASS` (Full Guarantee).
-> * **LIVELLO 2 (Compensating Control):** Se il plugin nativo non c'è, interroga l'helper `get_upstreams()`. Verifica se esiste almeno un upstream che implementa un `healthchecks.passive` configurato con soglie sicure (max failures, max timeouts, ecc.). Se sì -> `PASS` con un Finding "Informativo/Architetturale" che documenta l'uso di un controllo compensativo parziale.
-> * **LIVELLO 3 (Vulnerabile):** Se non c'è né il plugin né un upstream con passive healthcheck -> `FAIL` (Nessuna protezione da cascading failure).
-> * **Finding Separato (Osservabilità):** Verifica l'endpoint `/status` per vedere se espone metriche del circuit breaker. (Questo finding è indipendente dallo status del test).
-> 
-> **Configurazione Richiesta (da implementare):**
-> Ecco la struttura esatta che devi usare per il blocco `test_4_3` (inseriscila nel `config.yaml` e crea i relativi modelli Pydantic):
-> ```yaml
->     test_4_3:
->       accepted_cb_plugin_names:
->         - "circuit-breaker"
->       failure_threshold_min: 3
->       failure_threshold_max: 10
->       timeout_duration_min_seconds: 30
->       timeout_duration_max_seconds: 120
->       passive_healthcheck:
->         http_failures_max: 5
->         timeouts_max: 3
->         successes_min: 2
->         required_unhealthy_statuses:
->           - 500
->           - 502
->           - 503
->           - 504
-> ```
+Tuttavia, il fatto che tu abbia queste tre cose in **tre chat separate** è un rischio architetturale enorme (quello che in gergo si chiama un incubo da *Merge Conflict*). 
 
-> 
-> Se sei daccordo con tutto forniscimi i file completi e aggiornati.
-***
+Ti spiego perché: la Chat 1 (InfoNotes) vuole aggiungere codice dentro `models.py`. La Chat 2 (Evidence) vuole aggiungere roba dentro `schema.py`. La Chat 3 (Refactoring) vuole prendere `models.py` e `schema.py` e **distruggerli** per dividerli in 10 file diversi. Se applichi i file delle tre chat nell'ordine sbagliato, il progetto esplode e ti tocca ricominciare da capo.
+
+Per evitare disastri, ecco l'**Ordine di Esecuzione Tassativo** che ti consiglio come tuo "Lead Engineer":
+
+### Fase 1: Sbloccare il Test 4.3 (InfoNotes)
+**Questa è la priorità 1**, perché è una feature piccola che ci permette di chiudere definitivamente il Dominio 4.
+1. Vai nella chat delle InfoNotes.
+2. Fatti generare i file (`models.py`, `test_4_3...`, `builder.py`, `report.html`).
+3. Sostituiscili nel tuo progetto e lancia `apiguard run`. 
+4. Controlla che il test 4.3 passi e che nel report HTML compaia il famoso "Box Azzurro". Se funziona, committa su Git.
+
+### Fase 2: Il Motore delle Evidence (Streaming su Disco)
+Ora che i modelli hanno le InfoNotes, passiamo al cuore dell'engine.
+1. Vai nella chat dell'Evidence Store. 
+2. **ATTENZIONE:** Prima di fargli generare il codice, incollagli il tuo `models.py` appena aggiornato con le InfoNotes, così sa che il file è cambiato!
+3. Fatti dare il nuovo `evidence.py`, `engine.py` e le aggiunte per lo schema.
+4. Lancialo. Verifica che crei la cartella temporanea `.jsonl`, che non vada in RAM, e che alla fine generi un unico `evidence.json` perfetto. Se va, committa.
+
+### Fase 3: Il Grande Refactoring (Smembrare Schema e Models)
+**Questo DEVE essere l'ultimo passo assoluto.** Lo si fa solo quando il codice è stabile e funziona tutto (il cosiddetto "Code Freeze").
+1. Vai nella chat del refactoring.
+2. Incollagli i tuoi `schema.py` e `models.py` completi e definitivi (che ora conterranno le InfoNotes e i parametri dell'Evidence).
+3. Fagli eseguire il lavoro di chirurgia: dividere tutto in cartelle (`src/config/schema/domain_1.py`, ecc.) e aggiornare il `config.yaml` mettendo `test_1_1` al posto giusto.
+4. Fai girare l'engine. Se tutto parte senza errori di importazione, hai vinto. Hai un'architettura Enterprise pulitissima.
+
+### Il mio consiglio per stasera
+Alle 21:00, non cercare di fare tutto insieme. Prendi la **Fase 1** e chiudila. Poi prenditi una pausa. Poi attacca la **Fase 2**. 
+Il refactoring (Fase 3) possiamo anche lasciarlo a domani a mente fresca, tanto è solo uno spostamento di codice che già funziona.
+
+Sei d'accordo con questo piano d'attacco? Se sì, appena scocca l'ora X parti con le InfoNotes e fammi sapere se il box azzurro compare a schermo!

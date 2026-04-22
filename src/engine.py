@@ -390,6 +390,13 @@ class AssessmentEngine:
                 timeout_duration_max_seconds=(
                     config.tests.domain_4.test_4_3.timeout_duration_max_seconds
                 ),
+                passive_hc_max_http_failures=(
+                    config.tests.domain_4.test_4_3.passive_hc_max_http_failures
+                ),
+                passive_hc_max_tcp_failures=(
+                    config.tests.domain_4.test_4_3.passive_hc_max_tcp_failures
+                ),
+                passive_hc_max_timeouts=(config.tests.domain_4.test_4_3.passive_hc_max_timeouts),
             ),
         )
 

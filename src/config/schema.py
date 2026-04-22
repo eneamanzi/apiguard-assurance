@@ -590,27 +590,55 @@ class Test43AuditConfig(BaseModel):
     """
     Tuning parameters for Test 4.3 (Circuit Breaker Configuration Audit).
 
-    accepted_cb_plugin_names controls which Kong plugin names are treated as
-    circuit-breaker equivalents. Kong OSS does not ship a native circuit-breaker
-    plugin; the expected finding on a vanilla Kong OSS deployment is therefore
-    FAIL ('No circuit-breaker plugin detected'), which documents the gap.
+    The test implements a Dual-Check a 3 Livelli strategy to handle the Kong OSS
+    constraint (no native circuit-breaker plugin):
 
-    When a recognised plugin IS present, its configuration is validated against
-    the failure_threshold and timeout_duration ranges drawn from the methodology
-    (section 4.3): failure_threshold in [3, 10], timeout_duration in [30, 120] s.
+        LEVEL 1 -- Native plugin check.
+            Searches for a plugin in accepted_cb_plugin_names.
+            NOTE: 'response-ratelimiting' is intentionally excluded from the
+            default list: it manages request volumes, not cascading failures.
+            It does not implement the CLOSED/OPEN/HALF-OPEN state machine and
+            cannot prevent thundering-herd scenarios. Only genuine circuit-breaker
+            plugins belong here. On Kong OSS DB-less the expected Level 1 result
+            is 'no plugin found'; execution continues to Level 2.
+
+        LEVEL 2 -- Compensating control via upstream passive healthchecks.
+            If no native plugin is found, the test inspects all Kong upstreams
+            for a configured passive healthcheck (healthchecks.passive.unhealthy
+            with at least one non-zero failure counter). A properly configured
+            passive healthcheck allows Kong to remove a degrading backend from
+            the upstream pool, approximating circuit-breaker behaviour at the
+            load-balancer layer. The test returns PASS with an informational
+            Finding documenting the compensating control.
+
+        LEVEL 3 -- Vulnerable.
+            Neither native plugin nor upstream passive healthcheck found.
+            Returns FAIL with a gap-documenting Finding.
+
+        Observability (always runs, independent).
+            Checks /status for circuit-breaker metrics. Always produces an
+            informational Finding on Kong OSS (these metrics are absent).
+
+    failure_threshold_* and timeout_duration_* parameters govern Level 1
+    parameter validation. passive_hc_max_* parameters govern Level 2.
     """
 
     model_config = {"frozen": True}
 
+    # ------------------------------------------------------------------
+    # Level 1 -- native CB plugin
+    # ------------------------------------------------------------------
+
     accepted_cb_plugin_names: list[str] = Field(
-        default_factory=lambda: ["circuit-breaker", "response-ratelimiting"],
+        default_factory=lambda: ["circuit-breaker"],
         description=(
-            "Kong plugin names that are accepted as circuit-breaker equivalents. "
+            "Kong plugin names accepted as native circuit-breaker equivalents. "
             "Evaluated in order; the first enabled match is used for parameter "
             "validation. 'circuit-breaker' is Kong Enterprise only. "
-            "'response-ratelimiting' is the closest OSS substitute but is not "
-            "a true circuit breaker. "
-            "Extend this list when custom or third-party plugins are deployed."
+            "Do NOT add 'response-ratelimiting': it manages request volumes, not "
+            "cascading failures, and does not implement the CB state machine. "
+            "Extend this list only when a true custom or third-party CB plugin "
+            "is deployed (e.g., a Lua-based state machine plugin)."
         ),
     )
     failure_threshold_min: Annotated[int, Field(ge=1)] = Field(
@@ -646,9 +674,39 @@ class Test43AuditConfig(BaseModel):
         ),
     )
 
+    # ------------------------------------------------------------------
+    # Level 2 -- passive healthcheck compensating control thresholds
+    # ------------------------------------------------------------------
+
+    passive_hc_max_http_failures: Annotated[int, Field(ge=1)] = Field(
+        default=10,
+        description=(
+            "Maximum acceptable value for unhealthy.http_failures in a Kong upstream "
+            "passive healthcheck. A passive HC is considered active when this counter "
+            "is > 0 (Kong default is 0 = disabled). Acceptable range: [1, this value]. "
+            "Values above the maximum indicate an overly permissive threshold."
+        ),
+    )
+    passive_hc_max_tcp_failures: Annotated[int, Field(ge=1)] = Field(
+        default=10,
+        description=(
+            "Maximum acceptable value for unhealthy.tcp_failures in a Kong upstream "
+            "passive healthcheck. Same semantics as passive_hc_max_http_failures "
+            "but for TCP-level connection failures."
+        ),
+    )
+    passive_hc_max_timeouts: Annotated[int, Field(ge=1)] = Field(
+        default=10,
+        description=(
+            "Maximum acceptable value for unhealthy.timeouts in a Kong upstream "
+            "passive healthcheck. Same semantics as passive_hc_max_http_failures "
+            "but for upstream response timeouts."
+        ),
+    )
+
     @model_validator(mode="after")
     def validate_threshold_range_coherence(self) -> Test43AuditConfig:
-        """Ensure min <= max for both parameter ranges."""
+        """Ensure min <= max for Level 1 parameter ranges."""
         if self.failure_threshold_min > self.failure_threshold_max:
             raise ValueError(
                 f"failure_threshold_min ({self.failure_threshold_min}) must be "

@@ -6,7 +6,7 @@ Partendo dalla tabella delle dipendenze, i test si sviluppano in questo ordine n
 
 ```
 0.1 → 0.2 → 0.3   # Domain 0, già presenti nel repo
-1.1               # primo test da implementare nel Domain 1                                   DOING
+1.1               # primo test da implementare nel Domain 1                                   OK
 4.1               # rate limiting, BLACK_BOX                                                  OK
 7.2               # SSRF, BLACK_BOX — usa data/ssrf_payloads.py
 1.5, 1.6          # WHITE_BOX audit TLS e session store

@@ -74,6 +74,7 @@ from src.core.evidence import EvidenceStore
 from src.core.models import (
     EvidenceRecord,
     Finding,
+    InfoNote,
     TestResult,
     TestStatus,
     TestStrategy,
@@ -331,7 +332,7 @@ class BaseTest(ABC):
     # Result constructors — reduce boilerplate in concrete implementations
     # ------------------------------------------------------------------
 
-    def _make_pass(self, message: str) -> TestResult:
+    def _make_pass(self, message: str, notes: list[InfoNote] | None = None) -> TestResult:
         """
         Construct a TestResult(status=PASS) with no findings.
 
@@ -340,18 +341,28 @@ class BaseTest(ABC):
         call after _make_pass() — which would be a programming error but
         is technically possible — does not mutate the returned TestResult.
 
+        The optional ``notes`` parameter allows PASS results to carry
+        informational annotations (InfoNote objects) that document
+        architectural context, compensating controls, or observability gaps
+        without these constituting security findings. Notes are rendered in
+        blue in the HTML report and are NOT counted in finding totals.
+
         Args:
             message: One-line summary of what was verified and confirmed.
+            notes:   Optional list of InfoNote objects to attach. Pass None
+                     (the default) or an empty list when no annotation is needed.
 
         Returns:
-            TestResult with status=PASS, empty findings, and the full
-            transaction_log accumulated during execute().
+            TestResult with status=PASS, empty findings, the provided notes
+            (or an empty list), and the full transaction_log accumulated
+            during execute().
         """
         return TestResult(
             test_id=self.test_id,
             status=TestStatus.PASS,
             message=message,
             findings=[],
+            notes=list(notes) if notes else [],
             transaction_log=list(self._transaction_log),
             **self._metadata_kwargs(),
         )

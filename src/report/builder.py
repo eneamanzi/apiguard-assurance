@@ -37,7 +37,7 @@ import structlog
 from pydantic import BaseModel, Field
 
 from src.config.schema import ToolConfig
-from src.core.models import Finding, ResultSet, TestStatus, TransactionSummary
+from src.core.models import Finding, InfoNote, ResultSet, TestStatus, TransactionSummary
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -125,6 +125,14 @@ class TestResultRow(BaseModel):
             "this test execution. Sourced from TestResult.transaction_log. "
             "Embedded in REPORT_DATA JSON for lazy rendering via the HTML audit trail "
             "section. Body content is absent by design — only metadata fields."
+        ),
+    )
+    notes: list[InfoNote] = Field(
+        default_factory=list,
+        description=(
+            "Informational annotations sourced from TestResult.notes. "
+            "Present only on PASS results that carry architectural context or "
+            "compensating-control documentation. Rendered in blue in the HTML report."
         ),
     )
 
@@ -371,6 +379,7 @@ def _build_all_rows(result_set: ResultSet) -> list[TestResultRow]:
             tags=list(result.tags),
             cwe_id=result.cwe_id,
             transaction_log=list(result.transaction_log),
+            notes=list(result.notes),
         )
         rows.append(row)
 
