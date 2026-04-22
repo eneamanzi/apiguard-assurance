@@ -37,7 +37,7 @@ Pipeline phases (Implementazione.md, Section 5):
         Propagates both openapi_spec_url and openapi_spec_path from
         TargetConfig to TargetContext (exactly one will be non-None).
         Build TestContext (mutable, empty).
-        Build EvidenceStore (deque, maxlen=100).
+        Build EvidenceStore (streaming JSONL, unbounded capacity).
         Build SecurityClient (context manager, not yet open).
 
     Phase 4 -- Test Discovery and Scheduling:
@@ -422,7 +422,7 @@ class AssessmentEngine:
         )
 
         context = TestContext()
-        store = EvidenceStore()
+        store = EvidenceStore(tmp_dir=config.output.evidence_tmp_path)
 
         log.info(
             "pipeline_phase_3_context_construction_completed",
@@ -620,7 +620,11 @@ class AssessmentEngine:
         )
 
         wall_start = time.monotonic()
-        result = test.execute(target, context, client, store)
+        store.begin_test(test.__class__.test_id)
+        try:
+            result = test.execute(target, context, client, store)
+        finally:
+            store.end_test()
         elapsed_ms = (time.monotonic() - wall_start) * 1000.0
 
         result = result.model_copy(update={"duration_ms": round(elapsed_ms, 2)})
@@ -778,7 +782,7 @@ class AssessmentEngine:
         )
 
         try:
-            records_written = store.to_json_file(evidence_path)
+            records_written = store.merge_and_finalize(evidence_path)
             log.info(
                 "pipeline_phase_7_evidence_serialized",
                 output_path=str(evidence_path),
