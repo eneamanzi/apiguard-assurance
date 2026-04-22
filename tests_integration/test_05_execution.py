@@ -177,7 +177,9 @@ class TestResultAccumulation:
     ResultSet in execution order.
     """
 
-    def test_each_executed_test_adds_exactly_one_result(self, minimal_config_file: Path) -> None:
+    def test_each_executed_test_adds_exactly_one_result(
+        self, tmp_path: Path, minimal_config_file: Path
+    ) -> None:
         """
         Three scheduled tests produce a ResultSet with exactly three results.
 
@@ -200,7 +202,7 @@ class TestResultAccumulation:
             target=MagicMock(),
             context=TestContext(),
             client=MagicMock(),
-            store=EvidenceStore(),
+            store=EvidenceStore(tmp_path / "evidence_tmp"),
             result_set=result_set,
             config=_mock_config(),
         )
@@ -209,7 +211,9 @@ class TestResultAccumulation:
             f"Expected exactly one TestResult per scheduled test; got {result_set.total_count}"
         )
 
-    def test_pass_result_increments_pass_count(self, minimal_config_file: Path) -> None:
+    def test_pass_result_increments_pass_count(
+        self, tmp_path: Path, minimal_config_file: Path
+    ) -> None:
         """
         A PASS result from a test is reflected in ResultSet.pass_count.
 
@@ -226,7 +230,7 @@ class TestResultAccumulation:
             target=MagicMock(),
             context=TestContext(),
             client=MagicMock(),
-            store=EvidenceStore(),
+            store=EvidenceStore(tmp_path / "evidence_tmp"),
             result_set=result_set,
             config=_mock_config(),
         )
@@ -234,7 +238,9 @@ class TestResultAccumulation:
         assert result_set.pass_count == 1
         assert result_set.fail_count == 0
 
-    def test_fail_result_increments_fail_count(self, minimal_config_file: Path) -> None:
+    def test_fail_result_increments_fail_count(
+        self, tmp_path: Path, minimal_config_file: Path
+    ) -> None:
         """
         A FAIL result from a test is reflected in ResultSet.fail_count.
 
@@ -251,7 +257,7 @@ class TestResultAccumulation:
             target=MagicMock(),
             context=TestContext(),
             client=MagicMock(),
-            store=EvidenceStore(),
+            store=EvidenceStore(tmp_path / "evidence_tmp"),
             result_set=result_set,
             config=_mock_config(),
         )
@@ -259,7 +265,9 @@ class TestResultAccumulation:
         assert result_set.fail_count == 1
         assert result_set.pass_count == 0
 
-    def test_results_preserve_insertion_order(self, minimal_config_file: Path) -> None:
+    def test_results_preserve_insertion_order(
+        self, tmp_path: Path, minimal_config_file: Path
+    ) -> None:
         """
         Results are appended to ResultSet in the order tests are executed.
 
@@ -285,7 +293,7 @@ class TestResultAccumulation:
             target=MagicMock(),
             context=TestContext(),
             client=MagicMock(),
-            store=EvidenceStore(),
+            store=EvidenceStore(tmp_path / "evidence_tmp"),
             result_set=result_set,
             config=_mock_config(),
         )
@@ -295,7 +303,9 @@ class TestResultAccumulation:
             f"Expected execution order D.1 → D.2 → D.3, got {result_ids}"
         )
 
-    def test_duration_ms_is_populated_on_every_result(self, minimal_config_file: Path) -> None:
+    def test_duration_ms_is_populated_on_every_result(
+        self, tmp_path: Path, minimal_config_file: Path
+    ) -> None:
         """
         The engine measures wall-clock time for each test and stores it in duration_ms.
 
@@ -313,7 +323,7 @@ class TestResultAccumulation:
             target=MagicMock(),
             context=TestContext(),
             client=MagicMock(),
-            store=EvidenceStore(),
+            store=EvidenceStore(tmp_path / "evidence_tmp"),
             result_set=result_set,
             config=_mock_config(),
         )
@@ -341,7 +351,9 @@ class TestEmptySchedule:
     log that no tests ran, not a crash.
     """
 
-    def test_empty_batches_produce_empty_result_set(self, minimal_config_file: Path) -> None:
+    def test_empty_batches_produce_empty_result_set(
+        self, tmp_path: Path, minimal_config_file: Path
+    ) -> None:
         """
         Zero batches → zero results. The engine must not raise.
 
@@ -357,7 +369,7 @@ class TestEmptySchedule:
             target=MagicMock(),
             context=TestContext(),
             client=MagicMock(),
-            store=EvidenceStore(),
+            store=EvidenceStore(tmp_path / "evidence_tmp"),
             result_set=result_set,
             config=_mock_config(),
         )
@@ -381,7 +393,9 @@ class TestLookupMiss:
     aborting the assessment and producing no results at all.
     """
 
-    def test_unknown_test_id_in_batch_is_skipped_silently(self, minimal_config_file: Path) -> None:
+    def test_unknown_test_id_in_batch_is_skipped_silently(
+        self, tmp_path: Path, minimal_config_file: Path
+    ) -> None:
         """
         A batch containing a test_id with no corresponding instance is skipped.
 
@@ -399,7 +413,7 @@ class TestLookupMiss:
             target=MagicMock(),
             context=TestContext(),
             client=MagicMock(),
-            store=EvidenceStore(),
+            store=EvidenceStore(tmp_path / "evidence_tmp"),
             result_set=result_set,
             config=_mock_config(),
         )
@@ -412,7 +426,7 @@ class TestLookupMiss:
             "Valid tests in the same batch must still execute despite a lookup miss"
         )
 
-    def test_lookup_miss_does_not_raise(self, minimal_config_file: Path) -> None:
+    def test_lookup_miss_does_not_raise(self, tmp_path: Path, minimal_config_file: Path) -> None:
         """
         A missing test_id in the lookup table must not raise any exception.
 
@@ -430,7 +444,7 @@ class TestLookupMiss:
             target=MagicMock(),
             context=TestContext(),
             client=MagicMock(),
-            store=EvidenceStore(),
+            store=EvidenceStore(tmp_path / "evidence_tmp"),
             result_set=result_set,
             config=_mock_config(),
         )
@@ -459,7 +473,9 @@ class TestFailFastCondition:
         - Tests in the SAME batch before the trigger must have already executed.
     """
 
-    def test_p0_fail_triggers_fail_fast_when_enabled(self, minimal_config_file: Path) -> None:
+    def test_p0_fail_triggers_fail_fast_when_enabled(
+        self, tmp_path: Path, minimal_config_file: Path
+    ) -> None:
         """
         A P0 FAIL result halts execution of subsequent tests when fail_fast=True.
 
@@ -482,7 +498,7 @@ class TestFailFastCondition:
             target=MagicMock(),
             context=TestContext(),
             client=MagicMock(),
-            store=EvidenceStore(),
+            store=EvidenceStore(tmp_path / "evidence_tmp"),
             result_set=result_set,
             config=_mock_config(fail_fast=True),
         )
@@ -491,7 +507,9 @@ class TestFailFastCondition:
         assert "G.1" in result_ids, "The triggering P0 test must have its result recorded"
         assert "G.2" not in result_ids, "Tests scheduled after a fail-fast trigger must not execute"
 
-    def test_p0_error_also_triggers_fail_fast(self, minimal_config_file: Path) -> None:
+    def test_p0_error_also_triggers_fail_fast(
+        self, tmp_path: Path, minimal_config_file: Path
+    ) -> None:
         """
         A P0 ERROR result halts execution of subsequent tests when fail_fast=True.
 
@@ -520,7 +538,7 @@ class TestFailFastCondition:
             target=MagicMock(),
             context=TestContext(),
             client=MagicMock(),
-            store=EvidenceStore(),
+            store=EvidenceStore(tmp_path / "evidence_tmp"),
             result_set=result_set,
             config=_mock_config(fail_fast=True),
         )
@@ -528,7 +546,9 @@ class TestFailFastCondition:
         result_ids = [r.test_id for r in result_set.results]
         assert "H.2" not in result_ids, "P0 ERROR must trigger fail-fast identically to P0 FAIL"
 
-    def test_non_p0_fail_does_not_trigger_fail_fast(self, minimal_config_file: Path) -> None:
+    def test_non_p0_fail_does_not_trigger_fail_fast(
+        self, tmp_path: Path, minimal_config_file: Path
+    ) -> None:
         """
         A P1/P2/P3 FAIL does not trigger fail-fast even when fail_fast=True.
 
@@ -552,7 +572,7 @@ class TestFailFastCondition:
             target=MagicMock(),
             context=TestContext(),
             client=MagicMock(),
-            store=EvidenceStore(),
+            store=EvidenceStore(tmp_path / "evidence_tmp"),
             result_set=result_set,
             config=_mock_config(fail_fast=True),
         )
@@ -560,7 +580,9 @@ class TestFailFastCondition:
         result_ids = [r.test_id for r in result_set.results]
         assert "I.2" in result_ids, "P1 FAIL must not trigger fail-fast; I.2 must execute normally"
 
-    def test_fail_fast_disabled_p0_fail_does_not_halt(self, minimal_config_file: Path) -> None:
+    def test_fail_fast_disabled_p0_fail_does_not_halt(
+        self, tmp_path: Path, minimal_config_file: Path
+    ) -> None:
         """
         When fail_fast=False, a P0 FAIL must not stop execution.
 
@@ -583,7 +605,7 @@ class TestFailFastCondition:
             target=MagicMock(),
             context=TestContext(),
             client=MagicMock(),
-            store=EvidenceStore(),
+            store=EvidenceStore(tmp_path / "evidence_tmp"),
             result_set=result_set,
             config=_mock_config(fail_fast=False),
         )
@@ -594,7 +616,9 @@ class TestFailFastCondition:
         )
         assert result_set.total_count == 2
 
-    def test_p0_pass_does_not_trigger_fail_fast(self, minimal_config_file: Path) -> None:
+    def test_p0_pass_does_not_trigger_fail_fast(
+        self, tmp_path: Path, minimal_config_file: Path
+    ) -> None:
         """
         A P0 test that returns PASS must not trigger fail-fast.
 
@@ -617,7 +641,7 @@ class TestFailFastCondition:
             target=MagicMock(),
             context=TestContext(),
             client=MagicMock(),
-            store=EvidenceStore(),
+            store=EvidenceStore(tmp_path / "evidence_tmp"),
             result_set=result_set,
             config=_mock_config(fail_fast=True),
         )
@@ -643,7 +667,7 @@ class TestExitCodeMapping:
     process exit code that operators observe in CI pipelines.
     """
 
-    def test_all_pass_produces_exit_code_0(self, minimal_config_file: Path) -> None:
+    def test_all_pass_produces_exit_code_0(self, tmp_path: Path, minimal_config_file: Path) -> None:
         """
         All PASS → exit code 0 (clean assessment).
 
@@ -661,14 +685,14 @@ class TestExitCodeMapping:
             target=MagicMock(),
             context=TestContext(),
             client=MagicMock(),
-            store=EvidenceStore(),
+            store=EvidenceStore(tmp_path / "evidence_tmp"),
             result_set=result_set,
             config=_mock_config(),
         )
 
         assert result_set.compute_exit_code() == 0
 
-    def test_any_fail_produces_exit_code_1(self, minimal_config_file: Path) -> None:
+    def test_any_fail_produces_exit_code_1(self, tmp_path: Path, minimal_config_file: Path) -> None:
         """
         At least one FAIL → exit code 1, even when other tests PASS.
 
@@ -686,14 +710,16 @@ class TestExitCodeMapping:
             target=MagicMock(),
             context=TestContext(),
             client=MagicMock(),
-            store=EvidenceStore(),
+            store=EvidenceStore(tmp_path / "evidence_tmp"),
             result_set=result_set,
             config=_mock_config(),
         )
 
         assert result_set.compute_exit_code() == 1
 
-    def test_error_without_fail_produces_exit_code_2(self, minimal_config_file: Path) -> None:
+    def test_error_without_fail_produces_exit_code_2(
+        self, tmp_path: Path, minimal_config_file: Path
+    ) -> None:
         """
         ERROR (without any FAIL) → exit code 2.
 
@@ -715,7 +741,7 @@ class TestExitCodeMapping:
             target=MagicMock(),
             context=TestContext(),
             client=MagicMock(),
-            store=EvidenceStore(),
+            store=EvidenceStore(tmp_path / "evidence_tmp"),
             result_set=result_set,
             config=_mock_config(),
         )
@@ -723,7 +749,7 @@ class TestExitCodeMapping:
         assert result_set.compute_exit_code() == 2
 
     def test_fail_takes_precedence_over_error_for_exit_code(
-        self, minimal_config_file: Path
+        self, tmp_path: Path, minimal_config_file: Path
     ) -> None:
         """
         When both FAIL and ERROR are present, exit code is 1 (not 2).
@@ -747,7 +773,7 @@ class TestExitCodeMapping:
             target=MagicMock(),
             context=TestContext(),
             client=MagicMock(),
-            store=EvidenceStore(),
+            store=EvidenceStore(tmp_path / "evidence_tmp"),
             result_set=result_set,
             config=_mock_config(),
         )

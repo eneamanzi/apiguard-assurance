@@ -28,10 +28,33 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from pydantic import AnyHttpUrl, TypeAdapter
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.models import AttackSurface, SpecDialect
 from src.discovery.surface import build_attack_surface
+
+# ---------------------------------------------------------------------------
+# URL construction helper
+# ---------------------------------------------------------------------------
+# Pydantic v2 AnyHttpUrl is a Url object, not a str subclass.  Passing a
+# bare string literal to an AnyHttpUrl parameter is valid at runtime
+# (Pydantic coerces it) but fails static analysis (Pylance / mypy).
+# Use _url() wherever a fixture or test needs to build an AnyHttpUrl from
+# a string literal.
+
+_URL_ADAPTER: TypeAdapter[AnyHttpUrl] = TypeAdapter(AnyHttpUrl)
+
+
+def _url(raw: str) -> AnyHttpUrl:
+    """Parse a raw URL string into a validated AnyHttpUrl for type-safe fixtures.
+
+    Wraps TypeAdapter.validate_python so that callers do not need to
+    instantiate the adapter themselves, and so that the type checker
+    correctly infers the return type as AnyHttpUrl rather than str.
+    """
+    return _URL_ADAPTER.validate_python(raw)
+
 
 # ---------------------------------------------------------------------------
 # Canonical inline OpenAPI 3.0 spec
@@ -185,8 +208,8 @@ def reference_target(reference_surface: AttackSurface) -> TargetContext:
     Black + Grey Box, no Admin API access.
     """
     return TargetContext(
-        base_url="http://localhost:8000",  # type: ignore[arg-type]
-        openapi_spec_url="http://localhost:3000/swagger.v1.json",  # type: ignore[arg-type]
+        base_url=_url("http://localhost:8000"),
+        openapi_spec_url=_url("http://localhost:3000/swagger.v1.json"),
         admin_api_url=None,
         attack_surface=reference_surface,
     )
@@ -215,14 +238,16 @@ def empty_test_context() -> TestContext:
 
 
 @pytest.fixture
-def evidence_store() -> EvidenceStore:
+def evidence_store(tmp_path: Path) -> EvidenceStore:
     """
-    Return a fresh EvidenceStore with the standard capacity (100 records).
+    Return a fresh EvidenceStore backed by a temporary directory.
 
+    Uses pytest's built-in tmp_path fixture so each test gets an isolated
+    directory that is removed automatically after the test completes.
     Function-scoped for the same reason as TestContext: test isolation
-    requires that one test's evidence does not appear in another test's store.
+    requires that one test's evidence does not bleed into another's store.
     """
-    return EvidenceStore()
+    return EvidenceStore(tmp_dir=tmp_path / "evidence_tmp")
 
 
 # ---------------------------------------------------------------------------

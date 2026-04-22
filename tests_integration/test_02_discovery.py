@@ -54,6 +54,7 @@ from tests_integration.conftest import (
     EXPECTED_SPEC_TITLE,
     EXPECTED_SPEC_VERSION,
     EXPECTED_TOTAL_ENDPOINTS,
+    _url,
 )
 
 # ===========================================================================
@@ -79,7 +80,7 @@ class TestAttackSurfaceStructure:
         operate on corrupted state. The frozen guarantee makes sharing safe.
         """
         with pytest.raises(ValidationError):
-            reference_surface.spec_title = "tampered"
+            reference_surface.spec_title = "tampered"  # type: ignore[misc]
 
     def test_spec_metadata_is_extracted(self, reference_surface: AttackSurface) -> None:
         """
@@ -307,7 +308,7 @@ class TestTargetContextConstruction:
         tests' HTTP request construction.
         """
         with pytest.raises(ValidationError):
-            reference_target.base_url = "http://evil.example.com"  # type: ignore[assignment]
+            reference_target.base_url = "http://evil.example.com"  # type: ignore[misc, assignment]
 
     def test_attack_surface_is_accessible(
         self, reference_target: TargetContext, reference_surface: AttackSurface
@@ -350,9 +351,9 @@ class TestTargetContextConstruction:
         findings.
         """
         target_with_admin = TargetContext(
-            base_url="http://localhost:8000",  # type: ignore[arg-type]
-            openapi_spec_url="http://localhost:3000/swagger.v1.json",  # type: ignore[arg-type]
-            admin_api_url="http://localhost:8001",  # type: ignore[arg-type]
+            base_url=_url("http://localhost:8000"),
+            openapi_spec_url=_url("http://localhost:3000/swagger.v1.json"),
+            admin_api_url=_url("http://localhost:8001"),
             attack_surface=reference_surface,
         )
         assert target_with_admin.admin_api_available is True

@@ -11,7 +11,7 @@ Partendo dalla tabella delle dipendenze, i test si sviluppano in questo ordine n
 7.2               # SSRF, BLACK_BOX — usa data/ssrf_payloads.py
 1.5, 1.6          # WHITE_BOX audit TLS e session store
 3.3               # WHITE_BOX HMAC audit
-4.2, 4.3          # WHITE_BOX Kong timeout e circuit breaker — usa kong_admin.py              4.2 OK - 4.3 DOING
+4.2, 4.3          # WHITE_BOX Kong timeout e circuit breaker — usa kong_admin.py              4.2 OK - 4.3 OK
 6.2, 6.4          # WHITE_BOX header e hardcoded credentials
 ```
 

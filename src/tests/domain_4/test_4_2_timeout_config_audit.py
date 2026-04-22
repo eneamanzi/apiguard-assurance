@@ -279,7 +279,7 @@ class Test42TimeoutConfigAudit(BaseTest):
     def _audit_service_timeouts(
         self,
         services: list[dict[str, Any]],
-        cfg: Any,  # RuntimeTest42Config -- typed as Any to avoid circular import issues
+        cfg: Any,  # RuntimeTest42Config -- typed as Any to avoid circular import issues  # noqa: ANN401, E501
     ) -> list[Finding]:
         """
         Validate timeout fields on every Kong service dict.
