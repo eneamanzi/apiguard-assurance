@@ -84,6 +84,12 @@ OUTPUT_DIRECTORY_DEFAULT: str = "outputs"
 EVIDENCE_FILENAME: str = "evidence.json"
 HTML_REPORT_FILENAME: str = "assessment_report.html"
 JSON_REPORT_FILENAME: str = "apiguard_report.json"
+# Subdirectory name for per-test streaming JSONL files written during Phase 5.
+# EvidenceStore creates one <test_id>.jsonl file per test inside this directory
+# and removes it entirely in merge_and_finalize() at Phase 7.
+# Placing it alongside evidence.json makes crash artefacts predictable and
+# inspectable — a forensic asset rather than hidden temp files.
+EVIDENCE_TMP_DIRNAME: str = "evidence_tmp"
 
 # ---------------------------------------------------------------------------
 # TargetConfig
@@ -476,8 +482,24 @@ class OutputConfig(BaseModel):
 
     @property
     def evidence_path(self) -> Path:
-        """Full path to the evidence JSON output file."""
+        """Full path to the final unified evidence JSON output file."""
         return self.directory / EVIDENCE_FILENAME
+
+    @property
+    def evidence_tmp_path(self) -> Path:
+        """Full path to the temporary per-test JSONL streaming directory.
+
+        During Phase 5 execution, EvidenceStore writes each test's evidence
+        records as a JSONL file inside this directory
+        (e.g. ``outputs/evidence_tmp/1_1.jsonl``).
+        Phase 7 merges all JSONL files into ``evidence.json`` and then
+        removes this directory via EvidenceStore.merge_and_finalize().
+
+        Placing the directory alongside ``evidence.json`` makes any crash
+        artefacts predictable and inspectable rather than scattered in an
+        OS temp path.
+        """
+        return self.directory / EVIDENCE_TMP_DIRNAME
 
     @property
     def report_path(self) -> Path:
