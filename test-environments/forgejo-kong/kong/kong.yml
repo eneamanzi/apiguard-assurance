@@ -1,8 +1,28 @@
 _format_version: "3.0"
 
+upstreams:
+  - name: forgejo-upstream
+    targets:
+      - target: forgejo:3000
+        weight: 100
+    healthchecks:
+      passive:
+        type: http
+        healthy:
+          successes: 2
+        unhealthy:
+          http_failures: 5
+          timeouts: 3
+          http_statuses:
+            - 500
+            - 502
+            - 503
+            - 504
+
 services:
   - name: forgejo-service
-    url: http://forgejo:3000
+    # Modifica cruciale: url non punta più a forgejo:3000, ma all'upstream
+    url: http://forgejo-upstream
     connect_timeout: 5000
     read_timeout: 30000
     write_timeout: 30000

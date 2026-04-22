@@ -40,7 +40,63 @@ target:
   #   Parameters absent from path_seed fall back to the test's default placeholder
   #   ("1" for most probes, "apiguard-probe" for parametric DELETE probes).
   #   An empty dict {} preserves the pre-seed behaviour entirely.
-  path_seed: {}
+  path_seed: {
+    # === CORE ===
+    owner: "user-a",
+    username: "user-a",
+    user: "user-a",
+    repo: "test-repo",
+    repo_name: "test-repo",
+
+    # === IDs NUMERICI ===
+    "user-id": "2",
+    "repository-id": "1",
+    id: "1",          
+
+    # === ORGANIZZAZIONE (da creare in Forgejo) ===
+    org: "test-org",   # {org} != {owner}
+
+    # === GIT ===
+    branch: "main",
+    ref: "main",
+    sha: "52407ec34d313f5550ee4d7df1b41865df812eba",
+    filepath: "README.md",
+    archive: "main.tar.gz",
+
+    # === ALTRI ===
+    name: "MIT",
+    index: "1",        # issue index (dopo aver creato un'issue)
+    tag: "v0.1.0",
+    comment: "1",
+    team: "1",         # dopo aver creato un team nell'org
+
+    # === PARAMETRI AVANZATI (spesso feature disabilitate) ===
+    "activity-id": "1",
+    "attachment_id": "1",
+    "run_id": "1",
+    task: "1",
+    secretname: "MY_SECRET",
+    variablename: "MY_VAR",
+    workflowfilename: "main.yml",
+    quotagroup: "default",
+    quotarule: "default",
+    token: "1",
+    version: "1.0.0",
+    pageName: "Home",
+    basehead: "main...main",
+    base: "main",
+    head: "main",
+    diffType: "diff",
+    flag: "fork",
+    collaborator: "user-b",
+    target: "user-b",
+    identifier: "1",
+    position: "1",
+    type: "gitea",
+    template_owner: "user-a",
+    template_repo: "test-repo",
+    topic: "forgejo",
+  }
 
 credentials:
   admin_username: "${ADMIN_USERNAME}"
@@ -57,7 +113,7 @@ execution:
     - BLACK_BOX
     - GREY_BOX
     - WHITE_BOX
-  test_ids: []     # esegue solo test specificati, se vuota comportamento normale
+  test_ids: ["4.3"]     # esegue solo test specificati, se vuota comportamento normale
   # test_ids: ["0.1", "1.1"]  # più test specifici
   # test_ids: []          # lista vuota = comportamento normale
 
@@ -98,18 +154,36 @@ tests:
       max_write_timeout_ms: 30000     # <= 30 s — methodology oracle
 
     # Test 4.3 — Circuit Breaker Configuration Audit (WHITE_BOX, P1)
-    # Kong OSS DB-less has no native circuit-breaker plugin; the expected finding
-    # on a vanilla deployment is FAIL ("No circuit-breaker plugin detected"), which
-    # correctly documents the architectural gap per OWASP ASVS v5.0.0 V16.5.2.
+    # Dual-Check a 3 Livelli:
+    #   LEVEL 1 (Native): cerca il plugin nativo nella lista accepted_cb_plugin_names.
+    #            Se trovato e configurato entro soglia -> PASS (Full Guarantee).
+    #   LEVEL 2 (Compensating Control): se nessun plugin nativo, verifica che almeno
+    #            un upstream Kong implementi healthchecks.passive con soglie sicure.
+    #            Se sì -> PASS con Finding informativo sul controllo compensativo.
+    #   LEVEL 3 (Vulnerable): né plugin né upstream con passive healthcheck -> FAIL.
+    #   Finding Separato (Observability): verifica /status per metriche CB (sempre,
+    #            indipendente dallo status del test).
+    #
+    # NOTE: 'response-ratelimiting' è INTENZIONALMENTE ESCLUSO da accepted_cb_plugin_names.
+    # Gestisce volumi di richiesta, NON i cascading failure: non implementa la macchina
+    # a stati CLOSED/OPEN/HALF-OPEN e non rileva degradazione del downstream.
     test_4_3:
-      # Plugin names accepted as circuit-breaker equivalents (evaluated in order).
-      # 'circuit-breaker' is Kong Enterprise only.
-      # 'response-ratelimiting' is the closest Kong OSS substitute.
+      # LEVEL 1 — Plugin nativo (solo veri circuit breaker).
+      # 'circuit-breaker' è Kong Enterprise only: su Kong OSS questo livello fallirà
+      # sempre, spostando la verifica al Livello 2 (compensating control).
       accepted_cb_plugin_names:
         - "circuit-breaker"
-        - "response-ratelimiting"
-      # Parameter ranges (methodology section 4.3, Martin Fowler Circuit Breaker Pattern).
-      failure_threshold_min: 3        # minimum consecutive failures to open circuit
-      failure_threshold_max: 10       # maximum consecutive failures to open circuit
+
+      # LEVEL 1 — Parameter ranges (methodology section 4.3, Martin Fowler CB Pattern).
+      failure_threshold_min: 3        # min consecutive failures to open the circuit
+      failure_threshold_max: 10       # max consecutive failures to open the circuit
       timeout_duration_min_seconds: 30   # min Open-state duration before Half-Open probe
       timeout_duration_max_seconds: 120  # max Open-state duration before Half-Open probe
+
+      # LEVEL 2 — Passive healthcheck compensating control oracle thresholds.
+      # Un upstream è considerato "con controllo compensativo valido" se almeno un
+      # contatore di failure è > 0 (passive HC abilitato) e <= il massimo configurato.
+      # Kong default: tutti i contatori = 0 (passive HC disabilitato).
+      passive_hc_max_http_failures: 10   # unhealthy.http_failures: accettabile in [1, 10]
+      passive_hc_max_tcp_failures: 10    # unhealthy.tcp_failures: accettabile in [1, 10]
+      passive_hc_max_timeouts: 10        # unhealthy.timeouts: accettabile in [1, 10]

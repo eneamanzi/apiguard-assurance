@@ -436,6 +436,68 @@ class Finding(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# InfoNote — informational annotation for PASS results
+# ---------------------------------------------------------------------------
+
+
+class InfoNote(BaseModel):
+    """
+    A non-security-finding annotation attached to a PASS TestResult.
+
+    InfoNote is semantically distinct from Finding:
+
+        Finding  -- evidence of a security guarantee VIOLATION.
+                    Attached only to FAIL results. Counted in totals.
+                    Rendered in red in the HTML report.
+
+        InfoNote -- informational annotation documenting architectural context,
+                    compensating controls, or observability gaps on a PASS result.
+                    Does NOT represent a violation. NOT counted in finding totals.
+                    Does NOT affect the test status or exit code.
+                    Rendered in blue in the HTML report.
+
+    Design rationale (Implementazione.md, Section 4.6):
+        The model_validator on TestResult enforces that a PASS result must have
+        zero Findings. This is correct: a PASS with findings would be a
+        contradiction in terms. However, some tests need to surface contextual
+        information alongside a PASS — for example, Test 4.3 Level 2, which
+        PASSES via a compensating control and needs to explain the architectural
+        difference between a passive healthcheck and a true circuit breaker.
+
+        InfoNote solves this without relaxing the model_validator invariant.
+        It is a separate field (TestResult.notes) that the validator does not
+        constrain, and the HTML report renders it in a visually distinct blue
+        card to make the semantic difference immediately clear to the analyst.
+
+    Usage:
+        notes: list[InfoNote] = [
+            InfoNote(
+                title="Compensating Control: Upstream Passive HC",
+                detail="...",
+                references=["OWASP-ASVS-v5.0.0-V16.5.2"],
+            )
+        ]
+        return TestResult(status=TestStatus.PASS, findings=[], notes=notes, ...)
+    """
+
+    title: str = Field(description="Short description of the informational context.")
+    detail: str = Field(description="Technical detail, specific enough for an analyst to act on.")
+    references: list[str] = Field(
+        default_factory=list,
+        description="Standard references: 'OWASP-ASVS-v5.0.0-V16.5.2', 'CWE-400'.",
+    )
+
+    @field_validator("title", "detail")
+    @classmethod
+    def must_not_be_empty(cls, value: str) -> str:
+        """Reject empty strings for mandatory narrative fields."""
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Field must not be empty or whitespace-only.")
+        return stripped
+
+
+# ---------------------------------------------------------------------------
 # TestResult — complete outcome of one test execution
 # ---------------------------------------------------------------------------
 
@@ -473,6 +535,16 @@ class TestResult(BaseModel):
     findings: list[Finding] = Field(
         default_factory=list,
         description="Technical evidence units. Non-empty only for FAIL (mandatory).",
+    )
+    notes: list[InfoNote] = Field(
+        default_factory=list,
+        description=(
+            "Informational annotations for PASS results. "
+            "Semantically distinct from findings: notes document architectural context, "
+            "compensating controls, or observability gaps without representing a "
+            "security violation. Rendered in blue in the HTML report. "
+            "NOT counted in finding totals. NOT constrained by the PASS/FAIL validator."
+        ),
     )
     skip_reason: str | None = Field(
         default=None,
@@ -513,6 +585,10 @@ class TestResult(BaseModel):
 
         FAIL  -> findings must be non-empty (evidence is mandatory).
         PASS  -> findings must be empty (no violation detected).
+                 notes (list[InfoNote]) are NOT constrained: a PASS result
+                 may carry informational annotations documenting compensating
+                 controls or architectural gaps without these representing
+                 security violations.
         SKIP  -> findings empty, skip_reason must be present.
         ERROR -> findings may be empty or non-empty.
         """
@@ -792,9 +868,17 @@ class RuntimeTest43Config(BaseModel):
     """
     Runtime mirror of Test43AuditConfig fields consumed by Test 4.3.
 
-    Stores accepted circuit-breaker plugin names and the parameter ranges used
-    to validate a detected plugin's configuration. Mirrored from
-    config/schema.py:Test43AuditConfig, nested under config.tests.domain_4.test_4_3.
+    Stores all parameters needed by the Dual-Check a 3 Livelli strategy.
+    Mirrored from config/schema.py:Test43AuditConfig, nested under
+    config.tests.domain_4.test_4_3.
+
+    Level 1 parameters (native CB plugin validation):
+        accepted_cb_plugin_names, failure_threshold_min/max,
+        timeout_duration_min/max_seconds.
+
+    Level 2 parameters (upstream passive healthcheck oracle thresholds):
+        passive_hc_max_http_failures, passive_hc_max_tcp_failures,
+        passive_hc_max_timeouts.
 
     Access pattern in the test:
         target.tests_config.test_4_3.accepted_cb_plugin_names
@@ -802,16 +886,25 @@ class RuntimeTest43Config(BaseModel):
         target.tests_config.test_4_3.failure_threshold_max
         target.tests_config.test_4_3.timeout_duration_min_seconds
         target.tests_config.test_4_3.timeout_duration_max_seconds
+        target.tests_config.test_4_3.passive_hc_max_http_failures
+        target.tests_config.test_4_3.passive_hc_max_tcp_failures
+        target.tests_config.test_4_3.passive_hc_max_timeouts
     """
 
     model_config = {"frozen": True}
 
+    # ------------------------------------------------------------------
+    # Level 1 -- native CB plugin parameter validation
+    # ------------------------------------------------------------------
+
     accepted_cb_plugin_names: list[str] = Field(
-        default_factory=lambda: ["circuit-breaker", "response-ratelimiting"],
+        default_factory=lambda: ["circuit-breaker"],
         description=(
-            "Kong plugin names considered equivalent to a circuit breaker. "
+            "Kong plugin names considered equivalent to a native circuit breaker. "
             "The first enabled match drives parameter validation. "
-            "Default: ['circuit-breaker', 'response-ratelimiting']."
+            "Do NOT add 'response-ratelimiting': it manages request volumes, "
+            "not cascading failures, and does not implement the CB state machine. "
+            "Default: ['circuit-breaker'] (Kong Enterprise only)."
         ),
     )
     failure_threshold_min: int = Field(
@@ -833,6 +926,38 @@ class RuntimeTest43Config(BaseModel):
         default=120,
         ge=1,
         description="Maximum acceptable Open-state duration in seconds. Default: 120.",
+    )
+
+    # ------------------------------------------------------------------
+    # Level 2 -- upstream passive healthcheck oracle thresholds
+    # ------------------------------------------------------------------
+
+    passive_hc_max_http_failures: int = Field(
+        default=10,
+        ge=1,
+        description=(
+            "Maximum acceptable value for unhealthy.http_failures in a Kong upstream "
+            "passive healthcheck. Values above this threshold are flagged as "
+            "overly permissive. Default: 10."
+        ),
+    )
+    passive_hc_max_tcp_failures: int = Field(
+        default=10,
+        ge=1,
+        description=(
+            "Maximum acceptable value for unhealthy.tcp_failures in a Kong upstream "
+            "passive healthcheck. Same semantics as passive_hc_max_http_failures "
+            "but for TCP-level connection failures. Default: 10."
+        ),
+    )
+    passive_hc_max_timeouts: int = Field(
+        default=10,
+        ge=1,
+        description=(
+            "Maximum acceptable value for unhealthy.timeouts in a Kong upstream "
+            "passive healthcheck. Same semantics as passive_hc_max_http_failures "
+            "but for upstream response timeouts. Default: 10."
+        ),
     )
 
 
