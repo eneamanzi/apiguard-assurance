@@ -1,33 +1,38 @@
 """
-src/config/schema.py
+src/config/schema/tool_config.py
 
-Pydantic v2 schema for the APIGuard Assurance tool configuration file (config.yaml).
+Pydantic v2 models for the tool-level (infrastructure) configuration.
 
-Design note -- PrivateAttr for computed coherence flags
--------------------------------------------------------
-ToolConfig uses two PrivateAttr fields (_white_box_without_admin_api and
-_grey_box_without_credentials) to store boolean flags computed by the
-model_validator. Declaring them as PrivateAttr with default=False makes them
-first-class Pydantic citizens that survive model_copy() calls without loss
-and are excluded from model_dump() output. The assignment in model_validator
-uses self._flag = True, routed by Pydantic v2 through __pydantic_private__
-which is the only mutable slot on a frozen model by design.
+This module owns the configuration that describes the tool itself and its
+runtime environment: where to find the target, what credentials to use,
+how to execute the pipeline, and where to write output. It does NOT contain
+per-test tuning parameters -- those live in domain_N.py files aggregated by
+tests_config.py.
 
-Design note -- OpenAPI spec source (URL vs. local path)
---------------------------------------------------------
-TargetConfig supports two mutually exclusive sources for the OpenAPI
-specification:
+Design notes preserved from the original schema.py:
 
-    openapi_spec_url  -- fetch over HTTP/HTTPS at Phase 2 runtime.
-                         Pydantic AnyHttpUrl validates format at load time.
-    openapi_spec_path -- read from the local filesystem at Phase 2 runtime.
-                         Pydantic Path coerces a YAML string (e.g.
-                         "./specs/forgejo.json") to a Path object automatically.
+    PrivateAttr for computed coherence flags
+    -----------------------------------------
+    ToolConfig uses two PrivateAttr fields (_white_box_without_admin_api and
+    _grey_box_without_credentials) to store boolean flags computed by the
+    model_validator. Declaring them as PrivateAttr with default=False makes
+    them first-class Pydantic citizens that survive model_copy() calls without
+    loss and are excluded from model_dump() output. The assignment in
+    model_validator uses self._flag = True, routed by Pydantic v2 through
+    __pydantic_private__ which is the only mutable slot on a frozen model by
+    design.
 
-Exactly one of the two must be present; the model_validator raises
-ValueError when both or neither are provided. The helper method
-get_openapi_source() centralises the URL-vs-path decision so that all
-downstream code (engine.py, discovery/openapi.py) is free of branching.
+    OpenAPI spec source (URL vs. local path)
+    -----------------------------------------
+    TargetConfig supports two mutually exclusive sources for the OpenAPI spec:
+        openapi_spec_url  -- fetch over HTTP/HTTPS at Phase 2 runtime.
+        openapi_spec_path -- read from the local filesystem at Phase 2 runtime.
+    Exactly one of the two must be present; the model_validator raises
+    ValueError when both or neither are provided.
+
+Dependency rule: imports from pydantic, the stdlib, src.core.models (for
+TestStrategy), and src.config.schema.tests_config. Must never import from
+engine.py, tests/, discovery/, or report/.
 """
 
 from __future__ import annotations
@@ -44,21 +49,19 @@ from pydantic import (
     model_validator,
 )
 
+from src.config.schema.tests_config import TestsConfig
 from src.core.models import TestStrategy
 
 # ---------------------------------------------------------------------------
-# Constants
+# Constants -- priority
 # ---------------------------------------------------------------------------
 
 PRIORITY_MIN: int = 0
 PRIORITY_MAX: int = 3
 
-RATE_LIMIT_PROBE_DEFAULT_MAX_REQUESTS: int = 150
-RATE_LIMIT_PROBE_DEFAULT_INTERVAL_MS: int = 50
-RATE_LIMIT_PROBE_MIN_REQUESTS: int = 10
-RATE_LIMIT_PROBE_MAX_REQUESTS: int = 500
-RATE_LIMIT_PROBE_MIN_INTERVAL_MS: int = 10
-RATE_LIMIT_PROBE_MAX_INTERVAL_MS: int = 5000
+# ---------------------------------------------------------------------------
+# Constants -- HTTP client timeouts and retries
+# ---------------------------------------------------------------------------
 
 TIMEOUT_CONNECT_DEFAULT: float = 5.0
 TIMEOUT_READ_DEFAULT: float = 30.0
@@ -71,6 +74,10 @@ RETRY_MAX_ATTEMPTS_DEFAULT: int = 3
 RETRY_MAX_ATTEMPTS_MIN: int = 1
 RETRY_MAX_ATTEMPTS_MAX: int = 10
 
+# ---------------------------------------------------------------------------
+# Constants -- OpenAPI fetch
+# ---------------------------------------------------------------------------
+
 # Phase 2: OpenAPI spec fetch + prance $ref dereferencing timeout.
 # Prance's internal HTTP transport (requests library) has no default timeout,
 # meaning the pipeline could hang indefinitely on an unresponsive spec URL.
@@ -79,16 +86,20 @@ OPENAPI_FETCH_TIMEOUT_DEFAULT: float = 60.0
 OPENAPI_FETCH_TIMEOUT_MIN: float = 10.0
 OPENAPI_FETCH_TIMEOUT_MAX: float = 300.0
 
-# Outputs values
+# ---------------------------------------------------------------------------
+# Constants -- output filenames and directory
+# ---------------------------------------------------------------------------
+
 OUTPUT_DIRECTORY_DEFAULT: str = "outputs"
 EVIDENCE_FILENAME: str = "evidence.json"
 HTML_REPORT_FILENAME: str = "assessment_report.html"
 JSON_REPORT_FILENAME: str = "apiguard_report.json"
+
 # Subdirectory name for per-test streaming JSONL files written during Phase 5.
 # EvidenceStore creates one <test_id>.jsonl file per test inside this directory
 # and removes it entirely in merge_and_finalize() at Phase 7.
 # Placing it alongside evidence.json makes crash artefacts predictable and
-# inspectable — a forensic asset rather than hidden temp files.
+# inspectable -- a forensic asset rather than hidden temp files.
 EVIDENCE_TMP_DIRNAME: str = "evidence_tmp"
 
 # ---------------------------------------------------------------------------
@@ -150,6 +161,21 @@ class TargetConfig(BaseModel):
             "Example: http://localhost:8001"
         ),
     )
+    path_seed: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Optional mapping of OpenAPI path parameter names to real resource "
+            "identifiers on the target deployment. Used by the path resolver to "
+            'substitute parametric path segments (e.g. "{owner}") with values that '
+            "route to real resources, ensuring probes reach the authentication "
+            "middleware instead of receiving a 404 at the routing layer. "
+            "Example: {owner: 'mario_rossi', repo: 'my-repo', id: '1'}. "
+            "Parameters absent from this dict fall back to the test's default "
+            "placeholder (typically '1'). "
+            "Run 'apiguard generate-seed' to auto-generate a template with all "
+            "parameter names found in the OpenAPI specification."
+        ),
+    )
 
     @model_validator(mode="after")
     def enforce_exactly_one_openapi_source(self) -> TargetConfig:
@@ -198,30 +224,18 @@ class TargetConfig(BaseModel):
         This is the single point where the URL-vs-path decision is made.
         All downstream code (engine.py Phase 2, discovery/openapi.py,
         tests_e2e/conftest.py) calls this method instead of accessing
-        openapi_spec_url or openapi_spec_path directly, keeping those
-        modules free of branching logic.
-
-        For URL sources   -- returns the URL string as-is (str(AnyHttpUrl)).
-        For path sources  -- returns the resolved absolute path as a string.
-                             Path.resolve() converts a relative path to
-                             absolute anchored at the current working directory,
-                             which is critical for prance's $ref resolver to
-                             locate sibling files correctly.
+        openapi_spec_url or openapi_spec_path directly.
 
         Returns:
-            str: Either the HTTP URL string or the absolute filesystem path
-                 string. prance.ResolvingParser accepts both formats natively.
+            str: Either the HTTP URL string or the absolute filesystem path string.
 
         Raises:
-            RuntimeError: If neither field is set, which should be unreachable
-                          because enforce_exactly_one_openapi_source catches it
-                          at construction time.
+            RuntimeError: If neither field is set (unreachable after validation).
         """
         if self.openapi_spec_url is not None:
             return str(self.openapi_spec_url)
         if self.openapi_spec_path is not None:
             return str(self.openapi_spec_path.resolve())
-        # Unreachable: the model_validator guarantees exactly one is set.
         raise RuntimeError(
             "TargetConfig.get_openapi_source() called but neither "
             "openapi_spec_url nor openapi_spec_path is set. "
@@ -230,30 +244,8 @@ class TargetConfig(BaseModel):
 
     @property
     def is_local_spec(self) -> bool:
-        """
-        True if the OpenAPI specification is sourced from a local filesystem path.
-
-        Used by engine.py Phase 2 logging to emit a diagnostic message that
-        distinguishes a network fetch (which may time out) from a local file
-        read (which is expected to be near-instantaneous).
-        """
+        """True if the OpenAPI specification is sourced from a local filesystem path."""
         return self.openapi_spec_path is not None
-
-    path_seed: dict[str, str] = Field(
-        default_factory=dict,
-        description=(
-            "Optional mapping of OpenAPI path parameter names to real resource "
-            "identifiers on the target deployment.  Used by the path resolver to "
-            'substitute parametric path segments (e.g. "{owner}") with values that '
-            "route to real resources, ensuring probes reach the authentication "
-            "middleware instead of receiving a 404 at the routing layer. "
-            "Example: {owner: 'mario_rossi', repo: 'my-repo', id: '1'}. "
-            "Parameters absent from this dict fall back to the test's default "
-            "placeholder (typically '1'). "
-            "Run 'apiguard generate-seed' to auto-generate a template with all "
-            "parameter names found in the OpenAPI specification."
-        ),
-    )
 
     @field_validator("base_url", "openapi_spec_url", "admin_api_url", mode="before")
     @classmethod
@@ -367,19 +359,20 @@ class ExecutionConfig(BaseModel):
         default=False,
         description="Abort immediately when a P0 test returns FAIL or ERROR.",
     )
-    connect_timeout: Annotated[float, Field(ge=TIMEOUT_CONNECT_MIN, le=TIMEOUT_CONNECT_MAX)] = (
-        Field(
-            default=TIMEOUT_CONNECT_DEFAULT,
-            description=(
-                f"TCP connection timeout in seconds for SecurityClient. "
-                f"Default: {TIMEOUT_CONNECT_DEFAULT}s."
-            ),
-        )
+    connect_timeout: Annotated[
+        float, Field(ge=TIMEOUT_CONNECT_MIN, le=TIMEOUT_CONNECT_MAX)
+    ] = Field(
+        default=TIMEOUT_CONNECT_DEFAULT,
+        description=(
+            f"TCP connection timeout in seconds for SecurityClient. "
+            f"Default: {TIMEOUT_CONNECT_DEFAULT}s."
+        ),
     )
     read_timeout: Annotated[float, Field(ge=TIMEOUT_READ_MIN, le=TIMEOUT_READ_MAX)] = Field(
         default=TIMEOUT_READ_DEFAULT,
         description=(
-            f"HTTP read timeout in seconds for SecurityClient. Default: {TIMEOUT_READ_DEFAULT}s."
+            f"HTTP read timeout in seconds for SecurityClient. "
+            f"Default: {TIMEOUT_READ_DEFAULT}s."
         ),
     )
     max_retry_attempts: Annotated[
@@ -494,10 +487,6 @@ class OutputConfig(BaseModel):
         (e.g. ``outputs/evidence_tmp/1_1.jsonl``).
         Phase 7 merges all JSONL files into ``evidence.json`` and then
         removes this directory via EvidenceStore.merge_and_finalize().
-
-        Placing the directory alongside ``evidence.json`` makes any crash
-        artefacts predictable and inspectable rather than scattered in an
-        OS temp path.
         """
         return self.directory / EVIDENCE_TMP_DIRNAME
 
@@ -513,266 +502,6 @@ class OutputConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# RateLimitProbeConfig
-# ---------------------------------------------------------------------------
-
-
-class RateLimitProbeConfig(BaseModel):
-    """Parameters for the empirical rate-limit discovery performed by Test 4.1."""
-
-    model_config = {"frozen": True}
-
-    max_requests: Annotated[
-        int,
-        Field(ge=RATE_LIMIT_PROBE_MIN_REQUESTS, le=RATE_LIMIT_PROBE_MAX_REQUESTS),
-    ] = Field(
-        default=RATE_LIMIT_PROBE_DEFAULT_MAX_REQUESTS,
-        description="Maximum probe requests before concluding rate limiting is absent. Default: 150.",  # noqa: E501
-    )
-    request_interval_ms: Annotated[
-        int,
-        Field(ge=RATE_LIMIT_PROBE_MIN_INTERVAL_MS, le=RATE_LIMIT_PROBE_MAX_INTERVAL_MS),
-    ] = Field(
-        default=RATE_LIMIT_PROBE_DEFAULT_INTERVAL_MS,
-        description="Interval in milliseconds between consecutive probe requests. Default: 50ms.",
-    )
-
-    @property
-    def request_interval_seconds(self) -> float:
-        """Convert request_interval_ms to seconds for use in time.sleep() calls."""
-        return self.request_interval_ms / 1000.0
-
-
-# ---------------------------------------------------------------------------
-# TestDomain1Config / TestsConfig -- per-test tuning parameters
-# ---------------------------------------------------------------------------
-
-
-class TestDomain1Config(BaseModel):
-    """Tuning parameters for Domain 1 (Identity and Authentication) tests."""
-
-    model_config = {"frozen": True}
-
-    max_endpoints_cap: Annotated[int, Field(ge=0)] = Field(
-        default=0,
-        description=(
-            "Maximum number of protected endpoints that Test 1.1 will probe. "
-            "0 means test ALL protected endpoints declared in the OpenAPI spec "
-            "(recommended for complete academic coverage). "
-            "Set to a positive integer only when the target API enforces strict "
-            "rate limiting that would cause 429 responses during a full scan, "
-            "or when the operator requires a time-bounded assessment."
-        ),
-    )
-
-
-class Test42AuditConfig(BaseModel):
-    """
-    Tuning parameters for Test 4.2 (Timeout Configuration Audit).
-
-    Oracle thresholds are taken directly from the methodology (section 4.2):
-        connect_timeout  <= 5 000 ms  (5 s)
-        read_timeout     <= 30 000 ms (30 s)
-        write_timeout    <= 30 000 ms (30 s)
-
-    Kong stores all timeout values in milliseconds as plain integers.
-    Adjust these only when the target gateway is intentionally configured
-    with different timeouts and the deviation is accepted as a documented risk.
-    """
-
-    model_config = {"frozen": True}
-
-    max_connect_timeout_ms: Annotated[int, Field(ge=1)] = Field(
-        default=5_000,
-        description=(
-            "Maximum acceptable Kong service connect_timeout in milliseconds. "
-            "Methodology oracle: connect_timeout <= 5 000 ms (NIST SP 800-204A Section 4.3). "
-            "Services with a higher value will produce a FAIL finding."
-        ),
-    )
-    max_read_timeout_ms: Annotated[int, Field(ge=1)] = Field(
-        default=30_000,
-        description=(
-            "Maximum acceptable Kong service read_timeout in milliseconds. "
-            "Methodology oracle: read_timeout <= 30 000 ms (NIST SP 800-204A Section 4.3). "
-            "Services with a higher value will produce a FAIL finding."
-        ),
-    )
-    max_write_timeout_ms: Annotated[int, Field(ge=1)] = Field(
-        default=30_000,
-        description=(
-            "Maximum acceptable Kong service write_timeout in milliseconds. "
-            "Methodology oracle: write_timeout <= 30 000 ms. "
-            "Services with a higher value will produce a FAIL finding."
-        ),
-    )
-
-
-class Test43AuditConfig(BaseModel):
-    """
-    Tuning parameters for Test 4.3 (Circuit Breaker Configuration Audit).
-
-    The test implements a Dual-Check a 3 Livelli strategy to handle the Kong OSS
-    constraint (no native circuit-breaker plugin):
-
-        LEVEL 1 -- Native plugin check.
-            Searches for a plugin in accepted_cb_plugin_names.
-            NOTE: 'response-ratelimiting' is intentionally excluded from the
-            default list: it manages request volumes, not cascading failures.
-            It does not implement the CLOSED/OPEN/HALF-OPEN state machine and
-            cannot prevent thundering-herd scenarios. Only genuine circuit-breaker
-            plugins belong here. On Kong OSS DB-less the expected Level 1 result
-            is 'no plugin found'; execution continues to Level 2.
-
-        LEVEL 2 -- Compensating control via upstream passive healthchecks.
-            If no native plugin is found, the test inspects all Kong upstreams
-            for a configured passive healthcheck (healthchecks.passive.unhealthy
-            with at least one non-zero failure counter). A properly configured
-            passive healthcheck allows Kong to remove a degrading backend from
-            the upstream pool, approximating circuit-breaker behaviour at the
-            load-balancer layer. The test returns PASS with an informational
-            Finding documenting the compensating control.
-
-        LEVEL 3 -- Vulnerable.
-            Neither native plugin nor upstream passive healthcheck found.
-            Returns FAIL with a gap-documenting Finding.
-
-        Observability (always runs, independent).
-            Checks /status for circuit-breaker metrics. Always produces an
-            informational Finding on Kong OSS (these metrics are absent).
-
-    failure_threshold_* and timeout_duration_* parameters govern Level 1
-    parameter validation. passive_hc_max_* parameters govern Level 2.
-    """
-
-    model_config = {"frozen": True}
-
-    # ------------------------------------------------------------------
-    # Level 1 -- native CB plugin
-    # ------------------------------------------------------------------
-
-    accepted_cb_plugin_names: list[str] = Field(
-        default_factory=lambda: ["circuit-breaker"],
-        description=(
-            "Kong plugin names accepted as native circuit-breaker equivalents. "
-            "Evaluated in order; the first enabled match is used for parameter "
-            "validation. 'circuit-breaker' is Kong Enterprise only. "
-            "Do NOT add 'response-ratelimiting': it manages request volumes, not "
-            "cascading failures, and does not implement the CB state machine. "
-            "Extend this list only when a true custom or third-party CB plugin "
-            "is deployed (e.g., a Lua-based state machine plugin)."
-        ),
-    )
-    failure_threshold_min: Annotated[int, Field(ge=1)] = Field(
-        default=3,
-        description=(
-            "Minimum acceptable failure threshold to open the circuit. "
-            "Methodology range: [3, 10] consecutive failures. "
-            "A threshold below this minimum is too sensitive (alert fatigue)."
-        ),
-    )
-    failure_threshold_max: Annotated[int, Field(ge=1)] = Field(
-        default=10,
-        description=(
-            "Maximum acceptable failure threshold to open the circuit. "
-            "Methodology range: [3, 10] consecutive failures. "
-            "A threshold above this maximum leaves the system exposed too long."
-        ),
-    )
-    timeout_duration_min_seconds: Annotated[int, Field(ge=1)] = Field(
-        default=30,
-        description=(
-            "Minimum acceptable Open-state duration in seconds before Half-Open probe. "
-            "Methodology range: [30, 120] s (Martin Fowler Circuit Breaker Pattern). "
-            "A shorter window may not allow the downstream service to recover."
-        ),
-    )
-    timeout_duration_max_seconds: Annotated[int, Field(ge=1)] = Field(
-        default=120,
-        description=(
-            "Maximum acceptable Open-state duration in seconds before Half-Open probe. "
-            "Methodology range: [30, 120] s. "
-            "A longer window unnecessarily degrades availability."
-        ),
-    )
-
-    # ------------------------------------------------------------------
-    # Level 2 -- passive healthcheck compensating control thresholds
-    # ------------------------------------------------------------------
-
-    passive_hc_max_http_failures: Annotated[int, Field(ge=1)] = Field(
-        default=10,
-        description=(
-            "Maximum acceptable value for unhealthy.http_failures in a Kong upstream "
-            "passive healthcheck. A passive HC is considered active when this counter "
-            "is > 0 (Kong default is 0 = disabled). Acceptable range: [1, this value]. "
-            "Values above the maximum indicate an overly permissive threshold."
-        ),
-    )
-    passive_hc_max_tcp_failures: Annotated[int, Field(ge=1)] = Field(
-        default=10,
-        description=(
-            "Maximum acceptable value for unhealthy.tcp_failures in a Kong upstream "
-            "passive healthcheck. Same semantics as passive_hc_max_http_failures "
-            "but for TCP-level connection failures."
-        ),
-    )
-    passive_hc_max_timeouts: Annotated[int, Field(ge=1)] = Field(
-        default=10,
-        description=(
-            "Maximum acceptable value for unhealthy.timeouts in a Kong upstream "
-            "passive healthcheck. Same semantics as passive_hc_max_http_failures "
-            "but for upstream response timeouts."
-        ),
-    )
-
-    @model_validator(mode="after")
-    def validate_threshold_range_coherence(self) -> Test43AuditConfig:
-        """Ensure min <= max for Level 1 parameter ranges."""
-        if self.failure_threshold_min > self.failure_threshold_max:
-            raise ValueError(
-                f"failure_threshold_min ({self.failure_threshold_min}) must be "
-                f"<= failure_threshold_max ({self.failure_threshold_max})."
-            )
-        if self.timeout_duration_min_seconds > self.timeout_duration_max_seconds:
-            raise ValueError(
-                f"timeout_duration_min_seconds ({self.timeout_duration_min_seconds}) must be "
-                f"<= timeout_duration_max_seconds ({self.timeout_duration_max_seconds})."
-            )
-        return self
-
-
-class TestDomain4Config(BaseModel):
-    """Tuning parameters for Domain 4 (Availability and Resilience) tests."""
-
-    model_config = {"frozen": True}
-
-    test_4_2: Test42AuditConfig = Field(
-        default_factory=Test42AuditConfig,
-        description="Oracle thresholds for Test 4.2 (Timeout Configuration Audit).",
-    )
-    test_4_3: Test43AuditConfig = Field(
-        default_factory=Test43AuditConfig,
-        description="Accepted plugins and parameter ranges for Test 4.3 (Circuit Breaker Audit).",
-    )
-
-
-class TestsConfig(BaseModel):
-    """Container for per-domain test tuning parameters."""
-
-    model_config = {"frozen": True}
-
-    domain_1: TestDomain1Config = Field(
-        default_factory=TestDomain1Config,
-        description="Tuning parameters for Domain 1 (Identity and Authentication) tests.",
-    )
-    domain_4: TestDomain4Config = Field(
-        default_factory=TestDomain4Config,
-        description="Tuning parameters for Domain 4 (Availability and Resilience) tests.",
-    )
-
-
-# ---------------------------------------------------------------------------
 # ToolConfig (root)
 # ---------------------------------------------------------------------------
 
@@ -784,6 +513,14 @@ class ToolConfig(BaseModel):
     Frozen after construction. PrivateAttr fields store cross-submodel
     coherence flags computed by the model_validator -- they survive
     model_copy() and are excluded from model_dump().
+
+    Migration note (rate_limit_probe removal):
+        The former top-level 'rate_limit_probe' field has been removed.
+        Rate-limit probe parameters are now nested under
+        'tests.domain_4.test_4_1' in config.yaml and live in
+        Test41ProbeConfig (domain_4.py). This corrects the architectural
+        error of treating test-specific tuning as tool-level infrastructure.
+        engine.py Phase 3 reads from config.tests.domain_4.test_4_1.
     """
 
     model_config = {"frozen": True}
@@ -802,10 +539,6 @@ class ToolConfig(BaseModel):
     output: OutputConfig = Field(
         default_factory=OutputConfig,
         description="Output file configuration.",
-    )
-    rate_limit_probe: RateLimitProbeConfig = Field(
-        default_factory=RateLimitProbeConfig,
-        description="Parameters for Test 4.1 empirical rate-limit discovery.",
     )
     tests: TestsConfig = Field(
         default_factory=TestsConfig,

@@ -786,11 +786,11 @@ class RuntimeTest11Config(BaseModel):
 
 class RuntimeTest41Config(BaseModel):
     """
-    Runtime mirror of RateLimitProbeConfig fields consumed by Test 4.1.
+    Runtime mirror of Test41ProbeConfig fields consumed by Test 4.1.
 
-    Mirrors config/schema.py:RateLimitProbeConfig, which is defined at the
-    root level of ToolConfig (not nested under tests.domain_4) because rate
-    limiting is an infrastructure-level parameter, not a domain-specific one.
+    Mirrors config/schema/domain_4.py:Test41ProbeConfig, nested under
+    config.tests.domain_4.test_4_1 in config.yaml (previously at the
+    root level as 'rate_limit_probe' -- migrated in schema refactoring).
 
     Access pattern in the test:
         target.tests_config.test_4_1.max_requests
@@ -804,7 +804,7 @@ class RuntimeTest41Config(BaseModel):
         ge=1,
         description=(
             "Maximum probe requests sent before concluding rate limiting is absent. "
-            "Mirrors RateLimitProbeConfig.max_requests. Default: 150."
+            "Mirrors Test41ProbeConfig.max_requests. Default: 150."
         ),
     )
     request_interval_ms: int = Field(
@@ -812,7 +812,7 @@ class RuntimeTest41Config(BaseModel):
         ge=10,
         description=(
             "Interval in milliseconds between consecutive probe requests. "
-            "Mirrors RateLimitProbeConfig.request_interval_ms. Default: 50ms."
+            "Mirrors Test41ProbeConfig.request_interval_ms. Default: 50ms."
         ),
     )
 
@@ -992,7 +992,7 @@ class RuntimeTestsConfig(BaseModel):
         default_factory=RuntimeTest41Config,
         description=(
             "Runtime parameters for Test 4.1 (Rate Limiting — Resource Exhaustion Prevention). "
-            "Mirrors RateLimitProbeConfig from config/schema.py."
+            "Mirrors Test41ProbeConfig from config/schema/domain_4.py."
         ),
     )
     test_4_2: RuntimeTest42Config = Field(

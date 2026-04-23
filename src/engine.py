@@ -367,11 +367,11 @@ class AssessmentEngine:
 
         tests_config = RuntimeTestsConfig(
             test_1_1=RuntimeTest11Config(
-                max_endpoints_cap=config.tests.domain_1.max_endpoints_cap,
+                max_endpoints_cap=config.tests.domain_1.test_1_1.max_endpoints_cap,
             ),
             test_4_1=RuntimeTest41Config(
-                max_requests=config.rate_limit_probe.max_requests,
-                request_interval_ms=config.rate_limit_probe.request_interval_ms,
+                max_requests=config.tests.domain_4.test_4_1.max_requests,
+                request_interval_ms=config.tests.domain_4.test_4_1.request_interval_ms,
             ),
             test_4_2=RuntimeTest42Config(
                 max_connect_timeout_ms=config.tests.domain_4.test_4_2.max_connect_timeout_ms,

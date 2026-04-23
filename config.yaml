@@ -113,7 +113,7 @@ execution:
     - BLACK_BOX
     - GREY_BOX
     - WHITE_BOX
-  test_ids: ["4.3"]     # esegue solo test specificati, se vuota comportamento normale
+  test_ids: []     # esegue solo test specificati, se vuota comportamento normale
   # test_ids: ["0.1", "1.1"]  # più test specifici
   # test_ids: []          # lista vuota = comportamento normale
 
@@ -130,21 +130,29 @@ execution:
 output:
   directory: "outputs"
 
-rate_limit_probe:
-  max_requests: 150
-  request_interval_ms: 50
-
 tests:
   # Per-domain test tuning parameters.
   # Default values (shown below) produce a complete assessment.
   # Override only when strictly necessary (e.g. rate-limited environments).
   domain_1:
     # Test 1.1 — Authentication Required
-    # 0 = test ALL protected endpoints (recommended for academic completeness).
-    # Set to a positive integer to cap the scan on rate-limited targets.
-    max_endpoints_cap: 0
+    # Nested under tests.domain_1.test_1_1 in schema.
+    test_1_1:
+      # 0 = test ALL protected endpoints (recommended for academic completeness).
+      # Set to a positive integer to cap the scan on rate-limited targets.
+      max_endpoints_cap: 0
 
   domain_4:
+    # Test 4.1 — Rate Limiting (BLACK_BOX, P0)
+    # Empirical probe parameters: how many requests to send and at what
+    # interval before concluding that rate limiting is absent.
+    # Conservative defaults avoid triggering security alerts on the target.
+    # Increase max_requests only on targets with very high rate-limit thresholds
+    # (e.g. 1000 req/min) that the default budget of 150 would not reach.
+    test_4_1:
+      max_requests: 150           # probe budget before declaring rate limit absent
+      request_interval_ms: 50    # ms between requests — full probe <= 7.5 s
+
     # Test 4.2 — Timeout Configuration Audit (WHITE_BOX, P1)
     # Oracle thresholds from the methodology (section 4.2, NIST SP 800-204A Section 4.3).
     # Kong stores all timeout values as plain integers in milliseconds.
