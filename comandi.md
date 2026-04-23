@@ -46,11 +46,6 @@ Eseguire i Test di Integrazione (Il Motore):
 pytest tests_integration/ -v
 \`\`\`
 
-Eseguire i Test End-to-End (Il Mondo Reale contro Forgejo):
-\`\`\`bash
-pytest tests_e2e/ -v
-\`\`\`
-
 Eseguire un singolo file di test:
 \`\`\`bash
 pytest tests_integration/test_05_execution.py -v
@@ -65,5 +60,28 @@ ruff check .
 
 Controllare i tipi rigorosi (Mypy):
 \`\`\`bash
-mypy src/ tests_integration/ tests_e2e/
+mypy src/ tests_integration/
 \`\`\`
+
+## Git log
+Vedo lo storico dei commit
+git log --oneline
+
+Metto l'hash del primo commit che reputo stabile
+git rebase -i <HASH> 
+il primo di ogni gruppo rimane pick, i successivi diventano fixup (scarta il loro messaggio, tiene quello del pick)
+
+verifico che le commit siano state unite con i fixup di prima
+git log --oneline
+
+Faccio un nuovo rebase per andare a modificare le commit con 'reword' al posto di 'fixup'
+git rebase -i 4065b71
+
+git push -f
+
+
+## Comandi hatch per tool instalalti su controllo del codice
+hatch run dev:lint   → ruff + mypy            (fast, run on every commit)
+hatch run dev:audit  → bandit + vulture        (slower, run before push)
+hatch run dev:check  → full suite in sequence  (CI gate)
+hatch run dev:deps   → pip-audit               (run before any release)

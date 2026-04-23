@@ -388,7 +388,7 @@ def _prance_worker(source_url: str) -> dict[str, object]:
         lazy=False,
         strict=False,
         recursion_limit=10,
-        recursion_limit_handler=lambda *args, **kwargs: {},
+        recursion_limit_handler=lambda *args, **_kwargs: {},
     )
     return parser.specification  # type: ignore[no-any-return]
 
