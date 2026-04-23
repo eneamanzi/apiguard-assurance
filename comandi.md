@@ -89,3 +89,8 @@ hatch run dev:lint   → ruff + mypy            (fast, run on every commit)
 hatch run dev:audit  → bandit + vulture        (slower, run before push)
 hatch run dev:check  → full suite in sequence  (CI gate)
 hatch run dev:deps   → pip-audit               (run before any release)
+
+
+## Comandi per modifiche alla conf di kong
+-> ricarica kog e legge la cofiguazione nuova
+docker compose up -d --force-recreate kong  

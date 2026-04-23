@@ -33,10 +33,23 @@ services:
         strip_path: false
         preserve_host: false
     plugins:
-      #- name: rate-limiting    # rimuovere il plugin per mostrare i finding del rate limiting
+      #- name: rate-limiting    # rimuovere il plugin per mostrare i finding del 4.1 (rate limiting)
       #  config:
       #    minute: 100          # soglia: 100 request al minuto per IP
       #    policy: local        # contatore in RAM, unica opzione in DB-less
       #    limit_by: ip         # chiave = IP TCP reale, non X-Forwarded-For
       #    hide_client_headers: false  # espone X-RateLimit-* e Retry-After
       #    fault_tolerant: true        # se il contatore è irraggiungibile, passa
+      #- name: response-transformer  # rimuovere il plugin per mostrare i finding del 6.2 (Security #Headers)
+      #  config:
+      #    add:
+      #      headers:
+      #        - "Strict-Transport-Security: max-age=31536000; includeSubDomains"
+      #        - "Content-Security-Policy: default-src 'self'"
+      #        - "Permissions-Policy: geolocation=(), camera=(), microphone=()"
+      #        - "X-Content-Type-Options: nosniff"
+      #        - "X-Frame-Options: DENY"
+      #    remove:
+      #      headers:
+      #        - "Server"
+      #        - "X-Powered-By"

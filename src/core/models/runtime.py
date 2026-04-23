@@ -316,6 +316,44 @@ class RuntimeTest43Config(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# RuntimeTest62Config — runtime parameters for Test 6.2
+# ---------------------------------------------------------------------------
+
+
+class RuntimeTest62Config(BaseModel):
+    """
+    Runtime mirror of Test62AuditConfig fields consumed by Test 6.2.
+
+    Stores the two tunable parameters for the Security Header Configuration
+    Audit.  Mirrored from config/schema/domain_6.py:Test62AuditConfig,
+    nested under config.tests.domain_6.test_6_2 in config.yaml.
+
+    Access pattern in the test:
+        target.tests_config.test_6_2.hsts_min_max_age_seconds
+        target.tests_config.test_6_2.endpoint_sample_size
+    """
+
+    model_config = {"frozen": True}
+
+    hsts_min_max_age_seconds: int = Field(
+        default=31_536_000,
+        ge=1,
+        description=(
+            "Minimum acceptable max-age value in the Strict-Transport-Security header. "
+            "ASVS V3.4.1: max-age >= 31 536 000 (one year). Default: 31 536 000."
+        ),
+    )
+    endpoint_sample_size: int = Field(
+        default=5,
+        ge=0,
+        description=(
+            "Number of endpoints to sample for cross-endpoint consistency check. "
+            "0 = all endpoints. Default: 5."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # RuntimeTestsConfig — immutable container for all per-test runtime configs
 # ---------------------------------------------------------------------------
 
@@ -366,5 +404,12 @@ class RuntimeTestsConfig(BaseModel):
         description=(
             "Runtime parameters for Test 4.3 (Circuit Breaker Configuration Audit). "
             "Mirrors Test43AuditConfig from config.tests.domain_4.test_4_3."
+        ),
+    )
+    test_6_2: RuntimeTest62Config = Field(
+        default_factory=RuntimeTest62Config,
+        description=(
+            "Runtime parameters for Test 6.2 (Security Header Configuration Audit). "
+            "Mirrors Test62AuditConfig from config.tests.domain_6.test_6_2."
         ),
     )

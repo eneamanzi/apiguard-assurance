@@ -97,6 +97,7 @@ from src.core.models import (
     RuntimeTest41Config,
     RuntimeTest42Config,
     RuntimeTest43Config,
+    RuntimeTest62Config,
     RuntimeTestsConfig,
     TestResult,
     TestStatus,
@@ -397,6 +398,10 @@ class AssessmentEngine:
                     config.tests.domain_4.test_4_3.passive_hc_max_tcp_failures
                 ),
                 passive_hc_max_timeouts=(config.tests.domain_4.test_4_3.passive_hc_max_timeouts),
+            ),
+            test_6_2=RuntimeTest62Config(
+                hsts_min_max_age_seconds=(config.tests.domain_6.test_6_2.hsts_min_max_age_seconds),
+                endpoint_sample_size=config.tests.domain_6.test_6_2.endpoint_sample_size,
             ),
         )
 

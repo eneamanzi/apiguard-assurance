@@ -195,3 +195,20 @@ tests:
       passive_hc_max_http_failures: 10   # unhealthy.http_failures: accettabile in [1, 10]
       passive_hc_max_tcp_failures: 10    # unhealthy.tcp_failures: accettabile in [1, 10]
       passive_hc_max_timeouts: 10        # unhealthy.timeouts: accettabile in [1, 10]
+
+  domain_6:
+    # Test 6.2 — Security Header Configuration Audit (WHITE_BOX, P3)
+    # Verifies presence and correctness of HTTP security headers on the target.
+    # No Admin API access required: checks are performed via regular GET requests.
+    # Checked headers: Strict-Transport-Security, X-Content-Type-Options,
+    #   X-Frame-Options, Content-Security-Policy, Permissions-Policy.
+    # Leaky headers flagged: X-Powered-By, Server (if version-bearing).
+    test_6_2:
+      # Minimum acceptable max-age in the Strict-Transport-Security header.
+      # ASVS V3.4.1 requires max-age >= 31536000 (1 year).
+      hsts_min_max_age_seconds: 31536000
+
+      # Number of endpoints to sample for cross-endpoint header consistency check.
+      # 0 = all endpoints (complete coverage, slower on large OpenAPI specs).
+      # Any positive integer caps the sample using the first N AttackSurface entries.
+      endpoint_sample_size: 5
