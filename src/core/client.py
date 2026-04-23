@@ -232,8 +232,8 @@ class SecurityClient:
     def __exit__(
         self,
         exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
+        _exc_val: BaseException | None,
+        _exc_tb: TracebackType | None,
     ) -> None:
         """
         Close the underlying httpx.Client and release the connection pool.

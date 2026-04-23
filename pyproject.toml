@@ -45,7 +45,7 @@ dependencies = [
     # in a new release may break Phase 2 with AttributeError.
     # To upgrade: change the pin, run tests_e2e/test_01_smoke_connectivity.py,
     # and verify that build_attack_surface() still succeeds on the real target.
-    "prance==23.6.21.141549",
+    "prance==25.4.8.0",
 
     # OpenAPI spec structural validation (dialect-aware: OAS 3.0.x / 3.1.x).
     "openapi-spec-validator>=0.7",
@@ -96,7 +96,94 @@ dependencies = [
 
     # Linter and formatter (replaces flake8 + isort + black).
     "ruff>=0.4",
+
+    # Security static analysis. [toml] extra required to read [tool.bandit]
+    # from this file; without it bandit ignores the section entirely.
+    "bandit[toml]>=1.7",
+
+    # Dead code detection.
+    "vulture>=2.11",
+
+    # Dependency vulnerability scanning against PyPI Advisory DB and OSV.
+    # Run with: hatch run dev:deps
+    "pip-audit>=2.7",
 ]
+
+# ---------------------------------------------------------------------------
+# Hatch scripts: run the full static-analysis suite with a single command.
+#
+# Array syntax is used throughout: each entry is a separate shell command
+# executed in sequence. Hatch stops on the first non-zero exit code, which
+# is the desired behaviour — a type error should block the security scan.
+#
+#   hatch run dev:lint   → ruff + mypy            (fast, run on every commit)
+#   hatch run dev:audit  → bandit + vulture        (slower, run before push)
+#   hatch run dev:check  → full suite in sequence  (CI gate)
+#   hatch run dev:deps   → pip-audit               (run before any release)
+#
+# Note on bandit: the -c pyproject.toml flag is mandatory. Without it bandit
+# ignores [tool.bandit] entirely and runs with defaults, producing spurious
+# output for B101/B105/B106 which are documented false positives (see below).
+# ---------------------------------------------------------------------------
+[tool.hatch.envs.dev.scripts]
+lint = [
+    "ruff check .",
+    "mypy src/ tests_integration/",
+]
+audit = [
+    "bandit -r src/ -c pyproject.toml",
+    "vulture src/ --min-confidence 80",
+]
+check = [
+    "ruff check .",
+    "mypy src/ tests_integration/",
+    "bandit -r src/ -c pyproject.toml",
+    "vulture src/ --min-confidence 80",
+]
+deps = [
+    "echo '--- PIP-AUDIT ---' && pip-audit --desc on",
+]
+
+# ---------------------------------------------------------------------------
+# Bandit: security static analysis.
+# Scans src/ only — test directories are excluded because assert statements
+# and hardcoded test credentials are legitimate there and would flood output.
+#
+# Skipped rules (all confirmed false positives, documented individually):
+#
+#   B101 assert_used: already enforced by Ruff rule S101. assert is used in
+#        production paths exclusively as a mypy narrowing guard
+#        (e.g. `assert x is not None`) — not as a test assertion. Running
+#        the same check twice produces duplicate noise with no added value.
+#
+#   B105 hardcoded_password_string: triggers on enum literals ("PASS", "FAIL"
+#        in TestStatus) and on CSS class names ("badge-pass" in renderer.py).
+#        None of these are credential strings.
+#
+#   B106 hardcoded_password_funcarg: triggers on log.debug(...,
+#        token_preview="[REDACTED]") because the argument name contains
+#        "token". The value "[REDACTED]" is the sanitization placeholder —
+#        the opposite of a hardcoded secret.
+# ---------------------------------------------------------------------------
+[tool.bandit]
+targets = ["src"]
+exclude_dirs = ["tests_integration"]
+skips = ["B101", "B105", "B106"]
+
+# ---------------------------------------------------------------------------
+# Vulture: dead code detection.
+# min_confidence = 80 suppresses the high false-positive rate on abstract
+# methods and dynamically-dispatched callbacks (e.g. BaseTest.execute,
+# Pydantic validators, pytest hooks).
+# ignore_names covers patterns that are "called" but not via direct reference:
+#   execute      — called by engine.py via duck typing on BaseTest instances
+#   model_*      — Pydantic-generated dunder methods
+#   validator_*  — Pydantic field validators registered via decorator
+# ---------------------------------------------------------------------------
+[tool.vulture]
+min_confidence = 80
+paths = ["src"]
+ignore_names = ["execute", "model_*", "validator_*"]
 
 # ---------------------------------------------------------------------------
 # Ruff: linting and formatting configuration.
