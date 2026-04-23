@@ -79,6 +79,10 @@ git rebase -i 4065b71
 
 git push -f
 
+## git aggiugnere file dimenticati ad una precedente commit
+git add .
+git commit --amend --no-edit
+
 
 ## Comandi hatch per tool instalalti su controllo del codice
 hatch run dev:lint   → ruff + mypy            (fast, run on every commit)
