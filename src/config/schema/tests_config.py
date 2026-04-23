@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 
 from src.config.schema.domain_1 import TestDomain1Config
 from src.config.schema.domain_4 import TestDomain4Config
+from src.config.schema.domain_6 import TestDomain6Config
 
 # ---------------------------------------------------------------------------
 # TestsConfig
@@ -52,4 +53,8 @@ class TestsConfig(BaseModel):
     domain_4: TestDomain4Config = Field(
         default_factory=TestDomain4Config,
         description="Tuning parameters for Domain 4 (Availability and Resilience) tests.",
+    )
+    domain_6: TestDomain6Config = Field(
+        default_factory=TestDomain6Config,
+        description="Tuning parameters for Domain 6 (Configuration and Hardening) tests.",
     )

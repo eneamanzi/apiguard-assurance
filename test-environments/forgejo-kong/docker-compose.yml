@@ -81,6 +81,7 @@ services:
       - KONG_ADMIN_ACCESS_LOG=/dev/stdout
       - KONG_PROXY_ERROR_LOG=/dev/stderr
       - KONG_ADMIN_ERROR_LOG=/dev/stderr
+      #- KONG_HEADERS=off      #rimuove risposta "Server: kong/version" per PASS test 6.2, commentare altriemnti
     volumes:
       - ./kong:/kong:ro
     ports:
