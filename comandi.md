@@ -2,8 +2,21 @@
 ## Utility: Export
 Creare uno ZIP aggiornato con tutti i sorgenti e i test (escludendo cache, pycache e report):
 
+### Nuova modalità
 ```bash
-zip -r apiguard-assurance.zip . -x "*.git/*" -x "*__pycache__*" -x "*.pyc" -x "*.ruff_cache*" -x "*.pytest_cache*" -x "*.mypy_cache*" -x "*.vscode*" -x "*outputs/*" -x "*specs/*" -x "*.zip" -x ".env"
+# crea uno zip con tutti i domini, esclude le stesse cose del comando zip qua sotto
+./build_zip.sh 
+
+# crea uno zip esclduendo tutti domini che non siano quello specificato
+./build_zip.sh -d 6
+
+# crea uno zip esclduendo tutti domini che non siano quelli specificati
+./build_zip.sh -d 5,6
+```
+
+### Vecchia modalità
+```bash
+zip -r apiguard-assurance.zip . -x "*.git/*" -x "*__pycache__*" -x "*.pyc" -x "*.ruff_cache*" -x "*.pytest_cache*" -x "*.mypy_cache*" -x "*.vscode*" -x "*outputs/*" -x "*specs/*" -x "*.zip" -x ".env" -x  "tests_integration/*" -x "src/report/templates/*"
 ```
 
 ## Visualizzazione Report (VS Code Remote)
