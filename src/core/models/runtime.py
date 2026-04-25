@@ -354,6 +354,55 @@ class RuntimeTest62Config(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# RuntimeTest64Config — runtime parameters for Test 6.4
+# ---------------------------------------------------------------------------
+
+
+class RuntimeTest64Config(BaseModel):
+    """
+    Runtime mirror of Test64AuditConfig fields consumed by Test 6.4.
+
+    Stores the operator-tunable list of debug endpoint paths to probe for
+    credential exposure.  Mirrored from config/schema/domain_6.py:Test64AuditConfig,
+    nested under config.tests.domain_6.test_6_4 in config.yaml.
+
+    Access pattern inside the test:
+        cfg = target.tests_config.test_6_4
+        cfg.debug_endpoint_paths   # list[str]
+    """
+
+    model_config = {"frozen": True}
+
+    debug_endpoint_paths: list[str] = Field(
+        default_factory=lambda: [
+            "/actuator/env",
+            "/actuator/configprops",
+            "/actuator/health",
+            "/debug/vars",
+            "/debug/pprof",
+            "/api/config",
+            "/admin/config",
+            "/_debug",
+            "/api/debug/users",
+            "/api/debug/config",
+        ],
+        description=(
+            "Mirrors Test64AuditConfig.debug_endpoint_paths. "
+            "List of paths probed for debug endpoint exposure. "
+            "Default: the methodology-cited actuator / debug paths."
+        ),
+    )
+    gateway_block_body_fragment: str = Field(
+        default="no Route matched with those values",
+        description=(
+            "Mirrors Test64AuditConfig.gateway_block_body_fragment. "
+            "Substring identifying a Gateway-level block in a non-2xx response body. "
+            "Default: Kong DB-less 3.x. Override in config.yaml for other gateways."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # RuntimeTestsConfig — immutable container for all per-test runtime configs
 # ---------------------------------------------------------------------------
 
@@ -411,5 +460,12 @@ class RuntimeTestsConfig(BaseModel):
         description=(
             "Runtime parameters for Test 6.2 (Security Header Configuration Audit). "
             "Mirrors Test62AuditConfig from config.tests.domain_6.test_6_2."
+        ),
+    )
+    test_6_4: RuntimeTest64Config = Field(
+        default_factory=RuntimeTest64Config,
+        description=(
+            "Runtime parameters for Test 6.4 (Hardcoded Credentials Audit). "
+            "Mirrors Test64AuditConfig from config.tests.domain_6.test_6_4."
         ),
     )

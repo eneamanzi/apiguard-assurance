@@ -30,7 +30,7 @@ Symbol inventory by source module:
     runtime.py      RuntimeCredentials,
                     RuntimeTest11Config,
                     RuntimeTest41Config, RuntimeTest42Config, RuntimeTest43Config,
-                    RuntimeTest62Config,
+                    RuntimeTest62Config, RuntimeTest64Config,
                     RuntimeTestsConfig
 """
 
@@ -46,6 +46,7 @@ from src.core.models.runtime import (
     RuntimeTest42Config,
     RuntimeTest43Config,
     RuntimeTest62Config,
+    RuntimeTest64Config,
     RuntimeTestsConfig,
 )
 from src.core.models.surface import AttackSurface, EndpointRecord, ParameterInfo
@@ -74,5 +75,6 @@ __all__ = [
     "RuntimeTest42Config",
     "RuntimeTest43Config",
     "RuntimeTest62Config",
+    "RuntimeTest64Config",
     "RuntimeTestsConfig",
 ]
