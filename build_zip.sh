@@ -106,6 +106,9 @@ else
     echo "[WARNING] No specific domain requested (-d). Zipping all source code."
 fi
 
+echo "[INFO] Aggiornamento API Reference tramite Hatch (ambiente dev)..."
+hatch run dev:docs
+
 zip -r "$OUTPUT" . -x "${EXCLUDES[@]}" > /dev/null
 
 SIZE=$(du -h "$OUTPUT" | cut -f1)

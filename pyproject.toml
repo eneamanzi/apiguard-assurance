@@ -107,6 +107,9 @@ dependencies = [
     # Dependency vulnerability scanning against PyPI Advisory DB and OSV.
     # Run with: hatch run dev:deps
     "pip-audit>=2.7",
+
+    # Documentation generator for context building
+    "pydoc-markdown"
 ]
 
 # ---------------------------------------------------------------------------
@@ -120,6 +123,7 @@ dependencies = [
 #   hatch run dev:audit  → bandit + vulture        (slower, run before push)
 #   hatch run dev:check  → full suite in sequence  (CI gate)
 #   hatch run dev:deps   → pip-audit               (run before any release)
+#   hatch run dev:docs   → pydoc-markdown          (run before creating the LLM zip context)
 #
 # Note on bandit: the -c pyproject.toml flag is mandatory. Without it bandit
 # ignores [tool.bandit] entirely and runs with defaults, producing spurious
@@ -142,6 +146,10 @@ check = [
 ]
 deps = [
     "echo '--- PIP-AUDIT ---' && pip-audit --desc on",
+]
+
+docs = [
+    "pydoc-markdown -I . -m src.engine -m src.core.models.runtime -m src.config.schema.tests_config -m src.core.client -m src.tests.base -m src.core.models.results -m src.core.models.enums -p src.tests.helpers > docs/API_REFERENCE.md"
 ]
 
 # ---------------------------------------------------------------------------
