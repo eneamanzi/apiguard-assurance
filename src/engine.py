@@ -98,6 +98,7 @@ from src.core.models import (
     RuntimeTest42Config,
     RuntimeTest43Config,
     RuntimeTest62Config,
+    RuntimeTest64Config,
     RuntimeTestsConfig,
     TestResult,
     TestStatus,
@@ -402,6 +403,12 @@ class AssessmentEngine:
             test_6_2=RuntimeTest62Config(
                 hsts_min_max_age_seconds=(config.tests.domain_6.test_6_2.hsts_min_max_age_seconds),
                 endpoint_sample_size=config.tests.domain_6.test_6_2.endpoint_sample_size,
+            ),
+            test_6_4=RuntimeTest64Config(
+                debug_endpoint_paths=list(config.tests.domain_6.test_6_4.debug_endpoint_paths),
+                gateway_block_body_fragment=(
+                    config.tests.domain_6.test_6_4.gateway_block_body_fragment
+                ),
             ),
         )
 

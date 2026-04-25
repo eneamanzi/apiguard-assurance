@@ -212,3 +212,61 @@ tests:
       # 0 = all endpoints (complete coverage, slower on large OpenAPI specs).
       # Any positive integer caps the sample using the first N AttackSurface entries.
       endpoint_sample_size: 5
+
+    # ---------------------------------------------------------------------------
+    # Test 6.4 — Hardcoded Credentials Audit (WHITE_BOX, P2)
+    # ---------------------------------------------------------------------------
+    # Verifies that service credentials are not exposed via debug/actuator endpoints
+    # or hardcoded in Kong service URLs and plugin configuration.
+    #
+    # Sub-test A (always runs): probes each path below with unauthenticated GET.
+    #   Oracle: desired outcome is 401/403/404.
+    #          A 2xx response whose body matches a credential pattern is a FAIL.
+    #
+    # Sub-test B (runs only when target.admin_api_url is configured): scans Kong
+    #   service URLs and plugin configs via the Admin API.
+    #   Oracle: any credential pattern found in service URL or plugin config is a FAIL.
+    #
+    # References: OWASP ASVS V13.3.1, CWE-798, NIST SP 800-53 IA-5(1).
+    test_6_4:
+      # Substring present in the response body of a non-2xx reply produced by the
+      # Gateway itself (deny-by-default), used to distinguish oracle states
+      # ENDPOINT_BLOCKED (Gateway) from ENDPOINT_BLOCKED_BY_APP (application).
+      # Default is specific to Kong DB-less 3.x.
+      # Override for other gateways:
+      #   Traefik:          "404 page not found"
+      #   AWS API Gateway:  "Missing Authentication Token"
+      #   Nginx:            "<title>404 Not Found</title>"
+      #   HAProxy:          "503 Service Unavailable"
+      # Set to "" (empty string) to disable the distinction entirely.
+      gateway_block_body_fragment: "no Route matched with those values"
+
+      # List of paths probed for debug/actuator endpoint exposure (Sub-test A).
+      # Each path is probed with an unauthenticated GET request.
+      # Extend this list with paths specific to your application stack.
+      # Examples for other stacks:
+      #   Laravel Telescope:    /_ignition/health-check
+      #   Django Silk:          /silk/summary/
+      #   Rails info:           /rails/info/properties
+      #   Node inspect:         /inspect
+      debug_endpoint_paths:
+        # --- Paths routed through Kong (/api prefix) ---
+        # These are the only paths that can reach Forgejo through this Kong setup.
+        # Kong routes only /api/* to Forgejo; all other paths return 404 from Kong.
+        - /api/v1/settings/api    # Forgejo: public server settings endpoint (no auth required)
+        - /api/debug/config       # Generic: custom internal config dump under API prefix
+        - /api/debug/users        # Generic: internal debug endpoint under API prefix
+
+        # --- Paths NOT routed by Kong (Kong returns 404 directly) ---
+        # These verify Kong deny-by-default for common debug paths.
+        # They do NOT test Forgejo itself — they test whether Kong leaks
+        # debug endpoints that should be blocked at the gateway layer.
+        # Useful for future deployments with different routing configurations.
+        - /actuator/env           # Spring Boot: exposes environment variables including secrets
+        - /actuator/configprops   # Spring Boot: exposes all @ConfigurationProperties values
+        - /actuator/health        # Spring Boot: may expose DB/broker connection details
+        - /debug/vars             # Go net/http/pprof: exposes all runtime vars
+        - /debug/pprof            # Go: profiling endpoint, may expose heap dumps
+        - /api/config             # Generic: common custom config dump path
+        - /admin/config           # Generic: admin config dump
+        - /_debug                 # Generic: custom debug page

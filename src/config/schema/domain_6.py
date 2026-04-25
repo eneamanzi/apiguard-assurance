@@ -9,6 +9,7 @@ per test, aggregated by a TestDomain6Config class at the bottom.
 
 Currently implemented tests:
     Test 6.2 -- Security Header Configuration Audit (WHITE_BOX, P3)
+    Test 6.4 -- Hardcoded Credentials Audit (WHITE_BOX, P2)
 
 Adding a new Domain 6 test requires:
     1. Defining a Test6XAuditConfig model in this file.
@@ -16,6 +17,8 @@ Adding a new Domain 6 test requires:
     3. Adding a RuntimeTest6XConfig mirror in core/models/runtime.py.
     4. Adding the population line in engine.py Phase 3.
     5. Adding the tests.domain_6.test_6_x block to config.yaml.
+
+Dependency rule: imports only from pydantic and the stdlib.
 
 Dependency rule: imports only from pydantic and the stdlib.
 """
@@ -125,6 +128,100 @@ class Test62AuditConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Constants -- Test 6.4
+# ---------------------------------------------------------------------------
+
+# Default list of debug / actuator paths that may expose environment variables,
+# configuration properties, or credentials when left accessible in production.
+# Sources: methodology section 6.4, OWASP ASVS v5.0.0 V13.3.1, CWE-798.
+#
+# Operators should extend this list with stack-specific paths
+# (e.g. Laravel Telescope, Django debug toolbar) using config.yaml.
+TEST_64_DEBUG_ENDPOINT_PATHS_DEFAULT: list[str] = [
+    "/actuator/env",
+    "/actuator/configprops",
+    "/actuator/health",
+    "/debug/vars",
+    "/debug/pprof",
+    "/api/config",
+    "/admin/config",
+    "/_debug",
+    "/api/debug/users",
+    "/api/debug/config",
+]
+
+# HTTP methods accepted as successful responses when probing debug endpoints.
+# A 200 OK on any of these paths is the worst case; 401/403 are the desired
+# outcomes.
+TEST_64_EXPECTED_BLOCKED_STATUS_DEFAULT: int = 401
+
+
+# ---------------------------------------------------------------------------
+# Test 6.4 -- Hardcoded Credentials Audit
+# ---------------------------------------------------------------------------
+
+
+class Test64AuditConfig(BaseModel):
+    """
+    Tuning parameters for Test 6.4 (Hardcoded Credentials Audit).
+
+    The test verifies that service credentials are not hardcoded in:
+      (a) Debug / actuator endpoints accessible from the network: probed
+          empirically via unauthenticated GET.  Any 2xx response whose body
+          contains credential-like patterns is a FAIL.
+      (b) Kong Admin API -- service URLs and plugin configs: audited via
+          the Kong Admin API when available.  Credential-like values in
+          service URL fields or plugin config dictionaries are a FAIL.
+
+    Design note -- degraded-run behaviour:
+        Sub-test (a) always executes regardless of Admin API availability.
+        Sub-test (b) executes only when target.admin_api_available is True.
+        When the Admin API is absent, the test adds an InfoNote documenting
+        the audit gap rather than returning SKIP entirely.  This avoids
+        silently missing the empirical exposure that is verifiable
+        without Admin API access.
+
+    References: OWASP ASVS v5.0.0 V13.3.1 + V13.3.4 + V13.4.1, CWE-798,
+    NIST SP 800-53 Rev. 5 IA-5(1), NIST SP 800-204 Section 5.4,
+    methodology section 6.4.
+    """
+
+    model_config = {"frozen": True}
+
+    debug_endpoint_paths: list[str] = Field(
+        default_factory=lambda: list(TEST_64_DEBUG_ENDPOINT_PATHS_DEFAULT),
+        description=(
+            "List of paths to probe for debug / actuator endpoint exposure. "
+            "Each path is probed with an unauthenticated GET request. "
+            "A 2xx response whose body contains credential-like patterns is a FAIL. "
+            "Extend this list with stack-specific debug paths in config.yaml "
+            "(e.g. Laravel Telescope: '/_ignition/health-check', "
+            "Django Silk: '/silk/summary/'). "
+            "Removing paths from the default list narrows coverage. "
+            f"Default: {TEST_64_DEBUG_ENDPOINT_PATHS_DEFAULT}."
+        ),
+    )
+    gateway_block_body_fragment: str = Field(
+        default="no Route matched with those values",
+        description=(
+            "A substring present in the response body of a non-2xx reply produced "
+            "by the Gateway itself (deny-by-default), as opposed to a reply forwarded "
+            "to and rejected by the upstream application. "
+            "Used to distinguish oracle states ENDPOINT_BLOCKED (Gateway) from "
+            "ENDPOINT_BLOCKED_BY_APP (application) in the audit trail. "
+            "Default is specific to Kong DB-less 3.x. "
+            "Override for other gateways: "
+            "  Traefik:          '404 page not found' "
+            "  AWS API Gateway:  'Missing Authentication Token' "
+            "  Nginx:            '<title>404 Not Found</title>' "
+            "  HAProxy:          '503 Service Unavailable'. "
+            "Set to an empty string to disable the distinction entirely "
+            "(all non-2xx responses will be classified as ENDPOINT_BLOCKED)."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Domain-level aggregator
 # ---------------------------------------------------------------------------
 
@@ -146,5 +243,12 @@ class TestDomain6Config(BaseModel):
         description=(
             "Audit parameters for Test 6.2 (Security Header Configuration Audit). "
             "Maps to 'tests.domain_6.test_6_2' in config.yaml."
+        ),
+    )
+    test_6_4: Test64AuditConfig = Field(
+        default_factory=Test64AuditConfig,
+        description=(
+            "Audit parameters for Test 6.4 (Hardcoded Credentials Audit). "
+            "Maps to 'tests.domain_6.test_6_4' in config.yaml."
         ),
     )
