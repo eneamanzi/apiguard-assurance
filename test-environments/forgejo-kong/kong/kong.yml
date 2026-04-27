@@ -40,7 +40,7 @@ services:
       #    limit_by: ip         # chiave = IP TCP reale, non X-Forwarded-For
       #    hide_client_headers: false  # espone X-RateLimit-* e Retry-After
       #    fault_tolerant: true        # se il contatore è irraggiungibile, passa
-      #- name: response-transformer  # rimuovere il plugin per mostrare i finding del 6.2 (Security #Headers)
+      #- name: response-transformer  # rimuovere il plugin per mostrare i finding del 6.2 (Security Headers)
       #  config:
       #    add:
       #      headers:
@@ -53,3 +53,39 @@ services:
       #      headers:
       #        - "Server"
       #        - "X-Powered-By"
+
+  # ---------------------------------------------------------------------------
+  # Dummy service created exclusively for the Test 3.3 HMAC audit.
+  #
+  # Purpose: the hmac-auth plugin requires a service/route to be registered,
+  # but attaching it to forgejo-service would break all existing tests that
+  # use Bearer tokens (Kong would reject them for lacking an HMAC signature).
+  # By attaching it to an unreachable path, the plugin is discoverable via
+  # GET /plugins (Admin API) without affecting any real traffic.
+  #
+  # Test 3.3 reads the full plugin list from the Admin API and audits the
+  # hmac-auth config regardless of which service it is attached to.
+  #
+  # To produce FAIL findings (useful for thesis documentation):
+  #   set clock_skew: 600         (exceeds 300s oracle -> FAIL)
+  #   add hmac-sha1 / hmac-md5 to algorithms (deprecated/broken -> FAIL)
+  # ---------------------------------------------------------------------------
+  - name: hmac-audit-dummy
+    url: http://forgejo-upstream
+    connect_timeout: 5000
+    read_timeout: 30000
+    write_timeout: 30000
+    routes:
+      - name: hmac-audit-route
+        paths:
+          - /hmac-audit-probe-not-a-real-path
+        strip_path: false
+    plugins:
+      - name: hmac-auth
+        config:
+          clock_skew: 300               # compliant: <= 300 s (NIST SP 800-107 Rev.1 S5.3.2)
+          algorithms:
+            - hmac-sha256
+            - hmac-sha384
+            - hmac-sha512
+          validate_request_body: true   # body included in signature (recommended for POST/PUT)

@@ -142,6 +142,75 @@ tests:
       # Set to a positive integer to cap the scan on rate-limited targets.
       max_endpoints_cap: 0
 
+  domain_3:
+    # Test 3.3 — HMAC Authentication Configuration Audit (WHITE_BOX, P3)
+    # Audits the gateway HMAC authentication plugin (when installed and enabled) for:
+    #   - Excessive clock_skew (replay-attack exposure)
+    #   - Weak or broken HMAC algorithms (signature forgery risk)
+    #
+    # If no matching HMAC plugin is installed or enabled, the test returns SKIP
+    # with an InfoNote describing the HMAC control and what to verify manually.
+    #
+    # References: RFC 2104, NIST SP 800-107 Rev. 1 Section 5.3.2,
+    #             NIST SP 800-131A Rev. 2 (2019), RFC 6151,
+    #             OWASP ASVS v5.0.0 V2.9.1, PCI-DSS v4.0 Requirement 12.3.3.
+    test_3_3:
+      # --- Oracle thresholds (security policy) ---
+
+      # Maximum acceptable clock_skew in seconds for the HMAC plugin.
+      # Oracle: NIST SP 800-107 Rev. 1 Section 5.3.2 — replay window <= 5 minutes.
+      # A larger value increases the window in which a captured signed request
+      # can be replayed. Set lower (e.g. 60) for high-security deployments.
+      max_clock_skew_seconds: 300
+
+      # HMAC algorithms whose presence in the plugin's allowed list is a finding.
+      # hmac-md5:  cryptographically broken (RFC 6151); must never be used.
+      # hmac-sha1: deprecated (NIST SP 800-131A Rev. 2, PCI-DSS v4 Req. 12.3.3);
+      #            not broken in the HMAC construction but excluded from modern profiles.
+      # Remove hmac-sha1 from this list only if you have a documented exception
+      # and consumers cannot yet be migrated to hmac-sha256 or stronger.
+      forbidden_algorithms:
+        - "hmac-sha1"
+        - "hmac-md5"
+
+      # --- Gateway-specific identifiers (agnosticism layer) ---
+      #
+      # These parameters make the test work on any gateway that exposes an HMAC
+      # plugin via an Admin API.  The defaults match Kong's hmac-auth plugin.
+      # Override them when testing a different gateway or a custom plugin.
+
+      # Ordered list of plugin names to search for in the gateway Admin API.
+      # The test returns the first installed plugin whose name appears here.
+      # Kong OSS: "hmac-auth" (the only built-in HMAC plugin).
+      # Kong Enterprise / custom plugin: add the enterprise plugin name here.
+      # An empty list causes the test to SKIP immediately.
+      plugin_names:
+        - "hmac-auth"
+
+      # JSON field name in the plugin's config object for the replay-attack window.
+      # Kong hmac-auth: "clock_skew"
+      # Override for gateways that use a different field name
+      # (e.g. "timestamp_tolerance", "replay_window_seconds").
+      field_clock_skew: "clock_skew"
+
+      # JSON field name in the plugin's config object for the allowed algorithms list.
+      # Kong hmac-auth: "algorithms"
+      # Override for gateways that use a different field name
+      # (e.g. "allowed_algorithms", "hmac_algorithms").
+      field_algorithms: "algorithms"
+
+      # JSON field name in the plugin's config object for the body integrity flag.
+      # Kong hmac-auth: "validate_request_body"
+      # Override for gateways that use a different field name
+      # (e.g. "body_integrity", "sign_body").
+      field_validate_body: "validate_request_body"
+
+      # Sentinel integer the gateway uses to represent "no clock_skew limit configured"
+      # (i.e. unlimited replay window).  Kong hmac-auth: 0.
+      # Override if the gateway uses a different sentinel (e.g. -1 or null is not
+      # supported by YAML; use 0 for "absent/unconfigured" semantics).
+      clock_skew_unconfigured_value: 0
+
   domain_4:
     # Test 4.1 — Rate Limiting (BLACK_BOX, P0)
     # Empirical probe parameters: how many requests to send and at what

@@ -23,6 +23,8 @@ Symbol inventory by source module:
 
     domain_1.py         Test11Config, TestDomain1Config
 
+    domain_3.py         Test33Config, TestDomain3Config
+
     domain_4.py         Test41ProbeConfig, Test42AuditConfig,
                         Test43AuditConfig, TestDomain4Config
 
@@ -37,6 +39,7 @@ Symbol inventory by source module:
 from __future__ import annotations
 
 from src.config.schema.domain_1 import Test11Config, TestDomain1Config
+from src.config.schema.domain_3 import Test33Config, TestDomain3Config
 from src.config.schema.domain_4 import (
     Test41ProbeConfig,
     Test42AuditConfig,
@@ -68,6 +71,9 @@ __all__ = [
     # domain_1.py
     "Test11Config",
     "TestDomain1Config",
+    # domain_3.py
+    "Test33Config",
+    "TestDomain3Config",
     # domain_4.py
     "Test41ProbeConfig",
     "Test42AuditConfig",

@@ -94,6 +94,7 @@ from src.core.models import (
     ResultSet,
     RuntimeCredentials,
     RuntimeTest11Config,
+    RuntimeTest33Config,
     RuntimeTest41Config,
     RuntimeTest42Config,
     RuntimeTest43Config,
@@ -371,6 +372,15 @@ class AssessmentEngine:
         tests_config = RuntimeTestsConfig(
             test_1_1=RuntimeTest11Config(
                 max_endpoints_cap=config.tests.domain_1.test_1_1.max_endpoints_cap,
+            ),
+            test_3_3=RuntimeTest33Config(
+                max_clock_skew_seconds=config.tests.domain_3.test_3_3.max_clock_skew_seconds,
+                forbidden_algorithms=list(config.tests.domain_3.test_3_3.forbidden_algorithms),
+                plugin_names=list(config.tests.domain_3.test_3_3.plugin_names),
+                field_clock_skew=config.tests.domain_3.test_3_3.field_clock_skew,
+                field_algorithms=config.tests.domain_3.test_3_3.field_algorithms,
+                field_validate_body=config.tests.domain_3.test_3_3.field_validate_body,
+                clock_skew_unconfigured_value=config.tests.domain_3.test_3_3.clock_skew_unconfigured_value,
             ),
             test_4_1=RuntimeTest41Config(
                 max_requests=config.tests.domain_4.test_4_1.max_requests,
