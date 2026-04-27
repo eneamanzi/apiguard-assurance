@@ -24,6 +24,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from src.config.schema.domain_1 import TestDomain1Config
+from src.config.schema.domain_3 import TestDomain3Config
 from src.config.schema.domain_4 import TestDomain4Config
 from src.config.schema.domain_6 import TestDomain6Config
 from src.config.schema.domain_7 import TestDomain7Config
@@ -50,6 +51,10 @@ class TestsConfig(BaseModel):
     domain_1: TestDomain1Config = Field(
         default_factory=TestDomain1Config,
         description="Tuning parameters for Domain 1 (Identity and Authentication) tests.",
+    )
+    domain_3: TestDomain3Config = Field(
+        default_factory=TestDomain3Config,
+        description="Tuning parameters for Domain 3 (Message Integrity and Cryptographic Controls) tests.",  # noqa: E501
     )
     domain_4: TestDomain4Config = Field(
         default_factory=TestDomain4Config,

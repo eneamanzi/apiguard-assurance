@@ -125,6 +125,94 @@ class RuntimeTest11Config(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# RuntimeTest33Config — runtime parameters for Test 3.3
+# ---------------------------------------------------------------------------
+
+
+class RuntimeTest33Config(BaseModel):
+    """
+    Runtime mirror of Test33Config fields consumed by Test 3.3.
+
+    Populated by engine.py Phase 3 from config.tests.domain_3.test_3_3.
+    Access pattern inside the test:
+        cfg = target.tests_config.test_3_3
+        cfg.max_clock_skew_seconds
+        cfg.forbidden_algorithms
+        cfg.plugin_names
+        cfg.field_clock_skew
+        cfg.field_algorithms
+        cfg.field_validate_body
+        cfg.clock_skew_unconfigured_value
+    """
+
+    model_config = {"frozen": True}  # mandatory — see "Why two layers?" in ADDING_TESTS.md
+
+    # --- Oracle thresholds --------------------------------------------------
+
+    max_clock_skew_seconds: int = Field(
+        default=300,
+        ge=1,
+        description=(
+            "Mirrors Test33Config.max_clock_skew_seconds. "
+            "Maximum acceptable clock_skew (seconds) for the HMAC plugin. "
+            "NIST SP 800-107 Rev. 1 Section 5.3.2 oracle: <= 300 s. Default: 300."
+        ),
+    )
+    forbidden_algorithms: list[str] = Field(
+        default_factory=lambda: ["hmac-sha1", "hmac-md5"],
+        description=(
+            "Mirrors Test33Config.forbidden_algorithms. "
+            "HMAC algorithm names whose presence in the plugin config is a finding. "
+            "Default: ['hmac-sha1', 'hmac-md5']."
+        ),
+    )
+
+    # --- Gateway-specific identifiers (agnosticism layer) -------------------
+
+    plugin_names: list[str] = Field(
+        default_factory=lambda: ["hmac-auth"],
+        description=(
+            "Mirrors Test33Config.plugin_names. "
+            "Ordered list of gateway plugin names that implement HMAC request "
+            "authentication.  The test returns the first plugin whose name "
+            "appears in this list.  Default: ['hmac-auth'] (Kong OSS)."
+        ),
+    )
+    field_clock_skew: str = Field(
+        default="clock_skew",
+        description=(
+            "Mirrors Test33Config.field_clock_skew. "
+            "JSON field name in the plugin config object for the replay-attack "
+            "time window.  Kong hmac-auth default: 'clock_skew'."
+        ),
+    )
+    field_algorithms: str = Field(
+        default="algorithms",
+        description=(
+            "Mirrors Test33Config.field_algorithms. "
+            "JSON field name in the plugin config object for the allowed algorithms "
+            "list.  Kong hmac-auth default: 'algorithms'."
+        ),
+    )
+    field_validate_body: str = Field(
+        default="validate_request_body",
+        description=(
+            "Mirrors Test33Config.field_validate_body. "
+            "JSON field name in the plugin config object for the body integrity "
+            "flag.  Kong hmac-auth default: 'validate_request_body'."
+        ),
+    )
+    clock_skew_unconfigured_value: int = Field(
+        default=0,
+        description=(
+            "Mirrors Test33Config.clock_skew_unconfigured_value. "
+            "Sentinel integer that represents 'no limit configured' in the "
+            "clock_skew field.  Kong hmac-auth default: 0."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # RuntimeTest41Config — runtime parameters for Test 4.1
 # ---------------------------------------------------------------------------
 
@@ -600,6 +688,13 @@ class RuntimeTestsConfig(BaseModel):
     test_1_1: RuntimeTest11Config = Field(
         default_factory=RuntimeTest11Config,
         description="Runtime parameters for Test 1.1 (Authentication Required).",
+    )
+    test_3_3: RuntimeTest33Config = Field(
+        default_factory=RuntimeTest33Config,
+        description=(
+            "Runtime parameters for Test 3.3 (HMAC Authentication Configuration Audit). "
+            "Mirrors Test33Config from config.tests.domain_3.test_3_3."
+        ),
     )
     test_4_1: RuntimeTest41Config = Field(
         default_factory=RuntimeTest41Config,

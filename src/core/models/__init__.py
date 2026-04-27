@@ -29,6 +29,7 @@ Symbol inventory by source module:
 
     runtime.py      RuntimeCredentials,
                     RuntimeTest11Config,
+                    RuntimeTest33Config,
                     RuntimeTest41Config, RuntimeTest42Config, RuntimeTest43Config,
                     RuntimeTest62Config, RuntimeTest64Config,
                     RuntimeTest72Config,
@@ -43,6 +44,7 @@ from src.core.models.results import Finding, InfoNote, ResultSet, TestResult
 from src.core.models.runtime import (
     RuntimeCredentials,
     RuntimeTest11Config,
+    RuntimeTest33Config,
     RuntimeTest41Config,
     RuntimeTest42Config,
     RuntimeTest43Config,
@@ -73,6 +75,7 @@ __all__ = [
     # runtime.py
     "RuntimeCredentials",
     "RuntimeTest11Config",
+    "RuntimeTest33Config",
     "RuntimeTest41Config",
     "RuntimeTest42Config",
     "RuntimeTest43Config",

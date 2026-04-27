@@ -230,6 +230,33 @@ class RuntimeTest11Config(BaseModel)
 
 Runtime mirror of TestDomain1Config fields consumed by Test 1.1.
 
+<a id="src.core.models.runtime.RuntimeTest33Config"></a>
+
+## RuntimeTest33Config Objects
+
+```python
+class RuntimeTest33Config(BaseModel)
+```
+
+Runtime mirror of Test33Config fields consumed by Test 3.3.
+
+Populated by engine.py Phase 3 from config.tests.domain_3.test_3_3.
+Access pattern inside the test:
+    cfg = target.tests_config.test_3_3
+    cfg.max_clock_skew_seconds
+    cfg.forbidden_algorithms
+    cfg.plugin_names
+    cfg.field_clock_skew
+    cfg.field_algorithms
+    cfg.field_validate_body
+    cfg.clock_skew_unconfigured_value
+
+<a id="src.core.models.runtime.RuntimeTest33Config.model_config"></a>
+
+#### model\_config
+
+mandatory — see "Why two layers?" in ADDING_TESTS.md
+
 <a id="src.core.models.runtime.RuntimeTest41Config"></a>
 
 ## RuntimeTest41Config Objects
