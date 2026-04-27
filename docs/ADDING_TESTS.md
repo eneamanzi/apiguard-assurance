@@ -1168,7 +1168,7 @@ test file is a violation of the DRY principle and a bug risk.**
 
 | File | Public API used by tests |
 |---|---|
-| `auth.py` | `acquire_all_tokens_if_needed(target, context, client)` |
+| `auth_forgejo.py` | `acquire_all_tokens_if_needed(target, context, client)` |
 | `kong_admin.py` | `KongAdminError`, `get_routes`, `get_services`, `get_plugins`, `get_upstreams`, `get_status`, `get_plugin_by_name` |
 | `path_resolver.py` | `resolve_path_with_seed(endpoint, seed)`, `extract_param_names_from_path(path)`, `PATH_PARAM_FALLBACK_DEFAULT`, `PATH_PARAM_FALLBACK_SAFE_DELETE` |
 | `response_inspector.py` | `find_missing_security_headers(headers)`, `find_invalid_security_headers(headers)`, `find_leaky_headers(headers)`, `check_security_headers(headers)`, `contains_stack_trace(body)`, `contains_sensitive_fields(data)`, `extract_debug_fields(data)`, `auth_errors_are_uniform(response_bodies)`, `SECURITY_HEADER_DEFINITIONS`, `STACK_TRACE_PATTERNS`, `SENSITIVE_FIELD_NAMES`, `LEAKY_HEADERS` |

@@ -363,6 +363,7 @@ class SecurityClient:
             request_headers=headers or {},
             request_json=json,
             response=response,
+            elapsed_ms=wall_elapsed_ms,
         )
 
         return response, record
@@ -507,6 +508,7 @@ class SecurityClient:
         request_headers: dict[str, str],
         request_json: object | None,
         response: httpx.Response,
+        elapsed_ms: float | None = None,
     ) -> EvidenceRecord:
         """
         Construct an EvidenceRecord from a completed HTTP transaction.
@@ -534,6 +536,15 @@ class SecurityClient:
             request_headers: Headers sent with the request (pre-redaction).
             request_json: JSON body sent, or None.
             response: The httpx.Response object from the completed request.
+            elapsed_ms: Wall-clock duration of the full attempt sequence
+                        (including retry waits) in milliseconds, measured by
+                        request() via time.monotonic(). Written directly into
+                        EvidenceRecord.elapsed_ms and auto-inherited by
+                        TransactionSummary.from_evidence_record(), so the
+                        Audit Trail Duration column is populated without
+                        requiring explicit duration_ms arguments in tests.
+                        None only when called from outside request() (e.g.,
+                        teardown helpers or test fixtures).
 
         Returns:
             A fully populated EvidenceRecord instance.
@@ -572,4 +583,5 @@ class SecurityClient:
             response_headers=response_headers_normalized,
             response_body=response_body_str,
             is_pinned=False,
+            elapsed_ms=round(elapsed_ms, 2) if elapsed_ms is not None else None,
         )

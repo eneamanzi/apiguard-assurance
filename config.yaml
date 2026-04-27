@@ -270,3 +270,143 @@ tests:
         - /api/config             # Generic: common custom config dump path
         - /admin/config           # Generic: admin config dump
         - /_debug                 # Generic: custom debug page
+
+domain_7:
+    # ---------------------------------------------------------------------------
+    # Test 7.2 -- SSRF Prevention (GREY_BOX, P0)
+    # ---------------------------------------------------------------------------
+    # Verifies that the Forgejo webhook creation endpoint rejects user-controlled
+    # URLs targeting internal infrastructure (cloud metadata, private IPs,
+    # encoding-obfuscated loopback addresses, forbidden protocol schemes).
+    #
+    # Injection vector: POST /api/v1/repos/{owner}/{repo}/hooks
+    #   The SSRF URL is placed in the webhook body's 'config.url' field.
+    #   A 201 response means the URL was accepted without validation (FAIL).
+    #   A 4xx response means the URL was rejected (PASS).
+    #
+    # References: OWASP API7:2023, CWE-918, OWASP ASVS v5.0.0 V1.3.6,
+    #             NIST SP 800-204 Section 3.2.2, methodology section 7.2.
+    test_7_2:
+      # Payload categories to include in the SSRF probe.
+      # All six categories are enabled by default for maximum coverage.
+      # Remove a category to narrow the probe scope (the omitted sub-test
+      # is not reported as SKIP -- the category is simply not probed).
+      payload_categories:
+        - cloud_metadata      # Sub-test A: AWS EC2/ECS, GCP, Azure, DigitalOcean IMDS
+        - private_ip          # Sub-test B: RFC-1918 and loopback IP addresses
+        - encoding_bypass     # Sub-test C: decimal/hex/octal/IPv6/URL-encoded loopback
+                              #             + cloud IMDS IP encoding variants
+                              #             + AWS IMDSv2 IPv6 (fd00:ec2::254)
+        - forbidden_protocol  # Sub-test D: file://, gopher://, dict://, ftp://, ldap://
+        - dns_bypass          # Sub-test E: nip.io / sslip.io wildcard DNS bypass
+        - url_parser_confusion # Sub-test F: @ authority ambiguity (Orange Tsai 2017)
+
+      # Injection vector configuration.
+      # Controls which endpoint receives the SSRF URL and how the request body
+      # is constructed.  Default: Forgejo webhook creation endpoint.
+      # Change these to adapt the test to a different target API without
+      # touching Python source code.
+      #
+      # injection_mode: 'forgejo_webhook' creates an assessment repository
+      #   before probing and uses {owner}/{repo} placeholders in the path.
+      #   'fixed_path' probes injection_path_template directly.
+      injection_mode: "forgejo_webhook"
+      injection_path_template: "/api/v1/repos/{owner}/{repo}/hooks"
+      injection_url_field: "config.url"  # dot-notation path in the body template
+      injection_body_template:
+        type: "forgejo"
+        config:
+          url: "$SSRF_URL$"        # substituted at runtime with each payload URL
+          content_type: "json"
+          secret: "$RANDOM_SECRET$" # substituted with secrets.token_hex(16)
+        events:
+          - "push"
+        active: false             # prevents webhook from firing on real events
+        branch_filter: "*"
+
+      # URL of an operator-controlled public server that responds with
+      # 302 Location pointing to an internal SSRF target.
+      # When non-empty, sub-test E (redirect-following SSRF) is executed.
+      # When empty, sub-test E is skipped with an InfoNote in the report.
+      # The server must be reachable from the test runner's network and must
+      # be under your control. Do not use a production server.
+      # Example: "http://my-redirect-server.example.com/to-aws-metadata"
+      ssrf_redirect_server_url: ""
+
+      # Case-insensitive substrings checked against non-2xx SSRF probe response
+      # bodies BEFORE ssrf_block_response_keywords to detect URLs rejected due
+      # to syntactic invalidity at the HTTP parser level -- NOT due to an explicit
+      # SSRF IP/scheme validation.
+      #
+      # A match classifies the oracle state as SSRF_BLOCKED_AS_MALFORMED_URL in
+      # the HTML Audit Trail, distinguishing accidental parser rejection from a
+      # deliberate SSRF defence.  No Finding is produced in either case.
+      #
+      # Example: Go's net/url rejects "http://%31%32%37%2e%30%2e%30%2e%31"
+      # with "invalid character" because percent-encoded octets are not valid in
+      # a URL host component (RFC 3986).  This is a parser side-effect, not an
+      # SSRF-aware block; classifying it as SSRF_BLOCKED_BY_VALIDATION would
+      # overstate the application's defensive posture in the report.
+      # Case-insensitive keywords checked FIRST (Level 1) against the
+      # response body to detect URLs rejected because they are syntactically
+      # invalid per RFC 3986 (malformed host, percent-encoded host octets,
+      # etc.).  A match produces oracle state SSRF_BLOCKED_AS_MALFORMED_URL.
+      # Note: 'invalid url' is intentionally excluded here -- it is also
+      # returned by Forgejo for unsupported schemes, and the Level 2 check
+      # (scheme inspection + unsupported_scheme_keywords) handles that case.
+      ssrf_malformed_url_keywords:
+        - "invalid character"   # Go net/url: invalid char in host/path (e.g. percent-encoded host)
+        - "invalid url"         # Forgejo/Go: generic parse failure -- safe here because the
+                                # scheme check (Level 1) runs before this list and already
+                                # handled non-HTTP schemes (file://, gopher://, etc.)
+        - "url malformed"       # variation used by some HTTP frameworks
+        - "malformed url"       # alternate word order
+        - "parse error"         # generic URL parse failure
+        - "url parse"           # Go net/url error prefix
+        - "could not parse"     # validation framework messages
+        - "bad url"             # nginx / proxy error variants
+
+      # Case-insensitive keywords checked FIRST (Level 1) against the response
+      # body to detect URLs rejected because their scheme is not supported by
+      # the application (file://, gopher://, dict://, etc.).
+      # A match produces oracle state SSRF_BLOCKED_UNSUPPORTED_SCHEME.
+      #
+      # The test checks the injected URL's scheme DIRECTLY (via urllib.parse)
+      # as the primary Level 1 check -- these keywords are a fallback for
+      # application stacks that emit more descriptive error messages than
+      # Forgejo's generic "Invalid url".
+      ssrf_unsupported_scheme_keywords:
+        - "scheme not supported"
+        - "scheme not allowed"
+        - "unsupported scheme"
+        - "unsupported protocol"
+        - "invalid scheme"
+        - "only http"
+        - "only https"
+        - "protocol not allowed"
+
+      # Case-insensitive substrings checked against non-2xx SSRF probe response
+      # bodies to classify the oracle state as SSRF_BLOCKED_BY_VALIDATION
+      # (explicit rejection) vs SSRF_BLOCKED_UNKNOWN (rejected, reason unclear).
+      # Both states produce no Finding.
+      # Override with Forgejo or gateway-specific error message fragments for
+      # more precise Audit Trail classification.
+      ssrf_block_response_keywords:
+        - "invalid host"
+        - "not allowed"
+        - "forbidden"
+        - "scheme not supported"
+        - "scheme not allowed"
+        - "host not allowed"
+        - "private"
+        - "loopback"
+        - "blocked"
+        - "disallowed"
+        - "restricted"
+
+      # Intended timeout in milliseconds for individual SSRF probe requests.
+      # Reserved for future per-request timeout override support in SecurityClient.
+      # Currently the global execution.read_timeout (30 s) governs all requests.
+      # NIST SP 800-204 Section 3.2.2 recommends tight timeouts on outbound
+      # connections from API servers.
+      ssrf_request_timeout_ms: 10000

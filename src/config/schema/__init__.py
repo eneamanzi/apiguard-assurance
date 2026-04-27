@@ -29,6 +29,8 @@ Symbol inventory by source module:
     domain_6.py         Test62AuditConfig, Test64AuditConfig,
                         TestDomain6Config
 
+    domain_7.py         Test72SSRFConfig, TestDomain7Config
+
     tests_config.py     TestsConfig
 """
 
@@ -46,6 +48,7 @@ from src.config.schema.domain_6 import (
     Test64AuditConfig,
     TestDomain6Config,
 )
+from src.config.schema.domain_7 import Test72SSRFConfig, TestDomain7Config
 from src.config.schema.tests_config import TestsConfig
 from src.config.schema.tool_config import (
     CredentialsConfig,
@@ -74,6 +77,9 @@ __all__ = [
     "Test62AuditConfig",
     "Test64AuditConfig",
     "TestDomain6Config",
+    # domain_7.py
+    "Test72SSRFConfig",
+    "TestDomain7Config",
     # tests_config.py
     "TestsConfig",
 ]

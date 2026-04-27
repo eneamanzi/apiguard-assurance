@@ -76,6 +76,16 @@ class EvidenceRecord(BaseModel):
 
     For the complete audit trail of all HTTP interactions, including successful
     ones, see TransactionSummary and TestResult.transaction_log.
+
+    elapsed_ms:
+        Wall-clock duration of the HTTP transaction in milliseconds, measured
+        by SecurityClient using time.monotonic() across the full attempt
+        sequence including any retry waits.  SecurityClient populates this
+        field via _build_evidence_record() before returning the record to the
+        test.  TransactionSummary.from_evidence_record() inherits the value
+        automatically, so tests do NOT need to pass duration_ms explicitly
+        to BaseTest._log_transaction().  None only when the record is
+        constructed outside SecurityClient.request() (e.g., in unit fixtures).
     """
 
     model_config = {"frozen": True}
@@ -102,6 +112,21 @@ class EvidenceRecord(BaseModel):
     is_pinned: bool = Field(
         default=False,
         description="True if explicitly marked as key evidence by the test.",
+    )
+    elapsed_ms: float | None = Field(
+        default=None,
+        description=(
+            "Wall-clock duration of the HTTP transaction in milliseconds, measured "
+            "by SecurityClient.request() using time.monotonic() across the full "
+            "attempt sequence (including retry waits). "
+            "Populated by SecurityClient._build_evidence_record() before the "
+            "record is returned to the test. "
+            "TransactionSummary.from_evidence_record() inherits this value "
+            "automatically — tests do not need to pass duration_ms to "
+            "BaseTest._log_transaction(). "
+            "None only when the record is constructed outside SecurityClient "
+            "(e.g., in test fixtures or teardown helpers)."
+        ),
     )
 
     @field_validator("request_method")
@@ -187,6 +212,16 @@ class TransactionSummary(BaseModel):
         When is_fail_evidence=True, the HTML report shows a note:
         "Full transaction in evidence.json → {record_id}". The analyst
         locates the complete EvidenceRecord using record_id as the key.
+
+    duration_ms inheritance:
+        from_evidence_record() auto-populates duration_ms from
+        EvidenceRecord.elapsed_ms when the caller does not pass an explicit
+        override. This means tests calling BaseTest._log_transaction() without
+        an explicit duration_ms argument will still have the field populated
+        correctly for all transactions dispatched through SecurityClient.
+        The explicit override parameter remains available for tests that
+        measure timing independently (e.g., timeout enforcement tests that
+        time a retry sequence separately from the raw HTTP call).
     """
 
     model_config = {"frozen": True}
@@ -225,8 +260,13 @@ class TransactionSummary(BaseModel):
         default=None,
         description=(
             "Wall-clock time for this individual HTTP transaction in milliseconds. "
-            "Set by the test when per-request timing is diagnostically relevant "
-            "(e.g., timeout enforcement tests). None otherwise."
+            "Inherited automatically from EvidenceRecord.elapsed_ms by "
+            "from_evidence_record() when not overridden by the caller. "
+            "SecurityClient populates EvidenceRecord.elapsed_ms via time.monotonic() "
+            "before returning the record, so this field is non-None for all "
+            "transactions dispatched through SecurityClient.request(). "
+            "An explicit override is accepted for tests that measure timing "
+            "independently of the raw HTTP call (e.g., end-to-end retry sequence)."
         ),
     )
     is_fail_evidence: bool = Field(
@@ -288,6 +328,20 @@ class TransactionSummary(BaseModel):
         This is the canonical factory method. Tests call this inside
         BaseTest._log_transaction() after every SecurityClient.request().
 
+        Duration inheritance:
+            duration_ms is resolved with the following precedence:
+                1. The explicit ``duration_ms`` argument when the caller
+                   provides a non-None override (e.g., a test that measures
+                   an end-to-end retry sequence independently).
+                2. EvidenceRecord.elapsed_ms when no override is provided.
+                   SecurityClient._build_evidence_record() always populates
+                   this field, so the resolved value will be non-None for
+                   all standard SecurityClient.request() transactions.
+
+            Tests calling BaseTest._log_transaction() without an explicit
+            duration_ms argument will have the field auto-populated from
+            the record. No changes to test code are required.
+
         Airbag truncation is applied transparently here to request_body and
         response_body_preview: values exceeding the module-level constants
         are truncated and suffixed with _TRANSACTION_TRUNCATION_SUFFIX.
@@ -302,8 +356,9 @@ class TransactionSummary(BaseModel):
             oracle_state: Semantic label for this transaction's outcome.
                           Assign at the call site in the test after evaluating
                           the response status and business logic.
-            duration_ms:  Per-request timing in milliseconds, when the test
-                          measures individual request latency.
+            duration_ms:  Per-request timing override in milliseconds.
+                          When None (the default), the value is inherited from
+                          record.elapsed_ms automatically.
 
         Returns:
             A frozen TransactionSummary ready to append to
@@ -318,6 +373,11 @@ class TransactionSummary(BaseModel):
                 return value
             return value[:max_chars] + _TRANSACTION_TRUNCATION_SUFFIX
 
+        # Precedence: explicit override > record's own elapsed_ms.
+        resolved_duration_ms: float | None = (
+            duration_ms if duration_ms is not None else record.elapsed_ms
+        )
+
         return cls(
             record_id=record.record_id,
             timestamp_utc=record.timestamp_utc,
@@ -325,7 +385,7 @@ class TransactionSummary(BaseModel):
             request_url=record.request_url,
             response_status_code=record.response_status_code,
             oracle_state=oracle_state,
-            duration_ms=duration_ms,
+            duration_ms=resolved_duration_ms,
             is_fail_evidence=is_fail,
             request_headers=dict(record.request_headers),
             request_body=_airbag(record.request_body, _TRANSACTION_REQUEST_BODY_MAX_CHARS),

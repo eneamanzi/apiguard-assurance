@@ -99,6 +99,7 @@ from src.core.models import (
     RuntimeTest43Config,
     RuntimeTest62Config,
     RuntimeTest64Config,
+    RuntimeTest72Config,
     RuntimeTestsConfig,
     TestResult,
     TestStatus,
@@ -409,6 +410,26 @@ class AssessmentEngine:
                 gateway_block_body_fragment=(
                     config.tests.domain_6.test_6_4.gateway_block_body_fragment
                 ),
+            ),
+            test_7_2=RuntimeTest72Config(
+                payload_categories=list(config.tests.domain_7.test_7_2.payload_categories),
+                injection_mode=config.tests.domain_7.test_7_2.injection_mode,
+                injection_path_template=config.tests.domain_7.test_7_2.injection_path_template,
+                injection_url_field=config.tests.domain_7.test_7_2.injection_url_field,
+                injection_body_template=dict(
+                    config.tests.domain_7.test_7_2.injection_body_template
+                ),
+                ssrf_redirect_server_url=config.tests.domain_7.test_7_2.ssrf_redirect_server_url,
+                ssrf_block_response_keywords=list(
+                    config.tests.domain_7.test_7_2.ssrf_block_response_keywords
+                ),
+                ssrf_malformed_url_keywords=list(
+                    config.tests.domain_7.test_7_2.ssrf_malformed_url_keywords
+                ),
+                ssrf_unsupported_scheme_keywords=list(
+                    config.tests.domain_7.test_7_2.ssrf_unsupported_scheme_keywords
+                ),
+                ssrf_request_timeout_ms=config.tests.domain_7.test_7_2.ssrf_request_timeout_ms,
             ),
         )
 

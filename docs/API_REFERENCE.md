@@ -360,7 +360,13 @@ Populated by engine.py Phase 3 from config.tests.domain_7.test_7_2.
 Access pattern inside the test:
     cfg = target.tests_config.test_7_2
     cfg.payload_categories
+    cfg.injection_mode
+    cfg.injection_path_template
+    cfg.injection_url_field
+    cfg.injection_body_template
     cfg.ssrf_redirect_server_url
+    cfg.ssrf_malformed_url_keywords
+    cfg.ssrf_unsupported_scheme_keywords
     cfg.ssrf_block_response_keywords
     cfg.ssrf_request_timeout_ms
 
