@@ -80,6 +80,29 @@ _TOKEN_CREATION_SUCCESS_CODE: int = 201
 # HTTP status codes that indicate rejected credentials.
 _AUTH_REJECTION_CODES: frozenset[int] = frozenset({401, 403})
 
+# Forgejo API token scopes required by the assessment tool.
+#
+# Forgejo 1.21+ made the 'scopes' field mandatory in the token creation
+# request body (POST /api/v1/users/{username}/tokens).  Omitting it
+# causes HTTP 400 "access token must have a scope".
+#
+# Scope rationale (maps to Forgejo's documented scope definitions):
+#   write:repository -- create repos, manage webhooks (tests 7.2, 1.1, 0.x)
+#   read:repository  -- read repo metadata and hook lists
+#   write:user       -- create and delete personal access tokens (auth setup)
+#   read:user        -- read authenticated user profile (forgejo_resources)
+#
+# This set is intentionally minimal: only the permissions the tool actually
+# exercises. Expand when a new test requires a scope not listed here.
+_TOKEN_SCOPES: frozenset[str] = frozenset(
+    {
+        "write:repository",
+        "read:repository",
+        "write:user",
+        "read:user",
+    }
+)
+
 # Ordered list of (role, username_attr, password_attr) for iteration.
 # The order determines which role's token is acquired first.  Admin is
 # acquired first so that subsequent role-specific tests can use it immediately
@@ -100,9 +123,10 @@ def acquire_all_tokens_if_needed(
     target: TargetContext,
     context: TestContext,
     client: SecurityClient,
+    required_roles: frozenset[str] | None = None,
 ) -> None:
     """
-    Acquire API tokens for all configured roles that do not yet have a token.
+    Acquire API tokens for configured roles that do not yet have a token.
 
     Iterates over the roles defined in target.credentials and calls
     acquire_single_token() for each role whose credentials are present and
@@ -112,30 +136,62 @@ def acquire_all_tokens_if_needed(
 
     This function is the standard entry point for GREY_BOX tests.  It must
     be called before any test logic that requires an authenticated context.
+
     Canonical usage pattern inside execute():
 
         try:
-            acquire_all_tokens_if_needed(target, context, client)
+            acquire_all_tokens_if_needed(
+                target, context, client,
+                required_roles=frozenset({ROLE_USER_A}),
+            )
         except AuthenticationSetupError as exc:
             return self._make_error(exc)
         except SecurityClientError as exc:
             return self._make_error(exc)
 
+    The ``required_roles`` parameter scopes the acquisition to only the roles
+    the calling test actually uses.  Without it, every configured role is
+    attempted, which means a credential problem for an unused role (e.g.
+    user_b) causes an ERROR on a test that only needs user_a.
+
+    Role filtering logic:
+        - When ``required_roles`` is None: attempt all configured roles
+          (original behaviour -- safe for the first test in a pipeline that
+          acquires tokens on behalf of all subsequent tests).
+        - When ``required_roles`` is a non-empty frozenset: only attempt roles
+          in that set; skip all others with a DEBUG log.  Roles not in
+          required_roles but already present in the TestContext are left
+          untouched.
+
     Args:
-        target:  Immutable target context carrying credentials and base_url.
-        context: Mutable test context where acquired tokens are stored.
-        client:  Centralized HTTP client for all outbound requests.
+        target:         Immutable target context carrying credentials and base_url.
+        context:        Mutable test context where acquired tokens are stored.
+        client:         Centralized HTTP client for all outbound requests.
+        required_roles: Optional frozenset of role identifiers (ROLE_ADMIN,
+                        ROLE_USER_A, ROLE_USER_B) to acquire.  When None,
+                        all configured roles are attempted.
 
     Raises:
-        AuthenticationSetupError: If Forgejo rejects the credentials for any
-            role (HTTP 401 or 403).  The error message identifies the role
-            without exposing the credential value.
+        AuthenticationSetupError: If Forgejo rejects the credentials for a
+            role in ``required_roles`` (HTTP 401 or 403).  Failures for roles
+            not in ``required_roles`` are never raised.
         SecurityClientError: If a transport-layer error prevents the token
             creation request from completing (connection refused, timeout).
     """
     creds = target.credentials
 
     for role, username_attr, password_attr in _ROLE_CREDENTIAL_MAP:
+        # When required_roles is provided, skip roles not in the set.
+        # This prevents credential problems for unused roles from blocking
+        # tests that do not need those roles.
+        if required_roles is not None and role not in required_roles:
+            log.debug(
+                "auth_helper_skipping_role_not_required",
+                role=role,
+                required_roles=sorted(required_roles),
+            )
+            continue
+
         username: str | None = getattr(creds, username_attr, None)
         password: str | None = getattr(creds, password_attr, None)
 
@@ -222,7 +278,7 @@ def acquire_single_token(
             "Authorization": basic_auth_header,
             "Content-Type": "application/json",
         },
-        json={"name": token_name},
+        json={"name": token_name, "scopes": sorted(_TOKEN_SCOPES)},
     )
 
     if response.status_code in _AUTH_REJECTION_CODES:

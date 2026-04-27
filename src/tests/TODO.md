@@ -8,11 +8,11 @@ Partendo dalla tabella delle dipendenze, i test si sviluppano in questo ordine n
 0.1 → 0.2 → 0.3   # CHECK ALL
 1.1               # Only Authenticated Requests Access Protected Resources                    OK
 4.1               # rate limiting, BLACK_BOX                                                  OK
-7.2               # SSRF, BLACK_BOX — usa data/ssrf_payloads.py
+7.2               # SSRF, BLACK_BOX — usa data/ssrf_payloads.py                               OK
 1.5, 1.6          # WHITE_BOX audit TLS e session store
 3.3               # WHITE_BOX HMAC audit
 4.2, 4.3          # WHITE_BOX Kong timeout e circuit breaker — usa kong_admin.py              4.2 OK - 4.3 OK
-6.2, 6.4          # WHITE_BOX header e hardcoded credentials                                  6.2 OK
+6.2, 6.4          # WHITE_BOX header e hardcoded credentials                                  6.2 OK - 6.4 OK
 ```
 
 **Fase B — Sblocca il resto (dipende da `1.1` e `1.2`)**

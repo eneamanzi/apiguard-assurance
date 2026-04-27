@@ -13,6 +13,7 @@ target.credentials.
     RuntimeTest41Config     -- Runtime mirror of Test41ProbeConfig for Test 4.1.
     RuntimeTest42Config     -- Runtime mirror of Test42AuditConfig for Test 4.2.
     RuntimeTest43Config     -- Runtime mirror of Test43AuditConfig for Test 4.3.
+    RuntimeTest72Config     -- Runtime mirror of Test72SSRFConfig for Test 7.2.
     RuntimeTestsConfig      -- Immutable container for all per-test runtime configs.
 
 Design rationale:
@@ -403,6 +404,172 @@ class RuntimeTest64Config(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# RuntimeTest72Config — runtime parameters for Test 7.2
+# ---------------------------------------------------------------------------
+
+
+class RuntimeTest72Config(BaseModel):
+    """
+    Runtime mirror of Test72SSRFConfig fields consumed by Test 7.2.
+
+    Populated by engine.py Phase 3 from config.tests.domain_7.test_7_2.
+    Access pattern inside the test:
+        cfg = target.tests_config.test_7_2
+        cfg.payload_categories
+        cfg.injection_mode
+        cfg.injection_path_template
+        cfg.injection_url_field
+        cfg.injection_body_template
+        cfg.ssrf_redirect_server_url
+        cfg.ssrf_malformed_url_keywords
+        cfg.ssrf_unsupported_scheme_keywords
+        cfg.ssrf_block_response_keywords
+        cfg.ssrf_request_timeout_ms
+    """
+
+    model_config = {"frozen": True}
+
+    payload_categories: list[str] = Field(
+        default_factory=lambda: [
+            "cloud_metadata",
+            "private_ip",
+            "encoding_bypass",
+            "forbidden_protocol",
+            "dns_bypass",
+            "url_parser_confusion",
+        ],
+        description=(
+            "Mirrors Test72SSRFConfig.payload_categories. "
+            "SSRF payload categories to include in the probe. "
+            "Default: all six categories."
+        ),
+    )
+    injection_mode: str = Field(
+        default="forgejo_webhook",
+        description=(
+            "Mirrors Test72SSRFConfig.injection_mode. "
+            "'forgejo_webhook': create a repo, probe hooks endpoint. "
+            "'fixed_path': probe injection_path_template directly. "
+            "Default: 'forgejo_webhook'."
+        ),
+    )
+    injection_path_template: str = Field(
+        default="/api/v1/repos/{owner}/{repo}/hooks",
+        description=(
+            "Mirrors Test72SSRFConfig.injection_path_template. "
+            "URL path template for the injection endpoint. "
+            "Supports {owner}/{repo} placeholders for forgejo_webhook mode. "
+            "Default: '/api/v1/repos/{owner}/{repo}/hooks'."
+        ),
+    )
+    injection_url_field: str = Field(
+        default="config.url",
+        description=(
+            "Mirrors Test72SSRFConfig.injection_url_field. "
+            "Dot-notation path to the SSRF URL field in the body template. "
+            "Default: 'config.url'."
+        ),
+    )
+    injection_body_template: dict[str, object] = Field(
+        default_factory=lambda: {
+            "type": "forgejo",
+            "config": {
+                "url": "$SSRF_URL$",
+                "content_type": "json",
+                "secret": "$RANDOM_SECRET$",
+            },
+            "events": ["push"],
+            "active": False,
+            "branch_filter": "*",
+        },
+        description=(
+            "Mirrors Test72SSRFConfig.injection_body_template. "
+            "JSON body template with '$SSRF_URL$' and '$RANDOM_SECRET$' sentinels. "
+            "Default: Forgejo webhook creation body."
+        ),
+    )
+    ssrf_redirect_server_url: str = Field(
+        default="",
+        description=(
+            "Mirrors Test72SSRFConfig.ssrf_redirect_server_url. "
+            "URL of an operator-controlled redirect server for sub-test E. "
+            "Empty string disables the redirect sub-test. Default: ''."
+        ),
+    )
+    ssrf_block_response_keywords: list[str] = Field(
+        default_factory=lambda: [
+            "invalid host",
+            "not allowed",
+            "forbidden",
+            "scheme not supported",
+            "scheme not allowed",
+            "host not allowed",
+            "private",
+            "loopback",
+            "blocked",
+            "disallowed",
+            "restricted",
+        ],
+        description=(
+            "Mirrors Test72SSRFConfig.ssrf_block_response_keywords. "
+            "Case-insensitive substrings checked against non-2xx SSRF probe "
+            "response bodies to classify the oracle state. Default: methodology list."
+        ),
+    )
+    ssrf_malformed_url_keywords: list[str] = Field(
+        default_factory=lambda: [
+            "invalid character",
+            "invalid url",
+            "url malformed",
+            "malformed url",
+            "parse error",
+            "url parse",
+            "could not parse",
+            "bad url",
+        ],
+        description=(
+            "Mirrors Test72SSRFConfig.ssrf_malformed_url_keywords. "
+            "Checked SECOND (Level 2), after the scheme check at Level 1. "
+            "Safe to include 'invalid url' here because Level 1 has already "
+            "handled non-HTTP schemes before this list is evaluated. "
+            "A match produces oracle state SSRF_BLOCKED_AS_MALFORMED_URL. "
+            "Default: methodology list."
+        ),
+    )
+    ssrf_unsupported_scheme_keywords: list[str] = Field(
+        default_factory=lambda: [
+            "scheme not supported",
+            "scheme not allowed",
+            "unsupported scheme",
+            "unsupported protocol",
+            "invalid scheme",
+            "only http",
+            "only https",
+            "protocol not allowed",
+        ],
+        description=(
+            "Mirrors Test72SSRFConfig.ssrf_unsupported_scheme_keywords. "
+            "Checked SECOND (Level 2), after ssrf_malformed_url_keywords. "
+            "A match produces oracle state SSRF_BLOCKED_UNSUPPORTED_SCHEME. "
+            "In Forgejo/Go, unsupported schemes produce the same 'Invalid url' "
+            "response as malformed URLs; the test also checks the URL scheme "
+            "directly to distinguish the two cases. "
+            "Default: methodology list."
+        ),
+    )
+    ssrf_request_timeout_ms: int = Field(
+        default=10_000,
+        ge=1_000,
+        description=(
+            "Mirrors Test72SSRFConfig.ssrf_request_timeout_ms. "
+            "Reserved for future per-request timeout override support. "
+            "Currently the global execution.read_timeout governs all requests. "
+            "Default: 10 000 ms (10 s)."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # RuntimeTestsConfig — immutable container for all per-test runtime configs
 # ---------------------------------------------------------------------------
 
@@ -467,5 +634,12 @@ class RuntimeTestsConfig(BaseModel):
         description=(
             "Runtime parameters for Test 6.4 (Hardcoded Credentials Audit). "
             "Mirrors Test64AuditConfig from config.tests.domain_6.test_6_4."
+        ),
+    )
+    test_7_2: RuntimeTest72Config = Field(
+        default_factory=RuntimeTest72Config,
+        description=(
+            "Runtime parameters for Test 7.2 (SSRF Prevention). "
+            "Mirrors Test72SSRFConfig from config.tests.domain_7.test_7_2."
         ),
     )
