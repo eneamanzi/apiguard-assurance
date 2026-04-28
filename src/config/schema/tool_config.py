@@ -263,11 +263,49 @@ class CredentialsConfig(BaseModel):
     """
     Authentication credentials for Grey Box (P1/P2) and White Box (P3) tests.
 
-    All fields are populated via ${VAR_NAME} environment variable interpolation
-    in loader.py. They must NEVER appear in plain text in config.yaml.
+    All credential fields are populated via ${VAR_NAME} environment variable
+    interpolation in loader.py. They must NEVER appear in plain text in
+    config.yaml.
+
+    auth_type selects the token-acquisition strategy used by the auth dispatcher
+    (src/tests/helpers/auth.py) at the start of every GREY_BOX test:
+
+        "forgejo_token"  (default) -- Forgejo/Gitea Token API.
+            POST /api/v1/users/{username}/tokens with HTTP Basic Auth.
+            Returns an opaque token in the "sha1" response field.
+            Backward-compatible: config.yaml files without an explicit
+            auth_type field continue to work without modification.
+
+        "jwt_login"  -- Generic JSON login endpoint.
+            POST {login_endpoint} with {username_body_field}/{password_body_field}
+            as JSON body. Extracts the token from the response via
+            token_response_path (dotted JSONPath, e.g. "data.access_token").
+            Use for crAPI, Django REST Framework, FastAPI, Rails Devise, etc.
+
+    Choosing auth_type as a plain str (not Literal) is intentional: it leaves
+    the dispatcher open to new implementations without a schema change. The
+    model_validator validates the value and emits a clear error listing the
+    supported options.
     """
 
     model_config = {"frozen": True}
+
+    # ------------------------------------------------------------------
+    # Auth type discriminator
+    # ------------------------------------------------------------------
+
+    auth_type: str = Field(
+        default="forgejo_token",
+        description=(
+            "Token-acquisition strategy for GREY_BOX tests. "
+            "Supported values: 'forgejo_token' (default), 'jwt_login'. "
+            "See class docstring for details."
+        ),
+    )
+
+    # ------------------------------------------------------------------
+    # Common credential fields (used by forgejo_token and jwt_login)
+    # ------------------------------------------------------------------
 
     admin_username: str | None = Field(default=None)
     admin_password: str | None = Field(default=None)
@@ -276,9 +314,69 @@ class CredentialsConfig(BaseModel):
     user_b_username: str | None = Field(default=None)
     user_b_password: str | None = Field(default=None)
 
+    # ------------------------------------------------------------------
+    # jwt_login specific fields
+    # ------------------------------------------------------------------
+
+    login_endpoint: str | None = Field(
+        default=None,
+        description=(
+            "Required when auth_type='jwt_login'. "
+            "Absolute path of the login endpoint, e.g. '/identity/api/auth/login'. "
+            "The full URL is constructed as target.base_url + login_endpoint."
+        ),
+    )
+    username_body_field: str = Field(
+        default="username",
+        description=(
+            "JSON body field name for the username in jwt_login POST requests. "
+            "Default: 'username'. Override to 'email' for targets that use email login."
+        ),
+    )
+    password_body_field: str = Field(
+        default="password",
+        description=(
+            "JSON body field name for the password in jwt_login POST requests. Default: 'password'."
+        ),
+    )
+    token_response_path: str = Field(
+        default="access_token",
+        description=(
+            "Dotted JSONPath to extract the token from the login response body. "
+            "Supports simple dot-notation only (no array indexing, no keys with dots). "
+            "Examples: 'access_token' for {'access_token': '...'}, "
+            "'data.token' for {'data': {'token': '...'}}. "
+            "Default: 'access_token'."
+        ),
+    )
+
+    # ------------------------------------------------------------------
+    # Validators
+    # ------------------------------------------------------------------
+
     @model_validator(mode="after")
-    def validate_credential_pairs(self) -> CredentialsConfig:
-        """Enforce that username and password are provided together or not at all."""
+    def validate_credentials(self) -> CredentialsConfig:
+        """
+        Enforce auth_type validity and credential pair completeness.
+
+        Two independent checks:
+        1. auth_type must be one of the supported values.
+        2. jwt_login requires login_endpoint.
+        3. Each role's username and password must be provided together or not at all.
+        """
+        supported_auth_types = ("forgejo_token", "jwt_login")
+        if self.auth_type not in supported_auth_types:
+            raise ValueError(
+                f"Unsupported auth_type: '{self.auth_type}'. "
+                f"Supported values: {sorted(supported_auth_types)}."
+            )
+
+        if self.auth_type == "jwt_login" and not self.login_endpoint:
+            raise ValueError(
+                "auth_type='jwt_login' requires 'login_endpoint' to be set in "
+                "config.yaml under credentials.login_endpoint."
+            )
+
         pairs = [
             ("admin_username", "admin_password", "admin"),
             ("user_a_username", "user_a_password", "user_a"),
@@ -359,20 +457,19 @@ class ExecutionConfig(BaseModel):
         default=False,
         description="Abort immediately when a P0 test returns FAIL or ERROR.",
     )
-    connect_timeout: Annotated[
-        float, Field(ge=TIMEOUT_CONNECT_MIN, le=TIMEOUT_CONNECT_MAX)
-    ] = Field(
-        default=TIMEOUT_CONNECT_DEFAULT,
-        description=(
-            f"TCP connection timeout in seconds for SecurityClient. "
-            f"Default: {TIMEOUT_CONNECT_DEFAULT}s."
-        ),
+    connect_timeout: Annotated[float, Field(ge=TIMEOUT_CONNECT_MIN, le=TIMEOUT_CONNECT_MAX)] = (
+        Field(
+            default=TIMEOUT_CONNECT_DEFAULT,
+            description=(
+                f"TCP connection timeout in seconds for SecurityClient. "
+                f"Default: {TIMEOUT_CONNECT_DEFAULT}s."
+            ),
+        )
     )
     read_timeout: Annotated[float, Field(ge=TIMEOUT_READ_MIN, le=TIMEOUT_READ_MAX)] = Field(
         default=TIMEOUT_READ_DEFAULT,
         description=(
-            f"HTTP read timeout in seconds for SecurityClient. "
-            f"Default: {TIMEOUT_READ_DEFAULT}s."
+            f"HTTP read timeout in seconds for SecurityClient. Default: {TIMEOUT_READ_DEFAULT}s."
         ),
     )
     max_retry_attempts: Annotated[
