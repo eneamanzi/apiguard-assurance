@@ -290,7 +290,7 @@ class TestContext(BaseModel):
     Mutable state container for data discovered or produced during execution.
 
     TestContext is created empty at bootstrap (Phase 3) and lives for the
-    entire duration of the pipeline. It accumulates two categories of state:
+    entire duration of the pipeline. It accumulates three categories of state:
 
     1. JWT tokens acquired by authentication tests (Domain 1).
        These tokens are consumed by subsequent Domain 2, 3, 4, 5, 6, 7 tests
@@ -302,7 +302,14 @@ class TestContext(BaseModel):
        Each resource is registered with its cleanup endpoint at creation time.
        The engine drains this registry during Phase 6 (Teardown) in LIFO order.
 
-    Both categories are stored in PrivateAttr fields, which Pydantic v2
+    3. Arbitrary shared data produced by a test for consumption by its
+       dependents. This is a typed escape hatch for data that does not fit
+       the token or resource categories: resource IDs, discovered algorithm
+       lists, configuration values observed during execution. The key naming
+       convention is "{test_id}.{data_name}" (e.g. "2.1.owner_repo_full_name")
+       to make the producing test explicit and avoid naming collisions.
+
+    All three categories are stored in PrivateAttr fields, which Pydantic v2
     excludes from serialization, validation, and the public model interface.
     Tests interact exclusively through the typed methods below.
     """
@@ -311,6 +318,7 @@ class TestContext(BaseModel):
 
     _tokens: dict[str, str] = PrivateAttr(default_factory=dict)
     _resources: list[tuple[str, str, dict[str, str]]] = PrivateAttr(default_factory=list)
+    _shared_data: dict[str, object] = PrivateAttr(default_factory=dict)
 
     # ------------------------------------------------------------------
     # Token interface
@@ -482,3 +490,109 @@ class TestContext(BaseModel):
             int: Count of pending teardown registrations.
         """
         return len(self._resources)
+
+    # ------------------------------------------------------------------
+    # Shared data interface
+    # ------------------------------------------------------------------
+
+    def set_shared(self, key: str, value: object) -> None:
+        """
+        Store arbitrary data produced by a test for consumption by dependents.
+
+        This is the third category of TestContext state, complementing the
+        token store and the teardown registry. It exists for data that does
+        not fit either of those categories: resource IDs discovered during
+        setup, configuration values observed at runtime, algorithm lists
+        extracted from API responses, and similar cross-test payloads.
+
+        Key naming convention: "{test_id}.{data_name}"
+        Examples:
+            "2.1.owner_repo_full_name"   -- full_name of the repo created by test 2.1
+            "1.2.supported_algorithms"   -- JWT algorithms accepted by the target
+
+        Rationale for the convention: making the producing test explicit in the
+        key name eliminates naming collisions between tests that write different
+        values for semantically similar concepts, and makes the data flow
+        readable without tracing execution.
+
+        Overwrites silently if the key already exists. This is intentional:
+        a re-run of a test within the same session (e.g. after a transient
+        ERROR) must be able to update the shared value without raising.
+
+        Type safety note: the value is stored as object (Any equivalent) because
+        Python generics cannot enforce the type of retrieved values at call sites
+        without complicating the interface. The consuming test is responsible
+        for knowing the expected type -- document it in the producing test's
+        docstring and in the key name itself.
+
+        Args:
+            key:   Namespaced key following the "{test_id}.{data_name}" convention.
+                   Must not be empty.
+            value: Arbitrary value to store. Not validated or serialized.
+
+        Raises:
+            ValueError: If key is empty or whitespace-only.
+        """
+        key_stripped = key.strip()
+        if not key_stripped:
+            raise ValueError("Shared data key must not be empty or whitespace-only.")
+
+        self._shared_data[key_stripped] = value
+        log.debug("shared_data_written", key=key_stripped)
+
+    def get_shared(self, key: str, default: object = None) -> object:
+        """
+        Retrieve data written by a prerequisite test.
+
+        Returns the stored value if the key exists, or default (None unless
+        specified) if the key is absent. This mirrors the contract of
+        get_token(): callers that depend on this data must check the return
+        value and return TestResult(SKIP) if None, because the absence of the
+        key means the prerequisite test did not run, ran with SKIP, or ran
+        with ERROR and did not produce the expected value.
+
+        Usage pattern in a consuming test:
+            resource_id = context.get_shared("2.1.owner_repo_full_name")
+            if resource_id is None:
+                return TestResult(
+                    test_id=self.test_id,
+                    status=TestStatus.SKIP,
+                    message="Skipped: shared key '2.1.owner_repo_full_name' not found. "
+                            "Test 2.1 may not have run or may have returned SKIP/ERROR.",
+                )
+
+        Args:
+            key:     Key to look up. Whitespace is stripped before lookup.
+            default: Value to return if key is absent. Defaults to None.
+
+        Returns:
+            The stored value, or default if the key is not present.
+        """
+        return self._shared_data.get(key.strip(), default)
+
+    def has_shared(self, key: str) -> bool:
+        """
+        Return True if the given key has been written to the shared data store.
+
+        Prefer this over comparing get_shared() to None when the stored value
+        itself could legitimately be None -- has_shared() distinguishes between
+        "key exists with value None" and "key does not exist".
+
+        Args:
+            key: Key to check. Whitespace is stripped before lookup.
+
+        Returns:
+            bool: True if the key is present, False otherwise.
+        """
+        return key.strip() in self._shared_data
+
+    def shared_keys(self) -> list[str]:
+        """
+        Return the list of keys currently stored in the shared data store.
+
+        Used for diagnostic logging and debugging. Does not expose values.
+
+        Returns:
+            List of key strings in insertion order.
+        """
+        return list(self._shared_data.keys())

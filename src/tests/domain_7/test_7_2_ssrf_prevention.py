@@ -86,7 +86,7 @@ from src.core.models import (
 )
 from src.tests.base import BaseTest
 from src.tests.data.ssrf_payloads import ALL_SSRF_PAYLOADS
-from src.tests.helpers.auth_forgejo import acquire_all_tokens_if_needed
+from src.tests.helpers.auth import acquire_tokens
 from src.tests.helpers.forgejo_resources import ForgejoResourceError, create_repository
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -245,9 +245,7 @@ class Test72SSRFPrevention(BaseTest):
                 return guard
 
             try:
-                acquire_all_tokens_if_needed(
-                    target, context, client, required_roles=frozenset({ROLE_USER_A})
-                )
+                acquire_tokens(target, context, client, required_roles=frozenset({ROLE_USER_A}))
             except (AuthenticationSetupError, SecurityClientError) as exc:
                 return self._make_error(exc)
 
@@ -266,7 +264,7 @@ class Test72SSRFPrevention(BaseTest):
                     ValueError(
                         "ROLE_USER_A token is None after _requires_token guard "
                         "-- unexpected authentication state; investigate "
-                        "acquire_all_tokens_if_needed()."
+                        "acquire_tokens()."
                     )
                 )
             cfg = target.tests_config.test_7_2

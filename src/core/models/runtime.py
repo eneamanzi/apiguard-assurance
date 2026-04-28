@@ -44,9 +44,31 @@ class RuntimeCredentials(BaseModel):
 
     Lives in core/ so TargetContext can reference it without importing from
     config/ (unidirectional dependency rule: config/ imports core/, never reverse).
+
+    auth_type mirrors CredentialsConfig.auth_type and is read by the auth
+    dispatcher (src/tests/helpers/auth.py) to select the correct token-acquisition
+    implementation at runtime. The jwt_login-specific fields are only populated
+    when auth_type == 'jwt_login'; they are None otherwise.
     """
 
     model_config = {"frozen": True}
+
+    # ------------------------------------------------------------------
+    # Auth type discriminator -- mirrors CredentialsConfig.auth_type
+    # ------------------------------------------------------------------
+
+    auth_type: str = Field(
+        default="forgejo_token",
+        description=(
+            "Token-acquisition strategy. Mirrors CredentialsConfig.auth_type. "
+            "Read by the auth dispatcher to select the implementation. "
+            "Supported: 'forgejo_token', 'jwt_login'."
+        ),
+    )
+
+    # ------------------------------------------------------------------
+    # Common credential fields
+    # ------------------------------------------------------------------
 
     admin_username: str | None = Field(default=None)
     admin_password: str | None = Field(default=None)
@@ -54,6 +76,34 @@ class RuntimeCredentials(BaseModel):
     user_a_password: str | None = Field(default=None)
     user_b_username: str | None = Field(default=None)
     user_b_password: str | None = Field(default=None)
+
+    # ------------------------------------------------------------------
+    # jwt_login specific fields -- None when auth_type != 'jwt_login'
+    # ------------------------------------------------------------------
+
+    login_endpoint: str | None = Field(
+        default=None,
+        description=(
+            "Mirrors CredentialsConfig.login_endpoint. "
+            "Absolute path of the login endpoint for jwt_login auth. "
+            "None when auth_type is not 'jwt_login'."
+        ),
+    )
+    username_body_field: str = Field(
+        default="username",
+        description="Mirrors CredentialsConfig.username_body_field.",
+    )
+    password_body_field: str = Field(
+        default="password",
+        description="Mirrors CredentialsConfig.password_body_field.",
+    )
+    token_response_path: str = Field(
+        default="access_token",
+        description=(
+            "Mirrors CredentialsConfig.token_response_path. "
+            "Dotted JSONPath to extract the token from the login response."
+        ),
+    )
 
     def has_admin(self) -> bool:
         """True if both admin_username and admin_password are present and non-empty."""
