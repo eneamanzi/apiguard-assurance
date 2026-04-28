@@ -167,6 +167,11 @@ Immutable snapshot of credentials propagated into TargetContext.
 Lives in core/ so TargetContext can reference it without importing from
 config/ (unidirectional dependency rule: config/ imports core/, never reverse).
 
+auth_type mirrors CredentialsConfig.auth_type and is read by the auth
+dispatcher (src/tests/helpers/auth.py) to select the correct token-acquisition
+implementation at runtime. The jwt_login-specific fields are only populated
+when auth_type == 'jwt_login'; they are None otherwise.
+
 <a id="src.core.models.runtime.RuntimeCredentials.has_admin"></a>
 
 #### has\_admin
@@ -1239,6 +1244,86 @@ Detected dialect of the API specification source document.
 SWAGGER_2 -- Swagger 2.0 (top-level ``swagger: "2.0"`` key).
 OPENAPI_3 -- OpenAPI 3.x (top-level ``openapi: "3.x"`` key).
 
+<a id="src.tests.helpers.auth"></a>
+
+# src.tests.helpers.auth
+
+src/tests/helpers/auth.py
+
+Public auth dispatcher for GREY_BOX test credential acquisition.
+
+Responsibility
+--------------
+This module is the single import point that every GREY_BOX test uses to
+acquire authentication tokens.  It reads target.credentials.auth_type and
+delegates to the appropriate implementation:
+
+    "forgejo_token"  ->  auth_forgejo.acquire_all_tokens_if_needed()
+    "jwt_login"      ->  auth_jwt_login.acquire_all_tokens_if_needed()
+
+Adding a new auth_type requires:
+    1. Implementing a module src/tests/helpers/auth_{type}.py with the
+       function acquire_all_tokens_if_needed() following the same signature
+       and contract as the existing implementations.
+    2. Adding the new auth_type to the elif chain in acquire_tokens() below.
+    3. Adding the new auth_type to the supported values in
+       src/config/schema/tool_config.py CredentialsConfig.validate_credentials().
+    4. Documenting the new type in the CredentialsConfig docstring.
+
+The dispatcher is intentionally thin (< 40 lines of logic).  It contains no
+token-acquisition logic of its own.  Domain knowledge lives in the
+implementation modules; the dispatcher only routes.
+
+Idempotency contract
+--------------------
+Every implementation must be idempotent: calling acquire_all_tokens_if_needed()
+multiple times within the same pipeline run is safe.  Roles that already have
+a token in TestContext are skipped without making network calls.  This allows
+multiple GREY_BOX tests to call acquire_tokens() at the start of execute()
+without duplicating HTTP requests or creating redundant teardown entries.
+
+Dependency rule
+---------------
+This module imports from:
+    - stdlib only
+    - src.core.client, src.core.context, src.core.exceptions
+It must never import from src.tests.domain_* or src.engine.
+The implementation modules are imported lazily (inside the elif branches) to
+avoid loading all implementations when only one is needed.
+
+<a id="src.tests.helpers.auth.acquire_tokens"></a>
+
+#### acquire\_tokens
+
+```python
+def acquire_tokens(target: TargetContext,
+                   context: TestContext,
+                   client: SecurityClient,
+                   required_roles: frozenset[str] | None = None) -> None
+```
+
+Acquire authentication tokens for all configured roles.
+
+Reads target.credentials.auth_type and delegates to the corresponding
+implementation module.  Idempotent: roles that already have a token in
+TestContext are skipped.
+
+**Arguments**:
+
+- `target` - TargetContext carrying credentials and auth_type.
+- `context` - TestContext where acquired tokens are stored.
+- `client` - SecurityClient for HTTP calls.
+- `required_roles` - If provided, acquire only these roles (e.g.
+  frozenset({"admin", "user_a"})). If None, acquire
+  all roles that have credentials configured in
+  target.credentials.
+  
+
+**Raises**:
+
+- `AuthenticationSetupError` - If auth_type is unsupported, or if token
+  acquisition fails for any required role.
+
 <a id="src.tests.helpers.auth_forgejo"></a>
 
 # src.tests.helpers.auth\_forgejo
@@ -1396,6 +1481,142 @@ needing to re-derive the credentials from the TestContext.
 - `SecurityClientError` - If the HTTP request fails at the transport layer.
 - `ValueError` - If the Forgejo response body is missing the expected
   ``sha1`` or ``id`` fields (malformed API response).
+
+<a id="src.tests.helpers.auth_jwt_login"></a>
+
+# src.tests.helpers.auth\_jwt\_login
+
+src/tests/helpers/auth_jwt_login.py
+
+JWT login token acquisition for GREY_BOX test setup.
+
+This module implements the "jwt_login" auth_type: it acquires tokens by
+sending a POST request to a configurable login endpoint with username and
+password as a JSON body, then extracts the token from the response using a
+dotted JSONPath expression.
+
+This covers the majority of modern API frameworks that are not Forgejo/Gitea:
+- crAPI  (POST /identity/api/auth/login -> {"token": "..."})
+- Django REST Framework with SimpleJWT (POST /api/token/ -> {"access": "..."})
+- FastAPI with python-jose (POST /auth/token -> {"access_token": "..."})
+- Rails Devise Token Auth (POST /auth/sign_in -> {"data": {"token": "..."}})
+- Any API that follows the pattern: POST {endpoint} + JSON body -> JWT in body
+
+Token extraction
+----------------
+The token_response_path field in CredentialsConfig uses simple dot-notation
+to navigate the JSON response body.  Examples:
+
+"access_token"          -> response["access_token"]
+"token"                 -> response["token"]
+"data.access_token"     -> response["data"]["access_token"]
+
+Known limitation: array indexing ("tokens[0].value") and keys that contain
+literal dots are NOT supported.  If the target uses such a structure, a custom
+auth implementation is required.  Document this in the consuming test's
+docstring and in config.yaml.
+
+No teardown
+-----------
+JWT tokens are stateless bearer tokens.  They do not require deletion via the
+API when the assessment ends (unlike Forgejo opaque tokens which are created
+as persistent server-side objects).  This implementation therefore registers
+no teardown entries in TestContext.
+
+If the target requires an explicit logout call to invalidate tokens, implement
+a custom auth module and register the logout endpoint for teardown there.
+
+Dependency rule
+---------------
+This module imports from:
+- stdlib only: typing
+- src.core.client, src.core.context, src.core.exceptions
+It must never import from src.tests.domain_* or src.engine.
+
+<a id="src.tests.helpers.auth_jwt_login.acquire_all_tokens_if_needed"></a>
+
+#### acquire\_all\_tokens\_if\_needed
+
+```python
+def acquire_all_tokens_if_needed(
+        target: TargetContext,
+        context: TestContext,
+        client: SecurityClient,
+        required_roles: frozenset[str] | None = None) -> None
+```
+
+Acquire JWT tokens for configured roles that do not yet have a token.
+
+Iterates over the roles defined in target.credentials and calls
+acquire_single_token() for each role whose credentials are present and
+whose token is not yet stored in the TestContext.  Idempotent: safe to
+call multiple times within the same pipeline run.
+
+Canonical usage pattern inside execute():
+
+try:
+acquire_all_tokens_if_needed(
+target, context, client,
+required_roles=frozenset({ROLE_USER_A}),
+)
+except AuthenticationSetupError as exc:
+return self._make_error(exc)
+except SecurityClientError as exc:
+return self._make_error(exc)
+
+**Arguments**:
+
+- `target` - Immutable target context carrying credentials and base_url.
+- `context` - Mutable test context where acquired tokens are stored.
+- `client` - Centralized HTTP client for all outbound requests.
+- `required_roles` - Optional frozenset of role identifiers to acquire.
+  When None, all configured roles are attempted.
+  
+
+**Raises**:
+
+- `AuthenticationSetupError` - If the target rejects the credentials for a
+  role in required_roles (non-2xx response or token not found in body).
+  Failures for roles not in required_roles are never raised.
+- `SecurityClientError` - If a transport-layer error prevents the login
+  request from completing (connection refused, timeout).
+
+<a id="src.tests.helpers.auth_jwt_login.acquire_single_token"></a>
+
+#### acquire\_single\_token
+
+```python
+def acquire_single_token(target: TargetContext, context: TestContext,
+                         client: SecurityClient, username: str, password: str,
+                         role: str) -> None
+```
+
+Acquire a JWT token for a single role via the configured login endpoint.
+
+Sends a POST request to target.credentials.login_endpoint with the
+username and password as a JSON body.  On a 2xx response, extracts the
+token using token_response_path (dotted JSONPath) and stores it in
+TestContext via context.set_token(role, token).
+
+No teardown is registered: JWT tokens are stateless and do not require
+deletion via API.
+
+**Arguments**:
+
+- `target` - Immutable target context.
+- `context` - Mutable test context where the token is stored on success.
+- `client` - Centralized HTTP client.
+- `username` - Plaintext username (or email) for this role.
+- `password` - Plaintext password for this role.
+- `role` - Role identifier (ROLE_ADMIN, ROLE_USER_A, ROLE_USER_B).
+  
+
+**Raises**:
+
+- `AuthenticationSetupError` - If login_endpoint is not configured, if the
+  server returns a non-2xx status, or if the token cannot be found
+  at token_response_path in the response body.
+- `SecurityClientError` - On transport-layer failure.
 
 <a id="src.tests.helpers.forgejo_resources"></a>
 
