@@ -107,3 +107,6 @@ hatch run dev:deps   → pip-audit               (run before any release)
 ## Comandi per modifiche alla conf di kong
 -> ricarica kog e legge la cofiguazione nuova
 docker compose up -d --force-recreate kong  
+
+# RUN CONTRO ALTRO TARGET
+apiguard run -c config_crapi.yaml 

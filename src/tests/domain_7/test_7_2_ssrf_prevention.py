@@ -287,30 +287,78 @@ class Test72SSRFPrevention(BaseTest):
                 redirect_server_configured=bool(cfg.ssrf_redirect_server_url),
             )
 
-            # Create the probe repository.  All webhooks created during sub-tests
-            # A-D are children of this repository and are deleted automatically
-            # when the repository is deleted in Phase 6.  The teardown is
-            # registered inside create_repository() before any further logic.
-            try:
-                repo_data = create_repository(
-                    target=target,
-                    context=context,
-                    client=client,
-                    role=ROLE_USER_A,
-                    description="APIGuard SSRF assessment -- webhook injection probe",
-                    private=True,
-                )
-            except ForgejoResourceError as exc:
-                return self._make_error(exc)
+            # Resolve the injection endpoint path based on injection_mode.
+            #
+            # "forgejo_webhook": create a temporary repository and derive the
+            #     injection path from its owner/repo coordinates.  This mode is
+            #     Forgejo-specific and will SKIP on targets that do not expose a
+            #     Forgejo-compatible repository creation endpoint.
+            #
+            # "fixed_path": use injection_path_template verbatim as a static
+            #     endpoint path (no placeholder substitution).  This mode is
+            #     target-agnostic: it works on any API that accepts a user-controlled
+            #     URL in a POST body field.  Requires injection_path_template and
+            #     injection_body_template to be configured for the specific target.
+            if cfg.injection_mode == "forgejo_webhook":
+                try:
+                    repo_data = create_repository(
+                        target=target,
+                        context=context,
+                        client=client,
+                        role=ROLE_USER_A,
+                        description="APIGuard SSRF assessment -- webhook injection probe",
+                        private=True,
+                    )
+                except ForgejoResourceError as exc:
+                    # create_repository() raised a ForgejoResourceError, which
+                    # means the target does not expose a Forgejo-compatible
+                    # repository creation endpoint (HTTP 404 is the typical signal).
+                    # Rather than ERROR, return SKIP: this mode is intentionally
+                    # Forgejo-specific and is not applicable to non-Forgejo targets.
+                    # Operators targeting non-Forgejo APIs should set
+                    # injection_mode: fixed_path in config.yaml.
+                    log.warning(
+                        "test_7_2_forgejo_webhook_mode_not_applicable",
+                        detail=(
+                            "injection_mode='forgejo_webhook' requires a Forgejo-compatible "
+                            "repository creation endpoint (POST /api/v1/user/repos). "
+                            "The target returned an error, which indicates it is not a "
+                            "Forgejo instance. Set injection_mode: fixed_path in "
+                            "config.yaml tests.domain_7.test_7_2 and configure "
+                            "injection_path_template and injection_body_template for "
+                            "the target's SSRF-injectable endpoint."
+                        ),
+                        underlying_error=str(exc),
+                    )
+                    return self._make_skip(
+                        reason=(
+                            "GREY_BOX SSRF sub-test skipped: injection_mode='forgejo_webhook' "
+                            "is not applicable to this target. "
+                            "Configure injection_mode: fixed_path in config.yaml to enable "
+                            "SSRF testing on non-Forgejo targets."
+                        )
+                    )
 
-            owner_login: str = repo_data["owner"]["login"]
-            repo_name: str = repo_data["name"]
-            webhook_path = cfg.injection_path_template.format(owner=owner_login, repo=repo_name)
+                owner_login: str = repo_data["owner"]["login"]
+                repo_name: str = repo_data["name"]
+                webhook_path: str = cfg.injection_path_template.format(
+                    owner=owner_login, repo=repo_name
+                )
+
+            else:
+                # fixed_path mode: use injection_path_template verbatim.
+                # No repository creation is needed.  The operator is responsible
+                # for configuring injection_path_template and injection_body_template
+                # for the target's SSRF-injectable endpoint.
+                webhook_path = cfg.injection_path_template
+                log.info(
+                    "test_7_2_fixed_path_mode",
+                    injection_path=webhook_path,
+                )
 
             log.info(
-                "test_7_2_probe_repo_created",
-                owner=owner_login,
-                repo=repo_name,
+                "test_7_2_injection_endpoint_resolved",
+                injection_mode=cfg.injection_mode,
                 webhook_path=webhook_path,
             )
 

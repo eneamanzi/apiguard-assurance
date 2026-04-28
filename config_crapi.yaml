@@ -1,0 +1,50 @@
+target:
+  name: "crAPI"
+  base_url: "http://localhost:8888"
+  openapi_spec_path: "./specs/crapi-openapi.json"
+  admin_api_url: null
+
+credentials:
+  auth_type: jwt_login
+  login_endpoint: "/identity/api/auth/login"
+  username_body_field: email
+  password_body_field: password
+  token_response_path: "token"
+
+  admin_username: "${CRAPI_ADMIN_EMAIL}"
+  admin_password: "${CRAPI_ADMIN_PASSWORD}"
+  user_a_username: "${CRAPI_USER_A_EMAIL}"
+  user_a_password: "${CRAPI_USER_A_PASSWORD}"
+  user_b_username: "${CRAPI_USER_B_EMAIL}"
+  user_b_password: "${CRAPI_USER_B_PASSWORD}"
+
+execution:
+  min_priority: 3
+  fail_fast: false
+  strategies:
+    - BLACK_BOX
+    - GREY_BOX
+    - WHITE_BOX
+  read_timeout: 5
+  max_retry_attempts: 1
+
+output:
+  directory: "./outputs/crapi"
+
+tests:
+  domain_4:
+    test_4_1:
+      max_requests: 150
+      request_interval_ms: 50
+  domain_7:
+    test_7_2:
+      injection_mode: fixed_path
+      injection_path_template: "/workshop/api/merchant/contact_mechanic"
+      injection_url_field: "mechanic_api"
+      injection_body_template:
+        mechanic_api: "$SSRF_URL$"
+        problem_details: "APIGuard SSRF assessment probe"
+        mechanic_code: "TRAC_1"
+        number_of_repeats: 1
+        repeat_request_if_failed: false
+        vin: "3W2H568SN8025H9WA"
