@@ -1518,7 +1518,7 @@
               <td class="td-msg">
                 <div class="test-name">{{ row.test_name if row.test_name else row.test_id }}</div>
                 <div class="test-message">{{ row.message }}</div>
-                {% if row.skip_reason %}
+                {% if row.skip_reason and row.skip_reason != row.message %}
                 <div class="skip-reason">{{ row.skip_reason }}</div>
                 {% endif %}
               </td>

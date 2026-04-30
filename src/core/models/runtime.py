@@ -10,6 +10,8 @@ target.credentials.
 
     RuntimeCredentials      -- Immutable credentials propagated to TargetContext.
     RuntimeTest11Config     -- Runtime mirror of TestDomain1Config fields for Test 1.1.
+    RuntimeTest15Config     -- Runtime mirror of Test15Config for Test 1.5.
+    RuntimeTest16Config     -- Runtime mirror of Test16Config for Test 1.6.
     RuntimeTest41Config     -- Runtime mirror of Test41ProbeConfig for Test 4.1.
     RuntimeTest42Config     -- Runtime mirror of Test42AuditConfig for Test 4.2.
     RuntimeTest43Config     -- Runtime mirror of Test43AuditConfig for Test 4.3.
@@ -31,7 +33,7 @@ It must never import from any other src/ module.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # ---------------------------------------------------------------------------
 # RuntimeCredentials — immutable credentials propagated to TargetContext
@@ -154,6 +156,52 @@ class RuntimeCredentials(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# RuntimeTest02Config — runtime parameters for Test 0.2
+# ---------------------------------------------------------------------------
+
+
+class RuntimeTest02Config(BaseModel):
+    """
+    Runtime mirror of Test02ProbeConfig consumed by Test 0.2.
+
+    Populated by engine.py Phase 3 from config.tests.domain_0.test_0_2.
+    Access pattern inside the test:
+        cfg = target.tests_config.test_0_2
+        gateway_ids = frozenset(cfg.gateway_server_identifiers)
+
+    Why frozenset at the call site rather than here:
+        Pydantic frozen models allow mutable field types (list) as long as the
+        model itself is frozen (no attribute re-assignment). Converting to
+        frozenset at the call site is a one-time O(n) operation and avoids the
+        complexity of a custom Pydantic type for a small set of strings.
+    """
+
+    model_config = {"frozen": True}  # mandatory — see "Why two layers?" in ADDING_TESTS.md
+
+    gateway_server_identifiers: list[str] = Field(
+        default_factory=lambda: [
+            "kong",
+            "nginx",
+            "openresty",
+            "apache",
+            "caddy",
+            "traefik",
+            "envoy",
+        ],
+        min_length=1,
+        description=(
+            "Mirrors Test02ProbeConfig.gateway_server_identifiers. "
+            "Substrings matched case-insensitively against the 'Server' response header "
+            "to classify a response as Gateway-generated rather than backend-generated. "
+            "A response whose Server header matches none of these is flagged as a "
+            "deny-by-default violation. "
+            "Extend for gateways not in the default list (HAProxy, Tyk, APISIX). "
+            "Never add application server names (Gunicorn, uWSGI): that defeats the check."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # RuntimeTest11Config — runtime parameters for Test 1.1
 # ---------------------------------------------------------------------------
 
@@ -172,6 +220,154 @@ class RuntimeTest11Config(BaseModel):
             "Mirrors TestDomain1Config.max_endpoints_cap from config/schema.py."
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# RuntimeTest15Config — runtime parameters for Test 1.5
+# ---------------------------------------------------------------------------
+
+
+class RuntimeTest15Config(BaseModel):
+    """
+    Runtime mirror of Test15Config fields consumed by Test 1.5.
+
+    Populated by engine.py Phase 3 from config.tests.domain_1.test_1_5.
+    Access pattern inside the test:
+        cfg = target.tests_config.test_1_5
+        cfg.hsts_min_max_age_seconds
+        cfg.http_probe_enabled
+        cfg.http_probe_timeout_seconds
+        cfg.expected_redirect_status_codes
+        cfg.testssl_binary_path
+    """
+
+    model_config = {"frozen": True}  # mandatory — see "Why two layers?" in ADDING_TESTS.md
+
+    hsts_min_max_age_seconds: int = Field(
+        default=31_536_000,
+        ge=86_400,
+        description=(
+            "Mirrors Test15Config.hsts_min_max_age_seconds. "
+            "Minimum acceptable max-age in HSTS header. Default: 31536000 (1 year)."
+        ),
+    )
+    http_probe_enabled: bool = Field(
+        default=True,
+        description=(
+            "Mirrors Test15Config.http_probe_enabled. "
+            "Whether to probe HTTP port for redirect enforcement. Default: True."
+        ),
+    )
+    http_probe_url: str = Field(
+        default="",
+        description=(
+            "Mirrors Test15Config.http_probe_url. "
+            "Explicit HTTP URL override for sub-test 1. "
+            "Empty = derive from HTTPS base URL. "
+            "Use when HTTPS base URL uses a non-standard port (e.g. 8443)."
+        ),
+    )
+    http_probe_timeout_seconds: float = Field(
+        default=5.0,
+        ge=1.0,
+        description=(
+            "Mirrors Test15Config.http_probe_timeout_seconds. "
+            "Timeout in seconds for the HTTP redirect probe. Default: 5.0."
+        ),
+    )
+    expected_redirect_status_codes: list[int] = Field(
+        default_factory=lambda: [301, 308],
+        description=(
+            "Mirrors Test15Config.expected_redirect_status_codes. "
+            "HTTP status codes that satisfy the redirect oracle. Default: [301, 308]."
+        ),
+    )
+    testssl_binary_path: str = Field(
+        default="",
+        description=(
+            "Mirrors Test15Config.testssl_binary_path. "
+            "Absolute path to testssl.sh binary. Empty = skip TLS scan sub-test."
+        ),
+    )
+    testssl_timeout_seconds: int = Field(
+        default=120,
+        ge=30,
+        description=(
+            "Mirrors Test15Config.testssl_timeout_seconds. "
+            "Maximum seconds for the testssl.sh subprocess. Default: 120."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# RuntimeTest16Config — runtime parameters for Test 1.6
+# ---------------------------------------------------------------------------
+
+
+class RuntimeTest16Config(BaseModel):
+    """
+    Runtime mirror of Test16Config fields consumed by Test 1.6.
+
+    Populated by engine.py Phase 3 from config.tests.domain_1.test_1_6.
+    Access pattern inside the test:
+        cfg = target.tests_config.test_1_6
+        cfg.cookie_probe_paths
+        cfg.session_cookie_names
+        cfg.check_samesite
+        cfg.expected_samesite_value
+    """
+
+    model_config = {"frozen": True}  # mandatory — see "Why two layers?" in ADDING_TESTS.md
+
+    cookie_probe_paths: list[str] = Field(
+        default_factory=lambda: ["/"],
+        description=(
+            "Mirrors Test16Config.cookie_probe_paths. "
+            "Paths to GET for discovering Set-Cookie headers. Default: ['/']."
+        ),
+    )
+    session_cookie_names: list[str] = Field(
+        default_factory=lambda: [
+            "session",
+            "sid",
+            "PHPSESSID",
+            "JSESSIONID",
+            "connect.sid",
+            "_session",
+            "auth_session",
+            "user_session",
+        ],
+        description=(
+            "Mirrors Test16Config.session_cookie_names. "
+            "Case-insensitive cookie names treated as session identifiers. "
+            "Default: well-known session cookie names."
+        ),
+    )
+    check_samesite: bool = Field(
+        default=True,
+        description=(
+            "Mirrors Test16Config.check_samesite. "
+            "Whether to validate the SameSite attribute. Default: True."
+        ),
+    )
+    expected_samesite_value: str = Field(
+        default="Strict",
+        description=(
+            "Mirrors Test16Config.expected_samesite_value. "
+            "Expected SameSite attribute value (case-insensitive). Default: 'Strict'."
+        ),
+    )
+
+    @field_validator("session_cookie_names")
+    @classmethod
+    def session_cookie_names_not_empty(cls, v: list[str]) -> list[str]:
+        """Reject empty list: would silently SKIP on every target."""
+        if not v:
+            raise ValueError(
+                "session_cookie_names must contain at least one entry. "
+                "An empty list causes the test to SKIP unconditionally."
+            )
+        return v
 
 
 # ---------------------------------------------------------------------------
@@ -735,9 +931,31 @@ class RuntimeTestsConfig(BaseModel):
 
     model_config = {"frozen": True}
 
+    test_0_2: RuntimeTest02Config = Field(
+        default_factory=RuntimeTest02Config,
+        description=(
+            "Runtime parameters for Test 0.2 (Gateway Deny-by-Default on Unregistered Paths). "
+            "Mirrors Test02ProbeConfig from config.tests.domain_0.test_0_2."
+        ),
+    )
     test_1_1: RuntimeTest11Config = Field(
         default_factory=RuntimeTest11Config,
         description="Runtime parameters for Test 1.1 (Authentication Required).",
+    )
+    test_1_5: RuntimeTest15Config = Field(
+        default_factory=RuntimeTest15Config,
+        description=(
+            "Runtime parameters for Test 1.5 "
+            "(Credentials Not Transmitted via Insecure Channels). "
+            "Mirrors Test15Config from config.tests.domain_1.test_1_5."
+        ),
+    )
+    test_1_6: RuntimeTest16Config = Field(
+        default_factory=RuntimeTest16Config,
+        description=(
+            "Runtime parameters for Test 1.6 (Secure Session Management). "
+            "Mirrors Test16Config from config.tests.domain_1.test_1_6."
+        ),
     )
     test_3_3: RuntimeTest33Config = Field(
         default_factory=RuntimeTest33Config,
