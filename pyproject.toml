@@ -132,7 +132,7 @@ dependencies = [
 [tool.hatch.envs.dev.scripts]
 lint = [
     "ruff check .",
-    "mypy src/ tests_integration/",
+    "mypy src/",
 ]
 audit = [
     "bandit -r src/ -c pyproject.toml",
@@ -140,7 +140,7 @@ audit = [
 ]
 check = [
     "ruff check .",
-    "mypy src/ tests_integration/",
+    "mypy src/ ",
     "bandit -r src/ -c pyproject.toml",
     "vulture src/ --min-confidence 80",
 ]
@@ -210,7 +210,6 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests_integration/*" = ["S101", "S106", "ANN", "N806"]
 "tests_e2e/*"         = ["S101", "S106", "ANN", "N806"]
 "scripts/*"           = ["E402", "S101", "S105", "S106", "ANN", "N817"]
 

@@ -40,19 +40,75 @@ services:
       #    limit_by: ip         # chiave = IP TCP reale, non X-Forwarded-For
       #    hide_client_headers: false  # espone X-RateLimit-* e Retry-After
       #    fault_tolerant: true        # se il contatore è irraggiungibile, passa
-      #- name: response-transformer  # rimuovere il plugin per mostrare i finding del 6.2 (Security Headers)
-      #  config:
-      #    add:
-      #      headers:
-      #        - "Strict-Transport-Security: max-age=31536000; includeSubDomains"
-      #        - "Content-Security-Policy: default-src 'self'"
-      #        - "Permissions-Policy: geolocation=(), camera=(), microphone=()"
-      #        - "X-Content-Type-Options: nosniff"
-      #        - "X-Frame-Options: DENY"
-      #    remove:
-      #      headers:
-      #        - "Server"
-      #        - "X-Powered-By"
+      - name: response-transformer
+        config:
+          add:
+            headers:
+              - "Strict-Transport-Security: max-age=31536000; includeSubDomains"
+              - "Content-Security-Policy: default-src 'self'"
+              - "Permissions-Policy: geolocation=(), camera=(), microphone=()"
+          replace:
+            headers:
+              - "X-Content-Type-Options: nosniff"
+              - "X-Frame-Options: DENY"
+          remove:
+            headers:
+              - "X-Powered-By"
+
+  # ---------------------------------------------------------------------------
+  # HTTP → HTTPS redirect service (Test 1.5 sub-test 1)
+  #
+  # Kong listens on port 8000 (HTTP) and 8443 (HTTPS). In a standard production
+  # deployment port 80 must either be closed or return a permanent 301/308
+  # redirect to HTTPS. This service replicates that behaviour in the lab:
+  # any HTTP request to port 8000 receives a 301 redirect to the HTTPS base URL.
+  #
+  # The request-termination plugin terminates the request at the Gateway without
+  # forwarding to Forgejo, exactly as a production HTTP→HTTPS redirect would.
+  # The Location header points to the HTTPS listener (localhost:8443).
+  #
+  # Test 1.5 is configured with http_probe_url: "http://localhost:8000/" so it
+  # probes this service instead of deriving http://localhost:8443/ (which would
+  # always return 400 from Kong's TLS listener receiving plaintext HTTP).
+  #
+  # To produce the FAIL finding (for thesis documentation):
+  #   comment out this entire service block and set http_probe_url to ""
+  #   in config.yaml → the test derives http://localhost:8443/ → FAIL (400)
+  # ---------------------------------------------------------------------------
+  - name: http-redirect-service
+    # Target is unused: request-termination intercepts all requests before
+    # they reach the upstream. An unreachable placeholder is sufficient.
+    url: http://forgejo-upstream
+    connect_timeout: 5000
+    read_timeout: 30000
+    write_timeout: 30000
+    routes:
+      - name: http-redirect-catch-all
+        # Match every path on the HTTP listener (port 8000).
+        paths:
+          - /
+        strip_path: false
+        preserve_host: false
+        # Restrict to HTTP only: HTTPS traffic on port 8443 must not match
+        # this route (Kong routes are protocol-agnostic by path, but the port
+        # binding ensures HTTP and HTTPS traffic stays on separate listeners).
+        protocols:
+          - http
+    plugins:
+      - name: request-termination
+        config:
+          status_code: 301
+          message: "Moved Permanently"
+          # Location header instructs the client to retry over HTTPS.
+          # In production replace localhost:8443 with the canonical HTTPS URL.
+        # Kong's request-termination does not support custom response headers
+        # natively. We chain a response-transformer to inject Location.
+      - name: response-transformer
+        config:
+          add:
+            headers:
+              - "Location: https://localhost:8443/"
+              - "Strict-Transport-Security: max-age=31536000; includeSubDomains"
 
   # ---------------------------------------------------------------------------
   # Dummy service created exclusively for the Test 3.3 HMAC audit.

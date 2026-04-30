@@ -93,7 +93,10 @@ from src.core.models import (
     AttackSurface,
     ResultSet,
     RuntimeCredentials,
+    RuntimeTest02Config,
     RuntimeTest11Config,
+    RuntimeTest15Config,
+    RuntimeTest16Config,
     RuntimeTest33Config,
     RuntimeTest41Config,
     RuntimeTest42Config,
@@ -227,6 +230,7 @@ class AssessmentEngine:
             connect_timeout=config.execution.connect_timeout,
             read_timeout=config.execution.read_timeout,
             max_retry_attempts=config.execution.max_retry_attempts,
+            verify_tls=config.target.verify_tls,
         ) as client:
             self._phase_5_execute(
                 scheduled_batches=scheduled_batches,
@@ -370,8 +374,30 @@ class AssessmentEngine:
         log.info("pipeline_phase_3_context_construction_started")
 
         tests_config = RuntimeTestsConfig(
+            test_0_2=RuntimeTest02Config(
+                gateway_server_identifiers=list(
+                    config.tests.domain_0.test_0_2.gateway_server_identifiers
+                ),
+            ),
             test_1_1=RuntimeTest11Config(
                 max_endpoints_cap=config.tests.domain_1.test_1_1.max_endpoints_cap,
+            ),
+            test_1_5=RuntimeTest15Config(
+                hsts_min_max_age_seconds=config.tests.domain_1.test_1_5.hsts_min_max_age_seconds,
+                http_probe_enabled=config.tests.domain_1.test_1_5.http_probe_enabled,
+                http_probe_timeout_seconds=config.tests.domain_1.test_1_5.http_probe_timeout_seconds,
+                expected_redirect_status_codes=list(
+                    config.tests.domain_1.test_1_5.expected_redirect_status_codes
+                ),
+                testssl_binary_path=config.tests.domain_1.test_1_5.testssl_binary_path,
+                http_probe_url=config.tests.domain_1.test_1_5.http_probe_url,
+                testssl_timeout_seconds=config.tests.domain_1.test_1_5.testssl_timeout_seconds,
+            ),
+            test_1_6=RuntimeTest16Config(
+                cookie_probe_paths=list(config.tests.domain_1.test_1_6.cookie_probe_paths),
+                session_cookie_names=list(config.tests.domain_1.test_1_6.session_cookie_names),
+                check_samesite=config.tests.domain_1.test_1_6.check_samesite,
+                expected_samesite_value=config.tests.domain_1.test_1_6.expected_samesite_value,
             ),
             test_3_3=RuntimeTest33Config(
                 max_clock_skew_seconds=config.tests.domain_3.test_3_3.max_clock_skew_seconds,
@@ -462,6 +488,10 @@ class AssessmentEngine:
             # shallow copy, ensuring TargetContext's internal state is decoupled
             # from the ToolConfig object even though both are in practice frozen.
             path_seed=dict(config.target.path_seed),
+            # TLS verification flag: False only in lab environments with
+            # self-signed certs. Propagated to tests that use httpx directly
+            # (e.g. Test 1.5 HTTP redirect probe).
+            verify_tls=config.target.verify_tls,
         )
 
         context = TestContext()

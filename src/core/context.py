@@ -164,6 +164,17 @@ class TargetContext(BaseModel):
             "real usernames or resource identifiers that could reveal target topology."
         ),
     )
+    verify_tls: bool = Field(
+        default=True,
+        description=(
+            "Whether TLS certificate validation is enabled for requests to base_url. "
+            "Mirrors TargetConfig.verify_tls. Exposed on TargetContext so that tests "
+            "that use httpx directly (e.g. Test 1.5 HTTP redirect probe) can apply the "
+            "same policy as SecurityClient without reading ToolConfig directly. "
+            "False only in lab environments with a self-signed certificate. "
+            "NEVER False in a production assessment."
+        ),
+    )
 
     @model_validator(mode="after")
     def enforce_exactly_one_openapi_source(self) -> TargetContext:
