@@ -64,7 +64,7 @@ from __future__ import annotations
 
 import traceback
 from abc import ABC, abstractmethod
-from typing import ClassVar, TypedDict
+from typing import ClassVar, Literal, TypedDict
 
 import structlog
 
@@ -97,6 +97,7 @@ class _MetadataKwargs(TypedDict):
     strategy: str
     tags: list[str]
     cwe_id: str
+    source: Literal["native", "external"]
 
 
 _ROLE_DISPLAY_NAMES: dict[str, str] = {
@@ -326,6 +327,9 @@ class BaseTest(ABC):
             strategy=str(getattr(self.__class__, "strategy", TestStrategy.BLACK_BOX).value),
             tags=list(getattr(self.__class__, "tags", [])),
             cwe_id=str(getattr(self.__class__, "cwe_id", "")),
+            # source defaults to "native"; ExternalToolTest subclasses override
+            # this ClassVar to "external" so the report builder can partition results.
+            source=str(getattr(self.__class__, "source", "native")),  # type: ignore[typeddict-item]
         )
 
     # ------------------------------------------------------------------

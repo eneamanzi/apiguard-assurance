@@ -1,11 +1,4 @@
 
-### 🟢 FASE 1: Chiusura del WIP (Work In Progress) Nativo
-*Svuotiamo la coda delle cose a metà che non dipendono dai tool esterni.*
-
-* **[ 1 ]** Concludi e committa il refactoring dei Test **0.2** e **0.3** (Chat 2).
-* **[ 2 ]** Concludi e committa i nuovi Test **1.5** e **1.6** (Chat 1).
-* *Milestone:* Codebase Python nativa pulita, Mypy verde, zero branch appesi.
-
 ### 🟡 FASE 2: Strategia e Mappatura (Il Nuovo Task)
 *Definiamo la linea di confine esatta tra "Cervello" (Python) e "Muscoli" (Tool Esterni).*
 

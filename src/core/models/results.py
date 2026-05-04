@@ -19,6 +19,7 @@ src/ package.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -208,6 +209,23 @@ class TestResult(BaseModel):
     strategy: str = Field(default="")
     tags: list[str] = Field(default_factory=list)
     cwe_id: str = Field(default="")
+
+    # --- Result origin (ADR-001 §8.5 — promoted to architectural primitive) ---
+    # Populated by TestRegistry ("native") or ExternalTestRegistry ("external").
+    # Drives the Domain-Centric Split in report/builder.py: the builder partitions
+    # each domain's results into two distinct blocks — native controls and external
+    # scanner analysis — based exclusively on this field.
+    # The engine never writes this field; it arrives pre-valorised inside the
+    # TestResult returned by execute().
+    source: Literal["native", "external"] = Field(
+        default="native",
+        description=(
+            "Origin of the TestResult. 'native' = produced by a Python BaseTest "
+            "running via SecurityClient. 'external' = produced by an ExternalToolTest "
+            "wrapping a binary (ffuf, testssl.sh, nuclei). "
+            "Used by report/builder.py to partition results per domain."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_status_finding_consistency(self) -> TestResult:

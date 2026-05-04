@@ -49,6 +49,7 @@ from pydantic import (
     model_validator,
 )
 
+from src.config.schema.external_tools import ExternalToolsConfig
 from src.config.schema.tests_config import TestsConfig
 from src.core.models import TestStrategy
 
@@ -658,6 +659,16 @@ class ToolConfig(BaseModel):
         description=(
             "Per-domain test tuning parameters. "
             "Default values produce a complete assessment without operator intervention."
+        ),
+    )
+    external_tools: ExternalToolsConfig = Field(
+        default_factory=ExternalToolsConfig,
+        description=(
+            "Configuration for external tool connectors (testssl.sh, nuclei, ffuf). "
+            "If the 'external_tools' key is absent from config.yaml, all external "
+            "tool tests degrade gracefully to SKIP (native-only mode). "
+            "When a tool is enabled=True, timeout_seconds is mandatory or Phase 1 "
+            "raises ConfigurationError."
         ),
     )
 
