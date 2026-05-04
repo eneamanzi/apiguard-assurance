@@ -176,6 +176,36 @@ class TargetContext(BaseModel):
         ),
     )
 
+    # --- External tool routing (ADR-001 §6) ---
+    # In a Docker Compose setup the tool container and the target (Forgejo/Kong)
+    # container live on the same bridge network.  Inside that network, 'localhost'
+    # resolves to the tool container itself, NOT to the Kong gateway.  External
+    # tool binaries (ffuf, testssl.sh, nuclei) must address the target via the
+    # Compose service name (e.g. "http://kong-gateway:8000").
+    #
+    # effective_base_url solves this without any conditional logic in the engine
+    # or in connector code:
+    #   - In standalone mode: effective_base_url == base_url (identical)
+    #   - In Docker Compose mode: effective_base_url is read from the env var
+    #     APIGUARD_TARGET_EFFECTIVE_URL set in docker-compose.external-tools.yml
+    #
+    # The engine populates this field at bootstrap (Phase 3) by calling
+    # os.getenv("APIGUARD_TARGET_EFFECTIVE_URL") and falling back to base_url.
+    # Connectors read target.effective_base_url, never target.base_url directly.
+    # Native tests are unaffected — they continue to use endpoint_base_url().
+    effective_base_url: AnyHttpUrl | None = Field(
+        default=None,
+        description=(
+            "Resolved target URL for external tool binaries (ffuf, testssl.sh, nuclei). "
+            "In standalone mode this equals base_url. In Docker Compose mode it is "
+            "populated from the APIGUARD_TARGET_EFFECTIVE_URL environment variable "
+            "to use the Compose service name instead of 'localhost'. "
+            "None means the engine has not yet populated the field (Phase 3 incomplete). "
+            "Connectors must call target.effective_endpoint_base_url() which handles the "
+            "None case by falling back to endpoint_base_url()."
+        ),
+    )
+
     @model_validator(mode="after")
     def enforce_exactly_one_openapi_source(self) -> TargetContext:
         """
@@ -289,6 +319,27 @@ class TargetContext(BaseModel):
         if self.admin_api_url is None:
             return None
         return str(self.admin_api_url).rstrip("/")
+
+    def effective_endpoint_base_url(self) -> str:
+        """
+        Return the target base URL suitable for external tool binaries.
+
+        In standalone mode this is identical to endpoint_base_url().
+        In Docker Compose mode the engine populates effective_base_url from the
+        APIGUARD_TARGET_EFFECTIVE_URL environment variable, and this method
+        returns that value so that connectors address the target via the Compose
+        service name (e.g. "http://kong-gateway:8000") instead of "localhost".
+
+        External connectors (ffuf, testssl.sh, nuclei) must always call this
+        method to build their target URL — never endpoint_base_url() directly.
+        Native tests are unaffected and continue to use endpoint_base_url().
+
+        Returns:
+            str: The effective target base URL without trailing slash.
+        """
+        if self.effective_base_url is not None:
+            return str(self.effective_base_url).rstrip("/")
+        return self.endpoint_base_url()
 
 
 # ---------------------------------------------------------------------------

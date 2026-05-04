@@ -68,11 +68,12 @@ Architecture (v2.0 — streaming JSONL):
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import IO
+from typing import IO, Any
 
 import structlog
 
@@ -99,6 +100,39 @@ _JSONL_EXTENSION: str = ".jsonl"
 # The dot in "1.1" would be misread as an extension; slashes would create
 # subdirectories.  Both are replaced with underscores for filesystem safety.
 _TEST_ID_UNSAFE_CHARS: str = "./"
+
+# ---------------------------------------------------------------------------
+# Sanitization constants — used by EvidenceStore._sanitize_artifact()
+# Defined at module level to satisfy Ruff N806 (no UPPER_CASE in functions).
+# ---------------------------------------------------------------------------
+
+# Key name fragments that indicate a credential-bearing value (case-insensitive
+# substring match against the lowercased key).  Any dict value whose key
+# contains one of these substrings is unconditionally replaced with
+# "[REDACTED]" regardless of its content.
+_SANITIZE_SENSITIVE_KEY_PATTERNS: tuple[str, ...] = (
+    "token",
+    "password",
+    "api_key",
+    "apikey",
+    "authorization",
+    "bearer",
+    "secret",
+    "credential",
+    "auth",
+)
+
+# JWT heuristic: three base64url segments separated by dots, no whitespace.
+# Applied to string values whose key does NOT match a sensitive pattern but
+# whose content looks like a JWT (structural leak via value, not key naming).
+_SANITIZE_JWT_PATTERN: re.Pattern[str] = re.compile(
+    r"^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$"
+)
+
+# HTTP Authorization header value prefixes that indicate a credential in the
+# string content itself (e.g., a captured Authorization header value stored
+# in an arbitrary dict field whose key name was not caught above).
+_SANITIZE_HEADER_PREFIXES: tuple[str, ...] = ("Bearer ", "Basic ", "Token ")
 
 
 # ---------------------------------------------------------------------------
@@ -424,6 +458,129 @@ class EvidenceStore:
             request_url=pinned_record.request_url,
             test_id=self._current_test_id,
         )
+
+    def pin_artifact(self, label: str, data: dict[str, Any]) -> str:
+        """
+        Serialize and persist an arbitrary JSON artifact from an external tool.
+
+        External Tool Tests (ExternalToolTest subclasses) do not produce
+        EvidenceRecord objects — they produce raw JSON output from binaries
+        such as ffuf, testssl.sh, or nuclei.  This method wraps that output
+        in a synthetic EvidenceRecord so it enters the same evidence.json
+        output as native HTTP evidence, maintaining a single audit trail.
+
+        Sanitization is applied to the artifact payload before storage.
+        Tool outputs can embed partial HTTP responses containing Authorization
+        headers, Bearer tokens, cookies, or API keys captured during scanning.
+        The _sanitize_artifact() method performs a recursive string scan on
+        the dict and replaces values matching known credential patterns with
+        "[REDACTED]".  This sanitization is the responsibility of EvidenceStore,
+        not of the calling test — "security by default" over "security by
+        convention".
+
+        The returned evidence_ref string is the record_id of the synthetic
+        EvidenceRecord.  The calling test should attach it to the relevant
+        Finding.evidence_ref field to cross-reference the artifact.
+
+        Must be called between begin_test() and end_test().
+
+        Args:
+            label: Short human-readable label for the artifact, used as the
+                   request_method field of the synthetic record for display
+                   purposes.  Example: "ffuf_shadow_api_scan".
+            data:  Arbitrary dict produced by the external tool's JSON output
+                   (e.g., ConnectorResult.raw_output).  Will be sanitized
+                   before storage.
+
+        Returns:
+            str: The record_id of the written synthetic EvidenceRecord,
+                 suitable for assignment to Finding.evidence_ref.
+
+        Raises:
+            RuntimeError: If called outside an active test context (between
+                          begin_test() and end_test()).
+        """
+        self._require_active_test("pin_artifact")
+        sanitized: dict[str, Any] = self._sanitize_artifact(data)
+        record_id: str = (
+            f"artifact-{self._current_test_id}-{label}-{datetime.now(UTC).strftime('%H%M%S%f')}"
+        )
+        # Synthetic EvidenceRecord: we repurpose the HTTP-centric fields
+        # to carry artifact metadata.  request_method holds the label so the
+        # HTML report can display it as the "operation" column.
+        # request_url encodes the test_id for traceability (format matches
+        # record_id, which already contains self._current_test_id).
+        # Note: EvidenceRecord has no test_id or is_fail_evidence fields —
+        # those belong to TransactionSummary.  Traceability is provided by
+        # the record_id format: "artifact-{test_id}-{label}-{timestamp}".
+        synthetic_record = EvidenceRecord(
+            record_id=record_id,
+            timestamp_utc=datetime.now(UTC),
+            request_method=label.upper(),
+            request_url=f"external://{self._current_test_id}/{label}",
+            request_headers={},
+            request_body=None,
+            response_status_code=0,
+            response_headers={},
+            response_body=json.dumps(sanitized, ensure_ascii=False),
+            is_pinned=True,
+        )
+        self._write_record(synthetic_record)
+        log.debug(
+            "evidence_artifact_pinned",
+            record_id=record_id,
+            label=label,
+            test_id=self._current_test_id,
+        )
+        return record_id
+
+    @staticmethod
+    def _sanitize_artifact(data: dict[str, Any]) -> dict[str, Any]:
+        """
+        Recursively sanitize a dict by redacting credential-like string values.
+
+        Scans every string value in the dict (including nested dicts and lists)
+        and replaces it with "[REDACTED]" if it matches any of the following
+        patterns — case-insensitive key-based detection:
+            - Keys containing: "token", "password", "api_key", "apikey",
+              "authorization", "bearer", "secret", "credential", "auth"
+            - String values whose content starts with "Bearer " or "Basic "
+              (Authorization header leakage from captured HTTP responses)
+            - String values matching the pattern of a JWT (three base64url
+              segments separated by dots, total length > 40 characters)
+
+        The method returns a NEW dict — the original is never mutated.
+        Non-string values (int, float, bool, None) are copied unchanged.
+
+        Args:
+            data: The dict to sanitize. May contain nested dicts and lists.
+
+        Returns:
+            dict[str, Any]: A deep copy of the input with credentials redacted.
+        """
+        # All pattern constants are defined at module level (see _SANITIZE_*)
+        # to satisfy Ruff N806 (UPPER_CASE variables not permitted in functions).
+
+        def _redact_value(key: str, value: Any) -> Any:  # noqa: ANN401
+            """Redact value if key or value content indicates a credential."""
+            lower_key = key.lower()
+            if any(pat in lower_key for pat in _SANITIZE_SENSITIVE_KEY_PATTERNS):
+                return "[REDACTED]"
+            if isinstance(value, str):
+                if any(value.startswith(pfx) for pfx in _SANITIZE_HEADER_PREFIXES):
+                    return "[REDACTED]"
+                if len(value) > 40 and _SANITIZE_JWT_PATTERN.match(value):
+                    return "[REDACTED]"
+            return value
+
+        def _walk(obj: Any, parent_key: str = "") -> Any:  # noqa: ANN401
+            if isinstance(obj, dict):
+                return {k: _walk(_redact_value(k, v), k) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [_walk(item, parent_key) for item in obj]
+            return obj
+
+        return _walk(data)  # type: ignore[return-value]
 
     # ------------------------------------------------------------------
     # Read interface (called by tests — unchanged from v1.0)

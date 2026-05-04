@@ -110,6 +110,8 @@ from src.core.models import (
 )
 from src.discovery.openapi import load_openapi_spec
 from src.discovery.surface import build_attack_surface
+from src.external_tests.base import ExternalToolTest
+from src.external_tests.registry import ExternalTestRegistry
 from src.report.builder import build_report_data
 from src.report.renderer import render_html_report
 from src.tests.base import BaseTest
@@ -515,41 +517,67 @@ class AssessmentEngine:
     def _phase_4_discover_and_schedule(
         self,
         config: ToolConfig,
-    ) -> tuple[list[ScheduledBatch], list[BaseTest]]:
+    ) -> tuple[list[ScheduledBatch], list[BaseTest | ExternalToolTest]]:
         """
-        Discover active tests and build the topological execution schedule.
+        Discover active tests (native + external) and build the topological schedule.
+
+        Merges two independent discovery passes:
+            1. TestRegistry         -> list[BaseTest]          (native Python tests)
+            2. ExternalTestRegistry -> list[ExternalToolTest]  (binary-wrapper tests)
+
+        The two lists are merged before being passed to DAGScheduler.  Both
+        hierarchies declare test_id and depends_on ClassVars, which is all the
+        scheduler reads.  Cross-hierarchy dependencies are fully supported:
+        an ExternalToolTest may declare depends_on referencing a BaseTest test_id.
 
         Returns:
-            Tuple of (list[ScheduledBatch], list[BaseTest]).
+            Tuple of (list[ScheduledBatch], combined list BaseTest | ExternalToolTest).
 
         Raises:
             DAGCycleError: If a circular dependency is detected.
         """
         log.info("pipeline_phase_4_discovery_and_scheduling_started")
 
+        # --- Native test discovery ---
         registry = TestRegistry()
-        active_tests = registry.discover(
+        native_tests: list[BaseTest] = registry.discover(
             min_priority=config.execution.min_priority,
             enabled_strategies=set(config.execution.strategies),
             allowed_ids=set(config.execution.test_ids) if config.execution.test_ids else set(),
         )
 
-        if not active_tests:
+        # --- External test discovery ---
+        ext_registry = ExternalTestRegistry()
+        external_tests: list[ExternalToolTest] = ext_registry.discover(
+            external_tools_config=config.external_tools,
+            min_priority=config.execution.min_priority,
+            allowed_ids=set(config.execution.test_ids) if config.execution.test_ids else set(),
+        )
+
+        # --- Merge both lists ---
+        all_tests: list[BaseTest | ExternalToolTest] = [*native_tests, *external_tests]
+
+        if not all_tests:
             log.warning(
                 "pipeline_phase_4_no_active_tests",
                 min_priority=config.execution.min_priority,
                 strategies=[s.value for s in config.execution.strategies],
+                native_count=len(native_tests),
+                external_count=len(external_tests),
                 detail=(
                     "No tests matched the configured priority and strategy filters. "
                     "The assessment will produce an empty report."
                 ),
             )
-            return [], active_tests
+            return [], all_tests
 
-        dependency_map = registry.build_dependency_map(active_tests)
+        # Build dependency map from the union of both lists.
+        dependency_map: dict[str, list[str]] = {
+            t.__class__.test_id: list(getattr(t.__class__, "depends_on", [])) for t in all_tests
+        }
 
         scheduler = DAGScheduler()
-        active_test_ids = {t.__class__.test_id for t in active_tests}
+        active_test_ids = {t.__class__.test_id for t in all_tests}
         scheduled_batches = scheduler.build_schedule(
             dependencies=dependency_map,
             active_test_ids=active_test_ids,
@@ -558,12 +586,14 @@ class AssessmentEngine:
         total_scheduled = sum(b.size for b in scheduled_batches)
         log.info(
             "pipeline_phase_4_discovery_and_scheduling_completed",
-            active_tests=len(active_tests),
+            native_tests=len(native_tests),
+            external_tests=len(external_tests),
+            total_active=len(all_tests),
             batch_count=len(scheduled_batches),
             total_scheduled=total_scheduled,
         )
 
-        return scheduled_batches, active_tests
+        return scheduled_batches, all_tests
 
     # ------------------------------------------------------------------
     # Phase 5 -- Execution
@@ -572,7 +602,7 @@ class AssessmentEngine:
     def _phase_5_execute(
         self,
         scheduled_batches: list[ScheduledBatch],
-        active_tests: list[BaseTest],
+        active_tests: list[BaseTest | ExternalToolTest],
         target: TargetContext,
         context: TestContext,
         client: SecurityClient,
@@ -581,7 +611,7 @@ class AssessmentEngine:
         config: ToolConfig,
     ) -> None:
         """
-        Execute all scheduled tests in topological order.
+        Execute all scheduled tests (native + external) in topological order.
 
         For each ScheduledBatch, iterates over test_ids sequentially.
         Each test is located by test_id in the active_tests list, then
@@ -596,7 +626,9 @@ class AssessmentEngine:
             batch_count=len(scheduled_batches),
         )
 
-        test_lookup: dict[str, BaseTest] = {t.__class__.test_id: t for t in active_tests}
+        test_lookup: dict[str, BaseTest | ExternalToolTest] = {
+            t.__class__.test_id: t for t in active_tests
+        }
         fail_fast_triggered = False
 
         for batch in scheduled_batches:
@@ -621,8 +653,8 @@ class AssessmentEngine:
                         test_id=test_id,
                         detail=(
                             "A test_id appeared in the scheduled batch but has "
-                            "no corresponding BaseTest instance in the active "
-                            "tests lookup. This indicates a DAGScheduler / "
+                            "no corresponding test instance (BaseTest or ExternalToolTest) "
+                            "in the active tests lookup. This indicates a DAGScheduler / "
                             "TestRegistry inconsistency."
                         ),
                     )
@@ -668,38 +700,54 @@ class AssessmentEngine:
 
     def _execute_single_test(
         self,
-        test: BaseTest,
+        test: BaseTest | ExternalToolTest,
         target: TargetContext,
         context: TestContext,
         client: SecurityClient,
         store: EvidenceStore,
     ) -> TestResult:
         """
-        Execute a single test and return its TestResult with timing.
+        Execute a single test (native or external) and return its TestResult.
 
-        Measures wall-clock execution time and stores it in duration_ms.
-        The contract that execute() never raises is assumed here.
+        Dispatch logic:
+            - BaseTest:         calls test.execute(target, context, client, store)
+                                SecurityClient is required for HTTP requests.
+            - ExternalToolTest: calls test.execute(target, context, store)
+                                SecurityClient is intentionally absent — external
+                                tests invoke subprocesses, not httpx.
+
+        The store.begin_test() / end_test() lifecycle is managed by each
+        hierarchy's execute() method, not here — to avoid double-calling.
+        This method only measures wall-clock time and attaches duration_ms.
         """
         cls = test.__class__
         test_id = cls.test_id
-        test_name = cls.test_name
+        test_name = getattr(cls, "test_name", "")
+        source = getattr(cls, "source", "native")
 
         log.info(
             "test_execution_started",
             test_id=test_id,
             test_name=test_name,
-            priority=cls.priority,
-            strategy=cls.strategy.value,
+            priority=getattr(cls, "priority", 0),
+            strategy=getattr(cls, "strategy", "BLACK_BOX"),
+            source=source,
         )
 
         wall_start = time.monotonic()
-        store.begin_test(test.__class__.test_id)
-        try:
-            result = test.execute(target, context, client, store)
-        finally:
-            store.end_test()
-        elapsed_ms = (time.monotonic() - wall_start) * 1000.0
 
+        if isinstance(test, ExternalToolTest):
+            # External tests manage begin/end_test internally in their execute().
+            result = test.execute(target, context, store)
+        else:
+            # Native tests: the engine manages begin/end_test.
+            store.begin_test(test_id)
+            try:
+                result = test.execute(target, context, client, store)
+            finally:
+                store.end_test()
+
+        elapsed_ms = (time.monotonic() - wall_start) * 1000.0
         result = result.model_copy(update={"duration_ms": round(elapsed_ms, 2)})
 
         log.info(
@@ -708,12 +756,13 @@ class AssessmentEngine:
             status=result.status.value,
             finding_count=len(result.findings),
             duration_ms=round(elapsed_ms, 2),
+            source=source,
         )
 
         return result
 
     @staticmethod
-    def _check_fail_fast(result: TestResult, test: BaseTest) -> bool:
+    def _check_fail_fast(result: TestResult, test: BaseTest | ExternalToolTest) -> bool:
         """
         Determine whether the fail-fast condition is triggered.
 

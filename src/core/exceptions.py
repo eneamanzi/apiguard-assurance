@@ -8,11 +8,21 @@ catch-all root for any caller that needs to distinguish tool-internal
 errors from generic Python exceptions (e.g., ValueError, TypeError).
 
 Pipeline phase mapping (from Implementazione.md, Section 8):
-    Phase 1 - Configuration loading    -> ConfigurationError  [BLOCKS STARTUP]
-    Phase 2 - OpenAPI discovery        -> OpenAPILoadError    [BLOCKS STARTUP]
-    Phase 4 - DAG scheduling           -> DAGCycleError       [BLOCKS STARTUP]
-    Phase 5 - Test execution           -> SecurityClientError [-> TestResult(ERROR)]
-    Phase 6 - Resource teardown        -> TeardownError       [WARNING, not propagated]
+    Phase 1 - Configuration loading    -> ConfigurationError     [BLOCKS STARTUP]
+    Phase 2 - OpenAPI discovery        -> OpenAPILoadError       [BLOCKS STARTUP]
+    Phase 4 - DAG scheduling           -> DAGCycleError          [BLOCKS STARTUP]
+    Phase 5 - Native test execution    -> SecurityClientError    [-> TestResult(ERROR)]
+    Phase 5 - External test execution  -> ExternalToolError      [-> TestResult(ERROR)]
+    Phase 6 - Resource teardown        -> TeardownError          [WARNING, not propagated]
+
+Design note — tool-not-found does NOT have a dedicated exception:
+    A missing external binary is an expected operational condition, not an
+    unexpected error.  It is handled via the ExternalTestRegistry Phase R4
+    (_inject_connectors): when is_available() returns False, the registry sets
+    ExternalToolTest._skip_reason_from_registry on every test in the group, and
+    _run() returns TestResult(status=SKIP) immediately.  No exception is raised
+    anywhere in this path.  ExternalToolError is reserved for conditions where
+    the binary IS present but its execution fails at runtime.
 """
 
 from __future__ import annotations
@@ -369,4 +379,75 @@ class TeardownError(ToolBaseError):
             f"resource_method={self.resource_method!r}, "
             f"resource_path={self.resource_path!r}, "
             f"failed_status_code={self.failed_status_code!r})"
+        )
+
+
+# ---------------------------------------------------------------------------
+# External tool integration — connectors/
+# ---------------------------------------------------------------------------
+
+
+class ExternalToolError(ToolBaseError):
+    """
+    Raised by BaseConnector.run() when the external binary is present but
+    its execution fails in a non-recoverable way.
+
+    Non-recoverable conditions include:
+        - The subprocess exits with a non-zero code that the connector
+          interprets as an unrecoverable failure (as opposed to a tool-specific
+          "no findings" code, which varies per tool).
+        - The subprocess output cannot be parsed as valid JSON when JSON output
+          is expected (e.g., testssl.sh --jsonfile, nuclei -json, ffuf -json).
+        - The subprocess.TimeoutExpired exception is raised because the wall-
+          clock limit passed as timeout_seconds to run() was exceeded.
+
+    This exception is handled inside ExternalToolTest.execute() and converted
+    to TestResult(status=ERROR, message=str(exc)) before the engine sees it.
+    The engine never receives ExternalToolError directly — the same pattern
+    as SecurityClientError for native tests.
+
+    The timed_out field allows the calling test to produce a semantically
+    distinct message: "tool timed out after Ns" vs "tool failed with exit N".
+    The raw_stderr field carries the first STDERR_MAX_CHARS characters of
+    stderr output stripped of any credential patterns — safe to log and embed
+    in the ERROR TestResult message for operator debugging.
+    """
+
+    STDERR_MAX_CHARS: int = 512
+
+    def __init__(
+        self,
+        message: str,
+        tool_name: str | None = None,
+        exit_code: int | None = None,
+        timed_out: bool = False,
+        raw_stderr: str | None = None,
+    ) -> None:
+        """
+        Initialize an external tool execution error.
+
+        Args:
+            message: Human-readable description of the failure.
+            tool_name: The binary name that failed (e.g., "testssl.sh").
+            exit_code: The process exit code, or None if the process was
+                       terminated before it could exit (timeout).
+            timed_out: True if subprocess.TimeoutExpired was raised.
+                       When True, exit_code is typically None.
+            raw_stderr: First STDERR_MAX_CHARS characters of stderr output,
+                        sanitized of credential patterns before storage.
+                        Used for operator debugging in ERROR TestResult messages.
+        """
+        super().__init__(message)
+        self.tool_name: str | None = tool_name
+        self.exit_code: int | None = exit_code
+        self.timed_out: bool = timed_out
+        self.raw_stderr: str | None = raw_stderr
+
+    def __repr__(self) -> str:
+        return (
+            f"{self.__class__.__name__}("
+            f"message={self.message!r}, "
+            f"tool_name={self.tool_name!r}, "
+            f"exit_code={self.exit_code!r}, "
+            f"timed_out={self.timed_out!r})"
         )
