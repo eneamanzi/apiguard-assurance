@@ -60,6 +60,9 @@ EXCLUDES=(
     ".env"
     "tests_integration/*"
     "src/report/templates/*"
+    "/docs/tool_catalog.md"
+    "/docs/test_tool_decisions.md"
+    "/docs/ARCHITECTURE.md"
 )
 
 if [ -n "$TARGET_DOMAIN_STR" ]; then
@@ -106,8 +109,8 @@ else
     echo "[WARNING] No specific domain requested (-d). Zipping all source code."
 fi
 
-echo "[INFO] Aggiornamento API Reference tramite Hatch (ambiente dev)..."
-hatch run dev:docs
+#echo "[INFO] Aggiornamento API Reference tramite Hatch (ambiente dev)..."
+#hatch run dev:docs
 
 zip -r "$OUTPUT" . -x "${EXCLUDES[@]}" > /dev/null
 

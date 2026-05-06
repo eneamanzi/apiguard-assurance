@@ -148,6 +148,7 @@ deps = [
     "echo '--- PIP-AUDIT ---' && pip-audit --desc on",
 ]
 
+#TODO sistemare comando di generazione documentazione in md
 docs = [
     "pydoc-markdown -I . -m src.engine -m src.core.models.runtime -m src.config.schema.tests_config -m src.core.client -m src.tests.base -m src.core.models.results -m src.core.models.enums -p src.tests.helpers > docs/API_REFERENCE.md"
 ]
