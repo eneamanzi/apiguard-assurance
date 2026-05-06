@@ -1,3 +1,5 @@
+[English version](README.en.md) | **Versione Italiana**
+
 # APIGuard Assurance
 
 **Automated Security Assessment Tool for REST APIs in Cloud Environments**
