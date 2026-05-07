@@ -119,7 +119,8 @@ execution:
     - BLACK_BOX
     - GREY_BOX
     - WHITE_BOX
-  test_ids: []     # esegue solo test specificati, se vuota comportamento normale
+  # test_ids: ["7.2", "1.5", "ext.1.5"]     # esegue solo test specificati, se vuota comportamento normale
+  test_ids: [] 
   # test_ids: ["0.1", "1.1"]  # più test specifici
   # test_ids: []          # lista vuota = comportamento normale
 
@@ -590,3 +591,77 @@ domain_7:
       # NIST SP 800-204 Section 3.2.2 recommends tight timeouts on outbound
       # connections from API servers.
       ssrf_request_timeout_ms: 10000
+
+# =============================================================================
+# EXTERNAL TOOLS CONFIGURATION
+# =============================================================================
+# Controls which external binary-based tests are activated.
+#
+# Master switch: external_tools.enabled = false disables ALL external tests
+# (ExternalToolTest subclasses) without touching native tests.  Use this in
+# CI environments where binaries are not available.
+#
+# Per-tool: each tool has its own enabled flag and timeout_seconds.
+# A tool with enabled: true MUST have timeout_seconds configured, or Phase 1
+# (Configuration Loading) raises ConfigurationError (bloccante).
+#
+# Reference: src/config/schema/external_tools.py (ExternalToolsConfig)
+
+external_tools:
+  # Master switch. Set false to skip all external tests in one line.
+  enabled: true
+
+  # ---------------------------------------------------------------------------
+  # testssl.sh — Deep TLS stack analysis (Garanzia 1.5)
+  # ---------------------------------------------------------------------------
+  # Binary discovery:
+  #   1. shutil.which("testssl.sh")          — local binary in PATH
+  #   2. os.getenv("TESTSSL_SERVICE_URL")    — HTTP service in Docker Compose
+  #
+  # Install: https://github.com/drwetter/testssl.sh
+  #   git clone --depth 1 https://github.com/drwetter/testssl.sh.git
+  #   sudo cp testssl.sh/testssl.sh /usr/local/bin/
+  #   sudo chmod +x /usr/local/bin/testssl.sh
+  #
+  # Test: ext.1.5 (ExtTest15TlsAnalysis in external_tests/ext_test_1_5_tls_analysis.py)
+  # Oracle: CRITICAL/HIGH -> FAIL; MEDIUM/WARN -> PASS with note; empty -> PASS
+  testssl:
+    # Set true once testssl.sh is installed in PATH or TESTSSL_SERVICE_URL is set.
+    # When false, ext.1.5 returns SKIP without attempting binary discovery.
+    enabled: true
+
+    # Wall-clock timeout for a single testssl.sh execution (seconds).
+    # Mandatory when enabled: true. testssl.sh full scan takes 90-180 s.
+    # Minimum: 30 s. Maximum: 600 s. Recommended: 120 s.
+    timeout_seconds: 180
+
+    # Additional CLI flags appended verbatim to the testssl.sh invocation.
+    # Must not contain credentials or secrets.
+    # Default disables interactive output for machine parsing.
+    extra_flags: "--quiet --color 0 --connect-timeout 10"
+    #                                  ^^^^^^^^^^^^^^^^^^
+    #  Limits each individual TLS handshake attempt to 10s.
+    #  Prevents stall on targets that accept TCP but don't complete TLS.
+    #  Required flag for robust operation; add to extra_flags here.
+
+  # ---------------------------------------------------------------------------
+  # nuclei — CVE / template-based vulnerability scanning
+  # ---------------------------------------------------------------------------
+  nuclei:
+    enabled: false
+    # timeout_seconds: 300
+    template_tags:
+      - "api"
+      - "token"
+      - "misconfig"
+    extra_flags: "-silent -no-color"
+
+  # ---------------------------------------------------------------------------
+  # ffuf — Path fuzzing for Shadow API discovery (Garanzia 0.1)
+  # ---------------------------------------------------------------------------
+  ffuf:
+    enabled: false
+    # timeout_seconds: 180
+    wordlist_path: "/usr/share/seclists/Discovery/Web-Content/api/api-endpoints.txt"
+    rate_limit_rps: 50
+    extra_flags: "-noninteractive -s"

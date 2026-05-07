@@ -377,6 +377,7 @@ class BaseTest(ABC):
         detail: str,
         evidence_record_id: str | None = None,
         additional_references: list[str] | None = None,
+        notes: list[InfoNote] | None = None,
     ) -> TestResult:
         """
         Construct a TestResult(status=FAIL) with a single Finding.
@@ -395,17 +396,31 @@ class BaseTest(ABC):
             The is_fail=True flag will cause the HTML report to highlight that entry
             and show the cross-reference to evidence.json.
 
+        The optional ``notes`` parameter allows a FAIL result to carry
+        informational annotations (InfoNote objects) alongside the Finding.
+        This is semantically correct when a test simultaneously identifies a
+        confirmed violation (Finding) and ambiguous observations that do not
+        reach the FAIL threshold on their own (InfoNote).  Without this
+        parameter, callers were forced to build TestResult(...) directly and
+        omit notes silently (as seen in test_7_2_ssrf_prevention.py before
+        this fix), losing the timeout/coverage-gap annotations from the report.
+
         Args:
-            message:              One-line summary of the violated guarantee.
-            detail:               Technical description, specific enough to reproduce.
-            evidence_record_id:   record_id of the EvidenceRecord stored via
-                                  store.add_fail_evidence(). None for WHITE_BOX
-                                  configuration audit findings with no HTTP transaction.
+            message:               One-line summary of the violated guarantee.
+            detail:                Technical description, specific enough to reproduce.
+            evidence_record_id:    record_id of the EvidenceRecord stored via
+                                   store.add_fail_evidence(). None for WHITE_BOX
+                                   configuration audit findings with no HTTP
+                                   transaction.
             additional_references: Extra standard references appended after cwe_id.
+            notes:                 Optional list of InfoNote objects for informational
+                                   context below the FAIL threshold.  None (default)
+                                   produces an empty notes list.
 
         Returns:
-            TestResult with status=FAIL, exactly one Finding, and the
-            transaction_log accumulated during execute().
+            TestResult with status=FAIL, exactly one Finding, the provided
+            notes (or an empty list), and the transaction_log accumulated
+            during execute().
         """
         references: list[str] = [self.cwe_id]
         if additional_references:
@@ -423,6 +438,7 @@ class BaseTest(ABC):
             status=TestStatus.FAIL,
             message=message,
             findings=[finding],
+            notes=list(notes) if notes else [],
             transaction_log=list(self._transaction_log),
             **self._metadata_kwargs(),
         )

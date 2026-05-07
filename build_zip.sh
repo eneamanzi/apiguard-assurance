@@ -63,6 +63,7 @@ EXCLUDES=(
     "/docs/tool_catalog.md"
     "/docs/test_tool_decisions.md"
     "/docs/ARCHITECTURE.md"
+    "tools/*"
 )
 
 if [ -n "$TARGET_DOMAIN_STR" ]; then

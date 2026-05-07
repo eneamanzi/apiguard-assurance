@@ -1312,6 +1312,173 @@
         display: none !important;
       }
     }
+
+    /* ------------------------------------------------------------------ */
+    /* Source badge (native / external)                                     */
+    /* ------------------------------------------------------------------ */
+    .source-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 0.65rem;
+      font-weight: 700;
+      padding: 0.12rem 0.45rem;
+      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+    }
+
+    .source-native {
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+
+    .source-external {
+      background: #fdf4ff;
+      color: #7e22ce;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Domain sub-section headers (Native / External split)                 */
+    /* ------------------------------------------------------------------ */
+    .domain-subsection {
+      margin-bottom: 1.25rem;
+    }
+
+    .domain-subsection-header {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.45rem 0.75rem;
+      margin-bottom: 0.5rem;
+      border-radius: var(--radius) var(--radius) 0 0;
+      border-left: 3px solid;
+    }
+
+    .domain-subsection-header.native-header {
+      background: #eff6ff;
+      border-color: #1d4ed8;
+    }
+
+    .domain-subsection-header.external-header {
+      background: #fdf4ff;
+      border-color: #7e22ce;
+    }
+
+    .domain-subsection-title {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .native-header .domain-subsection-title {
+      color: #1d4ed8;
+    }
+
+    .external-header .domain-subsection-title {
+      color: #7e22ce;
+    }
+
+    .domain-subsection-count {
+      font-size: 0.7rem;
+      color: var(--color-muted);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Tool Output trigger button (parallel to Audit Trail trigger)         */
+    /* ------------------------------------------------------------------ */
+    .tool-output-trigger-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #7e22ce;
+    }
+
+    .tool-output-trigger-btn:hover {
+      background: #7e22ce;
+      color: #fff;
+      border-color: #7e22ce;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Tool Output Modal                                                     */
+    /* ------------------------------------------------------------------ */
+    .tool-output-modal-body {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: auto;
+      padding: 0;
+    }
+
+    .tool-output-json-pre {
+      font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+      font-size: 0.72rem;
+      line-height: 1.55;
+      color: #1e293b;
+      background: #f8fafc;
+      padding: 1.25rem 1.5rem;
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-all;
+      border: none;
+    }
+
+    .tool-output-modal-panel {
+      max-width: 1000px;
+    }
+
+    /* JSON syntax highlight classes */
+    .json-key {
+      color: #0f4e8a;
+      font-weight: 600;
+    }
+
+    .json-string {
+      color: #067a50;
+    }
+
+    .json-number {
+      color: #d97706;
+    }
+
+    .json-bool {
+      color: #7c3aed;
+      font-weight: 600;
+    }
+
+    .json-null {
+      color: #94a3b8;
+      font-style: italic;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Print: show subsection headers                                        */
+    /* ------------------------------------------------------------------ */
+    @media print {
+      .domain-subsection-header {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+    }
+
+    /* Reproducible command code block                                     */
+    .command-block {
+      display: inline-block;
+      background: #1e1e2e;
+      color: #cdd6f4;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 0.78rem;
+      padding: 0.3rem 0.6rem;
+      border-radius: 4px;
+      white-space: pre;
+      max-width: 100%;
+      overflow-x: auto;
+      vertical-align: middle;
+    }
   </style>
 </head>
 
@@ -1483,181 +1650,302 @@
         </div>
       </div>
 
-      <!-- Domain table -->
-      <div class="table-wrapper" id="domain-table-{{ domain.domain }}">
-        <table>
-          <thead>
-            <tr>
-              <th style="width:32px;"></th>
-              <th>ID</th>
-              <th>Priority</th>
-              <th>Strategy</th>
-              <th>Status</th>
-              <th>Test / Outcome</th>
-              <th style="text-align:center;">Findings</th>
-              <th>Duration</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in domain.rows %}
-            {# Normalise test_id for use in HTML id attributes: replace '.' with '_' #}
-            {% set row_id = row.test_id | replace('.', '_') %}
-            <!-- Main test row -->
-            <tr class="test-row" data-status="{{ row.status }}" data-domain="{{ row.domain }}"
-              data-priority="{{ row.priority }}" data-test-id="{{ row.test_id }}" data-row-id="{{ row_id }}"
-              data-search="{{ (row.test_name ~ ' ' ~ row.test_id ~ ' ' ~ row.message) | lower }}">
-              <td class="td-expand">
-                <span class="expand-icon" id="expand-icon-{{ row_id }}">+</span>
-              </td>
-              <td class="td-id">{{ row.test_id }}</td>
-              <td style="font-size:0.8rem;white-space:nowrap;">{{ row.priority_label }}</td>
-              <td style="font-size:0.78rem;color:var(--color-muted);white-space:nowrap;">{{ row.strategy }}</td>
-              <td>
-                <span class="badge {{ row.status | status_badge_class }}">{{ row.status }}</span>
-              </td>
-              <td class="td-msg">
-                <div class="test-name">{{ row.test_name if row.test_name else row.test_id }}</div>
-                <div class="test-message">{{ row.message }}</div>
-                {% if row.skip_reason and row.skip_reason != row.message %}
-                <div class="skip-reason">{{ row.skip_reason }}</div>
-                {% endif %}
-              </td>
-              <td style="text-align:center;">
-                {% if row.finding_count > 0 %}
-                <span class="finding-count-inline">{{ row.finding_count }}</span>
-                {% else %}
-                <span style="color:var(--color-muted);font-size:0.8rem;">&mdash;</span>
-                {% endif %}
-              </td>
-              <td class="td-dur">{{ row.duration_ms | duration_display }}</td>
-            </tr>
+      {# ---------------------------------------------------------------- #}
+      {# Macro: renders one test row + its collapsible detail panel. #}
+      {# Called identically for native rows and external rows. #}
+      {# ---------------------------------------------------------------- #}
+      {%- macro render_test_row(row) %}
+      {%- set row_id = row.test_id | replace('.', '_') %}
+      {%- set col_count = 9 if row.source == 'external' else 8 %}
+      <tr class="test-row" data-status="{{ row.status }}" data-domain="{{ row.domain }}"
+        data-priority="{{ row.priority }}" data-test-id="{{ row.test_id }}" data-row-id="{{ row_id }}"
+        data-source="{{ row.source }}"
+        data-search="{{ (row.test_name ~ ' ' ~ row.test_id ~ ' ' ~ row.message) | lower }}">
+        <td class="td-expand">
+          <span class="expand-icon" id="expand-icon-{{ row_id }}">+</span>
+        </td>
+        <td class="td-id">{{ row.test_id }}</td>
+        <td style="font-size:0.8rem;white-space:nowrap;">{{ row.priority_label }}</td>
+        <td style="font-size:0.78rem;color:var(--color-muted);white-space:nowrap;">{{ row.strategy }}</td>
+        {%- if row.source == 'external' %}
+        <td style="font-size:0.78rem;white-space:nowrap;color:#7e22ce;font-weight:600;"
+          title="External tool: {{ row.tool_name }}">{{ row.tool_name }}</td>
+        {%- endif %}
+        <td>
+          <span class="badge {{ row.status | status_badge_class }}">{{ row.status }}</span>
+        </td>
+        <td class="td-msg">
+          <div class="test-name">{{ row.test_name if row.test_name else row.test_id }}</div>
+          <div class="test-message">{{ row.message }}</div>
+          {% if row.skip_reason and row.skip_reason != row.message %}
+          <div class="skip-reason">{{ row.skip_reason }}</div>
+          {% endif %}
+        </td>
+        <td style="text-align:center;">
+          {% if row.finding_count > 0 %}
+          <span class="finding-count-inline">{{ row.finding_count }}</span>
+          {% else %}
+          <span style="color:var(--color-muted);font-size:0.8rem;">&mdash;</span>
+          {% endif %}
+        </td>
+        <td class="td-dur">{{ row.duration_ms | duration_display }}</td>
+      </tr>
+      <tr class="detail-row" id="detail-row-{{ row_id }}">
+        <td class="detail-cell" colspan="{{ col_count }}">
+          <div class="detail-panel">
+            <!-- Metadata strip -->
+            <div class="detail-meta">
+              {% if row.cwe_id %}
+              <div class="detail-meta-item">
+                <span class="detail-meta-label">CWE</span>
+                <span class="detail-meta-value">{{ row.cwe_id }}</span>
+              </div>
+              {% endif %}
+              {% if row.tags %}
+              <div class="detail-meta-item">
+                <span class="detail-meta-label">Tags</span>
+                <span class="detail-meta-value">
+                  {% for tag in row.tags %}
+                  <span class="tag-chip">{{ tag }}</span>
+                  {% endfor %}
+                </span>
+              </div>
+              {% endif %}
+              <div class="detail-meta-item">
+                <span class="detail-meta-label">Source</span>
+                <span class="detail-meta-value">
+                  <span class="source-badge source-{{ row.source }}">{{ row.source }}</span>
+                </span>
+              </div>
+              <div class="detail-meta-item">
+                <span class="detail-meta-label">Duration</span>
+                <span class="detail-meta-value">{{ row.duration_ms | duration_display }}</span>
+              </div>
+              <div class="detail-meta-item">
+                <span class="detail-meta-label">Strategy</span>
+                <span class="detail-meta-value">{{ row.strategy }}</span>
+              </div>
+              {#- Tool version and connector-level scan time (external tests only) #}
+              {%- if row.source == 'external' and row.tool_artifact %}
+              {%- set tool_ver = row.tool_artifact.get('_apiguard_meta_tool_version') %}
+              {%- set scan_ms = row.tool_artifact.get('_apiguard_meta_execution_time_ms') %}
+              {%- if tool_ver %}
+              <div class="detail-meta-item">
+                <span class="detail-meta-label">Tool version</span>
+                <span class="detail-meta-value" style="font-family:monospace;font-size:0.8rem;">{{ tool_ver }}</span>
+              </div>
+              {%- endif %}
+              {%- if scan_ms is not none %}
+              <div class="detail-meta-item">
+                <span class="detail-meta-label">Scan time&nbsp;<span
+                    title="Connector-level subprocess duration. Distinct from the engine-level Duration which includes registry, oracle evaluation, and artifact pinning overhead."
+                    style="cursor:help;font-size:0.8rem;">&#9432;</span></span>
+                <span class="detail-meta-value">{{ scan_ms | duration_display }}</span>
+              </div>
+              {%- endif %}
+              {%- endif %}
+              {#- Reproducible commands (external tests only) #}
+              {#- Two variants: human-readable text output and machine-readable JSON output. #}
+              {%- if row.source == 'external' and row.tool_artifact and row.tool_artifact.command %}
+              <div class="detail-meta-item" style="flex-basis:100%;margin-top:0.25rem;">
+                <span class="detail-meta-label">Command</span>
+                <div style="margin-top:0.3rem;display:flex;flex-direction:column;gap:0.4rem;">
 
-            <!-- Detail expansion row (hidden by default) -->
-            <tr class="detail-row" id="detail-row-{{ row_id }}">
-              <td class="detail-cell" colspan="8">
-                <div class="detail-panel">
-
-                  <!-- Metadata strip -->
-                  <div class="detail-meta">
-                    {% if row.cwe_id %}
-                    <div class="detail-meta-item">
-                      <span class="detail-meta-label">CWE</span>
-                      <span class="detail-meta-value">{{ row.cwe_id }}</span>
-                    </div>
-                    {% endif %}
-                    {% if row.tags %}
-                    <div class="detail-meta-item">
-                      <span class="detail-meta-label">Tags</span>
-                      <span class="detail-meta-value">
-                        {% for tag in row.tags %}
-                        <span class="tag-chip">{{ tag }}</span>
-                        {% endfor %}
-                      </span>
-                    </div>
-                    {% endif %}
-                    <div class="detail-meta-item">
-                      <span class="detail-meta-label">Duration</span>
-                      <span class="detail-meta-value">{{ row.duration_ms | duration_display }}</span>
-                    </div>
-                    <div class="detail-meta-item">
-                      <span class="detail-meta-label">Strategy</span>
-                      <span class="detail-meta-value">{{ row.strategy }}</span>
-                    </div>
-                    {%- set tx_count = row.transaction_log | length %}
-                    {%- if tx_count > 0 %}
-                    <div class="detail-meta-audit-action">
-                      <button class="btn btn-sm audit-trail-trigger-btn" data-action="open-audit-trail"
-                        data-row-id="{{ row_id }}">
-                        View Audit Trail ({{ tx_count }})&nbsp;&#8599;
-                      </button>
-                    </div>
-                    {%- endif %}
+                  {# --- Variant 1: human-readable text output (no --jsonfile) --- #}
+                  <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+                    <span style="font-size:0.72rem;color:var(--color-muted);min-width:8rem;">Text output&nbsp;<span
+                        title="Run in terminal: human-readable format" style="cursor:help;">&#9432;</span></span>
+                    <code class="command-block" id="cmd-{{ row_id }}">{{ row.tool_artifact.command }}</code>
+                    <button class="btn btn-sm"
+                      onclick="(function(){var t=document.getElementById('cmd-{{ row_id }}');navigator.clipboard.writeText(t.textContent).then(function(){var b=event.target;var orig=b.textContent;b.textContent='Copied';setTimeout(function(){b.textContent=orig;},1500);});})()">
+                      Copy
+                    </button>
                   </div>
 
-                  <!-- Findings (FAIL) -->
-                  {% if row.findings %}
-                  <div class="detail-findings-section">
-                    <div class="detail-section-header">
-                      <span class="detail-section-title">Findings ({{ row.finding_count }})</span>
-                      <button class="btn btn-sm" data-action="copy-test" data-test-id="{{ row.test_id }}">
-                        Copy All Findings
-                      </button>
-                    </div>
-                    {% for finding in row.findings %}
-                    <div class="finding-card-expanded">
-                      <div class="finding-card-header">
-                        <span class="finding-title">{{ finding.title }}</span>
-                        <button class="btn btn-sm" data-action="copy-finding" data-test-id="{{ row.test_id }}"
-                          data-idx="{{ loop.index0 }}">
-                          Copy
-                        </button>
-                      </div>
-                      <div class="finding-detail">{{ finding.detail }}</div>
-                      {% if finding.references %}
-                      <div class="finding-refs">
-                        {% for ref in finding.references %}
-                        <span class="ref-tag">{{ ref }}</span>
-                        {% endfor %}
-                      </div>
-                      {% endif %}
-                      {% if finding.evidence_ref %}
-                      <div class="finding-evidence">
-                        Evidence ID: <code>{{ finding.evidence_ref }}</code>
-                        <span class="evidence-note">&rarr; see evidence.json</span>
-                      </div>
-                      {% endif %}
-                    </div>
-                    {% endfor %}
+                  {# --- Variant 2: JSON output (with --jsonfile), mirrors what APIGuard runs internally --- #}
+                  {%- if row.tool_artifact.command_json %}
+                  <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+                    <span style="font-size:0.72rem;color:var(--color-muted);min-width:8rem;">JSON output&nbsp;<span
+                        title="Mirrors the command APIGuard runs internally; writes JSON to testssl_result.json"
+                        style="cursor:help;">&#9432;</span></span>
+                    <code class="command-block" id="cmd-json-{{ row_id }}">{{ row.tool_artifact.command_json }}</code>
+                    <button class="btn btn-sm"
+                      onclick="(function(){var t=document.getElementById('cmd-json-{{ row_id }}');navigator.clipboard.writeText(t.textContent).then(function(){var b=event.target;var orig=b.textContent;b.textContent='Copied';setTimeout(function(){b.textContent=orig;},1500);});})()">
+                      Copy
+                    </button>
                   </div>
-
-                  {% elif row.status == 'PASS' %}
-                  <div class="detail-pass-msg">
-                    &#10003; All checks passed &mdash; no findings for this test.
-                  </div>
-
-                  {% elif row.status == 'SKIP' %}
-                  <div class="detail-skip-msg">
-                    Skipped: {{ row.skip_reason if row.skip_reason else 'No reason specified.' }}
-                  </div>
-
-                  {% elif row.status == 'ERROR' %}
-                  <div class="detail-error-msg">
-                    Unexpected error during execution. Details: {{ row.message }}
-                  </div>
-                  {% endif %}
-
-                  <!-- Informational Notes (InfoNote — rendered for any status) -->
-                  {% if row.notes %}
-                  <div class="detail-notes-section">
-                    <div class="detail-section-header">
-                      <span class="detail-section-title">
-                        &#9432; Informational Notes ({{ row.notes | length }})
-                      </span>
-                    </div>
-                    {% for note in row.notes %}
-                    <div class="note-card-expanded">
-                      <div class="note-card-header">
-                        <span class="note-title">{{ note.title }}</span>
-                      </div>
-                      <div class="note-detail">{{ note.detail }}</div>
-                      {% if note.references %}
-                      <div class="finding-refs">
-                        {% for ref in note.references %}
-                        <span class="ref-tag ref-tag-info">{{ ref }}</span>
-                        {% endfor %}
-                      </div>
-                      {% endif %}
-                    </div>
-                    {% endfor %}
-                  </div>
-                  {% endif %}
+                  {%- endif %}
 
                 </div>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+              </div>
+              {%- endif %}
+              {#- Action buttons: Audit Trail (native) and/or Tool Output (external) #}
+              {%- set tx_count = row.transaction_log | length %}
+              {%- if tx_count > 0 or row.tool_artifact %}
+              <div class="detail-meta-audit-action" style="display:flex;gap:0.5rem;align-items:flex-end;">
+                {%- if tx_count > 0 %}
+                <button class="btn btn-sm audit-trail-trigger-btn" data-action="open-audit-trail"
+                  data-row-id="{{ row_id }}">
+                  View Audit Trail ({{ tx_count }})&nbsp;&#8599;
+                </button>
+                {%- endif %}
+                {%- if row.tool_artifact %}
+                <button class="btn btn-sm tool-output-trigger-btn" data-action="open-tool-output"
+                  data-row-id="{{ row_id }}">
+                  Tool Output&nbsp;&#123;&#125;&nbsp;&#8599;
+                </button>
+                {%- endif %}
+              </div>
+              {%- endif %}
+            </div>
+            <!-- Findings (FAIL) -->
+            {% if row.findings %}
+            <div class="detail-findings-section">
+              <div class="detail-section-header">
+                <span class="detail-section-title">Findings ({{ row.finding_count }})</span>
+                <button class="btn btn-sm" data-action="copy-test" data-test-id="{{ row.test_id }}">
+                  Copy All Findings
+                </button>
+              </div>
+              {% for finding in row.findings %}
+              <div class="finding-card-expanded">
+                <div class="finding-card-header">
+                  <span class="finding-title">{{ finding.title }}</span>
+                  <button class="btn btn-sm" data-action="copy-finding" data-test-id="{{ row.test_id }}"
+                    data-idx="{{ loop.index0 }}">
+                    Copy
+                  </button>
+                </div>
+                <div class="finding-detail">{{ finding.detail }}</div>
+                {% if finding.references %}
+                <div class="finding-refs">
+                  {% for ref in finding.references %}
+                  <span class="ref-tag">{{ ref }}</span>
+                  {% endfor %}
+                </div>
+                {% endif %}
+                {% if finding.evidence_ref %}
+                <div class="finding-evidence">
+                  Evidence ID: <code>{{ finding.evidence_ref }}</code>
+                  <span class="evidence-note">&rarr; see evidence.json</span>
+                </div>
+                {% endif %}
+              </div>
+              {% endfor %}
+            </div>
+            {% elif row.status == 'PASS' %}
+            <div class="detail-pass-msg">
+              &#10003; All checks passed &mdash; no findings for this test.
+            </div>
+            {% elif row.status == 'SKIP' %}
+            <div class="detail-skip-msg">
+              Skipped: {{ row.skip_reason if row.skip_reason else 'No reason specified.' }}
+            </div>
+            {% elif row.status == 'ERROR' %}
+            <div class="detail-error-msg">
+              Unexpected error during execution. Details: {{ row.message }}
+            </div>
+            {% endif %}
+            <!-- Informational Notes (InfoNote) -->
+            {% if row.notes %}
+            <div class="detail-notes-section">
+              <div class="detail-section-header">
+                <span class="detail-section-title">
+                  &#9432; Informational Notes ({{ row.notes | length }})
+                </span>
+              </div>
+              {% for note in row.notes %}
+              <div class="note-card-expanded">
+                <div class="note-card-header">
+                  <span class="note-title">{{ note.title }}</span>
+                </div>
+                <div class="note-detail">{{ note.detail }}</div>
+                {% if note.references %}
+                <div class="finding-refs">
+                  {% for ref in note.references %}
+                  <span class="ref-tag ref-tag-info">{{ ref }}</span>
+                  {% endfor %}
+                </div>
+                {% endif %}
+              </div>
+              {% endfor %}
+            </div>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {%- endmacro %}
+
+      <!-- Domain table wrapper: contains one or two sub-sections (native / external). -->
+      <div id="domain-table-{{ domain.domain }}">
+
+        {# ---- Native Controls sub-section -------------------------------- #}
+        {% if domain.native_rows %}
+        <div class="domain-subsection">
+          <div class="domain-subsection-header native-header">
+            <span class="source-badge source-native">native</span>
+            <span class="domain-subsection-title">Native Controls</span>
+            <span class="domain-subsection-count">({{ domain.native_rows | length }} test{{ 's' if domain.native_rows |
+              length != 1 }})</span>
+          </div>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width:32px;"></th>
+                  <th>ID</th>
+                  <th>Priority</th>
+                  <th>Strategy</th>
+                  <th>Status</th>
+                  <th>Test / Outcome</th>
+                  <th style="text-align:center;">Findings</th>
+                  <th>Duration</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in domain.native_rows %}
+                {{ render_test_row(row) }}
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {% endif %}
+
+        {# ---- External Tool Tests sub-section ----------------------------- #}
+        {% if domain.external_rows %}
+        <div class="domain-subsection">
+          <div class="domain-subsection-header external-header">
+            <span class="source-badge source-external">external</span>
+            <span class="domain-subsection-title">External Tool Tests</span>
+            <span class="domain-subsection-count">({{ domain.external_rows | length }} test{{ 's' if
+              domain.external_rows | length != 1 }})</span>
+          </div>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width:32px;"></th>
+                  <th>ID</th>
+                  <th>Priority</th>
+                  <th>Strategy</th>
+                  <th style="color:#7e22ce;">Tool</th>
+                  <th>Status</th>
+                  <th>Test / Outcome</th>
+                  <th style="text-align:center;">Findings</th>
+                  <th>Duration</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in domain.external_rows %}
+                {{ render_test_row(row) }}
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {% endif %}
+
       </div>
 
       <!-- No-results message for this domain (shown when all rows filtered out) -->
@@ -1691,6 +1979,46 @@
     </footer>
 
   </div><!-- /.container -->
+
+
+  <!-- ================================================================== -->
+  <!-- Tool Output Modal                                                    -->
+  <!--                                                                      -->
+  <!-- Displays the raw JSON output (ConnectorResult.raw_output) from an   -->
+  <!-- external tool (testssl.sh, nuclei, ffuf). Populated on-demand from  -->
+  <!-- REPORT_DATA.all_rows[i].tool_artifact — no network request needed.  -->
+  <!-- Architecture mirrors the Audit Trail modal (single overlay, reused  -->
+  <!-- across all tests) but shows a syntax-highlighted JSON pre block     -->
+  <!-- instead of a table, because tool output is an arbitrary dict.       -->
+  <!-- ================================================================== -->
+  <div id="tool-output-modal" class="modal-overlay" role="dialog" aria-modal="true"
+    aria-labelledby="tool-modal-title-label">
+    <div class="modal-panel tool-output-modal-panel" id="tool-output-modal-panel">
+
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <span class="modal-title" id="tool-modal-title-label" style="color:#7e22ce;">Tool Output</span>
+          <span class="modal-subtitle" id="tool-modal-subtitle"></span>
+          <span class="modal-count-badge" id="tool-modal-count-badge"></span>
+        </div>
+        <div class="modal-header-actions">
+          <button class="btn btn-sm" id="tool-modal-copy-btn" title="Copy raw JSON to clipboard">
+            Copy JSON
+          </button>
+          <button class="btn btn-sm" id="tool-modal-download-btn" title="Download as JSON file">
+            &#8595; Download
+          </button>
+          <button class="modal-close-btn" id="tool-modal-close-btn" title="Close (Esc)"
+            aria-label="Close tool output">&#10005;</button>
+        </div>
+      </div>
+
+      <div class="tool-output-modal-body">
+        <pre class="tool-output-json-pre" id="tool-output-json-pre"></pre>
+      </div>
+
+    </div>
+  </div>
 
   <!-- ================================================================== -->
   <!-- Audit Trail Modal                                                    -->
@@ -2710,6 +3038,10 @@
           openAuditTrailModal(btn.dataset.rowId);
           return;
         }
+        if (action === "open-tool-output") {
+          openToolOutputModal(btn.dataset.rowId);
+          return;
+        }
         if (action === "copy-domain") {
           copyDomainFindings(parseInt(btn.dataset.domain, 10), btn);
           return;
@@ -2731,6 +3063,161 @@
       var tr = evt.target.closest("tr.test-row");
       if (tr && tr.dataset.rowId) {
         toggleRow(tr.dataset.rowId);
+      }
+    });
+
+
+    // ---------------------------------------------------------------------------
+    // Tool Output Modal
+    //
+    // Shows the raw tool_artifact JSON (ConnectorResult.raw_output) embedded in
+    // REPORT_DATA.all_rows[i].tool_artifact for external test rows.
+    //
+    // Design:
+    //   - Single modal overlay reused for all external tests (same pattern as
+    //     the Audit Trail modal).
+    //   - JSON is syntax-highlighted via _syntaxHighlight() using a minimal
+    //     regex-based coloriser. No external dependency.
+    //   - Copy and Download buttons work on the raw JSON string, not the
+    //     highlighted HTML, to avoid copying HTML tags to clipboard.
+    //   - The modal stores the active raw string in _toolOutputActiveJson so
+    //     copy/download can access it without re-querying REPORT_DATA.
+    // ---------------------------------------------------------------------------
+    var _toolOutputActiveJson = null;
+    var _toolOutputActiveTestId = null;
+
+    // ---------------------------------------------------------------------------
+    // _syntaxHighlight(jsonStr) -> string (HTML)
+    //
+    // Minimal JSON syntax highlighter. Applies CSS classes to keys, strings,
+    // numbers, booleans, and null values using a single replace-all regex pass.
+    // The HTML produced is embedded inside a <pre>; the original JSON structure
+    // (indentation, newlines) is preserved verbatim.
+    // ---------------------------------------------------------------------------
+    function _syntaxHighlight(jsonStr) {
+      // Escape HTML entities first so < > & in JSON values don't break the DOM.
+      var escaped = _escHtml(jsonStr);
+
+      // Regex: matches JSON tokens in order of specificity.
+      // Capture groups:
+      //   1: JSON key (double-quoted string followed by colon)
+      //   2: JSON string value (double-quoted, not followed by colon)
+      //   3: JSON number
+      //   4: JSON boolean (true/false)
+      //   5: JSON null
+      return escaped.replace(
+        /(&quot;[^&]*&quot;)(\s*:)|(&quot;[^&]*&quot;)|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|(true|false)|(null)/g,
+        function (match, key, colon, strVal, num, bool_, null_) {
+          if (key && colon) {
+            return '<span class="json-key">' + key + '</span>' + colon;
+          }
+          if (strVal) {
+            return '<span class="json-string">' + strVal + '</span>';
+          }
+          if (num !== undefined && num !== null && num !== '') {
+            return '<span class="json-number">' + num + '</span>';
+          }
+          if (bool_) {
+            return '<span class="json-bool">' + bool_ + '</span>';
+          }
+          if (null_) {
+            return '<span class="json-null">' + null_ + '</span>';
+          }
+          return match;
+        }
+      );
+    }
+
+    function openToolOutputModal(rowId) {
+      var testId = rowId.replace(/_/g, ".");
+      var rowData = null;
+
+      for (var i = 0; i < REPORT_DATA.all_rows.length; i++) {
+        if (REPORT_DATA.all_rows[i].test_id === testId) {
+          rowData = REPORT_DATA.all_rows[i];
+          break;
+        }
+      }
+      if (!rowData || !rowData.tool_artifact) return;
+
+      _toolOutputActiveTestId = testId;
+
+      // Pretty-print the artifact object.
+      var prettyJson = JSON.stringify(rowData.tool_artifact, null, 2);
+      _toolOutputActiveJson = prettyJson;
+
+      // Populate header.
+      var subtitle = document.getElementById("tool-modal-subtitle");
+      var countBadge = document.getElementById("tool-modal-count-badge");
+      if (subtitle) {
+        subtitle.textContent = testId + " — " + (rowData.test_name || "");
+      }
+      if (countBadge) {
+        var byteSize = new Blob([prettyJson]).size;
+        countBadge.textContent = (byteSize > 1024)
+          ? Math.round(byteSize / 1024) + " KB"
+          : byteSize + " B";
+      }
+
+      // Render syntax-highlighted JSON.
+      var pre = document.getElementById("tool-output-json-pre");
+      if (pre) {
+        pre.innerHTML = _syntaxHighlight(prettyJson);
+      }
+
+      // Open overlay.
+      var overlay = document.getElementById("tool-output-modal");
+      if (overlay) {
+        overlay.classList.add("is-open");
+        document.body.style.overflow = "hidden";
+      }
+    }
+
+    function closeToolOutputModal() {
+      var overlay = document.getElementById("tool-output-modal");
+      if (overlay) overlay.classList.remove("is-open");
+      document.body.style.overflow = "";
+      _toolOutputActiveJson = null;
+      _toolOutputActiveTestId = null;
+    }
+
+    // Copy JSON button.
+    document.getElementById("tool-modal-copy-btn").addEventListener("click", function () {
+      if (_toolOutputActiveJson) {
+        writeToClipboard(_toolOutputActiveJson);
+        flashCopied(this);
+      }
+    });
+
+    // Download JSON button.
+    document.getElementById("tool-modal-download-btn").addEventListener("click", function () {
+      if (!_toolOutputActiveJson || !_toolOutputActiveTestId) return;
+      var blob = new Blob([_toolOutputActiveJson], { type: "application/json" });
+      var url = URL.createObjectURL(blob);
+      var anchor = document.createElement("a");
+      var filename = "tool_output_" + _toolOutputActiveTestId.replace(/\./g, "_") + ".json";
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+    });
+
+    // Close button.
+    document.getElementById("tool-modal-close-btn").addEventListener("click", closeToolOutputModal);
+
+    // Click on backdrop closes modal.
+    document.getElementById("tool-output-modal").addEventListener("click", function (evt) {
+      if (evt.target === this) closeToolOutputModal();
+    });
+
+    // Escape key closes whichever modal is open (extend the existing keydown handler).
+    // The existing handler already covers the audit trail modal; add tool output here.
+    document.addEventListener("keydown", function (evt) {
+      if ((evt.key === "Escape" || evt.keyCode === 27) &&
+        document.getElementById("tool-output-modal").classList.contains("is-open")) {
+        closeToolOutputModal();
       }
     });
 

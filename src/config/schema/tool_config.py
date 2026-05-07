@@ -446,6 +446,51 @@ class CredentialsConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# _is_valid_test_id_format -- module-level helper
+# ---------------------------------------------------------------------------
+
+
+def _is_valid_test_id_format(test_id: str) -> bool:
+    """
+    Return True if *test_id* matches one of the two accepted formats.
+
+    Accepted formats
+    ----------------
+    Native test  --  'X.Y'
+        Two dot-separated tokens, both of which are non-negative integer
+        strings.  Examples: '0.1', '4.1', '7.2'.
+
+    External test -- 'ext.X.Y'
+        Three dot-separated tokens: the literal prefix 'ext' followed by
+        two non-negative integer strings.  Examples: 'ext.1.5', 'ext.0.1'.
+        The prefix distinguishes external test IDs from native ones in the
+        engine's test_lookup dict and prevents silent overwrites.
+
+    Any other form (wrong number of tokens, non-integer parts, wrong prefix)
+    returns False and the caller is expected to raise ValueError with an
+    operator-facing message.
+
+    Args:
+        test_id: The candidate test ID string to validate.
+
+    Returns:
+        bool: True if the format is valid, False otherwise.
+    """
+    parts = test_id.split(".")
+
+    # Native format: exactly two parts, both digits.
+    if len(parts) == 2:  # noqa: PLR2004
+        return all(p.isdigit() for p in parts)
+
+    # External format: exactly three parts, first is 'ext', last two are digits.
+    if len(parts) == 3:  # noqa: PLR2004
+        prefix, domain_part, seq_part = parts
+        return prefix == "ext" and domain_part.isdigit() and seq_part.isdigit()
+
+    return False
+
+
+# ---------------------------------------------------------------------------
 # ExecutionConfig
 # ---------------------------------------------------------------------------
 
@@ -542,10 +587,23 @@ class ExecutionConfig(BaseModel):
     @classmethod
     def test_ids_must_be_valid_format(cls, value: object) -> object:
         """
-        Validate that each test_id follows the 'X.Y' format.
+        Validate that each test_id follows an accepted format.
 
-        A test_id is a string of the form '<domain>.<sequence>', where
-        both parts are non-negative integers (e.g. '0.1', '4.1', '7.2').
+        Two formats are recognised:
+
+            Native tests  -- 'X.Y'
+                Both X and Y must be non-negative integer strings.
+                Examples: '0.1', '4.1', '7.2'.
+                Used by all BaseTest subclasses in src/tests/domain_*/.
+
+            External tests -- 'ext.X.Y'
+                Prefixed with the literal string 'ext', followed by two
+                non-negative integer strings X (domain) and Y (sequence).
+                Examples: 'ext.1.5', 'ext.0.1'.
+                Used by ExternalToolTest subclasses in src/external_tests/.
+                The 'ext.' prefix avoids collision with native test IDs in the
+                engine's test_lookup dict (keyed by test_id).
+
         This validator catches obvious typos early, before the registry
         attempts the lookup and silently produces an empty filtered list.
         """
@@ -554,12 +612,11 @@ class ExecutionConfig(BaseModel):
         for item in value:
             if not isinstance(item, str):
                 raise ValueError(f"Each test_id must be a string. Got: {item!r}")
-            parts = item.split(".")
-            if len(parts) != 2 or not all(p.isdigit() for p in parts):  # noqa: PLR2004
+            if not _is_valid_test_id_format(item):
                 raise ValueError(
                     f"Invalid test_id format: {item!r}. "
-                    "Expected 'X.Y' where X is the domain number and Y is "
-                    "the test number (e.g. '4.1', '0.2', '1.3')."
+                    "Accepted formats: 'X.Y' for native tests (e.g. '4.1', '0.2') "
+                    "or 'ext.X.Y' for external tool tests (e.g. 'ext.1.5', 'ext.0.1')."
                 )
         return value
 

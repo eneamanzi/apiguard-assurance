@@ -36,9 +36,11 @@ import importlib
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any, ClassVar
 
 import structlog
@@ -270,32 +272,97 @@ class BaseSubprocessConnector(BaseConnector):
     SERVICE_ENV_VAR: ClassVar[str]
     DEFAULT_TIMEOUT_SECONDS: ClassVar[int] = 120
 
+    # Optional: subdirectory name inside the project-local ``./tools/`` directory
+    # where the binary is installed by install_tools.sh.  When non-empty, Channel 0
+    # of _resolve_binary_path() checks:
+    #     Path.cwd() / "tools" / LOCAL_TOOLS_SUBDIR / BINARY_NAME
+    # before falling back to shutil.which() (Channel 1) and SERVICE_ENV_VAR (Channel 2).
+    # Set this in concrete subclasses when the tool is distributed via install_tools.sh.
+    # Example: LOCAL_TOOLS_SUBDIR = "testssl"  -> ./tools/testssl/testssl.sh
+    # Leave as "" (default) to skip the local-tools check for that connector.
+    LOCAL_TOOLS_SUBDIR: ClassVar[str] = ""
+
     # ------------------------------------------------------------------
     # Discovery -- concrete implementations
     # ------------------------------------------------------------------
 
+    def _resolve_binary_path(self) -> str | None:
+        """
+        Return the filesystem path to the binary using a three-channel cascade.
+
+        Discovery channels (evaluated in priority order, first hit wins):
+
+            Channel 0 -- project-local tools directory:
+                ``Path.cwd() / "tools" / LOCAL_TOOLS_SUBDIR / BINARY_NAME``
+                This channel is active only when LOCAL_TOOLS_SUBDIR is non-empty
+                (i.e., the subclass opts in by declaring it).  The path is checked
+                for existence and execute permission.  This channel enables
+                plug-and-play operation: running ``install_tools.sh`` places the
+                pinned binary inside ``./tools/``, and apiguard works without any
+                PATH modification or symlink.
+
+            Channel 1 -- system PATH:
+                ``shutil.which(BINARY_NAME)`` returns the absolute path of the
+                binary if it is installed in any directory on the system PATH.
+                This is the traditional "binary installed globally" scenario.
+
+        Returns None if neither channel locates the binary.  The caller (is_available,
+        get_version, _build_command) falls through to the SERVICE_ENV_VAR channel
+        if applicable, or reports the tool as unavailable.
+
+        This method never raises.
+
+        Returns:
+            str | None: Absolute path to the binary, or None if not found.
+        """
+        # Channel 0: project-local tools directory (opt-in per subclass).
+        if self.LOCAL_TOOLS_SUBDIR:
+            local_path = Path.cwd() / "tools" / self.LOCAL_TOOLS_SUBDIR / self.BINARY_NAME
+            if local_path.is_file() and os.access(local_path, os.X_OK):
+                log.debug(
+                    "connector_binary_found_local_tools",
+                    binary=self.BINARY_NAME,
+                    path=str(local_path),
+                    subdir=self.LOCAL_TOOLS_SUBDIR,
+                )
+                return str(local_path)
+
+        # Channel 1: system PATH.
+        system_path = shutil.which(self.BINARY_NAME)
+        if system_path is not None:
+            log.debug(
+                "connector_binary_found_in_path",
+                binary=self.BINARY_NAME,
+                path=system_path,
+            )
+            return system_path
+
+        return None
+
     def is_available(self) -> bool:
         """
-        Return True if the binary is discoverable via either channel.
+        Return True if the binary is discoverable via any channel.
 
-        Channel 1 -- local binary in PATH:
-            shutil.which(BINARY_NAME) returns the absolute path if found.
+        Three-channel cascade (evaluated in priority order):
 
-        Channel 2 -- service URL via environment variable (Docker Compose):
-            os.getenv(SERVICE_ENV_VAR) returns the URL if set.
+            Channel 0 -- project-local tools directory (via _resolve_binary_path):
+                ``./tools/{LOCAL_TOOLS_SUBDIR}/{BINARY_NAME}`` relative to CWD.
+                Active only when LOCAL_TOOLS_SUBDIR is non-empty.
 
-        Returns False if both channels return None.  This method never raises.
+            Channel 1 -- system PATH (via _resolve_binary_path):
+                ``shutil.which(BINARY_NAME)``
+
+            Channel 2 -- Docker Compose service URL:
+                ``os.getenv(SERVICE_ENV_VAR)``
+
+        Returns False if all three channels return None / empty string.
+        This method never raises.
 
         Returns:
             bool: True if the tool is available via at least one channel.
         """
-        binary_path = shutil.which(self.BINARY_NAME)
-        if binary_path is not None:
-            log.debug(
-                "connector_binary_found_in_path",
-                binary=self.BINARY_NAME,
-                path=binary_path,
-            )
+        resolved = self._resolve_binary_path()
+        if resolved is not None:
             return True
 
         service_url = os.getenv(self.SERVICE_ENV_VAR)
@@ -311,6 +378,7 @@ class BaseSubprocessConnector(BaseConnector):
         log.debug(
             "connector_not_available",
             binary=self.BINARY_NAME,
+            local_tools_subdir=self.LOCAL_TOOLS_SUBDIR or "(not configured)",
             env_var=self.SERVICE_ENV_VAR,
         )
         return False
@@ -323,6 +391,9 @@ class BaseSubprocessConnector(BaseConnector):
         of stdout or stderr.  Returns None if the binary is not available or
         if the version command fails for any reason.
 
+        Uses _resolve_binary_path() to support both local-tools-directory
+        installations and system PATH installations transparently.
+
         The version string is embedded in the HTML report and in evidence.json
         for reproducibility -- an analyst can reconstruct exactly which version
         of the tool produced a given finding.
@@ -330,27 +401,46 @@ class BaseSubprocessConnector(BaseConnector):
         Returns:
             str | None: Version string on success, None on any failure.
         """
-        if shutil.which(self.BINARY_NAME) is None:
+        binary_cmd = self._resolve_binary_path()
+        if binary_cmd is None:
             return None
         try:
-            result = subprocess.run(  # noqa: S603 -- cmd is [BINARY_NAME, "--version"]:
-                # BINARY_NAME is a ClassVar[str] defined in the subclass source
-                # code, never derived from user input.  The only additional arg
-                # is the static literal "--version".  No untrusted data flows
-                # into this call; the S603 warning is a false positive here.
-                [self.BINARY_NAME, "--version"],
+            result = subprocess.run(  # noqa: S603 -- cmd is [resolved_path, "--version"]:
+                # binary_cmd is the output of _resolve_binary_path(): either an
+                # absolute path from the local tools directory (verified to exist
+                # and be executable) or the absolute path returned by shutil.which().
+                # In both cases it is a filesystem path, not user-supplied data.
+                # The only additional arg is the static literal "--version".
+                # No untrusted data flows into this call; S603 is a false positive.
+                [binary_cmd, "--version"],
                 capture_output=True,
                 text=True,
                 timeout=10,
             )
+            # Strip ANSI CSI escape sequences before stripping whitespace.
+            # Some tools (notably testssl.sh) emit bold/color codes in --version
+            # output (e.g. \x1b[1m testssl 3.2 ...).  Without stripping, the
+            # HTML report shows "[1m testssl 3.2" because the ESC byte is
+            # invisible in most rendering contexts, leaving the bracket sequence.
+            # Pattern \x1b\[[0-9;]*[A-Za-z] matches all standard ANSI CSI
+            # sequences: SGR (colors, bold), cursor movement, and erase codes.
+            # Strip ANSI first, then .strip() -- removal can expose leading/
+            # trailing spaces that were previously inside escape sequences.
+            _ansi_re = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
             for line in (result.stdout or result.stderr or "").splitlines():
-                stripped = line.strip()
-                if stripped:
-                    return stripped
+                cleaned = _ansi_re.sub("", line).strip()
+                # Skip empty lines and decorator lines composed entirely of
+                # repeated non-alphanumeric characters (e.g. testssl.sh emits
+                # "######...######" as a visual separator before the actual
+                # version string).  A line is a decorator if it is non-empty
+                # but contains no alphanumeric character.
+                if cleaned and any(ch.isalnum() for ch in cleaned):
+                    return cleaned
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
             log.debug(
                 "connector_version_discovery_failed",
                 binary=self.BINARY_NAME,
+                resolved_path=binary_cmd,
                 error=str(exc),
             )
         return None
@@ -596,6 +686,159 @@ class BaseSubprocessConnector(BaseConnector):
             )
 
         return results
+
+    def _build_reproducible_commands(
+        self,
+        cmd_prefix: list[str],
+        scan_target: str,
+        json_output_args: list[str],
+    ) -> tuple[str, str]:
+        """
+        Build the two human-readable command strings stored in raw_output.
+
+        This helper centralises the path-normalisation and command-string
+        construction logic that every connector needs to produce the
+        ``command`` and ``command_json`` keys in ``ConnectorResult.raw_output``.
+
+        Before this method existed (Proposal A), each concrete connector
+        reimplemented the same ~15 lines of path-relativisation logic.
+        Any connector that forgot to inject ``command`` / ``command_json``
+        into ``raw_output`` would silently break the HTML report template,
+        which expects those keys under ``tool_artifact``.  Centralising here
+        makes it impossible to forget: the concrete connector calls this once
+        and unpacks the two strings.
+
+        Path normalisation strategy:
+            The binary path in ``cmd_prefix[0]`` may be an absolute path
+            (e.g. ``/home/user/project/tools/testssl/testssl.sh``) or a
+            system path (e.g. ``/usr/local/bin/nuclei``).  We convert it to
+            a CWD-relative path for portability within the project tree.  The
+            relative path is accepted ONLY when it stays inside the project
+            (no leading ``..``) -- an external system binary is kept as-is
+            because a ``../../usr/bin/...`` path would be longer and confusing.
+
+        Two variants are returned:
+            command      -- plain text output, no JSON flag appended; mirrors
+                            what a human analyst types to reproduce the scan
+                            with human-readable stdout output.
+            command_json -- JSON output flag appended; mirrors what APIGuard
+                            executes internally; useful for analysts who want
+                            machine-parsable output from a manual re-run.
+
+        Args:
+            cmd_prefix:      List of command tokens WITHOUT the scan target
+                             and WITHOUT the JSON output flag.  Must have at
+                             least one element (the binary path at index 0).
+                             Example: ["/abs/path/testssl.sh", "--quiet",
+                             "--color", "0"]
+            scan_target:     The target argument appended at the end of both
+                             commands.  For subprocess tools this is typically
+                             "hostname:port" (testssl.sh) or a URL (ffuf).
+            json_output_args: Tool-specific tokens that produce JSON output,
+                              appended BEFORE ``scan_target`` in command_json.
+                              Examples:
+                                  testssl.sh: ["--jsonfile", "testssl_result.json"]
+                                  ffuf:       ["-json"]
+                                  nuclei:     ["-json"]
+
+        Returns:
+            tuple[str, str]: (command, command_json) as plain strings.
+        """
+        raw_binary: str = cmd_prefix[0] if cmd_prefix else self.BINARY_NAME
+        try:
+            rel_binary = os.path.relpath(raw_binary)
+            # Accept the relative path only if it stays inside the project tree.
+            # os.path.relpath() can produce '../../usr/bin/...' for system paths,
+            # which would be longer and more confusing than the absolute path.
+            binary_display: str = rel_binary if not rel_binary.startswith("..") else raw_binary
+        except ValueError:
+            # On Windows, relpath() raises ValueError across different drive letters.
+            binary_display = raw_binary
+
+        # Reconstruct the display prefix: replace the raw binary with the
+        # normalised display path, keeping all other tokens unchanged.
+        cmd_display: list[str] = [binary_display] + cmd_prefix[1:]
+
+        # command: text output mode, no JSON flag -- what a human analyst runs.
+        command: str = " ".join(cmd_display + [scan_target])
+
+        # command_json: JSON output mode -- what APIGuard runs internally.
+        command_json: str = " ".join(cmd_display + json_output_args + [scan_target])
+
+        return command, command_json
+
+
+# ---------------------------------------------------------------------------
+# ConnectorRawOutput -- documented contract for raw_output keys (Proposal D)
+# ---------------------------------------------------------------------------
+
+
+class ConnectorRawOutput:
+    """
+    Documented contract for the keys expected in ConnectorResult.raw_output.
+
+    This is a plain class (not a TypedDict subclass) used purely as
+    documentation: Python does not enforce TypedDict at runtime, but Pylance /
+    Pyright verify it statically.  Every developer implementing a new connector
+    sees this class at the top of ``connectors/base.py`` and understands which
+    keys the HTML report template requires.
+
+    REQUIRED keys (HTML report template raises KeyError if absent):
+        command       -- Human-readable plain-text command for analyst reproduction.
+                         No JSON output flag; mirrors what a human runs at the shell.
+        command_json  -- Same command with JSON output flag appended; mirrors
+                         what APIGuard runs internally.
+        results       -- List of filtered finding dicts (connector-side filtering
+                         applied; e.g. severity filter for testssl.sh).  These
+                         are the oracle inputs for ExternalToolTest._evaluate().
+
+    REQUIRED for the Raw JSON modal button in the HTML report:
+        raw_findings  -- Complete unfiltered list from the tool before any
+                         connector-side filtering.  Stored in evidence.json and
+                         shown in the 'View raw JSON' modal in the report.
+
+    REQUIRED for statistics display in the report summary card:
+        all_count      -- Total finding count before connector-side filtering.
+        retained_count -- Finding count after connector-side filtering.
+
+    Usage in a connector's run() method:
+        command, command_json = self._build_reproducible_commands(
+            cmd_prefix=cmd,
+            scan_target=target,
+            json_output_args=["--jsonfile", "result.json"],
+        )
+        return ConnectorResult(
+            ...,
+            raw_output={
+                "command": command,
+                "command_json": command_json,
+                "results": retained_findings,
+                "raw_findings": all_findings,
+                "all_count": len(all_findings),
+                "retained_count": len(retained_findings),
+            },
+        )
+
+    Failure mode without this documentation:
+        A connector that omits any of the REQUIRED keys produces a silently
+        broken HTML report.  No exception is raised at runtime because the
+        Jinja2 template uses the ``default_dash`` filter, which substitutes
+        a dash for missing keys -- the rendered report displays dashes where
+        commands and statistics should appear, with no error traceback to
+        diagnose the root cause.
+    """
+
+    # REQUIRED by the HTML report template
+    command: str
+    command_json: str
+    results: list[dict[str, Any]]
+
+    # REQUIRED for the Raw JSON modal button
+    raw_findings: list[dict[str, Any]]
+
+    # REQUIRED for statistics display
+    all_count: int
+    retained_count: int
 
 
 # ---------------------------------------------------------------------------

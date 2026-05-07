@@ -47,6 +47,7 @@ from pathlib import Path
 import structlog
 from pydantic import AnyHttpUrl, BaseModel, Field, PrivateAttr, computed_field, model_validator
 
+from src.config.schema.external_tools import ExternalToolsConfig
 from src.core.models import AttackSurface, RuntimeCredentials, RuntimeTestsConfig
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -203,6 +204,40 @@ class TargetContext(BaseModel):
             "None means the engine has not yet populated the field (Phase 3 incomplete). "
             "Connectors must call target.effective_endpoint_base_url() which handles the "
             "None case by falling back to endpoint_base_url()."
+        ),
+    )
+
+    # --- External tool configuration on TargetContext (Proposal C) ---
+    # ExternalToolsConfig is placed on TargetContext so that every ExternalToolTest
+    # subclass can read timeout_seconds and extra_flags from a single, semantically
+    # correct location:
+    #
+    #     target.external_tools.testssl.timeout_seconds
+    #     target.external_tools.nuclei.timeout_seconds
+    #     target.external_tools.ffuf.timeout_seconds
+    #
+    # Before this field existed, ext_test_1_5_tls_analysis.py read its timeout
+    # from `target.tests_config.test_1_5.testssl_timeout_seconds` -- a residual
+    # field left over from when testssl was part of the native test.  That worked
+    # for testssl only because the field already existed; for any new tool
+    # (nuclei, ffuf) no equivalent field existed in tests_config, forcing
+    # developers to add tool-specific fields in semantically wrong domain configs.
+    # This field makes the pattern uniform for all current and future tools.
+    #
+    # TargetContext is frozen (model_config = {"frozen": True}), so ExternalToolsConfig
+    # is guaranteed immutable after construction -- consistent with TargetContext's
+    # role as the single source of immutable facts about the target and its assessment
+    # configuration.
+    external_tools: ExternalToolsConfig = Field(
+        default_factory=ExternalToolsConfig,
+        description=(
+            "Immutable configuration for external tool connectors "
+            "(testssl.sh, ffuf, nuclei).  Populated from config.external_tools "
+            "during Phase 3 (Context Construction).  "
+            "ExternalToolTest subclasses read timeout_seconds and extra_flags "
+            "from this field via target.external_tools.<tool>.timeout_seconds. "
+            "NEVER read this field in native BaseTest subclasses: they use "
+            "SecurityClient and have no external binary to configure."
         ),
     )
 

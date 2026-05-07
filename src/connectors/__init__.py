@@ -20,10 +20,12 @@ from src.connectors.base import (
     BaseSubprocessConnector,
     ConnectorResult,
 )
+from src.connectors.testssl import TestsslConnector
 
 __all__ = [
     "BaseConnector",
     "BaseSubprocessConnector",
     "BaseLibraryConnector",
     "ConnectorResult",
+    "TestsslConnector",
 ]

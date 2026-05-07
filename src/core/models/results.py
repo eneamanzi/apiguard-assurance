@@ -19,7 +19,7 @@ src/ package.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -210,6 +210,24 @@ class TestResult(BaseModel):
     tags: list[str] = Field(default_factory=list)
     cwe_id: str = Field(default="")
 
+    # --- External tool identifier ---
+    # Populated exclusively for source='external' results via
+    # ExternalToolTest._metadata_kwargs(). Carries the ClassVar tool_name
+    # value ("testssl.sh", "nuclei", "ffuf") so the HTML report can display
+    # it in the dedicated "Tool" column of the External Tool Tests sub-table
+    # without requiring any import from external_tests/ in builder.py.
+    # Empty string for all source='native' results.
+    tool_name: str = Field(
+        default="",
+        description=(
+            "Name of the external binary used by this test. "
+            "Non-empty only for source='external' results. "
+            "Populated by ExternalToolTest._metadata_kwargs() from the "
+            "tool_name ClassVar (e.g. 'testssl.sh', 'nuclei', 'ffuf'). "
+            "Rendered in the 'Tool' column of the External Tool Tests sub-table."
+        ),
+    )
+
     # --- Result origin (ADR-001 §8.5 — promoted to architectural primitive) ---
     # Populated by TestRegistry ("native") or ExternalTestRegistry ("external").
     # Drives the Domain-Centric Split in report/builder.py: the builder partitions
@@ -224,6 +242,21 @@ class TestResult(BaseModel):
             "running via SecurityClient. 'external' = produced by an ExternalToolTest "
             "wrapping a binary (ffuf, testssl.sh, nuclei). "
             "Used by report/builder.py to partition results per domain."
+        ),
+    )
+
+    # --- Raw external tool output (ADR-001 §8.5) ---
+    # Populated exclusively by ExternalToolTest._run() via model_copy() after
+    # _evaluate() returns. Contains ConnectorResult.raw_output dict.
+    # Embedded in the HTML report for the Tool Output modal without needing
+    # evidence.json as a separate file. Always None for source='native' results.
+    tool_artifact: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Raw output dict from the external tool (ConnectorResult.raw_output). "
+            "Populated only for source='external' results by ExternalToolTest._run(). "
+            "Embedded in the self-contained HTML report for the Tool Output modal. "
+            "None for all source='native' results."
         ),
     )
 

@@ -378,16 +378,32 @@ class ExternalTestRegistry:
         Apply priority, per-tool, and allowed_ids filters to the discovered tests.
 
         Filter cascade (applied in order, first exclusion wins):
-            1. allowed_ids override: if non-empty, include ONLY matching test_ids.
+            1. allowed_ids: if non-empty, exclude tests whose test_id is not
+               in the set.  When the set is non-empty it replaces the priority
+               filter (Filter 2), allowing targeted runs of high-priority tests
+               without changing min_priority.
             2. priority: exclude tests with priority > min_priority.
-            3. per-tool enabled: exclude tests whose tool_name resolves to
-               ExternalToolsConfig.is_tool_enabled(tool_name) == False.
+               Skipped when allowed_ids is non-empty (see above).
+            3. per-tool enabled: ALWAYS applied, regardless of allowed_ids.
+               A tool with enabled=False in config has not been declared ready
+               (binary not installed, timeout not set, etc.).  Forcing execution
+               via allowed_ids does not make the tool available; it would just
+               ERROR at connector invocation.  This check is intentionally not
+               bypassable via allowed_ids so that the config flag behaves as a
+               hard gate, not an advisory.
+
+        Design rationale for Filter 3 invariance:
+            ``allowed_ids`` is a developer shortcut for targeted runs (e.g.
+            CI pipeline that exercises a single domain).  It is not intended to
+            override tool readiness.  If the intention is to force-run a
+            disabled tool, the correct action is to set ``enabled: true`` in
+            config.yaml, not to rely on ``test_ids`` to bypass the check.
 
         Args:
             tests:                 Full list of discovered ExternalToolTest instances.
             external_tools_config: For per-tool enabled checks.
             min_priority:          Maximum priority to include (inclusive).
-            allowed_ids:           If non-empty, overrides priority + tool filters.
+            allowed_ids:           If non-empty, replaces the priority filter only.
 
         Returns:
             list[ExternalToolTest]: Filtered list of tests to execute.
@@ -397,7 +413,9 @@ class ExternalTestRegistry:
             cls = test.__class__
             test_id = getattr(cls, "test_id", "unknown")
 
-            # --- Filter 1: allowed_ids override ---
+            # --- Filter 1 / Filter 2 (mutually exclusive) ---
+            # When allowed_ids is set, it replaces the priority filter.
+            # When allowed_ids is empty, the priority filter applies normally.
             if allowed_ids:
                 if test_id not in allowed_ids:
                     log.debug(
@@ -405,21 +423,20 @@ class ExternalTestRegistry:
                         test_id=test_id,
                     )
                     continue
-                active.append(test)
-                continue
+            else:
+                priority = int(getattr(cls, "priority", 0))
+                if priority > min_priority:
+                    log.debug(
+                        "external_test_registry_excluded_priority",
+                        test_id=test_id,
+                        test_priority=priority,
+                        min_priority=min_priority,
+                    )
+                    continue
 
-            # --- Filter 2: priority ---
-            priority = int(getattr(cls, "priority", 0))
-            if priority > min_priority:
-                log.debug(
-                    "external_test_registry_excluded_priority",
-                    test_id=test_id,
-                    test_priority=priority,
-                    min_priority=min_priority,
-                )
-                continue
-
-            # --- Filter 3: per-tool enabled ---
+            # --- Filter 3: per-tool enabled (ALWAYS applied) ---
+            # This check is intentionally not bypassable via allowed_ids.
+            # See docstring rationale above.
             tool_name: str = str(getattr(cls, "tool_name", ""))
             if tool_name and not external_tools_config.is_tool_enabled(tool_name):
                 log.debug(

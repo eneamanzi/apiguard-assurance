@@ -78,9 +78,27 @@ from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.exceptions import ExternalToolError
 from src.core.models import TestStrategy
-from src.core.models.results import Finding, TestResult, TestStatus
+from src.core.models.results import Finding, InfoNote, TestResult, TestStatus
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# _REQUIRED_RAW_OUTPUT_KEYS -- ConnectorRawOutput contract enforcement
+# ---------------------------------------------------------------------------
+# These six keys are mandated by the ConnectorRawOutput contract defined in
+# connectors/base.py.  _validate_raw_output() checks their presence before
+# _evaluate() is called, converting a silent broken-report scenario into an
+# explicit ERROR TestResult with a diagnostic message pointing to the contract.
+#
+# Rationale for a module-level constant (not a local variable in the method):
+#   - Frozen sets are evaluated once at import time -- zero per-call overhead.
+#   - The constant is visible to grep / tooling as a canonical list without
+#     reading the _validate_raw_output() body.
+#   - New connectors can scan this constant during code review to verify
+#     they satisfy the contract before running the full assessment.
+_REQUIRED_RAW_OUTPUT_KEYS: frozenset[str] = frozenset(
+    {"command", "command_json", "results", "raw_findings", "all_count", "retained_count"}
+)
 
 # ---------------------------------------------------------------------------
 # _ExternalTestMetadataKwargs -- TypedDict for type-safe TestResult construction
@@ -110,6 +128,7 @@ class _ExternalTestMetadataKwargs(TypedDict):
     tags: list[str]
     cwe_id: str
     source: Literal["native", "external"]
+    tool_name: str
 
 
 # ---------------------------------------------------------------------------
@@ -298,6 +317,13 @@ class ExternalToolTest(ABC):
                 )
             return self._make_error(exc)
 
+        # --- Step 3b: validate ConnectorRawOutput contract ---
+        # Raises ExternalToolError (caught by execute()'s top-level handler) if any
+        # of the six required keys are absent from raw_output.  This converts the
+        # Jinja2 default_dash silent failure mode into an explicit ERROR TestResult
+        # with a diagnostic message pointing to the ConnectorRawOutput contract class.
+        self._validate_raw_output(connector_result)
+
         # --- Step 4: pin raw artifact to evidence store ---
         artifact_ref = store.pin_artifact(
             label=f"{self.test_id}_{connector.TOOL_NAME.replace('.', '_')}",
@@ -315,7 +341,39 @@ class ExternalToolTest(ABC):
         )
 
         # --- Step 5: oracle evaluation (subclass responsibility) ---
-        return self._evaluate(connector_result, artifact_ref)
+        result = self._evaluate(connector_result, artifact_ref)
+
+        # Attach enriched artifact to TestResult for the HTML report.
+        #
+        # Enrichment strategy: start from connector_result.raw_output and inject
+        # two _apiguard_meta_* keys that the HTML detail panel and evidence.json
+        # consumers can read without knowing the tool-specific output schema:
+        #
+        #   _apiguard_meta_tool_version     -- binary version string (e.g. "testssl 3.2")
+        #                                      or None if get_version() returned None.
+        #                                      Displayed in the report detail panel for
+        #                                      reproducibility of the finding.
+        #
+        #   _apiguard_meta_execution_time_ms -- connector-level wall-clock scan time in ms,
+        #                                      measured inside the connector subprocess.
+        #                                      Distinct from TestResult.duration_ms (set by
+        #                                      the engine), which includes connector init,
+        #                                      artifact pinning, and oracle evaluation
+        #                                      overhead.  Shown in the report as "Scan time".
+        #
+        # Namespace rationale: the "_apiguard_meta_" prefix guarantees no collision
+        # with tool-native output keys and makes these fields trivially greppable.
+        #
+        # Sanitization note: pin_artifact() above already persisted a sanitized copy
+        # of raw_output to evidence.json.  The enriched dict here is attached to
+        # tool_artifact for the in-memory HTML report only.  _meta keys are never
+        # credential-bearing, so no additional sanitization is needed.
+        enriched_artifact: dict = {
+            **connector_result.raw_output,
+            "_apiguard_meta_tool_version": connector_result.tool_version,
+            "_apiguard_meta_execution_time_ms": connector_result.execution_time_ms,
+        }
+        return result.model_copy(update={"tool_artifact": enriched_artifact})
 
     def _check_and_skip(self, connector: BaseConnector) -> TestResult | None:
         """
@@ -482,6 +540,50 @@ class ExternalToolTest(ABC):
         ...
 
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # ConnectorResult validation
+    # ------------------------------------------------------------------
+
+    def _validate_raw_output(self, result: ConnectorResult) -> None:
+        """
+        Verify that ConnectorResult.raw_output satisfies the ConnectorRawOutput contract.
+
+        Checks that all six keys required by ConnectorRawOutput (defined in
+        connectors/base.py) are present in result.raw_output.  Raises
+        ExternalToolError if any are missing so that execute()'s top-level
+        handler converts the failure into a TestResult(ERROR) with a
+        diagnostic message -- rather than silently producing dashes in the
+        HTML report via the Jinja2 ``default_dash`` filter.
+
+        Call site: invoked in _run() after connector.run() returns and BEFORE
+        store.pin_artifact() / _evaluate().  This ordering ensures that a
+        contract violation is detected before any artifact is written to the
+        evidence store, keeping evidence.json free of incomplete records.
+
+        This method never returns a value; it either completes silently or
+        raises.  The ExternalToolError propagates to execute()'s BLE001 handler.
+
+        Args:
+            result: ConnectorResult whose raw_output to validate.
+
+        Raises:
+            ExternalToolError: If one or more required keys are absent.
+        """
+        missing: frozenset[str] = _REQUIRED_RAW_OUTPUT_KEYS - result.raw_output.keys()
+        if missing:
+            raise ExternalToolError(
+                message=(
+                    f"ConnectorResult.raw_output from '{result.tool_name}' is missing "
+                    f"required ConnectorRawOutput keys: {sorted(missing)}. "
+                    "Check the ConnectorRawOutput contract in src/connectors/base.py "
+                    "and ensure the connector's run() method populates all six "
+                    "mandatory keys (command, command_json, results, raw_findings, "
+                    "all_count, retained_count)."
+                ),
+                tool_name=result.tool_name,
+                exit_code=result.exit_code,
+            )
+
     # Result constructors -- mirror BaseTest helpers
     # ------------------------------------------------------------------
 
@@ -506,42 +608,72 @@ class ExternalToolTest(ABC):
             tags=list(getattr(self.__class__, "tags", [])),
             cwe_id=str(getattr(self.__class__, "cwe_id", "")),
             source="external",
+            tool_name=str(getattr(self.__class__, "tool_name", "")),
         )
 
-    def _make_pass(self, message: str) -> TestResult:
+    def _make_pass(self, message: str, notes: list[InfoNote] | None = None) -> TestResult:
         """
         Construct a PASS TestResult with no findings.
 
+        The optional ``notes`` parameter allows a PASS result to carry
+        informational annotations (InfoNote objects) that are semantically
+        distinct from Findings.  Notes are rendered as blue cards in the HTML
+        report and do NOT affect the test status, exit code, or finding count.
+
+        Primary use case for external tests:
+            Tool findings below the FAIL threshold (e.g. testssl.sh MEDIUM/WARN
+            severities that do not trigger FAIL per the oracle) can be surfaced
+            as notes so they are visible in the report without being
+            misclassified as security violations.
+
         Args:
             message: Human-readable description of why the test passed.
+            notes:   Optional list of InfoNote objects for informational context.
+                     None (default) produces an empty notes list.
 
         Returns:
-            TestResult: status=PASS, empty findings list.
+            TestResult: status=PASS, empty findings list, notes as provided.
         """
         return TestResult(
             test_id=self.test_id,
             status=TestStatus.PASS,
             message=message,
             findings=[],
+            notes=notes or [],
             **self._metadata_kwargs(),
         )
 
-    def _make_fail(self, message: str, findings: list[Finding]) -> TestResult:
+    def _make_fail(
+        self,
+        message: str,
+        findings: list[Finding],
+        notes: list[InfoNote] | None = None,
+    ) -> TestResult:
         """
         Construct a FAIL TestResult with at least one Finding.
+
+        The optional ``notes`` parameter allows a FAIL result to carry
+        informational annotations alongside the violation findings.  This is
+        semantically correct: a test can simultaneously have HIGH-severity
+        violations (Findings) and MEDIUM/WARN observations (InfoNotes) from
+        the same tool run.  Without this parameter, notes built during
+        _evaluate() would be silently discarded when findings are present.
 
         Args:
             message:  Human-readable summary of the failure.
             findings: Non-empty list of Finding objects documenting the violation.
+            notes:    Optional list of InfoNote objects for informational context.
+                      None (default) produces an empty notes list.
 
         Returns:
-            TestResult: status=FAIL with findings attached.
+            TestResult: status=FAIL with findings attached and optional notes.
         """
         return TestResult(
             test_id=self.test_id,
             status=TestStatus.FAIL,
             message=message,
             findings=findings,
+            notes=notes or [],
             **self._metadata_kwargs(),
         )
 

@@ -321,9 +321,6 @@ class AssessmentEngine:
         """
         log.info("pipeline_phase_2_openapi_discovery_started")
 
-        # get_openapi_source() returns either the URL string or the resolved
-        # absolute path string -- the single source of truth for Phase 2 and
-        # for display in TargetContext / the HTML report.
         spec_source: str = config.target.get_openapi_source()
 
         log.info(
@@ -368,7 +365,14 @@ class AssessmentEngine:
         and for the HTML report header.
 
         TestContext is mutable and starts empty.
-        EvidenceStore starts empty.
+
+        EvidenceStore is initialized with:
+            tmp_dir:   streaming JSONL directory for per-test evidence files.
+            tools_dir: optional directory where pin_artifact() writes a
+                       standalone JSON copy of each external tool's raw output.
+                       Set to config.output.directory / "tools" so that tool
+                       outputs are directly inspectable without parsing
+                       evidence.json.
 
         Returns:
             Tuple of (TargetContext, TestContext, EvidenceStore).
@@ -473,9 +477,6 @@ class AssessmentEngine:
 
         target = TargetContext(
             base_url=config.target.base_url,
-            # Propagate both fields: TargetContext's model_validator enforces
-            # the mutual exclusion invariant, mirroring TargetConfig's own
-            # validator. Exactly one will be non-None.
             openapi_spec_url=config.target.openapi_spec_url,
             openapi_spec_path=(
                 config.target.openapi_spec_path.resolve()
@@ -486,18 +487,23 @@ class AssessmentEngine:
             attack_surface=attack_surface,
             credentials=RuntimeCredentials.model_validate(config.credentials.model_dump()),
             tests_config=tests_config,
-            # Propagate the operator-supplied seed dict.  dict() constructs a
-            # shallow copy, ensuring TargetContext's internal state is decoupled
-            # from the ToolConfig object even though both are in practice frozen.
             path_seed=dict(config.target.path_seed),
-            # TLS verification flag: False only in lab environments with
-            # self-signed certs. Propagated to tests that use httpx directly
-            # (e.g. Test 1.5 HTTP redirect probe).
             verify_tls=config.target.verify_tls,
+            # Proposal C: expose external tool config on TargetContext so that every
+            # ExternalToolTest reads timeout_seconds from target.external_tools.<tool>
+            # rather than from semantically incorrect domain-config fields.
+            external_tools=config.external_tools,
         )
 
         context = TestContext()
-        store = EvidenceStore(tmp_dir=config.output.evidence_tmp_path)
+
+        # FIX: tools_dir receives config.output.directory / "tools" so that
+        # pin_artifact() writes a standalone JSON copy of each external tool's
+        # raw output to outputs/tools/<label>.json alongside the main report.
+        store = EvidenceStore(
+            tmp_dir=config.output.evidence_tmp_path,
+            tools_dir=config.output.directory / "tools",
+        )
 
         log.info(
             "pipeline_phase_3_context_construction_completed",
@@ -530,6 +536,18 @@ class AssessmentEngine:
         scheduler reads.  Cross-hierarchy dependencies are fully supported:
         an ExternalToolTest may declare depends_on referencing a BaseTest test_id.
 
+        Allowed IDs partitioning:
+            IDs prefixed with "ext." belong exclusively to ExternalTestRegistry.
+            Bare "X.Y" IDs belong exclusively to TestRegistry.  Passing the full
+            set to both registries caused TestRegistry to warn about unknown IDs
+            that are legitimately external, and ExternalTestRegistry to warn about
+            unknown IDs that are legitimately native.  Partitioning by prefix
+            eliminates both spurious warnings without changing any filtering logic.
+
+            When the raw set is empty (no test_ids filter configured), both
+            registries receive an empty set, which they interpret as "no filter"
+            (run everything matching priority and strategy).
+
         Returns:
             Tuple of (list[ScheduledBatch], combined list BaseTest | ExternalToolTest).
 
@@ -538,12 +556,33 @@ class AssessmentEngine:
         """
         log.info("pipeline_phase_4_discovery_and_scheduling_started")
 
+        # --- Partition allowed_ids by registry affinity ---
+        # IDs prefixed with "ext." are routed exclusively to ExternalTestRegistry.
+        # Bare "X.Y" IDs are routed exclusively to TestRegistry.
+        # An empty raw set is passed through unchanged to both registries,
+        # preserving the "no filter" semantic.
+        raw_allowed_ids: set[str] = (
+            set(config.execution.test_ids) if config.execution.test_ids else set()
+        )
+
+        if raw_allowed_ids:
+            native_allowed_ids: set[str] = {
+                tid for tid in raw_allowed_ids if not tid.startswith("ext.")
+            }
+            external_allowed_ids: set[str] = {
+                tid for tid in raw_allowed_ids if tid.startswith("ext.")
+            }
+        else:
+            # Empty set -> no filter applied by either registry.
+            native_allowed_ids = set()
+            external_allowed_ids = set()
+
         # --- Native test discovery ---
         registry = TestRegistry()
         native_tests: list[BaseTest] = registry.discover(
             min_priority=config.execution.min_priority,
             enabled_strategies=set(config.execution.strategies),
-            allowed_ids=set(config.execution.test_ids) if config.execution.test_ids else set(),
+            allowed_ids=native_allowed_ids,
         )
 
         # --- External test discovery ---
@@ -551,7 +590,7 @@ class AssessmentEngine:
         external_tests: list[ExternalToolTest] = ext_registry.discover(
             external_tools_config=config.external_tools,
             min_priority=config.execution.min_priority,
-            allowed_ids=set(config.execution.test_ids) if config.execution.test_ids else set(),
+            allowed_ids=external_allowed_ids,
         )
 
         # --- Merge both lists ---
@@ -713,11 +752,11 @@ class AssessmentEngine:
             - BaseTest:         calls test.execute(target, context, client, store)
                                 SecurityClient is required for HTTP requests.
             - ExternalToolTest: calls test.execute(target, context, store)
-                                SecurityClient is intentionally absent — external
+                                SecurityClient is intentionally absent -- external
                                 tests invoke subprocesses, not httpx.
 
         The store.begin_test() / end_test() lifecycle is managed by each
-        hierarchy's execute() method, not here — to avoid double-calling.
+        hierarchy's execute() method, not here -- to avoid double-calling.
         This method only measures wall-clock time and attaches duration_ms.
         """
         cls = test.__class__
@@ -737,10 +776,8 @@ class AssessmentEngine:
         wall_start = time.monotonic()
 
         if isinstance(test, ExternalToolTest):
-            # External tests manage begin/end_test internally in their execute().
             result = test.execute(target, context, store)
         else:
-            # Native tests: the engine manages begin/end_test.
             store.begin_test(test_id)
             try:
                 result = test.execute(target, context, client, store)

@@ -1,5 +1,8 @@
 apiguard-assurance.zip
 
+# Tools Folder
+/tools/*
+
 # Python bytecode
 __pycache__/
 *.py[cod]

@@ -81,7 +81,6 @@ from src.core.models import (
     Finding,
     InfoNote,
     TestResult,
-    TestStatus,
     TestStrategy,
 )
 from src.tests.base import BaseTest
@@ -398,18 +397,34 @@ class Test72SSRFPrevention(BaseTest):
                 log.warning(
                     "test_7_2_ssrf_vulnerabilities_found",
                     finding_count=finding_count,
+                    timeout_note_count=len(timeout_notes),
                 )
-                return TestResult(
-                    test_id=self.test_id,
-                    status=TestStatus.FAIL,
+                # Use _make_fail() with notes so timeout_notes (ambiguous probe
+                # outcomes documented as InfoNote) are preserved in the TestResult
+                # alongside the confirmed SSRF findings.  Before this fix,
+                # TestResult(...) was built directly here without notes=, causing
+                # timeout annotations to be silently dropped from the report.
+                #
+                # _make_fail() builds exactly one Finding from self.test_name /
+                # self.cwe_id, which matches the single-finding contract of the
+                # native helper.  The full list of per-payload findings is NOT
+                # individually surfaced here because the native _make_fail() is
+                # designed for a single consolidated Finding; the per-payload
+                # detail is available in the transaction_log and evidence.json.
+                return self._make_fail(
                     message=(
                         f"{finding_count} SSRF vulnerability/vulnerabilities detected: "
                         f"the application accepted webhook URLs targeting internal "
                         f"infrastructure without validation."
                     ),
-                    findings=findings,
-                    transaction_log=list(self._transaction_log),
-                    **self._metadata_kwargs(),
+                    detail=(
+                        f"{finding_count} SSRF payload(s) produced an unblocked response "
+                        f"(2xx / redirect to private IP). "
+                        f"The webhook creation endpoint did not reject URLs targeting "
+                        f"internal infrastructure. "
+                        f"See transaction_log and evidence.json for per-payload detail."
+                    ),
+                    notes=timeout_notes if timeout_notes else None,
                 )
 
             all_notes = timeout_notes or None

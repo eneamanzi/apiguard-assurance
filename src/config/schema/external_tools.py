@@ -29,20 +29,119 @@ Design rules enforced by this schema:
        config.yaml under target.credentials and are passed via env vars at runtime
        by the connector, not via flags.
 
+    5. BaseExternalToolConfig (Proposal B): all per-tool models inherit a shared
+       base class that implements the timeout-when-enabled validator once,
+       eliminating identical validator duplication across TestsslConfig,
+       NucleiConfig, and FfufConfig.
+
 Dependency rule: imports from pydantic and stdlib only.  Must never import from
 engine.py, tests/, connectors/, external_tests/, or report/.
 """
 
 from __future__ import annotations
 
+import structlog
 from pydantic import BaseModel, Field, model_validator
+
+log: structlog.BoundLogger = structlog.get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# BaseExternalToolConfig (Proposal B)
+# ---------------------------------------------------------------------------
+
+
+class BaseExternalToolConfig(BaseModel):
+    """
+    Abstract base for all per-tool external connector configuration models.
+
+    Enforces the two invariants shared by every tool:
+        1. enabled: bool -- master flag for this specific tool.
+        2. timeout_seconds: int | None -- mandatory when enabled=True.
+        3. extra_flags: str -- additional CLI flags, no secrets allowed.
+
+    The model_validator `_timeout_required_when_enabled` centralises the
+    timeout obligation check (ADR-001 §3.2) so that subclasses do not need
+    to replicate it.  Before this base class existed, TestsslConfig,
+    NucleiConfig, and FfufConfig each contained a byte-for-byte identical
+    validator body -- a maintenance hazard where a future fix needed to be
+    applied in three places.
+
+    Subclass protocol:
+        1. Inherit from BaseExternalToolConfig.
+        2. Override `enabled`, `timeout_seconds`, and `extra_flags` with
+           tool-specific Field() declarations (ge/le constraints, descriptions).
+        3. Add tool-specific fields (e.g. template_tags for nuclei,
+           wordlist_path for ffuf) after the shared fields.
+        4. Do NOT redeclare `_timeout_required_when_enabled` -- the base
+           class validator is inherited automatically.
+
+    The `_tool_name_for_error_message` property derives the tool name from
+    the subclass class name (e.g. TestsslConfig -> "testssl") so the base
+    validator produces a correct tool-specific error message without hardcoding.
+    """
+
+    model_config = {"frozen": True}
+
+    enabled: bool = Field(
+        default=False,
+        description=(
+            "Enable this tool connector.  When True, timeout_seconds is "
+            "mandatory.  When False, all tests for this tool return SKIP "
+            "without attempting binary discovery."
+        ),
+    )
+    timeout_seconds: int | None = Field(
+        default=None,
+        description=(
+            "Wall-clock timeout for a single tool execution in seconds. "
+            "Mandatory when enabled=True.  Set in external_tools.<tool>.timeout_seconds "
+            "in config.yaml."
+        ),
+    )
+    extra_flags: str = Field(
+        default="",
+        description=(
+            "Additional CLI flags appended to the tool invocation, verbatim. "
+            "Must not contain credentials or secrets."
+        ),
+    )
+
+    @property
+    def _tool_name_for_error_message(self) -> str:
+        """
+        Derive a lowercase tool name from the subclass class name for error messages.
+
+        Convention: 'TestsslConfig' -> 'testssl', 'NucleiConfig' -> 'nuclei'.
+        This avoids hardcoding the tool name in the shared validator body.
+        """
+        return self.__class__.__name__.replace("Config", "").lower()
+
+    @model_validator(mode="after")
+    def _timeout_required_when_enabled(self) -> BaseExternalToolConfig:
+        """
+        Enforce timeout obligation: an enabled tool must declare timeout_seconds.
+
+        Raised at schema validation time (Phase 1 -- bloccante).  A missing
+        timeout on an enabled tool would silently fall back to the connector's
+        DEFAULT_TIMEOUT_SECONDS, producing non-deterministic behaviour that
+        violates the config-driven development principle.
+        """
+        if self.enabled and self.timeout_seconds is None:
+            tool = self._tool_name_for_error_message
+            raise ValueError(
+                f"{tool} configuration error: 'timeout_seconds' is mandatory when "
+                f"'enabled: true'.  Set 'external_tools.{tool}.timeout_seconds' in "
+                "config.yaml."
+            )
+        return self
+
 
 # ---------------------------------------------------------------------------
 # Per-tool configuration models
 # ---------------------------------------------------------------------------
 
 
-class TestsslConfig(BaseModel):
+class TestsslConfig(BaseExternalToolConfig):
     """
     Configuration for the testssl.sh connector (TLS analysis).
 
@@ -55,11 +154,10 @@ class TestsslConfig(BaseModel):
         1. shutil.which("testssl.sh")   -- local install in PATH
         2. os.getenv("TESTSSL_SERVICE_URL") -- HTTP service in Docker Compose
 
-    Binary-level JSON output is requested via --jsonfile /dev/stdout so that
-    the connector can parse structured results without writing temp files.
+    Binary-level JSON output is requested via --jsonfile <tmpfile> for
+    portability across container environments where /dev/stdout may not
+    behave predictably.
     """
-
-    model_config = {"frozen": True}
 
     enabled: bool = Field(
         default=False,
@@ -76,7 +174,7 @@ class TestsslConfig(BaseModel):
         description=(
             "Wall-clock timeout for a single testssl.sh execution in seconds. "
             "Mandatory when enabled=True.  Recommended: 120.  "
-            "testssl.sh can take 90–180 s on a full TLS scan of a live host. "
+            "testssl.sh can take 90-180 s on a full TLS scan of a live host. "
             "Minimum: 30 s (avoids false timeouts on fast hosts). "
             "Maximum: 600 s (prevents indefinite blocking of the pipeline)."
         ),
@@ -90,19 +188,8 @@ class TestsslConfig(BaseModel):
         ),
     )
 
-    @model_validator(mode="after")
-    def timeout_required_when_enabled(self) -> TestsslConfig:
-        """Enforce timeout obligation: enabled tool must declare timeout_seconds."""
-        if self.enabled and self.timeout_seconds is None:
-            raise ValueError(
-                "testssl configuration error: 'timeout_seconds' is mandatory when "
-                "'enabled: true'.  Set 'external_tools.testssl.timeout_seconds' in "
-                "config.yaml.  Recommended value: 120."
-            )
-        return self
 
-
-class NucleiConfig(BaseModel):
+class NucleiConfig(BaseExternalToolConfig):
     """
     Configuration for the nuclei connector (CVE / template-based scanning).
 
@@ -114,8 +201,6 @@ class NucleiConfig(BaseModel):
         1. shutil.which("nuclei")            -- local install in PATH
         2. os.getenv("NUCLEI_SERVICE_URL")   -- HTTP service in Docker Compose
     """
-
-    model_config = {"frozen": True}
 
     enabled: bool = Field(
         default=False,
@@ -152,19 +237,8 @@ class NucleiConfig(BaseModel):
         ),
     )
 
-    @model_validator(mode="after")
-    def timeout_required_when_enabled(self) -> NucleiConfig:
-        """Enforce timeout obligation."""
-        if self.enabled and self.timeout_seconds is None:
-            raise ValueError(
-                "nuclei configuration error: 'timeout_seconds' is mandatory when "
-                "'enabled: true'.  Set 'external_tools.nuclei.timeout_seconds' in "
-                "config.yaml.  Recommended value: 300."
-            )
-        return self
 
-
-class FfufConfig(BaseModel):
+class FfufConfig(BaseExternalToolConfig):
     """
     Configuration for the ffuf connector (path fuzzing / Shadow API discovery).
 
@@ -181,8 +255,6 @@ class FfufConfig(BaseModel):
     directory at tool invocation time.  The recommended wordlist is SecLists
     API-endpoints.txt (~5,000 entries).
     """
-
-    model_config = {"frozen": True}
 
     enabled: bool = Field(
         default=False,
@@ -205,7 +277,7 @@ class FfufConfig(BaseModel):
         default="/usr/share/seclists/Discovery/Web-Content/api/api-endpoints.txt",
         description=(
             "Absolute or CWD-relative path to the wordlist file used by ffuf. "
-            "The recommended file is SecLists API-endpoints.txt (≈5,000 entries). "
+            "The recommended file is SecLists API-endpoints.txt (approx 5,000 entries). "
             "If the path does not exist at runtime, ext_test_shadow_api_fuzzing "
             "returns SKIP with reason 'Wordlist not found at <path>'."
         ),
@@ -230,17 +302,6 @@ class FfufConfig(BaseModel):
         ),
     )
 
-    @model_validator(mode="after")
-    def timeout_required_when_enabled(self) -> FfufConfig:
-        """Enforce timeout obligation."""
-        if self.enabled and self.timeout_seconds is None:
-            raise ValueError(
-                "ffuf configuration error: 'timeout_seconds' is mandatory when "
-                "'enabled: true'.  Set 'external_tools.ffuf.timeout_seconds' in "
-                "config.yaml.  Recommended value: 180."
-            )
-        return self
-
 
 # ---------------------------------------------------------------------------
 # Root external tools config
@@ -255,10 +316,10 @@ class ExternalToolsConfig(BaseModel):
     If the section is absent, all fields use their defaults (all disabled).
 
     Master switch semantics:
-        enabled=False  → ALL external tests return SKIP immediately, without
+        enabled=False  -> ALL external tests return SKIP immediately, without
                          attempting binary discovery or reading per-tool config.
                          Use this in CI environments without external binaries.
-        enabled=True   → per-tool `enabled` fields are evaluated individually.
+        enabled=True   -> per-tool `enabled` fields are evaluated individually.
                          A tool with enabled=False still SKIPs; a tool with
                          enabled=True must have timeout_seconds configured or
                          Phase 1 raises ConfigurationError.
@@ -291,8 +352,15 @@ class ExternalToolsConfig(BaseModel):
         """
         Return True if the given tool is active (master switch AND per-tool switch).
 
+        Proposal E: when tool_name is not found in the model's fields, emit a
+        WARNING rather than silently returning False.  A typo in a test's
+        `tool_name` ClassVar (e.g. 'testsll' instead of 'testssl') would
+        otherwise cause the test to be excluded without any log entry, making
+        the misconfiguration invisible during development.
+
         Args:
-            tool_name: One of "testssl", "nuclei", "ffuf".
+            tool_name: One of "testssl", "nuclei", "ffuf".  Any other value
+                       logs a WARNING and returns False.
 
         Returns:
             bool: True only if both ExternalToolsConfig.enabled and the
@@ -300,7 +368,28 @@ class ExternalToolsConfig(BaseModel):
         """
         if not self.enabled:
             return False
+
         tool_cfg = getattr(self, tool_name, None)
+
         if tool_cfg is None:
+            # Proposal E: emit a structured warning so developers notice typos
+            # in the tool_name ClassVar immediately, rather than seeing a silent SKIP.
+            known_tools: list[str] = [
+                field_name
+                for field_name in self.model_fields
+                if field_name != "enabled"
+            ]
+            log.warning(
+                "external_tools_unknown_tool_name",
+                tool_name=tool_name,
+                known_tools=known_tools,
+                detail=(
+                    "Test will be excluded from the run.  "
+                    "Verify that the 'tool_name' ClassVar in the ExternalToolTest "
+                    "subclass matches a key in ExternalToolsConfig "
+                    f"({', '.join(known_tools)})."
+                ),
+            )
             return False
+
         return bool(getattr(tool_cfg, "enabled", False))

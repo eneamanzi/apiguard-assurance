@@ -31,7 +31,7 @@ Dependency rule:
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Any, Literal
 
 import structlog
 from pydantic import BaseModel, Field
@@ -135,6 +135,31 @@ class TestResultRow(BaseModel):
             "compensating-control documentation. Rendered in blue in the HTML report."
         ),
     )
+    # --- Origin and external tool data ---
+    # source is read directly from TestResult.source; drives the Domain-Centric Split.
+    source: Literal["native", "external"] = Field(
+        default="native",
+        description=(
+            "Result origin: 'native' (Python BaseTest) or 'external' (binary wrapper). "
+            "Used by the template to render separate native/external sub-sections per domain."
+        ),
+    )
+    tool_name: str = Field(
+        default="",
+        description=(
+            "Name of the external binary (e.g. 'testssl.sh', 'nuclei', 'ffuf'). "
+            "Non-empty only for source='external' rows. "
+            "Rendered in the 'Tool' column of the External Tool Tests sub-table."
+        ),
+    )
+    tool_artifact: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Raw tool output from ConnectorResult.raw_output. "
+            "Present only when source='external'. "
+            "Embedded in REPORT_DATA JSON for the Tool Output modal."
+        ),
+    )
 
 
 class DomainSummary(BaseModel):
@@ -157,6 +182,17 @@ class DomainSummary(BaseModel):
     skip_count: Annotated[int, Field(ge=0)] = Field(default=0)
     error_count: Annotated[int, Field(ge=0)] = Field(default=0)
     total_finding_count: Annotated[int, Field(ge=0)] = Field(default=0)
+    # Domain-Centric Split (ADR-001 §8.5 / Implementazione.md §4.10).
+    # native_rows and external_rows partition rows by source for template rendering.
+    # They are a derived subset of rows (same objects, different references).
+    native_rows: list[TestResultRow] = Field(
+        default_factory=list,
+        description="Subset of rows where source='native'. Used for the Native Controls sub-table.",
+    )
+    external_rows: list[TestResultRow] = Field(
+        default_factory=list,
+        description="Subset of rows where source='external'. Used for the External Tool Tests sub-table.",  # noqa: E501
+    )
 
     @property
     def total_count(self) -> int:
@@ -380,6 +416,10 @@ def _build_all_rows(result_set: ResultSet) -> list[TestResultRow]:
             cwe_id=result.cwe_id,
             transaction_log=list(result.transaction_log),
             notes=list(result.notes),
+            # Domain-Centric Split fields — copied verbatim from TestResult.
+            source=result.source,
+            tool_name=result.tool_name,
+            tool_artifact=result.tool_artifact,
         )
         rows.append(row)
 
@@ -418,6 +458,9 @@ def _build_domain_summaries(all_rows: list[TestResultRow]) -> list[DomainSummary
         error_count = sum(1 for r in rows if r.status == TestStatus.ERROR.value)
         total_finding_count = sum(r.finding_count for r in rows)
 
+        native_rows = [r for r in rows if r.source == "native"]
+        external_rows = [r for r in rows if r.source == "external"]
+
         summary = DomainSummary(
             domain=domain_num,
             domain_name=domain_name,
@@ -427,6 +470,8 @@ def _build_domain_summaries(all_rows: list[TestResultRow]) -> list[DomainSummary
             skip_count=skip_count,
             error_count=error_count,
             total_finding_count=total_finding_count,
+            native_rows=native_rows,
+            external_rows=external_rows,
         )
         summaries.append(summary)
 

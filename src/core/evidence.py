@@ -11,7 +11,7 @@ Architecture (v2.0 — streaming JSONL):
     the buffer filled, Python's deque silently evicted the oldest records
     via round-robin, causing FAIL evidence from early P0 tests to disappear
     from evidence.json.  The Finding.evidence_ref field pointed to a
-    record_id that no longer existed — a broken audit trail.
+    record_id that no longer existed -- a broken audit trail.
 
     v2.0 replaces the in-memory deque with a streaming write model:
 
@@ -20,13 +20,13 @@ Architecture (v2.0 — streaming JSONL):
             directory (outputs/evidence_tmp/).  The directory is created
             immediately.  No files are written yet.
 
-        Phase 5 (execution — per test):
+        Phase 5 (execution -- per test):
             Before each test executes, the engine calls
             store.begin_test(test_id).  This opens a per-test JSONL file:
                 outputs/evidence_tmp/<test_id_safe>.jsonl
             The file handle remains open for the duration of the test.
             add_fail_evidence() and pin_evidence() write one JSON line
-            per record immediately and flush to disk — O(1) memory,
+            per record immediately and flush to disk -- O(1) memory,
             unbounded capacity.  After the test completes, the engine
             calls store.end_test() which closes the file handle.
 
@@ -45,6 +45,13 @@ Architecture (v2.0 — streaming JSONL):
         evidence_tmp/ directory remains on disk with all per-test JSONL
         files intact and human-readable.  Re-running the tool will
         recreate the directory (exist_ok=True) and overwrite stale files.
+
+    Tool artifact disk persistence (v2.1 addition):
+        When initialized with a tools_dir, pin_artifact() writes a
+        standalone JSON copy of each external tool's sanitized raw output
+        to outputs/tools/<label>.json.  This enables direct inspection
+        of tool output (e.g., testssl.sh JSON) without parsing evidence.json.
+        Write failures are non-blocking: logged as WARNING, never propagated.
 
     Backward-compatible public interface for tests (unchanged from v1.0):
         add_fail_evidence(record)  -- unchanged
@@ -102,7 +109,7 @@ _JSONL_EXTENSION: str = ".jsonl"
 _TEST_ID_UNSAFE_CHARS: str = "./"
 
 # ---------------------------------------------------------------------------
-# Sanitization constants — used by EvidenceStore._sanitize_artifact()
+# Sanitization constants -- used by EvidenceStore._sanitize_artifact()
 # Defined at module level to satisfy Ruff N806 (no UPPER_CASE in functions).
 # ---------------------------------------------------------------------------
 
@@ -133,6 +140,11 @@ _SANITIZE_JWT_PATTERN: re.Pattern[str] = re.compile(
 # string content itself (e.g., a captured Authorization header value stored
 # in an arbitrary dict field whose key name was not caught above).
 _SANITIZE_HEADER_PREFIXES: tuple[str, ...] = ("Bearer ", "Basic ", "Token ")
+
+# Characters unsafe for use in filenames produced by _persist_tool_artifact().
+# Dots create ambiguous extensions; slashes create subdirectories; spaces are
+# problematic on some shells.  All replaced with underscores.
+_ARTIFACT_FILENAME_UNSAFE_CHARS: str = "./\\ "
 
 
 # ---------------------------------------------------------------------------
@@ -172,21 +184,33 @@ class EvidenceStore:
         store.pin_evidence(record)       # key setup transaction
     """
 
-    def __init__(self, tmp_dir: Path) -> None:
+    def __init__(self, tmp_dir: Path, tools_dir: Path | None = None) -> None:
         """
         Initialize the store and create the temporary streaming directory.
 
         The tmp_dir is created immediately (parents=True, exist_ok=True).
         No JSONL files are opened until the first begin_test() call.
 
+        If tools_dir is provided, pin_artifact() will write a copy of each
+        sanitized external-tool artifact as a standalone JSON file inside
+        that directory (created on first write, best-effort).  This enables
+        direct inspection of raw tool output without parsing evidence.json.
+        Typical value: config.output.directory / "tools".
+
         Args:
-            tmp_dir: Path to the temporary directory where per-test JSONL
-                     files will be written.  Typically
-                     config.output.evidence_tmp_path
-                     (e.g. Path("outputs/evidence_tmp")).
+            tmp_dir:   Path to the temporary directory where per-test JSONL
+                       files will be written.  Typically
+                       config.output.evidence_tmp_path
+                       (e.g. Path("outputs/evidence_tmp")).
+            tools_dir: Optional directory where each pin_artifact() call will
+                       persist a human-readable JSON copy of the tool's raw
+                       output.  Typically config.output.directory / "tools"
+                       (e.g. Path("outputs/tools")).  None disables file output.
         """
         self._tmp_dir: Path = tmp_dir
         self._tmp_dir.mkdir(parents=True, exist_ok=True)
+
+        self._tools_dir: Path | None = tools_dir
 
         # Active state: populated between begin_test() and end_test().
         self._current_test_id: str | None = None
@@ -205,6 +229,7 @@ class EvidenceStore:
         log.debug(
             "evidence_store_initialized",
             tmp_dir=str(tmp_dir),
+            tools_dir=str(tools_dir) if tools_dir else None,
             architecture="streaming_jsonl_v2",
         )
 
@@ -260,7 +285,7 @@ class EvidenceStore:
         Flush and close the current per-test JSONL file.
 
         Must be called by engine.py immediately after each test.execute()
-        returns — including in error/exception paths (the engine's try/finally
+        returns -- including in error/exception paths (the engine's try/finally
         must cover this call so no file handle is left dangling).
 
         Updates _total_records_written with the count from the completed test.
@@ -305,7 +330,7 @@ class EvidenceStore:
             3. Sort all records chronologically by timestamp_utc.
             4. Write evidence.json with the same envelope format as v1.0
                for full backward compatibility with the HTML report template.
-            5. Remove the tmp directory (shutil.rmtree) — log WARNING on
+            5. Remove the tmp directory (shutil.rmtree) -- log WARNING on
                failure but do not propagate (cleanup issue, not data loss).
 
         If no JSONL files exist (zero evidence recorded during the run),
@@ -387,7 +412,7 @@ class EvidenceStore:
         return len(all_records)
 
     # ------------------------------------------------------------------
-    # Write interface (called by tests — unchanged from v1.0)
+    # Write interface (called by tests -- unchanged from v1.0)
     # ------------------------------------------------------------------
 
     def add_fail_evidence(self, record: EvidenceRecord) -> None:
@@ -401,7 +426,7 @@ class EvidenceStore:
 
         The record is serialized immediately as a single JSON line in the
         current per-test JSONL file and flushed to disk.  Memory footprint
-        is O(1) per call regardless of total evidence volume — no eviction,
+        is O(1) per call regardless of total evidence volume -- no eviction,
         no data loss.
 
         Must be called between begin_test() and end_test().
@@ -464,7 +489,7 @@ class EvidenceStore:
         Serialize and persist an arbitrary JSON artifact from an external tool.
 
         External Tool Tests (ExternalToolTest subclasses) do not produce
-        EvidenceRecord objects — they produce raw JSON output from binaries
+        EvidenceRecord objects -- they produce raw JSON output from binaries
         such as ffuf, testssl.sh, or nuclei.  This method wraps that output
         in a synthetic EvidenceRecord so it enters the same evidence.json
         output as native HTTP evidence, maintaining a single audit trail.
@@ -475,8 +500,16 @@ class EvidenceStore:
         The _sanitize_artifact() method performs a recursive string scan on
         the dict and replaces values matching known credential patterns with
         "[REDACTED]".  This sanitization is the responsibility of EvidenceStore,
-        not of the calling test — "security by default" over "security by
+        not of the calling test -- "security by default" over "security by
         convention".
+
+        Disk persistence (outputs/tools/):
+            If the store was initialized with a tools_dir, a copy of the
+            sanitized payload is written to:
+                tools_dir/<label_safe>.json
+            where label_safe replaces dots, slashes and spaces with underscores.
+            Write failures are logged as WARNING and never propagate -- a failed
+            disk write must not abort the assessment.
 
         The returned evidence_ref string is the record_id of the synthetic
         EvidenceRecord.  The calling test should attach it to the relevant
@@ -510,9 +543,6 @@ class EvidenceStore:
         # HTML report can display it as the "operation" column.
         # request_url encodes the test_id for traceability (format matches
         # record_id, which already contains self._current_test_id).
-        # Note: EvidenceRecord has no test_id or is_fail_evidence fields —
-        # those belong to TransactionSummary.  Traceability is provided by
-        # the record_id format: "artifact-{test_id}-{label}-{timestamp}".
         synthetic_record = EvidenceRecord(
             record_id=record_id,
             timestamp_utc=datetime.now(UTC),
@@ -526,6 +556,12 @@ class EvidenceStore:
             is_pinned=True,
         )
         self._write_record(synthetic_record)
+
+        # --- Optional disk persistence for direct inspection ---
+        # Best-effort: a write failure must never abort the assessment.
+        if self._tools_dir is not None:
+            self._persist_tool_artifact(label=label, record_id=record_id, payload=sanitized)
+
         log.debug(
             "evidence_artifact_pinned",
             record_id=record_id,
@@ -534,6 +570,68 @@ class EvidenceStore:
         )
         return record_id
 
+    def _persist_tool_artifact(
+        self,
+        label: str,
+        record_id: str,
+        payload: dict[str, Any],
+    ) -> None:
+        """
+        Write a sanitized tool artifact as a standalone JSON file to tools_dir.
+
+        Called internally by pin_artifact() when self._tools_dir is not None.
+        Never raises: all OSError exceptions are caught and logged as WARNING.
+
+        File naming: <label_safe>.json, where label_safe replaces characters
+        unsafe in filenames (dots, slashes, backslashes, spaces) with
+        underscores.  If a file with the same name already exists (e.g. two
+        runs of the same test in the same output directory), it is silently
+        overwritten -- the most recent run's output is always authoritative.
+
+        The written envelope includes the record_id so the file can be
+        cross-referenced with evidence.json without parsing both documents.
+
+        Args:
+            label:     Human-readable label passed to pin_artifact().
+            record_id: The evidence record_id returned by pin_artifact(),
+                       embedded in the JSON envelope for cross-referencing.
+            payload:   Already-sanitized dict to write.
+        """
+        assert self._tools_dir is not None  # noqa: S101 -- caller guarantees this
+
+        safe_label = label
+        for char in _ARTIFACT_FILENAME_UNSAFE_CHARS:
+            safe_label = safe_label.replace(char, "_")
+        file_path = self._tools_dir / f"{safe_label}.json"
+
+        envelope: dict[str, Any] = {
+            "record_id": record_id,
+            "label": label,
+            "generated_at_utc": datetime.now(UTC).isoformat(),
+            "data": payload,
+        }
+
+        try:
+            self._tools_dir.mkdir(parents=True, exist_ok=True)
+            file_path.write_text(
+                json.dumps(envelope, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            log.info(
+                "evidence_artifact_persisted_to_disk",
+                record_id=record_id,
+                label=label,
+                path=str(file_path),
+            )
+        except OSError as exc:
+            log.warning(
+                "evidence_artifact_disk_write_failed",
+                record_id=record_id,
+                label=label,
+                path=str(file_path),
+                detail=str(exc),
+            )
+
     @staticmethod
     def _sanitize_artifact(data: dict[str, Any]) -> dict[str, Any]:
         """
@@ -541,7 +639,7 @@ class EvidenceStore:
 
         Scans every string value in the dict (including nested dicts and lists)
         and replaces it with "[REDACTED]" if it matches any of the following
-        patterns — case-insensitive key-based detection:
+        patterns -- case-insensitive key-based detection:
             - Keys containing: "token", "password", "api_key", "apikey",
               "authorization", "bearer", "secret", "credential", "auth"
             - String values whose content starts with "Bearer " or "Basic "
@@ -549,7 +647,7 @@ class EvidenceStore:
             - String values matching the pattern of a JWT (three base64url
               segments separated by dots, total length > 40 characters)
 
-        The method returns a NEW dict — the original is never mutated.
+        The method returns a NEW dict -- the original is never mutated.
         Non-string values (int, float, bool, None) are copied unchanged.
 
         Args:
@@ -558,8 +656,6 @@ class EvidenceStore:
         Returns:
             dict[str, Any]: A deep copy of the input with credentials redacted.
         """
-        # All pattern constants are defined at module level (see _SANITIZE_*)
-        # to satisfy Ruff N806 (UPPER_CASE variables not permitted in functions).
 
         def _redact_value(key: str, value: Any) -> Any:  # noqa: ANN401
             """Redact value if key or value content indicates a credential."""
@@ -583,7 +679,7 @@ class EvidenceStore:
         return _walk(data)  # type: ignore[return-value]
 
     # ------------------------------------------------------------------
-    # Read interface (called by tests — unchanged from v1.0)
+    # Read interface (called by tests -- unchanged from v1.0)
     # ------------------------------------------------------------------
 
     @property
@@ -606,7 +702,7 @@ class EvidenceStore:
         """
         Retrieve a specific record from the current test's in-memory buffer.
 
-        Scoped to the active test only — does not scan JSONL files from
+        Scoped to the active test only -- does not scan JSONL files from
         completed tests.  Used by tests that need to cross-reference an
         earlier transaction within the same test execution.
 
@@ -676,7 +772,7 @@ class EvidenceStore:
         Raises:
             OSError: If the write or flush fails (disk full, permission error).
         """
-        assert self._current_file is not None  # noqa: S101 — guarded by _require_active_test
+        assert self._current_file is not None  # noqa: S101 -- guarded by _require_active_test
         line = json.dumps(record.model_dump(mode="json"), ensure_ascii=False)
         self._current_file.write(line + "\n")
         self._current_file.flush()
@@ -708,7 +804,7 @@ class EvidenceStore:
         Read and deserialize all EvidenceRecord objects from a JSONL file.
 
         Skips blank lines (e.g. trailing newline added by _write_record).
-        Logs a WARNING for any line that fails to parse and continues —
+        Logs a WARNING for any line that fails to parse and continues --
         a corrupt line in one test's file must not suppress evidence from
         all other tests in the final report.
 
