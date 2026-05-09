@@ -61,6 +61,10 @@ from pydantic import BaseModel, Field, field_validator
 # EvidenceRecord — formal proof of security violations
 # ---------------------------------------------------------------------------
 
+# Maximum length of response body stored in EvidenceRecord, in characters.
+# Consistent with the value documented in SecurityClient (client.py).
+_EVIDENCE_RECORD_BODY_MAX_CHARS: int = 10_000
+
 
 class EvidenceRecord(BaseModel):
     """
@@ -153,15 +157,13 @@ class EvidenceRecord(BaseModel):
     @field_validator("response_body", mode="before")
     @classmethod
     def truncate_response_body(cls, value: Any) -> str | None:  # noqa: ANN401
-        """Truncate response body to 10,000 chars to bound evidence.json size."""
-        _max_length: int = 10_000
-        _truncation_suffix: str = "... [TRUNCATED]"
+        """Truncate response body to _EVIDENCE_RECORD_BODY_MAX_CHARS to bound evidence.json size."""
         if value is None:
             return None
         as_string = str(value)
         return (
-            as_string[:_max_length] + _truncation_suffix
-            if len(as_string) > _max_length
+            as_string[:_EVIDENCE_RECORD_BODY_MAX_CHARS] + _TRANSACTION_TRUNCATION_SUFFIX
+            if len(as_string) > _EVIDENCE_RECORD_BODY_MAX_CHARS
             else as_string
         )
 

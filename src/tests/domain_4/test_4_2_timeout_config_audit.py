@@ -68,7 +68,7 @@ import structlog
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
-from src.core.models import Finding, TestResult, TestStatus, TestStrategy
+from src.core.models import Finding, TestResult, TestStrategy
 from src.tests.base import BaseTest
 from src.tests.helpers.kong_admin import KongAdminError, get_services
 
@@ -90,12 +90,12 @@ _FIELD_WRITE_TIMEOUT: str = "write_timeout"
 _TIMEOUT_UNCONFIGURED: int = 0
 
 # OWASP/NIST references cited in every Finding produced by this test.
-_REFERENCES: list[str] = [
+_REFERENCES: tuple[str, ...] = (
     "OWASP-API4:2023",
     "CWE-400",
     "NIST-SP-800-204A-Section-4.3",
     "OWASP-ASVS-v5.0.0-V16.5.2",
-]
+)
 
 
 class Test42TimeoutConfigAudit(BaseTest):
@@ -183,7 +183,11 @@ class Test42TimeoutConfigAudit(BaseTest):
             )
 
             # Sub-test 1: fetch services
-            services = self._fetch_services(admin_base_url)
+            services = self._fetch_services(
+                admin_base_url,
+                target.admin_connect_timeout_seconds,
+                target.admin_read_timeout_seconds,
+            )
             if services is None:
                 # KongAdminError was raised and converted to ERROR result
                 return self._make_error(
@@ -210,9 +214,7 @@ class Test42TimeoutConfigAudit(BaseTest):
             findings = self._audit_service_timeouts(services, cfg)
 
             if findings:
-                return TestResult(
-                    test_id=self.test_id,
-                    status=TestStatus.FAIL,
+                return self._make_fail_multi(
                     message=(
                         f"Timeout audit found {len(findings)} violation(s) across "
                         f"{len(services)} service(s). "
@@ -220,8 +222,6 @@ class Test42TimeoutConfigAudit(BaseTest):
                         "to resource exhaustion via connection pool starvation."
                     ),
                     findings=findings,
-                    transaction_log=list(self._transaction_log),
-                    **self._metadata_kwargs(),
                 )
 
             return self._make_pass(
@@ -241,7 +241,12 @@ class Test42TimeoutConfigAudit(BaseTest):
     # Sub-test 1: service fetch
     # ------------------------------------------------------------------
 
-    def _fetch_services(self, admin_base_url: str) -> list[dict[str, Any]] | None:
+    def _fetch_services(
+        self,
+        admin_base_url: str,
+        connect_timeout: float,
+        read_timeout: float,
+    ) -> list[dict[str, Any]] | None:
         """
         Retrieve all Kong services from the Admin API.
 
@@ -251,13 +256,17 @@ class Test42TimeoutConfigAudit(BaseTest):
         catching the exception again.
 
         Args:
-            admin_base_url: Kong Admin API base URL without trailing slash.
+            admin_base_url:  Kong Admin API base URL without trailing slash.
+            connect_timeout: TCP connection timeout in seconds.
+                             Read from target.admin_connect_timeout_seconds.
+            read_timeout:    HTTP read timeout in seconds.
+                             Read from target.admin_read_timeout_seconds.
 
         Returns:
             List of Kong service dicts (may be empty), or None on Admin API error.
         """
         try:
-            services = get_services(admin_base_url)
+            services = get_services(admin_base_url, connect_timeout, read_timeout)
             log.debug(
                 "test_4_2_services_fetched",
                 count=len(services),
@@ -380,7 +389,7 @@ class Test42TimeoutConfigAudit(BaseTest):
                     f"corrupted service configuration. Without this field, timeout enforcement "
                     f"for this service is unknown and cannot be audited."
                 ),
-                references=_REFERENCES,
+                references=list(_REFERENCES),
                 evidence_ref=None,
             )
 
@@ -400,7 +409,7 @@ class Test42TimeoutConfigAudit(BaseTest):
                     f"Oracle: {field_name} must be > 0 and <= {max_value_ms} ms "
                     f"(NIST SP 800-204A Section 4.3)."
                 ),
-                references=_REFERENCES,
+                references=list(_REFERENCES),
                 evidence_ref=None,
             )
 
@@ -423,7 +432,7 @@ class Test42TimeoutConfigAudit(BaseTest):
                     f"Recommended action: reduce {field_name} to <= {max_value_ms} ms in the "
                     f"Kong service configuration."
                 ),
-                references=_REFERENCES,
+                references=list(_REFERENCES),
                 evidence_ref=None,
             )
 

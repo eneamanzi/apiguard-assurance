@@ -84,26 +84,16 @@ from src.core.models import (
     Finding,
     InfoNote,
     TestResult,
-    TestStatus,
     TestStrategy,
 )
 from src.tests.base import BaseTest
+from src.tests.data.shadow_wordlists import DENY_BY_DEFAULT_NONEXISTENT_PATHS
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Constants -- probe paths
 # ---------------------------------------------------------------------------
-
-# Paths guaranteed not to exist on any well-configured Gateway.
-# Chosen to be syntactically valid but semantically meaningless, with enough
-# uniqueness to avoid accidental collision with real application routes.
-_GUARANTEED_NONEXISTENT_PATHS: list[str] = [
-    "/nonexistent-apiguard-probe-xyz-123",
-    "/api/nonexistent-apiguard-probe-abc-456",
-    "/apiguard-shadow-probe-789",
-    "/api/v99/nonexistent-probe",
-]
 
 # ---------------------------------------------------------------------------
 # Constants -- response classification
@@ -160,12 +150,12 @@ _STATE_VARIANT_REJECTED: str = "VARIANT_REJECTED"
 # Constants -- standard references
 # ---------------------------------------------------------------------------
 
-_REFERENCES: list[str] = [
+_REFERENCES: tuple[str, ...] = (
     "CWE-284",
     "NIST-SP-800-204-S4.1",
     "OWASP-ASVS-v5.0.0-V4.1.1",
     "CIS-Benchmark-API-GW-Controls-2.3",
-]
+)
 
 
 # ---------------------------------------------------------------------------
@@ -263,9 +253,7 @@ class Test02DenyByDefault(BaseTest):
             notes.extend(norm_notes)
 
             if findings:
-                return TestResult(
-                    test_id=self.test_id,
-                    status=TestStatus.FAIL,
+                return self._make_fail_multi(
                     message=(
                         f"Deny-by-default policy violated: {len(findings)} "
                         f"violation(s) detected (unregistered path not denied, "
@@ -273,8 +261,6 @@ class Test02DenyByDefault(BaseTest):
                     ),
                     findings=findings,
                     notes=notes,
-                    transaction_log=list(self._transaction_log),
-                    **self._metadata_kwargs(),
                 )
 
             return self._make_pass(
@@ -333,7 +319,7 @@ class Test02DenyByDefault(BaseTest):
         """
         findings: list[Finding] = []
 
-        for path in _GUARANTEED_NONEXISTENT_PATHS:
+        for path in DENY_BY_DEFAULT_NONEXISTENT_PATHS:
             response, record = self._safe_get(client, path)
             if response is None or record is None:
                 # Transport error already logged by _safe_get via structlog.
@@ -356,7 +342,7 @@ class Test02DenyByDefault(BaseTest):
                             f"Every path not explicitly registered in the Gateway routing "
                             f"table must be rejected before reaching upstream services."
                         ),
-                        references=_REFERENCES,
+                        references=list(_REFERENCES),
                         evidence_ref=record.record_id,
                     )
                 )
@@ -436,7 +422,7 @@ class Test02DenyByDefault(BaseTest):
                         "requires a path with a static URL to generate meaningful variants. "
                         "This is a coverage gap, not a security failure."
                     ),
-                    references=_REFERENCES,
+                    references=list(_REFERENCES),
                 )
             )
             log.debug("normalization_no_sample_path", reason="all_documented_paths_parametric")
@@ -456,7 +442,7 @@ class Test02DenyByDefault(BaseTest):
                         f"The authentication oracle for variant testing cannot be established "
                         f"without a valid baseline response."
                     ),
-                    references=_REFERENCES,
+                    references=list(_REFERENCES),
                 )
             )
             return findings, notes
@@ -494,7 +480,7 @@ class Test02DenyByDefault(BaseTest):
                         f"If authenticated non-parametric endpoints exist, verify that "
                         f"'requires_auth' is correctly declared in the OpenAPI specification."
                     ),
-                    references=_REFERENCES,
+                    references=list(_REFERENCES),
                 )
             )
 
@@ -511,7 +497,7 @@ class Test02DenyByDefault(BaseTest):
                         f"This may indicate a misconfigured route or a path requiring a "
                         f"specific request body. Manual normalization verification recommended."
                     ),
-                    references=_REFERENCES,
+                    references=list(_REFERENCES),
                 )
             )
 
@@ -580,7 +566,7 @@ class Test02DenyByDefault(BaseTest):
                             f"The Gateway is not normalizing paths before policy application, "
                             f"or the normalized form resolves to an unprotected handler."
                         ),
-                        references=_REFERENCES + ["OWASP-API2:2023"],
+                        references=list(_REFERENCES) + ["OWASP-API2:2023"],
                         evidence_ref=record.record_id,
                     )
                 )
@@ -707,7 +693,7 @@ def _detect_backend_server_header(
             f"If this is a false positive, add the observed Server substring to "
             f"'tests.domain_0.test_0_2.gateway_server_identifiers' in config.yaml."
         ),
-        references=_REFERENCES + ["CWE-209"],
+        references=list(_REFERENCES) + ["CWE-209"],
         evidence_ref=record.record_id,
     )
 

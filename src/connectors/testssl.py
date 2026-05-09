@@ -6,10 +6,13 @@ TestsslConnector: subprocess-based connector for testssl.sh TLS stack analysis.
 Responsibility (connector layer):
     This module is responsible exclusively for invoking testssl.sh as a subprocess,
     parsing its JSON output, and returning a structured ConnectorResult.  It does
-    NOT decide what constitutes a FAIL: severity filtering here removes noise
-    (OK / INFO / LOW), but the oracle logic (HIGH/CRITICAL -> FAIL vs WARN/MEDIUM
-    -> PASS-with-note) is the exclusive responsibility of ExtTest15TlsAnalysis
-    in ext_test_1_5_tls_analysis.py.
+    NOT decide what constitutes a FAIL, what constitutes a note, or what is noise:
+    all severity-based policy decisions are the exclusive responsibility of
+    ExtTest15TlsAnalysis._evaluate() in ext_test_1_5_tls_analysis.py.
+
+    The connector passes every finding from testssl.sh verbatim in ``results``,
+    regardless of severity.  This upholds the "dumb pipe" contract: the connector
+    executes, parses, and delivers; the test evaluates.
 
 testssl.sh JSON output format:
     testssl.sh v3.x with ``--jsonfile <path>`` writes a JSON array to the given
@@ -28,22 +31,11 @@ testssl.sh JSON output format:
     portability across OS configurations where /dev/stdout may not be available
     or may behave unexpectedly inside container environments.
 
-Severity filtering contract:
-    The connector retains ONLY findings with severity in RETAINED_SEVERITIES
-    (WARN, MEDIUM, HIGH, CRITICAL).  It discards OK, INFO, and LOW.
-
-    Rationale:
-        OK / INFO  — positive results or purely informational messages with
-                     no security relevance.  Including them would flood the
-                     evidence.json and the report with hundreds of lines of
-                     noise, making real issues harder to identify.
-        LOW        — the methodology (Section 1.5) focuses on protocol versions
-                     (deprecated TLS) and weak ciphers; LOW findings typically
-                     represent informational certificates or minor
-                     configuration observations outside the test scope.
-        WARN       — borderline items worth surfacing to the analyst even though
-                     they do not automatically trigger FAIL (the oracle in
-                     _evaluate() treats them as PASS-with-note).
+raw_output contract:
+    The ``results`` key contains the complete, unfiltered list of finding dicts
+    from testssl.sh.  The calling ExternalToolTest is responsible for partitioning
+    this list into FAIL / NOTE / IGNORED buckets according to its oracle logic.
+    ``all_count`` reports the total number of findings.
 
 Extra flags:
     The run() method accepts an ``extra_flags`` keyword argument so the calling
@@ -81,23 +73,15 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # Module-level constants
 # ---------------------------------------------------------------------------
 
-# Severity levels retained after filtering.
-# OK and INFO are discarded as noise; LOW is discarded as out-of-scope for
-# the TLS enforcement guarantee (Section 1.5 of the methodology).
-# The ExternalToolTest oracle treats WARN and MEDIUM as PASS-with-note,
-# and HIGH and CRITICAL as FAIL.
-RETAINED_SEVERITIES: frozenset[str] = frozenset({"WARN", "MEDIUM", "HIGH", "CRITICAL"})
-
-# Severities that map to FAIL in the oracle (defined here as documentation only;
-# the oracle decision is made in _evaluate() of the ExternalToolTest, not here).
-FAIL_SEVERITIES: frozenset[str] = frozenset({"HIGH", "CRITICAL"})
-
 # Default CLI flags for machine-readable, colour-free output.
 # Mirrors ExternalToolsConfig.testssl.extra_flags default.
 _DEFAULT_EXTRA_FLAGS: str = "--quiet --color 0"
 
 # The testssl.sh exit code indicating a successful scan regardless of findings.
 # testssl.sh returns 0 for a completed scan, non-zero for execution errors.
+# Exit code 1 is treated as success because testssl.sh uses it to indicate
+# that findings were detected -- this is an expected operational outcome, not
+# an execution error.
 _TESTSSL_SUCCESS_EXIT_CODES: frozenset[int] = frozenset({0, 1})
 
 
@@ -112,27 +96,31 @@ class TestsslConnector(BaseSubprocessConnector):
 
     Invokes testssl.sh against a target hostname:port extracted from the
     supplied target_url.  Output is captured via ``--jsonfile <tmpfile>``
-    and parsed into a filtered list of finding objects.
+    and parsed into a complete list of all finding objects.
 
-    The connector performs severity filtering before returning ConnectorResult
-    to remove OK/INFO/LOW noise.  The oracle logic (which severities trigger
-    FAIL vs PASS-with-note) is deliberately kept in the calling ExternalToolTest.
+    The connector performs NO severity filtering.  The complete finding list
+    is passed in ``results`` so the calling ExternalToolTest can apply its
+    own oracle logic (FAIL / note / ignore) without any pre-filtering bias
+    from the connector layer.
 
     ClassVar declarations:
         TOOL_NAME             : "testssl.sh"
         BINARY_NAME           : "testssl.sh"
         SERVICE_ENV_VAR       : "TESTSSL_SERVICE_URL"
-        DEFAULT_TIMEOUT_SECONDS : 120 (testssl full scan takes 90–180 s)
+        DEFAULT_TIMEOUT_SECONDS : 120 (testssl full scan takes 90-180 s)
 
     ConnectorResult.raw_output structure::
 
         {
-          "command":  "testssl.sh --quiet --color 0 localhost:8443",
-                                                     # human-readable command for
-                                                     # manual reproduction (no
-                                                     # --jsonfile flag — internal only)
-          "results": [               # severity-filtered findings (WARN+ only)
-            {                        # these are the oracle inputs for _evaluate()
+          "command":      "testssl.sh --quiet --color 0 localhost:8443",
+                                                       # human-readable command for
+                                                       # manual reproduction (no
+                                                       # --jsonfile flag -- internal only)
+          "command_json": "testssl.sh --quiet --color 0 --jsonfile testssl_result.json localhost:8443",
+                                                       # command with JSON flag;
+                                                       # mirrors what APIGuard runs
+          "results": [               # complete unfiltered findings from testssl.sh
+            {                        # the test applies its own oracle to this list
               "id":       "tls1",
               "severity": "WARN",
               "finding":  "offered (deprecated)",
@@ -141,13 +129,9 @@ class TestsslConnector(BaseSubprocessConnector):
             },
             ...
           ],
-          "raw_findings": [...],     # complete unfiltered array from testssl.sh
-                                     # persisted verbatim to outputs/tools/ for
-                                     # direct analyst inspection without re-run
-          "all_count":    42,        # total findings before filtering
-          "retained_count": 3        # findings after severity filter
+          "all_count": 42            # total finding count; equals len(results)
         }
-    """
+    """  # noqa: E501
 
     TOOL_NAME: ClassVar[str] = "testssl.sh"
     BINARY_NAME: ClassVar[str] = "testssl.sh"
@@ -161,6 +145,48 @@ class TestsslConnector(BaseSubprocessConnector):
     # falling back to shutil.which() or TESTSSL_SERVICE_URL.
     LOCAL_TOOLS_SUBDIR: ClassVar[str] = "testssl"
 
+    # Per-instance version cache -- populated on the first get_version() call
+    # and reused on subsequent calls without launching an additional subprocess.
+    # Declared as a class-level annotation (no assignment) so that the first
+    # access before population raises AttributeError, which the override catches.
+    _cached_version: str | None
+
+    def get_version(self) -> str | None:
+        """
+        Return the testssl.sh version string, caching the result per instance.
+
+        The base class implementation (BaseSubprocessConnector.get_version())
+        launches a subprocess (``testssl.sh --version``) on every invocation.
+        Since ``run()`` calls ``get_version()`` at the end of each scan to
+        populate ``ConnectorResult.tool_version``, the uncached version adds one
+        extra subprocess per scan.  In a multi-invocation assessment (e.g. when
+        the caller runs multiple scans in sequence using the same connector
+        instance) this overhead compounds.
+
+        Caching strategy:
+            Lazy initialisation on the first call via a ``try/except
+            AttributeError`` guard.  ``_cached_version`` is declared as a
+            class-level annotation (no default value) so that access before
+            population raises ``AttributeError``, which this override intercepts
+            to trigger the base class subprocess call.  Subsequent calls return
+            the stored value without any subprocess overhead.
+
+            The ``try/except`` pattern (rather than ``hasattr``) is idiomatic
+            Python for lazy instance attributes on classes without ``__init__``:
+            it avoids a redundant attribute lookup and is O(1) amortised because
+            after the first successful execution the exception path is never
+            taken again.
+
+        Returns:
+            str | None: Version string (e.g. ``"testssl 3.2"``), or None if
+                        the binary is not available or the version command fails.
+        """
+        try:
+            return self._cached_version
+        except AttributeError:
+            self._cached_version = super().get_version()
+            return self._cached_version
+
     def run(
         self,
         target_url: str,
@@ -169,7 +195,7 @@ class TestsslConnector(BaseSubprocessConnector):
         extra_flags: str = _DEFAULT_EXTRA_FLAGS,
     ) -> ConnectorResult:
         """
-        Invoke testssl.sh against the target and return filtered findings.
+        Invoke testssl.sh against the target and return all findings unfiltered.
 
         CLI contract:
             The binary is invoked as::
@@ -188,12 +214,11 @@ class TestsslConnector(BaseSubprocessConnector):
             (e.g. binary version too old, flag not supported), the file will be
             empty and ExternalToolError is raised with a descriptive message.
 
-        Severity filtering:
-            After parsing the JSON array, only findings with severity in
-            RETAINED_SEVERITIES (WARN, MEDIUM, HIGH, CRITICAL) are kept.
-            The ``all_count`` field in raw_output reports the total before
-            filtering so the analyst knows how many OK/INFO items were
-            discarded.
+        No severity filtering:
+            All findings from testssl.sh are returned verbatim in
+            ``raw_output["results"]``.  The calling ExternalToolTest is
+            responsible for partitioning the list by severity into FAIL,
+            note, and ignored buckets.
 
         Args:
             target_url:      HTTPS URL of the API Gateway, e.g.
@@ -208,7 +233,7 @@ class TestsslConnector(BaseSubprocessConnector):
                              Must not contain credentials or secrets.
 
         Returns:
-            ConnectorResult: Parsed and severity-filtered testssl.sh output.
+            ConnectorResult: Complete (unfiltered) testssl.sh output.
                              raw_output follows the structure documented in
                              the class docstring.
 
@@ -219,7 +244,7 @@ class TestsslConnector(BaseSubprocessConnector):
         scan_target = self._extract_scan_target(target_url)
         cmd = self._build_command(scan_target, extra_flags)
 
-        # Build human-readable commands for analyst reproduction (Proposal A).
+        # Build human-readable commands for analyst reproduction.
         # Delegates path normalisation and string construction to the base class
         # helper _build_reproducible_commands(), eliminating the ~15 lines of
         # duplicated logic that every connector would otherwise reimplement.
@@ -258,7 +283,7 @@ class TestsslConnector(BaseSubprocessConnector):
             execution_time_ms = int(time.monotonic() * 1000) - start_time_ms
 
             if exit_code not in _TESTSSL_SUCCESS_EXIT_CODES:
-                # Non-zero exit (other than 1, which testssl uses for warnings)
+                # Non-zero exit (other than 1, which testssl uses for findings)
                 # means execution error, not a TLS finding.
                 stderr_preview = (stdout or "")[:300].replace("\n", " ")
                 raise ExternalToolError(
@@ -279,7 +304,7 @@ class TestsslConnector(BaseSubprocessConnector):
             # for timeout and OS errors; we also raise it above for bad exit codes.
             raise
 
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- re-wrapped as ExternalToolError with full context
             raise ExternalToolError(
                 message=f"testssl.sh connector unexpected error: {exc}",
                 tool_name=self.TOOL_NAME,
@@ -294,7 +319,6 @@ class TestsslConnector(BaseSubprocessConnector):
             "testssl_connector_run_complete",
             scan_target=scan_target,
             all_count=raw_output.get("all_count", 0),
-            retained_count=raw_output.get("retained_count", 0),
             exit_code=exit_code,
             execution_time_ms=execution_time_ms,
         )
@@ -394,11 +418,14 @@ class TestsslConnector(BaseSubprocessConnector):
         json_output_path: str,
     ) -> dict[str, Any]:
         """
-        Read the testssl.sh JSON output file and apply severity filtering.
+        Read the testssl.sh JSON output file and return all findings unfiltered.
 
         testssl.sh v3.x writes a JSON array to the file.  This method reads
-        the file, normalises the output to a list of finding dicts, applies
-        the RETAINED_SEVERITIES filter, and returns a structured dict.
+        the file, normalises the output to a list of finding dicts, and returns
+        a structured dict containing the complete finding list.
+
+        No severity filtering is applied: the complete finding list is passed
+        to the caller so the ExternalToolTest can make its own oracle decisions.
 
         The returned dict follows the ConnectorResult.raw_output schema
         documented in the class docstring.
@@ -407,8 +434,8 @@ class TestsslConnector(BaseSubprocessConnector):
             json_output_path: Absolute path to the JSON file written by testssl.sh.
 
         Returns:
-            dict[str, Any]: Structured output with ``results``, ``all_count``,
-                            and ``retained_count`` keys.
+            dict[str, Any]: Structured output with ``results`` (complete unfiltered
+                            finding list) and ``all_count`` keys.
 
         Raises:
             ExternalToolError: If the file is empty, unreadable, or contains
@@ -468,27 +495,17 @@ class TestsslConnector(BaseSubprocessConnector):
 
         all_count = len(all_findings)
 
-        # Apply severity filter: retain only actionable severities.
-        retained_findings = [
-            item
-            for item in all_findings
-            if str(item.get("severity", "")).upper() in RETAINED_SEVERITIES
-        ]
-
-        retained_count = len(retained_findings)
-
         log.debug(
-            "testssl_connector_severity_filter_applied",
+            "testssl_connector_parse_complete",
             all_count=all_count,
-            retained_count=retained_count,
-            discarded_count=all_count - retained_count,
         )
 
+        # Return all findings without any severity filtering.
+        # The ExternalToolTest partitions this list into FAIL / note / ignored
+        # buckets according to its oracle logic (FAIL_SEVERITIES, NOTE_SEVERITIES).
         return {
-            "results": retained_findings,
-            "raw_findings": all_findings,
+            "results": all_findings,
             "all_count": all_count,
-            "retained_count": retained_count,
         }
 
     def _cleanup_temp_file(self, path: str) -> None:

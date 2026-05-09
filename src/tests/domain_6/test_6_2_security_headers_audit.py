@@ -124,7 +124,6 @@ from src.core.models import (
     EvidenceRecord,
     Finding,
     TestResult,
-    TestStatus,
     TestStrategy,
 )
 from src.tests.base import BaseTest
@@ -259,7 +258,7 @@ class Test62SecurityHeadersAudit(BaseTest):
             if guard is not None:
                 return guard
 
-            assert target.attack_surface is not None  # narrowing after guard
+            assert target.attack_surface is not None  # noqa: S101 -- type narrowing only
 
             # ------------------------------------------------------------------
             # Endpoint selection
@@ -328,30 +327,21 @@ class Test62SecurityHeadersAudit(BaseTest):
             # Final TestResult
             # ------------------------------------------------------------------
             if findings:
-                return TestResult(
-                    test_id=self.test_id,
-                    status=TestStatus.FAIL,
+                return self._make_fail_multi(
                     message=(
                         f"Security header audit found {len(findings)} violation(s) "
                         f"across {1 + len(consistency_endpoints)} endpoint(s). "
                         "See findings for details."
                     ),
                     findings=findings,
-                    transaction_log=list(self._transaction_log),
-                    **self._metadata_kwargs(),
                 )
 
-            return TestResult(
-                test_id=self.test_id,
-                status=TestStatus.PASS,
+            return self._make_pass(
                 message=(
                     f"All required security headers present and valid on "
                     f"{1 + len(consistency_endpoints)} sampled endpoint(s). "
                     "No leaky server-identification headers detected."
-                ),
-                findings=[],
-                transaction_log=list(self._transaction_log),
-                **self._metadata_kwargs(),
+                )
             )
 
         except Exception as exc:  # noqa: BLE001

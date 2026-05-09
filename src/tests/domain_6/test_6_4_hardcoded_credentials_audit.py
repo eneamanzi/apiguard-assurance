@@ -106,7 +106,6 @@ from src.core.models import (
     Finding,
     InfoNote,
     TestResult,
-    TestStatus,
     TestStrategy,
 )
 from src.tests.base import BaseTest
@@ -253,7 +252,7 @@ _CREDENTIAL_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 # Standard references cited in every Finding produced by this test
 # ---------------------------------------------------------------------------
 
-_REFERENCES: list[str] = [
+_REFERENCES: tuple[str, ...] = (
     "CWE-798",
     "OWASP-API8:2023",
     "OWASP-ASVS-V13.3.1",
@@ -261,7 +260,7 @@ _REFERENCES: list[str] = [
     "OWASP-ASVS-V13.4.1",
     "NIST-SP-800-53-Rev5-IA-5(1)",
     "NIST-SP-800-204-S5.4",
-]
+)
 
 
 # ---------------------------------------------------------------------------
@@ -347,7 +346,11 @@ class Test64HardcodedCredentialsAudit(BaseTest):
                     "admin_endpoint_base_url() returned None despite "
                     "admin_api_available=True. TargetContext invariant violation."
                 )
-                b_findings = self._audit_kong_configuration(admin_base_url)
+                b_findings = self._audit_kong_configuration(
+                    admin_base_url,
+                    target.admin_connect_timeout_seconds,
+                    target.admin_read_timeout_seconds,
+                )
                 findings.extend(b_findings)
                 # Always document the inherent scope limits of this test,
                 # even when the Admin API audit ran successfully.  The HTTP-only
@@ -408,14 +411,10 @@ class Test64HardcodedCredentialsAudit(BaseTest):
                 )
 
             if findings:
-                return TestResult(
-                    test_id=self.test_id,
-                    status=TestStatus.FAIL,
+                return self._make_fail_multi(
                     message=f"{len(findings)} hardcoded credential exposure(s) detected.",
                     findings=findings,
                     notes=notes,
-                    transaction_log=list(self._transaction_log),
-                    **self._metadata_kwargs(),
                 )
 
             return self._make_pass(
@@ -559,7 +558,7 @@ class Test64HardcodedCredentialsAudit(BaseTest):
                                 f"References: OWASP ASVS V13.3.1, CWE-798, "
                                 f"NIST SP 800-204 Section 5.4."
                             ),
-                            references=_REFERENCES,
+                            references=list(_REFERENCES),
                             evidence_ref=record.record_id,
                         )
                     )
@@ -624,19 +623,31 @@ class Test64HardcodedCredentialsAudit(BaseTest):
     # Sub-test B helpers: Kong Admin API credential scan
     # ------------------------------------------------------------------
 
-    def _audit_kong_configuration(self, admin_base_url: str) -> list[Finding]:
+    def _audit_kong_configuration(
+        self,
+        admin_base_url: str,
+        connect_timeout: float,
+        read_timeout: float,
+    ) -> list[Finding]:
         """
         Scan Kong services and plugins for hardcoded credential patterns.
 
         Returns a list of Finding objects.  An empty list means no credential
         patterns were found in the audited configuration.
+
+        Args:
+            admin_base_url:  Kong Admin API base URL without trailing slash.
+            connect_timeout: TCP connection timeout in seconds.
+                             Read from target.admin_connect_timeout_seconds.
+            read_timeout:    HTTP read timeout in seconds.
+                             Read from target.admin_read_timeout_seconds.
         """
         findings: list[Finding] = []
 
         log.info("test_6_4_admin_audit_starting", admin_base_url=admin_base_url)
 
         # ---- Scan service URLs ----------------------------------------
-        services = self._fetch_services(admin_base_url)
+        services = self._fetch_services(admin_base_url, connect_timeout, read_timeout)
         if services is not None:
             for svc in services:
                 svc_name: str = svc.get("name", "<unnamed>")
@@ -663,13 +674,13 @@ class Test64HardcodedCredentialsAudit(BaseTest):
                                     f"Manager and referenced at runtime, not hardcoded. "
                                     f"References: OWASP ASVS V13.3.1, CWE-798."
                                 ),
-                                references=_REFERENCES,
+                                references=list(_REFERENCES),
                                 evidence_ref=None,
                             )
                         )
 
         # ---- Scan plugin configs ---------------------------------------
-        plugins = self._fetch_plugins(admin_base_url)
+        plugins = self._fetch_plugins(admin_base_url, connect_timeout, read_timeout)
         if plugins is not None:
             for plugin in plugins:
                 plugin_name: str = plugin.get("name", "<unnamed>")
@@ -684,15 +695,25 @@ class Test64HardcodedCredentialsAudit(BaseTest):
 
         return findings
 
-    def _fetch_services(self, admin_base_url: str) -> list[dict[str, Any]] | None:
+    def _fetch_services(
+        self,
+        admin_base_url: str,
+        connect_timeout: float,
+        read_timeout: float,
+    ) -> list[dict[str, Any]] | None:
         """
         Retrieve Kong services via Admin API.
 
         Returns None on KongAdminError so the caller can produce a partial
         result rather than an ERROR.
+
+        Args:
+            admin_base_url:  Kong Admin API base URL without trailing slash.
+            connect_timeout: TCP connection timeout in seconds.
+            read_timeout:    HTTP read timeout in seconds.
         """
         try:
-            return get_services(admin_base_url)
+            return get_services(admin_base_url, connect_timeout, read_timeout)
         except KongAdminError as exc:
             log.error(
                 "test_6_4_kong_services_fetch_failed",
@@ -701,15 +722,25 @@ class Test64HardcodedCredentialsAudit(BaseTest):
             )
             return None
 
-    def _fetch_plugins(self, admin_base_url: str) -> list[dict[str, Any]] | None:
+    def _fetch_plugins(
+        self,
+        admin_base_url: str,
+        connect_timeout: float,
+        read_timeout: float,
+    ) -> list[dict[str, Any]] | None:
         """
         Retrieve Kong plugins via Admin API.
 
         Returns None on KongAdminError so the caller can produce a partial
         result rather than an ERROR.
+
+        Args:
+            admin_base_url:  Kong Admin API base URL without trailing slash.
+            connect_timeout: TCP connection timeout in seconds.
+            read_timeout:    HTTP read timeout in seconds.
         """
         try:
-            return get_plugins(admin_base_url)
+            return get_plugins(admin_base_url, connect_timeout, read_timeout)
         except KongAdminError as exc:
             log.error(
                 "test_6_4_kong_plugins_fetch_failed",
@@ -781,7 +812,7 @@ class Test64HardcodedCredentialsAudit(BaseTest):
                                 f"and reference secrets at runtime. "
                                 f"References: OWASP ASVS V13.3.1, CWE-798."
                             ),
-                            references=_REFERENCES,
+                            references=list(_REFERENCES),
                             evidence_ref=None,
                         )
                     )
@@ -825,7 +856,7 @@ class Test64HardcodedCredentialsAudit(BaseTest):
                                 f"replaced with a Secret Manager reference. "
                                 f"References: OWASP ASVS V13.3.1, NIST SP 800-53 IA-5(1)."
                             ),
-                            references=_REFERENCES,
+                            references=list(_REFERENCES),
                             evidence_ref=None,
                         )
                     )

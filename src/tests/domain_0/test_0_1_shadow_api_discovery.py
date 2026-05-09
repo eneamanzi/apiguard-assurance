@@ -49,61 +49,15 @@ import structlog
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
-from src.core.models import EndpointRecord, Finding, TestResult, TestStatus, TestStrategy
+from src.core.models import EndpointRecord, Finding, TestResult, TestStrategy
 from src.tests.base import BaseTest
+from src.tests.data.shadow_wordlists import SHADOW_API_WORDLIST
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-
-# Common undocumented paths that represent Shadow API candidates.
-# Sourced from OWASP API Security Testing Guide and SecLists API-endpoints.txt.
-# These paths are probed as GET requests; a 2xx or auth-required (401/403)
-# response indicates the path is active and must be compared against the spec.
-#
-# Note: the OpenAPI spec path itself is excluded at runtime via
-# _build_exclusion_set(). Do not hardcode spec-specific paths here.
-_SHADOW_API_WORDLIST: list[str] = [
-    "/api/admin",
-    "/api/internal",
-    "/api/debug",
-    "/api/config",
-    "/api/health",
-    "/api/metrics",
-    "/api/status",
-    "/api/actuator",
-    "/api/actuator/env",
-    "/api/actuator/heapdump",
-    "/api/swagger",
-    "/api/swagger-ui",
-    "/api/swagger.json",
-    "/api/swagger.yaml",
-    "/api/openapi.json",
-    "/api/openapi.yaml",
-    "/api/v1/admin",
-    "/api/v1/internal",
-    "/api/v1/debug",
-    "/api/v1/config",
-    "/api/v2/admin",
-    "/api/v2/internal",
-    "/api/v2/debug",
-    "/debug",
-    "/internal",
-    "/admin",
-    "/metrics",
-    "/health",
-    "/healthz",
-    "/readyz",
-    "/.well-known",
-    "/.env",
-    "/config",
-    "/status",
-    "/version",
-    "/info",
-    "/ping",
-]
 
 # HTTP status codes that indicate an active endpoint (not a definitive 404).
 # 401 and 403 are included: the path exists and the server is enforcing auth.
@@ -132,7 +86,7 @@ _ACTIVE_STATUS_CODES: frozenset[int] = frozenset(
 )
 
 # HTTP methods to probe per documented endpoint for method discovery.
-_PROBE_METHODS: list[str] = ["GET", "POST", "PUT", "PATCH", "DELETE"]
+_PROBE_METHODS: tuple[str, ...] = ("GET", "POST", "PUT", "PATCH", "DELETE")
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +137,7 @@ class Test_0_1_ShadowApiDiscovery(BaseTest):  # noqa: N801
             if skip is not None:
                 return skip
 
-            assert target.attack_surface is not None
+            assert target.attack_surface is not None  # noqa: S101 -- type narrowing only
             surface = target.attack_surface
 
             # Build a set of documented (path, method) pairs for O(1) lookup.
@@ -205,7 +159,7 @@ class Test_0_1_ShadowApiDiscovery(BaseTest):  # noqa: N801
             # Sub-check 1: path fuzzing against the wordlist.
             findings.extend(
                 self._probe_shadow_paths(
-                    wordlist=_SHADOW_API_WORDLIST,
+                    wordlist=SHADOW_API_WORDLIST,
                     documented_paths=documented_paths,
                     exclusion_set=exclusion_set,
                     client=client,
@@ -226,16 +180,12 @@ class Test_0_1_ShadowApiDiscovery(BaseTest):  # noqa: N801
             )
 
             if findings:
-                return TestResult(
-                    test_id=self.test_id,
-                    status=TestStatus.FAIL,
+                return self._make_fail_multi(
                     message=(
                         f"Shadow API discovery found {len(findings)} undocumented "
                         f"active endpoint(s) or undeclared method(s)."
                     ),
                     findings=findings,
-                    transaction_log=list(self._transaction_log),
-                    **self._metadata_kwargs(),
                 )
 
             return self._make_pass(

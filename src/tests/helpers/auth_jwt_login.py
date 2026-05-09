@@ -221,7 +221,7 @@ def acquire_single_token(
 
     try:
         response_json: dict[str, Any] = response.json()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- httpx exposes no typed JSON decode error; ValueError is the actual type
         raise AuthenticationSetupError(
             f"JWT login for role '{role}': server returned HTTP {response.status_code} "
             "but the response body is not valid JSON. "

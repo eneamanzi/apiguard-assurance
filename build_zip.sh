@@ -59,7 +59,6 @@ EXCLUDES=(
     "*.zip"
     ".env"
     "tests_integration/*"
-    "src/report/templates/*"
     "/docs/tool_catalog.md"
     "/docs/test_tool_decisions.md"
     "/docs/ARCHITECTURE.md"

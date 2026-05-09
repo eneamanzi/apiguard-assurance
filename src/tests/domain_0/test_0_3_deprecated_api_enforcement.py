@@ -75,8 +75,8 @@ from src.core.models import (
     EndpointRecord,
     EvidenceRecord,
     Finding,
+    InfoNote,
     TestResult,
-    TestStatus,
     TestStrategy,
 )
 from src.tests.base import BaseTest
@@ -133,12 +133,12 @@ _STATE_OTHER_STATUS: str = "OTHER_STATUS"
 # Constants -- standard references
 # ---------------------------------------------------------------------------
 
-_REFERENCES: list[str] = [
+_REFERENCES: tuple[str, ...] = (
     "CWE-1059",
     "OWASP-API9:2023",
     "RFC-8594",
     "NIST-SP-800-204-S3.1.3",
-]
+)
 
 
 # ---------------------------------------------------------------------------
@@ -285,32 +285,48 @@ class Test03DeprecatedApiEnforcement(BaseTest):
                     if gap_count
                     else ""
                 )
-                return TestResult(
-                    test_id=self.test_id,
-                    status=TestStatus.FAIL,
+                return self._make_fail_multi(
                     message=(
                         f"Deprecated API enforcement issues: {len(findings)} violation(s) "
                         f"detected among {probed_count} probed deprecated endpoint(s)."
                         f"{gap_note}"
                     ),
                     findings=findings,
-                    transaction_log=list(self._transaction_log),
-                    **self._metadata_kwargs(),
                 )
 
-            # All probeable endpoints passed. Build an informative PASS message.
-            pass_parts: list[str] = [
+            # All probeable endpoints passed.
+            pass_message: str = (
                 f"All {probed_count} probed deprecated endpoint(s) are correctly handled: "
-                f"either disabled (410 Gone) or carrying a valid future Sunset header."
-            ]
+                f"either disabled (HTTP 410 Gone) or carrying a valid future Sunset header."
+            )
+
+            # A coverage gap exists when some deprecated endpoints declare path template
+            # parameters and cannot be probed without resource identifiers. This is not a
+            # security finding but an observability gap: the analyst must verify those
+            # endpoints manually. Surfaced as an InfoNote (blue card in the HTML report)
+            # rather than embedded in the message string, which is reserved for the verdict.
+            pass_notes: list[InfoNote] = []
             if gap_count:
-                pass_parts.append(
-                    f"{gap_count} deprecated endpoint(s) with path parameters "
-                    f"({', '.join(coverage_gaps)}) were not probed in Black Box mode. "
-                    f"Manual verification recommended for these endpoints."
+                pass_notes.append(
+                    InfoNote(
+                        title=(
+                            f"Coverage Gap: {gap_count} Parametric Deprecated Endpoint(s) "
+                            f"Not Probed"
+                        ),
+                        detail=(
+                            f"{gap_count} deprecated endpoint(s) declared in the OpenAPI spec "
+                            f"contain path template parameters "
+                            f"({', '.join(coverage_gaps)}) and cannot be probed in Black Box "
+                            f"mode: valid resource identifiers are unavailable without an "
+                            f"authenticated session. Manual verification is required for these "
+                            f"endpoints to confirm deprecated lifecycle enforcement "
+                            f"(Sunset header presence, post-sunset 410 enforcement)."
+                        ),
+                        references=list(_REFERENCES),
+                    )
                 )
 
-            return self._make_pass(message=" ".join(pass_parts))
+            return self._make_pass(message=pass_message, notes=pass_notes)
 
         except Exception as exc:  # noqa: BLE001
             return self._make_error(exc)
@@ -462,7 +478,7 @@ class Test03DeprecatedApiEnforcement(BaseTest):
                     f"Without a Sunset header, consumers have no mechanism to anticipate "
                     f"the removal and update their integrations proactively."
                 ),
-                references=_REFERENCES,
+                references=list(_REFERENCES),
                 evidence_ref=record.record_id,
             )
 
@@ -483,7 +499,7 @@ class Test03DeprecatedApiEnforcement(BaseTest):
                     f"Post-sunset enforcement is not implemented: the endpoint "
                     f"continues to serve traffic after its declared end-of-life."
                 ),
-                references=_REFERENCES + ["RFC-9110"],
+                references=list(_REFERENCES) + ["RFC-9110"],
                 evidence_ref=record.record_id,
             )
 

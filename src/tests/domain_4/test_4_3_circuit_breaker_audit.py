@@ -103,7 +103,6 @@ from src.core.models import (
     InfoNote,
     RuntimeTest43Config,
     TestResult,
-    TestStatus,
     TestStrategy,
 )
 from src.tests.base import BaseTest
@@ -314,7 +313,11 @@ class Test43CircuitBreakerAudit(BaseTest):
             # ----------------------------------------------------------
             # Level 1: native CB plugin detection
             # ----------------------------------------------------------
-            plugins = self._fetch_plugins(admin_base_url)
+            plugins = self._fetch_plugins(
+                admin_base_url,
+                target.admin_connect_timeout_seconds,
+                target.admin_read_timeout_seconds,
+            )
             if plugins is None:
                 return self._make_error(
                     RuntimeError(
@@ -330,7 +333,11 @@ class Test43CircuitBreakerAudit(BaseTest):
 
                 # The observability check always runs independently and always
                 # produces an InfoNote (never a security Finding).
-                observability_note = self._check_observability(admin_base_url)
+                observability_note = self._check_observability(
+                    admin_base_url,
+                    target.admin_connect_timeout_seconds,
+                    target.admin_read_timeout_seconds,
+                )
 
                 if not level1.findings:
                     # Plugin found, enabled, params in range -> Full Guarantee.
@@ -361,17 +368,13 @@ class Test43CircuitBreakerAudit(BaseTest):
                             evidence_ref=None,
                         )
                     )
-                return TestResult(
-                    test_id=self.test_id,
-                    status=TestStatus.FAIL,
+                return self._make_fail_multi(
                     message=(
                         f"Level 1: plugin '{level1.plugin_name}' found but "
                         f"has {len(level1.findings)} configuration issue(s). "
                         "See findings for details."
                     ),
                     findings=fail_findings,
-                    transaction_log=list(self._transaction_log),
-                    **self._metadata_kwargs(),
                 )
 
             # Level 1 miss: log and continue.
@@ -384,7 +387,11 @@ class Test43CircuitBreakerAudit(BaseTest):
             # ----------------------------------------------------------
             # Level 2: upstream passive healthchecks (compensating control)
             # ----------------------------------------------------------
-            upstreams = self._fetch_upstreams(admin_base_url)
+            upstreams = self._fetch_upstreams(
+                admin_base_url,
+                target.admin_connect_timeout_seconds,
+                target.admin_read_timeout_seconds,
+            )
             if upstreams is None:
                 return self._make_error(
                     RuntimeError(
@@ -395,7 +402,11 @@ class Test43CircuitBreakerAudit(BaseTest):
             level2 = self._check_level2_passive_hc(upstreams=upstreams, cfg=cfg)
 
             # Observability check is independent of level outcome.
-            observability_note = self._check_observability(admin_base_url)
+            observability_note = self._check_observability(
+                admin_base_url,
+                target.admin_connect_timeout_seconds,
+                target.admin_read_timeout_seconds,
+            )
 
             if level2.has_valid_compensating_control:
                 # Level 2 PASS: attach compensating control and observability
@@ -439,9 +450,7 @@ class Test43CircuitBreakerAudit(BaseTest):
                     )
                 )
 
-            return TestResult(
-                test_id=self.test_id,
-                status=TestStatus.FAIL,
+            return self._make_fail_multi(
                 message=(
                     "Level 3 (Vulnerable): no native circuit-breaker plugin and no "
                     "upstream passive healthcheck detected on this Kong gateway. "
@@ -449,8 +458,6 @@ class Test43CircuitBreakerAudit(BaseTest):
                     "See findings for remediation guidance."
                 ),
                 findings=level3_findings,
-                transaction_log=list(self._transaction_log),
-                **self._metadata_kwargs(),
             )
 
         except Exception as exc:  # noqa: BLE001
@@ -461,7 +468,12 @@ class Test43CircuitBreakerAudit(BaseTest):
     # Level 1 helpers
     # ------------------------------------------------------------------
 
-    def _fetch_plugins(self, admin_base_url: str) -> list[dict[str, Any]] | None:
+    def _fetch_plugins(
+        self,
+        admin_base_url: str,
+        connect_timeout: float,
+        read_timeout: float,
+    ) -> list[dict[str, Any]] | None:
         """
         Retrieve all Kong plugins from the Admin API.
 
@@ -469,13 +481,15 @@ class Test43CircuitBreakerAudit(BaseTest):
         entry and a None return; the caller converts None to ERROR status.
 
         Args:
-            admin_base_url: Kong Admin API base URL without trailing slash.
+            admin_base_url:  Kong Admin API base URL without trailing slash.
+            connect_timeout: TCP connection timeout in seconds.
+            read_timeout:    HTTP read timeout in seconds.
 
         Returns:
             List of plugin dicts (possibly empty), or None on failure.
         """
         try:
-            plugins = get_plugins(admin_base_url)
+            plugins = get_plugins(admin_base_url, connect_timeout, read_timeout)
             log.debug("test_4_3_plugins_fetched", count=len(plugins))
             return plugins
         except KongAdminError as exc:
@@ -752,18 +766,25 @@ class Test43CircuitBreakerAudit(BaseTest):
     # Level 2 helpers
     # ------------------------------------------------------------------
 
-    def _fetch_upstreams(self, admin_base_url: str) -> list[dict[str, Any]] | None:
+    def _fetch_upstreams(
+        self,
+        admin_base_url: str,
+        connect_timeout: float,
+        read_timeout: float,
+    ) -> list[dict[str, Any]] | None:
         """
         Retrieve all Kong upstreams from the Admin API.
 
         Args:
-            admin_base_url: Kong Admin API base URL without trailing slash.
+            admin_base_url:  Kong Admin API base URL without trailing slash.
+            connect_timeout: TCP connection timeout in seconds.
+            read_timeout:    HTTP read timeout in seconds.
 
         Returns:
             List of upstream dicts (possibly empty), or None on failure.
         """
         try:
-            upstreams = get_upstreams(admin_base_url)
+            upstreams = get_upstreams(admin_base_url, connect_timeout, read_timeout)
             log.debug("test_4_3_upstreams_fetched", count=len(upstreams))
             return upstreams
         except KongAdminError as exc:
@@ -1073,7 +1094,12 @@ class Test43CircuitBreakerAudit(BaseTest):
     # Observability check (independent, always runs)
     # ------------------------------------------------------------------
 
-    def _check_observability(self, admin_base_url: str) -> InfoNote | None:
+    def _check_observability(
+        self,
+        admin_base_url: str,
+        connect_timeout: float,
+        read_timeout: float,
+    ) -> InfoNote | None:
         """
         Check whether the Kong /status endpoint exposes circuit-breaker metrics.
 
@@ -1090,14 +1116,16 @@ class Test43CircuitBreakerAudit(BaseTest):
         the test status on its own.
 
         Args:
-            admin_base_url: Kong Admin API base URL without trailing slash.
+            admin_base_url:  Kong Admin API base URL without trailing slash.
+            connect_timeout: TCP connection timeout in seconds.
+            read_timeout:    HTTP read timeout in seconds.
 
         Returns:
             Informational InfoNote if CB metrics are absent from /status.
             Returns None on KongAdminError (avoids masking the primary finding).
         """
         try:
-            status_data = get_status(admin_base_url)
+            status_data = get_status(admin_base_url, connect_timeout, read_timeout)
         except KongAdminError as exc:
             log.warning(
                 "test_4_3_status_endpoint_unreachable",

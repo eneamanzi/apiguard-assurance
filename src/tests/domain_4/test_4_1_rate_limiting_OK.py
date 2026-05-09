@@ -98,7 +98,6 @@ from src.core.models import (
     EvidenceRecord,
     Finding,
     TestResult,
-    TestStatus,
     TestStrategy,
 )
 from src.tests.base import BaseTest
@@ -128,12 +127,12 @@ _STATE_PROBE_HIT: str = "PROBE_HIT"
 _STATE_TRANSPORT_ERROR: str = "TRANSPORT_ERROR"
 
 # References cited in every Finding produced by this test.
-_REFERENCES: list[str] = [
+_REFERENCES: tuple[str, ...] = (
     "OWASP-API4:2023",
     "OWASP-ASVS-v5.0.0-V2.4.1",
     "NIST-SP-800-204-Section-4.5",
     "CWE-400",
-]
+)
 
 
 class Test41RateLimiting(BaseTest):
@@ -247,17 +246,13 @@ class Test41RateLimiting(BaseTest):
 
             # Build result
             if findings:
-                return TestResult(
-                    test_id=self.test_id,
-                    status=TestStatus.FAIL,
+                return self._make_fail_multi(
                     message=(
                         f"Rate limiting check on {probe_method} {probe_path} "
                         f"produced {len(findings)} finding(s). "
                         f"See findings for details."
                     ),
                     findings=findings,
-                    transaction_log=list(self._transaction_log),
-                    **self._metadata_kwargs(),
                 )
 
             return self._make_pass(
@@ -365,7 +360,7 @@ class Test41RateLimiting(BaseTest):
                 f"rate-limit key instead of the real TCP source IP. An attacker can "
                 f"rotate this header on every request to bypass rate limiting entirely."
             ),
-            references=_REFERENCES,
+            references=list(_REFERENCES),
             evidence_ref=None,
         )
         return finding, None
@@ -458,7 +453,7 @@ class Test41RateLimiting(BaseTest):
                 f"Without rate limiting, the endpoint is exposed to unbounded "
                 f"brute-force, credential stuffing, and DoS via resource exhaustion."
             ),
-            references=_REFERENCES,
+            references=list(_REFERENCES),
             evidence_ref=None,
         )
         return finding, None

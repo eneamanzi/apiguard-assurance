@@ -15,12 +15,14 @@ Steps to add a new subprocess-based connector:
        src/external_tests/ext_test_<toolname>_<description>.py.
 
 ConnectorRawOutput contract (REQUIRED keys in raw_output):
-    "command"        -- human-readable plain-text command for reproduction.
-    "command_json"   -- command with JSON output flag appended.
-    "results"        -- connector-filtered list of finding dicts.
-    "raw_findings"   -- complete unfiltered list.
-    "all_count"      -- total findings before filtering.
-    "retained_count" -- findings after filtering.
+    "command"      -- human-readable plain-text command for reproduction.
+    "command_json" -- command with JSON output flag appended.
+    "results"      -- complete unfiltered list of finding dicts from the tool.
+    "all_count"    -- total findings; equals len(results).
+
+    Design principle: connectors are "dumb pipes" -- pass ALL findings in results.
+    Severity-based partitioning (FAIL / note / ignore) is the oracle responsibility
+    of the calling ExternalToolTest._evaluate(), not the connector.
 
     Use self._build_reproducible_commands() to produce "command" and
     "command_json" without reimplementing path-normalisation logic.
@@ -71,14 +73,12 @@ class TemplateConnector(BaseSubprocessConnector):
         {
           "command":        "<tool> [flags] <target>",
           "command_json":   "<tool> [flags] -json <target>",
-          "results":        [...],   # filtered findings
-          "raw_findings":   [...],   # unfiltered findings
-          "all_count":      N,
-          "retained_count": M
+          "results":   [...],   # complete unfiltered findings (no connector-side filter)
+          "all_count": N           # total findings; equals len(results)
         }
     """
 
-    TOOL_NAME: ClassVar[str] = "template-tool"   # human-readable; used in logs and report
+    TOOL_NAME: ClassVar[str] = "template-tool"  # human-readable; used in logs and report
     BINARY_NAME: ClassVar[str] = "template-tool"  # name of the binary in PATH
     SERVICE_ENV_VAR: ClassVar[str] = "TEMPLATE_TOOL_SERVICE_URL"
     DEFAULT_TIMEOUT_SECONDS: ClassVar[int] = 60
@@ -146,8 +146,7 @@ class TemplateConnector(BaseSubprocessConnector):
             preview = (stdout or "")[:300].replace("\n", " ")
             raise ExternalToolError(
                 message=(
-                    f"{self.TOOL_NAME} exited with code {exit_code}. "
-                    f"Output preview: {preview!r}"
+                    f"{self.TOOL_NAME} exited with code {exit_code}. Output preview: {preview!r}"
                 ),
                 tool_name=self.TOOL_NAME,
                 exit_code=exit_code,
@@ -159,28 +158,25 @@ class TemplateConnector(BaseSubprocessConnector):
             tool_name=self.TOOL_NAME,
         )
 
-        # Apply any connector-side filtering here (e.g. severity filter).
-        retained_findings: list[dict[str, Any]] = all_findings  # no filter by default
-
         log.info(
             "template_connector_run_complete",
             scan_target=scan_target,
             all_count=len(all_findings),
-            retained_count=len(retained_findings),
             exit_code=exit_code,
             execution_time_ms=execution_time_ms,
         )
 
         # Build raw_output following the ConnectorRawOutput contract.
-        # All six REQUIRED keys must be present or the HTML report will display
+        # All four REQUIRED keys must be present or the HTML report will display
         # dashes silently (the Jinja2 template uses the default_dash filter).
+        # No connector-side filtering: pass all findings in results.
+        # Severity-based partitioning (FAIL / note / ignore) is the oracle
+        # responsibility of the calling ExternalToolTest._evaluate().
         raw_output: dict[str, Any] = {
             "command": reproducible_command,
             "command_json": reproducible_command_json,
-            "results": retained_findings,
-            "raw_findings": all_findings,
+            "results": all_findings,
             "all_count": len(all_findings),
-            "retained_count": len(retained_findings),
         }
 
         return ConnectorResult(

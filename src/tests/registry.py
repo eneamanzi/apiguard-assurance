@@ -50,15 +50,11 @@ import importlib
 import inspect
 import pkgutil
 import types
-from typing import TYPE_CHECKING
 
 import structlog
 
 from src.core.models import TestStrategy
 from src.tests.base import BaseTest
-
-if TYPE_CHECKING:
-    pass
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 

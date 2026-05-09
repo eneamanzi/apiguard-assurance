@@ -44,14 +44,14 @@ What this module does NOT do
 Dependency rule
 ---------------
 This module imports only from stdlib. It must never import from src.core,
-src.tests, or any third-party library. The only external dependency is the
-'cryptography' package for the key confusion attack, imported locally inside
-forge_hs256_key_confusion() to keep it optional and scoped.
+src.tests, or any third-party library.
 """
 
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import json
 import time
 from typing import Any, cast
@@ -324,10 +324,7 @@ def forge_hs256_key_confusion(public_key_pem: str, payload: dict[str, Any]) -> s
         b) Select the validation key based on the configured algorithm, not the
            header's alg claim.
 
-    The 'cryptography' library is imported locally because this function is
-    only called when a JWKS endpoint is available. Keeping the import local
-    avoids a hard dependency at module load time and keeps the failure mode
-    explicit: an ImportError here means the test should SKIP, not ERROR.
+    Uses only stdlib modules (hmac, hashlib) — no third-party dependency.
 
     Args:
         public_key_pem: PEM-encoded RSA public key string, typically fetched
@@ -341,18 +338,8 @@ def forge_hs256_key_confusion(public_key_pem: str, payload: dict[str, Any]) -> s
         as the secret: '{header}.{payload}.{hmac_signature}'
 
     Raises:
-        ImportError: If the 'cryptography' package is not installed.
-        ValueError:  If public_key_pem is empty or payload is not serializable.
+        ValueError: If public_key_pem is empty or payload is not serializable.
     """
-    try:
-        import hashlib as _hashlib
-        import hmac as _hmac
-    except ImportError as exc:
-        raise ImportError(
-            "Standard library modules 'hmac' and 'hashlib' are unavailable. "
-            "This should never happen in a standard CPython installation."
-        ) from exc
-
     if not public_key_pem or not public_key_pem.strip():
         raise ValueError("public_key_pem must not be empty.")
 
@@ -366,7 +353,7 @@ def forge_hs256_key_confusion(public_key_pem: str, payload: dict[str, Any]) -> s
     # This replicates the exact byte sequence that a vulnerable RS256 server
     # would use when switching to HMAC validation with its known public key.
     secret_bytes = public_key_pem.encode("utf-8")
-    mac = _hmac.new(secret_bytes, signing_input.encode("utf-8"), _hashlib.sha256)
+    mac = hmac.new(secret_bytes, signing_input.encode("utf-8"), hashlib.sha256)
     signature_b64 = _b64url_encode_bytes(mac.digest())
 
     return f"{signing_input}{_JWT_SEPARATOR}{signature_b64}"

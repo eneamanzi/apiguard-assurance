@@ -118,8 +118,9 @@ import structlog
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
-from src.core.models import EndpointRecord, Finding, TestResult, TestStatus, TestStrategy
+from src.core.models import EndpointRecord, Finding, InfoNote, TestResult, TestStrategy
 from src.tests.base import BaseTest
+from src.tests.data.auth_payloads import MALFORMED_TOKENS
 from src.tests.helpers.path_resolver import (
     PATH_PARAM_FALLBACK_DEFAULT,
     PATH_PARAM_FALLBACK_SAFE_DELETE,
@@ -172,33 +173,6 @@ _READ_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
 # WRITE methods: require a body to avoid premature 400/422 before auth check.
 # Sending json={} ensures the auth layer fires before body validation.
 _WRITE_METHODS: frozenset[str] = frozenset({"POST", "PUT", "PATCH"})
-
-# ---------------------------------------------------------------------------
-# Path parameter placeholders
-# ---------------------------------------------------------------------------
-
-# Default placeholder for path template parameters in non-DELETE probes.
-# Imported from src.tests.helpers.path_resolver to keep the definition in one place.
-# Aliased here as a module-level name so the rest of this file can reference it
-# without the fully-qualified import chain everywhere.
-_PATH_PARAM_PLACEHOLDER: str = PATH_PARAM_FALLBACK_DEFAULT
-
-# Safe placeholder for parametric DELETE probes.
-# Aliased from the shared constant for the same reason.
-_PATH_PARAM_PLACEHOLDER_SAFE_DELETE: str = PATH_PARAM_FALLBACK_SAFE_DELETE
-
-# ---------------------------------------------------------------------------
-# Malformed Authorization header values for sub-check B.
-# Each tuple: (header_value, human_readable_label)
-# ---------------------------------------------------------------------------
-
-_MALFORMED_TOKENS: tuple[tuple[str, str], ...] = (
-    ("Bearer", "Bearer scheme with empty token value"),
-    ("Bearer null", "literal string 'null' as token"),
-    ("Bearer undefined", "literal string 'undefined' as token"),
-    ("no-scheme-apiguard-probe", "raw string without Bearer prefix"),
-    ("Bearer " + "X" * 8, "token body structurally too short for any real format"),
-)
 
 # ---------------------------------------------------------------------------
 # Path normalization variant acceptable codes for sub-check C.
@@ -364,6 +338,14 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
             # Phase B -- Malformed token sub-check (requires ENFORCED anchor)
             # ------------------------------------------------------------------
 
+            # Counts bypasses detected by sub-checks B, B.5, and C separately
+            # from counters[_OUTCOME_BYPASS], which tracks only the main probe
+            # loop.  Sub-checks test variants of a single anchor endpoint, so
+            # summing them into the main bypass counter would misrepresent N
+            # distinct endpoints lacking auth when in reality a single endpoint
+            # accepted N malformed/normalised variants.
+            subcheck_bypass_count: int = 0
+
             if enforced_tier_a_anchor is not None:
                 malformed_findings = self._check_malformed_tokens(
                     anchor=enforced_tier_a_anchor,
@@ -372,7 +354,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
                     store=store,
                 )
                 findings.extend(malformed_findings)
-                counters[_OUTCOME_BYPASS] += len(malformed_findings)
+                subcheck_bypass_count += len(malformed_findings)
             else:
                 log.info(
                     "test_1_1_malformed_token_subcheck_skipped",
@@ -395,7 +377,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
                     store=store,
                 )
                 findings.extend(header_case_findings)
-                counters[_OUTCOME_BYPASS] += len(header_case_findings)
+                subcheck_bypass_count += len(header_case_findings)
 
             # ------------------------------------------------------------------
             # Phase C -- Path normalization sub-check
@@ -409,7 +391,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
                     store=store,
                 )
                 findings.extend(normalization_findings)
-                counters[_OUTCOME_BYPASS] += len(normalization_findings)
+                subcheck_bypass_count += len(normalization_findings)
 
             # ------------------------------------------------------------------
             # Phase D -- Build result
@@ -420,30 +402,48 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
                 total_tested=len(candidates),
                 cap_applied=cap > 0,
                 counters=counters,
+                subcheck_bypass_count=subcheck_bypass_count,
             )
 
             if findings:
-                return TestResult(
-                    test_id=self.test_id,
-                    status=TestStatus.FAIL,
+                return self._make_fail_multi(
                     message=(
                         f"Authentication enforcement violated on {len(findings)} check(s). "
                         f"{coverage_summary}"
                     ),
                     findings=findings,
-                    transaction_log=list(self._transaction_log),
-                    **self._metadata_kwargs(),
                 )
 
             if counters[_OUTCOME_ENFORCED] == 0:
+                # No endpoint confirmed auth enforcement: the test cannot assert
+                # that the auth layer is active. This is an observability gap, not a
+                # bypass finding -- all responses were INCONCLUSIVE (typically 404
+                # before the auth check fires). The verdict is a PASS (no bypass
+                # detected), but the InfoNote surfaces the gap so the analyst knows
+                # manual follow-up is necessary before treating this as a confirmed PASS.
                 return self._make_pass(
                     message=(
-                        "No authentication bypass detected, but no positive enforcement "
-                        "evidence was obtained (all responses were INCONCLUSIVE). "
-                        "This occurs when all probed endpoints return 404 before "
-                        "reaching the auth check. Manual verification recommended. "
-                        f"{coverage_summary}"
-                    )
+                        "No authentication bypass detected. "
+                        "All probed endpoints returned INCONCLUSIVE responses."
+                    ),
+                    notes=[
+                        InfoNote(
+                            title="Observability Gap: No Positive Enforcement Evidence Obtained",
+                            detail=(
+                                "No probed endpoint returned 401 or 403 in response to an "
+                                "unauthenticated request, so the test cannot confirm the "
+                                "auth layer is active. This typically occurs when all "
+                                "endpoints return 404 before reaching the auth check "
+                                "(e.g. the OpenAPI spec declares paths that do not exist "
+                                "on this deployment, or all paths require resource IDs that "
+                                "cannot be resolved in Black Box mode). "
+                                "Manual verification is required to confirm that "
+                                "authentication enforcement is in place. "
+                                f"{coverage_summary}"
+                            ),
+                            references=["CWE-306", "OWASP-API2:2023", "OWASP-ASVS-V6.3"],
+                        )
+                    ],
                 )
 
             return self._make_pass(
@@ -497,7 +497,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
         if method in _READ_METHODS:
             # Idempotent methods: resolve with seed, fallback to default placeholder.
             resolved_path = resolve_path_with_seed(
-                raw_path, seed=seed, fallback=_PATH_PARAM_PLACEHOLDER
+                raw_path, seed=seed, fallback=PATH_PARAM_FALLBACK_DEFAULT
             )
 
         elif method in _WRITE_METHODS:
@@ -506,7 +506,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
             # frameworks reject the request with 400/415 before checking auth,
             # making the response ambiguous (enforcement or malformed request?).
             resolved_path = resolve_path_with_seed(
-                raw_path, seed=seed, fallback=_PATH_PARAM_PLACEHOLDER
+                raw_path, seed=seed, fallback=PATH_PARAM_FALLBACK_DEFAULT
             )
             extra_kwargs["json"] = {}
 
@@ -516,7 +516,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
                 # match real records when probed without credentials). Fall back
                 # to the safe placeholder to bound the risk of accidental deletion.
                 resolved_path = resolve_path_with_seed(
-                    raw_path, seed=seed, fallback=_PATH_PARAM_PLACEHOLDER_SAFE_DELETE
+                    raw_path, seed=seed, fallback=PATH_PARAM_FALLBACK_SAFE_DELETE
                 )
             else:
                 # Global (non-parametric) DELETE: never send without auth.
@@ -534,7 +534,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
                 raw_path=raw_path,
             )
             resolved_path = resolve_path_with_seed(
-                raw_path, seed=seed, fallback=_PATH_PARAM_PLACEHOLDER
+                raw_path, seed=seed, fallback=PATH_PARAM_FALLBACK_DEFAULT
             )
 
         return resolved_path, extra_kwargs
@@ -778,7 +778,9 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
         # Anchor is guaranteed non-parametric (Tier A selection), so
         # resolve_path_with_seed is a no-op here. Passing seed is correct for
         # API consistency and future cases where the anchor selection logic changes.
-        path: str = resolve_path_with_seed(anchor.path, seed=seed, fallback=_PATH_PARAM_PLACEHOLDER)
+        path: str = resolve_path_with_seed(
+            anchor.path, seed=seed, fallback=PATH_PARAM_FALLBACK_DEFAULT
+        )
 
         # Derive the body extra_kwargs from the anchor's method. The anchor can
         # never be a non-parametric DELETE (those return UNPROBED_DESTRUCTIVE
@@ -786,7 +788,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
         # well-defined without a None check.
         base_kwargs: dict[str, Any] = {"json": {}} if method in _WRITE_METHODS else {}
 
-        for token_value, token_label in _MALFORMED_TOKENS:
+        for token_value, token_label in MALFORMED_TOKENS:
             try:
                 response, record = client.request(
                     method=method,
@@ -875,7 +877,9 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
         """
         findings: list[Finding] = []
         method: str = anchor.method
-        path: str = resolve_path_with_seed(anchor.path, seed=seed, fallback=_PATH_PARAM_PLACEHOLDER)
+        path: str = resolve_path_with_seed(
+            anchor.path, seed=seed, fallback=PATH_PARAM_FALLBACK_DEFAULT
+        )
         base_kwargs: dict[str, Any] = {"json": {}} if method in _WRITE_METHODS else {}
 
         header_variants: tuple[tuple[str, str], ...] = (
@@ -988,7 +992,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
         findings: list[Finding] = []
         method: str = anchor.method
         base_path: str = resolve_path_with_seed(
-            anchor.path, seed=seed, fallback=_PATH_PARAM_PLACEHOLDER
+            anchor.path, seed=seed, fallback=PATH_PARAM_FALLBACK_DEFAULT
         )
         path_without_leading_slash = base_path.lstrip("/")
         base_kwargs: dict[str, Any] = {"json": {}} if method in _WRITE_METHODS else {}
@@ -1086,6 +1090,7 @@ def _build_coverage_summary(
     total_tested: int,
     cap_applied: bool,
     counters: dict[str, int],
+    subcheck_bypass_count: int,
 ) -> str:
     """
     Build a human-readable coverage summary for inclusion in the TestResult message.
@@ -1094,11 +1099,20 @@ def _build_coverage_summary(
     distribution of oracle outcomes, including the UNPROBED_DESTRUCTIVE count
     so operators can identify endpoints requiring manual follow-up.
 
+    ``counters[_OUTCOME_BYPASS]`` counts only main-loop bypasses (distinct
+    endpoints that returned 2xx without authentication).  Sub-check bypasses
+    (malformed tokens, header case variations, path normalization variants) are
+    tracked separately in ``subcheck_bypass_count`` because they test multiple
+    variants of a single anchor endpoint -- conflating them with the main bypass
+    count would imply that N different endpoints lack authentication when in
+    reality a single endpoint accepted N structurally different requests.
+
     Args:
-        total_protected: Total protected endpoints declared in the OpenAPI spec.
-        total_tested:    Endpoints actually probed (may differ from total if cap applied).
-        cap_applied:     True if a non-zero cap was applied.
-        counters:        Dict of outcome label -> count, as populated by the probe loop.
+        total_protected:     Total protected endpoints declared in the OpenAPI spec.
+        total_tested:        Endpoints actually probed (may differ if cap applied).
+        cap_applied:         True if a non-zero cap was applied.
+        counters:            Dict of outcome label -> count from the probe loop.
+        subcheck_bypass_count: Total sub-check bypass findings (phases B, B.5, C).
 
     Returns:
         Multi-sentence human-readable summary string.
@@ -1122,7 +1136,7 @@ def _build_coverage_summary(
 
     outcomes_line = (
         f"Outcomes: {enforced} enforced (auth confirmed), "
-        f"{bypass} bypass (auth absent), "
+        f"{bypass} bypass (auth absent -- distinct endpoints), "
         f"{inconclusive_parametric} inconclusive-parametric (placeholder ID returned 404), "
         f"{inconclusive_not_found} inconclusive-not-found (Tier A endpoint absent on server), "
         f"{inconclusive_redirect} redirect, "
@@ -1133,4 +1147,10 @@ def _build_coverage_summary(
         f"{transport_error} transport-error."
     )
 
-    return f"{scope_line} {outcomes_line}"
+    subcheck_line = (
+        f"Sub-check bypasses: {subcheck_bypass_count} "
+        f"(malformed tokens + header-case + normalization variants on anchor endpoint; "
+        f"each counts as a separate Finding, not a separate endpoint bypass)."
+    )
+
+    return f"{scope_line} {outcomes_line} {subcheck_line}"

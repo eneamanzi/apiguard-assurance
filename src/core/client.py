@@ -36,6 +36,7 @@ report/.
 
 from __future__ import annotations
 
+import json
 import time
 from datetime import UTC, datetime
 from types import TracebackType
@@ -77,9 +78,9 @@ DEFAULT_RETRY_WAIT_MAX_SECONDS: float = 8.0
 DEFAULT_RETRY_JITTER_SECONDS: float = 1.0
 
 # Maximum length of response body stored in EvidenceRecord, in characters.
-# Consistent with the value enforced by EvidenceRecord.truncate_response_body.
-RESPONSE_BODY_MAX_CHARS: int = 10_000
-RESPONSE_BODY_TRUNCATION_SUFFIX: str = "... [TRUNCATED]"
+# The authoritative constant is _EVIDENCE_RECORD_BODY_MAX_CHARS in core/models/http.py;
+# truncation is enforced by the EvidenceRecord.truncate_response_body field_validator.
+# The value is documented here only as a cross-reference for readers of this module.
 
 # HTTP exceptions that are considered transient and worth retrying.
 # These are all transport-layer failures — the server never sent a response.
@@ -529,8 +530,8 @@ class SecurityClient:
         The response body is read as text. If the response content is binary
         (e.g., a PDF or image), the decode will use the response's declared
         charset with 'replace' error handling to avoid UnicodeDecodeError.
-        Truncation to RESPONSE_BODY_MAX_CHARS is enforced by EvidenceRecord's
-        field_validator.
+        Truncation to _EVIDENCE_RECORD_BODY_MAX_CHARS (defined in core/models/http.py)
+        is enforced by EvidenceRecord's field_validator.
 
         The request body is reconstructed from the json argument as a string.
         Raw bytes bodies (content parameter) are not included in the record
@@ -557,20 +558,23 @@ class SecurityClient:
         Returns:
             A fully populated EvidenceRecord instance.
         """
-        import json as json_stdlib
-
         # Reconstruct request body string for the record.
         request_body_str: str | None = None
         if request_json is not None:
             try:
-                request_body_str = json_stdlib.dumps(request_json, ensure_ascii=False)
+                request_body_str = json.dumps(request_json, ensure_ascii=False)
             except (TypeError, ValueError):
                 request_body_str = str(request_json)
 
         # Read response body as text, replacing undecodable bytes.
         try:
             response_body_str: str | None = response.text
-        except Exception:
+        except UnicodeDecodeError as exc:
+            log.debug(
+                "security_client_response_body_decode_failed",
+                record_id=record_id,
+                exc_type=type(exc).__name__,
+            )
             response_body_str = "[Binary or undecodable response body]"
 
         # Normalize response headers to lowercase string dict.

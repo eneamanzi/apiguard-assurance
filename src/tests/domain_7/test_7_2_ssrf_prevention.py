@@ -139,12 +139,12 @@ _NON_HTTP_SCHEMES: frozenset[str] = frozenset(
     }
 )
 
-_REFERENCES: list[str] = [
+_REFERENCES: tuple[str, ...] = (
     "OWASP-API7:2023",
     "CWE-918",
     "OWASP-ASVS-v5.0.0-V1.3.6",
     "NIST-SP-800-204-S3.2.2",
-]
+)
 
 # Timeout sub-test skip message (sub-test E redirect server absent).
 _REDIRECT_SKIP_REASON: str = (
@@ -437,7 +437,7 @@ class Test72SSRFPrevention(BaseTest):
                 redirect_gap_note = InfoNote(
                     title="Sub-test E (Redirect Following) Not Executed",
                     detail=_REDIRECT_SKIP_REASON,
-                    references=_REFERENCES,
+                    references=list(_REFERENCES),
                 )
                 all_notes = list(timeout_notes) + [redirect_gap_note]
 
@@ -560,7 +560,7 @@ class Test72SSRFPrevention(BaseTest):
                             f"(ambiguous outcome -- potential SSRF). "
                             f"Transport error: {exc}"
                         ),
-                        references=_REFERENCES,
+                        references=list(_REFERENCES),
                     )
                 )
                 continue
@@ -593,7 +593,7 @@ class Test72SSRFPrevention(BaseTest):
                             f"Expected: 4xx rejection at URL validation time, "
                             f"regardless of the active flag."
                         ),
-                        references=_REFERENCES,
+                        references=list(_REFERENCES),
                         evidence_ref=record.record_id,
                     )
                 )
@@ -710,7 +710,7 @@ class Test72SSRFPrevention(BaseTest):
                         f"a response within the configured read timeout. "
                         f"Transport error: {exc}"
                     ),
-                    references=_REFERENCES,
+                    references=list(_REFERENCES),
                 )
             )
             return None
@@ -733,7 +733,7 @@ class Test72SSRFPrevention(BaseTest):
                         f"Expected: 4xx -- the application must validate the "
                         f"final redirect target, not only the initial URL."
                     ),
-                    references=_REFERENCES,
+                    references=list(_REFERENCES),
                     evidence_ref=record.record_id,
                 )
             )

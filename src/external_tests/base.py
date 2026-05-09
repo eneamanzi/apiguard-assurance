@@ -85,7 +85,7 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # ---------------------------------------------------------------------------
 # _REQUIRED_RAW_OUTPUT_KEYS -- ConnectorRawOutput contract enforcement
 # ---------------------------------------------------------------------------
-# These six keys are mandated by the ConnectorRawOutput contract defined in
+# These four keys are mandated by the ConnectorRawOutput contract defined in
 # connectors/base.py.  _validate_raw_output() checks their presence before
 # _evaluate() is called, converting a silent broken-report scenario into an
 # explicit ERROR TestResult with a diagnostic message pointing to the contract.
@@ -97,7 +97,7 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 #   - New connectors can scan this constant during code review to verify
 #     they satisfy the contract before running the full assessment.
 _REQUIRED_RAW_OUTPUT_KEYS: frozenset[str] = frozenset(
-    {"command", "command_json", "results", "raw_findings", "all_count", "retained_count"}
+    {"command", "command_json", "results", "all_count"}
 )
 
 # ---------------------------------------------------------------------------
@@ -319,7 +319,7 @@ class ExternalToolTest(ABC):
 
         # --- Step 3b: validate ConnectorRawOutput contract ---
         # Raises ExternalToolError (caught by execute()'s top-level handler) if any
-        # of the six required keys are absent from raw_output.  This converts the
+        # of the four required keys are absent from raw_output.  This converts the
         # Jinja2 default_dash silent failure mode into an explicit ERROR TestResult
         # with a diagnostic message pointing to the ConnectorRawOutput contract class.
         self._validate_raw_output(connector_result)
@@ -548,7 +548,7 @@ class ExternalToolTest(ABC):
         """
         Verify that ConnectorResult.raw_output satisfies the ConnectorRawOutput contract.
 
-        Checks that all six keys required by ConnectorRawOutput (defined in
+        Checks that all four keys required by ConnectorRawOutput (defined in
         connectors/base.py) are present in result.raw_output.  Raises
         ExternalToolError if any are missing so that execute()'s top-level
         handler converts the failure into a TestResult(ERROR) with a
@@ -576,9 +576,8 @@ class ExternalToolTest(ABC):
                     f"ConnectorResult.raw_output from '{result.tool_name}' is missing "
                     f"required ConnectorRawOutput keys: {sorted(missing)}. "
                     "Check the ConnectorRawOutput contract in src/connectors/base.py "
-                    "and ensure the connector's run() method populates all six "
-                    "mandatory keys (command, command_json, results, raw_findings, "
-                    "all_count, retained_count)."
+                    "and ensure the connector's run() method populates all four "
+                    "mandatory keys (command, command_json, results, all_count)."
                 ),
                 tool_name=result.tool_name,
                 exit_code=result.exit_code,

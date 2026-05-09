@@ -23,9 +23,11 @@ Timeout access pattern (Proposal C):
         timeout_seconds = target.external_tools.ffuf.timeout_seconds
 
 raw_output contract (ConnectorRawOutput):
-    The connector's run() method must populate raw_output with all six REQUIRED
+    The connector's run() method must populate raw_output with all four REQUIRED
     keys documented in ConnectorRawOutput (src/connectors/base.py):
-        command, command_json, results, raw_findings, all_count, retained_count.
+        command, command_json, results, all_count.
+    Connectors are dumb pipes -- pass ALL findings in results; the oracle in
+    _evaluate() partitions them into FAIL / note / ignore buckets.
     Use self._build_reproducible_commands() in the connector to produce
     command and command_json without reimplementing path normalisation.
 
@@ -56,10 +58,10 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # Module-level constants
 # ---------------------------------------------------------------------------
 
-_REFERENCES: list[str] = [
+_REFERENCES: tuple[str, ...] = (
     "OWASP-API-Security-Top-10-2023",
     # Add relevant NIST, CWE, OWASP ASVS references here.
-]
+)
 
 
 # ---------------------------------------------------------------------------
@@ -221,8 +223,7 @@ class TemplateExtTest(ExternalToolTest):
 
         return self._make_pass(
             message=(
-                f"No FAIL-grade findings in {result.raw_output.get('retained_count', 0)} "
-                f"retained results (from {result.raw_output.get('all_count', 0)} total)."
+                f"No FAIL-grade findings in {result.raw_output.get('all_count', 0)} total result(s)."  # noqa: E501
                 + (f" {len(notes)} informational note(s) below FAIL threshold." if notes else "")
             ),
             notes=notes,

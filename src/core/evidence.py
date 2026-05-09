@@ -139,7 +139,37 @@ _SANITIZE_JWT_PATTERN: re.Pattern[str] = re.compile(
 # HTTP Authorization header value prefixes that indicate a credential in the
 # string content itself (e.g., a captured Authorization header value stored
 # in an arbitrary dict field whose key name was not caught above).
-_SANITIZE_HEADER_PREFIXES: tuple[str, ...] = ("Bearer ", "Basic ", "Token ")
+#
+# Case-sensitive note: Python str.startswith() is case-sensitive.
+# "Token " (title-case) covers the RFC 6750 non-standard variant used by some
+# API clients. "token " (lowercase) covers the Forgejo/Gitea native format
+# produced by _bearer_headers() in tests/helpers/forgejo_resources.py.
+# Both must be present to guarantee redaction of Forgejo tokens in artifacts.
+_SANITIZE_HEADER_PREFIXES: tuple[str, ...] = ("Bearer ", "Basic ", "Token ", "token ")
+
+# Absolute filesystem path pattern: matches any string segment that begins
+# with a path separator (/ or \) and contains at least one subsequent path
+# separator, then captures the trailing filename component.
+#
+# Purpose: replace full paths (e.g. "/home/analyst/project/tools/testssl.sh"
+# or "C:\\Users\\analyst\\tools\\nuclei.exe") with their filename only
+# ("testssl.sh" / "nuclei.exe"), preventing filesystem layout disclosure in
+# stored artifacts (evidence.json, tools/*.json).
+#
+# This is identical to _ABS_PATH_RE in ext_test_1_5_tls_analysis.py and is
+# defined here at module level to satisfy Ruff N806 (no UPPER_CASE inside
+# functions) and to avoid recompiling the regex on every _sanitize_artifact()
+# call.  The two definitions are intentionally kept in sync: the connector
+# layer (ext_test_1_5) strips paths from finding text before display; the
+# evidence layer strips paths from tool raw_output before storage.
+#
+# Pattern breakdown:
+#   [/\\]           -- path starts with / (POSIX) or \ (Windows)
+#   [^ ,\"'\t\n]*  -- zero or more non-separator, non-whitespace chars
+#                     (the intermediate path components)
+#   [/\\]           -- at least one path separator present (not a bare filename)
+#   ([^ ,\"'\t\n]+) -- captured group: the filename (last component)
+_SANITIZE_ABS_PATH_RE: re.Pattern[str] = re.compile(r"[/\\][^ ,\"'\t\n]*[/\\]([^ ,\"'\t\n]+)")
 
 # Characters unsafe for use in filenames produced by _persist_tool_artifact().
 # Dots create ambiguous extensions; slashes create subdirectories; spaces are
@@ -658,7 +688,7 @@ class EvidenceStore:
         """
 
         def _redact_value(key: str, value: Any) -> Any:  # noqa: ANN401
-            """Redact value if key or value content indicates a credential."""
+            """Redact value if key or value content indicates a credential or path leak."""
             lower_key = key.lower()
             if any(pat in lower_key for pat in _SANITIZE_SENSITIVE_KEY_PATTERNS):
                 return "[REDACTED]"
@@ -667,6 +697,13 @@ class EvidenceStore:
                     return "[REDACTED]"
                 if len(value) > 40 and _SANITIZE_JWT_PATTERN.match(value):
                     return "[REDACTED]"
+                # Strip absolute filesystem paths to filename-only to prevent
+                # leaking directory structure in stored artifacts.  Applied
+                # after the credential guards so that a credential-bearing key
+                # is still fully redacted (not merely path-stripped).
+                # Example: "/home/analyst/.../testssl.sh" -> "testssl.sh".
+                if _SANITIZE_ABS_PATH_RE.search(value):
+                    return _SANITIZE_ABS_PATH_RE.sub(lambda m: m.group(1), value)
             return value
 
         def _walk(obj: Any, parent_key: str = "") -> Any:  # noqa: ANN401

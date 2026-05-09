@@ -76,6 +76,23 @@ RETRY_MAX_ATTEMPTS_MIN: int = 1
 RETRY_MAX_ATTEMPTS_MAX: int = 10
 
 # ---------------------------------------------------------------------------
+# Constants -- Kong Admin API timeouts
+# ---------------------------------------------------------------------------
+
+# The Kong Admin API is a local endpoint (same host or same LAN).  The short
+# defaults reflect that expectation: if the Admin API does not respond in 10 s
+# the connection is almost certainly misconfigured, not merely slow.
+# Operators who run the Admin API behind a slow inter-datacenter link can
+# raise these via target.admin_connect_timeout_seconds /
+# target.admin_read_timeout_seconds in config.yaml.
+ADMIN_CONNECT_TIMEOUT_DEFAULT: float = 5.0
+ADMIN_READ_TIMEOUT_DEFAULT: float = 10.0
+ADMIN_CONNECT_TIMEOUT_MIN: float = 1.0
+ADMIN_CONNECT_TIMEOUT_MAX: float = 30.0
+ADMIN_READ_TIMEOUT_MIN: float = 1.0
+ADMIN_READ_TIMEOUT_MAX: float = 60.0
+
+# ---------------------------------------------------------------------------
 # Constants -- OpenAPI fetch
 # ---------------------------------------------------------------------------
 
@@ -160,6 +177,32 @@ class TargetConfig(BaseModel):
             "URL of the API Gateway Admin API, required for WHITE_BOX tests (P3). "
             "If absent, all WHITE_BOX tests return SKIP. "
             "Example: http://localhost:8001"
+        ),
+    )
+    admin_connect_timeout_seconds: Annotated[
+        float,
+        Field(ge=ADMIN_CONNECT_TIMEOUT_MIN, le=ADMIN_CONNECT_TIMEOUT_MAX),
+    ] = Field(
+        default=ADMIN_CONNECT_TIMEOUT_DEFAULT,
+        description=(
+            "TCP connection timeout in seconds for Kong Admin API requests. "
+            "The Admin API is a local endpoint; the default (5 s) is intentionally "
+            "short.  Raise this only when the Admin API is behind a slow link. "
+            f"Range: [{ADMIN_CONNECT_TIMEOUT_MIN}, {ADMIN_CONNECT_TIMEOUT_MAX}]. "
+            f"Default: {ADMIN_CONNECT_TIMEOUT_DEFAULT} s."
+        ),
+    )
+    admin_read_timeout_seconds: Annotated[
+        float,
+        Field(ge=ADMIN_READ_TIMEOUT_MIN, le=ADMIN_READ_TIMEOUT_MAX),
+    ] = Field(
+        default=ADMIN_READ_TIMEOUT_DEFAULT,
+        description=(
+            "HTTP read timeout in seconds for Kong Admin API requests. "
+            "Covers paginated list responses (routes, plugins, services); "
+            "10 s is sufficient for any local Admin API. "
+            f"Range: [{ADMIN_READ_TIMEOUT_MIN}, {ADMIN_READ_TIMEOUT_MAX}]. "
+            f"Default: {ADMIN_READ_TIMEOUT_DEFAULT} s."
         ),
     )
     path_seed: dict[str, str] = Field(

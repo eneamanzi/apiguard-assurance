@@ -104,7 +104,6 @@ from src.core.models import (
     Finding,
     InfoNote,
     TestResult,
-    TestStatus,
     TestStrategy,
 )
 from src.tests.base import BaseTest
@@ -122,7 +121,7 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 # OWASP/NIST references cited in every Finding produced by this test.
-_REFERENCES: list[str] = [
+_REFERENCES: tuple[str, ...] = (
     "OWASP-API2:2023",
     "CWE-326",
     "NIST-SP-800-107-Rev1-S5.3.2",
@@ -130,14 +129,14 @@ _REFERENCES: list[str] = [
     "RFC-2104",
     "RFC-6151",
     "OWASP-ASVS-v5.0.0-V2.9.1",
-]
+)
 
 # NIST/OWASP references cited in every InfoNote produced by the coverage scope sub-test.
-_SCOPE_REFERENCES: list[str] = [
+_SCOPE_REFERENCES: tuple[str, ...] = (
     "NIST-SP-800-204-S3.1",
     "OWASP-API9:2023",
     "OWASP-ASVS-v5.0.0-V2.9.1",
-]
+)
 
 # Algorithm-specific severity notes embedded in Finding.detail.
 # Keyed by algorithm name (lowercase); partial match via 'in' is used
@@ -267,7 +266,11 @@ class Test33HMACConfigAudit(BaseTest):
                 )
 
             # Sub-test A: fetch all plugins and find the first matching name.
-            plugins = self._fetch_plugins(admin_base_url)
+            plugins = self._fetch_plugins(
+                admin_base_url,
+                target.admin_connect_timeout_seconds,
+                target.admin_read_timeout_seconds,
+            )
             if plugins is None:
                 return self._make_error(
                     RuntimeError(
@@ -333,6 +336,8 @@ class Test33HMACConfigAudit(BaseTest):
                 all_plugins=plugins,
                 plugin_names=plugin_names,
                 admin_base_url=admin_base_url,
+                connect_timeout=target.admin_connect_timeout_seconds,
+                read_timeout=target.admin_read_timeout_seconds,
             )
 
             notes: list[InfoNote] = [coverage_note, body_note]
@@ -341,9 +346,7 @@ class Test33HMACConfigAudit(BaseTest):
                 # Both notes are attached even on FAIL: coverage gaps and body validation
                 # posture are orthogonal to the replay/algorithm violations and provide
                 # independent architectural context for the analyst reading the report.
-                return TestResult(
-                    test_id=self.test_id,
-                    status=TestStatus.FAIL,
+                return self._make_fail_multi(
                     message=(
                         f"hmac-auth plugin audit found {len(findings)} violation(s) "
                         f"(plugin id: {plugin_id}). "
@@ -352,8 +355,6 @@ class Test33HMACConfigAudit(BaseTest):
                     ),
                     findings=findings,
                     notes=notes,
-                    transaction_log=list(self._transaction_log),
-                    **self._metadata_kwargs(),
                 )
 
             return self._make_pass(
@@ -373,7 +374,12 @@ class Test33HMACConfigAudit(BaseTest):
     # Sub-test A helpers: plugin discovery
     # ------------------------------------------------------------------
 
-    def _fetch_plugins(self, admin_base_url: str) -> list[dict[str, Any]] | None:
+    def _fetch_plugins(
+        self,
+        admin_base_url: str,
+        connect_timeout: float,
+        read_timeout: float,
+    ) -> list[dict[str, Any]] | None:
         """
         Retrieve all plugins from the Kong Admin API.
 
@@ -382,13 +388,17 @@ class Test33HMACConfigAudit(BaseTest):
         re-catching the exception.
 
         Args:
-            admin_base_url: Kong Admin API base URL without trailing slash.
+            admin_base_url:  Kong Admin API base URL without trailing slash.
+            connect_timeout: TCP connection timeout in seconds.
+                             Read from target.admin_connect_timeout_seconds.
+            read_timeout:    HTTP read timeout in seconds.
+                             Read from target.admin_read_timeout_seconds.
 
         Returns:
             List of Kong plugin dicts (may be empty), or None on Admin API error.
         """
         try:
-            plugins = get_plugins(admin_base_url)
+            plugins = get_plugins(admin_base_url, connect_timeout, read_timeout)
             log.debug("test_3_3_plugins_fetched", total=len(plugins))
             return plugins
         except KongAdminError as exc:
@@ -511,11 +521,8 @@ class Test33HMACConfigAudit(BaseTest):
                 "config.tests.domain_3.test_3_3.plugin_names accordingly."
             )
 
-        return TestResult(
-            test_id=self.test_id,
-            status=TestStatus.SKIP,
-            message=skip_reason,
-            skip_reason=skip_reason,
+        return self._make_skip(
+            skip_reason,
             notes=[
                 InfoNote(
                     title="HMAC Authentication Not Active: Manual Verification Recommended",
@@ -529,8 +536,6 @@ class Test33HMACConfigAudit(BaseTest):
                     ],
                 )
             ],
-            transaction_log=list(self._transaction_log),
-            **self._metadata_kwargs(),
         )
 
     # ------------------------------------------------------------------
@@ -542,6 +547,8 @@ class Test33HMACConfigAudit(BaseTest):
         all_plugins: list[dict[str, Any]],
         plugin_names: list[str],
         admin_base_url: str,
+        connect_timeout: float,
+        read_timeout: float,
     ) -> InfoNote:
         """
         Determine which services and routes are actually protected by HMAC.
@@ -596,7 +603,7 @@ class Test33HMACConfigAudit(BaseTest):
                     "This may indicate a race condition between the two Admin API calls.  "
                     "Re-run the assessment to confirm."
                 ),
-                references=_SCOPE_REFERENCES,
+                references=list(_SCOPE_REFERENCES),
             )
 
         # Check for any global instance (service=null AND route=null).
@@ -624,7 +631,7 @@ class Test33HMACConfigAudit(BaseTest):
                     "routes or services are added to this Gateway instance they will "
                     "automatically be covered without any plugin reconfiguration."
                 ),
-                references=_SCOPE_REFERENCES,
+                references=list(_SCOPE_REFERENCES),
             )
 
         # All instances are scoped.  Perform gap analysis using /services and /routes.
@@ -634,8 +641,10 @@ class Test33HMACConfigAudit(BaseTest):
         )
 
         try:
-            services: list[dict[str, Any]] = get_services(admin_base_url)
-            routes: list[dict[str, Any]] = get_routes(admin_base_url)
+            services: list[dict[str, Any]] = get_services(
+                admin_base_url, connect_timeout, read_timeout
+            )
+            routes: list[dict[str, Any]] = get_routes(admin_base_url, connect_timeout, read_timeout)
         except KongAdminError as exc:
             log.warning(
                 "test_3_3_coverage_scope_fetch_error",
@@ -660,7 +669,7 @@ class Test33HMACConfigAudit(BaseTest):
                     "Verify manually that all intended traffic paths are covered by "
                     "an HMAC plugin instance."
                 ),
-                references=_SCOPE_REFERENCES,
+                references=list(_SCOPE_REFERENCES),
             )
 
         # Build lookup maps: id → human-readable label.
@@ -788,7 +797,7 @@ class Test33HMACConfigAudit(BaseTest):
         return InfoNote(
             title=f"HMAC Coverage Scope: {title_suffix}",
             detail="\n".join(detail_parts),
-            references=_SCOPE_REFERENCES,
+            references=list(_SCOPE_REFERENCES),
         )
 
     @staticmethod
@@ -889,7 +898,7 @@ class Test33HMACConfigAudit(BaseTest):
                     f"If the gateway uses a different field name, update "
                     "config.tests.domain_3.test_3_3.field_clock_skew accordingly."
                 ),
-                references=_REFERENCES,
+                references=list(_REFERENCES),
                 evidence_ref=None,
             )
 
@@ -922,7 +931,7 @@ class Test33HMACConfigAudit(BaseTest):
                     "Recommended action: set the field to a value between 60 and "
                     f"{cfg.max_clock_skew_seconds} seconds in the plugin configuration."
                 ),
-                references=_REFERENCES,
+                references=list(_REFERENCES),
                 evidence_ref=None,
             )
 
@@ -953,7 +962,7 @@ class Test33HMACConfigAudit(BaseTest):
                     f"Recommended action: reduce '{field_name}' to "
                     f"<= {cfg.max_clock_skew_seconds} s in the plugin configuration."
                 ),
-                references=_REFERENCES,
+                references=list(_REFERENCES),
                 evidence_ref=None,
             )
 
@@ -1018,7 +1027,7 @@ class Test33HMACConfigAudit(BaseTest):
                         f"If the gateway uses a different field name, update "
                         "config.tests.domain_3.test_3_3.field_algorithms accordingly."
                     ),
-                    references=_REFERENCES,
+                    references=list(_REFERENCES),
                     evidence_ref=None,
                 )
             ]
@@ -1053,7 +1062,7 @@ class Test33HMACConfigAudit(BaseTest):
                             f"'{field_name}' list and ensure all consumers are migrated to "
                             "hmac-sha256 or stronger before the next key rotation."
                         ),
-                        references=_REFERENCES,
+                        references=list(_REFERENCES),
                         evidence_ref=None,
                     )
                 )

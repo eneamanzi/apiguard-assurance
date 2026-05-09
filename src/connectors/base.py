@@ -41,7 +41,7 @@ import shutil
 import subprocess
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, TypedDict
 
 import structlog
 from pydantic import BaseModel, Field
@@ -49,6 +49,12 @@ from pydantic import BaseModel, Field
 from src.core.exceptions import ExternalToolError
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
+
+# Matches all standard ANSI CSI escape sequences (SGR color/bold, cursor movement,
+# erase codes).  Pattern: ESC [ ... final-byte where final-byte is [A-Za-z].
+# Compiled once at module level and reused in BaseSubprocessConnector.get_version()
+# to strip decoration from binary --version output (e.g. testssl.sh emits bold codes).
+_ANSI_CSI_PATTERN: re.Pattern[str] = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 # ---------------------------------------------------------------------------
 # ConnectorResult — the typed output of one tool execution
@@ -417,18 +423,15 @@ class BaseSubprocessConnector(BaseConnector):
                 text=True,
                 timeout=10,
             )
-            # Strip ANSI CSI escape sequences before stripping whitespace.
-            # Some tools (notably testssl.sh) emit bold/color codes in --version
-            # output (e.g. \x1b[1m testssl 3.2 ...).  Without stripping, the
-            # HTML report shows "[1m testssl 3.2" because the ESC byte is
-            # invisible in most rendering contexts, leaving the bracket sequence.
-            # Pattern \x1b\[[0-9;]*[A-Za-z] matches all standard ANSI CSI
-            # sequences: SGR (colors, bold), cursor movement, and erase codes.
-            # Strip ANSI first, then .strip() -- removal can expose leading/
-            # trailing spaces that were previously inside escape sequences.
-            _ansi_re = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+            # Strip ANSI CSI escape sequences, then whitespace.
+            # Some tools (notably testssl.sh) decorate --version output with
+            # bold/colour codes; without stripping the HTML report shows
+            # "[1m testssl 3.2" because the ESC byte is invisible in most
+            # rendering contexts.  _ANSI_CSI_PATTERN is a module-level constant
+            # (compiled once); strip ANSI first, then .strip() so that removal
+            # does not expose leading/trailing spaces hidden inside sequences.
             for line in (result.stdout or result.stderr or "").splitlines():
-                cleaned = _ansi_re.sub("", line).strip()
+                cleaned = _ANSI_CSI_PATTERN.sub("", line).strip()
                 # Skip empty lines and decorator lines composed entirely of
                 # repeated non-alphanumeric characters (e.g. testssl.sh emits
                 # "######...######" as a visual separator before the actual
@@ -773,59 +776,79 @@ class BaseSubprocessConnector(BaseConnector):
 # ---------------------------------------------------------------------------
 
 
-class ConnectorRawOutput:
+class ConnectorRawOutput(TypedDict, total=True):
     """
-    Documented contract for the keys expected in ConnectorResult.raw_output.
+    Typed contract for the keys expected in ConnectorResult.raw_output.
 
-    This is a plain class (not a TypedDict subclass) used purely as
-    documentation: Python does not enforce TypedDict at runtime, but Pylance /
-    Pyright verify it statically.  Every developer implementing a new connector
-    sees this class at the top of ``connectors/base.py`` and understands which
-    keys the HTML report template requires.
+    Defined as a ``TypedDict(total=True)`` so that Pylance can verify
+    statically that a connector's ``run()`` method populates all required
+    keys.  Annotate the local dict in a connector's ``run()`` implementation
+    as ``ConnectorRawOutput`` to get key-completeness checking at development
+    time::
+
+        raw_output: ConnectorRawOutput = {
+            "command":      ...,
+            "command_json": ...,
+            "results":      all_findings,
+            "all_count":    len(all_findings),
+        }
+
+    The ``total=True`` default makes every field required.  A connector that
+    omits any key produces a Pylance error at the assignment site -- catching
+    the contract violation before the test suite runs.
+
+    Design principle -- "dumb pipe":
+        Connectors do NOT filter, classify, or discard findings.  They deliver
+        the complete tool output in ``results``.  The ExternalToolTest that
+        consumes the result applies oracle logic (FAIL / note / ignore buckets)
+        based on its own policy constants.  This means ``results`` is always the
+        complete, unfiltered list from the tool -- there is no separate
+        ``raw_findings`` field because the two would be identical.
 
     REQUIRED keys (HTML report template raises KeyError if absent):
         command       -- Human-readable plain-text command for analyst reproduction.
                          No JSON output flag; mirrors what a human runs at the shell.
         command_json  -- Same command with JSON output flag appended; mirrors
                          what APIGuard runs internally.
-        results       -- List of filtered finding dicts (connector-side filtering
-                         applied; e.g. severity filter for testssl.sh).  These
-                         are the oracle inputs for ExternalToolTest._evaluate().
-
-    REQUIRED for the Raw JSON modal button in the HTML report:
-        raw_findings  -- Complete unfiltered list from the tool before any
-                         connector-side filtering.  Stored in evidence.json and
-                         shown in the 'View raw JSON' modal in the report.
+        results       -- Complete unfiltered list of finding dicts from the tool.
+                         These are the oracle inputs for ExternalToolTest._evaluate(),
+                         which partitions them into FAIL / note / ignore buckets.
 
     REQUIRED for statistics display in the report summary card:
-        all_count      -- Total finding count before connector-side filtering.
-        retained_count -- Finding count after connector-side filtering.
+        all_count     -- Total finding count; equals len(results).
 
-    Usage in a connector's run() method:
+    Runtime enforcement (complementary to this static check):
+        ``external_tests/base.py`` duplicates the four required key names in
+        ``_REQUIRED_RAW_OUTPUT_KEYS: frozenset[str]`` and validates them at
+        runtime via ``_validate_raw_output()``.  The two mechanisms serve
+        different audiences: this TypedDict catches omissions during development
+        (static analysis); the frozenset catches omissions at assessment runtime
+        (dynamic validation) for connectors whose raw_output dict is constructed
+        dynamically and cannot be fully typed by Pylance.
+
+    Usage in a connector's run() method::
+
         command, command_json = self._build_reproducible_commands(
             cmd_prefix=cmd,
             scan_target=target,
             json_output_args=["--jsonfile", "result.json"],
         )
-        return ConnectorResult(
-            ...,
-            raw_output={
-                "command": command,
-                "command_json": command_json,
-                "results": retained_findings,
-                "raw_findings": all_findings,
-                "all_count": len(all_findings),
-                "retained_count": len(retained_findings),
-            },
-        )
+        raw_output: ConnectorRawOutput = {
+            "command":      command,
+            "command_json": command_json,
+            "results":      all_findings,
+            "all_count":    len(all_findings),
+        }
+        return ConnectorResult(..., raw_output=raw_output)
 
-    Failure mode without this documentation:
-        A connector that omits any of the REQUIRED keys produces a silently
+    Failure mode without this contract:
+        A connector that omits any of the required keys produces a silently
         broken HTML report.  No exception is raised at runtime because the
         Jinja2 template uses the ``default_dash`` filter, which substitutes
         a dash for missing keys -- the rendered report displays dashes where
         commands and statistics should appear, with no error traceback to
-        diagnose the root cause.
+        diagnose the root cause.  The runtime check in _validate_raw_output()
+        converts this silent failure into an explicit ERROR TestResult.
     """
 
     # REQUIRED by the HTML report template
@@ -833,12 +856,8 @@ class ConnectorRawOutput:
     command_json: str
     results: list[dict[str, Any]]
 
-    # REQUIRED for the Raw JSON modal button
-    raw_findings: list[dict[str, Any]]
-
     # REQUIRED for statistics display
     all_count: int
-    retained_count: int
 
 
 # ---------------------------------------------------------------------------

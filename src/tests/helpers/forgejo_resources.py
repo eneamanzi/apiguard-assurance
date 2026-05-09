@@ -456,19 +456,36 @@ def _require_token(context: TestContext, role: str) -> str:
 
 def _bearer_headers(token: str) -> dict[str, str]:
     """
-    Headers for POST/PUT Forgejo API request with JSON body.
+    Build headers for POST/PUT Forgejo API requests with JSON body.
+
+    Uses the standard ``Bearer`` prefix (RFC 6750) rather than the Forgejo-native
+    ``token`` prefix.  Forgejo accepts both forms; ``Bearer`` is preferred because:
+        1. It matches the prefix used by all other tests in the tool.
+        2. ``EvidenceStore._sanitize_artifact()`` redacts ``Bearer``-prefixed
+           values unconditionally, preventing accidental token leakage in artifacts.
+
     Args:
-        token: Raw token string (without 'Bearer ' prefix).
+        token: Raw token string without any prefix (as stored in TestContext).
+
     Returns:
         Dict suitable for passing as the headers argument to client.request().
-
     """
     return {
-        "Authorization": f"token {token}",
+        "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
 
 
 def _bearer_auth_header(token: str) -> dict[str, str]:
-    """Headers for GET/DELETE requests without body."""
-    return {"Authorization": f"token {token}"}
+    """
+    Build headers for GET/DELETE Forgejo API requests without body.
+
+    Uses ``Bearer`` prefix for the same reasons as ``_bearer_headers()``.
+
+    Args:
+        token: Raw token string without any prefix (as stored in TestContext).
+
+    Returns:
+        Dict with Authorization header only, suitable for read/delete calls.
+    """
+    return {"Authorization": f"Bearer {token}"}

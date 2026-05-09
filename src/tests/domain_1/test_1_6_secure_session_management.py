@@ -61,6 +61,7 @@ EvidenceStore policy:
 
 from __future__ import annotations
 
+import http.cookies
 from typing import ClassVar
 
 import structlog
@@ -68,7 +69,7 @@ import structlog
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
-from src.core.models import EvidenceRecord, Finding, InfoNote, TestResult, TestStatus, TestStrategy
+from src.core.models import EvidenceRecord, Finding, InfoNote, TestResult, TestStrategy
 from src.core.models.runtime import RuntimeTest16Config
 from src.tests.base import BaseTest
 
@@ -88,12 +89,12 @@ _STATE_COOKIE_SAMESITE_FAIL: str = "COOKIE_SAMESITE_NONCOMPLIANT"
 _STATE_COOKIE_SAMESITE_NONE: str = "COOKIE_SAMESITE_NONE_FORBIDDEN"
 
 # Standards references cited in every Finding this test produces.
-_REFERENCES: list[str] = [
+_REFERENCES: tuple[str, ...] = (
     "OWASP-API2:2023",
     "OWASP-ASVS-v5.0.0-V3.2.3",
     "NIST-SP-800-63B-4-S4.2",
     "NIST-SP-800-204A-S4.3",
-]
+)
 
 # SameSite 'None' is never acceptable for a session cookie because it makes
 # the cookie available in all cross-site contexts, negating CSRF protection.
@@ -216,17 +217,13 @@ class Test16SecureSessionManagement(BaseTest):
                 findings.extend(new_findings)
 
             if findings:
-                return TestResult(
-                    test_id=self.test_id,
-                    status=TestStatus.FAIL,
+                return self._make_fail_multi(
                     message=(
                         f"Session cookie attribute audit found {len(findings)} "
                         f"violation(s) across {len(all_session_cookies)} "
                         "session cookie(s)."
                     ),
                     findings=findings,
-                    transaction_log=list(self._transaction_log),
-                    **self._metadata_kwargs(),
                 )
 
             # All cookies are compliant: return PASS with a manual-check InfoNote.
@@ -268,42 +265,75 @@ class Test16SecureSessionManagement(BaseTest):
         """
         Parse a raw Set-Cookie header string into a (name, attributes) pair.
 
-        The first segment is the 'name=value' pair for the cookie itself.
-        Subsequent semicolon-separated segments are attributes (HttpOnly,
-        Secure, SameSite, Path, Domain, etc.).
+        Uses http.cookies.SimpleCookie from the stdlib to handle edge cases
+        that defeat a naive semicolon-split parser:
+
+            * Cookie values containing multiple '=' characters (e.g. base64-
+              encoded session tokens like ``session=abc==; HttpOnly``).
+            * Whitespace normalisation around semicolons (RFC 6265 allows
+              optional spaces; SimpleCookie strips them per spec).
+            * Quoted attribute values (non-standard but seen in legacy stacks):
+              SimpleCookie unquotes them transparently.
+
+        Attribute dict contract (unchanged from the previous implementation):
+            - Keys are lowercased attribute names.
+            - Flag-only attributes (``httponly``, ``secure``) map to empty
+              string ``""``.
+            - Value attributes (``samesite``, ``path``, ``domain``, etc.) map
+              to their string value.
+        This contract is consumed by ``_audit_cookie_attributes()`` without
+        modification: ``"httponly" not in attrs`` and ``attrs.get("samesite")``
+        behave identically whether the dict was built manually or via Morsel.
 
         Args:
             header_value: Raw Set-Cookie header value string, e.g.
-                'session=abc123; HttpOnly; Secure; SameSite=Strict; Path=/'.
+                ``'session=abc123; HttpOnly; Secure; SameSite=Strict; Path=/'``.
 
         Returns:
-            Tuple of (cookie_name, attributes_dict) where cookie_name is the
-            name segment of the first 'name=value' pair and attributes_dict maps
-            lowercased attribute names to their values (empty string for
-            flag-only attributes like HttpOnly and Secure).
+            Tuple of (cookie_name, attributes_dict).  Returns ``("", {})`` if
+            SimpleCookie cannot parse the header (completely malformed input).
         """
-        segments = [s.strip() for s in header_value.split(";")]
-        if not segments:
+        cookie: http.cookies.SimpleCookie = http.cookies.SimpleCookie()
+        try:
+            cookie.load(header_value)
+        except http.cookies.CookieError:
+            # Completely unparseable header -- return the sentinel empty tuple.
             return ("", {})
 
-        # First segment is the cookie 'name=value'.
-        first_segment = segments[0]
-        if "=" in first_segment:
-            cookie_name = first_segment.split("=", 1)[0].strip()
-        else:
-            cookie_name = first_segment.strip()
+        if not cookie:
+            # SimpleCookie parsed successfully but produced no Morsels
+            # (e.g. the header was an empty string or whitespace only).
+            return ("", {})
 
-        # Remaining segments are attributes.
+        # SimpleCookie may produce multiple Morsels when the header contains
+        # comma-separated cookies (unusual but RFC-legal).  The first Morsel
+        # corresponds to the first (and typically only) cookie in the header.
+        name, morsel = next(iter(cookie.items()))
+
+        # Build the attrs dict under the same contract as the old parser.
+        # SimpleCookie sets flag attributes (httponly, secure) to True when
+        # present in the header and to "" (empty string -- the Morsel default)
+        # when absent.  Only include an attribute when it is truthy, so that
+        # the dict membership checks in _audit_cookie_attributes are preserved:
+        #   "httponly" not in attrs   -> flag absent (FAIL finding generated)
+        #   attrs.get("samesite")     -> None when attribute not set (FAIL)
         attrs: dict[str, str] = {}
-        for segment in segments[1:]:
-            if "=" in segment:
-                attr_name, attr_value = segment.split("=", 1)
-                attrs[attr_name.strip().lower()] = attr_value.strip()
-            else:
-                # Flag attribute (HttpOnly, Secure) — no value.
-                attrs[segment.strip().lower()] = ""
 
-        return (cookie_name, attrs)
+        if morsel["httponly"]:
+            attrs["httponly"] = ""
+        if morsel["secure"]:
+            attrs["secure"] = ""
+
+        # Value attributes: SimpleCookie returns "" as the Morsel default when
+        # the attribute is absent.  Omit absent attributes (don't add "" entries)
+        # so that attrs.get("samesite") returns None rather than "", preserving
+        # the None-vs-absent distinction relied on by _audit_cookie_attributes.
+        for attr_name in ("samesite", "path", "domain", "expires", "max-age"):
+            attr_val: str = morsel[attr_name]
+            if attr_val:
+                attrs[attr_name] = attr_val
+
+        return (name, attrs)
 
     def _audit_cookie_attributes(
         self,
@@ -357,7 +387,7 @@ class Test16SecureSessionManagement(BaseTest):
                         "Oracle: all session cookies must carry HttpOnly "
                         "(OWASP ASVS v5.0.0 V3.2.3)."
                     ),
-                    references=_REFERENCES,
+                    references=list(_REFERENCES),
                     evidence_ref=record.record_id,
                 )
             )
@@ -376,7 +406,7 @@ class Test16SecureSessionManagement(BaseTest):
                         "Oracle: all session cookies must carry Secure "
                         "(OWASP ASVS v5.0.0 V3.2.3)."
                     ),
-                    references=_REFERENCES,
+                    references=list(_REFERENCES),
                     evidence_ref=record.record_id,
                 )
             )
@@ -399,7 +429,7 @@ class Test16SecureSessionManagement(BaseTest):
                             f"'{cfg.expected_samesite_value}' "
                             "(OWASP ASVS v5.0.0 V3.2.3)."
                         ),
-                        references=_REFERENCES,
+                        references=list(_REFERENCES),
                         evidence_ref=record.record_id,
                     )
                 )
@@ -418,7 +448,7 @@ class Test16SecureSessionManagement(BaseTest):
                             "Oracle: session cookies must never use SameSite=None "
                             "(OWASP ASVS v5.0.0 V3.2.3)."
                         ),
-                        references=_REFERENCES,
+                        references=list(_REFERENCES),
                         evidence_ref=record.record_id,
                     )
                 )
@@ -440,7 +470,7 @@ class Test16SecureSessionManagement(BaseTest):
                             "Oracle: SameSite must match the configured policy "
                             "(OWASP ASVS v5.0.0 V3.2.3)."
                         ),
-                        references=_REFERENCES,
+                        references=list(_REFERENCES),
                         evidence_ref=record.record_id,
                     )
                 )

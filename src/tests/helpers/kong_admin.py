@@ -22,6 +22,21 @@ The Admin API is a separate trust boundary from the proxy.  Using a dedicated
 lightweight httpx client with its own timeout keeps the two boundaries
 explicit.
 
+Timeout propagation
+-------------------
+All public functions accept ``connect_timeout`` and ``read_timeout`` keyword
+arguments.  Callers read these values from ``target.admin_connect_timeout_seconds``
+and ``target.admin_read_timeout_seconds`` (both populated from config.yaml via
+TargetConfig -> TargetContext).  This replaces the previous module-level
+constants ``_ADMIN_CONNECT_TIMEOUT_SECONDS`` / ``_ADMIN_READ_TIMEOUT_SECONDS``,
+which violated the Config-Driven rule (Rule F in LLM_rules.md): no parameter
+that governs observable behaviour may be a hardcoded literal in a .py file.
+
+Module-level defaults (``_DEFAULT_CONNECT_TIMEOUT``, ``_DEFAULT_READ_TIMEOUT``)
+are kept so the functions are still callable in isolation (CLI utilities,
+manual probes) without a TargetContext.  They mirror the defaults in
+TargetConfig so the observable behaviour is identical in both call paths.
+
 All functions accept admin_base_url as a plain string rather than TargetContext
 to keep the scope narrow: callers extract the URL from target.admin_endpoint_base_url()
 and pass it in.  This makes the functions testable in isolation without a full
@@ -50,13 +65,6 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-# Timeout for Kong Admin API calls.
-# The Admin API is local (same host or same network), so short timeouts
-# are appropriate.  If the Admin API does not respond in 10 seconds, it is
-# either misconfigured or unreachable.
-_ADMIN_CONNECT_TIMEOUT_SECONDS: float = 5.0
-_ADMIN_READ_TIMEOUT_SECONDS: float = 10.0
-
 # Kong Admin API paths.
 _KONG_ROUTES_PATH: str = "/routes"
 _KONG_PLUGINS_PATH: str = "/plugins"
@@ -66,6 +74,13 @@ _KONG_STATUS_PATH: str = "/status"
 
 # Expected success status for all Admin API reads.
 _OK_STATUS: int = 200
+
+# Default timeouts used when callers do not supply explicit overrides.
+# These match TargetConfig.admin_connect_timeout_seconds /
+# admin_read_timeout_seconds defaults so that standalone usage (e.g. CLI
+# utilities) behaves identically to pipeline usage.
+_DEFAULT_CONNECT_TIMEOUT: float = 5.0
+_DEFAULT_READ_TIMEOUT: float = 10.0
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +132,11 @@ class KongAdminError(ToolBaseError):
 # ---------------------------------------------------------------------------
 
 
-def get_routes(admin_base_url: str) -> list[dict[str, Any]]:
+def get_routes(
+    admin_base_url: str,
+    connect_timeout: float = _DEFAULT_CONNECT_TIMEOUT,
+    read_timeout: float = _DEFAULT_READ_TIMEOUT,
+) -> list[dict[str, Any]]:
     """
     Fetch all routes registered in Kong and return them as a list.
 
@@ -125,8 +144,12 @@ def get_routes(admin_base_url: str) -> list[dict[str, Any]]:
     the set of active Kong routes against the OpenAPI spec.
 
     Args:
-        admin_base_url: Base URL of the Kong Admin API, without trailing slash.
-                        Example: 'http://localhost:8001'
+        admin_base_url:  Base URL of the Kong Admin API, without trailing slash.
+                         Example: 'http://localhost:8001'
+        connect_timeout: TCP connection timeout in seconds.
+                         Read from target.admin_connect_timeout_seconds.
+        read_timeout:    HTTP read timeout in seconds.
+                         Read from target.admin_read_timeout_seconds.
 
     Returns:
         List of Kong route objects.  Each dict contains at minimum:
@@ -137,10 +160,14 @@ def get_routes(admin_base_url: str) -> list[dict[str, Any]]:
     Raises:
         KongAdminError: On transport failure or non-200 response.
     """
-    return _fetch_paginated(admin_base_url, _KONG_ROUTES_PATH)
+    return _fetch_paginated(admin_base_url, _KONG_ROUTES_PATH, connect_timeout, read_timeout)
 
 
-def get_plugins(admin_base_url: str) -> list[dict[str, Any]]:
+def get_plugins(
+    admin_base_url: str,
+    connect_timeout: float = _DEFAULT_CONNECT_TIMEOUT,
+    read_timeout: float = _DEFAULT_READ_TIMEOUT,
+) -> list[dict[str, Any]]:
     """
     Fetch all plugins installed on Kong and return them as a list.
 
@@ -148,7 +175,9 @@ def get_plugins(admin_base_url: str) -> list[dict[str, Any]]:
     to verify that expected plugins are present and correctly configured.
 
     Args:
-        admin_base_url: Base URL of the Kong Admin API.
+        admin_base_url:  Base URL of the Kong Admin API.
+        connect_timeout: TCP connection timeout in seconds.
+        read_timeout:    HTTP read timeout in seconds.
 
     Returns:
         List of Kong plugin objects.  Each dict contains at minimum:
@@ -157,10 +186,14 @@ def get_plugins(admin_base_url: str) -> list[dict[str, Any]]:
     Raises:
         KongAdminError: On transport failure or non-200 response.
     """
-    return _fetch_paginated(admin_base_url, _KONG_PLUGINS_PATH)
+    return _fetch_paginated(admin_base_url, _KONG_PLUGINS_PATH, connect_timeout, read_timeout)
 
 
-def get_services(admin_base_url: str) -> list[dict[str, Any]]:
+def get_services(
+    admin_base_url: str,
+    connect_timeout: float = _DEFAULT_CONNECT_TIMEOUT,
+    read_timeout: float = _DEFAULT_READ_TIMEOUT,
+) -> list[dict[str, Any]]:
     """
     Fetch all services registered in Kong and return them as a list.
 
@@ -168,7 +201,9 @@ def get_services(admin_base_url: str) -> list[dict[str, Any]]:
     and write_timeout values configured on each upstream service.
 
     Args:
-        admin_base_url: Base URL of the Kong Admin API.
+        admin_base_url:  Base URL of the Kong Admin API.
+        connect_timeout: TCP connection timeout in seconds.
+        read_timeout:    HTTP read timeout in seconds.
 
     Returns:
         List of Kong service objects.  Each dict contains at minimum:
@@ -178,15 +213,21 @@ def get_services(admin_base_url: str) -> list[dict[str, Any]]:
     Raises:
         KongAdminError: On transport failure or non-200 response.
     """
-    return _fetch_paginated(admin_base_url, _KONG_SERVICES_PATH)
+    return _fetch_paginated(admin_base_url, _KONG_SERVICES_PATH, connect_timeout, read_timeout)
 
 
-def get_upstreams(admin_base_url: str) -> list[dict[str, Any]]:
+def get_upstreams(
+    admin_base_url: str,
+    connect_timeout: float = _DEFAULT_CONNECT_TIMEOUT,
+    read_timeout: float = _DEFAULT_READ_TIMEOUT,
+) -> list[dict[str, Any]]:
     """
     Fetch all upstreams registered in Kong and return them as a list.
 
     Args:
-        admin_base_url: Base URL of the Kong Admin API.
+        admin_base_url:  Base URL of the Kong Admin API.
+        connect_timeout: TCP connection timeout in seconds.
+        read_timeout:    HTTP read timeout in seconds.
 
     Returns:
         List of Kong upstream objects.
@@ -194,24 +235,28 @@ def get_upstreams(admin_base_url: str) -> list[dict[str, Any]]:
     Raises:
         KongAdminError: On transport failure or non-200 response.
     """
-    return _fetch_paginated(admin_base_url, _KONG_UPSTREAMS_PATH)
+    return _fetch_paginated(admin_base_url, _KONG_UPSTREAMS_PATH, connect_timeout, read_timeout)
 
 
 def get_plugin_by_name(
     admin_base_url: str,
     plugin_name: str,
+    connect_timeout: float = _DEFAULT_CONNECT_TIMEOUT,
+    read_timeout: float = _DEFAULT_READ_TIMEOUT,
 ) -> dict[str, Any] | None:
     """
-    Return the first enabled plugin matching plugin_name, or None.
+    Return the first plugin matching plugin_name, or None.
 
     Fetches all plugins and filters by name.  If no matching plugin is found
     (either because the plugin is not installed or is disabled), returns None.
     The caller decides whether the absence of a plugin is a FAIL or a SKIP.
 
     Args:
-        admin_base_url: Base URL of the Kong Admin API.
-        plugin_name:    Exact Kong plugin name (e.g. 'rate-limiting',
-                        'circuit-breaker', 'jwt').
+        admin_base_url:  Base URL of the Kong Admin API.
+        plugin_name:     Exact Kong plugin name (e.g. 'rate-limiting',
+                         'circuit-breaker', 'jwt').
+        connect_timeout: TCP connection timeout in seconds.
+        read_timeout:    HTTP read timeout in seconds.
 
     Returns:
         First matching plugin dict (enabled or disabled), or None if no plugin
@@ -220,7 +265,7 @@ def get_plugin_by_name(
     Raises:
         KongAdminError: On transport failure or non-200 response.
     """
-    plugins = get_plugins(admin_base_url)
+    plugins = get_plugins(admin_base_url, connect_timeout, read_timeout)
     for plugin in plugins:
         if plugin.get("name") == plugin_name:
             log.debug(
@@ -235,7 +280,11 @@ def get_plugin_by_name(
     return None
 
 
-def get_status(admin_base_url: str) -> dict[str, Any]:
+def get_status(
+    admin_base_url: str,
+    connect_timeout: float = _DEFAULT_CONNECT_TIMEOUT,
+    read_timeout: float = _DEFAULT_READ_TIMEOUT,
+) -> dict[str, Any]:
     """
     Fetch the Kong node status endpoint and return the response.
 
@@ -243,7 +292,9 @@ def get_status(admin_base_url: str) -> dict[str, Any]:
     succeeds, the Admin API is reachable and the other functions will work.
 
     Args:
-        admin_base_url: Base URL of the Kong Admin API.
+        admin_base_url:  Base URL of the Kong Admin API.
+        connect_timeout: TCP connection timeout in seconds.
+        read_timeout:    HTTP read timeout in seconds.
 
     Returns:
         Kong status dict containing node information and database connectivity.
@@ -251,7 +302,7 @@ def get_status(admin_base_url: str) -> dict[str, Any]:
     Raises:
         KongAdminError: On transport failure or non-200 response.
     """
-    return _fetch_single(admin_base_url, _KONG_STATUS_PATH)
+    return _fetch_single(admin_base_url, _KONG_STATUS_PATH, connect_timeout, read_timeout)
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +310,12 @@ def get_status(admin_base_url: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _fetch_paginated(admin_base_url: str, path: str) -> list[dict[str, Any]]:
+def _fetch_paginated(
+    admin_base_url: str,
+    path: str,
+    connect_timeout: float,
+    read_timeout: float,
+) -> list[dict[str, Any]]:
     """
     Fetch all items from a paginated Kong Admin API collection endpoint.
 
@@ -270,8 +326,10 @@ def _fetch_paginated(admin_base_url: str, path: str) -> list[dict[str, Any]]:
     are returned in a single page and 'next' is null.
 
     Args:
-        admin_base_url: Base URL of the Kong Admin API.
-        path:           Collection path (e.g. '/routes', '/plugins').
+        admin_base_url:  Base URL of the Kong Admin API.
+        path:            Collection path (e.g. '/routes', '/plugins').
+        connect_timeout: TCP connection timeout in seconds.
+        read_timeout:    HTTP read timeout in seconds.
 
     Returns:
         Flat list of all items across all pages.
@@ -283,7 +341,7 @@ def _fetch_paginated(admin_base_url: str, path: str) -> list[dict[str, Any]]:
     next_url: str | None = f"{admin_base_url.rstrip('/')}{path}"
 
     while next_url is not None:
-        response_data = _get_json(next_url, path)
+        response_data = _get_json(next_url, path, connect_timeout, read_timeout)
         page_items: list[dict[str, Any]] = response_data.get("data", [])
         items.extend(page_items)
 
@@ -306,13 +364,20 @@ def _fetch_paginated(admin_base_url: str, path: str) -> list[dict[str, Any]]:
     return items
 
 
-def _fetch_single(admin_base_url: str, path: str) -> dict[str, Any]:
+def _fetch_single(
+    admin_base_url: str,
+    path: str,
+    connect_timeout: float,
+    read_timeout: float,
+) -> dict[str, Any]:
     """
     Fetch a single object from the Kong Admin API.
 
     Args:
-        admin_base_url: Base URL of the Kong Admin API.
-        path:           Resource path (e.g. '/status').
+        admin_base_url:  Base URL of the Kong Admin API.
+        path:            Resource path (e.g. '/status').
+        connect_timeout: TCP connection timeout in seconds.
+        read_timeout:    HTTP read timeout in seconds.
 
     Returns:
         Parsed JSON response as a dict.
@@ -321,16 +386,23 @@ def _fetch_single(admin_base_url: str, path: str) -> dict[str, Any]:
         KongAdminError: On transport failure or non-200 response.
     """
     url = f"{admin_base_url.rstrip('/')}{path}"
-    return _get_json(url, path)
+    return _get_json(url, path, connect_timeout, read_timeout)
 
 
-def _get_json(url: str, path: str) -> dict[str, Any]:
+def _get_json(
+    url: str,
+    path: str,
+    connect_timeout: float,
+    read_timeout: float,
+) -> dict[str, Any]:
     """
     Perform a GET request to the given URL and return the parsed JSON body.
 
     Args:
-        url:  Full URL to request.
-        path: Original path (used only for error messages and logging).
+        url:             Full URL to request.
+        path:            Original path (used only for error messages and logging).
+        connect_timeout: TCP connection timeout in seconds.
+        read_timeout:    HTTP read timeout in seconds.
 
     Returns:
         Parsed JSON response body as a dict.
@@ -339,10 +411,10 @@ def _get_json(url: str, path: str) -> dict[str, Any]:
         KongAdminError: On connection error, timeout, or non-200 response.
     """
     timeout = httpx.Timeout(
-        connect=_ADMIN_CONNECT_TIMEOUT_SECONDS,
-        read=_ADMIN_READ_TIMEOUT_SECONDS,
-        write=_ADMIN_CONNECT_TIMEOUT_SECONDS,
-        pool=_ADMIN_CONNECT_TIMEOUT_SECONDS,
+        connect=connect_timeout,
+        read=read_timeout,
+        write=connect_timeout,
+        pool=connect_timeout,
     )
 
     try:

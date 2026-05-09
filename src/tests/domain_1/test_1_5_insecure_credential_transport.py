@@ -103,7 +103,7 @@ import structlog
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
-from src.core.models import Finding, TestResult, TestStatus, TestStrategy
+from src.core.models import Finding, TestResult, TestStrategy
 from src.core.models.runtime import RuntimeTest15Config
 from src.tests.base import BaseTest
 
@@ -141,13 +141,13 @@ _HEADER_HSTS: str = "strict-transport-security"
 _HEADER_HSTS_INCLUDE_SUBDOMAINS: str = "includesubdomains"
 
 # Standards references cited in every Finding this test produces.
-_REFERENCES: list[str] = [
+_REFERENCES: tuple[str, ...] = (
     "OWASP-API2:2023",
     "RFC-9110-S4.2.2",
     "NIST-SP-800-52-Rev2",
     "OWASP-ASVS-v5.0.0-V12.1.1",
     "OWASP-ASVS-v5.0.0-V14.2.1",
-]
+)
 
 # Path probed for HSTS check -- any path is acceptable since HSTS must be
 # present on every response regardless of status code.
@@ -241,7 +241,7 @@ class Test15InsecureCredentialTransport(BaseTest):
                         "OWASP ASVS v5.0.0 V12.1.1)."
                     ),
                     evidence_record_id=None,
-                    additional_references=_REFERENCES,
+                    additional_references=list(_REFERENCES),
                 )
 
             findings: list[Finding] = []
@@ -267,6 +267,11 @@ class Test15InsecureCredentialTransport(BaseTest):
 
             # ------------------------------------------------------------------
             # Sub-test 3 -- testssl.sh TLS scan (optional)
+            # NOTE: If external_tools.testssl.enabled = true in config.yaml,
+            # testssl.sh will also run via ext_test_1.5 (TestsslConnector),
+            # producing a second independent scan of the same target.  To avoid
+            # duplicate scans, set testssl_binary_path = "" when the external
+            # test is enabled.
             # ------------------------------------------------------------------
             if cfg.testssl_binary_path:
                 tls_findings = self._run_testssl_scan(base_url, cfg)
@@ -278,13 +283,9 @@ class Test15InsecureCredentialTransport(BaseTest):
                 )
 
             if findings:
-                return TestResult(
-                    test_id=self.test_id,
-                    status=TestStatus.FAIL,
+                return self._make_fail_multi(
                     message=f"Transport security audit found {len(findings)} violation(s).",
                     findings=findings,
-                    transaction_log=list(self._transaction_log),
-                    **self._metadata_kwargs(),
                 )
 
             return self._make_pass(
@@ -432,7 +433,7 @@ class Test15InsecureCredentialTransport(BaseTest):
                 "Oracle: port 80 must be closed or return 301/308 (RFC 9110, "
                 "NIST SP 800-52 Rev.2)."
             ),
-            references=_REFERENCES,
+            references=list(_REFERENCES),
             evidence_ref=None,  # No EvidenceRecord: httpx direct call, not SecurityClient
         )
 
@@ -482,7 +483,7 @@ class Test15InsecureCredentialTransport(BaseTest):
                         f"max-age >= {cfg.hsts_min_max_age_seconds}; includeSubDomains "
                         "(OWASP ASVS v5.0.0 V12.1.1, NIST SP 800-52 Rev.2)."
                     ),
-                    references=_REFERENCES,
+                    references=list(_REFERENCES),
                     evidence_ref=record.record_id,
                 )
             )
@@ -502,7 +503,7 @@ class Test15InsecureCredentialTransport(BaseTest):
                         "is syntactically invalid and ignored by browsers (RFC 6797). "
                         f"Oracle: max-age >= {cfg.hsts_min_max_age_seconds} required."
                     ),
-                    references=_REFERENCES,
+                    references=list(_REFERENCES),
                     evidence_ref=record.record_id,
                 )
             )
@@ -522,7 +523,7 @@ class Test15InsecureCredentialTransport(BaseTest):
                             "Oracle: max-age must be >= 31 536 000 (1 year) per "
                             "OWASP ASVS v5.0.0 V12.1.1."
                         ),
-                        references=_REFERENCES,
+                        references=list(_REFERENCES),
                         evidence_ref=record.record_id,
                     )
                 )
@@ -548,7 +549,7 @@ class Test15InsecureCredentialTransport(BaseTest):
                         "Oracle: 'includeSubDomains' must be present per "
                         "OWASP ASVS v5.0.0 V3.4.1."
                     ),
-                    references=_REFERENCES,
+                    references=list(_REFERENCES),
                     evidence_ref=record.record_id,
                 )
             )
@@ -702,7 +703,7 @@ class Test15InsecureCredentialTransport(BaseTest):
                         "(BEAST for TLS 1.0, POODLE for SSLv3).  "
                         "Disable this protocol in the Gateway TLS configuration."
                     ),
-                    references=_REFERENCES,
+                    references=list(_REFERENCES),
                     evidence_ref=None,  # No EvidenceRecord: subprocess invocation
                 )
             )

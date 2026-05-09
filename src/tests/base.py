@@ -64,7 +64,7 @@ from __future__ import annotations
 
 import traceback
 from abc import ABC, abstractmethod
-from typing import ClassVar, Literal, TypedDict
+from typing import ClassVar, Literal, TypedDict, cast
 
 import structlog
 
@@ -84,12 +84,41 @@ from src.core.models import (
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
-# Constants
+# Module-level constants
+# ---------------------------------------------------------------------------
+
+# Maximum length of an exception message included in a TestResult(ERROR).
+# Messages beyond this length are truncated to keep evidence.json bounded.
+_ERROR_MESSAGE_MAX_CHARS: int = 500
+
+# Suffix appended to truncated exception messages.  Defined here as a named
+# constant to avoid duplicating the literal across _make_error() and any
+# future callers.  Intentionally NOT imported from core.models.http to avoid
+# coupling tests/base.py to a private constant in a sibling package.
+_ERROR_TRUNCATION_SUFFIX: str = "... [TRUNCATED]"
+
+# ---------------------------------------------------------------------------
+# Internal type aliases
 # ---------------------------------------------------------------------------
 
 
 class _MetadataKwargs(TypedDict):
-    """TypedDict for the metadata keyword arguments passed to TestResult."""
+    """
+    Static type hint for ``**kwargs`` unpacking in ``_metadata_kwargs()``.
+
+    LLM_rules.md mandates Pydantic v2 for data structures validated at runtime.
+    This TypedDict is an intentional, documented exception:
+
+        - It is a **static annotation only** -- no runtime validation occurs.
+        - It exists exclusively to let Pylance/mypy verify that every
+          ``_make_*`` helper receives the correct keyword arguments when
+          ``**self._metadata_kwargs()`` is unpacked into ``TestResult(...)``.
+        - Pydantic BaseModel cannot serve this role for ``**kwargs`` unpacking
+          patterns: a BaseModel instance cannot be unpacked into ``**``.
+
+    If you see this class and think "should this be a Pydantic model?" -- the
+    answer is no.  Do not refactor it without re-reading this docstring first.
+    """
 
     test_name: str
     domain: int
@@ -329,11 +358,61 @@ class BaseTest(ABC):
             cwe_id=str(getattr(self.__class__, "cwe_id", "")),
             # source defaults to "native"; ExternalToolTest subclasses override
             # this ClassVar to "external" so the report builder can partition results.
-            source=str(getattr(self.__class__, "source", "native")),  # type: ignore[typeddict-item]
+            # cast() is used instead of str() because getattr() returns Any, but the
+            # value is always one of the two valid literals (enforced by ClassVar
+            # declarations in BaseTest and ExternalToolTest). cast() tells Pylance
+            # the type without a runtime call that would widen str to a plain str.
+            source=cast(Literal["native", "external"], getattr(self.__class__, "source", "native")),
         )
 
     # ------------------------------------------------------------------
     # Result constructors — reduce boilerplate in concrete implementations
+    # ------------------------------------------------------------------
+    #
+    # PATTERN GUIDE — when to use a helper vs. TestResult() directly
+    # ---------------------------------------------------------------
+    # Always prefer a _make_* helper. Use TestResult() directly ONLY
+    # when you need to produce multiple Finding objects in a single FAIL
+    # result, because _make_fail() wraps exactly one Finding by design.
+    #
+    # PASS (zero findings):
+    #   -> _make_pass(message, notes=None)
+    #   NEVER use TestResult(status=PASS, findings=[]) directly. The helper
+    #   already calls list(self._transaction_log) and **self._metadata_kwargs()
+    #   so omitting it loses the audit trail or requires duplicating boilerplate.
+    #
+    # FAIL with exactly one Finding (the common single-check case):
+    #   -> _make_fail(message, detail, evidence_record_id, additional_references)
+    #   The helper constructs the Finding internally using self.cwe_id as
+    #   the primary reference and the test_name as the title.
+    #
+    # FAIL with multiple Findings (multi-check loop, one Finding per violation):
+    #   -> _make_fail_multi(message, findings, notes=None)
+    #   The caller builds each Finding individually and passes the list here.
+    #   The helper handles test_id, status, transaction_log, metadata_kwargs.
+    #
+    #   Tests that follow this pattern (as of this writing):
+    #       test_0_1 (Shadow API — one Finding per undocumented endpoint)
+    #       test_0_2 (Deny-by-Default — one Finding per path violation)
+    #       test_0_3 (Deprecated API — one Finding per violation type)
+    #       test_1_1 (Auth Required — one Finding per bypass detected)
+    #       test_1_5 (TLS Transport — one Finding per audit category)
+    #       test_1_6 (Session Management — one Finding per cookie attribute)
+    #       test_3_3 (HMAC Config — one Finding per misconfiguration)
+    #       test_4_1 (Rate Limiting — one Finding per check result)
+    #       test_4_2 (Timeout Audit — one Finding per service violation)
+    #       test_4_3 (Circuit Breaker — one Finding per level outcome)
+    #       test_6_2 (Security Headers — one Finding per header category)
+    #       test_6_4 (Hardcoded Credentials — one Finding per exposure)
+    #
+    # SKIP:
+    #   -> _make_skip(reason, notes=None)
+    #   The optional notes parameter attaches InfoNote objects to a SKIP result.
+    #   Useful when the test cannot run but the report should still surface a
+    #   recommendation (e.g. test_3_3 HMAC audit skips with a manual-check note).
+    #
+    # ERROR (unexpected exception — always inside except block):
+    #   -> _make_error(exc)
     # ------------------------------------------------------------------
 
     def _make_pass(self, message: str, notes: list[InfoNote] | None = None) -> TestResult:
@@ -443,7 +522,60 @@ class BaseTest(ABC):
             **self._metadata_kwargs(),
         )
 
-    def _make_skip(self, reason: str) -> TestResult:
+    def _make_fail_multi(
+        self,
+        message: str,
+        findings: list[Finding],
+        notes: list[InfoNote] | None = None,
+    ) -> TestResult:
+        """
+        Construct a TestResult(status=FAIL) with a pre-built list of Findings.
+
+        Use this helper when a single test execution produces more than one
+        Finding (e.g. one Finding per endpoint violation found in a probe loop).
+        For the common single-violation case use _make_fail() instead, which
+        builds the Finding internally from message/detail/cwe_id.
+
+        Unlike _make_fail(), the caller is responsible for constructing each
+        Finding individually (with its own title, detail, references, and
+        evidence_ref) before passing the list here.  This helper only handles
+        the boilerplate fields that every FAIL result must carry: test_id,
+        status, transaction_log, and the metadata kwargs.
+
+        Precondition:
+            findings must be non-empty.  Passing an empty list produces a
+            TestResult(FAIL) with no findings, which violates the model_validator
+            invariant and will raise a Pydantic ValidationError.  The caller is
+            responsible for ensuring the list contains at least one Finding.
+
+        Args:
+            message:  One-line summary of the test outcome (e.g. "N violation(s)
+                      detected across M endpoint(s).").
+            findings: Pre-built list of Finding objects, one per violation.
+            notes:    Optional list of InfoNote objects for informational context
+                      below the FAIL threshold. None (default) produces an empty
+                      notes list.
+
+        Returns:
+            TestResult with status=FAIL, the provided findings, the provided
+            notes (or an empty list), and the transaction_log accumulated
+            during execute().
+        """
+        return TestResult(
+            test_id=self.test_id,
+            status=TestStatus.FAIL,
+            message=message,
+            findings=findings,
+            notes=list(notes) if notes else [],
+            transaction_log=list(self._transaction_log),
+            **self._metadata_kwargs(),
+        )
+
+    def _make_skip(
+        self,
+        reason: str,
+        notes: list[InfoNote] | None = None,
+    ) -> TestResult:
         """
         Construct a TestResult(status=SKIP) with an explicit reason.
 
@@ -455,18 +587,29 @@ class BaseTest(ABC):
         request is made, so transaction_log is almost always empty for SKIP
         results. Including it maintains a consistent API across all _make_* methods.
 
+        The optional ``notes`` parameter supports attaching contextual
+        :class:`InfoNote` objects to a SKIP result.  This is useful when the
+        test cannot run (e.g. a feature is not configured) but the report
+        should still surface a recommendation or manual-verification guidance
+        to the reader — as in the HMAC audit (3.3), where a SKIP carries a
+        note explaining what the assessor should verify by hand.
+
         Args:
             reason: Human-readable explanation of why the test was skipped.
+            notes:  Optional list of :class:`InfoNote` objects to include in
+                    the result for contextual guidance. Defaults to ``None``
+                    (no notes attached).
 
         Returns:
-            TestResult with status=SKIP, skip_reason populated, and the
-            (usually empty) transaction_log.
+            TestResult with status=SKIP, skip_reason populated, optional notes,
+            and the (usually empty) transaction_log.
         """
         return TestResult(
             test_id=self.test_id,
             status=TestStatus.SKIP,
             message=reason,
             skip_reason=reason,
+            notes=notes or [],
             transaction_log=list(self._transaction_log),
             **self._metadata_kwargs(),
         )
@@ -495,10 +638,9 @@ class BaseTest(ABC):
         exc_type = type(exc).__name__
         exc_message = str(exc)
 
-        _max_message_length: int = 500
         truncated_message = (
-            exc_message[:_max_message_length] + "... [TRUNCATED]"
-            if len(exc_message) > _max_message_length
+            exc_message[:_ERROR_MESSAGE_MAX_CHARS] + _ERROR_TRUNCATION_SUFFIX
+            if len(exc_message) > _ERROR_MESSAGE_MAX_CHARS
             else exc_message
         )
 

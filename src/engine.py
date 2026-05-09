@@ -484,6 +484,8 @@ class AssessmentEngine:
                 else None
             ),
             admin_api_url=config.target.admin_api_url,
+            admin_connect_timeout_seconds=config.target.admin_connect_timeout_seconds,
+            admin_read_timeout_seconds=config.target.admin_read_timeout_seconds,
             attack_surface=attack_surface,
             credentials=RuntimeCredentials.model_validate(config.credentials.model_dump()),
             tests_config=tests_config,

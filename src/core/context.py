@@ -129,6 +129,24 @@ class TargetContext(BaseModel):
             "Example: http://localhost:8001"
         ),
     )
+    admin_connect_timeout_seconds: float = Field(
+        default=5.0,
+        description=(
+            "TCP connection timeout in seconds for Kong Admin API requests. "
+            "Propagated from target.admin_connect_timeout_seconds in config.yaml. "
+            "Consumed by helpers/kong_admin.py for every Admin API call. "
+            "Default: 5.0 s (Admin API is a local endpoint; short timeouts are appropriate)."
+        ),
+    )
+    admin_read_timeout_seconds: float = Field(
+        default=10.0,
+        description=(
+            "HTTP read timeout in seconds for Kong Admin API requests. "
+            "Propagated from target.admin_read_timeout_seconds in config.yaml. "
+            "Consumed by helpers/kong_admin.py for every Admin API call. "
+            "Default: 10.0 s (covers paginated list responses for routes/plugins/services)."
+        ),
+    )
     attack_surface: AttackSurface | None = Field(
         default=None,
         description=(

@@ -26,8 +26,9 @@ callers cannot accidentally mutate the module state.
 
 Dependency rule
 ---------------
-This module imports only from stdlib.  It must never import from src.core,
-src.tests, src.engine, or any third-party library.
+This module imports from stdlib and from src.tests.data.inspector_patterns
+(pure-data sibling module, no logic, no further dependencies).  It must never
+import from src.core, src.engine, or any third-party library.
 """
 
 from __future__ import annotations
@@ -35,47 +36,29 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from src.tests.data.inspector_patterns import SENSITIVE_FIELD_NAMES, STACK_TRACE_PATTERNS
+
+# Re-export so that any existing importer of these names from this module
+# continues to work without modification.  The canonical definitions now live
+# in src/tests/data/inspector_patterns.py; this module is the consumer.
+__all__ = [
+    "SENSITIVE_FIELD_NAMES",
+    "STACK_TRACE_PATTERNS",
+]
+
+# Pre-computed normalised variant of SENSITIVE_FIELD_NAMES, built once at
+# import time.  _scan_dict_for_sensitive_fields() compares normalised key
+# names against this set for an O(1) lookup per key instead of rebuilding
+# an identical set on every iteration of the scan loop.
+# Normalisation removes both underscores and hyphens so that field names like
+# "api_key", "api-key", and "apikey" all map to the same canonical form.
+_NORMALIZED_SENSITIVE_FIELD_NAMES: frozenset[str] = frozenset(
+    s.replace("_", "").replace("-", "") for s in SENSITIVE_FIELD_NAMES
+)
+
 # ---------------------------------------------------------------------------
 # Stack trace / framework leakage patterns
 # ---------------------------------------------------------------------------
-
-# Substrings that indicate a server-side exception was included in the response.
-# Methodology reference: Garanzia 6.1 — Error Handling e Information Disclosure.
-STACK_TRACE_PATTERNS: tuple[str, ...] = (
-    # Java / Spring Boot
-    "at com.",
-    "at org.",
-    "at java.",
-    "at sun.",
-    "Caused by:",
-    "java.lang.",
-    "java.io.",
-    "java.sql.",
-    "org.springframework.",
-    "Exception in thread",
-    # Python
-    "Traceback (most recent call last)",
-    'File "/',
-    "File '/",
-    '.py", line',
-    # Node.js
-    "at Object.",
-    "at Module.",
-    "at Function.",
-    "at /",
-    # Ruby
-    "app/",
-    ".rb:",
-    # PHP
-    "Stack trace:",
-    "PHP Fatal error",
-    "PHP Warning",
-    # Generic
-    "NullPointerException",
-    "IndexOutOfBoundsException",
-    "StackOverflowError",
-    "OutOfMemoryError",
-)
 
 # Regex patterns that match framework version strings in response bodies or headers.
 # A version string in a response is direct fingerprinting information.
@@ -94,46 +77,6 @@ _FILESYSTEM_PATH_PATTERN: re.Pattern[str] = re.compile(
 # ---------------------------------------------------------------------------
 # Sensitive field names
 # ---------------------------------------------------------------------------
-
-# Field names that must never appear in API responses visible to the caller.
-# Methodology reference: Garanzia 2.5 — Excessive Data Exposure.
-SENSITIVE_FIELD_NAMES: frozenset[str] = frozenset(
-    {
-        "password",
-        "passwordhash",
-        "password_hash",
-        "hashedpassword",
-        "hashed_password",
-        "passwd",
-        "secret",
-        "secretkey",
-        "secret_key",
-        "apikey",
-        "api_key",
-        "privatekey",
-        "private_key",
-        "ssn",
-        "socialsecuritynumber",
-        "social_security_number",
-        "creditcard",
-        "credit_card",
-        "cardnumber",
-        "card_number",
-        "cvv",
-        "pin",
-        "otp",
-        "totpsecret",
-        "totp_secret",
-        "accesstoken",
-        "access_token",
-        "refreshtoken",
-        "refresh_token",
-        "authtoken",
-        "auth_token",
-        "salt",
-        "pepper",
-    }
-)
 
 # Debug field name substrings.  Any field whose lowercased name contains one
 # of these strings is considered a debug artifact.
@@ -201,7 +144,10 @@ def contains_stack_trace(body: str) -> list[str]:
         body: Raw response body as a string.
 
     Returns:
-        List of matched pattern strings found in the body.
+        List of matched strings found in the body:
+          - For STACK_TRACE_PATTERNS entries: the literal pattern string matched.
+          - For framework version detection: the actual matched text (e.g. "Django 4.2").
+          - For filesystem path detection: the actual matched text (e.g. "/opt/app/").
         Empty list if no stack trace patterns are detected.
     """
     if not body:
@@ -214,11 +160,18 @@ def contains_stack_trace(body: str) -> list[str]:
         if pattern.lower() in body_lower:
             found.append(pattern)
 
-    if _FRAMEWORK_VERSION_PATTERN.search(body):
-        found.append("framework_version_string")
+    version_match = _FRAMEWORK_VERSION_PATTERN.search(body)
+    if version_match:
+        # Return the actual matched text (e.g. "Django 4.2") rather than the
+        # synthetic label "framework_version_string".  This makes the finding
+        # detail self-explanatory without requiring the reader to know which
+        # regex fired.
+        found.append(version_match.group(0))
 
-    if _FILESYSTEM_PATH_PATTERN.search(body):
-        found.append("filesystem_path")
+    path_match = _FILESYSTEM_PATH_PATTERN.search(body)
+    if path_match:
+        # Return the actual matched text (e.g. "/opt/app/") for the same reason.
+        found.append(path_match.group(0))
 
     return found
 
@@ -446,9 +399,7 @@ def _scan_dict_for_sensitive_fields(
         recurse: Whether to recurse into nested dicts and lists.
     """
     for key, value in data.items():
-        if key.lower().replace("-", "").replace("_", "") in {
-            s.replace("_", "") for s in SENSITIVE_FIELD_NAMES
-        }:
+        if key.lower().replace("-", "").replace("_", "") in _NORMALIZED_SENSITIVE_FIELD_NAMES:
             found.add(key.lower())
 
         if recurse:
