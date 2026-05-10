@@ -1,9 +1,10 @@
-# Developer Guide — Adding a New Test
+# Developer Guide — Adding a New Native Test
 
 **Source of truth:** every pattern in this document was extracted directly
-from the five tests verified OK against a live target: `1.1`, `4.1`, `4.2`,
-`4.3`, `6.2`. Code excerpts are copied verbatim from those files.
-Do not invent patterns not present here.
+from the tests verified OK against a live target:
+`0.1`, `0.2`, `0.3`, `1.1`, `1.2`, `1.3`, `1.4`, `1.5`, `2.1`,
+`3.3`, `4.1`, `4.2`, `4.3`, `6.2`, `6.4`, `7.2`.
+Code excerpts are canonical. Do not invent patterns not present here.
 
 **Read this document top to bottom before writing a single line of code.**
 Every step is mandatory. Skipping one produces a runtime error or a
@@ -18,6 +19,20 @@ inline — not only in the Common Errors table at the end.
 |---|---|
 | New test in an **existing** domain | 1 (extend existing file), 4, 5, 6, 8, 9 |
 | New test in a **new** domain | 1 (new file), 2, 3, 4, 5, 6, 7, 8, 9 |
+| Adding a **sub-check to an existing test** | None — edit `execute()` only |
+
+The third row covers the common case where a test already exists and you
+only need to add an extra HTTP probe, an additional oracle condition, or a
+new `Finding` variant inside the existing `execute()` method. No pipeline
+files change: the test class already has its `ClassVar` attributes, its
+config model, and its `engine.py` population line. Just edit the test file
+and re-run.
+
+> **If the new sub-check needs a new operator-tunable parameter** that does
+> not exist yet in `TestNXConfig`, then Steps 1, 4, 5, 6, and 9 are
+> required — but Step 8 is an extension of an existing class, not a new
+> file. Stop at Step 8 and edit the existing test class in-place; do not
+> create a new file.
 
 Steps 2, 3, and 7 are only needed when a brand-new `domain_N.py` config file
 and `domain_N/` test directory are created. If the domain already has a
@@ -27,19 +42,23 @@ extension mode) and proceed from Step 4.
 
 ---
 
-## The 8-file pipeline (9 files for a new domain)
+## The file pipeline: 6 files for an existing domain, 9 for a new one
 
 ```
 1. src/config/schema/domain_N.py          ← operator-tunable parameters (Pydantic, frozen)
-2. src/config/schema/tests_config.py      ← wire domain config into TestsConfig aggregator
-3. src/config/schema/__init__.py          ← export new symbols from the schema package
+2. src/config/schema/tests_config.py      ← wire domain config into TestsConfig aggregator [NEW DOMAIN ONLY]
+3. src/config/schema/__init__.py          ← export new symbols from the schema package [NEW DOMAIN ONLY]
 4. src/core/models/runtime.py             ← immutable runtime mirror of the config
 5. src/core/models/__init__.py            ← export RuntimeTestNNConfig (3 places)
 6. src/engine.py                          ← populate RuntimeTestNNConfig in Phase 3
-7. src/tests/domain_N/__init__.py         ← empty file; required for pkgutil discovery (NEW DOMAIN ONLY)
+7. src/tests/domain_N/__init__.py         ← empty file; required for pkgutil discovery [NEW DOMAIN ONLY]
 8. src/tests/domain_N/test_N_N_name.py   ← the actual test implementation
 9. config.yaml                            ← operator-facing defaults
 ```
+
+For an **existing** domain Steps 2, 3, and 7 are skipped: the files already
+exist and only need to be extended. The pipeline collapses to Steps 1, 4, 5,
+6, 8, 9 — six files.
 
 Steps 3 and 5 are the most commonly missed because they are pure bookkeeping
 with no logic: both produce `ImportError` at startup with no obvious pointer
@@ -72,7 +91,7 @@ field explicitly.
 **Existing domain:** add a config class and one field to the existing
 `TestDomainNConfig` aggregator.
 
-Canonical reference: `src/config/schema/domain_6.py` (Test 6.2).
+Canonical reference: `src/config/schema/domain_6.py` (Tests 6.2, 6.4).
 
 ```python
 # src/config/schema/domain_N.py
@@ -166,6 +185,43 @@ class TestDomainNConfig(BaseModel):
   block optional; the defaults defined in the model are used when the block
   is absent.
 
+**When the test has no operator-tunable parameters:** create the config model
+anyway — with zero fields — and complete all 9 steps normally. This keeps
+the pipeline identical for every test, ensures `target.tests_config.test_N_M`
+always resolves, and makes future parameter additions a pure extension (no
+structural changes needed). A config model with zero fields is not dead code;
+it is a deliberate architectural placeholder.
+
+```python
+# Minimal config model — no tunable parameters.
+# Add fields here if the test ever needs operator-facing knobs.
+class TestN2Config(BaseModel):
+    """
+    Tuning parameters for Test N.2 (Short Description).
+
+    No operator-tunable parameters in the current implementation.
+    This model exists to maintain pipeline uniformity: every test has a
+    corresponding config entry in RuntimeTestsConfig regardless of whether
+    it exposes knobs.
+    """
+
+    model_config = {"frozen": True}
+
+
+class TestDomainNConfig(BaseModel):
+    """Aggregator for all Domain N (...) test configs."""
+
+    model_config = {"frozen": True}
+
+    test_n_2: TestN2Config = Field(
+        default_factory=TestN2Config,
+        description=(
+            "Tuning parameters for Test N.2 (Short Description). "
+            "Maps to 'tests.domain_N.test_N_2' in config.yaml."
+        ),
+    )
+```
+
 ---
 
 ## Step 2 — `src/config/schema/tests_config.py`  *(new domain only)*
@@ -211,16 +267,10 @@ __all__ = [
 ]
 ```
 
-**Known debt:** `domain_6.py` is currently missing from
-`config/schema/__init__.py`. The code works at runtime because
-`tests_config.py` and `engine.py` both import from `domain_6` directly,
-bypassing the facade — so the incomplete facade is never hit by any
-existing consumer. **Do not replicate this debt.** Complete all three
-places in Step 3 for every new domain. An incomplete facade breaks
-external consumers (future CLI extensions, test harnesses, any module
-that imports from `src.config.schema` without knowing the internal
-layout) and introduces a maintenance trap where the package's public
-API is silently out of sync with its contents.
+Complete all three places in Step 3 for every new domain. Skipping any
+one of the three (docstring, import, `__all__`) produces an `ImportError`
+at startup with no obvious pointer to this file — the traceback will name
+the consumer, not the facade.
 
 ---
 
@@ -274,15 +324,40 @@ class RuntimeTestsConfig(BaseModel):
     )
 ```
 
+**When the test has no tunable parameters:** the `RuntimeTestN2Config` still
+must exist and must be wired into `RuntimeTestsConfig`. Use a zero-field model:
+
+```python
+class RuntimeTestN2Config(BaseModel):
+    """
+    Runtime mirror for Test N.2.
+
+    No operator-tunable parameters. Exists to maintain pipeline uniformity:
+    every test has a corresponding field in RuntimeTestsConfig.
+    Populated by engine.py Phase 3 with RuntimeTestN2Config().
+    """
+
+    model_config = {"frozen": True}
+```
+
+And in `engine.py` the population line is simply:
+
+```python
+test_n_2=RuntimeTestN2Config(),
+```
+
+The test itself reads `cfg = target.tests_config.test_n_2` as usual — `cfg`
+will be an empty frozen object, which is fine. If the test never accesses
+`cfg`, the line can be omitted from `execute()` but must remain in `engine.py`.
+
 **Naming rule — test_id vs field name:**
 The `test_id` ClassVar (e.g. `"N.2"`) uses a dot separator and is the
 DAG key and the report identifier. The Pydantic field name (e.g.
 `test_n_2`) uses an underscore separator to comply with Python attribute
-naming. These are two different things. Writing `test_id = "N_2"` (with
-underscore) silently breaks the DAG and produces wrong report entries —
-the DAG lookup fails to match `depends_on` references that use the dot
-form. Always use the dot form for `test_id`, the underscore form for
-field names.
+naming. Writing `test_id = "N_2"` (with underscore) silently breaks the
+DAG and produces wrong report entries — the DAG lookup fails to match
+`depends_on` references that use the dot form. Always use the dot form
+for `test_id`, the underscore form for field names.
 
 The field name `test_X_Y` must exactly match the key used in `engine.py`
 and the access path inside the test (`target.tests_config.test_X_Y`).
@@ -295,23 +370,28 @@ Three places in the file. The symptom of a missing entry is `ImportError:
 cannot import name 'RuntimeTestN2Config'` at startup — nothing in the
 traceback points here.
 
+> **Note on the example below:** the import list reflects the state of the
+> codebase at the time this guide was last revised. **Always inspect the
+> actual file before editing** — the list of existing `RuntimeTest*Config`
+> symbols grows with every new test and the example will be incomplete.
+> The pattern (3 places: docstring, import, `__all__`) is what matters.
+
 ```python
 # 1. Docstring inventory (runtime.py section — add RuntimeTestN2Config):
 #    runtime.py      RuntimeCredentials,
-#                    RuntimeTest11Config,
+#                    RuntimeTest02Config,
+#                    RuntimeTest11Config, RuntimeTest15Config, RuntimeTest16Config,
+#                    RuntimeTest33Config,
 #                    RuntimeTest41Config, RuntimeTest42Config, RuntimeTest43Config,
-#                    RuntimeTest62Config,
+#                    RuntimeTest62Config, RuntimeTest64Config, RuntimeTest72Config,
 #                    RuntimeTestN2Config,    # ← add here
 #                    RuntimeTestsConfig
 
-# 2. Import block:
+# 2. Import block — add alongside existing RuntimeTest*Config imports.
+#    Do NOT copy this snippet verbatim; instead open the file and add
+#    RuntimeTestN2Config to the existing import list.
 from src.core.models.runtime import (
-    RuntimeCredentials,
-    RuntimeTest11Config,
-    RuntimeTest41Config,
-    RuntimeTest42Config,
-    RuntimeTest43Config,
-    RuntimeTest62Config,
+    # ... all existing RuntimeTest*Config names ...
     RuntimeTestN2Config,    # ← add here
     RuntimeTestsConfig,
 )
@@ -434,13 +514,17 @@ from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.models import (
     Finding,        # always needed for Finding(...)
-    TestResult,     # always needed (return type of execute)
-    TestStatus,     # needed for manual TestResult(status=TestStatus.FAIL, ...)
+    TestResult,     # always needed — the -> TestResult: return type annotation requires it
+    # TestStatus — DO NOT import. Direct TestResult(...) construction is FORBIDDEN.
+    # TestStatus was imported in earlier versions of this guide; that pattern is
+    # deprecated and will produce reports missing domain, tags, and transaction_log.
+    # Use _make_fail(), _make_fail_multi(), _make_pass(), _make_skip(), _make_error()
+    # for all result construction. TestStatus is used only inside BaseTest helpers.
     TestStrategy,   # needed for ClassVar[TestStrategy] attribute
     # Add as needed:
     # EndpointRecord  — when iterating AttackSurface endpoints
     # EvidenceRecord  — when type-annotating the record from client.request()
-    # InfoNote        — when _make_pass(notes=[InfoNote(...)]) is used
+    # InfoNote        — when _make_pass(notes=...) / _make_skip(notes=...) is used
 )
 from src.tests.base import BaseTest
 
@@ -454,7 +538,12 @@ from src.tests.base import BaseTest
 # ── GREY_BOX (P1/P2) — add when test acquires or uses tokens ──────────────
 # from src.core.context import ROLE_ADMIN, ROLE_USER_A, ROLE_USER_B
 # from src.core.exceptions import AuthenticationSetupError, SecurityClientError
-# from src.tests.helpers.auth import acquire_all_tokens_if_needed
+# from src.tests.helpers.auth import acquire_tokens          ← use this dispatcher
+#
+# acquire_all_tokens_if_needed — DO NOT import. This function was replaced by
+# acquire_tokens() in the helpers.auth dispatcher. Importing from auth_forgejo
+# directly raises AuthenticationSetupError: Unsupported auth_type on any
+# target that is not Forgejo.
 
 # ── WHITE_BOX without Admin API (P3, header/response audit) ───────────────
 # No extra imports beyond response_inspector if needed.
@@ -536,6 +625,14 @@ Verify `test_id` is unique across all existing tests before declaring it.
 A duplicate `test_id` silently breaks the DAG (dependency resolution fails)
 and the HTML report (two rows share the same ID with undefined ordering).
 
+Run this before writing the class:
+
+```bash
+grep -rn 'test_id.*ClassVar' src/tests/ src/external_tests/ | grep -v "__pycache__\|base.py\|_template"
+```
+
+If `"N.M"` already appears in the output, the ID is taken — pick a different one.
+
 ---
 
 ### `_transaction_log` — what it is and how it works
@@ -545,17 +642,15 @@ and the HTML report (two rows share the same ID with undefined ordering).
 `self._log_transaction(record, oracle_state=...)`. You do not append to it
 directly. You do not create `TransactionSummary` objects directly.
 
-The list is consumed in two ways:
-1. `_make_pass()`, `_make_skip()`, `_make_error()` all call
-   `list(self._transaction_log)` internally — you do not pass it.
-2. When building a manual `TestResult` (multi-finding FAIL), you must
-   include `transaction_log=list(self._transaction_log)` explicitly —
-   those helpers are not called in that path.
+The list is consumed automatically by all `_make_*()` helpers —
+`_make_pass()`, `_make_fail()`, `_make_fail_multi()`, `_make_skip()`, and
+`_make_error()` — all call `list(self._transaction_log)` internally.
+**You never need to pass `transaction_log=` explicitly when using a helper.**
 
-If you omit `transaction_log=list(self._transaction_log)` from a manual
-`TestResult`, the HTML Audit Trail for that test is empty. The test still
-runs and the finding is recorded, but no HTTP transaction history appears
-in the report.
+The only case where you must include `transaction_log=list(self._transaction_log)`
+is if you construct `TestResult(...)` directly — which should be avoided.
+If you find yourself building `TestResult(...)` manually for a multi-finding
+result, use `_make_fail_multi()` instead (see "Building a result" below).
 
 ---
 
@@ -630,13 +725,9 @@ def execute(
                 self._log_transaction(record, oracle_state=_STATE_ENFORCED)
 
         if findings:
-            return TestResult(
-                test_id=self.test_id,
-                status=TestStatus.FAIL,
+            return self._make_fail_multi(
                 message=f"{len(findings)} authentication bypass(es) detected.",
                 findings=findings,
-                transaction_log=list(self._transaction_log),
-                **self._metadata_kwargs(),
             )
 
         return self._make_pass(
@@ -650,6 +741,11 @@ def execute(
 ---
 
 #### GREY_BOX — test acquires and uses tokens
+
+**Auth dispatcher:** all GREY_BOX tests import `acquire_tokens` from
+`src.tests.helpers.auth`. This dispatcher reads `target.credentials.auth_type`
+and delegates to the correct implementation (`auth_forgejo` or `auth_jwt_login`).
+Do not import from `auth_forgejo` or `auth_jwt_login` directly.
 
 ```python
 def execute(
@@ -666,15 +762,19 @@ def execute(
         if guard is not None:
             return guard
 
-        # Acquire tokens for all configured roles into TestContext.
+        # Acquire tokens for all required roles into TestContext.
         # Safe to call multiple times — skips roles already tokenised.
+        # Pass required_roles to acquire only what this test needs.
         try:
-            acquire_all_tokens_if_needed(target, context, client)
+            acquire_tokens(
+                target, context, client,
+                required_roles=frozenset({ROLE_USER_A}),
+            )
         except (AuthenticationSetupError, SecurityClientError) as exc:
             return self._make_error(exc)
 
         # Guard: ensure the specific role this test needs has a live token.
-        # Call AFTER acquire_all_tokens_if_needed, never before.
+        # Call AFTER acquire_tokens, never before.
         skip = self._requires_token(context, ROLE_USER_A)
         if skip is not None:
             return skip
@@ -708,6 +808,21 @@ def execute(
     except Exception as exc:  # noqa: BLE001
         return self._make_error(exc)
 ```
+
+**Guard ordering for GREY_BOX** (must not be inverted):
+1. `_requires_grey_box_credentials(target)` — **validates** that credentials
+   are present in config. Returns `TestResult(SKIP)` or `None`. Never performs
+   I/O. Call first, before any network activity.
+2. `acquire_tokens(target, context, client, required_roles=frozenset({ROLE_X}))` —
+   **performs login** for each required role and stores the resulting JWTs in
+   `TestContext`. Safe to call multiple times — skips roles already tokenised.
+3. `_requires_token(context, ROLE_X)` — **verifies** that the specific role
+   has a live token after acquisition. Returns `TestResult(SKIP)` or `None`.
+   Call after `acquire_tokens`, never before.
+
+Calling `_requires_token` before `acquire_tokens` will always produce SKIP
+even when valid credentials are in the config, because no tokens have been
+acquired yet.
 
 ---
 
@@ -767,13 +882,9 @@ def execute(
         findings = self._audit_service_timeouts(services, cfg)
 
         if findings:
-            return TestResult(
-                test_id=self.test_id,
-                status=TestStatus.FAIL,
+            return self._make_fail_multi(
                 message=f"Timeout audit found {len(findings)} violation(s).",
                 findings=findings,
-                transaction_log=list(self._transaction_log),
-                **self._metadata_kwargs(),
             )
 
         return self._make_pass(
@@ -807,10 +918,8 @@ def _fetch_services(self, admin_base_url: str) -> list[dict[str, Any]] | None:
 **Note on `_log_transaction()` in config-audit tests:** config-audit tests
 (4.2, 4.3, partially 6.2) call Kong Admin API helpers that use their own
 internal HTTP client. No `EvidenceRecord` is produced by those calls, so
-`_log_transaction()` is never called. `transaction_log=list(self._transaction_log)`
-will be an empty list in the manual `TestResult` — this is correct and
-expected. The Audit Trail in the report for these tests is intentionally
-empty.
+`_log_transaction()` is never called. This is correct and expected. The
+Audit Trail in the HTML report for these tests is intentionally empty.
 
 ---
 
@@ -861,10 +970,6 @@ from src.tests.helpers.path_resolver import resolve_path_with_seed
 concrete_path = resolve_path_with_seed(endpoint, seed)
 ```
 
-See `src/tests/domain_1/test_1_1_authentication_required.py` for the
-complete method-safety matrix that governs unauthenticated probes of
-parametric paths.
-
 ---
 
 ### Building a result — four cases
@@ -903,8 +1008,7 @@ violation and is attached only to FAIL results. An `InfoNote` documents
 architectural context or compensating controls on a PASS result. `InfoNote`
 objects are rendered in blue in the HTML report; `Finding` objects in red.
 `InfoNote` objects are NOT counted in the finding totals and do NOT affect
-the exit code. Use `InfoNote` only when the test PASSES but contextual
-information is genuinely useful for an analyst reading the report.
+the exit code.
 
 ---
 
@@ -943,40 +1047,55 @@ description of the violated guarantee — it becomes the finding headline in the
 HTML report (rendered in red). Write `test_name` as if it were the title of a
 CVE entry: `"JWT Signature Validation Not Enforced"`, not `"Test 1.2"`.
 
-When constructing `Finding` objects manually for multi-finding results (see
-below), you supply `title` explicitly — one specific title per endpoint or
-service — because `self.test_name` describes the test class, not the individual
-violation. The two paths are mutually exclusive: single violation → `_make_fail()`,
-multiple violations on distinct targets → manual `Finding` list + manual
-`TestResult`.
-
 ---
 
-#### FAIL — multiple findings (manual TestResult)
+#### FAIL — multiple findings
 
-Use this form only when a single test produces findings on multiple
-distinct targets (e.g. multiple endpoints, multiple services).
+Use `_make_fail_multi()` when a single test produces **multiple logically
+distinct findings** — regardless of whether they come from different endpoints,
+different services, or multiple sub-checks against the same endpoint.
+The criterion is the distinctness of the findings, not the distinctness of the
+target: five JWT forgery sub-tests that each produce an independent finding
+(e.g. `alg:none` bypass, tampered payload, key confusion) all belong in a
+single `_make_fail_multi()` call, not in five separate `_make_fail()` calls.
+**Never construct `TestResult(...)` manually for multi-finding results —
+`_make_fail_multi()` handles `transaction_log` and metadata automatically.**
 
 ```python
 findings: list[Finding] = []
 
 # ... loop: for each violation, build and append a Finding ...
+# Each Finding must have its own specific title — not self.test_name —
+# because the title identifies the specific endpoint/service violated.
 
 if findings:
-    return TestResult(
-        test_id=self.test_id,
-        status=TestStatus.FAIL,
+    return self._make_fail_multi(
         message=f"{len(findings)} violation(s) detected.",
         findings=findings,
-        transaction_log=list(self._transaction_log),  # NEVER omit
-        **self._metadata_kwargs(),                     # NEVER omit
+        # notes=optional_notes,  # add if contextual InfoNotes exist
     )
 ```
 
-**`**self._metadata_kwargs()` must never be omitted** from a manually
-constructed `TestResult`. It injects `domain`, `priority`, `strategy`,
-`test_name`, `tags`, and `cwe_id` into the result. Without it, the HTML
-report shows `Domain -1 — Unknown Domain` for that test.
+When constructing individual `Finding` objects for multi-finding results,
+set `title` explicitly per-violation (not `self.test_name`):
+
+```python
+findings.append(
+    Finding(
+        title=f"Authentication Bypass: {endpoint.method} {endpoint.path}",
+        detail=(
+            f"Sent {endpoint.method} {endpoint.path} with no "
+            f"Authorization header. Expected 401 or 403. "
+            f"Received {response.status_code}."
+        ),
+        references=_REFERENCES,
+        evidence_ref=record.record_id,
+    )
+)
+```
+
+The two FAIL paths are mutually exclusive: single violation → `_make_fail()`,
+multiple violations on distinct targets → manual `Finding` list + `_make_fail_multi()`.
 
 ---
 
@@ -985,6 +1104,11 @@ report shows `Domain -1 — Unknown Domain` for that test.
 ```python
 return self._make_skip(reason="Explicit reason: Admin API not configured / no credentials.")
 ```
+
+`_make_skip()` accepts an optional `notes=list[InfoNote]` parameter for
+cases where the test cannot run but should still surface a manual-check
+recommendation (e.g. the HMAC config audit in test 3.3 skips with a note
+explaining what the assessor should verify by hand).
 
 ---
 
@@ -1108,12 +1232,49 @@ tests:
       some_threshold: 10   # ASVS VX.Y.Z — one-line rationale for this default
 ```
 
-If the test has no tunable parameters:
+If the test has no tunable parameters, add the block anyway with an explanatory
+comment. The block must be present because:
+- It documents the deliberate decision that there is nothing to tune.
+- It keeps `config.yaml` a complete inventory of every test in the pipeline.
+- Pydantic's `default_factory` makes the block optional at parse time, so
+  omitting it causes no runtime error — but its absence makes the pipeline
+  opaque to operators reading the config.
 
 ```yaml
-    test_N_3:
-      # No operator-tunable parameters. Configuration is fully automatic.
+    test_N_2:
+      # No operator-tunable parameters. All behaviour is determined by the
+      # OpenAPI spec and the oracle logic in the test implementation.
 ```
+
+### How the config value reaches `execute()`
+
+The YAML block you write here travels through three layers before the test
+reads it. The complete chain, from operator to test:
+
+```
+config.yaml
+  tests.domain_N.test_N_2.some_threshold: 10
+        ↓  (engine.py Phase 3 reads and copies explicitly)
+RuntimeTestsConfig.test_n_2.some_threshold = 10
+        ↓  (frozen into TargetContext)
+target.tests_config.test_n_2.some_threshold
+```
+
+Inside `execute()`, always read the config as the first substantive line
+after the guards:
+
+```python
+cfg = target.tests_config.test_n_2   # RuntimeTestN2Config instance
+# All tunable parameters are now available as cfg.<field_name>.
+# Example:
+threshold = cfg.some_threshold
+```
+
+The field name on `RuntimeTestsConfig` (`test_n_2`) uses underscore
+separator to comply with Python attribute naming. The YAML key
+(`test_N_2`) mirrors it. The `test_id` ClassVar (`"N.2"`) uses a dot
+separator and is a separate identifier used only by the DAG and the
+report — it does not appear in the access path.
 
 ---
 
@@ -1122,18 +1283,24 @@ If the test has no tunable parameters:
 | Strategy | Priority | Required guards | Required imports |
 |---|---|---|---|
 | `BLACK_BOX` | P0 | `_requires_attack_surface` if iterating endpoints | No credential imports |
-| `GREY_BOX` | P1, P2 | `_requires_grey_box_credentials` + `_requires_token` | `acquire_all_tokens_if_needed`, `ROLE_*`, `AuthenticationSetupError`, `SecurityClientError` |
+| `GREY_BOX` | P1, P2 | `_requires_grey_box_credentials` + `_requires_token` | `acquire_tokens` from `auth`, `ROLE_*`, `AuthenticationSetupError`, `SecurityClientError` |
 | `WHITE_BOX` (no Admin API) | P3 | `_requires_attack_surface` only | `response_inspector` helpers if doing header checks |
 | `WHITE_BOX` (Kong Admin) | P1, P3 | `_requires_admin_api` + `assert admin_base_url is not None` | `KongAdminError` + specific `kong_admin` helper |
 
 **Guard ordering for GREY_BOX** (must not be inverted):
-1. `_requires_grey_box_credentials(target)` — check credentials are configured.
-2. `acquire_all_tokens_if_needed(target, context, client)` — acquire tokens.
-3. `_requires_token(context, ROLE_X)` — verify the specific role has a token.
+1. `_requires_grey_box_credentials(target)` — **validates** that credentials
+   are present in config. Returns `TestResult(SKIP)` or `None`. Never performs
+   I/O. Call first, before any network activity.
+2. `acquire_tokens(target, context, client, required_roles=frozenset({ROLE_X}))` —
+   **performs login** for each required role and stores the resulting JWTs in
+   `TestContext`. Safe to call multiple times — skips roles already tokenised.
+3. `_requires_token(context, ROLE_X)` — **verifies** that the specific role
+   has a live token after acquisition. Returns `TestResult(SKIP)` or `None`.
+   Call after `acquire_tokens`, never before.
 
-Calling `_requires_token` before `acquire_all_tokens_if_needed` will always
-produce SKIP even when valid credentials are in the config, because no tokens
-have been acquired yet.
+Calling `_requires_token` before `acquire_tokens` will always produce SKIP
+even when valid credentials are in the config, because no tokens have been
+acquired yet.
 
 ---
 
@@ -1153,11 +1320,11 @@ have been acquired yet.
 | Helper | Use when | Notes |
 |---|---|---|
 | `_make_pass(message, notes=None)` | Test passed, no findings | Captures `_transaction_log` automatically |
-| `_make_fail(message, detail, evidence_record_id, additional_references)` | Exactly one finding | Call `store.add_fail_evidence` and `_log_transaction` first |
-| `_make_skip(reason)` | Precondition not met (predictable) | Captures `_transaction_log` automatically |
+| `_make_fail(message, detail, evidence_record_id, additional_references, notes=None)` | Exactly one finding | Call `store.add_fail_evidence` and `_log_transaction` first |
+| `_make_fail_multi(message, findings, notes=None)` | Multiple findings across distinct targets | Captures `_transaction_log` and metadata automatically — preferred over manual `TestResult(...)` |
+| `_make_skip(reason, notes=None)` | Precondition not met (predictable) | Captures `_transaction_log` automatically; `notes=` for manual-check guidance |
 | `_make_error(exc)` | Unexpected exception | Captures `_transaction_log` automatically |
 | `_log_transaction(record, oracle_state, is_fail=False)` | After every `client.request()` | Appends to `_transaction_log` |
-| `_metadata_kwargs()` | Inside manual `TestResult(...)` | Injects domain/priority/tags — never omit |
 
 ### `src/tests/helpers/` modules
 
@@ -1168,12 +1335,21 @@ test file is a violation of the DRY principle and a bug risk.**
 
 | File | Public API used by tests |
 |---|---|
-| `auth_forgejo.py` | `acquire_all_tokens_if_needed(target, context, client)` |
+| `auth.py` | `acquire_tokens(target, context, client, required_roles=None)` — dispatcher; always import from here, never from `auth_forgejo` or `auth_jwt_login` directly |
 | `kong_admin.py` | `KongAdminError`, `get_routes`, `get_services`, `get_plugins`, `get_upstreams`, `get_status`, `get_plugin_by_name` |
 | `path_resolver.py` | `resolve_path_with_seed(endpoint, seed)`, `extract_param_names_from_path(path)`, `PATH_PARAM_FALLBACK_DEFAULT`, `PATH_PARAM_FALLBACK_SAFE_DELETE` |
 | `response_inspector.py` | `find_missing_security_headers(headers)`, `find_invalid_security_headers(headers)`, `find_leaky_headers(headers)`, `check_security_headers(headers)`, `contains_stack_trace(body)`, `contains_sensitive_fields(data)`, `extract_debug_fields(data)`, `auth_errors_are_uniform(response_bodies)`, `SECURITY_HEADER_DEFINITIONS`, `STACK_TRACE_PATTERNS`, `SENSITIVE_FIELD_NAMES`, `LEAKY_HEADERS` |
 | `forgejo_resources.py` | `create_repository(target, context, client, role)`, `create_issue(target, context, client, role, repo_owner, repo_name)`, `get_authenticated_user(target, context, client, role)`, `list_repositories(target, context, client, role)`, `ForgejoResourceError` |
 | `jwt_forge.py` | `forge_alg_none(token)`, `forge_tampered_payload(token, claim, new_value)`, `forge_expired(token, seconds_ago=3600)`, `forge_strip_signature(token)`, `forge_hs256_key_confusion(public_key_pem, payload)`, `decode_header(token)`, `decode_payload(token)`, `is_jwt_format(token)` |
+
+**Notes on `auth.py`:**
+- `acquire_tokens()` is the correct import, not `acquire_all_tokens_if_needed`.
+- The `required_roles` parameter is a `frozenset[str] | None`. When `None`,
+  all configured roles are acquired. When a frozenset, only those roles are
+  acquired. Pass `required_roles=frozenset({ROLE_USER_A})` when the test
+  only needs one role — avoids unnecessary login requests.
+- Auth type is determined automatically from `target.credentials.auth_type`.
+  Do not branch on auth_type inside a test.
 
 **Notes on `jwt_forge.py`:**
 - `forge_expired` is the primary tool for test 1.3 — it sets `exp` to a past
@@ -1206,6 +1382,13 @@ test file is a violation of the DRY principle and a bug risk.**
   `find_missing_security_headers` and `find_invalid_security_headers` into a
   single call returning `{"missing": [...], "invalid": [...]}`. Prefer it over
   calling the two functions separately.
+
+**If the functionality you need is not in this table:** implement it as a
+**private method on the test class** (name prefixed with `_`, full type hints,
+docstring). Do not write the logic inline in `execute()`, and do not create a
+new helper module in `src/tests/helpers/` without confirming that the
+functionality is genuinely reusable across at least two distinct tests. A
+function used by exactly one test belongs on that test's class, not in `helpers/`.
 
 ### `AttackSurface` filter methods
 
@@ -1325,9 +1508,9 @@ from src.core.client import SecurityClient
 from src.core.context import ROLE_USER_A, TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.exceptions import AuthenticationSetupError, SecurityClientError
-from src.core.models import Finding, TestResult, TestStatus, TestStrategy
+from src.core.models import Finding, TestResult, TestStrategy
 from src.tests.base import BaseTest
-from src.tests.helpers.auth import acquire_all_tokens_if_needed
+from src.tests.helpers.auth import acquire_tokens
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -1378,7 +1561,10 @@ class Test21RbacEnforcement(BaseTest):
                 return guard
 
             try:
-                acquire_all_tokens_if_needed(target, context, client)
+                acquire_tokens(
+                    target, context, client,
+                    required_roles=frozenset({ROLE_USER_A}),
+                )
             except (AuthenticationSetupError, SecurityClientError) as exc:
                 return self._make_error(exc)
 
@@ -1444,9 +1630,70 @@ tests:
 
 ---
 
+## Post-implementation verification
+
+After completing all required steps, run these commands in order before
+launching the full assessment. Each command targets a specific failure mode
+from the Common Errors table.
+
+**Step 1 — Verify the test is discovered by TestRegistry:**
+
+```bash
+python -c "
+from src.tests.registry import TestRegistry
+r = TestRegistry()
+tests = r.discover(min_priority=3)  # 3 includes P0+P1+P2+P3 — all tests
+ids = [t.test_id for t in tests]
+print('Discovered test IDs:', ids)
+print()
+target_id = 'N.M'  # replace with your actual test_id
+if target_id in ids:
+    print(f'OK  {target_id} is discoverable.')
+else:
+    print(f'MISSING  {target_id} not found. Check Step 7 (__init__.py) and Step 8 (filename).')
+"
+```
+
+If the output is `MISSING`, the two most common causes are: the domain
+`__init__.py` is absent (Step 7), or the filename does not match the
+`test_N_M_description.py` pattern (Step 8).
+
+**Step 2 — Verify the config chain resolves without error:**
+
+```bash
+python -c "
+from src.config.loader import load_config
+from src.core.models.runtime import RuntimeTestsConfig
+
+config = load_config('config.yaml')
+# If this raises AttributeError, Step 1, 4, or 6 has a gap.
+val = config.tests.domain_N.test_n_2.some_threshold
+print(f'Config value from YAML: {val}')
+"
+```
+
+Replace `domain_N`, `test_n_2`, and `some_threshold` with your actual
+field names. An `AttributeError` here means either the `TestDomainNConfig`
+field is missing from `TestsConfig` (Step 2) or the `config.yaml` block
+uses a key that does not match the Pydantic field name (Step 9).
+
+**Step 3 — Verify the full pipeline instantiates correctly:**
+
+```bash
+python -m src.cli run --config config.yaml --min-priority 0 --dry-run 2>&1 | grep -E "N\.M|ERROR|WARNING"
+```
+
+`--dry-run` (if supported by the CLI) instantiates the pipeline and
+resolves the DAG without executing any test. If the test_id appears in the
+output without an ERROR tag, the wiring is complete. If the CLI does not
+support `--dry-run`, run the full assessment against the target and look
+for the test_id in the HTML report.
+
+---
+
 ## Pre-output checklist
 
-- [ ] `test_id` is unique — checked against all existing values in `src/tests/`
+- [ ] `test_id` is unique — verified with the grep from Step 8 against all values in `src/tests/` and `src/external_tests/`
 - [ ] `test_id` uses dot separator (`"N.2"`), not underscore (`"N_2"`)
 - [ ] If new domain: `src/tests/domain_N/__init__.py` created (empty file) — run verification command from Step 7
 - [ ] All 8 `ClassVar` attributes present in the test class
@@ -1454,14 +1701,17 @@ tests:
 - [ ] Module-level constants defined for all string literals, status code sets, and reference lists
 - [ ] All `oracle_state` strings are module-level constants, not inline literals
 - [ ] `execute()` has outermost `try/except Exception as exc: return self._make_error(exc)`
-- [ ] Every manually built `TestResult` includes `**self._metadata_kwargs()` and `transaction_log=list(self._transaction_log)`
-- [ ] `_make_fail()` used for single-finding results (not manual `TestResult`)
-- [ ] `store.add_fail_evidence(record)` and `_log_transaction(..., is_fail=True)` called **before** `_make_fail()`
+- [ ] No `TestStatus` import anywhere in the file — direct `TestResult(...)` construction is FORBIDDEN; use `_make_fail()`, `_make_fail_multi()`, `_make_pass()`, `_make_skip()`, or `_make_error()`
+- [ ] GREY_BOX tests import `acquire_tokens` from `src.tests.helpers.auth` (not from `auth_forgejo`)
+- [ ] GREY_BOX tests call `acquire_tokens(target, context, client, required_roles=frozenset({ROLE_X}))` before `_requires_token`
+- [ ] Multi-finding FAIL uses `_make_fail_multi(message, findings)` — NOT manual `TestResult(...)`
+- [ ] Single-finding FAIL uses `_make_fail(message, detail, evidence_record_id, ...)` — NOT manual `TestResult(...)`
+- [ ] `store.add_fail_evidence(record)` and `_log_transaction(..., is_fail=True)` called **before** any `_make_fail*()` call
 - [ ] `store.add_fail_evidence()` and `store.pin_evidence()` never called on the same record
-- [ ] GREY_BOX tests call `acquire_all_tokens_if_needed` before `_requires_token`
 - [ ] WHITE_BOX (Kong Admin) tests call `_requires_admin_api` + `assert admin_base_url is not None  # noqa: S101`
 - [ ] WHITE_BOX (Kong Admin) tests wrap every kong helper in a private method returning `None` on `KongAdminError`
 - [ ] `frozen=True` present on both `TestN2Config` (Step 1) and `RuntimeTestN2Config` (Step 4)
+- [ ] If the test has no tunable parameters: `TestN2Config` and `RuntimeTestN2Config` exist anyway as zero-field models, the `engine.py` population line is `test_n_2=RuntimeTestN2Config()`, and `config.yaml` has the block with an explanatory comment
 - [ ] `RuntimeTestNNConfig` added to `src/core/models/__init__.py` in all three places (docstring, import, `__all__`)
 - [ ] Population line added to `engine.py` `_phase_3_build_contexts()` inside `RuntimeTestsConfig(...)`
 - [ ] If new domain: `TestDomainNConfig` exported from `src/config/schema/__init__.py` in all three places
@@ -1485,15 +1735,16 @@ tests:
 | Test never discovered, no error logged, domain absent from report | `src/tests/domain_N/__init__.py` missing for a new domain | Step 7 | Create the empty file; run Step 7 verification command to confirm |
 | `ImportError: cannot import name 'RuntimeTestN2Config'` at startup | Step 5 (`core/models/__init__.py`) missed | Any import of the new config | Add to docstring + import + `__all__` in that file |
 | `ImportError: cannot import name 'TestDomainNConfig'` at startup | Step 3 (`config/schema/__init__.py`) missed | Any import of the new domain config | Add to docstring + import + `__all__` in that file |
-| HTML report shows `Domain -1 — Unknown Domain` | `**self._metadata_kwargs()` omitted from manual `TestResult` | Step 7, FAIL multi-finding block | Add it to every manually constructed `TestResult` |
-| HTML Audit Trail empty for a test that made HTTP requests | `transaction_log=list(self._transaction_log)` omitted from manual `TestResult` | Step 7, FAIL multi-finding block | Add it to every manually constructed `TestResult` |
-| Test never discovered / never runs | Filename does not match `test_N_M_description.py` | Step 7, filename | Rename the file |
-| DAG reports dependency cycle or missing dependency | `test_id` in `depends_on` does not exactly match the dependency's `test_id` | Step 7, ClassVar | Check exact string value including the dot form |
+| HTML report shows `Domain -1 — Unknown Domain` | `_make_fail_multi()` not used / manual `TestResult(...)` missing `**self._metadata_kwargs()` | Multi-finding FAIL block | Replace manual `TestResult(...)` with `_make_fail_multi()` |
+| HTML Audit Trail empty for a test that made HTTP requests | Manual `TestResult(...)` missing `transaction_log=list(self._transaction_log)` | Manual FAIL block | Replace manual `TestResult(...)` with `_make_fail_multi()` |
+| Test never discovered / never runs | Filename does not match `test_N_M_description.py` | Step 8, filename | Rename the file |
+| DAG reports dependency cycle or missing dependency | `test_id` in `depends_on` does not exactly match the dependency's `test_id` | Step 8, ClassVar | Check exact string value including the dot form |
 | `target.tests_config.test_n_2` raises `AttributeError` | Step 4 (field in `RuntimeTestsConfig`) or Step 6 (population in engine) was skipped | Inside `execute()` | Complete both steps |
-| `config.yaml` values ignored / defaults used always | YAML key path does not match the Pydantic field chain | Step 8 | Align `tests.domain_N.test_N_2` key with `TestsConfig` → `TestDomainNConfig` → `TestN2Config` |
-| `NameError: name 'log' is not defined` | `log: structlog.BoundLogger = ...` line missing from test file | Step 7, after imports | Add it after the import block, before module constants |
-| `AttributeError: 'NoneType' object has no attribute ...` on Admin API call | `admin_endpoint_base_url()` result not asserted non-None | Step 7, WHITE_BOX pattern | Add `assert admin_base_url is not None  # noqa: S101` after the call |
-| GREY_BOX test returns SKIP even with credentials in config | `_requires_token(context, role)` called before `acquire_all_tokens_if_needed` | Step 7, GREY_BOX pattern | Swap the order: acquire first, then guard |
-| Finding reported twice in evidence.json | `add_fail_evidence()` and `pin_evidence()` both called on same record | Step 7, recording block | Use only one of the two per record |
+| `config.yaml` values ignored / defaults used always | YAML key path does not match the Pydantic field chain | Step 9 | Align `tests.domain_N.test_N_2` key with `TestsConfig` → `TestDomainNConfig` → `TestN2Config` |
+| `NameError: name 'log' is not defined` | `log: structlog.BoundLogger = ...` line missing from test file | Step 8, after imports | Add it after the import block, before module constants |
+| `AttributeError: 'NoneType' object has no attribute ...` on Admin API call | `admin_endpoint_base_url()` result not asserted non-None | Step 8, WHITE_BOX pattern | Add `assert admin_base_url is not None  # noqa: S101` after the call |
+| GREY_BOX test returns SKIP even with credentials in config | `_requires_token(context, role)` called before `acquire_tokens` | Step 8, GREY_BOX pattern | Swap the order: acquire first, then guard |
+| GREY_BOX test fails with `AuthenticationSetupError: Unsupported auth_type` | Importing `acquire_all_tokens_if_needed` from `auth_forgejo` directly | Step 8, import block | Import `acquire_tokens` from `src.tests.helpers.auth` instead |
+| Finding reported twice in evidence.json | `add_fail_evidence()` and `pin_evidence()` both called on same record | Step 8, recording block | Use only one of the two per record |
 | `TargetContext` mutated after construction | `RuntimeTestN2Config` missing `frozen=True` | Step 4 | Add `model_config = {"frozen": True}` to the class |
-| DAG accepts test_id but report shows wrong test | `test_id` uses underscore (`"N_2"`) instead of dot (`"N.2"`) | Step 7, ClassVar | Use dot form for `test_id`, underscore form for field names |
+| DAG accepts test_id but report shows wrong test | `test_id` uses underscore (`"N_2"`) instead of dot (`"N.2"`) | Step 8, ClassVar | Use dot form for `test_id`, underscore form for field names |

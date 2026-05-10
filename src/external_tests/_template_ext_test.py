@@ -9,7 +9,8 @@ Naming convention (non-optional -- enables automatic discovery by ExternalTestRe
 Steps to add a new ExternalToolTest:
     1. Copy this file to src/external_tests/ext_test_<tool>_<description>.py.
     2. Replace TemplateExtTest with your test class name.
-    3. Fill in all ClassVar declarations (all eight are mandatory per LLM_rules.md).
+    3. Fill in all ClassVar declarations (all nine are mandatory: the eight
+       standard metadata attributes plus tool_name).
     4. Implement _build_connector(), _invoke_connector(), and _evaluate().
     5. Verify test_id uniqueness: grep for your chosen test_id across all test files.
 
