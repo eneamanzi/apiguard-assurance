@@ -1,16 +1,27 @@
 # APIGuard — Catalogo Completo dei Tool di Security Assessment
 ## Raccolta Integrale dalle Ricerche (use.ai × 4 sessioni + Gemini Deep Search + Analisi Claude)
 
-**Versione:** 1.2 — Maggio 2026
+**Versione:** 1.3 — Maggio 2026
 **Scopo:** Documento di riferimento unico per la ricerca. Ogni tool menzionato in qualsiasi fonte verificabile è incluso.
 
+**Changelog v1.3 rispetto a v1.2:**
+- Test 0.1: kiterunner spostato in Cat C (abbandonato); ffuf promosso da Cat B a Cat A
+- Test 1.2: jwtXploiter spostato in Cat C (5 anni senza manutenzione)
+- Test 3.1: CRLFuzz spostato in Cat C (inattivo dal 2021); copertura CRLF delegata a template Nuclei
+- Test 6.3: smuggler spostato in Cat C (nessuna release); Cat A ora usa Python raw sockets stdlib; http2smugl aggiunto come Cat B
+- Test 7.2: Gopherus spostato in Cat C (4 anni senza commit); copertura Gopher delegata a template Nuclei
+- Test 7.3: race-the-web spostato in Cat C (abbandonato); vegeta promosso a Cat A condiviso con 4.1; racepwn confermato C.4
+- Appendice A aggiornata: ffuf, vegeta
+- Appendice C aggiornata: aggiunti kiterunner, CRLFuzz, smuggler, race-the-web, jwtXploiter, Gopherus
+- Appendice E aggiornata a v1.4: matrice di confidenza allineata alle nuove decisioni
+
 **Novità v1.2 — Tripartizione A/B/C:**
-Ogni sezione di test è ora organizzata in tre sotto-sezioni nell'ordine di priorità operativa:
+Ogni sezione di test è organizzata in tre sotto-sezioni nell'ordine di priorità operativa:
 - **Categoria A** — Da implementare come connector obbligatorio (Python strutturalmente non può)
 - **Categoria B** — Connector facoltativo con fallback nativo (Python può, il tool aggiunge copertura genuina)
 - **Categoria C — Scartato** — Non entra nel codice; motivazione sintetizzata in nota
 
-La classificazione completa con motivazioni estese è in `TODO - tripartizione tool.md`.
+La classificazione completa con motivazioni estese è in `TODO-decisioni-tool.md`.
 
 ---
 
@@ -40,7 +51,7 @@ La classificazione completa con motivazioni estese è in `TODO - tripartizione t
 
 | Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
 |---|---|---|---|---|---|---|
-| **Kiterunner** | `assetnote/kiterunner` | Go — CLI binario | Progettato specificamente per API REST: negozia route con metodi HTTP multipli, gestisce pattern RESTful moderni, usa wordlist costruite da traffico reale di API commerciali (Assetnote). Supera ffuf per API perché non tratta ogni path come uguale — capisce la semantica dei metodi. | JSON (`-o json --output-file`) | Claude Analysis, Altri Tool | Strumento primario raccomandato per shadow API discovery su REST |
+| **ffuf** | `ffuf/ffuf` | Go — CLI binario | Fuzzer ultrarapido per path enumeration con wordlist API. Supporta wordlist SecLists (`API-endpoints.txt`, `common-api-endpoints-mazen160.txt`, 30k+ path). Output JSON nativo con `-of json`. Negoziazione metodi HTTP multipli, recursion, filtri avanzati su status code e dimensione risposta. Attivamente mantenuto. **Promosso da Cat B** in sostituzione di kiterunner (abbandonato). | JSON (`-of json -o result.json`) | use.ai-1, use.ai-2, Claude Analysis | Strumento primario per shadow API discovery. Connector condiviso con fallback 0.2. |
 | **katana** | `projectdiscovery/katana` | Go — CLI binario | Crawler headless con estrazione JavaScript, scopre endpoint non documentati tramite parsing AST di bundle JS. Indispensabile per SPA moderne dove gli endpoint sono definiti nel routing client-side, non server-side. | JSON | use.ai-2, use.ai-3 v3 | Copre scenari JS-heavy che ffuf non gestisce |
 | **Nuclei** | `projectdiscovery/nuclei` | Go — CLI binario | Scanner template-based con libreria di template `http/api/` per vulnerabilità API specifiche. Dopo shadow discovery, scala il test da "endpoint non documentato esiste" a "endpoint sfruttabile". Template aggiornati dalla community. | JSON (`-json`), SARIF | use.ai-2, use.ai-3 v3, Claude Analysis | **Connector condiviso** con test 3.1 e 7.2 |
 
@@ -48,7 +59,6 @@ La classificazione completa con motivazioni estese è in `TODO - tripartizione t
 
 | Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
 |---|---|---|---|---|---|---|
-| **ffuf** | `ffuf/ffuf` | Go — CLI binario | Fuzzer generico ultrarapido. Ottimo per fuzzing di endpoint, parametri, header. Supporta recursion e filtri avanzati su status code, dimensione risposta, parole. Fallback universale quando Kiterunner non copre un pattern specifico. | JSON (`-of json`), CSV, HTML | use.ai-1, use.ai-2, Claude Analysis | Usato anche come fallback per 0.2 |
 | **gau** (GetAllURLs) | `lc/gau` | Go — CLI binario | Aggrega URL da Wayback Machine, CommonCrawl, OTX, URLScan. Pipeline: `gau domain \| grep api` produce endpoint storici mai rimossi. Trova versioni API obsolete ancora raggiungibili. Angolazione completamente diversa: passiva. | Text (pipe-friendly) | use.ai-1, use.ai-2, use.ai-3 v3 | Strumento di mining passivo; complementare ai fuzzer attivi |
 | **cherrybomb** | GitHub open source | Rust — CLI binario | Analisi statica OpenAPI spec: rileva endpoint non protetti, parameter tampering vectors, BOLA patterns. Approccio SAST complementare al DAST dei tool sopra. | JSON | use.ai-3 v2 | Copre anche 0.2, 2.2; multi-test tool |
 
@@ -56,8 +66,9 @@ La classificazione completa con motivazioni estese è in `TODO - tripartizione t
 
 | Tool | Motivo Scarto | Alternativa |
 |---|---|---|
-| **feroxbuster** | C.1 — Redundanza: inferiore a Kiterunner per REST puro; utile per web server tradizionali non nel nostro scope | Kiterunner, ffuf |
-| **gobuster** | C.1 — Redundanza: più semplice di feroxbuster senza vantaggi distinti | Kiterunner, ffuf |
+| **Kiterunner** | C.1 — DEPRECATED: abbandonato, nessun commit recente. ffuf promosso a Cat A copre path enumeration REST con wordlist SecLists. | ffuf (Cat A) |
+| **feroxbuster** | C.1 — Redundanza: inferiore a ffuf per REST puro; utile per web server tradizionali non nel nostro scope | ffuf |
+| **gobuster** | C.1 — Redundanza: più semplice di feroxbuster senza vantaggi distinti | ffuf |
 | **OWASP Noir** | C.3 — Scope diverso: SAST su AST del codice sorgente, richiede accesso al source code; incompatibile con approccio black/grey box | — |
 | **APIClarity** | C.3 — Scope v2.0: richiede target senza spec OpenAPI e traffic capture | — |
 | **akto** | C.3 — Scope diverso: piattaforma Java pesante, non tool di assessment API | — |
@@ -155,18 +166,17 @@ La classificazione completa con motivazioni estese è in `TODO - tripartizione t
 
 | Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
 |---|---|---|---|---|---|---|
-| **jwt_tool** (alias jwttool) | `ticarpi/jwt_tool` | Python — CLI / libreria | Implementa **20+ attacchi JWT automatizzati**: `alg:none` bypass (CVE-2015-9235), key confusion RS256→HS256, claim injection, payload tampering, `kid` header injection (path traversal, SQL injection nel kid), Psychic Signature ECDSA (CVE-2022-21449), iniezioni JKWS. Flag `-M at` per all-tests mode. Riscrivere questa logica richiederebbe mesi e profonda conoscenza crittografica applicata. | JSON (con `-op`), text | use.ai-1, use.ai-2, use.ai-3 v2, use.ai-3 v3, Gemini Deep Search | **Strumento primario per JWT security**. Nonostante sia Python, incapsula logica crittografica complessa aggiornata |
+| **jwt_tool** (alias jwttool) | `ticarpi/jwt_tool` | Python — CLI / libreria | Implementa **20+ attacchi JWT automatizzati**: `alg:none` bypass (CVE-2015-9235), key confusion RS256→HS256, claim injection, payload tampering, `kid` header injection (path traversal, SQL injection nel kid), Psychic Signature ECDSA (CVE-2022-21449), iniezioni JWKS. Flag `-M at` per all-tests mode. Copre il perimetro di ex-jwtXploiter. | JSON (con `-op`), text | use.ai-1, use.ai-2, use.ai-3 v2, use.ai-3 v3, Gemini Deep Search | **Strumento primario per JWT security**. Nonostante sia Python, incapsula logica crittografica complessa aggiornata |
 
 #### Categoria B — Connector facoltativo (fallback nativo disponibile)
 
-| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
-|---|---|---|---|---|---|---|
-| **jwtXploiter** | Repository pubblico | Python — CLI | Specializzato su `kid` header injection con varianti specifiche non sempre coperte da jwt_tool (SQLi nel kid, path traversal verso chiavi locali). Angolazione distinta sullo stesso vettore. | Strutturato | use.ai-2, use.ai-3 v3 | Complementare a jwt_tool per kid injection |
+*(Nessun tool Categoria B — jwtXploiter rimosso, vedi Cat C)*
 
 #### Categoria C — Scartato
 
 | Tool | Motivo Scarto | Alternativa |
 |---|---|---|
+| **jwtXploiter** | C.1 — DEPRECATED: 5 anni senza manutenzione. jwt_tool copre già le stesse varianti di `kid` header injection (path traversal + SQLi). Nessuna copertura differenziale giustificabile. | jwt_tool (Cat A) |
 | **jose-cli** | C.4 — Il guadagno di velocità Go per parsing JWT non giustifica una dipendenza aggiuntiva nel nostro scope di singolo-target | jwt_tool |
 | **jwt-cracker (Node.js)** | C.1 — Redundanza: jwt_tool copre weak secret detection | jwt_tool |
 | **jwt-crack (Rust)** | C.4 — Brute-force HMAC weak secret, scenario troppo specifico; l'oracle principale del test non richiede questo | jwt_tool |
@@ -220,7 +230,7 @@ La classificazione completa con motivazioni estese è in `TODO - tripartizione t
 
 | Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
 |---|---|---|---|---|---|---|
-| **testssl.sh 3.2** | `testssl/testssl.sh` | Bash script (dipendenze: OpenSSL) | **Standard de facto per TLS security assessment.** Copre: versioni protocollo (SSLv2–TLS 1.3), cipher suite, forward secrecy, certificate transparency (SCT count), vulnerabilità CVE-based (BEAST, POODLE, ROBOT, DROWN, Heartbleed, LUCKY13, SWEET32, FREAK, LOGJAM, CRIME, BREACH, RENEGOTIATION, TICKETBLEED). Replicare in Python richiederebbe centinaia di handshake TLS a livello socket raw. | JSON (`--jsonfile <path>`) con `{id, severity, finding, cve, cwe}` | Claude Analysis, use.ai-3 v3 | **Tool primario.** Versione 3.2 stabile. Docker: `drwetter/testssl.sh`. Filtrare `severity in {MEDIUM, HIGH, CRITICAL, WARN}` — i finding `INFO` sono rumore. |
+| **testssl.sh 3.2** | `testssl/testssl.sh` | Bash script (dipendenze: OpenSSL) | **Standard de facto per TLS security assessment.** Copre: versioni protocollo (SSLv2–TLS 1.3), cipher suite, forward secrecy, certificate transparency (SCT count), vulnerabilità CVE-based (BEAST, POODLE, ROBOT, DROWN, Heartbleed, LUCKY13, SWEET32, FREAK, LOGJAM, CRIME, BREACH, RENEGOTIATION, TICKETBLEED). Replicare in Python richiederebbe centinaia di handshake TLS a livello socket raw. | JSON (`--jsonfile <path>`) con `{id, severity, finding, cve, cwe}` | Claude Analysis, use.ai-3 v3 | **Tool primario.** Versione 3.2 stabile. Docker: `drwetter/testssl.sh`. Filtrare `severity in {MEDIUM, HIGH, CRITICAL, WARN}`. |
 
 #### Categoria B — Connector facoltativo (fallback nativo disponibile)
 
@@ -374,13 +384,14 @@ La classificazione completa con motivazioni estese è in `TODO - tripartizione t
 
 **Obiettivo del test:** verificare che injection (SQL, NoSQL, command, template, CRLF), type confusion, e payload anomali siano rifiutati con `400`.
 
+> **Nota copertura CRLF (v1.3):** CRLFuzz rimosso da Cat A (inattivo dal 2021). La ragione tecnica della sua presenza era che operava su raw socket bypassando la normalizzazione RFC 7230 applicata da `httpx`. I template Nuclei `crlf-injection` nel bundle pinned `nuclei-templates 10.4.3` usano lo stesso approccio raw TCP e producono evidenza equivalente. **Pre-requisito:** verificare la presenza del tag `crlf-injection` nel bundle prima di dichiarare la copertura CRLF soddisfatta nel test 3.1.
+
 #### Categoria A — Da implementare come connector
 
 | Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
 |---|---|---|---|---|---|---|
 | **Schemathesis** | `schemathesis/schemathesis` | Python — libreria / CLI | **Unico tool integrabile come libreria Python nativa** (`from schemathesis import from_uri`). Property-based testing con Hypothesis engine: genera centinaia di input per ogni parametro di ogni endpoint basandosi sulla spec OpenAPI. Esplora lo spazio degli input in modo esaustivo rispetto allo schema — paradigma di testing diverso da una lista di payload. OpenAPI 3.1 nativo. | JUnit XML, JSON | Claude Analysis, use.ai-3 v2 | **Nota architetturale**: `BaseLibraryConnector`, non `BaseSubprocessConnector` |
-| **CRLFuzz** | `dwisiswant0/crlfuzz` | Go — CLI binario | Per testare CRLF injection negli header HTTP, il payload `\r\n` deve bypassare la sanitizzazione del client HTTP. Python httpx sanitizza i valori degli header prima di inviarli. CRLFuzz opera su socket raw. Non c'è alternativa Python senza reimplementare un client HTTP. | JSON | use.ai-2, use.ai-3 v2, use.ai-3 v3 | Stesso problema strutturale di smuggler per 6.3 |
-| **Nuclei** | `projectdiscovery/nuclei` | Go — CLI binario | Template `http/vulnerabilities/` per injection specifiche per framework noti (Spring Boot, Django, Laravel, Rails). Aggiornati dalla community senza intervento manuale. | JSON (`-json`), SARIF | Claude Analysis, use.ai-3 v2 | Connector condiviso con 0.1 e 7.2 |
+| **Nuclei** | `projectdiscovery/nuclei` | Go — CLI binario | Template `http/vulnerabilities/` per injection specifiche per framework noti (Spring Boot, Django, Laravel, Rails). Aggiornati dalla community senza intervento manuale. Copre anche CRLF injection tramite template `crlf-injection` (sostituisce ex-CRLFuzz). | JSON (`-json`), SARIF | Claude Analysis, use.ai-3 v2 | Connector condiviso con 0.1 e 7.2 |
 
 #### Categoria B — Connector facoltativo (fallback nativo disponibile)
 
@@ -396,12 +407,13 @@ La classificazione completa con motivazioni estese è in `TODO - tripartizione t
 
 | Tool | Motivo Scarto | Alternativa |
 |---|---|---|
+| **CRLFuzz** | C.1 — DEPRECATED: inattivo dal 2021. Copertura CRLF delegata a template Nuclei `crlf-injection` (stesso approccio raw TCP). | Nuclei templates `crlf-injection` |
 | **ghauri** | C.1 — Alternativa a sqlmap senza vantaggi determinanti; sqlmap è sufficiente e standard de facto | sqlmap |
 | **nosqli** | C.1 — Alternativa Go a NoSQLMap, meno matura | NoSQLMap |
 | **XSStrike** | C.1 — Alternativa a Dalfox; Dalfox è superiore per context-aware XSS | Dalfox |
 | **tplmap** | C.1 — SSTImap è il fork attivo di tplmap con motori aggiuntivi | SSTImap |
-| **crlfmap** | C.1 — Alternativa a CRLFuzz senza vantaggi distinti | CRLFuzz |
-| **headi** | C.1 — Copre header injection, ma CRLFuzz già lo fa | CRLFuzz |
+| **crlfmap** | C.1 — Alternativa a CRLFuzz; CRLFuzz stesso rimosso → Nuclei templates | Nuclei templates |
+| **headi** | C.1 — Copre header injection ma CRLFuzz già lo faceva; CRLFuzz rimosso → Nuclei templates | Nuclei templates |
 | **dotdotpwn** | C.1 — Path traversal testing coperto da ffuf con wordlist dedicate | ffuf + wordlist |
 | **CATS** | C.3 — Alternativa Java a Schemathesis; preferiamo la libreria Python nativa | Schemathesis |
 | **APIFuzzer** | C.1 — Coperto completamente da Schemathesis | Schemathesis |
@@ -441,7 +453,7 @@ La classificazione completa con motivazioni estese è in `TODO - tripartizione t
 
 | Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
 |---|---|---|---|---|---|---|
-| **vegeta** | `tsenart/vegeta` | Go — CLI binario | Rate control preciso con goroutine Go. Il GIL Python e il garbage collector introducono jitter che rende inaffidabile la soglia osservata. Per verificare che il rate limit scatti esattamente a N req/s, il load generator deve essere preciso al millisecondo. Istogrammi latenza (p50/p90/p99). | JSON (`vegeta attack \| vegeta report --type=json`) | use.ai-2, use.ai-3 v2, use.ai-3 v3 | Tool primario. Condiviso con 4.1 come unico connector (4.2 e 4.3 sono NATIVE) |
+| **vegeta** | `tsenart/vegeta` | Go — CLI binario | Rate control preciso con goroutine Go. Il GIL Python e il garbage collector introducono jitter che rende inaffidabile la soglia osservata. Per verificare che il rate limit scatti esattamente a N req/s, il load generator deve essere preciso al millisecondo. Istogrammi latenza (p50/p90/p99). | JSON (`vegeta attack \| vegeta report --type=json`) | use.ai-2, use.ai-3 v2, use.ai-3 v3 | **Connector condiviso con 7.3.** `-rate=0 -max-workers=N` per race condition. |
 
 #### Categoria B / C
 
@@ -451,7 +463,7 @@ La classificazione completa con motivazioni estese è in `TODO - tripartizione t
 
 | Tool | Motivo Scarto | Alternativa |
 |---|---|---|
-| **hey** | C.1 — Redundanza esplicita di vegeta: stessa funzione, meno feature; il documento di fallback è risolto da vegeta stesso | vegeta |
+| **hey** | C.1 — Redundanza esplicita di vegeta: stessa funzione, meno feature | vegeta |
 | **slowloris** | C.4 — Testa slow HTTP attacks su connessioni lente; angolazione orthogonale al rate limiting su frequenza richiesta; il test 4.2 sui timeout indirizza il caso slow-connection | vegeta per frequenza |
 | **bombardier** | C.4 — HTTP/2 specifico; scenario marginale per il test principale; vegeta copre il caso generale | vegeta |
 | **graphql-cop** | C.3 — GraphQL-only; fuori scope v1.0 | — |
@@ -592,23 +604,29 @@ La classificazione completa con motivazioni estese è in `TODO - tripartizione t
 
 **Obiettivo del test:** HTTP Request Smuggling (CL.TE, TE.CL), Slowloris timeout, CORS enforcement, path normalization, plugin security.
 
+> **Nota architetturale v1.3:** smuggler rimosso da Cat A per assenza di release ufficiale. Il connector `ext_test_6_3_smuggling.py` implementa i pattern **CL.TE** e **TE.CL** (RFC 9110 §9.3.3) direttamente tramite `socket` della stdlib Python. Python `httpx` rifiuta per design gli header ambigui `Content-Length` + `Transfer-Encoding: chunked` simultaneamente per conformità RFC — il raw socket bypassa questo enforcement a livello TCP. Il vantaggio accademico è che il codice del connector è leggibile nella tesi e documenta il meccanismo dell'attacco senza dipendere da un binary black-box.
+
 #### Categoria A — Da implementare come connector
+
+*(Nessun tool Cat A — il connector usa Python raw sockets stdlib per CL.TE/TE.CL)*
+
+#### Categoria B — Connector facoltativo (fallback nativo disponibile)
 
 | Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
 |---|---|---|---|---|---|---|
-| **smuggler** | `defparam/smuggler` | Python — CLI / libreria | Copre CL.TE, TE.CL, TE.TE HTTP request desynchronization. Importabile come libreria Python (`import smuggler`) — nessun subprocess. Python httpx (e ogni client HTTP ad alto livello) rifiuta per design di inviare header che violano RFC 9110 — `Content-Length` + `Transfer-Encoding` simultaneamente. Non c'è alternativa Python senza reimplementare un client HTTP da zero. | Strutturato | Claude Analysis | **Libreria Python**: `BaseLibraryConnector` |
+| **http2smugl** | Repository Go pubblico | Go — CLI binario | Copre HTTP/2 downgrade smuggling — angolazione distinta dai pattern CL.TE/TE.CL implementati nel connector nativo. Promovibile a Cat A se il target espone HTTP/2. Attivamente mantenuto. | Strutturato | use.ai-3 v3 | **Cat B opzionale.** Candidato a Cat A se il target usa H2. |
 
-#### Categoria B / C
+#### Categoria B / C precedente
 
-*(Nessun tool Categoria B per questo test)*
+*(Nessun tool Categoria B aggiuntivo per questo test)*
 
 #### Categoria C — Scartato
 
 | Tool | Motivo Scarto | Alternativa |
 |---|---|---|
-| **gotestwaf** | C.3 — Overkill: copre l'intero spazio Layer-7 WAF bypass; per il solo smuggling il perimetro è smuggler | smuggler |
-| **h2csmuggler** | C.4 — HTTP/2 cleartext upgrade smuggling; scenario molto specifico che richiede target con HTTP/2 upgrade non cifrato; la maggioranza dei target non lo espone | smuggler |
-| **http2smugl** | C.1 — Variante HTTP/2 di smuggler; racepwn copre HTTP/2 con più precisione per il test 7.3 | smuggler per HTTP/1.1, racepwn per HTTP/2 |
+| **smuggler** | C.1 — Nessuna release ufficiale taggata; i pattern CL.TE/TE.CL sono implementati direttamente con socket Python stdlib nel connector. | Python raw sockets (stdlib) |
+| **gotestwaf** | C.3 — Overkill: copre l'intero spazio Layer-7 WAF bypass; per il solo smuggling il perimetro è il connector nativo | Python raw sockets |
+| **h2csmuggler** | C.4 — HTTP/2 cleartext upgrade smuggling; scenario molto specifico che richiede target con HTTP/2 upgrade non cifrato; la maggioranza dei target non lo espone | http2smugl (Cat B) |
 | **deck** | C.2 — Kong-specific; viola l'agnosticismo; `BaseGatewayInspector` astrae questa logica | BaseGatewayInspector |
 | **inso** | C.2 — Kong ecosystem-specific | BaseGatewayInspector |
 | **kong-plugin-validator** | C.2 — Kong-specific | BaseGatewayInspector |
@@ -668,10 +686,10 @@ La classificazione completa con motivazioni estese è in `TODO - tripartizione t
 
 | Tool | Motivo Scarto | Alternativa |
 |---|---|---|
-| **playwright** | C.4 — Browser automation per CAPTCHA testing è test P2 secondario; il connector aggiungerebbe una dipendenza browser completo per un singolo scenario; la verifica che il CAPTCHA *esista* nella response HTTP è osservabile con Python httpx | Python nativo |
+| **playwright** | C.4 — Browser automation per CAPTCHA testing è un test P2 secondario; il connector aggiungerebbe una dipendenza browser completo per un singolo scenario; la verifica che il CAPTCHA *esista* nella response HTTP è osservabile con Python httpx | Python nativo |
 | **puppeteer** | C.1 — Node.js; playwright copre lo stesso con binding Python | playwright (già C.4) |
 | **puppeteer-extra-stealth** | C.4 — Device fingerprinting avanzato; scenario specifico non nel core del test | — |
-| **vegeta** | C.4 — Connector già presente per 4.1; l'uso per burst test su endpoint business è marginal rispetto alla logica nativa | vegeta già in 4.1 |
+| **vegeta** | C.4 — Connector già presente per 4.1; l'uso per burst test su endpoint business è marginale rispetto alla logica nativa | vegeta già in 4.1 |
 | **curl-impersonate** | C.4 — TLS fingerprint impersonation; scenario molto avanzato e specifico non nel core del test | — |
 | **akto** | C.3 — Piattaforma Java pesante | — |
 
@@ -683,23 +701,24 @@ La classificazione completa con motivazioni estese è in `TODO - tripartizione t
 
 **Nota tecnica:** SSRFmap è implementato come layer nativo (`ssrf_payloads.py`) — non è un connector esterno ma logica Python integrata nel test. I payload standard (cloud metadata, private IP, encoding bypass, protocol whitelist) sono codice Python nativo. I connector qui estendono il coverage con angolazioni non replicabili in Python.
 
+> **Nota copertura Gopher (v1.3):** Gopherus rimosso da Cat B (4 anni senza commit, nessuna release). I template Nuclei nella categoria `ssrf` e `network` del bundle pinned `nuclei-templates 10.4.3` coprono SSRF verso Redis, MySQL, FastCGI, Memcached e SMTP tramite payload Gopher. **Pre-requisito:** verificare la presenza di template `ssrf-via-gopher-*` prima di dichiarare la copertura Gopher soddisfatta.
+
 #### Categoria A — Da implementare come connector
 
 | Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
 |---|---|---|---|---|---|---|
-| **Nuclei** | `projectdiscovery/nuclei` | Go — CLI binario | Template `http/vulnerabilities/generic/ssrf*` con bypass specifici per tecnologie e configurazioni cloud emergenti. Aggiornati dalla community. Angolazione distinta da `ssrf_payloads.py` nativo. | JSON | Claude Analysis | Connector condiviso con 0.1 e 3.1 |
-| **interactsh** | `projectdiscovery/interactsh` | Go — server / client | **OOB (Out-of-Band) callback server** per confermare SSRF blind. Senza OOB, le SSRF blind non sono rilevabili: il server target esegue una request interna che non torna al tester. interactsh registra DNS/HTTP callbacks che confermano l'exploitation. Angolazione non sostituibile con Python puro. | JSON | use.ai-2, use.ai-3 v2, use.ai-3 v3 | **Indispensabile per Blind SSRF**. Condiviso con 7.4 |
+| **Nuclei** | `projectdiscovery/nuclei` | Go — CLI binario | Template `http/vulnerabilities/generic/ssrf*` con bypass specifici per tecnologie e configurazioni cloud emergenti. Aggiornati dalla community. Angolazione distinta da `ssrf_payloads.py` nativo. Copre anche payload Gopher tramite template `ssrf-via-gopher-*` (sostituisce ex-Gopherus). | JSON | Claude Analysis | Connector condiviso con 0.1 e 3.1 |
+| **interactsh** | `projectdiscovery/interactsh` | Go — server / client | **OOB (Out-of-Band) callback server** per confermare SSRF blind. Senza OOB, le SSRF blind non sono rilevabili. interactsh registra DNS/HTTP callbacks che confermano l'exploitation. Angolazione non sostituibile con Python puro. | JSON | use.ai-2, use.ai-3 v2, use.ai-3 v3 | **Indispensabile per Blind SSRF**. Condiviso con 7.4 |
 
 #### Categoria B — Connector facoltativo (fallback nativo disponibile)
 
-| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
-|---|---|---|---|---|---|---|
-| **Gopherus** | `tarunkant/Gopherus` | Python — CLI | Genera payload SSRF formattati correttamente per servizi interni (Redis, MySQL, FastCGI, Memcached, SMTP). I formati protocollari sono specifici e mantenuti aggiornati. Python può costruire questi payload ma Gopherus li mantiene corretti. | Payload text | use.ai-2, use.ai-3 v2, use.ai-3 v3 | Payload generation specializzato per servizi backend |
+*(Nessun tool Categoria B — Gopherus rimosso, vedi Cat C)*
 
 #### Categoria C — Scartato
 
 | Tool | Motivo Scarto | Alternativa |
 |---|---|---|
+| **Gopherus** | C.1 — DEPRECATED: 4 anni senza commit, nessuna release. I template Nuclei `ssrf-via-gopher-*` coprono gli stessi payload (Redis, MySQL, FastCGI, Memcached, SMTP). | Nuclei templates `ssrf-via-gopher-*` |
 | **SSRFmap** | Note: integrato come codice nativo (`ssrf_payloads.py`), non connector | — |
 | **nimbostratus** | C.2 — AWS metadata exploitation specifico; platform-specific | ssrf_payloads.py nativo |
 | **singularity** | C.4 — DNS rebinding framework; scenario avanzato coperto dalla logica nativa con payload standard | ssrf_payloads.py nativo |
@@ -715,8 +734,7 @@ La classificazione completa con motivazioni estese è in `TODO - tripartizione t
 
 | Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
 |---|---|---|---|---|---|---|
-| **race-the-web** | `nicowillis/race-the-web` | Go — CLI | **Goroutine-based con last-byte synchronization**: trattiene l'ultimo byte di tutte le request concurrent e lo invia simultaneamente per minimizzare la finestra temporale. Python asyncio introduce jitter di scheduling che sfasa la sincronizzazione sub-millisecondo necessaria per TOCTOU. | JSON | use.ai-1, use.ai-2, use.ai-3 v2, use.ai-3 v3 | **Strumento primario** per race condition HTTP/1.1 |
-| **racepwn** | Repository Go/Rust | Go orchestrator / C library (`librace`) | **Architettura a due livelli**: orchestratore Go + libreria `librace` in C che interfaccia direttamente lo stack di rete per precisione sub-microsecondo. Copre HTTP/2 concurrent streams — angolazione distinta da race-the-web (HTTP/1.1). | JSON (config) / output strutturato | use.ai-2, use.ai-3 v2, Gemini Deep Search | **Massima precisione disponibile** |
+| **vegeta** | `tsenart/vegeta` | Go — CLI binario | Connector già presente per 4.1. Flag `-rate=0 -max-workers=N` lancia N goroutine Go in parallelo con sincronizzazione last-byte — equivalente funzionale del ex-race-the-web. Python asyncio introduce jitter di scheduling che sfasa la sincronizzazione sub-millisecondo necessaria per TOCTOU. Output JSON con `status_codes` e `latencies` per rilevare response anomale (es. doppio 200 su operazione idempotente). | JSON (`vegeta attack \| vegeta report --type=json`) | use.ai-2, use.ai-3 v2, use.ai-3 v3 | **Connector condiviso con 4.1.** `-rate=0 -max-workers=N` per last-byte sync. |
 
 #### Categoria B / C
 
@@ -726,11 +744,13 @@ La classificazione completa con motivazioni estese è in `TODO - tripartizione t
 
 | Tool | Motivo Scarto | Alternativa |
 |---|---|---|
-| **turbo-intruder** | C.4 — Java/Jython, setup molto complesso; racepwn copre la stessa precisione con architettura più semplice; dipendenza Burp opzionale | racepwn |
-| **h2csmuggler** | C.4 — HTTP/2 cleartext upgrade smuggling, non race condition; confuso tra i due test | smuggler per 6.3 |
-| **http2smugl** | C.1 — Smuggling HTTP/2; non race condition; alternativa Go senza vantaggi per questo test | smuggler per 6.3 |
+| **race-the-web** | C.1 — DEPRECATED: abbandonato, poche stelle, nessuna release recente. vegeta con `-rate=0 -max-workers=N` copre il requisito di last-byte sync senza dipendenze aggiuntive. | vegeta (Cat A) |
+| **racepwn** | C.4 — Dipendenza `librace` C richiede compilazione non triviale in ambienti Docker; il vettore HTTP/2 concurrent streams è raro su target gateway-standard come Kong; vegeta copre il caso comune | vegeta |
+| **turbo-intruder** | C.4 — Java/Jython, setup molto complesso; vegeta copre la stessa precisione con architettura più semplice | vegeta |
+| **h2csmuggler** | C.4 — HTTP/2 cleartext upgrade smuggling, non race condition | smuggler (già C.1) / http2smugl |
+| **http2smugl** | C.1 — Smuggling HTTP/2; non race condition | http2smugl Cat B in 6.3 |
 | **h2spec** | C.3 — Conformance testing HTTP/2; scope diverso da race condition | — |
-| **ffuf -rate 0** | C.1 — Baseline grossolana per race detection; race-the-web è già il tier entry-level | race-the-web |
+| **ffuf -rate 0** | C.1 — Baseline grossolana per race detection; vegeta è il tier entry-level corretto | vegeta |
 
 ---
 
@@ -758,19 +778,19 @@ La classificazione completa con motivazioni estese è in `TODO - tripartizione t
 
 ---
 
-## APPENDICE A — Tool Cross-Cutting (Multi-Dominio) — Aggiornata
+## APPENDICE A — Tool Cross-Cutting (Multi-Dominio) — v1.3
 
-Tool che coprono aspetti di più test o domini. Versione aggiornata con classificazione tripartita.
+Tool che coprono aspetti di più test o domini.
 
 | Tool | Cat. | Domini/Test | Motivo Multi-Copertura |
 |---|---|---|---|
-| **Nuclei** | A | 0.1, 3.1, 7.2 | Template per shadow API, injection, SSRF — un solo connector, tre test |
+| **Nuclei** | A | 0.1, 3.1, 7.2 | Template per shadow API, injection (incluso CRLF), SSRF (incluso Gopher) — un solo connector, tre test |
 | **jwt_tool** | A | 1.2, 1.3 | JWT security testing multipurpose |
-| **vegeta** | A | 4.1 | Load testing per rate limiting |
+| **vegeta** | A | 4.1, 7.3 | Load testing per rate limiting (4.1); last-byte sync per race condition (7.3) |
 | **interactsh** | A | 7.2, 7.4 | OOB server per SSRF blind e webhook callback testing |
 | **cherrybomb** | B | 0.1, 0.2, 2.2 | Rust static analyzer multi-test |
 | **OWASP OFFAT** | B | 2.2, 2.3 | BOLA e destructive operations authorization |
-| **ffuf** | B | 0.1 (e fallback 0.2) | Go fuzzer generico |
+| **ffuf** | A | 0.1 (e fallback 0.2) | Go fuzzer — **promosso a Cat A** per 0.1; fallback per 0.2 |
 | **oasdiff** | B | 0.3 | Spec diff tool |
 | **trufflehog** | B | 6.4 | Secret scanning runtime |
 | **gitleaks** | B | 6.4 | Secret scanning git history |
@@ -836,6 +856,12 @@ Documentati per completezza storica e per tracciabilità delle fonti. **Non racc
 | **GAP-Burp-Extension** | Dipende da Burp Suite | katana + LinkFinder standalone | use.ai-3 v3 |
 | **recaptcha-cracker** | Non mantenuto | Test manuale o Python nativo | use.ai-3 v3 |
 | **SSRFfire** | Ultimo commit 2021 | SSRFmap integrato come nativo | use.ai-3 v3 |
+| **kiterunner** (`assetnote/kiterunner`) | Abbandonato, nessun commit recente | ffuf (Cat A, promosso in v1.3) | Claude Analysis v1.3 |
+| **CRLFuzz** (`dwisiswant0/crlfuzz`) | Inattivo dal 2021 | Nuclei templates `crlf-injection` | Claude Analysis v1.3 |
+| **smuggler** (`defparam/smuggler`) | Nessuna release ufficiale taggata | Python raw sockets stdlib (connector 6.3) | Claude Analysis v1.3 |
+| **race-the-web** (`TheHackerDev/race-the-web`) | Abbandonato, poche stelle, nessuna release recente | vegeta (Cat A, last-byte sync con `-rate=0 -max-workers=N`) | Claude Analysis v1.3 |
+| **jwtXploiter** (`DontPanicO/jwtXploiter`) | Ultimo commit 5 anni fa, nessuna release recente | jwt_tool (Cat A, copre le stesse varianti kid injection) | Claude Analysis v1.3 |
+| **Gopherus** (`tarunkant/Gopherus`) | Ultimo commit 4 anni fa, nessuna release | Nuclei templates `ssrf-via-gopher-*` | Claude Analysis v1.3 |
 
 ---
 
@@ -845,7 +871,7 @@ Tool validi ma esclusi dallo scope v1.0 per le ragioni indicate. Candidati per v
 
 | Tool | Condizione per Inclusione | Dominio | Note |
 |---|---|---|---|
-| **APIClarity** | Modalità pure black-box (target senza spec) | 0.1, 2.5 | Runtime traffic analysis |
+| **APIClarity** | Modalità pure black-box (target senza spec OpenAPI) | 0.1, 2.5 | Runtime traffic analysis |
 | **mitmproxy2swagger** | Modalità pure black-box | 0.1 | Reverse-engineering spec |
 | **Arjun** / **x8** | Modalità pure black-box | 0.1 | Parameter discovery senza spec |
 | **ParamSpider** | Modalità pure black-box | 0.1 | Mining parametri da Wayback |
@@ -857,24 +883,30 @@ Tool validi ma esclusi dallo scope v1.0 per le ragioni indicate. Candidati per v
 | **grpcurl**, **ghz** | Target gRPC | Domini vari | Fuori scope v1.0 |
 | **websocat**, **STEWS** | Target WebSocket | Domini vari | Fuori scope v1.0 |
 | **RESTler-fuzzer** | Stateful fuzzing engine per BOLA complessi | 2.2, 7.1, 7.4 | Richiede C# runtime; troppo pesante per v1.0 |
+| **http2smugl** | Target che espone HTTP/2 (promovibile da Cat B 6.3 a Cat A) | 6.3 | Già presente come Cat B; promozione condizionale |
 
 ---
 
 ## APPENDICE E — Matrice di Confidenza
 
 Tool primari operativi per ogni test, ordinati per categoria.
-**Versione 1.3** — allineata a `test_tool_decisions.md` v2.0.
+**Versione 1.4** — allineata a `test_tool_decisions.md` v3.0.
 
-Cambiamento rispetto a v1.2: test 7.3 — racepwn rimosso da Cat A (spostato in Cat C per
-dipendenza `librace` non triviale in Docker; race-the-web copre il caso comune senza deps).
+Cambiamenti rispetto a v1.3:
+- 0.1: kiterunner → ffuf (Cat A), rimosso da Cat B
+- 1.2: jwtXploiter rimosso da Cat B
+- 3.1: CRLFuzz rimosso da Cat A
+- 6.3: smuggler rimosso da Cat A; Cat A ora usa Python raw sockets; http2smugl aggiunto Cat B
+- 7.2: Gopherus rimosso da Cat B
+- 7.3: race-the-web rimosso da Cat A; vegeta promosso a Cat A condiviso
 
 | Test | Cat. A (Obbligatorio) | Cat. B (Facoltativo) | Classificazione Test |
 |---|---|---|---|
-| 0.1 | Kiterunner, katana, Nuclei | ffuf, gau, cherrybomb | HYBRID |
+| 0.1 | ffuf, katana, Nuclei | gau, cherrybomb | HYBRID |
 | 0.2 | — | cherrybomb | NATIVE |
 | 0.3 | — | oasdiff | NATIVE |
 | 1.1 | — | — | NATIVE |
-| 1.2 | jwt_tool | jwtXploiter | HYBRID |
+| 1.2 | jwt_tool | — | HYBRID |
 | 1.3 | jwt_tool | — | HYBRID |
 | 1.4 | — | — | NATIVE |
 | 1.5 | testssl.sh | sslyze | HYBRID |
@@ -884,7 +916,7 @@ dipendenza `librace` non triviale in Docker; race-the-web copre il caso comune s
 | 2.3 | — | OFFAT | NATIVE |
 | 2.4 | — | — | NATIVE |
 | 2.5 | — | — | NATIVE |
-| 3.1 | Schemathesis, CRLFuzz, Nuclei | sqlmap, NoSQLMap, Dalfox, commix, SSTImap | HYBRID |
+| 3.1 | Schemathesis, Nuclei | sqlmap, NoSQLMap, Dalfox, commix, SSTImap | HYBRID |
 | 3.3 | — | — | NATIVE |
 | 4.1 | vegeta | — | HYBRID |
 | 4.2 | — | — | NATIVE |
@@ -893,11 +925,11 @@ dipendenza `librace` non triviale in Docker; race-the-web copre il caso comune s
 | 5.2 | — | — | NATIVE |
 | 6.1 | — | — | NATIVE |
 | 6.2 | — | — | NATIVE |
-| 6.3 | smuggler | — | HYBRID |
+| 6.3 | — (Python raw sockets stdlib) | http2smugl | HYBRID |
 | 6.4 | — | trufflehog, gitleaks, detect-secrets | NATIVE |
 | 7.1 | — | — | NATIVE |
-| 7.2 | Nuclei, interactsh | Gopherus | HYBRID |
-| 7.3 | race-the-web | — | HYBRID |
+| 7.2 | Nuclei, interactsh | — | HYBRID |
+| 7.3 | vegeta | — | HYBRID |
 | 7.4 | interactsh | — | HYBRID |
 
 ---
@@ -916,6 +948,7 @@ dipendenza `librace` non triviale in Docker; race-the-web copre il caso comune s
 
 ---
 
-*Fine documento — Catalogo Tool APIGuard v1.2*
+*Fine documento — Catalogo Tool APIGuard v1.3*
 *Revisione v1.1: rimossi tool non verificabili (SSRFHunter Elite v3.0, Ice-Tea, Lonkero, QitOps CLI, openapi-security-scanner).*
 *Revisione v1.2: tripartizione A/B/C applicata a ogni sezione di test. Tool Categoria C spostati in sotto-sezioni dedicate con motivazione esplicita dello scarto. Appendice A aggiornata con classificazione. Appendice E riscritta come matrice operativa post-tripartizione.*
+*Revisione v1.3: 6 tool rimossi per abbandono/nessuna release (kiterunner, CRLFuzz, smuggler, race-the-web, jwtXploiter, Gopherus). ffuf e vegeta aggiornati a Cat A con copertura estesa. http2smugl aggiunto Cat B per 6.3. Appendice C aggiornata. Appendice E portata a v1.4.*

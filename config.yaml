@@ -124,8 +124,8 @@ execution:
     - BLACK_BOX
     - GREY_BOX
     - WHITE_BOX
-  # test_ids: ["7.2", "1.5", "ext.1.5"]     # esegue solo test specificati, se vuota comportamento normale
-  test_ids: [] 
+  test_ids: ["ext.0.1", "ext.1.5"]     # esegue solo test specificati, se vuota comportamento normale
+  # test_ids: [] 
   # test_ids: ["0.1", "1.1"]  # più test specifici
   # test_ids: []          # lista vuota = comportamento normale
 
@@ -649,24 +649,68 @@ external_tools:
     #  Prevents stall on targets that accept TCP but don't complete TLS.
     #  Required flag for robust operation; add to extra_flags here.
 
-  # ---------------------------------------------------------------------------
-  # nuclei — CVE / template-based vulnerability scanning
-  # ---------------------------------------------------------------------------
-  nuclei:
-    enabled: false
-    # timeout_seconds: 300
-    template_tags:
-      - "api"
-      - "token"
-      - "misconfig"
-    extra_flags: "-silent -no-color"
+    # Pinned binary version. Must match TESTSSL_VERSION in install_tools.sh.
+    # If the installed binary differs, ExternalToolTest emits a WARNING at
+    # runtime -- the test still runs but the analyst is alerted.
+    # License: testssl.sh is distributed under GPLv2.
+    expected_version: "3.2.3"
+
+    # Development mode: load cached output instead of running the binary.
+    # When true AND outputs/tools/ext_1_5_testssl_sh_output.json exists,
+    # testssl.sh is NOT invoked (binary need not be installed).
+    # First run with dev_mode: true still executes the binary and writes the
+    # cache.  Delete outputs/tools/ to force a fresh scan.
+    # WARNING: never set to true for a real assessment -- cached output
+    # may be stale if the target TLS configuration has changed.
+    dev_mode: false
 
   # ---------------------------------------------------------------------------
-  # ffuf — Path fuzzing for Shadow API discovery (Garanzia 0.1)
+  # nuclei — Template-based vulnerability scanner (Garanzia 0.1)
   # ---------------------------------------------------------------------------
-  ffuf:
-    enabled: false
-    # timeout_seconds: 180
-    wordlist_path: "/usr/share/seclists/Discovery/Web-Content/api/api-endpoints.txt"
-    rate_limit_rps: 50
-    extra_flags: "-noninteractive -s"
+  # Binary:    ./tools/nuclei/nuclei  (installed by install_tools.sh)
+  # Templates: ./tools/nuclei-templates/  (installed by install_tools.sh)
+  # Version pinning:
+  #   NUCLEI_VERSION          in install_tools.sh  must match expected_version
+  #   NUCLEI_TEMPLATES_VERSION in install_tools.sh  must match template_dir content
+  # License: nuclei is distributed under the MIT License.
+  nuclei:
+    enabled: true
+    timeout_seconds: 240
+
+    # Pinned binary version. Must match NUCLEI_VERSION in install_tools.sh.
+    expected_version: "3.8.0"
+
+    # Pinned local templates directory. Must match NUCLEI_TEMPLATES_VERSION
+    # content installed by install_tools.sh.
+    template_dir: "./tools/nuclei-templates"
+
+    # Template tag filter. Controls which templates nuclei executes.
+    # Default covers shadow API discovery surface: Swagger/OpenAPI exposure,
+    # admin panels, API misconfigurations. Extend with caution -- broader
+    # tags increase scan time significantly.
+    tags:
+      - "api"
+      - "exposure"
+      - "misconfig"
+      - "panel"
+
+    # Per-request HTTP timeout in seconds (nuclei -timeout flag).
+    # Distinct from timeout_seconds (total wall-clock scan limit).
+    per_request_timeout: 10
+
+    # Max HTTP requests per second (nuclei -rl flag).
+    # 30 rps avoids triggering Kong rate limiting (Test 4.1) during scan.
+    rate_limit_rps: 30
+
+    # Operator-supplied extra flags. Do NOT add -duc, -ni, -no-color:
+    # those are hardcoded in NucleiConnector as architectural invariants.
+    extra_flags: ""
+
+    # Development mode: load cached output instead of running nuclei.
+    # When true AND outputs/tools/ext_0_1_nuclei_output.json exists,
+    # nuclei is NOT invoked (binary and templates need not be installed).
+    # First run with dev_mode: true still executes nuclei and writes the
+    # cache.  Delete outputs/tools/ to force a fresh scan.
+    # WARNING: never set to true for a real assessment -- cached output
+    # may be stale if the target has changed since the last live run.
+    dev_mode: false

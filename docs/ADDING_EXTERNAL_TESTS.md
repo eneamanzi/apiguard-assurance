@@ -1,8 +1,9 @@
 # Developer Guide — Adding a New External Test (and Connector)
 
 **Source of truth:** every pattern in this document was extracted directly
-from the verified implementation: `ext.1.5` (ExtTest15TlsAnalysis),
-`TestsslConnector`, `BaseSubprocessConnector`, `ExternalToolTest`,
+from the verified implementation: `ext_test_1_5_tls_analysis.py` (testssl),
+`ext_test_0_1_shadow_api_nuclei.py` (nuclei), `TestsslConnector`,
+`NucleiConnector`, `BaseSubprocessConnector`, `ExternalToolTest`,
 `ExternalToolsConfig`. Code excerpts are canonical. Do not invent patterns
 not present here.
 
@@ -37,6 +38,112 @@ External tests invoke subprocesses, not `httpx`. The engine calls
 **4. Evidence is stored via `store.pin_artifact()`, not `store.add_fail_evidence()`.**
 The connector's raw JSON output is pinned as an artifact. Individual
 `Finding` objects reference the `artifact_ref` string (not an `EvidenceRecord`).
+
+---
+
+## ⚠️ THREE MISTAKES THE PREVIOUS IMPLEMENTATION MADE
+
+These are lessons learned from implementing `ext_test_0_1_shadow_api_nuclei.py`.
+Read them before writing any code — they are the highest-probability errors.
+
+### Mistake A — `TestResult(...)` built directly in `_evaluate()`
+
+**What happened:** `_evaluate()` returned `TestResult(test_id=..., status=..., message=...,
+findings=[])` instead of `self._make_pass()` / `self._make_fail()`.
+
+**Why it happened:** `TestResult` was in the import block (needed for the return
+type annotation), which made it look like the right thing to use. The `_make_*()`
+helpers were documented in a list item at the bottom of the `_evaluate()` section,
+easy to miss.
+
+**Why it matters:** `TestResult(...)` built directly produces a result with empty
+metadata fields: `test_name=""`, `domain=-1`, `source=""`, `tool_name=""`, etc.
+The report builder uses `source` to partition native vs. external results and `domain`
+to build per-domain statistics. A result with `source=""` falls into an unclassified
+bucket and the report renders dashes where data should appear.
+
+**The rule — stated here, stated in the checklist, and enforced by code review:**
+
+```python
+# WRONG — ALWAYS WRONG — DO NOT DO THIS
+return TestResult(
+    test_id=self.test_id,
+    status=TestStatus.PASS,
+    message="...",
+)
+
+# CORRECT — always use the _make_*() helpers
+return self._make_pass(message="...")
+return self._make_fail(message="...", findings=[...])
+return self._make_skip(reason="...")
+```
+
+`_make_pass()`, `_make_fail()`, and `_make_skip()` call `_metadata_kwargs()`
+internally, which injects `test_name`, `domain`, `priority`, `strategy`, `tags`,
+`cwe_id`, `source`, and `tool_name` into every `TestResult`. There is no other
+way to populate these fields.
+
+### Mistake B — `command_json = json.dumps(cmd)` instead of `" ".join(cmd)`
+
+**What happened:** `ConnectorRawOutput["command_json"]` was set to `json.dumps(cmd)`,
+producing a JSON-encoded string like `["/path/nuclei", "-u", "https://..."]`.
+
+**Why it happened:** the name `command_json` was misread as "the command in JSON
+format" (a Python list serialized as JSON). The `ConnectorRawOutput` TypedDict
+declares `command_json: str` with the description "command with JSON output flag",
+which refers to the *tool's* JSON output mode (the `-je`/`--jsonfile` flag), not
+a JSON serialization of the command list.
+
+**Why it matters:** the HTML report template renders `command_json` directly as a
+string. A `json.dumps()` value passes as `str` type-checking, so no error is raised.
+But the Jinja2 template (correctly) treats it as a plain string — the rendered output
+was `[ " / h o m e / m a n z i / a p i g u a r d ...` (the JSON array string
+rendered character-by-character when the `join` filter was mistakenly applied).
+
+**The rule:**
+
+```python
+# WRONG
+raw_output = {
+    "command":      " ".join(cmd),
+    "command_json": json.dumps(cmd),   # ← NEVER do this
+}
+
+# CORRECT — both keys are plain space-separated strings
+raw_output = {
+    "command":      " ".join(cmd_without_json_flag),
+    "command_json": " ".join(cmd_with_json_flag),
+}
+```
+
+`command` = the command a human analyst would run for human-readable output
+(e.g., without `-je <path>` for nuclei, without `--jsonfile` for testssl).
+
+`command_json` = the command that APIGuard runs internally, with the JSON
+output flag included (e.g., with `-je <path>` for nuclei, with `--jsonfile`
+for testssl). It is a plain space-separated `str`, not a JSON-serialized list.
+
+**When using `_build_reproducible_commands()` (preferred):** this error cannot
+occur because the helper always returns plain strings. Use the helper whenever
+the JSON flag is a simple CLI argument and the command is not a temp-file variant.
+
+**When building `raw_output` manually (nuclei / any tool with temp-file output):**
+always use `" ".join(cmd)` for both keys. Never `json.dumps(cmd)`.
+
+### Mistake C — `| join(' ')` in the Jinja2 template
+
+**What happened:** the template rendered `command_json` with `| join(' ')`,
+which in Jinja2 iterates the **characters** of a string.
+
+**Why it happened:** the `| join(' ')` filter was added as a fix under the
+assumption that `command_json` was a Python list. It is not — it is a `str`.
+
+**The rule:** `command_json` is always a plain `str`. Render it directly:
+
+```jinja
+{{ row.tool_artifact.command_json }}     {# correct #}
+{{ row.tool_artifact.command_json | join(' ') }}  {# WRONG — iterates chars #}
+```
 
 ---
 
@@ -107,17 +214,6 @@ depends_on: ClassVar[list[str]] = ["ext.1.5"]
 # External test with no dependencies (most common):
 depends_on: ClassVar[list[str]] = []
 ```
-
-The practical reason to declare `depends_on = ["1.5"]` for an external
-TLS test is that test `1.5` (native) verifies HTTP redirect enforcement
-and HSTS headers — fast checks that can short-circuit the pipeline if TLS
-is fundamentally broken. Running the external full TLS scan only after the
-native test has passed avoids spending the testssl.sh timeout on a target
-that would FAIL anyway on a simpler check.
-
-If the native dependency returned SKIP or ERROR, the engine still executes
-the dependent external test — a missing dependency only blocks execution
-if the DAG detects a cycle, not if a prerequisite did not PASS.
 
 **`tool_name` convention:**
 Must exactly match the field name in `ExternalToolsConfig`. The registry
@@ -341,23 +437,40 @@ be called in that case.
 
 ```python
 raw_output: ConnectorRawOutput = {
-    "command":      command,       # str: plain-text command for analyst reproduction
-    "command_json": command_json,  # str: command with JSON output flag (what apiguard runs)
+    "command":      command,       # str: plain space-separated command WITHOUT json flag
+    "command_json": command_json,  # str: plain space-separated command WITH json flag
     "results":      all_findings,  # list[dict]: complete UNFILTERED findings from the tool
     "all_count":    len(all_findings),  # int: total findings count
 }
 ```
 
-**"Dumb pipe" contract:** connectors pass ALL findings in `results`.
-Severity-based partitioning (FAIL / note / ignore) is the exclusive
-responsibility of `ExternalToolTest._evaluate()`. Never filter by severity
-inside a connector.
+### ⚠️ Critical rule: `command` and `command_json` are always plain `str`
 
-### `_build_reproducible_commands()` helper (mandatory)
+Both `command` and `command_json` are **plain space-separated strings**,
+not JSON-serialized lists. The `ConnectorRawOutput` TypedDict declares both
+as `str`. The HTML template renders them directly with no filter.
 
-Use the base class helper to build `command` and `command_json`. This
-centralises path normalisation logic and is the canonical way to produce
-the two required keys. Do not reimplement this logic inline.
+```python
+# CORRECT
+"command":      " ".join(cmd_text_mode),       # e.g. "nuclei -u https://localhost:8443 ..."
+"command_json": " ".join(cmd_json_mode),       # e.g. "nuclei -je /tmp/out.json -u https://..."
+
+# WRONG — produces broken HTML (character-spaced rendering)
+"command_json": json.dumps(cmd),               # ← NEVER use json.dumps here
+```
+
+**Semantic distinction:**
+- `command` = the CLI command a human analyst pastes into a terminal to
+  reproduce the scan with human-readable (non-JSON) output.
+- `command_json` = the CLI command APIGuard runs internally, with the
+  JSON output flag(s) included. For tools that always run in JSON mode
+  (e.g. nuclei with `-je`), `command` and `command_json` may be identical.
+
+### `_build_reproducible_commands()` helper (preferred)
+
+Use the base class helper whenever the JSON output flag is a simple CLI
+argument. This centralises path normalisation logic and eliminates the
+`json.dumps` mistake by construction.
 
 ```python
 cmd_prefix = [binary_cmd, *flag_tokens]
@@ -368,6 +481,15 @@ command, command_json = self._build_reproducible_commands(
     json_output_args=["-json"],    # tool-specific JSON output flag(s)
 )
 ```
+
+The helper always returns two plain `str` values. Use it for any tool
+that writes JSON to stdout via a simple flag.
+
+**When NOT to use it:** when the JSON output flag requires a *path argument*
+(like nuclei's `-je /tmp/file.json` or testssl's `--jsonfile /tmp/file.json`),
+the helper cannot generate the full command because the temp file path is not
+known at command-building time. In this case, build `command` and `command_json`
+manually using `" ".join(...)`. See the nuclei connector for the reference pattern.
 
 ### Canonical `run()` implementation
 
@@ -398,13 +520,23 @@ def run(
     scan_target: str = target_url
     binary_cmd: str = self._resolve_binary_path() or self.BINARY_NAME
     flag_tokens = [t for t in extra_flags.split() if t]
-    cmd: list[str] = [binary_cmd] + flag_tokens + ["-tags", template_tags]
 
-    command, command_json = self._build_reproducible_commands(
-        cmd_prefix=cmd,
-        scan_target=scan_target,
-        json_output_args=["-json"],
-    )
+    # nuclei writes to a temp JSON export file, not to stdout.
+    json_export_path = Path(tempfile.mktemp(suffix="_nuclei.json"))  # noqa: S306
+
+    cmd: list[str] = [
+        binary_cmd, "-u", scan_target,
+        "-tags", template_tags,
+        "-je", str(json_export_path),
+        *flag_tokens,
+    ]
+
+    # Both command strings are plain space-separated str — never json.dumps().
+    # command      = what the analyst runs manually (identical here, since -je
+    #                is always present in nuclei's normal invocation mode)
+    # command_json = what APIGuard runs internally (same command)
+    command: str = " ".join(cmd)
+    command_json: str = " ".join(cmd)
 
     log.info(
         "nuclei_connector_run_starting",
@@ -415,26 +547,14 @@ def run(
 
     start_time_ms = int(time.monotonic() * 1000)
 
-    stdout, exit_code = self._run_subprocess(
-        cmd=cmd + ["-json", "-u", scan_target],
+    _stdout, exit_code = self._run_subprocess(
+        cmd=cmd,
         timeout_seconds=timeout_seconds,
         tool_name=self.TOOL_NAME,
     )
 
     execution_time_ms = int(time.monotonic() * 1000) - start_time_ms
-
-    if exit_code not in _SUCCESS_EXIT_CODES:
-        preview = (stdout or "")[:300].replace("\n", " ")
-        raise ExternalToolError(
-            message=f"{self.TOOL_NAME} exited with code {exit_code}. Preview: {preview!r}",
-            tool_name=self.TOOL_NAME,
-            exit_code=exit_code,
-        )
-
-    all_findings: list[dict[str, Any]] = self._parse_jsonl_output(
-        raw_stdout=stdout,
-        tool_name=self.TOOL_NAME,
-    )
+    all_findings: list[dict[str, Any]] = self._read_json_export(json_export_path)
 
     log.info(
         "nuclei_connector_run_complete",
@@ -444,8 +564,8 @@ def run(
     )
 
     raw_output: ConnectorRawOutput = {
-        "command":      command,
-        "command_json": command_json,
+        "command":      command,       # plain str
+        "command_json": command_json,  # plain str — NOT json.dumps()
         "results":      all_findings,
         "all_count":    len(all_findings),
     }
@@ -464,14 +584,16 @@ def run(
 - `_parse_json_output(raw_stdout, tool_name)` — tool writes one JSON
   object (or array) to stdout. Returns `dict` or `list`.
 - `_parse_jsonl_output(raw_stdout, tool_name)` — tool writes one JSON
-  object per line (JSONL). Returns `list[dict]`. Use for nuclei and ffuf.
-- testssl.sh writes to a temp file (not stdout) — see `TestsslConnector.run()`
+  object per line (JSONL). Returns `list[dict]`. Use for ffuf.
+- nuclei writes to a temp file via `-je` — see `NucleiConnector.run()`
+  for the `tempfile.mktemp()` + `-je` + `_read_json_export()` pattern.
+- testssl.sh writes to a temp file via `--jsonfile` — see `TestsslConnector.run()`
   for the `tempfile.mkstemp()` + `--jsonfile` pattern.
 
-**testssl.sh special case — temp file output:** testssl.sh writes JSON to a
-file path passed via `--jsonfile`. Use `tempfile.mkstemp()`, close the fd
-immediately, pass the path in the command, and read + delete the file in a
-`finally` block. See `src/connectors/testssl.py` for the complete pattern.
+**"Dumb pipe" contract:** connectors pass ALL findings in `results`.
+Severity-based partitioning (FAIL / note / ignore) is the exclusive
+responsibility of `ExternalToolTest._evaluate()`. Never filter by severity
+inside a connector.
 
 ---
 
@@ -538,6 +660,11 @@ styles are acceptable; the fully annotated style is recommended.
 but `ExternalToolTest.execute()` handles `store.pin_artifact()` internally in
 `_run()`. The test only interacts with `store` if it needs to call
 `store.pin_artifact()` in `_evaluate()` — which it normally does not.
+**`TestResult` in imports:** import it for the return type annotation of
+`_evaluate()`. But use it **only** as a type annotation — never to construct
+results directly. All result construction goes through `self._make_pass()`,
+`self._make_fail()`, `self._make_skip()`. If you find yourself writing
+`return TestResult(...)` in `_evaluate()`, stop and use the helpers instead.
 
 ### Module-level constants
 
@@ -621,6 +748,8 @@ def _invoke_connector(
         connector:   Connector instance (injected by registry or freshly built).
         target:      Frozen TargetContext with target URL and external_tools config.
         target_url:  URL from target.effective_endpoint_base_url().
+                     Use this directly — do NOT call effective_endpoint_base_url()
+                     again inside this method; _run() already resolved it.
 
     Returns:
         ConnectorResult: Parsed tool output.
@@ -660,14 +789,19 @@ The `target.tests_config` subtree is exclusively for native tests.
 
 ### `_evaluate()` — oracle evaluation
 
+⚠️ **Before reading this section, re-read Mistake A above.** This is the
+highest-risk method in an external test. The rule is absolute:
+
+```
+_evaluate() ALWAYS returns self._make_pass() / self._make_fail() / self._make_skip()
+_evaluate() NEVER returns TestResult(...) directly
+```
+
+`TestResult` is imported only for the return type annotation `-> TestResult`.
+It is never constructed directly in this method.
+
 This is where the security logic lives. The subclass inspects
 `result.raw_output["results"]` and returns `PASS`, `FAIL`, or `SKIP`.
-
-**It must use `self._make_pass()`, `self._make_fail()`, or `self._make_skip()`.
-Building `TestResult(...)` directly will silently lose all metadata fields
-(`test_name`, `domain`, `priority`, `strategy`, `tags`, `cwe_id`, `source`,
-`tool_name`) because those are injected exclusively by `_metadata_kwargs()`
-inside the `_make_*()` helpers.**
 
 #### Canonical three-bucket partition pattern
 
@@ -699,6 +833,7 @@ def _evaluate(
     log.info("ext_test_n_m_oracle_evaluation", all_count=all_count)
 
     if not all_findings:
+        # self._make_pass() — NEVER TestResult(...) directly
         return self._make_pass(
             message=(
                 f"Tool found no issues. Total findings analysed: {all_count}."
@@ -706,6 +841,18 @@ def _evaluate(
         )
 
     # Three-bucket partition.
+    # ⚠️ SEVERITY FIELD PATH IS TOOL-SPECIFIC — determine from Step B.0:
+    #
+    #   testssl.sh  -> severity at top level, uppercase:
+    #       str(item.get("severity", "")).upper() in FAIL_SEVERITIES
+    #       (FAIL_SEVERITIES = {"HIGH", "CRITICAL"})
+    #
+    #   nuclei      -> severity nested under "info", lowercase:
+    #       str(item.get("info", {}).get("severity", "")).lower() in FAIL_SEVERITIES
+    #       (FAIL_SEVERITIES = {"critical", "high", "medium"})
+    #
+    # The template below shows the testssl.sh style. Adapt the field path and
+    # case normalisation to match the tool's actual JSON output confirmed in B.0.
     fail_items = [
         item for item in all_findings
         if str(item.get("severity", "")).upper() in FAIL_SEVERITIES
@@ -736,6 +883,7 @@ def _evaluate(
             )
             for item in fail_items
         ]
+        # self._make_fail() — NEVER TestResult(...) directly
         return self._make_fail(
             message=(
                 f"{len(findings)} critical/high finding(s) detected. "
@@ -746,6 +894,7 @@ def _evaluate(
         )
 
     # PASS-with-note: only NOTE items, no FAIL.
+    # self._make_pass() — NEVER TestResult(...) directly
     return self._make_pass(
         message=(
             f"{len(note_items)} MEDIUM/WARN item(s) below FAIL threshold. "
@@ -777,7 +926,7 @@ def _evaluate(
     artifact_ref: str,
 ) -> TestResult:
     """
-    Oracle: no findings from the tool → PASS.
+    Oracle: no findings from the tool -> PASS.
 
     Args:
         result:       ConnectorResult from _invoke_connector().
@@ -792,7 +941,7 @@ def _evaluate(
     log.info("ext_test_n_m_oracle_evaluation", all_count=all_count)
 
     if not all_findings:
-        return self._make_pass(
+        return self._make_pass(   # NOT TestResult(...)
             message=(
                 f"Tool found no issues. Total findings analysed: {all_count}. "
                 f"Raw output: artifact_ref={artifact_ref}."
@@ -800,7 +949,7 @@ def _evaluate(
         )
 
     # All findings present but none meet the FAIL threshold.
-    return self._make_pass(
+    return self._make_pass(   # NOT TestResult(...)
         message=(
             f"No findings above the FAIL threshold. "
             f"Total findings analysed: {all_count}. "
@@ -809,15 +958,11 @@ def _evaluate(
     )
 ```
 
-Use this pattern when the tool does not have a meaningful note-level
-bucket — for example, a tool whose output is binary (found / not found)
-with no medium-severity gradation.
-
 ---
 
 | Helper | Signature | Notes |
 |---|---|---|
-| `_make_pass(message, notes=None)` | `(str, list[InfoNote] \| None)` | Captures metadata automatically |
+| `_make_pass(message, notes=None)` | `(str, list[InfoNote] \| None)` | Captures metadata automatically via `_metadata_kwargs()` |
 | `_make_fail(message, findings, notes=None)` | `(str, list[Finding], list[InfoNote] \| None)` | DIFFERENT from BaseTest's `_make_fail()` — takes `findings` list, not `detail` string |
 | `_make_skip(reason)` | `(str,)` | No `notes=` parameter on external skip |
 | `_make_error(exc, message_override=None)` | `(Exception, str \| None)` | Called by `_run()` automatically; use in `_evaluate()` only if needed |
@@ -941,15 +1086,17 @@ does not match what you wrote in `config.yaml` (Step B.5).
 - [ ] `source` ClassVar NOT declared in the subclass (it is fixed at `"external"` by the base class)
 - [ ] `_build_connector()` performs zero I/O — object construction only
 - [ ] `_invoke_connector()` reads timeout from `target.external_tools.<tool>.timeout_seconds`, NOT from `target.tests_config`
-- [ ] `_invoke_connector()` receives `target_url` as a parameter already resolved
-  by `_run()` before the call — use it directly as `connector.run(target_url=target_url, ...)`
-  and do NOT call `target.effective_endpoint_base_url()` again inside this method
-- [ ] `_evaluate()` uses `self._make_pass()` / `self._make_fail()` / `self._make_skip()` — never builds `TestResult(...)` directly
+- [ ] `_invoke_connector()` uses `target_url` directly as passed by `_run()` — does NOT call `target.effective_endpoint_base_url()` again
+- [ ] **`_evaluate()` uses `self._make_pass()` / `self._make_fail()` / `self._make_skip()` exclusively — zero direct `TestResult(...)` construction anywhere in the method body**
 - [ ] Every `Finding.evidence_ref` is set to `artifact_ref` (not `None`)
 - [ ] `raw_output` in `ConnectorResult` contains all 4 required keys: `command`, `command_json`, `results`, `all_count`
-- [ ] Connector uses `self._build_reproducible_commands()` to produce `command` and `command_json`
+- [ ] **`command_json` in `raw_output` is a plain `str` from `" ".join(...)` — NOT `json.dumps(cmd)` and NOT a list**
+- [ ] If connector uses `_build_reproducible_commands()`: both returned values are used as-is (plain strings) — no further transformation
+- [ ] If connector builds `raw_output` manually: both `"command"` and `"command_json"` values are `" ".join(some_list_of_str)`, verified not `json.dumps()`
 - [ ] Connector passes ALL findings in `results` — no severity filtering inside the connector
 - [ ] `log: structlog.BoundLogger = structlog.get_logger(__name__)` present after imports in both connector and ext_test file
+- [ ] `TestStrategy` imported from `src.core.models` — **never** from `src.tests.strategy` (violates the "must never import from tests/" rule)
+- [ ] `TestResult` imported from `src.core.models.results` (not from `src.core.models` directly)
 - [ ] Module-level constants defined for `FAIL_SEVERITIES`, `NOTE_SEVERITIES`, `_REFERENCES`
 - [ ] If new tool: `BaseExternalToolConfig` subclass added to `external_tools.py` with `frozen=True` inherited
 - [ ] If new tool: field added to `ExternalToolsConfig` with `default_factory`
@@ -975,10 +1122,15 @@ does not match what you wrote in `config.yaml` (Step B.5).
 | `ConfigurationError` at startup: "timeout_seconds mandatory when enabled=true" | `external_tools.<tool>.enabled: true` but `timeout_seconds` not set | Add `timeout_seconds: N` to config.yaml `external_tools.<tool>` block |
 | HTML report shows empty cells for `command` / `command_json` | `ConnectorRawOutput` keys missing from `raw_output` | Add all 4 keys; use `_build_reproducible_commands()` for the command strings |
 | `ExternalToolError` at runtime: "raw_output missing required keys" | Same as above — caught at runtime by `_validate_raw_output()` | Add all 4 keys to `raw_output` dict |
+| **`command_json` renders as `[ " / h o m e / ...` (spaced chars)** | **`"command_json": json.dumps(cmd)` — JSON string treated as char iterable** | **Change to `"command_json": " ".join(cmd)` — plain space-separated str** |
 | `TestResult` missing `test_name`, `domain`, `tags` in HTML report | `TestResult(...)` built directly in `_evaluate()` instead of using `_make_*()` | Replace with `self._make_fail()` / `self._make_pass()` / `self._make_skip()` |
+| Report builder places test in unclassified bucket (domain=-1, source="") | Same as above — `_metadata_kwargs()` not called | Same fix: use `_make_*()` helpers |
 | More than one WARNING log entry for the same absent tool (N entries instead of 1) | DA-2 not working — `tool_name` missing or `_build_connector()` raises | Ensure `tool_name` ClassVar is set; `_build_connector()` must not raise |
 | `TypeError: execute() missing 1 required positional argument: 'client'` | Engine called `ExternalToolTest.execute()` with client (BaseTest signature) | This means the class was accidentally placed in `src/tests/` instead of `src/external_tests/` |
 | `timeout_seconds` from config.yaml silently ignored | Reading from `target.tests_config` instead of `target.external_tools` | Fix `_invoke_connector()` to use `target.external_tools.<tool>.timeout_seconds` |
 | `Finding.evidence_ref` is None in report | `evidence_ref=None` passed when constructing Finding | Use `evidence_ref=artifact_ref` — the artifact always exists for external tests |
 | `ExternalToolError: timed_out=True` even with high timeout | `timeout_seconds` read incorrectly (e.g. integer vs None) | Confirm `target.external_tools.<tool>.timeout_seconds` is an `int`, not `None` |
 | Connector double-counts findings (both FAIL and NOTE) | Severity check uses mutable state or inclusive conditions | Ensure FAIL and NOTE frozensets are mutually exclusive; verify partition logic |
+| `author` field in nuclei findings shows `[REDACTED]` | `"auth"` substring in `evidence.py` sensitive-key patterns false-positives on `"author"` | Fixed in `evidence.py` via word-boundary regex — update evidence.py if this recurs |
+| `ImportError` or wrong `TestStrategy` at startup | `TestStrategy` imported from `src.tests.strategy` — illegal import from `tests/` | Change to `from src.core.models import TestStrategy` |
+| InfoNote cards missing in report despite message saying "N informational findings" | Note items embedded as text in the message string; `notes=` parameter never passed to `_make_pass()` / `_make_fail()` | Build `list[InfoNote]` from note_items and pass as `notes=all_notes` to both result helpers |

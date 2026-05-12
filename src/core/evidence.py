@@ -129,6 +129,31 @@ _SANITIZE_SENSITIVE_KEY_PATTERNS: tuple[str, ...] = (
     "auth",
 )
 
+# Word-boundary regex compiled from _SANITIZE_SENSITIVE_KEY_PATTERNS.
+#
+# Purpose: prevents bare-substring false positives such as "author" → redacted
+# because "auth" is a substring of "author".  The negative lookbehind
+# (?<![a-z]) and lookahead (?![a-z]) enforce that each pattern is surrounded
+# by non-letter characters (separators: -, _, ., space, start/end of string).
+#
+# Concrete examples:
+#   "author"          -> "auth" followed by "o" (letter) -> NOT matched  ✓
+#   "auth_token"      -> "auth" followed by "_" (non-letter) -> matched  ✓
+#   "x-auth-token"    -> "auth" preceded/followed by "-" -> matched      ✓
+#   "authorization"   -> "authorization" as a whole word -> matched       ✓
+#   "oauth_token"     -> "auth" preceded by "o" (letter) -> NOT matched;
+#                        "token" matched via own pattern                  ✓
+#
+# The pattern is case-insensitive via re.IGNORECASE even though
+# _redact_value() lowercases keys first; the flag adds safety in case the
+# function is called with a non-lowercased key in future refactors.
+_SENSITIVE_KEY_RE: re.Pattern[str] = re.compile(
+    r"(?<![a-z])(?:"
+    + "|".join(re.escape(p) for p in _SANITIZE_SENSITIVE_KEY_PATTERNS)
+    + r")(?![a-z])",
+    re.IGNORECASE,
+)
+
 # JWT heuristic: three base64url segments separated by dots, no whitespace.
 # Applied to string values whose key does NOT match a sensitive pattern but
 # whose content looks like a JWT (structural leak via value, not key naming).
@@ -152,16 +177,25 @@ _SANITIZE_HEADER_PREFIXES: tuple[str, ...] = ("Bearer ", "Basic ", "Token ", "to
 # separator, then captures the trailing filename component.
 #
 # Purpose: replace full paths (e.g. "/home/analyst/project/tools/testssl.sh"
-# or "C:\\Users\\analyst\\tools\\nuclei.exe") with their filename only
-# ("testssl.sh" / "nuclei.exe"), preventing filesystem layout disclosure in
-# stored artifacts (evidence.json, tools/*.json).
+# or "/opt/nuclei-templates") with their filename component only
+# ("testssl.sh" / "nuclei-templates"), preventing filesystem layout disclosure
+# in stored artifacts (evidence.json, tools/*.json).
 #
-# This is identical to _ABS_PATH_RE in ext_test_1_5_tls_analysis.py and is
-# defined here at module level to satisfy Ruff N806 (no UPPER_CASE inside
-# functions) and to avoid recompiling the regex on every _sanitize_artifact()
-# call.  The two definitions are intentionally kept in sync: the connector
-# layer (ext_test_1_5) strips paths from finding text before display; the
-# evidence layer strips paths from tool raw_output before storage.
+# URL safety: this regex is intentionally NOT applied to strings that contain
+# "://" (URI scheme separator).  The guard is in _redact_value() -- see the
+# "://" not in value check there.  Without that guard, a URL such as
+# "http://kong:8000/api/users" would be incorrectly reduced to "users" because
+# the regex matches "/api/users" as a multi-component path.  The regex itself
+# stays simple and correct for pure filesystem path strings; the URL exclusion
+# is enforced at the call site.
+#
+# Windows limitation: paths of the form "C:\Users\analyst\nuclei.exe" are only
+# partially stripped (the "C:\Users" prefix before the first matched separator
+# is retained) because the backslash after "C:" is preceded by a colon, making
+# the initial "C:\" invisible to the pattern.  This is an accepted limitation:
+# the tool runs on Linux and external tool binaries (nuclei, testssl.sh) are
+# installed as POSIX executables; Windows-style paths in their JSON output are
+# not expected in any production deployment scenario.
 #
 # Pattern breakdown:
 #   [/\\]           -- path starts with / (POSIX) or \ (Windows)
@@ -262,6 +296,37 @@ class EvidenceStore:
             tools_dir=str(tools_dir) if tools_dir else None,
             architecture="streaming_jsonl_v2",
         )
+
+    # ------------------------------------------------------------------
+    # Read-only accessors (for consumers outside core/)
+    # ------------------------------------------------------------------
+
+    @property
+    def tools_dir(self) -> Path | None:
+        """Read-only path to the external-tool artifact output directory.
+
+        Exposed so that ExternalToolTest._load_dev_cache() can locate the
+        cached artifact file for a given label without accessing the private
+        ``_tools_dir`` attribute directly.
+
+        Value is set at construction time by engine.py as
+        ``config.output.directory / "tools"``.  Returns None if the store was
+        initialized without a tools_dir (e.g. in tests that construct
+        EvidenceStore directly with a minimal tmp_dir).  Callers must guard
+        against None before using the path:
+
+            if store.tools_dir is not None:
+                cache_path = store.tools_dir / "my_file.json"
+
+        This property is intentionally read-only: tools_dir is an immutable
+        structural parameter of the store, set once at initialization and
+        shared across the entire assessment run.
+
+        Returns:
+            Path | None: The absolute or relative path passed as ``tools_dir``
+            to ``__init__()``, or None if not configured.
+        """
+        return self._tools_dir
 
     # ------------------------------------------------------------------
     # Phase-lifecycle interface (called by engine.py only)
@@ -612,14 +677,19 @@ class EvidenceStore:
         Called internally by pin_artifact() when self._tools_dir is not None.
         Never raises: all OSError exceptions are caught and logged as WARNING.
 
-        File naming: <label_safe>.json, where label_safe replaces characters
-        unsafe in filenames (dots, slashes, backslashes, spaces) with
-        underscores.  If a file with the same name already exists (e.g. two
-        runs of the same test in the same output directory), it is silently
-        overwritten -- the most recent run's output is always authoritative.
+        File naming: tool_output_<testId_safe>.json, where testId_safe replaces
+        characters unsafe in filenames (dots, slashes, backslashes, spaces) with
+        underscores.  The prefix ``tool_output_`` and the test_id (not the
+        label) are used so that the filename matches exactly what the HTML
+        report's "Download as JSON" button produces in the browser, giving the
+        operator a 1:1 correspondence between disk artefacts and downloads.
 
-        The written envelope includes the record_id so the file can be
-        cross-referenced with evidence.json without parsing both documents.
+        Example: test_id "ext.0.1" → file "tool_output_ext_0_1.json".
+
+        The envelope structure mirrors the one reconstructed by the HTML
+        template's export function so that the two files are content-identical
+        (modulo generated_at_utc: the disk file records creation time, the
+        browser download records the time the operator clicked Export).
 
         Args:
             label:     Human-readable label passed to pin_artifact().
@@ -629,14 +699,30 @@ class EvidenceStore:
         """
         assert self._tools_dir is not None  # noqa: S101 -- caller guarantees this
 
-        safe_label = label
+        # The label already encodes both the test_id and the tool name
+        # (e.g. "ext.0.1_nuclei", "ext.1.5_testssl_sh"), so sanitising it
+        # produces a filename that is:
+        #   - sorted by domain/test number (ext_0_1_... comes before ext_1_5_...)
+        #   - immediately identifiable by tool name without opening the file
+        #   - distinguished from other artefacts by the _output suffix
+        # Example mappings:
+        #   "ext.0.1_nuclei"    -> "ext_0_1_nuclei_output.json"
+        #   "ext.1.5_testssl_sh"-> "ext_1_5_testssl_sh_output.json"
+        safe_label: str = label
         for char in _ARTIFACT_FILENAME_UNSAFE_CHARS:
             safe_label = safe_label.replace(char, "_")
-        file_path = self._tools_dir / f"{safe_label}.json"
+        file_path = self._tools_dir / f"{safe_label}_output.json"
 
+        # Envelope structure mirrors the one the HTML report's "Download as JSON"
+        # button reconstructs client-side, ensuring disk file and browser download
+        # are structurally identical.  The only expected difference is
+        # generated_at_utc: the disk file records the moment of pipeline
+        # execution; the browser download records the moment the operator clicks
+        # Export.
         envelope: dict[str, Any] = {
-            "record_id": record_id,
+            "source_test_id": self._current_test_id,
             "label": label,
+            "record_id": record_id,
             "generated_at_utc": datetime.now(UTC).isoformat(),
             "data": payload,
         }
@@ -669,13 +755,24 @@ class EvidenceStore:
 
         Scans every string value in the dict (including nested dicts and lists)
         and replaces it with "[REDACTED]" if it matches any of the following
-        patterns -- case-insensitive key-based detection:
-            - Keys containing: "token", "password", "api_key", "apikey",
-              "authorization", "bearer", "secret", "credential", "auth"
-            - String values whose content starts with "Bearer " or "Basic "
-              (Authorization header leakage from captured HTTP responses)
+        patterns -- word-boundary-aware key-based detection (via _SENSITIVE_KEY_RE):
+            - Keys where any of the following appear as whole words or compound
+              components (separated by -, _, ., space, or string boundaries):
+              "token", "password", "api_key", "apikey", "authorization",
+              "bearer", "secret", "credential", "auth".
+              Word-boundary matching prevents false positives: "author" is NOT
+              redacted (auth is a prefix letter-run), while "auth_token",
+              "x-auth-token", and "authorization" ARE redacted.
+            - String values whose content starts with "Bearer ", "Basic ",
+              "Token ", or "token " (Authorization header leakage).
             - String values matching the pattern of a JWT (three base64url
-              segments separated by dots, total length > 40 characters)
+              segments separated by dots, total length > 40 characters).
+        Additionally, absolute filesystem paths in string values are reduced to
+        their filename component only (e.g. "/home/user/tools/nuclei" ->
+        "nuclei") to prevent directory layout disclosure.  URL strings
+        (containing "://") are explicitly excluded from path stripping: a URL
+        such as "http://kong:8000/api/users" must be preserved verbatim --
+        its path component ("/api/users") carries no filesystem information.
 
         The method returns a NEW dict -- the original is never mutated.
         Non-string values (int, float, bool, None) are copied unchanged.
@@ -690,7 +787,11 @@ class EvidenceStore:
         def _redact_value(key: str, value: Any) -> Any:  # noqa: ANN401
             """Redact value if key or value content indicates a credential or path leak."""
             lower_key = key.lower()
-            if any(pat in lower_key for pat in _SANITIZE_SENSITIVE_KEY_PATTERNS):
+            # Word-boundary match via _SENSITIVE_KEY_RE: prevents false positives
+            # such as "author" being redacted because "auth" is a bare substring.
+            # The regex requires that each pattern is surrounded by non-letter
+            # chars (separators or string boundaries) -- see module-level comment.
+            if _SENSITIVE_KEY_RE.search(lower_key):
                 return "[REDACTED]"
             if isinstance(value, str):
                 if any(value.startswith(pfx) for pfx in _SANITIZE_HEADER_PREFIXES):
@@ -702,7 +803,14 @@ class EvidenceStore:
                 # after the credential guards so that a credential-bearing key
                 # is still fully redacted (not merely path-stripped).
                 # Example: "/home/analyst/.../testssl.sh" -> "testssl.sh".
-                if _SANITIZE_ABS_PATH_RE.search(value):
+                #
+                # URL guard: skip path stripping entirely for strings that
+                # contain a URI scheme separator ("://").  A URL such as
+                # "http://kong:8000/api/users" would otherwise be incorrectly
+                # reduced to "users" because the regex matches "/api/users" as
+                # a multi-component filesystem path.  URL strings carry no
+                # filesystem layout information and must be preserved verbatim.
+                if "://" not in value and _SANITIZE_ABS_PATH_RE.search(value):
                     return _SANITIZE_ABS_PATH_RE.sub(lambda m: m.group(1), value)
             return value
 

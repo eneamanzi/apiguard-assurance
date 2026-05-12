@@ -20,6 +20,7 @@ from src.connectors.base import (
     BaseSubprocessConnector,
     ConnectorResult,
 )
+from src.connectors.nuclei import NucleiConnector
 from src.connectors.testssl import TestsslConnector
 
 __all__ = [
@@ -27,5 +28,6 @@ __all__ = [
     "BaseSubprocessConnector",
     "BaseLibraryConnector",
     "ConnectorResult",
+    "NucleiConnector",
     "TestsslConnector",
 ]

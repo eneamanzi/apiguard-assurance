@@ -1467,17 +1467,20 @@
 
     /* Reproducible command code block                                     */
     .command-block {
-      display: inline-block;
+      display: block;
       background: #1e1e2e;
       color: #cdd6f4;
       font-family: 'Courier New', Courier, monospace;
       font-size: 0.78rem;
-      padding: 0.3rem 0.6rem;
+      padding: 0.4rem 0.6rem;
       border-radius: 4px;
-      white-space: pre;
-      max-width: 100%;
-      overflow-x: auto;
-      vertical-align: middle;
+      white-space: pre-wrap;
+      /* wrap at spaces; preserve internal whitespace */
+      word-break: break-all;
+      /* fallback: break mid-token if no space found  */
+      width: 100%;
+      box-sizing: border-box;
+      margin-top: 0.2rem;
     }
   </style>
 </head>
@@ -1749,30 +1752,36 @@
               {%- if row.source == 'external' and row.tool_artifact and row.tool_artifact.command %}
               <div class="detail-meta-item" style="flex-basis:100%;margin-top:0.25rem;">
                 <span class="detail-meta-label">Command</span>
-                <div style="margin-top:0.3rem;display:flex;flex-direction:column;gap:0.4rem;">
+                <div style="margin-top:0.3rem;display:flex;flex-direction:column;gap:0.6rem;">
 
                   {# --- Variant 1: human-readable text output (no --jsonfile) --- #}
-                  <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
-                    <span style="font-size:0.72rem;color:var(--color-muted);min-width:8rem;">Text output&nbsp;<span
-                        title="Run in terminal: human-readable format" style="cursor:help;">&#9432;</span></span>
+                  <div>
+                    <div
+                      style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;margin-bottom:0.15rem;">
+                      <span style="font-size:0.72rem;color:var(--color-muted);">Text output&nbsp;<span
+                          title="Run in terminal: human-readable format" style="cursor:help;">&#9432;</span></span>
+                      <button class="btn btn-sm"
+                        onclick="(function(){var t=document.getElementById('cmd-{{ row_id }}');navigator.clipboard.writeText(t.textContent).then(function(){var b=event.target;var orig=b.textContent;b.textContent='Copied';setTimeout(function(){b.textContent=orig;},1500);});})()">
+                        Copy
+                      </button>
+                    </div>
                     <code class="command-block" id="cmd-{{ row_id }}">{{ row.tool_artifact.command }}</code>
-                    <button class="btn btn-sm"
-                      onclick="(function(){var t=document.getElementById('cmd-{{ row_id }}');navigator.clipboard.writeText(t.textContent).then(function(){var b=event.target;var orig=b.textContent;b.textContent='Copied';setTimeout(function(){b.textContent=orig;},1500);});})()">
-                      Copy
-                    </button>
                   </div>
 
-                  {# --- Variant 2: JSON output (with --jsonfile), mirrors what APIGuard runs internally --- #}
+                  {# --- Variant 2: JSON output (with --jsonfile), machine-readable form run internally --- #}
                   {%- if row.tool_artifact.command_json %}
-                  <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
-                    <span style="font-size:0.72rem;color:var(--color-muted);min-width:8rem;">JSON output&nbsp;<span
-                        title="Mirrors the command APIGuard runs internally; writes JSON to testssl_result.json"
-                        style="cursor:help;">&#9432;</span></span>
+                  <div>
+                    <div
+                      style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;margin-bottom:0.15rem;">
+                      <span style="font-size:0.72rem;color:var(--color-muted);">JSON output&nbsp;<span
+                          title="Mirrors the command APIGuard runs internally (writes structured JSON output)"
+                          style="cursor:help;">&#9432;</span></span>
+                      <button class="btn btn-sm"
+                        onclick="(function(){var t=document.getElementById('cmd-json-{{ row_id }}');navigator.clipboard.writeText(t.textContent).then(function(){var b=event.target;var orig=b.textContent;b.textContent='Copied';setTimeout(function(){b.textContent=orig;},1500);});})()">
+                        Copy
+                      </button>
+                    </div>
                     <code class="command-block" id="cmd-json-{{ row_id }}">{{ row.tool_artifact.command_json }}</code>
-                    <button class="btn btn-sm"
-                      onclick="(function(){var t=document.getElementById('cmd-json-{{ row_id }}');navigator.clipboard.writeText(t.textContent).then(function(){var b=event.target;var orig=b.textContent;b.textContent='Copied';setTimeout(function(){b.textContent=orig;},1500);});})()">
-                      Copy
-                    </button>
                   </div>
                   {%- endif %}
 
@@ -3085,6 +3094,7 @@
     // ---------------------------------------------------------------------------
     var _toolOutputActiveJson = null;
     var _toolOutputActiveTestId = null;
+    var _toolOutputActiveFilename = null;
 
     // ---------------------------------------------------------------------------
     // _syntaxHighlight(jsonStr) -> string (HTML)
@@ -3142,8 +3152,30 @@
 
       _toolOutputActiveTestId = testId;
 
-      // Pretty-print the artifact object.
-      var prettyJson = JSON.stringify(rowData.tool_artifact, null, 2);
+      // Resolve the label (e.g. "ext.0.1_nuclei").  Matches the label that
+      // evidence.py:pin_artifact() receives, so the download filename can be
+      // derived identically to the disk filename.
+      var label = rowData.tool_artifact_label || testId;
+
+      // Derive the same filesystem-safe label that _persist_tool_artifact()
+      // uses on disk: replace dots, slashes and spaces with underscores,
+      // then append "_output".  Result: "ext_0_1_nuclei_output.json".
+      var safeLabel = label.replace(/[\.\/ \\]/g, "_");
+      _toolOutputActiveFilename = safeLabel + "_output.json";
+
+      // Wrap the raw tool_artifact in the same envelope structure that
+      // evidence.py:_persist_tool_artifact() writes to disk, so the browser
+      // download and the outputs/tools/ file are structurally identical.
+      // The only expected difference is generated_at_utc: on disk it records
+      // pipeline execution time; here it records the moment the modal opens.
+      var envelope = {
+        source_test_id: testId,
+        label: label,
+        record_id: rowData.tool_artifact_record_id || null,
+        generated_at_utc: new Date().toISOString(),
+        data: rowData.tool_artifact
+      };
+      var prettyJson = JSON.stringify(envelope, null, 2);
       _toolOutputActiveJson = prettyJson;
 
       // Populate header.
@@ -3179,6 +3211,7 @@
       document.body.style.overflow = "";
       _toolOutputActiveJson = null;
       _toolOutputActiveTestId = null;
+      _toolOutputActiveFilename = null;
     }
 
     // Copy JSON button.
@@ -3191,13 +3224,12 @@
 
     // Download JSON button.
     document.getElementById("tool-modal-download-btn").addEventListener("click", function () {
-      if (!_toolOutputActiveJson || !_toolOutputActiveTestId) return;
+      if (!_toolOutputActiveJson || !_toolOutputActiveFilename) return;
       var blob = new Blob([_toolOutputActiveJson], { type: "application/json" });
       var url = URL.createObjectURL(blob);
       var anchor = document.createElement("a");
-      var filename = "tool_output_" + _toolOutputActiveTestId.replace(/\./g, "_") + ".json";
       anchor.href = url;
-      anchor.download = filename;
+      anchor.download = _toolOutputActiveFilename;
       document.body.appendChild(anchor);
       anchor.click();
       document.body.removeChild(anchor);

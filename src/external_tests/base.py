@@ -67,9 +67,11 @@ Dependency rule:
 
 from __future__ import annotations
 
+import json
 import traceback
 from abc import ABC, abstractmethod
-from typing import ClassVar, Literal, TypedDict
+from pathlib import Path
+from typing import Any, ClassVar, Literal, TypedDict
 
 import structlog
 
@@ -99,6 +101,22 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 _REQUIRED_RAW_OUTPUT_KEYS: frozenset[str] = frozenset(
     {"command", "command_json", "results", "all_count"}
 )
+
+# ---------------------------------------------------------------------------
+# _DEV_CACHE_UNSAFE_CHARS -- filename sanitisation for dev mode cache lookup
+# ---------------------------------------------------------------------------
+# Characters that EvidenceStore._persist_tool_artifact() replaces with
+# underscores when constructing the on-disk artifact filename.  Reproduced
+# here so that _load_dev_cache() can reconstruct the exact same filename
+# without importing the private constant from src/core/evidence.py.
+#
+# Invariant: must stay in sync with _ARTIFACT_FILENAME_UNSAFE_CHARS in
+# src/core/evidence.py.  Both strings encode the same set of characters;
+# the duplication is intentional to avoid coupling external_tests/ to a
+# private evidence module constant (unidirectional dependency rule).
+#
+# Characters: dot, forward slash, backslash, space.
+_DEV_CACHE_UNSAFE_CHARS: str = "./\\ "
 
 # ---------------------------------------------------------------------------
 # _ExternalTestMetadataKwargs -- TypedDict for type-safe TestResult construction
@@ -241,10 +259,6 @@ class ExternalToolTest(ABC):
             store.end_test()
         return result
 
-    # ------------------------------------------------------------------
-    # Internal orchestration
-    # ------------------------------------------------------------------
-
     def _run(
         self,
         target: TargetContext,
@@ -257,18 +271,36 @@ class ExternalToolTest(ABC):
         Separating _run() from execute() keeps the top-level exception handler
         in execute() clean while allowing _run() to use early returns freely.
 
-        DA-2 fast-paths (evaluated before any connector work):
-            Fast-path A: if _skip_reason_from_registry is set, the registry
-                         already determined the tool is absent.  Return SKIP
-                         immediately -- zero connector overhead.
-            Fast-path B: _check_and_skip() skips is_available() when
-                         _injected_connector is not None (already confirmed by
-                         registry).
+        Execution paths:
+
+            DA-2 fast-path A (registry absent):
+                _skip_reason_from_registry is set -> SKIP immediately.
+
+            Dev mode fast-path (cache hit):
+                dev_mode=True in config AND cache file exists at
+                outputs/tools/<label>_output.json -> ConnectorResult is
+                reconstructed from disk, subprocess is skipped entirely,
+                _check_and_skip() and _warn_if_version_mismatch() are NOT
+                called (the binary may not be installed at all).
+
+            Dev mode first run (cache miss):
+                dev_mode=True but no cache file found -> falls through to the
+                normal path.  The binary runs, pin_artifact() writes the cache,
+                and the next run will hit the fast-path.
+
+            Normal path:
+                dev_mode=False or store.tools_dir is None -> full pipeline:
+                availability check, version warning, subprocess invocation.
+
+        DA-2 fast-path B remains in _check_and_skip(): if _injected_connector
+        is set (registry confirmed availability), is_available() is skipped.
+        This fast-path is only reached when the dev mode path did not return
+        early (cache miss or dev_mode=False).
 
         Args:
             target:  Frozen TargetContext.
             context: Mutable TestContext.
-            store:   EvidenceStore.
+            store:   EvidenceStore (provides tools_dir for cache lookup).
 
         Returns:
             TestResult: PASS, FAIL, SKIP, or ERROR.
@@ -292,41 +324,84 @@ class ExternalToolTest(ABC):
         # --- Get connector (injected or freshly built) ---
         connector = self._get_connector()
 
-        # --- Step 1: availability check (skipped if registry injected connector) ---
-        skip_result = self._check_and_skip(connector)
-        if skip_result is not None:
-            return skip_result
+        # --- Compute artifact label early ---
+        # Moved before _invoke_connector() so that the same label string is
+        # available to both the dev mode cache lookup and pin_artifact().
+        # Formula mirrors _persist_tool_artifact()'s naming convention so
+        # the cache file reconstructed here is the same file written by the
+        # prior live run.  Example: test_id="ext.0.1", TOOL_NAME="nuclei"
+        # -> artifact_label="ext.0.1_nuclei"
+        # -> cache file: outputs/tools/ext_0_1_nuclei_output.json
+        artifact_label: str = f"{self.test_id}_{connector.TOOL_NAME.replace('.', '_')}"
 
-        # --- Step 2: retrieve target URL for external binary ---
-        # Connectors use effective_endpoint_base_url(), not endpoint_base_url(),
-        # so Docker Compose service names are used when APIGUARD_TARGET_EFFECTIVE_URL
-        # is set in the environment (ADR-001 §6).
-        target_url = target.effective_endpoint_base_url()
+        # --- Dev mode: attempt cache load before touching the binary ---
+        # _is_dev_mode() reads the per-tool dev_mode flag from config.yaml.
+        # _load_dev_cache() returns None on cache miss (file absent / corrupt).
+        # On cache hit, connector_result is fully reconstructed and the normal
+        # path (availability check + subprocess) is skipped entirely, so the
+        # binary does not need to be installed.
+        dev_mode: bool = self._is_dev_mode(target)
+        connector_result: ConnectorResult | None = None
+        cache_hit: bool = False
 
-        # --- Step 3: execute binary ---
-        try:
-            connector_result = self._invoke_connector(connector, target, target_url)
-        except ExternalToolError as exc:
-            if exc.timed_out:
-                return self._make_error(
-                    exc,
-                    message_override=(
-                        f"External tool '{exc.tool_name}' timed out. "
-                        "Increase timeout_seconds in config.yaml external_tools section."
-                    ),
-                )
-            return self._make_error(exc)
+        if dev_mode and store.tools_dir is not None:
+            connector_result = self._load_dev_cache(
+                connector=connector,
+                artifact_label=artifact_label,
+                tools_dir=store.tools_dir,
+            )
+            cache_hit = connector_result is not None
+
+        # --- Normal path: executed only when cache did not supply a result ---
+        if connector_result is None:
+            # Step 1: availability check (DA-2 fast-path B inside _check_and_skip).
+            skip_result = self._check_and_skip(connector)
+            if skip_result is not None:
+                return skip_result
+
+            # Step 1b: version compatibility check.
+            # Emits a structured WARNING if the installed binary version does
+            # not match external_tools.<tool>.expected_version in config.yaml.
+            # Does NOT skip or error -- the test proceeds, but the analyst is
+            # alerted that oracle field names may have changed across versions.
+            self._warn_if_version_mismatch(connector, target)
+
+            # Step 2: retrieve target URL for external binary.
+            # Connectors use effective_endpoint_base_url(), not endpoint_base_url(),
+            # so Docker Compose service names are used when APIGUARD_TARGET_EFFECTIVE_URL
+            # is set in the environment (ADR-001 §6).
+            target_url = target.effective_endpoint_base_url()
+
+            # Step 3: execute binary.
+            try:
+                connector_result = self._invoke_connector(connector, target, target_url)
+            except ExternalToolError as exc:
+                if exc.timed_out:
+                    return self._make_error(
+                        exc,
+                        message_override=(
+                            f"External tool '{exc.tool_name}' timed out. "
+                            "Increase timeout_seconds in config.yaml external_tools section."
+                        ),
+                    )
+                return self._make_error(exc)
 
         # --- Step 3b: validate ConnectorRawOutput contract ---
-        # Raises ExternalToolError (caught by execute()'s top-level handler) if any
-        # of the four required keys are absent from raw_output.  This converts the
-        # Jinja2 default_dash silent failure mode into an explicit ERROR TestResult
-        # with a diagnostic message pointing to the ConnectorRawOutput contract class.
+        # Applies to both cache-hit and live-run results.  The cache file was
+        # written from a previously valid ConnectorResult, so this check should
+        # always pass on cache hits; it is kept here as a safety net against
+        # manually edited or truncated cache files.
+        # Raises ExternalToolError (caught by execute()'s top-level handler) if
+        # any of the four required keys are absent from raw_output.
         self._validate_raw_output(connector_result)
 
         # --- Step 4: pin raw artifact to evidence store ---
+        # On a dev mode cache hit, pin_artifact() re-writes the same data to
+        # evidence.json and to outputs/tools/.  This is intentionally idempotent:
+        # the evidence trail for this assessment run always reflects exactly what
+        # _evaluate() operated on, whether live or cached.
         artifact_ref = store.pin_artifact(
-            label=f"{self.test_id}_{connector.TOOL_NAME.replace('.', '_')}",
+            label=artifact_label,
             data=connector_result.raw_output,
         )
 
@@ -338,6 +413,7 @@ class ExternalToolTest(ABC):
             execution_time_ms=connector_result.execution_time_ms,
             timed_out=connector_result.timed_out,
             artifact_ref=artifact_ref,
+            dev_mode_cache_hit=cache_hit,
         )
 
         # --- Step 5: oracle evaluation (subclass responsibility) ---
@@ -353,13 +429,16 @@ class ExternalToolTest(ABC):
         #                                      or None if get_version() returned None.
         #                                      Displayed in the report detail panel for
         #                                      reproducibility of the finding.
+        #                                      On cache hits, this is None because the
+        #                                      ConnectorResult is reconstructed without
+        #                                      calling get_version().
         #
         #   _apiguard_meta_execution_time_ms -- connector-level wall-clock scan time in ms,
         #                                      measured inside the connector subprocess.
-        #                                      Distinct from TestResult.duration_ms (set by
-        #                                      the engine), which includes connector init,
-        #                                      artifact pinning, and oracle evaluation
-        #                                      overhead.  Shown in the report as "Scan time".
+        #                                      On cache hits, this is 0 because no
+        #                                      subprocess ran.  The report template
+        #                                      renders "0 ms" for cached runs, making
+        #                                      the dev mode origin visible to analysts.
         #
         # Namespace rationale: the "_apiguard_meta_" prefix guarantees no collision
         # with tool-native output keys and makes these fields trivially greppable.
@@ -368,12 +447,304 @@ class ExternalToolTest(ABC):
         # of raw_output to evidence.json.  The enriched dict here is attached to
         # tool_artifact for the in-memory HTML report only.  _meta keys are never
         # credential-bearing, so no additional sanitization is needed.
-        enriched_artifact: dict = {
+        enriched_artifact: dict[str, Any] = {
             **connector_result.raw_output,
             "_apiguard_meta_tool_version": connector_result.tool_version,
             "_apiguard_meta_execution_time_ms": connector_result.execution_time_ms,
+            "_apiguard_meta_dev_mode_cache_hit": cache_hit,
         }
-        return result.model_copy(update={"tool_artifact": enriched_artifact})
+        return result.model_copy(
+            update={
+                "tool_artifact": enriched_artifact,
+                # Expose the label and record_id used by pin_artifact() so the
+                # HTML report's Tool Output modal can reconstruct the on-disk
+                # filename (outputs/tools/<label_safe>_output.json) for the
+                # browser download and embed the record_id in the envelope for
+                # cross-referencing with evidence.json.
+                "tool_artifact_label": artifact_label,
+                "tool_artifact_record_id": artifact_ref,
+            }
+        )
+
+    # ------------------------------------------------------------------
+    # Dev mode helpers
+    # ------------------------------------------------------------------
+
+    def _is_dev_mode(self, target: TargetContext) -> bool:
+        """Return True if dev_mode is enabled for this test's tool in config.yaml.
+
+        Reads ``external_tools.<tool_name>.dev_mode`` from the frozen
+        TargetContext.  Returns False for any of these conditions:
+            - The tool_name ClassVar is not present in ExternalToolsConfig
+              (e.g. a new tool not yet declared in the schema).
+            - The per-tool config object does not have a dev_mode attribute
+              (e.g. a tool that predates BaseExternalToolConfig.dev_mode).
+            - dev_mode is explicitly set to False in config.yaml.
+
+        The double getattr() with False defaults ensures this method never
+        raises, matching the defensive convention used by _warn_if_version_mismatch().
+
+        Args:
+            target: Frozen TargetContext exposing target.external_tools.
+
+        Returns:
+            bool: True only if the per-tool dev_mode flag is True.
+        """
+        tool_cfg = getattr(target.external_tools, self.tool_name, None)
+        return bool(getattr(tool_cfg, "dev_mode", False))
+
+    def _load_dev_cache(
+        self,
+        connector: BaseConnector,
+        artifact_label: str,
+        tools_dir: Path,
+    ) -> ConnectorResult | None:
+        """Load a cached ConnectorResult from a prior live run if dev_mode is active.
+
+        EvidenceStore._persist_tool_artifact() writes each external tool's
+        raw_output to disk in an envelope structure:
+
+            {
+                "source_test_id": "...",
+                "label": "...",
+                "record_id": "...",
+                "generated_at_utc": "...",
+                "data": { <sanitized raw_output> }
+            }
+
+        This method reconstructs a ConnectorResult from that envelope, using
+        the ``data`` key as raw_output.  The resulting ConnectorResult is
+        structurally identical to one produced by a live connector.run() call,
+        so _validate_raw_output() and _evaluate() receive the same type they
+        always do -- the cache is fully transparent to subclass oracle logic.
+
+        Filename reconstruction:
+            The cache file is named ``<safe_label>_output.json``, where
+            safe_label is artifact_label with each character in
+            _DEV_CACHE_UNSAFE_CHARS replaced by an underscore.  This
+            reproduces the exact transformation applied by
+            EvidenceStore._persist_tool_artifact(), ensuring this method
+            looks for the file at the same path it was written to.
+
+            Example: artifact_label="ext.0.1_nuclei"
+                     safe_label="ext_0_1_nuclei"
+                     file path: tools_dir/ext_0_1_nuclei_output.json
+
+        Fields in the reconstructed ConnectorResult:
+            tool_name          -- from connector.TOOL_NAME (live value, not cached)
+            tool_version       -- None (get_version() is not called on cache hits)
+            raw_output         -- envelope["data"] (the cached payload)
+            exit_code          -- 0 (no subprocess ran; exit_code is not stored)
+            execution_time_ms  -- 0 (no subprocess ran; wall-clock is meaningless)
+            timed_out          -- False
+
+        The None tool_version and 0 execution_time_ms are surfaced in the
+        HTML report via _apiguard_meta_* keys injected by _run(), making the
+        dev mode origin visible to analysts without requiring report template
+        changes.
+
+        Args:
+            connector:      Active connector (provides TOOL_NAME for the result).
+            artifact_label: Label string as computed by _run() before invocation
+                            (e.g. "ext.0.1_nuclei").
+            tools_dir:      Root tool artifact directory from store.tools_dir
+                            (e.g. Path("outputs/tools")).
+
+        Returns:
+            ConnectorResult: Reconstructed from the cache file on hit.
+            None: On cache miss (file absent) or cache corruption (JSON error,
+                  missing envelope keys).  The caller falls through to the
+                  normal subprocess path on None.
+        """
+        # Reproduce _persist_tool_artifact()'s safe_label transformation.
+        safe_label: str = artifact_label
+        for char in _DEV_CACHE_UNSAFE_CHARS:
+            safe_label = safe_label.replace(char, "_")
+        cache_path: Path = tools_dir / f"{safe_label}_output.json"
+
+        if not cache_path.exists():
+            log.info(
+                "dev_mode_cache_miss",
+                test_id=self.test_id,
+                tool=connector.TOOL_NAME,
+                cache_path=str(cache_path),
+                detail=(
+                    "Cache file not found -- running tool live and saving result "
+                    "for the next run.  Delete outputs/tools/ to force a fresh "
+                    "scan on any subsequent run."
+                ),
+            )
+            return None
+
+        # Load and parse the envelope written by _persist_tool_artifact().
+        try:
+            envelope: dict[str, Any] = json.loads(cache_path.read_text(encoding="utf-8"))
+            raw_output: dict[str, Any] = envelope["data"]
+        except (json.JSONDecodeError, KeyError, OSError) as exc:
+            log.warning(
+                "dev_mode_cache_load_failed",
+                test_id=self.test_id,
+                tool=connector.TOOL_NAME,
+                cache_path=str(cache_path),
+                error=str(exc),
+                detail=(
+                    "Cache file is corrupt or missing the 'data' envelope key. "
+                    "Falling through to a live tool run.  "
+                    "Delete the file to suppress this warning."
+                ),
+            )
+            return None
+
+        log.warning(
+            "dev_mode_cache_hit",
+            test_id=self.test_id,
+            tool=connector.TOOL_NAME,
+            cache_path=str(cache_path),
+            cached_at=envelope.get("generated_at_utc", "unknown"),
+            detail=(
+                "DEV MODE: _evaluate() will receive cached tool output. "
+                "The binary was NOT invoked.  "
+                "Set dev_mode: false before running a production assessment."
+            ),
+        )
+        return ConnectorResult(
+            tool_name=connector.TOOL_NAME,
+            # tool_version is not stored in the cache envelope; set to None so
+            # _apiguard_meta_tool_version in the enriched artifact is explicit
+            # about the fact that version info is unavailable for this run.
+            tool_version=None,
+            raw_output=raw_output,
+            # exit_code and execution_time_ms are not meaningful for a cached
+            # result (no subprocess ran).  Set to sentinel values that the
+            # report template can detect via _apiguard_meta_dev_mode_cache_hit.
+            exit_code=0,
+            execution_time_ms=0,
+            timed_out=False,
+        )
+
+    def _warn_if_version_mismatch(
+        self,
+        connector: BaseConnector,
+        target: TargetContext,
+    ) -> None:
+        """Emit a structured WARNING if the binary version differs from expected_version.
+
+        Compares the output of ``<binary> --version`` against the
+        ``expected_version`` field declared in
+        ``external_tools.<tool_name>.expected_version`` of config.yaml.
+
+        Decision table:
+            expected_version is None  -> no check, return silently.
+                Rationale: the operator has not pinned a version; any binary is
+                acceptable.  This is the safe default for environments where
+                version pinning is not yet configured.
+
+            connector.get_version() returns None -> WARNING("version_unknown").
+                Rationale: the binary exists (is_available() passed) but does
+                not support --version.  We cannot confirm compatibility; an
+                explicit WARNING is safer than silent acceptance.
+
+            expected in actual (substring match) -> OK, return silently.
+                Rationale: version output varies by tool:
+                    nuclei  emits "nuclei v3.8.0 (github.com/...)"
+                    testssl emits "testssl 3.2.3 from ..."
+                Matching the expected string ("3.8.0") as a substring of the
+                actual output handles both formats without regex fragility.
+
+            expected NOT in actual -> WARNING("version_mismatch").
+                Rationale: the oracle in _evaluate() was written against a
+                specific version's JSON schema.  A different version may emit
+                renamed, retyped, or removed fields, producing silent wrong
+                results rather than explicit errors.
+
+        This method NEVER raises, NEVER returns a value, and NEVER skips
+        the test.  Its sole effect is the structured log entry.
+
+        Version pinning rationale (for thesis documentation):
+            ExternalToolTest._evaluate() is an oracle tightly coupled to the
+            JSON output schema of a specific binary version.  The Version
+            Pinning pattern (expected_version in config.yaml + TOOL_VERSION in
+            install_tools.sh + ARG in Dockerfile) ensures that the binary
+            version that produced an assessment report is always traceable.
+            A mismatch during execution means the tool and the oracle have
+            diverged -- the result of the assessment for this test MUST be
+            reviewed manually before being trusted.
+
+        License note (for thesis documentation):
+            Each external tool carries its own open-source license.
+            testssl.sh is distributed under GPLv2; nuclei under MIT.
+            APIGuard does not bundle or redistribute these binaries -- it
+            invokes them as separate processes and documents which version
+            it has been validated against via expected_version.  This
+            "invocation-only" model is the standard approach used by security
+            frameworks (e.g. Metasploit modules calling system binaries) to
+            avoid license contamination of the wrapper codebase.
+
+        Args:
+            connector: The active connector whose binary version to check.
+            target:    Frozen TargetContext exposing target.external_tools
+                       for per-tool configuration access.
+        """
+        # Retrieve the expected version from per-tool config.
+        # target.external_tools is the ExternalToolsConfig Pydantic model.
+        # getattr with None default handles tools not yet declared in the schema
+        # (e.g. a test for a future tool before its Config class is added).
+        tool_cfg = getattr(target.external_tools, self.tool_name, None)
+        if tool_cfg is None:
+            # Tool not in ExternalToolsConfig -- version check not applicable.
+            return
+
+        expected: str | None = getattr(tool_cfg, "expected_version", None)
+        if expected is None:
+            # Operator has not pinned a version: no check.
+            return
+
+        actual: str | None = connector.get_version()
+
+        if actual is None:
+            log.warning(
+                "external_tool_version_unknown",
+                test_id=self.test_id,
+                tool=self.tool_name,
+                expected_version=expected,
+                detail=(
+                    "Binary is available but '--version' returned no output. "
+                    "Cannot confirm version compatibility with the oracle. "
+                    "Verify the installed binary manually."
+                ),
+            )
+            return
+
+        # Normalize: strip leading 'v' from expected to handle both "3.8.0"
+        # and "v3.8.0" configured values against actual output like
+        # "nuclei v3.8.0 (github.com/projectdiscovery/nuclei)".
+        expected_normalized = expected.lstrip("v")
+        if expected_normalized not in actual:
+            log.warning(
+                "external_tool_version_mismatch",
+                test_id=self.test_id,
+                tool=self.tool_name,
+                expected_version=expected,
+                actual_version=actual,
+                detail=(
+                    f"The installed '{self.tool_name}' version does not match "
+                    f"expected_version='{expected}' in config.yaml. "
+                    "The oracle in _evaluate() was written and validated against "
+                    f"v{expected_normalized}. Field names or JSON structure may "
+                    "have changed in the installed version, producing incorrect "
+                    "or incomplete findings. "
+                    "To resolve: reinstall the tool at the pinned version via "
+                    "install_tools.sh, or update expected_version in config.yaml "
+                    "and review _evaluate() for compatibility with the new version."
+                ),
+            )
+        else:
+            log.debug(
+                "external_tool_version_ok",
+                test_id=self.test_id,
+                tool=self.tool_name,
+                version=actual,
+            )
 
     def _check_and_skip(self, connector: BaseConnector) -> TestResult | None:
         """

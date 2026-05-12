@@ -690,6 +690,47 @@ class BaseSubprocessConnector(BaseConnector):
 
         return results
 
+    @staticmethod
+    def _relativize_display_path(raw: str) -> str:
+        """
+        Convert a file-system path to a CWD-relative path for display strings.
+
+        This is the single, authoritative path-normalisation function for all
+        display command strings in the connector hierarchy.  Both
+        ``_build_reproducible_commands()`` and concrete connectors that need
+        to relativize additional path arguments (e.g. a template directory
+        passed via ``-t``) must call this method instead of duplicating the
+        logic.
+
+        Normalisation contract:
+            - Path is INSIDE the CWD tree (``os.path.relpath()`` does not
+              start with ``..``): return the relative path.
+              Example: ``/home/user/project/tools/nuclei/nuclei`` becomes
+              ``tools/nuclei/nuclei`` when CWD is ``/home/user/project``.
+            - Path is OUTSIDE the project tree (e.g. ``/usr/local/bin/nuclei``
+              or ``/tmp/tmpXXX.json``): return ``raw`` unchanged rather than
+              emitting a confusing ``../../...`` string.
+            - Windows cross-drive ``ValueError``: return ``raw`` unchanged.
+
+        Caller responsibility for temp paths:
+            Paths like ``/tmp/xxx_nuclei.json`` live outside the project tree
+            and are returned unchanged.  Connectors that want to OMIT a temp
+            path from display strings should not pass it to this function at
+            all -- they should substitute a clean placeholder directly
+            (e.g. ``"nuclei_result.json"``).
+
+        Args:
+            raw: An absolute or relative file-system path string.
+
+        Returns:
+            str: CWD-relative path if inside the project tree, ``raw`` otherwise.
+        """
+        try:
+            rel = os.path.relpath(raw)
+            return rel if not rel.startswith("..") else raw
+        except ValueError:
+            return raw
+
     def _build_reproducible_commands(
         self,
         cmd_prefix: list[str],
@@ -748,19 +789,12 @@ class BaseSubprocessConnector(BaseConnector):
             tuple[str, str]: (command, command_json) as plain strings.
         """
         raw_binary: str = cmd_prefix[0] if cmd_prefix else self.BINARY_NAME
-        try:
-            rel_binary = os.path.relpath(raw_binary)
-            # Accept the relative path only if it stays inside the project tree.
-            # os.path.relpath() can produce '../../usr/bin/...' for system paths,
-            # which would be longer and more confusing than the absolute path.
-            binary_display: str = rel_binary if not rel_binary.startswith("..") else raw_binary
-        except ValueError:
-            # On Windows, relpath() raises ValueError across different drive letters.
-            binary_display = raw_binary
 
-        # Reconstruct the display prefix: replace the raw binary with the
-        # normalised display path, keeping all other tokens unchanged.
-        cmd_display: list[str] = [binary_display] + cmd_prefix[1:]
+        # Relativize the binary path via the canonical single-function helper.
+        # All other tokens in cmd_prefix (flags, non-path arguments) are kept
+        # unchanged -- paths for template dirs etc. must be relativized by the
+        # concrete connector before passing cmd_prefix here.
+        cmd_display: list[str] = [self._relativize_display_path(raw_binary)] + cmd_prefix[1:]
 
         # command: text output mode, no JSON flag -- what a human analyst runs.
         command: str = " ".join(cmd_display + [scan_target])

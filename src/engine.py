@@ -580,12 +580,31 @@ class AssessmentEngine:
             external_allowed_ids = set()
 
         # --- Native test discovery ---
+        # Short-circuit: if the operator requested specific IDs and ALL of them
+        # are external (ext. prefix), native_allowed_ids is an empty set.
+        # Passing set() to TestRegistry.discover() would be ambiguous: an empty
+        # set is falsy in Python, so the registry would interpret it as
+        # "no filter" and run every native test -- the opposite of the intent.
+        # The correct semantic is "run zero native tests", achieved by
+        # skipping the registry call entirely.
         registry = TestRegistry()
-        native_tests: list[BaseTest] = registry.discover(
-            min_priority=config.execution.min_priority,
-            enabled_strategies=set(config.execution.strategies),
-            allowed_ids=native_allowed_ids,
-        )
+        if raw_allowed_ids and not native_allowed_ids:
+            # All requested IDs are external (ext.*). No native tests scheduled.
+            native_tests: list[BaseTest] = []
+            log.info(
+                "test_registry_skipped_all_ids_are_external",
+                raw_allowed_ids=sorted(raw_allowed_ids),
+                detail=(
+                    "All test_ids in config have the 'ext.' prefix. "
+                    "Native TestRegistry discovery skipped -- zero native tests scheduled."
+                ),
+            )
+        else:
+            native_tests = registry.discover(
+                min_priority=config.execution.min_priority,
+                enabled_strategies=set(config.execution.strategies),
+                allowed_ids=native_allowed_ids,
+            )
 
         # --- External test discovery ---
         ext_registry = ExternalTestRegistry()

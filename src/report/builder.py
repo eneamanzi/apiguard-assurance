@@ -160,6 +160,24 @@ class TestResultRow(BaseModel):
             "Embedded in REPORT_DATA JSON for the Tool Output modal."
         ),
     )
+    tool_artifact_label: str | None = Field(
+        default=None,
+        description=(
+            "Label passed to EvidenceStore.pin_artifact() for this tool's output. "
+            "Format: '{test_id}_{tool_name_safe}' (e.g. 'ext.0.1_nuclei'). "
+            "Used by the HTML report's download button to reconstruct the on-disk "
+            "filename (<label_safe>_output.json) so browser download and disk file "
+            "have identical names. None for source='native' rows."
+        ),
+    )
+    tool_artifact_record_id: str | None = Field(
+        default=None,
+        description=(
+            "Record ID returned by EvidenceStore.pin_artifact() for this artifact. "
+            "Embedded in the JSON download envelope to cross-reference with "
+            "evidence.json. None for source='native' rows."
+        ),
+    )
 
 
 class DomainSummary(BaseModel):
@@ -420,6 +438,8 @@ def _build_all_rows(result_set: ResultSet) -> list[TestResultRow]:
             source=result.source,
             tool_name=result.tool_name,
             tool_artifact=result.tool_artifact,
+            tool_artifact_label=result.tool_artifact_label,
+            tool_artifact_record_id=result.tool_artifact_record_id,
         )
         rows.append(row)
 

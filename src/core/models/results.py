@@ -260,6 +260,43 @@ class TestResult(BaseModel):
         ),
     )
 
+    # --- Artifact cross-reference fields (populated alongside tool_artifact) ---
+    # These two fields carry the label and record_id produced by
+    # EvidenceStore.pin_artifact() so that the HTML report's Tool Output modal
+    # can reconstruct the exact filename used by _persist_tool_artifact() on
+    # disk (outputs/tools/<label_safe>_output.json) for the browser download,
+    # and can embed the record_id in the download envelope for cross-referencing
+    # with evidence.json.
+    #
+    # Without these fields, the JS in the template would have to fall back to
+    # testId (e.g. "ext.0.1") as the label, producing a filename mismatch
+    # ("ext_0_1_output.json") relative to the disk file ("ext_0_1_nuclei_output.json").
+    #
+    # Both fields are None for source='native' results and for external results
+    # where pin_artifact() was never called (e.g. SKIP, ERROR before Step 4).
+    tool_artifact_label: str | None = Field(
+        default=None,
+        description=(
+            "Label passed to EvidenceStore.pin_artifact() when the tool artifact "
+            "was stored. Format: '{test_id}_{tool_name_safe}', e.g. 'ext.0.1_nuclei'. "
+            "The HTML report uses this to reconstruct the disk filename "
+            "('<label_safe>_output.json') for the browser download button, ensuring "
+            "the downloaded file has the same name as the on-disk artifact. "
+            "None for source='native' results and for external results that SKIPped "
+            "before the artifact pinning step."
+        ),
+    )
+    tool_artifact_record_id: str | None = Field(
+        default=None,
+        description=(
+            "Record ID returned by EvidenceStore.pin_artifact() for this artifact. "
+            "Embedded in the JSON download envelope so the downloaded file can be "
+            "cross-referenced with the corresponding record in evidence.json. "
+            "None for source='native' results and for external results that SKIPped "
+            "before the artifact pinning step."
+        ),
+    )
+
     @model_validator(mode="after")
     def validate_status_finding_consistency(self) -> TestResult:
         """

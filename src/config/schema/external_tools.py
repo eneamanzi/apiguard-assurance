@@ -32,7 +32,7 @@ Design rules enforced by this schema:
     5. BaseExternalToolConfig (Proposal B): all per-tool models inherit a shared
        base class that implements the timeout-when-enabled validator once,
        eliminating identical validator duplication across TestsslConfig,
-       NucleiConfig, and FfufConfig.
+       TestsslConfig.
 
 Dependency rule: imports from pydantic and stdlib only.  Must never import from
 engine.py, tests/, connectors/, external_tests/, or report/.
@@ -62,7 +62,7 @@ class BaseExternalToolConfig(BaseModel):
     The model_validator `_timeout_required_when_enabled` centralises the
     timeout obligation check (ADR-001 §3.2) so that subclasses do not need
     to replicate it.  Before this base class existed, TestsslConfig,
-    NucleiConfig, and FfufConfig each contained a byte-for-byte identical
+    TestsslConfig contained a byte-for-byte identical
     validator body -- a maintenance hazard where a future fix needed to be
     applied in three places.
 
@@ -70,8 +70,7 @@ class BaseExternalToolConfig(BaseModel):
         1. Inherit from BaseExternalToolConfig.
         2. Override `enabled`, `timeout_seconds`, and `extra_flags` with
            tool-specific Field() declarations (ge/le constraints, descriptions).
-        3. Add tool-specific fields (e.g. template_tags for nuclei,
-           wordlist_path for ffuf) after the shared fields.
+        3. Add tool-specific fields (e.g. connect_timeout for testssl) after the shared fields.
         4. Do NOT redeclare `_timeout_required_when_enabled` -- the base
            class validator is inherited automatically.
 
@@ -105,13 +104,62 @@ class BaseExternalToolConfig(BaseModel):
             "Must not contain credentials or secrets."
         ),
     )
+    expected_version: str | None = Field(
+        default=None,
+        description=(
+            "Pinned version string for this tool binary (e.g. '3.8.0'). "
+            "When set, ExternalToolTest._warn_if_version_mismatch() compares "
+            "this value against the output of '<binary> --version' at runtime. "
+            "A mismatch emits a structured WARNING in the log -- the test is NOT "
+            "skipped, but the analyst is alerted that the oracle in _evaluate() "
+            "was written against a different version and output field names may "
+            "have changed. "
+            "Rationale (Version Pinning): the connector's _evaluate() method is "
+            "tightly coupled to the JSON schema emitted by a specific binary "
+            "version. If the tool is upgraded independently of the APIGuard "
+            "release, field renames produce silent KeyErrors or empty findings "
+            "rather than explicit errors. expected_version makes this coupling "
+            "visible and auditable. "
+            "Must match TOOL_VERSION in install_tools.sh and, when applicable, "
+            "the ARG value in the Dockerfile. Keeping these three values in sync "
+            "is enforced by code review convention, not by automation. "
+            "License note: the pinned version declared here identifies which "
+            "version of the third-party binary APIGuard has been validated "
+            "against. APIGuard does not bundle or redistribute the binary; "
+            "install_tools.sh downloads it directly from the upstream source. "
+            "Operators are responsible for reviewing the license of each external "
+            "tool (e.g. testssl.sh: GPLv2, nuclei: MIT) before use in commercial "
+            "contexts."
+        ),
+    )
+    dev_mode: bool = Field(
+        default=False,
+        description=(
+            "Development mode for faster iteration on _evaluate() oracle logic. "
+            "When True and a cached artifact file already exists at "
+            "outputs/tools/<label>_output.json (written by a prior live run), "
+            "ExternalToolTest._run() loads the file and skips the subprocess "
+            "entirely -- including the is_available() check.  This means the "
+            "binary does not need to be installed for subsequent runs once the "
+            "cache exists. "
+            "First-run behaviour (cache absent): the tool runs normally and "
+            "pin_artifact() writes the cache file.  Every subsequent run reads "
+            "from the cache until the file is deleted. "
+            "Cache invalidation: delete outputs/tools/ or the specific "
+            "<label>_output.json file to force a fresh tool execution. "
+            "WARNING: never set to True in production assessments.  The cached "
+            "output may be stale if the target configuration has changed since "
+            "the last live run.  A structured WARNING is emitted on every cache "
+            "hit to alert the operator."
+        ),
+    )
 
     @property
     def _tool_name_for_error_message(self) -> str:
         """
         Derive a lowercase tool name from the subclass class name for error messages.
 
-        Convention: 'TestsslConfig' -> 'testssl', 'NucleiConfig' -> 'nuclei'.
+        Convention: 'TestsslConfig' -> 'testssl'.
         This avoids hardcoding the tool name in the shared validator body.
         """
         return self.__class__.__name__.replace("Config", "").lower()
@@ -191,114 +239,102 @@ class TestsslConfig(BaseExternalToolConfig):
 
 class NucleiConfig(BaseExternalToolConfig):
     """
-    Configuration for the nuclei connector (CVE / template-based scanning).
+    Configuration for the nuclei connector (template-based vulnerability scanning).
 
-    nuclei applies community-maintained YAML templates against API endpoints
-    to detect known vulnerabilities, misconfigurations, and exposed panels.
-    Used primarily for Garanzia 0.1 supplement and 6.x audit in the methodology.
+    nuclei applies YAML templates from a pinned local directory against the
+    target to detect known exposures, misconfigurations, and shadow API paths.
+    Used for Garanzia 0.1 (Shadow API Discovery) in the methodology.
 
     The binary is discovered via:
-        1. shutil.which("nuclei")            -- local install in PATH
-        2. os.getenv("NUCLEI_SERVICE_URL")   -- HTTP service in Docker Compose
+        1. Path.cwd() / "tools" / "nuclei" / "nuclei"  -- local tools directory
+        2. shutil.which("nuclei")                        -- system PATH
+
+    Template directory:
+        Templates are pinned at a specific version alongside the binary.
+        install_tools.sh downloads them to ./tools/nuclei-templates/ with
+        NUCLEI_TEMPLATES_VERSION matching the compatible release for
+        NUCLEI_VERSION.  NucleiConnector passes template_dir to nuclei
+        via -t <template_dir>; the -duc flag is hardcoded to prevent
+        automatic template updates that would break the pinned oracle.
+
+    Flags hardcoded in NucleiConnector (not configurable here):
+        -duc       disable update check (version pinning requirement)
+        -ni        disable interactsh OAST (no external callbacks)
+        -no-color  machine-readable output
+
+    License: nuclei is distributed under the MIT License.
+    APIGuard does not bundle or redistribute the nuclei binary or templates;
+    install_tools.sh downloads them directly from the upstream GitHub
+    repository at the pinned version.
     """
 
     enabled: bool = Field(
         default=False,
         description=(
             "Enable the nuclei connector.  When True, timeout_seconds is "
-            "mandatory.  When False, all ext_test_nuclei_* tests return SKIP."
+            "mandatory.  When False, ext_test_0_1_shadow_api_nuclei returns "
+            "SKIP without attempting binary discovery."
         ),
     )
     timeout_seconds: int | None = Field(
         default=None,
         ge=60,
-        le=900,
+        le=600,
         description=(
             "Wall-clock timeout for a single nuclei execution in seconds. "
-            "Mandatory when enabled=True.  Recommended: 300.  "
-            "nuclei template sets can vary enormously in size; 300 s is "
-            "conservative for a focused API-tag subset."
-        ),
-    )
-    template_tags: list[str] = Field(
-        default_factory=lambda: ["api", "token", "misconfig"],
-        description=(
-            "nuclei template tags to include in the scan (-tags flag). "
-            "Restricts the scan to relevant templates and avoids the noise "
-            "of full CVE scans on API targets.  "
-            "Example: ['api', 'token', 'jwt', 'misconfig']."
+            "Mandatory when enabled=True.  Recommended: 240.  "
+            "With 3319 templates and clustering, nuclei typically completes "
+            "a focused tag-filtered scan in 2-4 minutes on a local target."
         ),
     )
     extra_flags: str = Field(
-        default="-silent -no-color",
+        default="",
         description=(
-            "Additional CLI flags appended to the nuclei invocation, verbatim. "
-            "Must not contain credentials or secrets."
+            "Additional CLI flags appended verbatim to the nuclei invocation. "
+            "Must not contain credentials or secrets.  "
+            "Do not include -duc, -ni, -no-color: those are hardcoded in "
+            "NucleiConnector as architectural invariants."
         ),
     )
-
-
-class FfufConfig(BaseExternalToolConfig):
-    """
-    Configuration for the ffuf connector (path fuzzing / Shadow API discovery).
-
-    ffuf is a high-performance HTTP fuzzer used for Garanzia 0.1 (Shadow API
-    discovery).  It sends a wordlist of candidate paths to the target and
-    collects responses, allowing the tool to detect endpoints that exist on
-    the gateway but are absent from the OpenAPI specification.
-
-    The binary is discovered via:
-        1. shutil.which("ffuf")            -- local install in PATH
-        2. os.getenv("FFUF_SERVICE_URL")   -- HTTP service in Docker Compose
-
-    wordlist_path must be an absolute path or a path relative to the working
-    directory at tool invocation time.  The recommended wordlist is SecLists
-    API-endpoints.txt (~5,000 entries).
-    """
-
-    enabled: bool = Field(
-        default=False,
+    template_dir: str = Field(
+        default="./tools/nuclei-templates",
         description=(
-            "Enable the ffuf connector.  When True, timeout_seconds is "
-            "mandatory.  When False, all ext_test_shadow_* tests return SKIP."
+            "Path to the pinned nuclei-templates directory, relative to the "
+            "CWD at tool invocation time.  Must match the directory populated "
+            "by install_tools.sh (NUCLEI_TEMPLATES_VERSION).  "
+            "NucleiConnector passes this path to nuclei via -t <template_dir>."
         ),
     )
-    timeout_seconds: int | None = Field(
-        default=None,
-        ge=30,
-        le=600,
+    tags: list[str] = Field(
+        default_factory=lambda: ["api", "exposure", "misconfig", "panel"],
         description=(
-            "Wall-clock timeout for a single ffuf execution in seconds. "
-            "Mandatory when enabled=True.  Recommended: 180.  "
-            "Depends heavily on wordlist size and target response time."
+            "nuclei template tags to include in the scan (-tags flag). "
+            "Restricts execution to relevant templates, avoiding the noise "
+            "of a full CVE scan on a local API target.  "
+            "Default covers shadow API discovery: exposed Swagger/OpenAPI "
+            "endpoints, admin panels, misconfigurations, and API-related "
+            "exposures."
         ),
     )
-    wordlist_path: str = Field(
-        default="/usr/share/seclists/Discovery/Web-Content/api/api-endpoints.txt",
+    per_request_timeout: int = Field(
+        default=10,
+        ge=5,
+        le=60,
         description=(
-            "Absolute or CWD-relative path to the wordlist file used by ffuf. "
-            "The recommended file is SecLists API-endpoints.txt (approx 5,000 entries). "
-            "If the path does not exist at runtime, ext_test_shadow_api_fuzzing "
-            "returns SKIP with reason 'Wordlist not found at <path>'."
+            "Per-request timeout in seconds passed to nuclei via -timeout. "
+            "Distinct from timeout_seconds (total scan wall-clock limit). "
+            "Controls how long nuclei waits for a single HTTP response. "
+            "Default 10s is appropriate for local targets."
         ),
     )
     rate_limit_rps: int = Field(
-        default=50,
+        default=30,
         ge=1,
-        le=500,
+        le=150,
         description=(
-            "ffuf request rate limit in requests-per-second (-rate flag). "
-            "Default 50 rps is conservative enough to avoid triggering the "
-            "target's own rate limiter (Test 4.1) during Shadow API discovery. "
-            "Lower this value when testing production environments."
-        ),
-    )
-    extra_flags: str = Field(
-        default="-noninteractive -s",
-        description=(
-            "Additional CLI flags appended to the ffuf invocation, verbatim. "
-            "Must not contain credentials or secrets.  "
-            "Default enables non-interactive silent mode."
+            "Maximum HTTP requests per second passed to nuclei via -rl. "
+            "Default 30 rps avoids triggering the target's own rate limiter "
+            "(Test 4.1) during shadow API discovery."
         ),
     )
 
@@ -343,10 +379,6 @@ class ExternalToolsConfig(BaseModel):
         default_factory=NucleiConfig,
         description="Configuration for the nuclei connector.",
     )
-    ffuf: FfufConfig = Field(
-        default_factory=FfufConfig,
-        description="Configuration for the ffuf connector.",
-    )
 
     def is_tool_enabled(self, tool_name: str) -> bool:
         """
@@ -359,7 +391,7 @@ class ExternalToolsConfig(BaseModel):
         the misconfiguration invisible during development.
 
         Args:
-            tool_name: One of "testssl", "nuclei", "ffuf".  Any other value
+            tool_name: Currently "testssl" or "nuclei".  Any other value
                        logs a WARNING and returns False.
 
         Returns:
@@ -375,9 +407,7 @@ class ExternalToolsConfig(BaseModel):
             # Proposal E: emit a structured warning so developers notice typos
             # in the tool_name ClassVar immediately, rather than seeing a silent SKIP.
             known_tools: list[str] = [
-                field_name
-                for field_name in self.model_fields
-                if field_name != "enabled"
+                field_name for field_name in self.model_fields if field_name != "enabled"
             ]
             log.warning(
                 "external_tools_unknown_tool_name",
