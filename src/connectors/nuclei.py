@@ -270,6 +270,13 @@ class NucleiConnector(BaseSubprocessConnector):
         # Parse results from the JSON export file.
         results: list[dict[str, Any]] = self._read_json_export(json_export_path)
 
+        # Relativize template-path: nuclei writes the absolute filesystem path
+        # of the matched template file because it receives an absolute -t argument.
+        # This is local infrastructure data (which template on OUR machine matched),
+        # not target finding data -- safe to relativize without altering evidence.
+        # All other fields (matched-at, request, response, ...) are untouched.
+        results = self._sanitize_paths_in_findings(results, path_keys=("template-path",))
+
         log.info(
             "nuclei_connector_complete",
             exit_code=exit_code,

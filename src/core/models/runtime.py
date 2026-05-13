@@ -238,7 +238,6 @@ class RuntimeTest15Config(BaseModel):
         cfg.http_probe_enabled
         cfg.http_probe_timeout_seconds
         cfg.expected_redirect_status_codes
-        cfg.testssl_binary_path
     """
 
     model_config = {"frozen": True}  # mandatory — see "Why two layers?" in ADDING_TESTS.md
@@ -280,21 +279,6 @@ class RuntimeTest15Config(BaseModel):
         description=(
             "Mirrors Test15Config.expected_redirect_status_codes. "
             "HTTP status codes that satisfy the redirect oracle. Default: [301, 308]."
-        ),
-    )
-    testssl_binary_path: str = Field(
-        default="",
-        description=(
-            "Mirrors Test15Config.testssl_binary_path. "
-            "Absolute path to testssl.sh binary. Empty = skip TLS scan sub-test."
-        ),
-    )
-    testssl_timeout_seconds: int = Field(
-        default=120,
-        ge=30,
-        description=(
-            "Mirrors Test15Config.testssl_timeout_seconds. "
-            "Maximum seconds for the testssl.sh subprocess. Default: 120."
         ),
     )
 

@@ -395,14 +395,34 @@ class ExternalToolTest(ABC):
         # any of the four required keys are absent from raw_output.
         self._validate_raw_output(connector_result)
 
-        # --- Step 4: pin raw artifact to evidence store ---
-        # On a dev mode cache hit, pin_artifact() re-writes the same data to
-        # evidence.json and to outputs/tools/.  This is intentionally idempotent:
-        # the evidence trail for this assessment run always reflects exactly what
-        # _evaluate() operated on, whether live or cached.
+        # --- Step 4: build enriched artifact, then pin to evidence store ---
+        #
+        # The enriched artifact extends raw_output with three _apiguard_meta_*
+        # keys that carry connector-level metadata useful for reproducibility:
+        #
+        #   _apiguard_meta_tool_version     -- binary version string or None on cache hits.
+        #   _apiguard_meta_execution_time_ms -- subprocess wall-clock time; 0 on cache hits.
+        #   _apiguard_meta_dev_mode_cache_hit -- True when the result came from disk cache.
+        #
+        # Namespace rationale: the "_apiguard_meta_" prefix guarantees no collision
+        # with tool-native output keys and makes these fields trivially greppable.
+        #
+        # The enriched artifact is what pin_artifact() writes to both evidence.json
+        # and outputs/tools/<label>_output.json, so the on-disk file and the HTML
+        # report modal download are structurally identical.  On a dev mode cache
+        # hit, pin_artifact() re-writes the enriched data with the current run's
+        # meta values (cache_hit=True, tool_version=None, execution_time_ms=0),
+        # keeping the evidence trail accurate for this assessment run.
+        enriched_artifact: dict[str, Any] = {
+            **connector_result.raw_output,
+            "_apiguard_meta_tool_version": connector_result.tool_version,
+            "_apiguard_meta_execution_time_ms": connector_result.execution_time_ms,
+            "_apiguard_meta_dev_mode_cache_hit": cache_hit,
+        }
+
         artifact_ref = store.pin_artifact(
             label=artifact_label,
-            data=connector_result.raw_output,
+            data=enriched_artifact,
         )
 
         log.info(
@@ -419,40 +439,6 @@ class ExternalToolTest(ABC):
         # --- Step 5: oracle evaluation (subclass responsibility) ---
         result = self._evaluate(connector_result, artifact_ref)
 
-        # Attach enriched artifact to TestResult for the HTML report.
-        #
-        # Enrichment strategy: start from connector_result.raw_output and inject
-        # two _apiguard_meta_* keys that the HTML detail panel and evidence.json
-        # consumers can read without knowing the tool-specific output schema:
-        #
-        #   _apiguard_meta_tool_version     -- binary version string (e.g. "testssl 3.2")
-        #                                      or None if get_version() returned None.
-        #                                      Displayed in the report detail panel for
-        #                                      reproducibility of the finding.
-        #                                      On cache hits, this is None because the
-        #                                      ConnectorResult is reconstructed without
-        #                                      calling get_version().
-        #
-        #   _apiguard_meta_execution_time_ms -- connector-level wall-clock scan time in ms,
-        #                                      measured inside the connector subprocess.
-        #                                      On cache hits, this is 0 because no
-        #                                      subprocess ran.  The report template
-        #                                      renders "0 ms" for cached runs, making
-        #                                      the dev mode origin visible to analysts.
-        #
-        # Namespace rationale: the "_apiguard_meta_" prefix guarantees no collision
-        # with tool-native output keys and makes these fields trivially greppable.
-        #
-        # Sanitization note: pin_artifact() above already persisted a sanitized copy
-        # of raw_output to evidence.json.  The enriched dict here is attached to
-        # tool_artifact for the in-memory HTML report only.  _meta keys are never
-        # credential-bearing, so no additional sanitization is needed.
-        enriched_artifact: dict[str, Any] = {
-            **connector_result.raw_output,
-            "_apiguard_meta_tool_version": connector_result.tool_version,
-            "_apiguard_meta_execution_time_ms": connector_result.execution_time_ms,
-            "_apiguard_meta_dev_mode_cache_hit": cache_hit,
-        }
         return result.model_copy(
             update={
                 "tool_artifact": enriched_artifact,

@@ -5,7 +5,7 @@
 | Simbolo | Significato |
 |---------|-------------|
 | `[TODO]` | Non ancora iniziato. |
-| `[WIP]`  | In corso (es. refactor `BaseGatewayInspector` pendente). |
+| `[WIP]`  | In corso. |
 | `[OK·C]` | Python **completo**, manca il Connector Cat A obbligatorio (test HYBRID non chiudibile senza). |
 | `[OK]`   | Completato al 100%. |
 
@@ -51,8 +51,8 @@
 - [ ] **2.4** `[NATIVE]` Auth Policy Consistency `[TODO]`
 - [ ] **2.5** `[NATIVE]` Excessive Data Exposure `[TODO]`
 - [x] **3.3** `[NATIVE]` HMAC Config Audit `[OK]`
-- [x] **4.2** `[NATIVE]` Timeout Config `[OK]` *(WIP: refactor a `BaseGatewayInspector`)*
-- [x] **4.3** `[NATIVE]` Circuit Breaker `[OK]` *(WIP: refactor a `BaseGatewayInspector`)*
+- [x] **4.2** `[NATIVE]` Timeout Config `[OK]`
+- [x] **4.3** `[NATIVE]` Circuit Breaker `[OK]`
 - [ ] **5.1** `[NATIVE]` Audit Logging `[TODO]` *(⚠ richiede log aggregator nel Docker setup)*
 - [ ] **5.2** `[NATIVE]` Real-Time Alerts `[TODO]` *(⚠ richiede sistema di alerting configurato)*
 - [ ] **6.1** `[NATIVE]` Error Handling `[TODO]`
@@ -161,8 +161,8 @@
 | ID | Strategy | Test Name | Milestone | Task Attivi |
 |---|---|---|---|---|
 | 4.1 | HYBRID | Rate Limiting | **1** | `test_4_1_rate_limiting.py` → Connector Cat A: `vegeta` |
-| 4.2 | NATIVE | Timeout Config | **3** | `test_4_2_timeout_config.py` → Pendente: refactor `BaseGatewayInspector` |
-| 4.3 | NATIVE | Circuit Breaker | **3** | `test_4_3_circuit_breaker.py` → Pendente: refactor `BaseGatewayInspector` |
+| 4.2 | NATIVE | Timeout Config | **3** | `test_4_2_timeout_config.py` → usa `target.gateway` (`BaseGatewayAdapter`) |
+| 4.3 | NATIVE | Circuit Breaker | **3** | `test_4_3_circuit_breaker.py` → usa `target.gateway` (`BaseGatewayAdapter`) |
 
 ### DOMINIO 5 — Visibilità e Auditing
 | ID | Strategy | Test Name | Milestone | Task Attivi |

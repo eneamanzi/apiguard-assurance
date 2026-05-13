@@ -105,8 +105,8 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
+from src.core.gateway.base import BaseGatewayAdapter, GatewayAdapterError
 from src.tests.base import BaseTest
-from src.tests.helpers.kong_admin import KongAdminError, get_plugins, get_status, get_upstreams
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -297,27 +297,21 @@ class Test43CircuitBreakerAudit(BaseTest):
             if skip_guard is not None:
                 return skip_guard
 
-            admin_base_url = target.admin_endpoint_base_url()
-            assert admin_base_url is not None, (  # noqa: S101
-                "admin_endpoint_base_url() returned None despite admin_api_available=True."
-            )
+            gateway = target.gateway
+            assert gateway is not None  # noqa: S101
 
             cfg = target.tests_config.test_4_3
 
             log.info(
                 "test_4_3_starting",
-                admin_base_url=admin_base_url,
+                gateway_adapter=gateway.adapter_name,
                 accepted_cb_plugin_names=cfg.accepted_cb_plugin_names,
             )
 
             # ----------------------------------------------------------
             # Level 1: native CB plugin detection
             # ----------------------------------------------------------
-            plugins = self._fetch_plugins(
-                admin_base_url,
-                target.admin_connect_timeout_seconds,
-                target.admin_read_timeout_seconds,
-            )
+            plugins = self._fetch_plugins(gateway)
             if plugins is None:
                 return self._make_error(
                     RuntimeError(
@@ -333,11 +327,7 @@ class Test43CircuitBreakerAudit(BaseTest):
 
                 # The observability check always runs independently and always
                 # produces an InfoNote (never a security Finding).
-                observability_note = self._check_observability(
-                    admin_base_url,
-                    target.admin_connect_timeout_seconds,
-                    target.admin_read_timeout_seconds,
-                )
+                observability_note = self._check_observability(gateway)
 
                 if not level1.findings:
                     # Plugin found, enabled, params in range -> Full Guarantee.
@@ -387,11 +377,7 @@ class Test43CircuitBreakerAudit(BaseTest):
             # ----------------------------------------------------------
             # Level 2: upstream passive healthchecks (compensating control)
             # ----------------------------------------------------------
-            upstreams = self._fetch_upstreams(
-                admin_base_url,
-                target.admin_connect_timeout_seconds,
-                target.admin_read_timeout_seconds,
-            )
+            upstreams = self._fetch_upstreams(gateway)
             if upstreams is None:
                 return self._make_error(
                     RuntimeError(
@@ -402,11 +388,7 @@ class Test43CircuitBreakerAudit(BaseTest):
             level2 = self._check_level2_passive_hc(upstreams=upstreams, cfg=cfg)
 
             # Observability check is independent of level outcome.
-            observability_note = self._check_observability(
-                admin_base_url,
-                target.admin_connect_timeout_seconds,
-                target.admin_read_timeout_seconds,
-            )
+            observability_note = self._check_observability(gateway)
 
             if level2.has_valid_compensating_control:
                 # Level 2 PASS: attach compensating control and observability
@@ -470,29 +452,25 @@ class Test43CircuitBreakerAudit(BaseTest):
 
     def _fetch_plugins(
         self,
-        admin_base_url: str,
-        connect_timeout: float,
-        read_timeout: float,
+        gateway: BaseGatewayAdapter,
     ) -> list[dict[str, Any]] | None:
         """
-        Retrieve all Kong plugins from the Admin API.
+        Retrieve all plugins via the gateway adapter.
 
-        Wraps get_plugins() so that a KongAdminError produces a structured log
-        entry and a None return; the caller converts None to ERROR status.
+        Returns None on error so the caller can produce ERROR without
+        re-catching the exception.
 
         Args:
-            admin_base_url:  Kong Admin API base URL without trailing slash.
-            connect_timeout: TCP connection timeout in seconds.
-            read_timeout:    HTTP read timeout in seconds.
+            gateway: Instantiated gateway adapter from target.gateway.
 
         Returns:
             List of plugin dicts (possibly empty), or None on failure.
         """
         try:
-            plugins = get_plugins(admin_base_url, connect_timeout, read_timeout)
+            plugins = gateway.get_plugins()
             log.debug("test_4_3_plugins_fetched", count=len(plugins))
             return plugins
-        except KongAdminError as exc:
+        except GatewayAdapterError as exc:
             log.error(
                 "test_4_3_admin_api_error",
                 path="/plugins",
@@ -768,26 +746,22 @@ class Test43CircuitBreakerAudit(BaseTest):
 
     def _fetch_upstreams(
         self,
-        admin_base_url: str,
-        connect_timeout: float,
-        read_timeout: float,
+        gateway: BaseGatewayAdapter,
     ) -> list[dict[str, Any]] | None:
         """
-        Retrieve all Kong upstreams from the Admin API.
+        Retrieve all upstreams via the gateway adapter.
 
         Args:
-            admin_base_url:  Kong Admin API base URL without trailing slash.
-            connect_timeout: TCP connection timeout in seconds.
-            read_timeout:    HTTP read timeout in seconds.
+            gateway: Instantiated gateway adapter from target.gateway.
 
         Returns:
             List of upstream dicts (possibly empty), or None on failure.
         """
         try:
-            upstreams = get_upstreams(admin_base_url, connect_timeout, read_timeout)
+            upstreams = gateway.get_upstreams()
             log.debug("test_4_3_upstreams_fetched", count=len(upstreams))
             return upstreams
-        except KongAdminError as exc:
+        except GatewayAdapterError as exc:
             log.error(
                 "test_4_3_admin_api_error",
                 path="/upstreams",
@@ -1096,12 +1070,10 @@ class Test43CircuitBreakerAudit(BaseTest):
 
     def _check_observability(
         self,
-        admin_base_url: str,
-        connect_timeout: float,
-        read_timeout: float,
+        gateway: BaseGatewayAdapter,
     ) -> InfoNote | None:
         """
-        Check whether the Kong /status endpoint exposes circuit-breaker metrics.
+        Check whether the gateway /status endpoint exposes circuit-breaker metrics.
 
         Kong OSS /status reports only database connectivity and worker memory
         statistics. It does not expose CB state (OPEN/CLOSED/HALF-OPEN),
@@ -1116,17 +1088,15 @@ class Test43CircuitBreakerAudit(BaseTest):
         the test status on its own.
 
         Args:
-            admin_base_url:  Kong Admin API base URL without trailing slash.
-            connect_timeout: TCP connection timeout in seconds.
-            read_timeout:    HTTP read timeout in seconds.
+            gateway: Instantiated gateway adapter from target.gateway.
 
         Returns:
             Informational InfoNote if CB metrics are absent from /status.
-            Returns None on KongAdminError (avoids masking the primary finding).
+            Returns None on GatewayAdapterError (avoids masking the primary finding).
         """
         try:
-            status_data = get_status(admin_base_url, connect_timeout, read_timeout)
-        except KongAdminError as exc:
+            status_data = gateway.get_status()
+        except GatewayAdapterError as exc:
             log.warning(
                 "test_4_3_status_endpoint_unreachable",
                 error=str(exc),

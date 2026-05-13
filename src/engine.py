@@ -111,6 +111,7 @@ from src.core.models import (
 from src.discovery.openapi import load_openapi_spec
 from src.discovery.surface import build_attack_surface
 from src.external_tests.base import ExternalToolTest
+from src.core.gateway.kong import KongGatewayAdapter
 from src.external_tests.registry import ExternalTestRegistry
 from src.report.builder import build_report_data
 from src.report.renderer import render_html_report
@@ -395,9 +396,7 @@ class AssessmentEngine:
                 expected_redirect_status_codes=list(
                     config.tests.domain_1.test_1_5.expected_redirect_status_codes
                 ),
-                testssl_binary_path=config.tests.domain_1.test_1_5.testssl_binary_path,
                 http_probe_url=config.tests.domain_1.test_1_5.http_probe_url,
-                testssl_timeout_seconds=config.tests.domain_1.test_1_5.testssl_timeout_seconds,
             ),
             test_1_6=RuntimeTest16Config(
                 cookie_probe_paths=list(config.tests.domain_1.test_1_6.cookie_probe_paths),
@@ -475,6 +474,22 @@ class AssessmentEngine:
             ),
         )
 
+        # Instantiate the gateway adapter when configured.
+        # Injected into TargetContext so that WHITE_BOX tests access the admin plane
+        # via target.gateway.get_services() / .get_plugins() etc.
+        gateway = None
+        if config.target.gateway_adapter == "kong" and config.target.admin_api_url is not None:
+            gateway = KongGatewayAdapter(
+                admin_base_url=str(config.target.admin_api_url).rstrip("/"),
+                connect_timeout=config.target.admin_connect_timeout_seconds,
+                read_timeout=config.target.admin_read_timeout_seconds,
+            )
+            log.info(
+                "pipeline_phase_3_gateway_adapter_instantiated",
+                adapter=gateway.adapter_name,
+                admin_base_url=str(config.target.admin_api_url).rstrip("/"),
+            )
+
         target = TargetContext(
             base_url=config.target.base_url,
             openapi_spec_url=config.target.openapi_spec_url,
@@ -491,10 +506,8 @@ class AssessmentEngine:
             tests_config=tests_config,
             path_seed=dict(config.target.path_seed),
             verify_tls=config.target.verify_tls,
-            # Proposal C: expose external tool config on TargetContext so that every
-            # ExternalToolTest reads timeout_seconds from target.external_tools.<tool>
-            # rather than from semantically incorrect domain-config fields.
             external_tools=config.external_tools,
+            gateway=gateway,
         )
 
         context = TestContext()

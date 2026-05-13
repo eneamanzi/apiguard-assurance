@@ -108,8 +108,8 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
+from src.core.gateway.base import BaseGatewayAdapter, GatewayAdapterError
 from src.tests.base import BaseTest
-from src.tests.helpers.kong_admin import KongAdminError, get_plugins, get_services
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -337,20 +337,8 @@ class Test64HardcodedCredentialsAudit(BaseTest):
 
             # ---- Sub-test B: Kong Admin API audit (conditional) ----------
             notes: list[InfoNote] = list(a_notes)  # start with any open-with-data notes
-            if target.admin_api_available:
-                admin_base_url = target.admin_endpoint_base_url()
-                # admin_endpoint_base_url() returns None only when
-                # admin_api_url is None, already excluded by the
-                # admin_api_available guard above.
-                assert admin_base_url is not None, (  # noqa: S101
-                    "admin_endpoint_base_url() returned None despite "
-                    "admin_api_available=True. TargetContext invariant violation."
-                )
-                b_findings = self._audit_kong_configuration(
-                    admin_base_url,
-                    target.admin_connect_timeout_seconds,
-                    target.admin_read_timeout_seconds,
-                )
+            if target.gateway is not None:
+                b_findings = self._audit_gateway_configuration(target.gateway)
                 findings.extend(b_findings)
                 # Always document the inherent scope limits of this test,
                 # even when the Admin API audit ran successfully.  The HTTP-only
@@ -422,9 +410,9 @@ class Test64HardcodedCredentialsAudit(BaseTest):
                     f"No credential patterns detected across "
                     f"{len(cfg.debug_endpoint_paths)} debug path(s) probed"
                     + (
-                        " and Kong service/plugin configuration audited."
-                        if target.admin_api_available
-                        else ". Kong configuration audit skipped (Admin API unavailable)."
+                        " and gateway service/plugin configuration audited."
+                        if target.gateway is not None
+                        else ". Gateway configuration audit skipped (gateway adapter not configured)."
                     )
                 ),
                 notes=notes,
@@ -623,31 +611,25 @@ class Test64HardcodedCredentialsAudit(BaseTest):
     # Sub-test B helpers: Kong Admin API credential scan
     # ------------------------------------------------------------------
 
-    def _audit_kong_configuration(
+    def _audit_gateway_configuration(
         self,
-        admin_base_url: str,
-        connect_timeout: float,
-        read_timeout: float,
+        gateway: BaseGatewayAdapter,
     ) -> list[Finding]:
         """
-        Scan Kong services and plugins for hardcoded credential patterns.
+        Scan gateway services and plugins for hardcoded credential patterns.
 
         Returns a list of Finding objects.  An empty list means no credential
         patterns were found in the audited configuration.
 
         Args:
-            admin_base_url:  Kong Admin API base URL without trailing slash.
-            connect_timeout: TCP connection timeout in seconds.
-                             Read from target.admin_connect_timeout_seconds.
-            read_timeout:    HTTP read timeout in seconds.
-                             Read from target.admin_read_timeout_seconds.
+            gateway: Instantiated gateway adapter from target.gateway.
         """
         findings: list[Finding] = []
 
-        log.info("test_6_4_admin_audit_starting", admin_base_url=admin_base_url)
+        log.info("test_6_4_admin_audit_starting", gateway_adapter=gateway.adapter_name)
 
         # ---- Scan service URLs ----------------------------------------
-        services = self._fetch_services(admin_base_url, connect_timeout, read_timeout)
+        services = self._fetch_services(gateway)
         if services is not None:
             for svc in services:
                 svc_name: str = svc.get("name", "<unnamed>")
@@ -680,7 +662,7 @@ class Test64HardcodedCredentialsAudit(BaseTest):
                         )
 
         # ---- Scan plugin configs ---------------------------------------
-        plugins = self._fetch_plugins(admin_base_url, connect_timeout, read_timeout)
+        plugins = self._fetch_plugins(gateway)
         if plugins is not None:
             for plugin in plugins:
                 plugin_name: str = plugin.get("name", "<unnamed>")
@@ -697,54 +679,46 @@ class Test64HardcodedCredentialsAudit(BaseTest):
 
     def _fetch_services(
         self,
-        admin_base_url: str,
-        connect_timeout: float,
-        read_timeout: float,
+        gateway: BaseGatewayAdapter,
     ) -> list[dict[str, Any]] | None:
         """
-        Retrieve Kong services via Admin API.
+        Retrieve services via the gateway adapter.
 
-        Returns None on KongAdminError so the caller can produce a partial
+        Returns None on GatewayAdapterError so the caller can produce a partial
         result rather than an ERROR.
 
         Args:
-            admin_base_url:  Kong Admin API base URL without trailing slash.
-            connect_timeout: TCP connection timeout in seconds.
-            read_timeout:    HTTP read timeout in seconds.
+            gateway: Instantiated gateway adapter from target.gateway.
         """
         try:
-            return get_services(admin_base_url, connect_timeout, read_timeout)
-        except KongAdminError as exc:
+            return gateway.get_services()
+        except GatewayAdapterError as exc:
             log.error(
-                "test_6_4_kong_services_fetch_failed",
-                admin_base_url=admin_base_url,
+                "test_6_4_gateway_services_fetch_failed",
+                adapter=gateway.adapter_name,
                 error=str(exc),
             )
             return None
 
     def _fetch_plugins(
         self,
-        admin_base_url: str,
-        connect_timeout: float,
-        read_timeout: float,
+        gateway: BaseGatewayAdapter,
     ) -> list[dict[str, Any]] | None:
         """
-        Retrieve Kong plugins via Admin API.
+        Retrieve plugins via the gateway adapter.
 
-        Returns None on KongAdminError so the caller can produce a partial
+        Returns None on GatewayAdapterError so the caller can produce a partial
         result rather than an ERROR.
 
         Args:
-            admin_base_url:  Kong Admin API base URL without trailing slash.
-            connect_timeout: TCP connection timeout in seconds.
-            read_timeout:    HTTP read timeout in seconds.
+            gateway: Instantiated gateway adapter from target.gateway.
         """
         try:
-            return get_plugins(admin_base_url, connect_timeout, read_timeout)
-        except KongAdminError as exc:
+            return gateway.get_plugins()
+        except GatewayAdapterError as exc:
             log.error(
-                "test_6_4_kong_plugins_fetch_failed",
-                admin_base_url=admin_base_url,
+                "test_6_4_gateway_plugins_fetch_failed",
+                adapter=gateway.adapter_name,
                 error=str(exc),
             )
             return None

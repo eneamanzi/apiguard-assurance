@@ -217,13 +217,13 @@ Nessun tool esterno. Questo controllo è un Configuration Audit (White Box): ver
 
 Nessun tool esterno. Il test è un Configuration Audit (White Box): legge parametri da file di configurazione del Gateway e del connection pool. Python + Admin API del Gateway sono sufficienti.
 
-**Scartati (Categoria C):** httpstat (C.4 — timing breakdown visivo, Python può misurare TTFB; non aggiunge evidenze strutturate al report), deck (C.2 — Kong-specific, rompe l'agnosticismo; la logica di lettura configurazione è nel `BaseGatewayInspector`), vegeta (C.4 — utile come test comportamentale opzionale in staging ma il test è principalmente config audit), prowler (C.2 — AWS-specific), kubescape (C.2 — Kubernetes-specific).
+**Scartati (Categoria C):** httpstat (C.4 — timing breakdown visivo, Python può misurare TTFB; non aggiunge evidenze strutturate al report), deck (C.2 — Kong-specific, rompe l'agnosticismo; la logica di lettura configurazione è nel `BaseGatewayAdapter`), vegeta (C.4 — utile come test comportamentale opzionale in staging ma il test è principalmente config audit), prowler (C.2 — AWS-specific), kubescape (C.2 — Kubernetes-specific).
 
 ---
 
 ### 4.3 Circuit Breaker `[P1]` `[NATIVE]`
 
-Nessun tool esterno. Il test è un Configuration Audit (White Box): verifica la presenza di direttive circuit breaker via Admin API o file di configurazione. Il `BaseGatewayInspector` astrae questo layer.
+Nessun tool esterno. Il test è un Configuration Audit (White Box): verifica la presenza di direttive circuit breaker via Admin API o file di configurazione. Il `BaseGatewayAdapter` astrae questo layer.
 
 **Scartati (Categoria C):** deck (C.2 — Kong-specific), istioctl (C.2 — Istio-specific), kuma-cp (C.2 — Kuma-specific), linkerd viz (C.2 — Linkerd-specific), aws appmesh (C.2 — AWS-specific), envoy-tools (C.2 — Envoy-specific), kubescape (C.2 — Kubernetes-specific), vegeta (C.4 — test comportamentale opzionale in staging, non parte dell'oracle principale).
 
@@ -273,7 +273,7 @@ Nessun tool esterno. Python può verificare la presenza e il valore di 6-8 heade
 |---|---|---|---|
 | **http2smugl** | B | Estensione H2 opzionale | Copre HTTP/2 downgrade smuggling — angolazione distinta dai pattern CL.TE/TE.CL. Promovibile a Cat A se il target espone HTTP/2. Attivamente mantenuto in Go. |
 
-**Scartati (Categoria C):** smuggler (C.1 — nessuna release ufficiale taggata; i pattern CL.TE/TE.CL sono implementati direttamente con socket Python stdlib), gotestwaf (C.3 — overkill per il solo test di smuggling), h2csmuggler (C.4 — HTTP/2 cleartext upgrade smuggling, scenario molto specifico che richiede target con HTTP/2 upgrade non cifrato), deck (C.2 — Kong-specific, il `BaseGatewayInspector` astrae questa logica), tutto il gruppo IaC/K8s/cloud (prowler, checkov, tfsec, kics, cfn-lint, steampipe, inspec-aws, kubescape, kube-linter, istioctl, kubeaudit — tutti C.2, tool infrastrutturali non di assessment API).
+**Scartati (Categoria C):** smuggler (C.1 — nessuna release ufficiale taggata; i pattern CL.TE/TE.CL sono implementati direttamente con socket Python stdlib), gotestwaf (C.3 — overkill per il solo test di smuggling), h2csmuggler (C.4 — HTTP/2 cleartext upgrade smuggling, scenario molto specifico che richiede target con HTTP/2 upgrade non cifrato), deck (C.2 — Kong-specific, il `BaseGatewayAdapter` astrae questa logica), tutto il gruppo IaC/K8s/cloud (prowler, checkov, tfsec, kics, cfn-lint, steampipe, inspec-aws, kubescape, kube-linter, istioctl, kubeaudit — tutti C.2, tool infrastrutturali non di assessment API).
 
 ---
 

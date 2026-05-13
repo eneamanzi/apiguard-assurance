@@ -1,112 +1,109 @@
-# APIGuard Assurance - Cheat Sheet Comandi
-## Utility: Export
-Creare uno ZIP aggiornato con tutti i sorgenti e i test (escludendo cache, pycache e report):
+# APIGuard Assurance — Command Cheat Sheet
 
-### Nuova modalità
+## Export Utility
+
+Create an updated ZIP with all sources and tests (excluding cache, pycache, and reports).
+
+### New mode (recommended)
 ```bash
-# crea uno zip con tutti i domini, esclude le stesse cose del comando zip qua sotto
-./build_zip.sh 
+# Create a zip with all domains, same exclusions as the manual zip command below.
+./build_zip.sh
 
-# crea uno zip esclduendo tutti domini che non siano quello specificato
+# Create a zip including only the specified domain.
 ./build_zip.sh -d 6
 
-# crea uno zip esclduendo tutti domini che non siano quelli specificati
+# Create a zip including only the specified domains.
 ./build_zip.sh -d 5,6
 ```
 
-### Vecchia modalità
+### Legacy mode (manual)
 ```bash
-zip -r apiguard-assurance.zip . -x "*.git/*" -x "*__pycache__*" -x "*.pyc" -x "*.ruff_cache*" -x "*.pytest_cache*" -x "*.mypy_cache*" -x "*.vscode*" -x "*outputs/*" -x "*specs/*" -x "*.zip" -x ".env" -x  "tests_integration/*" -x "src/report/templates/*"
+zip -r apiguard-assurance.zip . -x "*.git/*" -x "*__pycache__*" -x "*.pyc" -x "*.ruff_cache*" -x "*.pytest_cache*" -x "*.mypy_cache*" -x "*.vscode*" -x "*outputs/*" -x "*specs/*" -x "*.zip" -x ".env" -x "src/report/templates/*"
 ```
 
-## Visualizzazione Report (VS Code Remote)
-Avviare un server web locale per visualizzare il report HTML in tempo reale tramite il Port Forwarding:
-\`\`\`bash
+## Viewing the Report (VS Code Remote)
+
+Start a local web server to view the HTML report via Port Forwarding:
+```bash
 cd outputs
 python3 -m http.server 8080
-\`\`\`
-*(Dopo averlo lanciato, apri il browser sul tuo PC all'indirizzo `http://localhost:8080` e clicca su `assessment_report.html`. Premi `Ctrl+C` nel terminale per spegnerlo).*
+```
+Open `http://localhost:8080` in your browser and click `assessment_report.html`. Press `Ctrl+C` to stop.
 
 
-## Gestione Ambiente (Hatch)
-Attivare l'ambiente virtuale:
-\`\`\`bash
+## Environment Management (Hatch)
+
+Activate the virtual environment:
+```bash
 hatch shell dev
-\`\`\`
+```
 
-Altrimenti anteporre "hatch run -e dev" ai comandi
+Or prefix commands with `hatch run -e dev`.
 
-## Esecuzione del Tool (CLI)
-*Nota: Assicurarsi che le variabili d'ambiente (.env) siano caricate o che il file esista nella root.*
-(legge config.yaml di default)
 
-**Sviluppo (diretto):**
-\`\`\`bash
+## Running the Tool (CLI)
+
+> Ensure `.env` variables are loaded or the file exists in the project root.
+
+**Development (direct):**
+```bash
 python -m src.cli
-\`\`\`
+```
 
-**Installato (se configurato in pyproject.toml):**
-\`\`\`bash
+**Installed (if configured in pyproject.toml):**
+```bash
 apiguard run
-\`\`\`
-*(Questo è il "pulsante di accensione" che lancia l'intero assessment contro il target configurato).*
+```
+
+**Run against a different config:**
+```bash
+apiguard run -c config_crapi.yaml
+```
 
 
-## Esecuzione dei Test (Pytest)
+## Static Analysis
 
-Eseguire i Test di Integrazione (Il Motore):
-\`\`\`bash
-pytest tests_integration/ -v
-\`\`\`
+```bash
+hatch run dev:lint    # ruff + mypy           (fast — run on every commit)
+hatch run dev:audit   # bandit + vulture       (slower — run before push)
+hatch run dev:check   # full suite in sequence (CI gate)
+hatch run dev:deps    # pip-audit              (run before any release)
+```
 
-Eseguire un singolo file di test:
-\`\`\`bash
-pytest tests_integration/test_05_execution.py -v
-\`\`\`
+Individual tools:
+```bash
+ruff check src/
+mypy src/
+```
 
 
-## Linting e Type Checking
-Controllare la formattazione e gli errori sintattici (Ruff):
-\`\`\`bash
-ruff check .
-\`\`\`
+## Kong Configuration Changes
 
-Controllare i tipi rigorosi (Mypy):
-\`\`\`bash
-mypy src/ tests_integration/
-\`\`\`
+Reload Kong and pick up a new declarative configuration:
+```bash
+docker compose up -d --force-recreate kong
+```
 
-## Git log
-Vedo lo storico dei commit
+
+## Git — Clean Up Commit History
+
+View commit log:
+```bash
 git log --oneline
+```
 
-Metto l'hash del primo commit che reputo stabile
-git rebase -i <HASH> 
-il primo di ogni gruppo rimane pick, i successivi diventano fixup (scarta il loro messaggio, tiene quello del pick)
-
-verifico che le commit siano state unite con i fixup di prima
-git log --oneline
-
-Faccio un nuovo rebase per andare a modificare le commit con 'reword' al posto di 'fixup'
-git rebase -i 4065b71
-
+Interactive rebase to squash/reword commits:
+```bash
+git rebase -i <HASH>   # first stable commit hash
+# In the editor: keep the first of each group as 'pick',
+# change subsequent ones to 'fixup' (drops their message)
+# or 'reword' (lets you rename the message).
+git log --oneline      # verify the result
 git push -f
+```
 
-## git aggiugnere file dimenticati ad una precedente commit
-git add .
+Add a forgotten file to the previous commit:
+```bash
+git add <file>
 git commit --amend --no-edit
-
-
-## Comandi hatch per tool instalalti su controllo del codice
-hatch run dev:lint   → ruff + mypy            (fast, run on every commit)
-hatch run dev:audit  → bandit + vulture        (slower, run before push)
-hatch run dev:check  → full suite in sequence  (CI gate)
-hatch run dev:deps   → pip-audit               (run before any release)
-
-
-## Comandi per modifiche alla conf di kong
--> ricarica kog e legge la cofiguazione nuova
-docker compose up -d --force-recreate kong  
-
-# RUN CONTRO ALTRO TARGET
-apiguard run -c config_crapi.yaml 
+```

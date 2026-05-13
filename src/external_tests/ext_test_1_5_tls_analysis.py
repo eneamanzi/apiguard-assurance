@@ -132,16 +132,29 @@ _NOTE_ANALYST_SUFFIX: str = (
     "(NIST SP 800-52 Rev.2)."
 )
 
-# Regex for absolute paths in finding text: matches /any/path/filename or
-# C:\any\path\filename.  We keep only the filename (last component) to avoid
-# leaking filesystem layout in reports (e.g. "/home/user/.../openssl.Linux.x86_64"
-# becomes "openssl.Linux.x86_64").
+# Regex for absolute paths embedded in finding text strings.
+# Purpose: strip local filesystem paths from testssl.sh finding details before
+# they are surfaced as InfoNote text, preventing analyst machine layout disclosure
+# (e.g. "/home/analyst/project/tools/openssl.Linux.x86_64" -> "openssl.Linux.x86_64").
 #
-# Promoted to module level (A6) to avoid:
-#   1. Recompiling the regex on every call to _evaluate().
-#   2. The import-inside-function anti-pattern (``import re as _re`` was
-#      inside _evaluate(), which violates the no-import-in-function-body rule).
-_ABS_PATH_RE: re.Pattern[str] = re.compile(r"[/\\][^ ,\"'\t\n]*[/\\]([^ ,\"'\t\n]+)")
+# This regex operates on HUMAN-READABLE TEXT (not on dict field values), so it
+# must match paths that appear anywhere in a sentence, not just at the start.
+# Word-boundary anchor ``(?:^|(?<=\s))`` ensures the match only starts at the
+# beginning of the string or after whitespace.  This prevents false positives on
+# relative-path-like substrings embedded mid-word (e.g. "TLS/1.2/cipher" would
+# match the old unanchored regex and get corrupted to "cipher").
+#
+# Pattern breakdown:
+#   (?:^|(?<=\s))  -- only at string start or after whitespace (word boundary)
+#   [/\\]          -- absolute path separator: / (POSIX) or \ (Windows)
+#   [^ ,\"'\t\n]*  -- zero or more intermediate path components (greedy)
+#   [/\\]          -- at least one subsequent path separator (multi-component)
+#   ([^ ,\"'\t\n]+)-- captured group: the filename (last component, kept)
+#
+# Promoted to module level (A6) to avoid recompiling on every _evaluate() call.
+_ABS_PATH_RE: re.Pattern[str] = re.compile(
+    r"(?:^|(?<=\s))[/\\][^ ,\"'\t\n]*[/\\]([^ ,\"'\t\n]+)"
+)
 
 # Remediation text mapped by testssl.sh finding ID prefix.
 # Keys are substrings matched against the finding ID (lowercase).

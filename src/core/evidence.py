@@ -172,39 +172,6 @@ _SANITIZE_JWT_PATTERN: re.Pattern[str] = re.compile(
 # Both must be present to guarantee redaction of Forgejo tokens in artifacts.
 _SANITIZE_HEADER_PREFIXES: tuple[str, ...] = ("Bearer ", "Basic ", "Token ", "token ")
 
-# Absolute filesystem path pattern: matches any string segment that begins
-# with a path separator (/ or \) and contains at least one subsequent path
-# separator, then captures the trailing filename component.
-#
-# Purpose: replace full paths (e.g. "/home/analyst/project/tools/testssl.sh"
-# or "/opt/nuclei-templates") with their filename component only
-# ("testssl.sh" / "nuclei-templates"), preventing filesystem layout disclosure
-# in stored artifacts (evidence.json, tools/*.json).
-#
-# URL safety: this regex is intentionally NOT applied to strings that contain
-# "://" (URI scheme separator).  The guard is in _redact_value() -- see the
-# "://" not in value check there.  Without that guard, a URL such as
-# "http://kong:8000/api/users" would be incorrectly reduced to "users" because
-# the regex matches "/api/users" as a multi-component path.  The regex itself
-# stays simple and correct for pure filesystem path strings; the URL exclusion
-# is enforced at the call site.
-#
-# Windows limitation: paths of the form "C:\Users\analyst\nuclei.exe" are only
-# partially stripped (the "C:\Users" prefix before the first matched separator
-# is retained) because the backslash after "C:" is preceded by a colon, making
-# the initial "C:\" invisible to the pattern.  This is an accepted limitation:
-# the tool runs on Linux and external tool binaries (nuclei, testssl.sh) are
-# installed as POSIX executables; Windows-style paths in their JSON output are
-# not expected in any production deployment scenario.
-#
-# Pattern breakdown:
-#   [/\\]           -- path starts with / (POSIX) or \ (Windows)
-#   [^ ,\"'\t\n]*  -- zero or more non-separator, non-whitespace chars
-#                     (the intermediate path components)
-#   [/\\]           -- at least one path separator present (not a bare filename)
-#   ([^ ,\"'\t\n]+) -- captured group: the filename (last component)
-_SANITIZE_ABS_PATH_RE: re.Pattern[str] = re.compile(r"[/\\][^ ,\"'\t\n]*[/\\]([^ ,\"'\t\n]+)")
-
 # Characters unsafe for use in filenames produced by _persist_tool_artifact().
 # Dots create ambiguous extensions; slashes create subdirectories; spaces are
 # problematic on some shells.  All replaced with underscores.
@@ -755,7 +722,7 @@ class EvidenceStore:
 
         Scans every string value in the dict (including nested dicts and lists)
         and replaces it with "[REDACTED]" if it matches any of the following
-        patterns -- word-boundary-aware key-based detection (via _SENSITIVE_KEY_RE):
+        credential patterns:
             - Keys where any of the following appear as whole words or compound
               components (separated by -, _, ., space, or string boundaries):
               "token", "password", "api_key", "apikey", "authorization",
@@ -767,12 +734,15 @@ class EvidenceStore:
               "Token ", or "token " (Authorization header leakage).
             - String values matching the pattern of a JWT (three base64url
               segments separated by dots, total length > 40 characters).
-        Additionally, absolute filesystem paths in string values are reduced to
-        their filename component only (e.g. "/home/user/tools/nuclei" ->
-        "nuclei") to prevent directory layout disclosure.  URL strings
-        (containing "://") are explicitly excluded from path stripping: a URL
-        such as "http://kong:8000/api/users" must be preserved verbatim --
-        its path component ("/api/users") carries no filesystem information.
+
+        Scope: credentials only.  Filesystem path normalization is NOT
+        performed here -- that responsibility belongs exclusively to the
+        connector layer (BaseSubprocessConnector._relativize_display_path for
+        CLI command strings, _sanitize_paths_in_findings for per-field paths
+        within tool output).  Any absolute infrastructure path in the artifact
+        has already been relativized before pin_artifact() is called; any
+        remaining path-like value is finding data from the target system and
+        must be preserved verbatim.
 
         The method returns a NEW dict -- the original is never mutated.
         Non-string values (int, float, bool, None) are copied unchanged.
@@ -785,7 +755,7 @@ class EvidenceStore:
         """
 
         def _redact_value(key: str, value: Any) -> Any:  # noqa: ANN401
-            """Redact value if key or value content indicates a credential or path leak."""
+            """Redact value if key or value content indicates a credential."""
             lower_key = key.lower()
             # Word-boundary match via _SENSITIVE_KEY_RE: prevents false positives
             # such as "author" being redacted because "auth" is a bare substring.
@@ -798,20 +768,6 @@ class EvidenceStore:
                     return "[REDACTED]"
                 if len(value) > 40 and _SANITIZE_JWT_PATTERN.match(value):
                     return "[REDACTED]"
-                # Strip absolute filesystem paths to filename-only to prevent
-                # leaking directory structure in stored artifacts.  Applied
-                # after the credential guards so that a credential-bearing key
-                # is still fully redacted (not merely path-stripped).
-                # Example: "/home/analyst/.../testssl.sh" -> "testssl.sh".
-                #
-                # URL guard: skip path stripping entirely for strings that
-                # contain a URI scheme separator ("://").  A URL such as
-                # "http://kong:8000/api/users" would otherwise be incorrectly
-                # reduced to "users" because the regex matches "/api/users" as
-                # a multi-component filesystem path.  URL strings carry no
-                # filesystem layout information and must be preserved verbatim.
-                if "://" not in value and _SANITIZE_ABS_PATH_RE.search(value):
-                    return _SANITIZE_ABS_PATH_RE.sub(lambda m: m.group(1), value)
             return value
 
         def _walk(obj: Any, parent_key: str = "") -> Any:  # noqa: ANN401

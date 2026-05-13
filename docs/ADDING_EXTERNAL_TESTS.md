@@ -162,12 +162,13 @@ section are reused without modification.
 ### Scenario B — new test, new tool (e.g., nuclei)
 
 ```
-0. Tool output reconnaissance          ← collect --version, --help, real JSON sample FIRST
-1. src/config/schema/external_tools.py ← add per-tool config class + ExternalToolsConfig field
-2. src/connectors/<toolname>.py        ← implement the connector
-3. src/connectors/__init__.py          ← export new connector class
+0. Tool output reconnaissance              ← collect --version, --help, real JSON sample FIRST
+1. src/core/models/external_tools.py       ← add per-tool config class + ExternalToolsConfig field
+   (src/config/schema/external_tools.py is a re-export shim — do not edit it)
+2. src/connectors/<toolname>.py            ← implement the connector
+3. src/connectors/__init__.py              ← export new connector class
 4. src/external_tests/ext_test_<id>_<description>.py   ← the test
-5. config.yaml                         ← add external_tools.<toolname> block
+5. config.yaml                             ← add external_tools.<toolname> block
 ```
 
 ---
@@ -326,10 +327,16 @@ already correct for that tool version.
 
 ---
 
-## Step B.1 — `src/config/schema/external_tools.py`  *(new tool only)*
+## Step B.1 — `src/core/models/external_tools.py`  *(new tool only)*
 
 Add a per-tool config class inheriting from `BaseExternalToolConfig`,
 then add a field to `ExternalToolsConfig`.
+
+> **File location:** the authoritative definitions live in
+> `src/core/models/external_tools.py` so that `TargetContext` (in `core/`)
+> can hold `ExternalToolsConfig` without violating the unidirectional
+> dependency rule. `src/config/schema/external_tools.py` is a pure re-export
+> shim — do not add new code there.
 
 ### Per-tool config class
 
@@ -490,6 +497,41 @@ that writes JSON to stdout via a simple flag.
 the helper cannot generate the full command because the temp file path is not
 known at command-building time. In this case, build `command` and `command_json`
 manually using `" ".join(...)`. See the nuclei connector for the reference pattern.
+
+### Path normalisation in finding data (`_sanitize_paths_in_findings()`)
+
+`_build_reproducible_commands()` normalises paths in CLI *command strings*.
+A separate helper handles paths that appear *inside finding dicts* in the tool's
+JSON output.
+
+Some tools embed absolute filesystem paths in their finding fields.  For example,
+nuclei includes the absolute path to the matched template file in `template-path`
+(`/home/analyst/project/tools/nuclei-templates/http/.../swagger-api.yaml`) because
+it receives an absolute `-t` argument.  This leaks the analyst's directory structure
+into stored artefacts.
+
+Call `_sanitize_paths_in_findings()` **after parsing the results** and **before
+building `raw_output`**, specifying only the keys that contain local infrastructure
+paths:
+
+```python
+results = self._read_json_export(json_export_path)
+
+# template-path is the local filesystem path of the matched template file
+# (infrastructure data about OUR machine, not about the target).
+results = self._sanitize_paths_in_findings(results, path_keys=("template-path",))
+```
+
+**Contract — which keys to sanitise:**
+Only pass keys whose values are paths from the **local tool invocation
+infrastructure** (binary locations, template directories, temp file paths).
+Never pass keys whose values are **finding data from the target system** — matched
+URLs, discovered paths on the target, HTTP request/response bodies.  Those must
+be preserved verbatim as security evidence.
+
+`EvidenceStore._sanitize_artifact()` handles credential redaction (tokens,
+passwords, JWTs, Authorization headers).  It does **not** perform path
+normalisation — that responsibility belongs exclusively to the connector layer.
 
 ### Canonical `run()` implementation
 
@@ -1098,7 +1140,7 @@ does not match what you wrote in `config.yaml` (Step B.5).
 - [ ] `TestStrategy` imported from `src.core.models` — **never** from `src.tests.strategy` (violates the "must never import from tests/" rule)
 - [ ] `TestResult` imported from `src.core.models.results` (not from `src.core.models` directly)
 - [ ] Module-level constants defined for `FAIL_SEVERITIES`, `NOTE_SEVERITIES`, `_REFERENCES`
-- [ ] If new tool: `BaseExternalToolConfig` subclass added to `external_tools.py` with `frozen=True` inherited
+- [ ] If new tool: `BaseExternalToolConfig` subclass added to `src/core/models/external_tools.py` with `frozen=True` inherited (NOT to `src/config/schema/external_tools.py` — that is a re-export shim)
 - [ ] If new tool: field added to `ExternalToolsConfig` with `default_factory`
 - [ ] If new tool: connector exported from `src/connectors/__init__.py`
 - [ ] If new tool: `config.yaml` `external_tools.<tool>` block added

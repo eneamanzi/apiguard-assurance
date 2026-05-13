@@ -40,11 +40,6 @@ TEST_15_HSTS_MIN_MAX_AGE_MIN: int = 86_400  # 1 day — absolute floor
 TEST_15_HTTP_PROBE_TIMEOUT_DEFAULT: float = 5.0
 TEST_15_HTTP_PROBE_TIMEOUT_MIN: float = 1.0
 
-# testssl.sh subprocess timeout: the binary can take up to 2 minutes on slow
-# networks.  30 s is the absolute floor; 120 s is the safe default.
-TEST_15_TESTSSL_TIMEOUT_DEFAULT: int = 120
-TEST_15_TESTSSL_TIMEOUT_MIN: int = 30
-
 # ---------------------------------------------------------------------------
 # Constants — Test 1.6
 # ---------------------------------------------------------------------------
@@ -98,7 +93,7 @@ class Test15Config(BaseModel):
     """
     Tuning parameters for Test 1.5 (Credentials Not Transmitted via Insecure Channels).
 
-    Governs three sub-tests executed against the target:
+    Governs two sub-tests executed against the target:
 
     Sub-test 1 -- HTTP redirect enforcement (empirical, RFC 9110):
         Sends a GET to the HTTP version of the target base URL.
@@ -112,12 +107,8 @@ class Test15Config(BaseModel):
         Oracle: header present, max-age >= hsts_min_max_age_seconds,
         includeSubDomains present.
 
-    Sub-test 3 -- TLS version and cipher-suite audit (optional,
-        NIST SP 800-52 Rev.2):
-        Invokes testssl.sh if testssl_binary_path is configured.
-        Oracle: TLS 1.0 / 1.1 / SSLv3 not offered; no HIGH/CRITICAL
-        protocol-level or cipher-suite vulnerabilities.
-        Set testssl_binary_path to empty string to skip this sub-test.
+    TLS cipher-suite audit is handled exclusively by ext_test_1_5_tls_analysis.py
+    via the TestsslConnector.  Enable external_tools.testssl in config.yaml.
     """
 
     model_config = {"frozen": True}
@@ -172,31 +163,6 @@ class Test15Config(BaseModel):
             "RFC 9110 permanent redirects: 301 (Moved Permanently) and "
             "308 (Permanent Redirect).  Temporary redirects 302/307 are NOT "
             "accepted: they allow MITM-driven downgrade attacks. Default: [301, 308]."
-        ),
-    )
-    testssl_binary_path: str = Field(
-        default="",
-        description=(
-            "Absolute filesystem path to the testssl.sh binary. "
-            "Empty string (default) skips sub-test 3 entirely. "
-            "When non-empty, the binary is invoked as a subprocess to audit "
-            "supported TLS protocol versions and cipher suites. "
-            "Oracle: TLS 1.0 / 1.1 / SSLv3 must not be offered; "
-            "cipher suites must provide forward secrecy (ECDHE) per NIST SP 800-52 Rev.2."
-        ),
-    )
-    testssl_timeout_seconds: Annotated[
-        int,
-        Field(ge=TEST_15_TESTSSL_TIMEOUT_MIN),
-    ] = Field(
-        default=TEST_15_TESTSSL_TIMEOUT_DEFAULT,
-        description=(
-            "Maximum wall-clock seconds allowed for the testssl.sh subprocess (sub-test 3). "
-            "testssl.sh performs a full TLS handshake sweep and can take up to 2 minutes "
-            "on congested networks.  The subprocess is terminated after this timeout and "
-            "the sub-test returns no findings (conservative: neither PASS nor FAIL). "
-            f"Minimum: {TEST_15_TESTSSL_TIMEOUT_MIN} s.  "
-            f"Default: {TEST_15_TESTSSL_TIMEOUT_DEFAULT} s."
         ),
     )
 

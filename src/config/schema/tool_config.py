@@ -236,6 +236,19 @@ class TargetConfig(BaseModel):
             "connections carrying sensitive data."
         ),
     )
+    gateway_adapter: str | None = Field(
+        default=None,
+        description=(
+            "Gateway adapter type to use for WHITE_BOX configuration audit tests. "
+            "When set, engine.py Phase 3 instantiates the corresponding adapter and "
+            "exposes it as target.gateway in TargetContext. "
+            "Currently supported: 'kong' (Kong DB-less Admin API v3.x). "
+            "Leave unset (None) to skip all gateway-specific WHITE_BOX tests: "
+            "those tests will return SKIP with the reason "
+            "'Admin API not configured (target.gateway_adapter missing from config.yaml)'. "
+            "Requires admin_api_url to also be set when non-None."
+        ),
+    )
 
     @model_validator(mode="after")
     def enforce_exactly_one_openapi_source(self) -> TargetConfig:
@@ -306,6 +319,24 @@ class TargetConfig(BaseModel):
     def is_local_spec(self) -> bool:
         """True if the OpenAPI specification is sourced from a local filesystem path."""
         return self.openapi_spec_path is not None
+
+    @model_validator(mode="after")
+    def gateway_adapter_requires_admin_api_url(self) -> TargetConfig:
+        """Enforce that gateway_adapter is only set when admin_api_url is also present."""
+        if self.gateway_adapter is not None and self.admin_api_url is None:
+            raise ValueError(
+                f"target.gateway_adapter='{self.gateway_adapter}' requires "
+                "target.admin_api_url to be set in config.yaml. "
+                "The gateway adapter uses the admin API URL to contact the "
+                "gateway admin plane."
+            )
+        _supported = ("kong",)
+        if self.gateway_adapter is not None and self.gateway_adapter not in _supported:
+            raise ValueError(
+                f"Unsupported target.gateway_adapter: '{self.gateway_adapter}'. "
+                f"Supported values: {sorted(_supported)}."
+            )
+        return self
 
     @field_validator("base_url", "openapi_spec_url", "admin_api_url", mode="before")
     @classmethod

@@ -756,30 +756,30 @@ class BaseTest(ABC):
 
     def _requires_admin_api(self, target: TargetContext) -> TestResult | None:
         """
-        Guard clause: return a SKIP result if the Admin API is not configured.
+        Guard clause: return a SKIP result if no gateway adapter is configured.
 
-        Used by all WHITE_BOX tests (P3) that query the Kong Admin API.
-        A DB-less Kong without Admin API is often an intentional security choice,
+        Used by all WHITE_BOX tests (P3) that query the gateway admin plane.
+        A gateway without admin access is often an intentional security choice,
         not a gap — SKIP communicates this honestly.
 
         Args:
             target: The current TargetContext.
 
         Returns:
-            None if admin_api_url is configured.
-            TestResult(status=SKIP) if admin_api_url is None.
+            None if a gateway adapter is configured (target.gateway is not None).
+            TestResult(status=SKIP) if target.gateway is None.
         """
         if target.admin_api_available:
             return None
 
         return self._make_skip(
             reason=(
-                "Admin API not configured: target.admin_api_url is absent from "
-                "config.yaml. This WHITE_BOX test requires read access to the "
-                "Kong Admin API to perform configuration audit. "
-                "Set target.admin_api_url (e.g., http://localhost:8001) to enable. "
-                "If the Gateway is in DB-less mode without Admin API, this SKIP "
-                "is expected and correct."
+                "Gateway adapter not configured: target.gateway_adapter is absent "
+                "from config.yaml. This WHITE_BOX test requires read access to the "
+                "gateway admin API to perform configuration audit. "
+                "Set target.gateway_adapter (e.g. 'kong') and target.admin_api_url "
+                "(e.g. http://localhost:8001) to enable. "
+                "If the gateway does not expose an admin API, this SKIP is expected."
             )
         )
 

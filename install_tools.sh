@@ -1,20 +1,20 @@
 #!/bin/bash
-# Ferma lo script in caso di errori
+# Abort on first error.
 set -e
 
-# Colori per un output leggibile da terminale
+# Terminal colours.
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
-NC='\033[0m' # Nessun colore
+NC='\033[0m' # No colour.
 
 echo -e "${BLUE}=======================================${NC}"
 echo -e "${BLUE}   APIGuard - Tool Installation Script ${NC}"
 echo -e "${BLUE}=======================================${NC}"
 
-# 1. Creazione della directory "sandbox"
+# 1. Create the local tools sandbox directory.
 TOOLS_DIR="./tools"
 mkdir -p "$TOOLS_DIR"
-echo -e "${GREEN}[+] Cartella $TOOLS_DIR pronta.${NC}"
+echo -e "${GREEN}[+] Directory $TOOLS_DIR ready.${NC}"
 
 # ==========================================
 # TOOL 1: testssl.sh
@@ -22,61 +22,61 @@ echo -e "${GREEN}[+] Cartella $TOOLS_DIR pronta.${NC}"
 TESTSSL_VERSION="3.2.3"
 TESTSSL_TARGET_DIR="$TOOLS_DIR/testssl"
 
-# Controlla se è già installato per evitare download ripetuti
+# Skip download if already installed to avoid redundant network calls.
 if [ ! -f "$TESTSSL_TARGET_DIR/testssl.sh" ]; then
-    echo -e "${GREEN}[+] Download testssl.sh v$TESTSSL_VERSION in corso...${NC}"
-    
-    # Scarica il tarball (funziona sia su Mac che su Linux)
+    echo -e "${GREEN}[+] Downloading testssl.sh v$TESTSSL_VERSION ...${NC}"
+
+    # Download tarball (works on both macOS and Linux).
     curl -sL "https://github.com/drwetter/testssl.sh/archive/refs/tags/v${TESTSSL_VERSION}.tar.gz" -o testssl.tar.gz
-    
-    # Estrae l'archivio
+
+    # Extract archive.
     tar -xzf testssl.tar.gz
-    
-    # Rinomina la cartella per pulizia e rimuove l'archivio
+
+    # Rename directory and remove archive.
     mv "testssl.sh-${TESTSSL_VERSION}" "$TESTSSL_TARGET_DIR"
     rm testssl.tar.gz
-    
-    # Rende il binario eseguibile
+
+    # Make binary executable.
     chmod +x "$TESTSSL_TARGET_DIR/testssl.sh"
-    
-    echo -e "${GREEN}[✓] testssl.sh v$TESTSSL_VERSION installato con successo in $TESTSSL_TARGET_DIR/testssl.sh${NC}"
+
+    echo -e "${GREEN}[✓] testssl.sh v$TESTSSL_VERSION installed at $TESTSSL_TARGET_DIR/testssl.sh${NC}"
 else
-    echo -e "${GREEN}[✓] testssl.sh è già installato.${NC}"
+    echo -e "${GREEN}[✓] testssl.sh already installed.${NC}"
 fi
 
 # ==========================================
 # TOOL 2: nuclei
 # ==========================================
-# Binario Go: dipende da OS e architettura.
-# La versione pinnata garantisce riproducibilità dei risultati
-# (field names e formato JSON possono cambiare tra release).
-# Per aggiornare: cambia NUCLEI_VERSION e cancella ./tools/nuclei/
-# Prima di aggiornare: verifica che NucleiConnector._evaluate() sia
-# ancora compatibile con il nuovo formato JSON (Step B.0 nel manuale).
+# Go binary: OS- and architecture-specific.
+# The pinned version ensures reproducible results: field names and JSON
+# schema can change between releases.
+# To upgrade: update NUCLEI_VERSION, delete ./tools/nuclei/, and verify
+# that NucleiConnector._evaluate() is still compatible with the new JSON
+# schema (see Step B.0 in docs/ADDING_EXTERNAL_TESTS.md).
 NUCLEI_VERSION="3.8.0"
 NUCLEI_TARGET_DIR="$TOOLS_DIR/nuclei"
 
 if [ ! -f "$NUCLEI_TARGET_DIR/nuclei" ]; then
-    echo -e "${GREEN}[+] Download nuclei v$NUCLEI_VERSION in corso...${NC}"
+    echo -e "${GREEN}[+] Downloading nuclei v$NUCLEI_VERSION ...${NC}"
 
-    # Rileva OS
+    # Detect OS.
     OS_RAW="$(uname -s)"
     case "$OS_RAW" in
         Linux)  OS_STR="linux" ;;
         Darwin) OS_STR="macOS" ;;
         *)
-            echo "ERRORE: OS non supportato: $OS_RAW"
+            echo "ERROR: Unsupported OS: $OS_RAW"
             exit 1
             ;;
     esac
 
-    # Rileva architettura
+    # Detect architecture.
     ARCH_RAW="$(uname -m)"
     case "$ARCH_RAW" in
         x86_64)          ARCH_STR="amd64" ;;
         arm64|aarch64)   ARCH_STR="arm64" ;;
         *)
-            echo "ERRORE: Architettura non supportata: $ARCH_RAW"
+            echo "ERROR: Unsupported architecture: $ARCH_RAW"
             exit 1
             ;;
     esac
@@ -84,35 +84,34 @@ if [ ! -f "$NUCLEI_TARGET_DIR/nuclei" ]; then
     NUCLEI_ZIP="nuclei_${NUCLEI_VERSION}_${OS_STR}_${ARCH_STR}.zip"
     NUCLEI_URL="https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/${NUCLEI_ZIP}"
 
-    echo -e "${GREEN}    Scaricando: ${NUCLEI_ZIP}${NC}"
+    echo -e "${GREEN}    Downloading: ${NUCLEI_ZIP}${NC}"
     mkdir -p "$NUCLEI_TARGET_DIR"
     curl -sL "$NUCLEI_URL" -o nuclei.zip
     unzip -q nuclei.zip -d "$NUCLEI_TARGET_DIR"
     rm nuclei.zip
     chmod +x "$NUCLEI_TARGET_DIR/nuclei"
 
-    echo -e "${GREEN}[✓] nuclei v$NUCLEI_VERSION installato in $NUCLEI_TARGET_DIR/nuclei${NC}"
+    echo -e "${GREEN}[✓] nuclei v$NUCLEI_VERSION installed at $NUCLEI_TARGET_DIR/nuclei${NC}"
     echo -e "${GREEN}    OS: $OS_STR | Arch: $ARCH_STR${NC}"
 else
-    echo -e "${GREEN}[✓] nuclei è già installato.${NC}"
+    echo -e "${GREEN}[✓] nuclei already installed.${NC}"
 fi
 
 # ==========================================
 # TOOL 2b: nuclei-templates (pinned)
 # ==========================================
-# I template sono una dipendenza separata dal binario.
-# La versione è pinnata per garantire riproducibilità:
-# lo stesso template_id produce lo stesso finding indipendentemente
-# da quando viene eseguita la scansione.
-# Per aggiornare: cambia NUCLEI_TEMPLATES_VERSION, cancella ./tools/nuclei-templates/
-# e verifica la compatibilità con NUCLEI_VERSION e con _evaluate() nel connector.
-# Relazione versioni: nuclei-templates v10.4.3 è la versione rilasciata contestualmente
-# a nuclei v3.8.0 e verificata compatibile con il parser in NucleiConnector.
+# Templates are a separate dependency from the nuclei binary.
+# The version is pinned to guarantee reproducible results: the same
+# template_id produces the same finding regardless of when the scan runs.
+# To upgrade: update NUCLEI_TEMPLATES_VERSION, delete ./tools/nuclei-templates/,
+# and verify compatibility with NUCLEI_VERSION and _evaluate() in the connector.
+# Version relationship: nuclei-templates v10.4.3 was released alongside
+# nuclei v3.8.0 and has been verified compatible with NucleiConnector's parser.
 NUCLEI_TEMPLATES_VERSION="10.4.3"
 NUCLEI_TEMPLATES_DIR="$TOOLS_DIR/nuclei-templates"
 
 if [ ! -d "$NUCLEI_TEMPLATES_DIR/.git" ] && [ ! -f "$NUCLEI_TEMPLATES_DIR/.templates-checksum" ]; then
-    echo -e "${GREEN}[+] Download nuclei-templates v$NUCLEI_TEMPLATES_VERSION in corso...${NC}"
+    echo -e "${GREEN}[+] Downloading nuclei-templates v$NUCLEI_TEMPLATES_VERSION ...${NC}"
 
     TEMPLATES_URL="https://github.com/projectdiscovery/nuclei-templates/archive/refs/tags/v${NUCLEI_TEMPLATES_VERSION}.tar.gz"
 
@@ -121,15 +120,15 @@ if [ ! -d "$NUCLEI_TEMPLATES_DIR/.git" ] && [ ! -f "$NUCLEI_TEMPLATES_DIR/.templ
     mv "nuclei-templates-${NUCLEI_TEMPLATES_VERSION}" "$NUCLEI_TEMPLATES_DIR"
     rm nuclei-templates.tar.gz
 
-    # Marker file: registra la versione installata per ispezione rapida
-    # senza dover leggere .git o invocare nuclei -tv.
+    # Marker file: records the installed version for quick inspection
+    # without reading .git or invoking nuclei -tv.
     echo "$NUCLEI_TEMPLATES_VERSION" > "$NUCLEI_TEMPLATES_DIR/.templates-checksum"
 
-    echo -e "${GREEN}[✓] nuclei-templates v$NUCLEI_TEMPLATES_VERSION installati in $NUCLEI_TEMPLATES_DIR${NC}"
+    echo -e "${GREEN}[✓] nuclei-templates v$NUCLEI_TEMPLATES_VERSION installed at $NUCLEI_TEMPLATES_DIR${NC}"
 else
     INSTALLED=$(cat "$NUCLEI_TEMPLATES_DIR/.templates-checksum" 2>/dev/null || echo "unknown")
-    echo -e "${GREEN}[✓] nuclei-templates sono già installati (v$INSTALLED).${NC}"
+    echo -e "${GREEN}[✓] nuclei-templates already installed (v$INSTALLED).${NC}"
 fi
 
 echo -e "${BLUE}=======================================${NC}"
-echo -e "${GREEN}[✓] Tutti i tool sono pronti all'uso!${NC}"
+echo -e "${GREEN}[✓] All tools are ready.${NC}"

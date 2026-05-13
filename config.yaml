@@ -4,9 +4,15 @@
 
 target:
   base_url: "https://localhost:8443"
-  openapi_spec_url: "http://localhost:3000/swagger.v1.json"   # Forma 1 — URL (fetched directly from Forgejo, not through Kong)
-  #openapi_spec_path: "./specs/forgejo-swagger.v1.json"        # Forma 2 — path locale
+  openapi_spec_url: "http://localhost:3000/swagger.v1.json"   # Option 1: URL (fetched from Forgejo, not through Kong)
+  #openapi_spec_path: "./specs/forgejo-swagger.v1.json"        # Option 2: local file path
   admin_api_url: "http://localhost:8001"
+
+  # Gateway adapter type for WHITE_BOX configuration audit tests.
+  # Supported: 'kong' (Kong DB-less Admin API v3.x).
+  # Requires admin_api_url to also be set.
+  # Remove or comment out to skip all WHITE_BOX gateway audit tests.
+  gateway_adapter: "kong"
 
   # Kong Admin API timeouts (seconds).
   # admin_connect_timeout_seconds: 5.0   # TCP connect timeout. Default: 5.0 s.
@@ -64,7 +70,7 @@ target:
     "repository-id": "1",
     id: "1",          
 
-    # === ORGANIZZAZIONE (da creare in Forgejo) ===
+    # === ORGANIZATION (must be created in Forgejo before running tests) ===
     org: "test-org",   # {org} != {owner}
 
     # === GIT ===
@@ -74,14 +80,14 @@ target:
     filepath: "README.md",
     archive: "main.tar.gz",
 
-    # === ALTRI ===
+    # === OTHERS ===
     name: "MIT",
-    index: "1",        # issue index (dopo aver creato un'issue)
+    index: "1",        # issue index (create a Forgejo issue first)
     tag: "v0.1.0",
     comment: "1",
-    team: "1",         # dopo aver creato un team nell'org
+    team: "1",         # create a team in the org first
 
-    # === PARAMETRI AVANZATI (spesso feature disabilitate) ===
+    # === ADVANCED PARAMETERS (often for disabled features) ===
     "activity-id": "1",
     "attachment_id": "1",
     "run_id": "1",
@@ -118,18 +124,18 @@ credentials:
   user_b_password: "${USER_B_PASSWORD}"
 
 execution:
-  min_priority: 3       # esegue solo i test con priorità <= a quella specificata
-                        # 0 = solo P0 | 1 = P0+P1 | 2 = P0-P2 | 3 = tutti (default)
+  min_priority: 3       # Run tests with priority <= this value.
+                        # 0 = P0 only | 1 = P0+P1 | 2 = P0-P2 | 3 = all (default)
   strategies:
     - BLACK_BOX
     - GREY_BOX
     - WHITE_BOX
-  test_ids: ["ext.0.1", "ext.1.5"]     # esegue solo test specificati, se vuota comportamento normale
-  # test_ids: [] 
-  # test_ids: ["0.1", "1.1"]  # più test specifici
-  # test_ids: []          # lista vuota = comportamento normale
+  test_ids: []     # Run only these test IDs. Empty list = run all (normal behaviour).
+  # test_ids: []
+  # test_ids: ["0.1", "1.1"]           # Multiple specific tests.
+  # test_ids: []                        # Empty list = normal behaviour (priority + strategy filters apply).
 
-  fail_fast: false      # Se true, interrompe l'esecuzione al primo FAIL su test P0
+  fail_fast: false      # If true, abort on first FAIL for a P0 test.
   connect_timeout: 5.0
   read_timeout: 30.0
   max_retry_attempts: 3
@@ -215,15 +221,6 @@ tests:
       # 301 = Moved Permanently, 308 = Permanent Redirect.
       # Temporary redirects (302, 307) are NOT acceptable: they allow MITM downgrade.
       expected_redirect_status_codes: [301, 308]
-
-      # Absolute path to the testssl.sh binary for TLS version audit (sub-test 3).
-      # Empty string disables the sub-test. Requires testssl.sh v3.x installed.
-      testssl_binary_path: ""
-
-      # Maximum seconds allowed for the testssl.sh subprocess (sub-test 3).
-      # testssl.sh performs a full TLS handshake sweep; 120 s accommodates
-      # slow lab networks.  Raise only if the binary consistently times out.
-      testssl_timeout_seconds: 120
 
     # Test 1.6 — Secure Session Management in Distributed Architectures
     # Methodology: 3_TOP_metodologia.md Section 1.6
@@ -348,23 +345,23 @@ tests:
       max_write_timeout_ms: 30000     # <= 30 s — methodology oracle
 
     # Test 4.3 — Circuit Breaker Configuration Audit (WHITE_BOX, P1)
-    # Dual-Check a 3 Livelli:
-    #   LEVEL 1 (Native): cerca il plugin nativo nella lista accepted_cb_plugin_names.
-    #            Se trovato e configurato entro soglia -> PASS (Full Guarantee).
-    #   LEVEL 2 (Compensating Control): se nessun plugin nativo, verifica che almeno
-    #            un upstream Kong implementi healthchecks.passive con soglie sicure.
-    #            Se sì -> PASS con Finding informativo sul controllo compensativo.
-    #   LEVEL 3 (Vulnerable): né plugin né upstream con passive healthcheck -> FAIL.
-    #   Finding Separato (Observability): verifica /status per metriche CB (sempre,
-    #            indipendente dallo status del test).
+    # Three-level dual-check strategy:
+    #   LEVEL 1 (Native): look for a native CB plugin in accepted_cb_plugin_names.
+    #            Found and within parameter range -> PASS (Full Guarantee).
+    #   LEVEL 2 (Compensating Control): no native plugin found; verify that at least
+    #            one Kong upstream has healthchecks.passive with safe thresholds.
+    #            If present -> PASS with an informational Finding on the compensating control.
+    #   LEVEL 3 (Vulnerable): no plugin and no upstream with passive healthcheck -> FAIL.
+    #   Separate observability check: verifies /status for CB metrics (always runs,
+    #            independent of the test outcome).
     #
-    # NOTE: 'response-ratelimiting' è INTENZIONALMENTE ESCLUSO da accepted_cb_plugin_names.
-    # Gestisce volumi di richiesta, NON i cascading failure: non implementa la macchina
-    # a stati CLOSED/OPEN/HALF-OPEN e non rileva degradazione del downstream.
+    # NOTE: 'response-ratelimiting' is INTENTIONALLY EXCLUDED from accepted_cb_plugin_names.
+    # It manages request volumes, NOT cascading failures: it does not implement the
+    # CLOSED/OPEN/HALF-OPEN state machine and does not detect downstream degradation.
     test_4_3:
-      # LEVEL 1 — Plugin nativo (solo veri circuit breaker).
-      # 'circuit-breaker' è Kong Enterprise only: su Kong OSS questo livello fallirà
-      # sempre, spostando la verifica al Livello 2 (compensating control).
+      # LEVEL 1 — Native plugin (true circuit breakers only).
+      # 'circuit-breaker' is Kong Enterprise only: on Kong OSS this level always fails,
+      # shifting verification to Level 2 (compensating control).
       accepted_cb_plugin_names:
         - "circuit-breaker"
 
@@ -375,12 +372,12 @@ tests:
       timeout_duration_max_seconds: 120  # max Open-state duration before Half-Open probe
 
       # LEVEL 2 — Passive healthcheck compensating control oracle thresholds.
-      # Un upstream è considerato "con controllo compensativo valido" se almeno un
-      # contatore di failure è > 0 (passive HC abilitato) e <= il massimo configurato.
-      # Kong default: tutti i contatori = 0 (passive HC disabilitato).
-      passive_hc_max_http_failures: 10   # unhealthy.http_failures: accettabile in [1, 10]
-      passive_hc_max_tcp_failures: 10    # unhealthy.tcp_failures: accettabile in [1, 10]
-      passive_hc_max_timeouts: 10        # unhealthy.timeouts: accettabile in [1, 10]
+      # An upstream is considered to have a valid compensating control if at least one
+      # failure counter is > 0 (passive HC enabled) and <= the configured maximum.
+      # Kong default: all counters = 0 (passive HC disabled).
+      passive_hc_max_http_failures: 10   # unhealthy.http_failures: acceptable range [1, 10]
+      passive_hc_max_tcp_failures: 10    # unhealthy.tcp_failures: acceptable range [1, 10]
+      passive_hc_max_timeouts: 10        # unhealthy.timeouts: acceptable range [1, 10]
 
   domain_6:
     # Test 6.2 — Security Header Configuration Audit (WHITE_BOX, P3)

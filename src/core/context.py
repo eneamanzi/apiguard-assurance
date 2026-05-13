@@ -43,12 +43,14 @@ report/ to avoid circular dependencies.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import structlog
 from pydantic import AnyHttpUrl, BaseModel, Field, PrivateAttr, computed_field, model_validator
 
-from src.config.schema.external_tools import ExternalToolsConfig
+from src.core.gateway.base import BaseGatewayAdapter
 from src.core.models import AttackSurface, RuntimeCredentials, RuntimeTestsConfig
+from src.core.models.external_tools import ExternalToolsConfig
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -91,7 +93,7 @@ class TargetContext(BaseModel):
     it expresses capability, not implementation detail.
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "arbitrary_types_allowed": True}
 
     base_url: AnyHttpUrl = Field(
         description=(
@@ -132,18 +134,18 @@ class TargetContext(BaseModel):
     admin_connect_timeout_seconds: float = Field(
         default=5.0,
         description=(
-            "TCP connection timeout in seconds for Kong Admin API requests. "
+            "TCP connection timeout in seconds for gateway admin API requests. "
             "Propagated from target.admin_connect_timeout_seconds in config.yaml. "
-            "Consumed by helpers/kong_admin.py for every Admin API call. "
-            "Default: 5.0 s (Admin API is a local endpoint; short timeouts are appropriate)."
+            "Read by engine.py Phase 3 to instantiate the gateway adapter. "
+            "Default: 5.0 s (admin endpoint is local; short timeouts are appropriate)."
         ),
     )
     admin_read_timeout_seconds: float = Field(
         default=10.0,
         description=(
-            "HTTP read timeout in seconds for Kong Admin API requests. "
+            "HTTP read timeout in seconds for gateway admin API requests. "
             "Propagated from target.admin_read_timeout_seconds in config.yaml. "
-            "Consumed by helpers/kong_admin.py for every Admin API call. "
+            "Read by engine.py Phase 3 to instantiate the gateway adapter. "
             "Default: 10.0 s (covers paginated list responses for routes/plugins/services)."
         ),
     )
@@ -258,6 +260,18 @@ class TargetContext(BaseModel):
             "SecurityClient and have no external binary to configure."
         ),
     )
+    gateway: BaseGatewayAdapter | None = Field(
+        default=None,
+        exclude=True,
+        description=(
+            "Instantiated gateway adapter for WHITE_BOX configuration audit tests. "
+            "None when target.gateway_adapter is not set in config.yaml. "
+            "Populated by engine.py Phase 3 from target.gateway_adapter + admin_api_url. "
+            "WHITE_BOX tests guard with 'if target.gateway is None: return SKIP'. "
+            "Tests call target.gateway.get_services(), .get_plugins(), etc. "
+            "Excluded from model serialisation (not JSON-serialisable)."
+        ),
+    )
 
     @model_validator(mode="after")
     def enforce_exactly_one_openapi_source(self) -> TargetContext:
@@ -288,13 +302,17 @@ class TargetContext(BaseModel):
     @property
     def admin_api_available(self) -> bool:
         """
-        True if the Kong Admin API URL is configured.
+        True if a gateway adapter is configured and ready.
 
         WHITE_BOX tests check this property before attempting any Admin API
         call. A False value causes the test to return SKIP immediately,
         which is semantically correct: the capability is absent, not broken.
+
+        Equivalent to ``target.gateway is not None``.  Tests should prefer
+        the direct check ``target.gateway is None`` for explicit gating and
+        use this property only where a boolean flag is convenient (e.g. logging).
         """
-        return self.admin_api_url is not None
+        return self.gateway is not None
 
     def get_openapi_source(self) -> str:
         """

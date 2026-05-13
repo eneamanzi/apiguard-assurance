@@ -731,6 +731,56 @@ class BaseSubprocessConnector(BaseConnector):
         except ValueError:
             return raw
 
+    def _sanitize_paths_in_findings(
+        self,
+        findings: list[dict[str, Any]],
+        path_keys: tuple[str, ...],
+    ) -> list[dict[str, Any]]:
+        """
+        Relativize local filesystem paths in a list of tool finding dicts.
+
+        Use this helper ONLY for fields that contain paths from the local tool
+        invocation infrastructure (e.g. template directories, binary locations).
+        Never apply it to fields that carry finding data from the target system
+        (matched URLs, discovered paths on the target, HTTP request/response
+        bodies) -- those must be preserved verbatim as security evidence.
+
+        For each finding dict, every key listed in ``path_keys`` whose value is
+        a non-empty string is passed through ``_relativize_display_path()``.
+        All other keys are copied unchanged.  The original dicts are not mutated;
+        a new list with shallow-copied dicts is returned.
+
+        Usage contract:
+            Each concrete connector that calls this method must explicitly
+            enumerate the path_keys it intends to sanitize and document why
+            each key is an infrastructure path rather than a finding.  This
+            opt-in, key-specific design prevents accidental truncation of
+            target-system evidence.
+
+        Example (NucleiConnector):
+            ``_sanitize_paths_in_findings(results, path_keys=("template-path",))``
+            ``template-path`` is the absolute filesystem path of the nuclei
+            template file on the local machine, not data about the target.
+
+        Args:
+            findings:  List of finding dicts from the external tool's JSON output.
+            path_keys: Tuple of dict keys whose string values should be
+                       relativized.  Keys absent in a finding are silently
+                       skipped.
+
+        Returns:
+            New list of finding dicts with the specified path fields relativized.
+        """
+        sanitized: list[dict[str, Any]] = []
+        for finding in findings:
+            copy: dict[str, Any] = dict(finding)
+            for key in path_keys:
+                raw_value = copy.get(key)
+                if isinstance(raw_value, str) and raw_value:
+                    copy[key] = self._relativize_display_path(raw_value)
+            sanitized.append(copy)
+        return sanitized
+
     def _build_reproducible_commands(
         self,
         cmd_prefix: list[str],

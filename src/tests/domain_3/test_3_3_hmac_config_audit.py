@@ -100,6 +100,7 @@ import structlog
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
+from src.core.gateway.base import BaseGatewayAdapter, GatewayAdapterError
 from src.core.models import (
     Finding,
     InfoNote,
@@ -107,12 +108,6 @@ from src.core.models import (
     TestStrategy,
 )
 from src.tests.base import BaseTest
-from src.tests.helpers.kong_admin import (
-    KongAdminError,
-    get_plugins,
-    get_routes,
-    get_services,
-)
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -235,18 +230,15 @@ class Test33HMACConfigAudit(BaseTest):
             if skip_guard is not None:
                 return skip_guard
 
-            admin_base_url = target.admin_endpoint_base_url()
-            assert admin_base_url is not None, (  # noqa: S101
-                "admin_endpoint_base_url() returned None despite admin_api_available=True. "
-                "This is a TargetContext invariant violation."
-            )
+            gateway = target.gateway
+            assert gateway is not None  # noqa: S101
 
             cfg = target.tests_config.test_3_3
             plugin_names: list[str] = list(cfg.plugin_names)
 
             log.info(
                 "test_3_3_starting",
-                admin_base_url=admin_base_url,
+                gateway_adapter=gateway.adapter_name,
                 plugin_names=plugin_names,
                 max_clock_skew_seconds=cfg.max_clock_skew_seconds,
                 forbidden_algorithms=cfg.forbidden_algorithms,
@@ -266,11 +258,7 @@ class Test33HMACConfigAudit(BaseTest):
                 )
 
             # Sub-test A: fetch all plugins and find the first matching name.
-            plugins = self._fetch_plugins(
-                admin_base_url,
-                target.admin_connect_timeout_seconds,
-                target.admin_read_timeout_seconds,
-            )
+            plugins = self._fetch_plugins(gateway)
             if plugins is None:
                 return self._make_error(
                     RuntimeError(
@@ -335,9 +323,7 @@ class Test33HMACConfigAudit(BaseTest):
             coverage_note = self._audit_coverage_scope(
                 all_plugins=plugins,
                 plugin_names=plugin_names,
-                admin_base_url=admin_base_url,
-                connect_timeout=target.admin_connect_timeout_seconds,
-                read_timeout=target.admin_read_timeout_seconds,
+                gateway=gateway,
             )
 
             notes: list[InfoNote] = [coverage_note, body_note]
@@ -376,32 +362,25 @@ class Test33HMACConfigAudit(BaseTest):
 
     def _fetch_plugins(
         self,
-        admin_base_url: str,
-        connect_timeout: float,
-        read_timeout: float,
+        gateway: BaseGatewayAdapter,
     ) -> list[dict[str, Any]] | None:
         """
-        Retrieve all plugins from the Kong Admin API.
+        Retrieve all plugins via the gateway adapter.
 
-        Wraps get_plugins() so that KongAdminError is converted to a structured
-        log entry. Returns None on error so the caller can produce ERROR without
+        Returns None on error so the caller can produce ERROR without
         re-catching the exception.
 
         Args:
-            admin_base_url:  Kong Admin API base URL without trailing slash.
-            connect_timeout: TCP connection timeout in seconds.
-                             Read from target.admin_connect_timeout_seconds.
-            read_timeout:    HTTP read timeout in seconds.
-                             Read from target.admin_read_timeout_seconds.
+            gateway: Instantiated gateway adapter from target.gateway.
 
         Returns:
-            List of Kong plugin dicts (may be empty), or None on Admin API error.
+            List of plugin dicts (may be empty), or None on Admin API error.
         """
         try:
-            plugins = get_plugins(admin_base_url, connect_timeout, read_timeout)
+            plugins = gateway.get_plugins()
             log.debug("test_3_3_plugins_fetched", total=len(plugins))
             return plugins
-        except KongAdminError as exc:
+        except GatewayAdapterError as exc:
             log.error(
                 "test_3_3_admin_api_error",
                 path="/plugins",
@@ -546,9 +525,7 @@ class Test33HMACConfigAudit(BaseTest):
         self,
         all_plugins: list[dict[str, Any]],
         plugin_names: list[str],
-        admin_base_url: str,
-        connect_timeout: float,
-        read_timeout: float,
+        gateway: BaseGatewayAdapter,
     ) -> InfoNote:
         """
         Determine which services and routes are actually protected by HMAC.
@@ -578,9 +555,9 @@ class Test33HMACConfigAudit(BaseTest):
         degraded InfoNote describing the limitation rather than a hard ERROR.
 
         Args:
-            all_plugins:   Full plugin list from the Admin API (unfiltered).
-            plugin_names:  Names to match when filtering HMAC plugins.
-            admin_base_url: Kong Admin API base URL without trailing slash.
+            all_plugins:  Full plugin list from the Admin API (unfiltered).
+            plugin_names: Names to match when filtering HMAC plugins.
+            gateway:      Instantiated gateway adapter from target.gateway.
 
         Returns:
             InfoNote documenting the HMAC coverage scope.  Never a Finding.
@@ -641,11 +618,9 @@ class Test33HMACConfigAudit(BaseTest):
         )
 
         try:
-            services: list[dict[str, Any]] = get_services(
-                admin_base_url, connect_timeout, read_timeout
-            )
-            routes: list[dict[str, Any]] = get_routes(admin_base_url, connect_timeout, read_timeout)
-        except KongAdminError as exc:
+            services: list[dict[str, Any]] = gateway.get_services()
+            routes: list[dict[str, Any]] = gateway.get_routes()
+        except GatewayAdapterError as exc:
             log.warning(
                 "test_3_3_coverage_scope_fetch_error",
                 error=str(exc),

@@ -23,8 +23,7 @@ license = { text = "MIT" }
 # Any refactoring of prance's internals in a new release could silently break
 # Phase 2 (OpenAPI Discovery) with an AttributeError at runtime. The exact pin
 # eliminates this risk. When upgrading prance, re-run the full E2E smoke test
-# suite (tests_e2e/test_01_smoke_connectivity.py) to verify compatibility before
-# removing the pin.
+# E2E smoke test to verify compatibility before removing the pin.
 dependencies = [
     # HTTP client: async-capable, used exclusively via SecurityClient wrapper.
     # No test module is allowed to import httpx directly.
@@ -43,8 +42,8 @@ dependencies = [
     # Accessing _ResolvingParser__reference_cache is a name-mangled internal
     # attribute of prance.ResolvingParser. Any change to prance's internals
     # in a new release may break Phase 2 with AttributeError.
-    # To upgrade: change the pin, run tests_e2e/test_01_smoke_connectivity.py,
-    # and verify that build_attack_surface() still succeeds on the real target.
+    # To upgrade: change the pin and verify that build_attack_surface() still
+    # succeeds on the real target with an E2E run.
     "prance==25.4.8.0",
 
     # OpenAPI spec structural validation (dialect-aware: OAS 3.0.x / 3.1.x).
@@ -148,7 +147,6 @@ deps = [
     "echo '--- PIP-AUDIT ---' && pip-audit --desc on",
 ]
 
-#TODO sistemare comando di generazione documentazione in md
 docs = [
     "pydoc-markdown -I . -m src.engine -m src.core.models.runtime -m src.config.schema.tests_config -m src.core.client -m src.tests.base -m src.core.models.results -m src.core.models.enums -p src.tests.helpers > docs/API_REFERENCE.md"
 ]
@@ -176,7 +174,6 @@ docs = [
 # ---------------------------------------------------------------------------
 [tool.bandit]
 targets = ["src"]
-exclude_dirs = ["tests_integration"]
 skips = ["B101", "B105", "B106"]
 
 # ---------------------------------------------------------------------------
@@ -201,7 +198,7 @@ ignore_names = ["execute", "model_*", "validator_*"]
 [tool.ruff]
 target-version = "py311"
 line-length = 100
-src = ["src", "tests_integration"]
+src = ["src"]
 exclude = ["scripts"]
 
 [tool.ruff.lint]
@@ -211,7 +208,6 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests_e2e/*"         = ["S101", "S106", "ANN", "N806"]
 "scripts/*"           = ["E402", "S101", "S105", "S106", "ANN", "N817"]
 
 [tool.ruff.format]
@@ -236,12 +232,10 @@ show_error_codes = true
 
 # ---------------------------------------------------------------------------
 # Pytest: test discovery configuration.
-# The default testpaths covers only the integration suite (no network required).
-# To run E2E tests against the live Docker stack:
-#     pytest tests_e2e/ -v
+# No automated test directory is configured yet.
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
-testpaths = ["tests_integration"]
+testpaths = []
 asyncio_mode = "auto"
 markers = [
     "p0: Priority 0 tests — Black Box, no credentials required",

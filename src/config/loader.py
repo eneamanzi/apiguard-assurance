@@ -69,6 +69,10 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # Matches ${VAR_NAME} where VAR_NAME is one or more uppercase letters,
 # digits, or underscores. This is the POSIX convention for env var names.
 # Named group 'var_name' allows extraction without index-based slicing.
+# Limitation: the bash-style default-value syntax ${VAR:-default} is NOT
+# supported. Writing ${ADMIN_URL:-http://localhost} leaves the literal
+# string "${ADMIN_URL:-http://localhost}" in the YAML, which Pydantic
+# then rejects with a confusing validation error rather than a clear one.
 _ENV_VAR_PATTERN: re.Pattern[str] = re.compile(r"\$\{(?P<var_name>[A-Z][A-Z0-9_]*)\}")
 
 # Default config file name, resolved relative to the caller's working directory.

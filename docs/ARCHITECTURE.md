@@ -58,7 +58,7 @@ cli.py
 
 **Regole specifiche e la loro motivazione:**
 
-- `core/models.py` importa **solo** stdlib e pydantic. E il vocabolario condiviso e non puo dipendere da nessun modulo applicativo per evitare qualsiasi dipendenza circolare.
+- `core/models/` importa **solo** stdlib e pydantic. E il vocabolario condiviso e non puo dipendere da nessun modulo applicativo per evitare qualsiasi dipendenza circolare.
 - `tests/base.py` importa da `core/` esclusivamente. I moduli test implementativi non importano da altri moduli test: nessun accoppiamento inter-dominio.
 - `core/dag.py` importa solo dalla stdlib e da `core/exceptions`. Opera esclusivamente su stringhe (`test_id`), mai su istanze di `BaseTest`, per evitare un'importazione circolare con `tests/`.
 - `report/builder.py` non importa da `tests/`. Il builder legge i metadati direttamente dai `TestResult` — che li portano con se gia popolati da `BaseTest._metadata_kwargs()` — senza mai dover conoscere la struttura interna delle classi di test.
@@ -88,7 +88,7 @@ Una delle proprieta piu utili per chi esplora il codice per la prima volta e che
 | Fase 3           | src/core/context.py             | TargetContext (frozen) +        |
 | Context          | src/core/client.py              | TestContext (mutable)           |
 | Construction     | src/core/evidence.py            | SecurityClient (context mgr)    |
-|                  |                                 | EvidenceStore (buffer bounded)  |
+|                  |                                 | EvidenceStore (streaming JSONL) |
 +------------------+---------------------------------+---------------------------------+
 | Fase 4           | src/tests/registry.py           | TestRegistry — discovery        |
 | Test Discovery   | src/core/dag.py                 | dinamica con pkgutil            |
@@ -168,7 +168,8 @@ INPUT: config.yaml + variabili d'ambiente
 |   - Token JWT (PrivateAttr) + risorse da rimuovere (PrivateAttr) |
 |   - Risponde a: "Cosa ho scoperto o fatto finora?"               |
 |                                                                  |
-| EvidenceStore: deque(maxlen=100), vuoto                          |
+| EvidenceStore: streaming JSONL (per-test files in evidence_tmp/),|
+|   unbounded; merge in Phase 7                                    |
 |                                                                  |
 | SecurityClient: inizializzato ma NON ancora open — httpx.Client  |
 |   viene creato solo in __enter__ (context manager). Questo rende |
@@ -284,8 +285,7 @@ comportamento del DAG a regime.
   payload manomesso, key confusion RS256→HS256, signature stripping. Richiede
   un JWT valido ottenuto via Forgejo `/api/v1/users/token` con Basic Auth.
 - `test_1_3_token_expiry.py` — P0, GREY_BOX. Token con `exp` nel passato deve
-  restituire 401. Richiede la capacità di costruire JWT con claim arbitrari
-  (`helpers/jwt_forge.py`).
+  restituire 401. Richiede `helpers/jwt_forge.py` (da implementare in Milestone 2).
 - `test_1_4_token_revocation.py` — P1, GREY_BOX. Login → logout
   (`DELETE /api/v1/user/keys/{id}`) → riuso del token deve dare 401.
 - `test_1_5_tls_enforcement.py` — P2, WHITE_BOX. Verifica redirect HTTP→HTTPS
@@ -307,7 +307,7 @@ comportamento del DAG a regime.
 **Domain 3 — Data Integrity (2 test)**
 
 - `test_3_1_input_validation.py` — P2, GREY_BOX. SQL injection, NoSQL
-  injection, type confusion, oversized payloads. Usa `data/injection_payloads.py`.
+  injection, type confusion, oversized payloads. Usa `data/injection_payloads.py` (da implementare in Milestone 2).
 - `test_3_3_data_in_transit.py` — P3, WHITE_BOX. Audit HMAC/signing.
 
 **Domain 4 — Availability (3 test)**
@@ -315,9 +315,9 @@ comportamento del DAG a regime.
 - `test_4_1_rate_limiting.py` — P0, BLACK_BOX. Loop empirico fino a 429.
   Usa i parametri `config.rate_limit_probe.*`.
 - `test_4_2_timeout_enforcement.py` — P1, WHITE_BOX. Audit valori timeout
-  in `kong.yml`. Usa `helpers/kong_admin.py`.
-- `test_4_3_circuit_breaker.py` — P1, WHITE_BOX. Audit Kong Admin API per
-  plugin circuit-breaker. Usa `helpers/kong_admin.py`.
+  sul gateway. Usa `target.gateway` (`BaseGatewayAdapter`).
+- `test_4_3_circuit_breaker.py` — P1, WHITE_BOX. Audit Admin API per
+  plugin circuit-breaker. Usa `target.gateway` (`BaseGatewayAdapter`).
 
 **Domain 5 — Visibility (2 test)**
 
@@ -333,8 +333,8 @@ comportamento del DAG a regime.
 - `test_6_2_security_headers.py` — P3, WHITE_BOX. HSTS, CSP, X-Frame-Options.
 - `test_6_3_layer7_hardening.py` — P1, GREY_BOX + WHITE_BOX. HTTP smuggling
   CL.TE, CORS wildcard.
-- `test_6_4_hardcoded_credentials.py` — P2, WHITE_BOX. Audit `kong.yml`
-  e variabili d'ambiente. Usa `helpers/kong_admin.py`.
+- `test_6_4_hardcoded_credentials.py` — P2, WHITE_BOX. Audit configurazione
+  gateway e variabili d'ambiente. Usa `target.gateway` (`BaseGatewayAdapter`).
 
 **Domain 7 — Business Logic (4 test)**
 
@@ -355,7 +355,7 @@ comportamento del DAG a regime.
 | `0.3` | `[]` | BLACK_BOX — nessun prerequisito |
 | `1.1` | `[]` | BLACK_BOX — nessun prerequisito |
 | `1.2` | `["1.1"]` | Pivot del DAG: sblocca tutti i GREY_BOX |
-| `1.3` | `["1.1", "1.2"]` | Riusa `jwt_forge.py` da `1.2` |
+| `1.3` | `["1.1", "1.2"]` | Riusa `jwt_forge.py` da `1.2` (da implementare in Milestone 2) |
 | `1.4` | `["1.1", "1.2"]` | |
 | `1.5` | `[]` | WHITE_BOX — SKIP documentato in ambiente HTTP-only |
 | `1.6` | `[]` | WHITE_BOX — richiede Kong Admin API |
@@ -417,16 +417,13 @@ oscurare il flusso del test se lasciata inline.
 | Helper | Usato da | Giustificazione |
 |--------|----------|-----------------|
 | `helpers/auth.py` | `1.2` | Logica di login Forgejo, gestione token, scrittura nel `TestContext` — troppo complessa per stare inline |
-| `helpers/jwt_forge.py` | `1.2`, `1.3` | Condiviso tra due test dello stesso dominio |
+| `helpers/jwt_forge.py` | `1.2`, `1.3` | Da implementare in Milestone 2; condiviso tra due test dello stesso dominio |
 | `helpers/forgejo_resources.py` | `2.2`, `2.3`, `7.3` | Stesso pattern CRUD + teardown ripetuto in tre test di domini diversi |
-| `helpers/kong_admin.py` | `4.2`, `4.3`, `6.4`, `1.6` | Stesso client HTTP verso Admin API usato da quattro test |
+| `src/core/gateway/base.py` | `3.3`, `4.2`, `4.3`, `6.4`, `1.6` | `BaseGatewayAdapter` via `target.gateway` — astrazione del layer admin del gateway; stesso pattern usato da cinque test WHITE_BOX |
 | `helpers/response_inspector.py` | `2.5`, `6.1`, `6.2` | Pattern di analisi body/header ripetuto in tre test di domini diversi |
 
-I due moduli `data/ssrf_payloads.py` e `data/injection_payloads.py` sono
-usati ciascuno da un solo test (`7.2` e `3.1` rispettivamente). La
-separazione è giustificata perché si tratta di **dati di test, non di
-logica**: tenerli separati mantiene il file del test focalizzato sul flusso
-e rende i payload estensibili senza toccare la logica di esecuzione.
+Il modulo `data/ssrf_payloads.py` è usato da `7.2`.
+`data/injection_payloads.py` sarà aggiunto in Milestone 2 per il test `3.1`.
 
 ---
 
@@ -496,7 +493,7 @@ Quando il buffer e pieno e un nuovo record arriva, il piu vecchio viene espulso 
 
 ### TargetContext vs TestContext
 
-**`TargetContext` (frozen):** tutto cio che e staticamente noto sul target prima che inizi l'esecuzione. Contiene `base_url` e `admin_api_url` come `AnyHttpUrl`, validati da Pydantic alla costruzione. Il computed field `admin_api_available` centralizza il controllo per l'eligibilita dei test WHITE_BOX, esprimendo **capacita** (l'API admin e disponibile?) anziche **dettaglio implementativo** (`admin_api_url is not None`). I metodi `endpoint_base_url()` e `admin_endpoint_base_url()` esistono per risolvere un problema concreto: `AnyHttpUrl` di Pydantic v2 non e un `str`, e la concatenazione diretta produce artefatti con doppio slash. Il field `credentials` non deve mai apparire in log strutturati.
+**`TargetContext` (frozen):** tutto cio che e staticamente noto sul target prima che inizi l'esecuzione. Contiene `base_url` e `admin_api_url` come `AnyHttpUrl`, validati da Pydantic alla costruzione. Il campo `gateway` contiene il `BaseGatewayAdapter` istanziato da engine.py Phase 3 (o `None` se non configurato). Il computed field `admin_api_available` centralizza il controllo per l'eligibilita dei test WHITE_BOX, esprimendo **capacita** (`target.gateway is not None`) anziche **dettaglio implementativo** (`admin_api_url is not None`). I metodi `endpoint_base_url()` e `admin_endpoint_base_url()` esistono per risolvere un problema concreto: `AnyHttpUrl` di Pydantic v2 non e un `str`, e la concatenazione diretta produce artefatti con doppio slash. Il field `credentials` non deve mai apparire in log strutturati.
 
 **`TestContext` (mutable):** entrambi i campi (`_tokens`, `_resources`) sono `PrivateAttr` di Pydantic, esclusi dalla serializzazione e dalla validazione del modello. L'interfaccia tipizzata e l'unico modo di accedere a questi dati dall'esterno.
 
@@ -508,7 +505,7 @@ Il token e memorizzato **senza** il prefisso `'Bearer '` — i test che costruis
 
 ## 6. Modello dei dati — I tre SSOT e la gerarchia in memoria
 
-`src/core/models.py` e il **vocabolario condiviso** dell'intero tool: l'unico modulo autorizzato a definire strutture dati condivise.
+`src/core/models/` è il **vocabolario condiviso** dell'intero tool: l'unico package autorizzato a definire strutture dati condivise (package con `enums.py`, `http.py`, `results.py`, `runtime.py`, `surface.py`, `external_tools.py` + facade `__init__.py`).
 
 ### I tre SSOT
 
@@ -516,7 +513,7 @@ Il token e memorizzato **senza** il prefisso `'Bearer '` — i test che costruis
 |---|---|---|---|
 | **Logica** | `ResultSet` | In memoria durante l'esecuzione | Determina l'exit code, accumula i `TestResult` |
 | **Presentazione** | `ReportData` | In memoria durante la Fase 7 | DTO che traduce il `ResultSet` in struttura pronta per HTML e JSON |
-| **Forense** | `EvidenceStore` | In memoria -> `evidence.json` | Cassaforte dei payload completi per le transazioni FAIL |
+| **Forense** | `EvidenceStore` | Per-test JSONL in `evidence_tmp/` → merge in `evidence.json` (Phase 7) | Cassaforte dei payload completi per le transazioni FAIL |
 
 Senza `ReportData` come DTO separato, sarebbe necessario "sporcare" il core del motore con informazioni che servono solo al layer di presentazione (titolo della spec API, raggruppamento per dominio, label leggibili delle priorita), rendendo il codice significativamente piu difficile da mantenere e testare.
 
@@ -551,7 +548,7 @@ ResultSet  (SSOT della logica — l'intera sessione di assessment)
         ]                                                                    |
                                                                              |
 ===========================================================================  |
-  EvidenceStore (SSOT forense — buffer bounded maxlen=100)                  |
+  EvidenceStore (SSOT forense — streaming JSONL v2.0, unbounded)            |
 ===========================================================================  |
                                                                              |
   EvidenceRecord  (FAIL — completo, ~11 KB)  <-----------------------------+
@@ -606,7 +603,7 @@ ResultSet  (SSOT della logica — l'intera sessione di assessment)
 - Vive in `EvidenceStore`, serializzato in `evidence.json`
 - Registra solo transazioni FAIL e pinned
 - Transazione completa: tutti gli header di response, body fino a 10.000 char
-- Buffer bounded `maxlen=100` — protezione OOM con eviction WARNING esplicito
+- Streaming JSONL v2.0 — unbounded; per-test `.jsonl` in `evidence_tmp/`, merge in Phase 7
 - Scopo: **prova formale riproducibile** — ogni record e autosufficiente per ricostruire l'attacco
 
 ### Invarianti enforced a livello di modello
@@ -619,7 +616,7 @@ Validate da Pydantic a runtime, non da logica di business nei test:
 - `EvidenceRecord.request_headers`: il valore dell'header `Authorization` e sempre `[REDACTED]`, enforced dal `field_validator` nel modello — non nel client. Questa separazione significa che anche un costruttore diretto di `EvidenceRecord` (che bypassa `_build_evidence_record`) applica comunque la redazione.
 - `EndpointRecord.path` deve iniziare con `/`. `EndpointRecord.method` e sempre uppercase.
 
-### Catalogo dei modelli (`src/core/models.py`)
+### Catalogo dei modelli (`src/core/models/`)
 
 ```
 # Enumerazioni
@@ -697,16 +694,16 @@ RuntimeTestsConfig  Frozen Pydantic — parametri per test specifici (es. max_en
 |---|---|
 | `auth.py` | Acquisizione token JWT tramite Forgejo API con Basic Auth |
 | `forgejo_resources.py` | Creazione e gestione di repository, issue, token API Forgejo |
-| `jwt_forge.py` | Costruzione di JWT con claim arbitrari (per test di signature validation) |
+| `jwt_forge.py` | Da implementare in Milestone 2; costruzione di JWT con claim arbitrari (test 1.2/1.3) |
 | `response_inspector.py` | Analisi strutturata di header e body delle response |
-| `kong_admin.py` | Query all'Admin API di Kong per test WHITE_BOX |
+| `src/core/gateway/base.py` | `BaseGatewayAdapter` via `target.gateway.*` — astrazione admin layer del gateway |
 
 ### Payload di attacco disponibili (`src/tests/data/`)
 
 | Modulo | Contenuto |
 |---|---|
-| `injection_payloads.py` | Payload SQL injection, NoSQL injection, type confusion, oversized payload |
 | `ssrf_payloads.py` | Payload SSRF: IP link-local (`169.254.169.254`), IPv6, encoding bypass |
+| `injection_payloads.py` | Da implementare in Milestone 2 per test 3.1 |
 
 ---
 
@@ -716,11 +713,14 @@ Tutte le eccezioni custom del tool sono definite in `src/core/exceptions.py`.
 
 ```
 ToolBaseError
-  |-- ConfigurationError  -> Fase 1: config invalido o var env mancante [BLOCCA AVVIO]
-  |-- OpenAPILoadError    -> Fase 2: spec irraggiungibile o malformata  [BLOCCA AVVIO]
-  |-- DAGCycleError       -> Fase 4: dipendenza circolare tra test      [BLOCCA AVVIO]
-  |-- SecurityClientError -> Fase 5: errore HTTP non recuperabile       [-> TestResult(ERROR)]
-  +-- TeardownError       -> Fase 6: fallimento cancellazione risorsa   [WARNING, non propagata]
+  |-- ConfigurationError    -> Fase 1: config invalido o var env mancante [BLOCCA AVVIO]
+  |-- OpenAPILoadError      -> Fase 2: spec irraggiungibile o malformata  [BLOCCA AVVIO]
+  |-- DAGCycleError         -> Fase 4: dipendenza circolare tra test      [BLOCCA AVVIO]
+  |-- SecurityClientError   -> Fase 5: errore HTTP non recuperabile       [-> TestResult(ERROR)]
+  |-- GatewayAdapterError   -> Fase 5, WHITE_BOX tests (src/core/gateway/base.py)
+  |                           fields: path, status_code
+  |                           -> catturato in execute() -> TestResult(ERROR)
+  +-- TeardownError         -> Fase 6: fallimento cancellazione risorsa   [WARNING, non propagata]
 ```
 
 Le prime tre sono **fatali**: si verificano prima che qualsiasi test giri e producono exit code 10. `SecurityClientError` e **recuperata a livello di singolo test** tramite il catch-all in `execute()` — l'engine non la vede mai. `TeardownError` e **intenzionalmente non propagata**: un fallimento di cleanup non invalida la correttezza dell'assessment, ma viene loggato con `manual_cleanup_required=True` per consentire la pulizia manuale.
@@ -747,10 +747,20 @@ apiguard-assurance/
 |   |   +-- schema.py            # Schemi Pydantic per config.yaml (ToolConfig e sottoclassi)
 |   |
 |   |-- core/                    # Layer fondamentale — nessuna dipendenza da altri layer src/
-|   |   |-- models.py            # Vocabolario condiviso: tutti i modelli Pydantic del tool
+|   |   |-- models/              # Vocabolario condiviso: package con facade __init__.py
+|   |   |   |-- enums.py         # TestStatus, TestStrategy, SpecDialect
+|   |   |   |-- http.py          # EvidenceRecord, TransactionSummary
+|   |   |   |-- results.py       # Finding, InfoNote, TestResult, ResultSet
+|   |   |   |-- runtime.py       # RuntimeCredentials, RuntimeTest*Config, RuntimeTestsConfig
+|   |   |   |-- surface.py       # ParameterInfo, EndpointRecord, AttackSurface
+|   |   |   +-- external_tools.py# BaseExternalToolConfig, TestsslConfig, NucleiConfig,
+|   |   |                        #   ExternalToolsConfig
+|   |   |-- gateway/             # Gateway adapter abstraction + concrete implementations
+|   |   |   |-- base.py          # BaseGatewayAdapter ABC + GatewayAdapterError
+|   |   |   +-- kong.py          # KongGatewayAdapter (Kong DB-less Admin API v3.x)
 |   |   |-- context.py           # TargetContext (frozen) + TestContext (mutable) [Fasi 3+5+6]
 |   |   |-- client.py            # SecurityClient — context manager, unico punto HTTP
-|   |   |-- evidence.py          # EvidenceStore — buffer bounded con eviction WARNING
+|   |   |-- evidence.py          # EvidenceStore — streaming JSONL v2.0, unbounded
 |   |   |-- dag.py               # DAGScheduler — topological sort + stall detection
 |   |   +-- exceptions.py        # Gerarchia eccezioni: ToolBaseError e sottoclassi
 |   |
@@ -776,13 +786,13 @@ apiguard-assurance/
 |   |   |-- helpers/             # Moduli condivisi tra test (non importati dal registry)
 |   |   |   |-- auth.py
 |   |   |   |-- forgejo_resources.py
-|   |   |   |-- jwt_forge.py
-|   |   |   |-- kong_admin.py
+|   |   |   |-- jwt_forge.py       (da implementare in Milestone 2)
+|   |   |   |-- path_resolver.py
 |   |   |   +-- response_inspector.py
 |   |   |
 |   |   +-- data/                # Payload di attacco riutilizzabili
-|   |       |-- injection_payloads.py
-|   |       +-- ssrf_payloads.py
+|   |       |-- ssrf_payloads.py
+|   |       +-- injection_payloads.py  (da implementare in Milestone 2)
 |   |
 |   +-- report/                  # [Fase 7] Generazione del report finale
 |       |-- builder.py           # ResultSet -> ReportData (DTO, solo aggregazione, zero I/O)
@@ -796,19 +806,10 @@ apiguard-assurance/
 |       +-- kong/
 |           +-- kong.yml
 |
-|-- tests_e2e/                   # Suite E2E contro il target reale (richiede Docker stack)
-|   |-- conftest.py
-|   +-- test_01_smoke_connectivity.py
-|
-+-- tests_integration/           # Suite di integrazione per i layer interni
-    |-- conftest.py
-    |-- test_01_config.py
-    |-- test_02_discovery.py
-    |-- test_03_registry_and_dag.py
-    |-- test_04_metadata_propagation.py
-    |-- test_05_execution.py
-    |-- test_06_teardown.py
-    +-- test_07_report.py
+|-- specs/
+|   +-- crapi-openapi.json       # Spec alternativo: crAPI (target di validazione secondario)
+|-- config_crapi.yaml            # Configurazione pronta per crAPI (vedi README sezione target alternativo)
++-- Z-CHECKLIST.md               # Stato implementazione: test, connector, milestone
 ```
 
 ---

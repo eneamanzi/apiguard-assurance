@@ -68,9 +68,9 @@ import structlog
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
+from src.core.gateway.base import BaseGatewayAdapter, GatewayAdapterError
 from src.core.models import Finding, TestResult, TestStrategy
 from src.tests.base import BaseTest
-from src.tests.helpers.kong_admin import KongAdminError, get_services
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -163,33 +163,23 @@ class Test42TimeoutConfigAudit(BaseTest):
             if skip_guard is not None:
                 return skip_guard
 
-            admin_base_url = target.admin_endpoint_base_url()
-            # admin_endpoint_base_url() returns None only when admin_api_url
-            # is None, which is already caught by _requires_admin_api() above.
-            # This assertion keeps mypy and static analysis happy.
-            assert admin_base_url is not None, (  # noqa: S101
-                "admin_endpoint_base_url() returned None despite admin_api_available=True. "
-                "This is a TargetContext invariant violation."
-            )
+            gateway = target.gateway
+            assert gateway is not None  # noqa: S101
 
             cfg = target.tests_config.test_4_2
 
             log.info(
                 "test_4_2_starting",
-                admin_base_url=admin_base_url,
+                gateway_adapter=gateway.adapter_name,
                 max_connect_timeout_ms=cfg.max_connect_timeout_ms,
                 max_read_timeout_ms=cfg.max_read_timeout_ms,
                 max_write_timeout_ms=cfg.max_write_timeout_ms,
             )
 
             # Sub-test 1: fetch services
-            services = self._fetch_services(
-                admin_base_url,
-                target.admin_connect_timeout_seconds,
-                target.admin_read_timeout_seconds,
-            )
+            services = self._fetch_services(gateway)
             if services is None:
-                # KongAdminError was raised and converted to ERROR result
+                # GatewayAdapterError was raised and converted to ERROR result
                 return self._make_error(
                     RuntimeError(
                         "Kong Admin API call failed -- see structured log for details. "
@@ -243,36 +233,28 @@ class Test42TimeoutConfigAudit(BaseTest):
 
     def _fetch_services(
         self,
-        admin_base_url: str,
-        connect_timeout: float,
-        read_timeout: float,
+        gateway: BaseGatewayAdapter,
     ) -> list[dict[str, Any]] | None:
         """
-        Retrieve all Kong services from the Admin API.
+        Retrieve all services via the gateway adapter.
 
-        Wraps get_services() in a try/except to convert KongAdminError into
-        a structured log entry. Returns None on error so the caller can
-        detect the failure and produce an appropriate ERROR result without
-        catching the exception again.
+        Returns None on error so the caller can produce ERROR without
+        re-catching the exception.
 
         Args:
-            admin_base_url:  Kong Admin API base URL without trailing slash.
-            connect_timeout: TCP connection timeout in seconds.
-                             Read from target.admin_connect_timeout_seconds.
-            read_timeout:    HTTP read timeout in seconds.
-                             Read from target.admin_read_timeout_seconds.
+            gateway: Instantiated gateway adapter from target.gateway.
 
         Returns:
-            List of Kong service dicts (may be empty), or None on Admin API error.
+            List of service dicts (may be empty), or None on Admin API error.
         """
         try:
-            services = get_services(admin_base_url, connect_timeout, read_timeout)
+            services = gateway.get_services()
             log.debug(
                 "test_4_2_services_fetched",
                 count=len(services),
             )
             return services
-        except KongAdminError as exc:
+        except GatewayAdapterError as exc:
             log.error(
                 "test_4_2_admin_api_error",
                 path="/services",

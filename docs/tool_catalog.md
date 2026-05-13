@@ -483,7 +483,7 @@ La classificazione completa con motivazioni estese è in `TODO-decisioni-tool.md
 | Tool | Motivo Scarto | Alternativa |
 |---|---|---|
 | **httpstat** | C.4 — Timing breakdown visivo; Python può misurare TTFB e tempi di connessione; non aggiunge evidenze strutturate al report | Python nativo |
-| **deck** | C.2 — Kong-specific; viola l'agnosticismo; la logica di lettura configurazione è nel `BaseGatewayInspector` | BaseGatewayInspector |
+| **deck** | C.2 — Kong-specific; viola l'agnosticismo; la logica di lettura configurazione è nel `BaseGatewayAdapter` | BaseGatewayAdapter |
 | **vegeta** | C.4 — Utile come test comportamentale opzionale in staging ma il test è Configuration Audit, non load test | — |
 | **prowler** | C.2 — AWS-specific | — |
 | **kubescape** | C.2 — Kubernetes-specific | — |
@@ -502,8 +502,8 @@ La classificazione completa con motivazioni estese è in `TODO-decisioni-tool.md
 
 | Tool | Motivo Scarto | Alternativa |
 |---|---|---|
-| **deck** | C.2 — Kong-specific; viola l'agnosticismo | BaseGatewayInspector |
-| **inso** | C.2 — Kong ecosystem-specific | BaseGatewayInspector |
+| **deck** | C.2 — Kong-specific; viola l'agnosticismo | BaseGatewayAdapter |
+| **inso** | C.2 — Kong ecosystem-specific | BaseGatewayAdapter |
 | **kuma-cp inspect** | C.2 — Kuma service mesh-specific | — |
 | **istioctl analyze** | C.2 — Istio service mesh-specific | — |
 | **kubescape** | C.2 — Kubernetes-specific | — |
@@ -627,9 +627,9 @@ La classificazione completa con motivazioni estese è in `TODO-decisioni-tool.md
 | **smuggler** | C.1 — Nessuna release ufficiale taggata; i pattern CL.TE/TE.CL sono implementati direttamente con socket Python stdlib nel connector. | Python raw sockets (stdlib) |
 | **gotestwaf** | C.3 — Overkill: copre l'intero spazio Layer-7 WAF bypass; per il solo smuggling il perimetro è il connector nativo | Python raw sockets |
 | **h2csmuggler** | C.4 — HTTP/2 cleartext upgrade smuggling; scenario molto specifico che richiede target con HTTP/2 upgrade non cifrato; la maggioranza dei target non lo espone | http2smugl (Cat B) |
-| **deck** | C.2 — Kong-specific; viola l'agnosticismo; `BaseGatewayInspector` astrae questa logica | BaseGatewayInspector |
-| **inso** | C.2 — Kong ecosystem-specific | BaseGatewayInspector |
-| **kong-plugin-validator** | C.2 — Kong-specific | BaseGatewayInspector |
+| **deck** | C.2 — Kong-specific; viola l'agnosticismo; `BaseGatewayAdapter` astrae questa logica | BaseGatewayAdapter |
+| **inso** | C.2 — Kong ecosystem-specific | BaseGatewayAdapter |
+| **kong-plugin-validator** | C.2 — Kong-specific | BaseGatewayAdapter |
 | **prowler** | C.2 — AWS-specific | — |
 | **checkov** | C.2 — IaC scanner | — |
 | **inspec-aws** | C.2 — AWS + Ruby InSpec | — |

@@ -71,7 +71,7 @@ apiguard version
 ```bash
 pip install hatch
 hatch env create dev
-hatch run dev:pytest tests_e2e/ -v
+hatch run dev:pytest -v
 ```
 
 **Strumenti di analisi statica:**
@@ -325,11 +325,11 @@ La metodologia APIGuard struttura la copertura di sicurezza in 8 domini tematici
 | `2` | P0 + P1 + P2 |
 | `3` | Tutti — P0 + P1 + P2 + P3 (default raccomandato) |
 
-**Markers pytest per filtri selettivi nei test E2E:**
+**Markers pytest per filtri selettivi:**
 
 ```bash
-pytest tests_e2e/ -m "p0 and domain_0" -v
-pytest tests_e2e/ -m "black_box" -v
+pytest -m "p0 and domain_0" -v
+pytest -m "black_box" -v
 ```
 
 ---
@@ -367,12 +367,20 @@ apiguard-assurance/
 |
 |-- test-environments/
 |   `-- forgejo-kong/            # Docker Compose per l'ambiente di test locale
-|
-|-- tests_e2e/                   # Suite E2E contro il target reale (richiede Docker stack)
-`-- tests_integration/           # Suite di integrazione per i layer interni
 ```
 
 > La mappa completa con ogni singolo file commentato si trova in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#repository-structure).
+
+---
+
+## Target alternativo — cRAPI
+
+`specs/crapi-openapi.json` e `config_crapi.yaml` forniscono una configurazione pronta per eseguire il tool contro **crAPI** (Completely Ridiculous API) — un'API volutamente vulnerabile sviluppata da OWASP.
+È utile per validare il tool contro un secondo target indipendente da Forgejo/Kong, ad esempio per dimostrare l'applicabilità multi-ambiente.
+
+```bash
+apiguard run -c config_crapi.yaml
+```
 
 ---
 

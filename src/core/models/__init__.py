@@ -19,23 +19,26 @@ need to know the internal package layout.
 
 Symbol inventory by source module:
 
-    enums.py        TestStatus, TestStrategy, SpecDialect
+    enums.py           TestStatus, TestStrategy, SpecDialect
 
-    http.py         EvidenceRecord, TransactionSummary
+    http.py            EvidenceRecord, TransactionSummary
 
-    surface.py      ParameterInfo, EndpointRecord, AttackSurface
+    surface.py         ParameterInfo, EndpointRecord, AttackSurface
 
-    results.py      Finding, InfoNote, TestResult, ResultSet
+    results.py         Finding, InfoNote, TestResult, ResultSet
 
-    runtime.py      RuntimeCredentials,
-                    RuntimeTest02Config,
-                    RuntimeTest11Config,
-                    RuntimeTest15Config, RuntimeTest16Config,
-                    RuntimeTest33Config,
-                    RuntimeTest41Config, RuntimeTest42Config, RuntimeTest43Config,
-                    RuntimeTest62Config, RuntimeTest64Config,
-                    RuntimeTest72Config,
-                    RuntimeTestsConfig
+    runtime.py         RuntimeCredentials,
+                       RuntimeTest02Config,
+                       RuntimeTest11Config,
+                       RuntimeTest15Config, RuntimeTest16Config,
+                       RuntimeTest33Config,
+                       RuntimeTest41Config, RuntimeTest42Config, RuntimeTest43Config,
+                       RuntimeTest62Config, RuntimeTest64Config,
+                       RuntimeTest72Config,
+                       RuntimeTestsConfig
+
+    external_tools.py  BaseExternalToolConfig, TestsslConfig, NucleiConfig,
+                       ExternalToolsConfig
 """
 
 from __future__ import annotations
@@ -57,6 +60,12 @@ from src.core.models.runtime import (
     RuntimeTest64Config,
     RuntimeTest72Config,
     RuntimeTestsConfig,
+)
+from src.core.models.external_tools import (
+    BaseExternalToolConfig,
+    ExternalToolsConfig,
+    NucleiConfig,
+    TestsslConfig,
 )
 from src.core.models.surface import AttackSurface, EndpointRecord, ParameterInfo
 
@@ -91,4 +100,9 @@ __all__ = [
     "RuntimeTest64Config",
     "RuntimeTest72Config",
     "RuntimeTestsConfig",
+    # external_tools.py
+    "BaseExternalToolConfig",
+    "TestsslConfig",
+    "NucleiConfig",
+    "ExternalToolsConfig",
 ]

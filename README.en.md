@@ -1,1 +1,0 @@
-**English version** | [Versione italiana](README.md)

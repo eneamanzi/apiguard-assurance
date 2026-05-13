@@ -3159,9 +3159,9 @@
 
       // Derive the same filesystem-safe label that _persist_tool_artifact()
       // uses on disk: replace dots, slashes and spaces with underscores,
-      // then append "_output".  Result: "ext_0_1_nuclei_output.json".
+      // then append "_output_report".  Result: "ext_0_1_nuclei_output_report.json".
       var safeLabel = label.replace(/[\.\/ \\]/g, "_");
-      _toolOutputActiveFilename = safeLabel + "_output.json";
+      _toolOutputActiveFilename = safeLabel + "_output_report.json";
 
       // Wrap the raw tool_artifact in the same envelope structure that
       // evidence.py:_persist_tool_artifact() writes to disk, so the browser

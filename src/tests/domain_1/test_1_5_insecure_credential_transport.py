@@ -18,20 +18,26 @@ Guarantee (3_TOP_metodologia.md, Section 1.5):
         OWASP ASVS v5.0.0 V14.2.1 (TLS version requirement)
 
 Strategy: WHITE_BOX -- Configuration Audit (methodology section 1.5).
-    Like test 6.2, this test does NOT require Kong Admin API access.
+    Like test 6.2, this test does NOT require gateway Admin API access.
     Sub-test 1 uses httpx directly (not SecurityClient) to probe the HTTP
-    transport layer, analogous to kong_admin.py using httpx for Admin API
-    calls -- both represent separate trust boundaries from the target API.
+    transport layer -- this is an intentional, documented exception to the
+    SecurityClient-only rule, justified by the same transport-boundary
+    reasoning that justifies gateway adapters using httpx for Admin API calls:
+    both represent separate trust boundaries from the target API.
     Sub-test 2 uses SecurityClient for the HSTS header check on HTTPS.
-    Sub-test 3 (optional) invokes testssl.sh as a subprocess.
+
+    TLS cipher-suite and protocol audit (previously sub-test 3 in this file)
+    is now exclusively handled by ext_test_1_5_tls_analysis.py via the
+    TestsslConnector.  This separation enforces the architectural rule that
+    native BaseTest subclasses must not invoke external binary subprocesses;
+    that responsibility belongs to ExternalToolTest subclasses via connectors.
 
     Special case -- plain-HTTP target:
     If the configured target base URL uses plain HTTP (no TLS), the test
     immediately returns FAIL with a direct critical finding instead of SKIP.
     Rationale: a plain-HTTP target is the worst possible state for credential
     transport security.  Returning SKIP would hide this violation from the
-    report.  Sub-tests 2 and 3 are skipped in this case because they require
-    a TLS layer to be meaningful.
+    report.  Sub-test 2 is skipped in this case because it requires a TLS layer.
 
 Priority: P2 -- Defense-in-depth transport layer control.
     A missing HSTS header or open HTTP port exposes credential interception
@@ -42,12 +48,6 @@ Sub-tests (executed in order):
 Sub-test 1 -- HTTP redirect enforcement (empirical, RFC 9110)
     Derives the HTTP version of target.endpoint_base_url() by replacing
     the 'https://' scheme with 'http://'.  Sends a plain GET to that URL.
-    Uses httpx directly (not SecurityClient) because SecurityClient is
-    initialized with the HTTPS base URL and cannot send to a different
-    scheme.  This is an intentional, documented exception to the
-    SecurityClient-only rule, justified by the same transport-boundary
-    reasoning that justifies kong_admin.py using httpx directly for Admin
-    API calls.
 
     Oracle:
         Connection refused (OSError) -> PASS: HTTP port not exposed.
@@ -68,32 +68,16 @@ Sub-test 2 -- HSTS header validation (NIST SP 800-52 Rev.2, ASVS V12.1.1)
         includeSubDomains absent                  -> FAIL (best practice).
         Header present and compliant              -> PASS.
 
-Sub-test 3 -- TLS version and cipher-suite audit via testssl.sh (optional)
-    Invoked only when testssl_binary_path is a non-empty path to an
-    executable.  Runs testssl.sh with '--jsonfile' output and parses the
-    protocol section for deprecated TLS versions.
-
-    Oracle:
-        SSLv2, SSLv3, TLS 1.0, or TLS 1.1 reported as 'offered' -> FAIL.
-        No deprecated protocols offered                          -> PASS.
-        Binary not found / not executable                        -> SKIP.
-
 EvidenceStore policy:
     Sub-test 1: no EvidenceRecord (direct httpx, no SecurityClient).
                 Finding uses evidence_ref=None.
     Sub-test 2: EvidenceRecord from client.request().
                 add_fail_evidence() called on FAIL; pin_evidence() not used.
-    Sub-test 3: no EvidenceRecord (subprocess, no SecurityClient).
-                Finding uses evidence_ref=None.
 """
 
 from __future__ import annotations
 
-import json
-import os
 import re
-import subprocess
-import tempfile
 from typing import ClassVar
 from urllib.parse import urlparse
 
@@ -122,16 +106,6 @@ _STATE_HSTS_COMPLIANT: str = "HSTS_COMPLIANT"
 _STATE_HSTS_MISSING: str = "HSTS_MISSING"
 _STATE_HSTS_MAX_AGE_LOW: str = "HSTS_MAX_AGE_BELOW_MINIMUM"
 _STATE_HSTS_NO_INCLUDE_SUBDOMAINS: str = "HSTS_MISSING_INCLUDE_SUBDOMAINS"
-_STATE_TLS_PASS: str = "TLS_NO_DEPRECATED_PROTOCOLS"  # noqa: S105
-_STATE_TLS_FAIL: str = "TLS_DEPRECATED_PROTOCOL_OFFERED"
-_STATE_TLS_SKIP: str = "TLS_SCAN_SKIPPED"
-
-# Deprecated TLS/SSL protocol identifiers as reported by testssl.sh JSON output.
-_DEPRECATED_PROTOCOL_IDS: frozenset[str] = frozenset({"ssl2", "ssl3", "tls1", "tls1_1"})
-
-# testssl.sh severity levels that represent offered/enabled protocols.
-# A deprecated protocol is a finding only when the server actually offers it.
-_OFFERED_KEYWORDS: frozenset[str] = frozenset({"offered", "offered (deprecated)"})
 
 # Regex to extract the numeric max-age value from the HSTS header.
 _HSTS_MAX_AGE_PATTERN: re.Pattern[str] = re.compile(r"max-age\s*=\s*(\d+)", re.IGNORECASE)
@@ -205,10 +179,8 @@ class Test15InsecureCredentialTransport(BaseTest):
 
             # ----------------------------------------------------------------
             # Fast-path FAIL: target is plain HTTP — no TLS layer at all.
-            # This is categorically worse than a misconfigured HTTPS target:
-            # every credential sent to this API is transmitted in cleartext.
-            # Sub-tests 2 and 3 require a TLS handshake to inspect and are
-            # therefore skipped; the finding below is sufficient on its own.
+            # Every credential sent to this API is transmitted in cleartext.
+            # Sub-test 2 requires a TLS handshake to inspect and is skipped.
             # ----------------------------------------------------------------
             if not base_url.startswith("https://"):
                 log.warning(
@@ -231,8 +203,9 @@ class Test15InsecureCredentialTransport(BaseTest):
                         "payload is visible to any observer on the network path "
                         "(Wireshark, corporate proxy, rogue Wi-Fi access point).  "
                         "This finding supersedes all other transport-security checks: "
-                        "HSTS is meaningless without TLS, and testssl.sh cannot scan "
-                        "a non-TLS endpoint.  "
+                        "HSTS is meaningless without TLS.  "
+                        "For TLS cipher-suite analysis, enable the testssl.sh connector "
+                        "via external_tools.testssl in config.yaml.  "
                         "Remediation: configure the Gateway to listen on HTTPS "
                         "(TLS 1.2+), obtain a valid certificate, and update the "
                         "target URL in config.yaml to 'https://'.  "
@@ -265,23 +238,6 @@ class Test15InsecureCredentialTransport(BaseTest):
             hsts_findings = self._run_hsts_check(client, store, cfg)
             findings.extend(hsts_findings)
 
-            # ------------------------------------------------------------------
-            # Sub-test 3 -- testssl.sh TLS scan (optional)
-            # NOTE: If external_tools.testssl.enabled = true in config.yaml,
-            # testssl.sh will also run via ext_test_1.5 (TestsslConnector),
-            # producing a second independent scan of the same target.  To avoid
-            # duplicate scans, set testssl_binary_path = "" when the external
-            # test is enabled.
-            # ------------------------------------------------------------------
-            if cfg.testssl_binary_path:
-                tls_findings = self._run_testssl_scan(base_url, cfg)
-                findings.extend(tls_findings)
-            else:
-                log.info(
-                    "test_1_5_tls_scan_skipped",
-                    reason="testssl_binary_path not configured",
-                )
-
             if findings:
                 return self._make_fail_multi(
                     message=f"Transport security audit found {len(findings)} violation(s).",
@@ -290,9 +246,9 @@ class Test15InsecureCredentialTransport(BaseTest):
 
             return self._make_pass(
                 message=(
-                    "All transport security checks passed: HTTP redirect enforced "
-                    "(or port closed), HSTS header compliant"
-                    + (", TLS scan clean." if cfg.testssl_binary_path else ".")
+                    "Transport security checks passed: HTTP redirect enforced "
+                    "(or port closed) and HSTS header compliant. "
+                    "TLS cipher-suite audit handled by ext_test_1.5 (testssl.sh connector)."
                 )
             )
 
@@ -343,7 +299,7 @@ class Test15InsecureCredentialTransport(BaseTest):
 
         Uses httpx directly (not SecurityClient) because SecurityClient is
         bound to the HTTPS base URL at construction.  This is the same
-        pattern as kong_admin.py using httpx for the Kong Admin API.
+        pattern as KongGatewayAdapter using httpx for the gateway admin API.
 
         verify_tls is forwarded verbatim to httpx.get(verify=...).  In a lab
         environment with a self-signed certificate (verify_tls=False), the
@@ -564,151 +520,3 @@ class Test15InsecureCredentialTransport(BaseTest):
 
         return findings
 
-    def _run_testssl_scan(
-        self,
-        https_base_url: str,
-        cfg: RuntimeTest15Config,
-    ) -> list[Finding]:
-        """
-        Invoke testssl.sh and parse the JSON output for deprecated protocol support.
-
-        Args:
-            https_base_url: HTTPS target base URL (hostname extracted for scan).
-            cfg: RuntimeTest15Config carrying binary path and timeout.
-
-        Returns:
-            List of Finding objects for each deprecated protocol offered.
-            Empty if the scan passes or the binary is not available.
-        """
-        findings: list[Finding] = []
-        binary_path = cfg.testssl_binary_path
-
-        # Verify binary exists and is executable before attempting to run.
-        if not os.path.isfile(binary_path) or not os.access(binary_path, os.X_OK):
-            log.warning(
-                "test_1_5_testssl_binary_not_found",
-                binary_path=binary_path,
-                oracle=_STATE_TLS_SKIP,
-            )
-            return findings
-
-        parsed = urlparse(https_base_url)
-        hostname = parsed.hostname or ""
-        port = parsed.port or 443  # noqa: PLR2004
-
-        scan_target = f"{hostname}:{port}"
-        log.info("test_1_5_testssl_scan_starting", scan_target=scan_target)
-
-        with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as tmp_file:
-            json_output_path = tmp_file.name
-
-        try:
-            result = subprocess.run(  # noqa: S603
-                [binary_path, "--jsonfile", json_output_path, scan_target],
-                capture_output=True,
-                text=True,
-                timeout=cfg.testssl_timeout_seconds,
-            )
-            if result.returncode not in {0, 1}:
-                log.warning(
-                    "test_1_5_testssl_scan_failed",
-                    returncode=result.returncode,
-                    stderr=result.stderr[:500] if result.stderr else "",
-                )
-                return findings
-
-            with open(json_output_path) as f:
-                raw = json.load(f)
-
-        except subprocess.TimeoutExpired:
-            log.warning(
-                "test_1_5_testssl_scan_timeout",
-                scan_target=scan_target,
-            )
-            return findings
-        except (OSError, json.JSONDecodeError) as exc:
-            log.warning("test_1_5_testssl_output_parse_error", error=str(exc))
-            return findings
-        finally:
-            # Always remove the temporary file regardless of outcome.
-            try:
-                os.unlink(json_output_path)
-            except OSError:
-                pass
-
-        findings.extend(self._parse_testssl_protocols(raw))
-        return findings
-
-    def _parse_testssl_protocols(
-        self,
-        testssl_output: object,
-    ) -> list[Finding]:
-        """
-        Parse testssl.sh JSON output and produce Findings for deprecated protocols.
-
-        Handles both the legacy list-of-dicts format and the newer dict-with-nested
-        structure produced by testssl.sh v3.x.
-
-        Args:
-            testssl_output: Parsed JSON object from testssl.sh --jsonfile output.
-
-        Returns:
-            List of Finding objects for deprecated protocols offered by the server.
-        """
-        findings: list[Finding] = []
-
-        # testssl.sh v3.x produces a list of finding objects at the top level.
-        # Each object has: {"id": "tls1", "severity": "LOW", "finding": "offered (deprecated)"}
-        items: list[dict[str, str]] = []
-        if isinstance(testssl_output, list):
-            items = [i for i in testssl_output if isinstance(i, dict)]
-        elif isinstance(testssl_output, dict):
-            # Older format: protocols are nested under a 'protocols' key.
-            items = testssl_output.get("protocols", [])
-
-        for item in items:
-            proto_id = item.get("id", "")
-            finding_text = item.get("finding", "").lower()
-            severity = item.get("severity", "").upper()
-
-            if proto_id not in _DEPRECATED_PROTOCOL_IDS:
-                continue
-
-            if not any(kw in finding_text for kw in _OFFERED_KEYWORDS):
-                continue
-
-            log.warning(
-                "test_1_5_deprecated_protocol_offered",
-                protocol_id=proto_id,
-                finding=finding_text,
-                severity=severity,
-                oracle=_STATE_TLS_FAIL,
-            )
-            protocol_label = {
-                "ssl2": "SSLv2",
-                "ssl3": "SSLv3",
-                "tls1": "TLS 1.0",
-                "tls1_1": "TLS 1.1",
-            }.get(proto_id, proto_id)
-
-            findings.append(
-                Finding(
-                    title=f"Deprecated Protocol Offered: {protocol_label}",
-                    detail=(
-                        f"testssl.sh reported '{finding_text}' for {protocol_label} "
-                        f"(severity: {severity}).  This protocol is deprecated and "
-                        "must not be enabled on production systems (NIST SP 800-52 Rev.2, "
-                        "OWASP ASVS v5.0.0 V14.2.1).  Clients that negotiate "
-                        f"{protocol_label} can be exploited via known attacks "
-                        "(BEAST for TLS 1.0, POODLE for SSLv3).  "
-                        "Disable this protocol in the Gateway TLS configuration."
-                    ),
-                    references=list(_REFERENCES),
-                    evidence_ref=None,  # No EvidenceRecord: subprocess invocation
-                )
-            )
-
-        if not findings:
-            log.info("test_1_5_testssl_scan_passed", oracle=_STATE_TLS_PASS)
-
-        return findings

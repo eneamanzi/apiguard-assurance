@@ -5,15 +5,16 @@
 Python tool for automated REST API security assessment. Master's thesis in Cybersecurity.
 **Phase 4 active:** implementation.
 **Development target:** Forgejo REST API protected by Kong Gateway (DB-less mode).
-The tool is API-agnostic by design: it works against any documented REST API via `config.yaml`
-and the target's OpenAPI spec. No application-specific logic may be hardcoded in `src/`.
+The tool is API-agnostic for documented REST API surface (OpenAPI spec + `config.yaml`).
+WHITE_BOX tests use gateway-specific adapters (`src/core/gateway/`) and application-specific
+helpers (`src/tests/helpers/`); these are environment adapters, not hardcoded logic.
 
 **Project state (implemented tests, connectors, milestones):** `Z-CHECKLIST.md` — single source of truth.
 
 Reference documents — load with `/add-file` when needed:
 - `.claude/LLM_rules.md` — coding rules, anti-patterns, workflow protocol
 - `.claude/Implementazione.md` — full architecture (v4.1)
-- `.claude/3_TOP_metodologia.md` — test methodology, oracles, box-gradient
+- `.claude/Metodologia.md` — test methodology, oracles, box-gradient
 
 ---
 
@@ -26,12 +27,24 @@ src/
 ├── core/                    # Shared infrastructure — zero test logic
 │   ├── client.py            # SecurityClient (httpx, no auto-redirect)
 │   ├── context.py           # TargetContext (frozen) + TestContext (mutable)
-│   ├── evidence.py          # EvidenceStore (deque maxlen=100)
+│   ├── evidence.py          # EvidenceStore (streaming JSONL v2.0, per-test files,
+│   │                        #   unbounded; merge in Phase 7)
 │   ├── dag.py               # DAGScheduler (graphlib.TopologicalSorter)
-│   ├── models.py            # TestResult, Finding, TestStatus (Pydantic v2)
+│   ├── gateway/             # Gateway adapter abstraction + implementations
+│   │   ├── base.py          # BaseGatewayAdapter ABC + GatewayAdapterError
+│   │   └── kong.py          # KongGatewayAdapter (Kong DB-less Admin API v3.x)
+│   ├── models/              # Pydantic v2 data models (package)
+│   │   ├── enums.py         # TestStatus, TestStrategy, SpecDialect
+│   │   ├── http.py          # EvidenceRecord, TransactionSummary
+│   │   ├── results.py       # Finding, InfoNote, TestResult, ResultSet
+│   │   ├── runtime.py       # RuntimeCredentials, RuntimeTest*Config, RuntimeTestsConfig
+│   │   ├── surface.py       # ParameterInfo, EndpointRecord, AttackSurface
+│   │   └── external_tools.py # BaseExternalToolConfig, TestsslConfig, NucleiConfig,
+│   │                          #   ExternalToolsConfig
 │   └── exceptions.py        # Custom exception hierarchy
 ├── config/
 │   ├── schema/              # Pydantic v2 schemas per domain + tool_config.py
+│   │                        # (external_tools.py re-exports from core/models/external_tools.py)
 │   └── loader.py            # YAML load + ${VAR} env interpolation
 ├── discovery/
 │   ├── openapi.py           # Fetch + prance dereference + spec validation
@@ -50,23 +63,32 @@ src/
 │   ├── registry.py          # Dynamic discovery via pkgutil.walk_packages
 │   ├── strategy.py          # TestStrategy Enum
 │   ├── helpers/             # auth, auth_forgejo, auth_jwt_login, forgejo_resources,
-│   │                        # jwt_forge, kong_admin, path_resolver, response_inspector
+│   │                        # path_resolver, response_inspector
 │   ├── domain_0/            # test_0_1, test_0_2, test_0_3
 │   ├── domain_1/            # test_1_1, test_1_5, test_1_6
+│   ├── domain_2/            # (placeholder — Milestone 3)
+│   ├── domain_3/            # test_3_3
 │   ├── domain_4/            # test_4_1, test_4_2, test_4_3
+│   ├── domain_5/            # (placeholder — Milestone 3)
+│   ├── domain_6/            # test_6_2, test_6_4
 │   └── domain_7/            # test_7_2
 └── report/
     ├── builder.py
     ├── renderer.py
     └── templates/report.html
 
-tests_e2e/                   # E2E against real target — no mocks
 Z-CHECKLIST.md               # Project state — implemented tests, connectors, milestones
 ```
 
 **Dependency direction (absolute):**
 `core/` ← `connectors/` ← `tests/` and `external_tests/` ← `engine.py`
 No lateral, no upward, no circular imports.
+
+**Gateway adapter pattern:**
+WHITE_BOX tests access the gateway admin plane via `target.gateway` (a `BaseGatewayAdapter`
+injected by engine.py Phase 3). Tests guard with `if target.gateway is None: return SKIP`.
+The ABC and all concrete implementations live in `src/core/gateway/` (currently: `KongGatewayAdapter`).
+The adapter type is configured via `target.gateway_adapter: kong` in `config.yaml`.
 
 ---
 
@@ -81,6 +103,8 @@ If a request conflicts with any of these, **stop and flag it before proceeding.*
 - Magic numbers/strings — **forbidden**; named constants or `config.yaml`
 - No global module-level singletons for `SecurityClient`
 - No numbers in module filenames
+- Native `BaseTest` subclasses must **never** invoke external binary subprocesses.
+  That responsibility belongs exclusively to `ExternalToolTest` subclasses via connectors.
 
 ### Configuration
 Every tunable parameter lives in `config.yaml` under `tests.domain_X.test_X_Y.<param>`,
@@ -124,6 +148,10 @@ ToolBaseError
  └── TeardownError         # Phase 6 → WARNING log, never propagated
 ```
 
+`GatewayAdapterError` (in `src/core/gateway/base.py`) extends `ToolBaseError` and is raised
+by gateway adapters on transport failure or unexpected HTTP status from the admin endpoint.
+WHITE_BOX tests catch it and return `TestResult(ERROR)`.
+
 Missing external tool → `TestResult(SKIP)` via `_skip_reason_from_registry`. Not an exception.
 
 ---
@@ -144,7 +172,7 @@ before implementing any new test.
 1. Check `Z-CHECKLIST.md` to identify what to implement next.
 2. Load reference docs as needed:
    - `/add-file .claude/LLM_rules.md` — always useful for a new session
-   - `/add-file .claude/3_TOP_metodologia.md` — when implementing a test
+   - `/add-file .claude/Metodologia.md` — when implementing a test
    - `/add-file .claude/Implementazione.md` — when touching infrastructure
 3. **If implementing a test:** read the relevant guide in `docs/` before writing any code:
    - `/add-file docs/ADDING_TESTS.md` — for native `BaseTest` subclasses

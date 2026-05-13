@@ -549,9 +549,11 @@ from src.tests.base import BaseTest
 # No extra imports beyond response_inspector if needed.
 # Example: from src.tests.helpers.response_inspector import find_missing_security_headers
 
-# ── WHITE_BOX with Kong Admin API (P1/P3, config audit) ───────────────────
-# from src.tests.helpers.kong_admin import KongAdminError, get_services
-# (replace get_services with get_routes, get_plugins, get_upstreams as needed)
+# ── WHITE_BOX with gateway adapter (P1/P3, config audit) ──────────────────
+# from src.core.gateway.base import GatewayAdapterError
+# target.gateway is already a BaseGatewayAdapter instance injected by engine.py.
+# Call target.gateway.get_services() / .get_plugins() / .get_routes() etc.
+# Guard with _requires_admin_api(target) at the top of execute().
 
 # ── GREY_BOX tests creating persistent resources (BOLA, RBAC) ─────────────
 # from src.tests.helpers.forgejo_resources import (
@@ -826,7 +828,7 @@ acquired yet.
 
 ---
 
-#### WHITE_BOX with Kong Admin API (real code from test 4.2)
+#### WHITE_BOX with gateway adapter (real code from test 4.2)
 
 ```python
 def execute(
@@ -837,7 +839,7 @@ def execute(
     store: EvidenceStore,
 ) -> TestResult:
     """
-    Audit Kong service timeout configuration via the Admin API.
+    Audit gateway service timeout configuration via the admin adapter.
 
     No HTTP requests are made to the target API. No _log_transaction()
     calls are needed because there are no EvidenceRecord objects.
@@ -848,35 +850,30 @@ def execute(
         if skip_guard is not None:
             return skip_guard
 
-        admin_base_url = target.admin_endpoint_base_url()
-        # admin_endpoint_base_url() returns None only when admin_api_url is None,
-        # already caught by _requires_admin_api() above.
-        # The assertion keeps mypy and static analysis happy.
-        assert admin_base_url is not None, (  # noqa: S101
-            "admin_endpoint_base_url() returned None despite admin_api_available=True. "
-            "TargetContext invariant violation."
-        )
+        # target.gateway is guaranteed non-None after _requires_admin_api returns None.
+        gateway = target.gateway
+        assert gateway is not None  # noqa: S101
 
         cfg = target.tests_config.test_4_2
 
         log.info(
             "test_4_2_starting",
-            admin_base_url=admin_base_url,
+            gateway_adapter=gateway.adapter_name,
             max_connect_timeout_ms=cfg.max_connect_timeout_ms,
         )
 
-        # Wrap every kong_admin call in a helper that returns None on KongAdminError.
-        services = self._fetch_services(admin_base_url)
+        # Wrap every gateway call in a helper that returns None on GatewayAdapterError.
+        services = self._fetch_services(gateway)
         if services is None:
             return self._make_error(
                 RuntimeError(
-                    "Kong Admin API call failed -- see structured log for details."
+                    "Gateway Admin API call failed -- see structured log for details."
                 )
             )
 
         if not services:
             return self._make_skip(
-                reason="No Kong services registered. Nothing to audit."
+                reason="No gateway services registered. Nothing to audit."
             )
 
         findings = self._audit_service_timeouts(services, cfg)
@@ -888,7 +885,7 @@ def execute(
             )
 
         return self._make_pass(
-            message=f"All {len(services)} Kong service(s) have compliant timeout configuration."
+            message=f"All {len(services)} service(s) have compliant timeout configuration."
         )
 
     except Exception as exc:  # noqa: BLE001
@@ -896,16 +893,19 @@ def execute(
         return self._make_error(exc)
 
 
-def _fetch_services(self, admin_base_url: str) -> list[dict[str, Any]] | None:
+def _fetch_services(self, gateway: BaseGatewayAdapter) -> list[dict[str, Any]] | None:
     """
-    Retrieve items from Kong Admin API.
+    Retrieve services via the gateway adapter.
 
-    Returns None on KongAdminError so the caller can produce ERROR
+    Returns None on GatewayAdapterError so the caller can produce ERROR
     without catching the exception again.
+
+    Args:
+        gateway: Instantiated gateway adapter from target.gateway.
     """
     try:
-        return get_services(admin_base_url)
-    except KongAdminError as exc:
+        return gateway.get_services()
+    except GatewayAdapterError as exc:
         log.error(
             "test_n_2_admin_api_error",
             path="/services",
@@ -916,7 +916,7 @@ def _fetch_services(self, admin_base_url: str) -> list[dict[str, Any]] | None:
 ```
 
 **Note on `_log_transaction()` in config-audit tests:** config-audit tests
-(4.2, 4.3, partially 6.2) call Kong Admin API helpers that use their own
+(4.2, 4.3, partially 6.2) call gateway adapter methods that use their own
 internal HTTP client. No `EvidenceRecord` is produced by those calls, so
 `_log_transaction()` is never called. This is correct and expected. The
 Audit Trail in the HTML report for these tests is intentionally empty.
@@ -1285,7 +1285,7 @@ report — it does not appear in the access path.
 | `BLACK_BOX` | P0 | `_requires_attack_surface` if iterating endpoints | No credential imports |
 | `GREY_BOX` | P1, P2 | `_requires_grey_box_credentials` + `_requires_token` | `acquire_tokens` from `auth`, `ROLE_*`, `AuthenticationSetupError`, `SecurityClientError` |
 | `WHITE_BOX` (no Admin API) | P3 | `_requires_attack_surface` only | `response_inspector` helpers if doing header checks |
-| `WHITE_BOX` (Kong Admin) | P1, P3 | `_requires_admin_api` + `assert admin_base_url is not None` | `KongAdminError` + specific `kong_admin` helper |
+| `WHITE_BOX` (gateway adapter) | P1, P3 | `_requires_admin_api` + `assert gateway is not None` | `GatewayAdapterError` from `src.core.gateway.base`; call `target.gateway.*` |
 
 **Guard ordering for GREY_BOX** (must not be inverted):
 1. `_requires_grey_box_credentials(target)` — **validates** that credentials
@@ -1311,7 +1311,7 @@ acquired yet.
 | Guard | When to use | Returns |
 |---|---|---|
 | `_requires_attack_surface(target)` | Test iterates OpenAPI endpoints | `TestResult(SKIP)` or `None` |
-| `_requires_admin_api(target)` | Test calls Kong Admin API | `TestResult(SKIP)` or `None` |
+| `_requires_admin_api(target)` | Test calls gateway admin API (`target.gateway` is None) | `TestResult(SKIP)` or `None` |
 | `_requires_grey_box_credentials(target)` | Test needs at least one role configured | `TestResult(SKIP)` or `None` |
 | `_requires_token(context, role)` | Test needs a live JWT for a specific role | `TestResult(SKIP)` or `None` |
 
@@ -1336,11 +1336,11 @@ test file is a violation of the DRY principle and a bug risk.**
 | File | Public API used by tests |
 |---|---|
 | `auth.py` | `acquire_tokens(target, context, client, required_roles=None)` — dispatcher; always import from here, never from `auth_forgejo` or `auth_jwt_login` directly |
-| `kong_admin.py` | `KongAdminError`, `get_routes`, `get_services`, `get_plugins`, `get_upstreams`, `get_status`, `get_plugin_by_name` |
+| `src/core/gateway/base.py` | `BaseGatewayAdapter`, `GatewayAdapterError` — accessed via `target.gateway.*`; methods: `get_routes()`, `get_services()`, `get_plugins()`, `get_upstreams()`, `get_status()`, `get_plugin_by_name(name)` |
 | `path_resolver.py` | `resolve_path_with_seed(endpoint, seed)`, `extract_param_names_from_path(path)`, `PATH_PARAM_FALLBACK_DEFAULT`, `PATH_PARAM_FALLBACK_SAFE_DELETE` |
 | `response_inspector.py` | `find_missing_security_headers(headers)`, `find_invalid_security_headers(headers)`, `find_leaky_headers(headers)`, `check_security_headers(headers)`, `contains_stack_trace(body)`, `contains_sensitive_fields(data)`, `extract_debug_fields(data)`, `auth_errors_are_uniform(response_bodies)`, `SECURITY_HEADER_DEFINITIONS`, `STACK_TRACE_PATTERNS`, `SENSITIVE_FIELD_NAMES`, `LEAKY_HEADERS` |
 | `forgejo_resources.py` | `create_repository(target, context, client, role)`, `create_issue(target, context, client, role, repo_owner, repo_name)`, `get_authenticated_user(target, context, client, role)`, `list_repositories(target, context, client, role)`, `ForgejoResourceError` |
-| `jwt_forge.py` | `forge_alg_none(token)`, `forge_tampered_payload(token, claim, new_value)`, `forge_expired(token, seconds_ago=3600)`, `forge_strip_signature(token)`, `forge_hs256_key_confusion(public_key_pem, payload)`, `decode_header(token)`, `decode_payload(token)`, `is_jwt_format(token)` |
+| `jwt_forge.py` | **Not yet implemented.** Will be added when tests 1.2/1.3 are implemented (Milestone 2). Functions planned: `forge_alg_none`, `forge_tampered_payload`, `forge_expired`, `forge_strip_signature`, `forge_hs256_key_confusion`, `decode_header`, `decode_payload`, `is_jwt_format`. |
 
 **Notes on `auth.py`:**
 - `acquire_tokens()` is the correct import, not `acquire_all_tokens_if_needed`.
@@ -1351,14 +1351,8 @@ test file is a violation of the DRY principle and a bug risk.**
 - Auth type is determined automatically from `target.credentials.auth_type`.
   Do not branch on auth_type inside a test.
 
-**Notes on `jwt_forge.py`:**
-- `forge_expired` is the primary tool for test 1.3 — it sets `exp` to a past
-  timestamp. Its docstring explicitly states "Test 1.3 uses this function."
-- `forge_strip_signature` is distinct from `forge_alg_none`: the header still
-  declares the original algorithm; only the signature segment is emptied. Use
-  it for the "Signature Stripping" sub-test of test 1.2.
-- `decode_header` and `decode_payload` return `dict[str, Any]` — use them to
-  inspect the claims of a valid token before forging variants.
+**Notes on `jwt_forge.py`:** not yet implemented. Will be added in Milestone 2
+alongside tests 1.2 and 1.3. Do not create the file in advance.
 
 **Notes on `forgejo_resources.py`:**
 - `create_repository` **registers teardown internally** — no manual
@@ -1708,8 +1702,8 @@ for the test_id in the HTML report.
 - [ ] Single-finding FAIL uses `_make_fail(message, detail, evidence_record_id, ...)` — NOT manual `TestResult(...)`
 - [ ] `store.add_fail_evidence(record)` and `_log_transaction(..., is_fail=True)` called **before** any `_make_fail*()` call
 - [ ] `store.add_fail_evidence()` and `store.pin_evidence()` never called on the same record
-- [ ] WHITE_BOX (Kong Admin) tests call `_requires_admin_api` + `assert admin_base_url is not None  # noqa: S101`
-- [ ] WHITE_BOX (Kong Admin) tests wrap every kong helper in a private method returning `None` on `KongAdminError`
+- [ ] WHITE_BOX (gateway adapter) tests call `_requires_admin_api` + `assert gateway is not None  # noqa: S101`
+- [ ] WHITE_BOX (gateway adapter) tests wrap every adapter call in a private method returning `None` on `GatewayAdapterError`
 - [ ] `frozen=True` present on both `TestN2Config` (Step 1) and `RuntimeTestN2Config` (Step 4)
 - [ ] If the test has no tunable parameters: `TestN2Config` and `RuntimeTestN2Config` exist anyway as zero-field models, the `engine.py` population line is `test_n_2=RuntimeTestN2Config()`, and `config.yaml` has the block with an explanatory comment
 - [ ] `RuntimeTestNNConfig` added to `src/core/models/__init__.py` in all three places (docstring, import, `__all__`)
