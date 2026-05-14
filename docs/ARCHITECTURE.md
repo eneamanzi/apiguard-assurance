@@ -356,7 +356,7 @@ comportamento del DAG a regime.
 | `1.1` | `[]` | BLACK_BOX — nessun prerequisito |
 | `1.2` | `["1.1"]` | Pivot del DAG: sblocca tutti i GREY_BOX |
 | `1.3` | `["1.1", "1.2"]` | Riusa `jwt_forge.py` da `1.2` (da implementare in Milestone 2) |
-| `1.4` | `["1.1", "1.2"]` | |
+| `1.4` | `["1.1"]` | GREY_BOX — dipende da `1.1` per token; non richiede `jwt_tool` |
 | `1.5` | `[]` | WHITE_BOX — SKIP documentato in ambiente HTTP-only |
 | `1.6` | `[]` | WHITE_BOX — richiede Kong Admin API |
 | `2.1` | `["1.1", "1.2"]` | |
@@ -389,12 +389,14 @@ che dipendono da token validi.
 #### Batch di esecuzione risultanti
 
 **Batch 1** — nessuna dipendenza (eseguiti per primi):
-`0.1`, `0.2`, `0.3`, `1.1`, `1.5`, `1.6`, `3.3`, `4.1`, `4.2`, `4.3`,
-`6.2`, `6.4`, `7.2`
+test nativi: `0.1`, `0.2`, `0.3`, `1.1`, `1.5`, `1.6`, `3.3`, `4.1`, `4.2`, `4.3`,
+`6.2`, `6.4`, `7.2`; test esterni (ExternalTestRegistry): `ext.0.1`, `ext.1.5`.
 
 Questi test lavorano interamente sulla spec OpenAPI, fanno fuzzing su path,
 eseguono loop empirici o audit di configurazione. Nessuno richiede stato
-accumulato da test precedenti.
+accumulato da test precedenti. I test esterni non transitano per il DAGScheduler
+ma sono privi di dipendenze; vengono eseguiti nella stessa finestra temporale
+via ExternalTestRegistry (Phase R4).
 
 **Batch 2** — dipende solo da `1.1`:
 `1.2`, `5.2`, `6.3`
@@ -416,7 +418,7 @@ oscurare il flusso del test se lasciata inline.
 
 | Helper | Usato da | Giustificazione |
 |--------|----------|-----------------|
-| `helpers/auth.py` | `1.2` | Logica di login Forgejo, gestione token, scrittura nel `TestContext` — troppo complessa per stare inline |
+| `helpers/auth.py` | `1.4`, `1.6`, `7.2` (Milestone 1); `1.2` (Milestone 2) | Logica di login Forgejo, gestione token, scrittura nel `TestContext` — usato da tutti i test GREY_BOX e WHITE_BOX che chiamano `acquire_tokens()` |
 | `helpers/jwt_forge.py` | `1.2`, `1.3` | Da implementare in Milestone 2; condiviso tra due test dello stesso dominio |
 | `helpers/forgejo_resources.py` | `2.2`, `2.3`, `7.3` | Stesso pattern CRUD + teardown ripetuto in tre test di domini diversi |
 | `src/core/gateway/base.py` | `3.3`, `4.2`, `4.3`, `6.4`, `1.6` | `BaseGatewayAdapter` via `target.gateway` — astrazione del layer admin del gateway; stesso pattern usato da cinque test WHITE_BOX |
@@ -487,19 +489,21 @@ I `record_id` seguono il formato `{test_id}_{counter:03d}` (es. `1.2_001`, `1.2_
 - `add_fail_evidence(record)`: percorso obbligatorio per ogni transazione FAIL.
 - `pin_evidence(record)`: percorso opzionale per transazioni di setup che stabiliscono il contesto. Poiche `EvidenceRecord` e frozen, il pinning crea una copia immutabile via `model_copy(update={"is_pinned": True})` invece di mutare il record originale.
 
-Quando il buffer e pieno e un nuovo record arriva, il piu vecchio viene espulso automaticamente dalla deque (`O(1)`). Questo evento emette un `WARNING` esplicito nel log che nomina il `record_id` espulso — condizione da monitorare in assessment ad alto volume.
+L'architettura v2.0 e streaming JSONL: ogni test ha un file dedicato in `outputs/evidence_tmp/<test_id_safe>.jsonl`, aperto da `begin_test()`, scritto con flush immediato da `add_fail_evidence()` e `pin_evidence()`, chiuso da `end_test()`. In Phase 7, `merge_and_finalize()` legge tutti i file JSONL, li ordina per timestamp, e produce l'envelope `evidence.json` finale. Capacita illimitata: test 1.1 su un target con 100+ endpoint puo produrre centinaia di record FAIL senza perdita (la precedente v1.0 con `deque(maxlen=100)` li espelleva silenziosamente). Crash-resiliente: i file JSONL in `evidence_tmp/` sopravvivono a un kill tra Phase 5 e Phase 7.
 
-`get_by_id()` e una scansione lineare `O(n)`, chiamata solo durante la Fase 7 e mai nel hot path di esecuzione. `to_json_file()` ordina i record per `timestamp_utc` prima della serializzazione come misura difensiva contro eventuali inserimenti fuori ordine in una futura versione parallela.
+`get_by_id()` e una scansione lineare `O(n)` sull'ultimo buffer in memoria, chiamata solo durante la Fase 7. L'ordinamento cronologico e garantito da `merge_and_finalize()` che ordina i record di tutti i file per `timestamp_utc`.
 
 ### TargetContext vs TestContext
 
 **`TargetContext` (frozen):** tutto cio che e staticamente noto sul target prima che inizi l'esecuzione. Contiene `base_url` e `admin_api_url` come `AnyHttpUrl`, validati da Pydantic alla costruzione. Il campo `gateway` contiene il `BaseGatewayAdapter` istanziato da engine.py Phase 3 (o `None` se non configurato). Il computed field `admin_api_available` centralizza il controllo per l'eligibilita dei test WHITE_BOX, esprimendo **capacita** (`target.gateway is not None`) anziche **dettaglio implementativo** (`admin_api_url is not None`). I metodi `endpoint_base_url()` e `admin_endpoint_base_url()` esistono per risolvere un problema concreto: `AnyHttpUrl` di Pydantic v2 non e un `str`, e la concatenazione diretta produce artefatti con doppio slash. Il field `credentials` non deve mai apparire in log strutturati.
 
-**`TestContext` (mutable):** entrambi i campi (`_tokens`, `_resources`) sono `PrivateAttr` di Pydantic, esclusi dalla serializzazione e dalla validazione del modello. L'interfaccia tipizzata e l'unico modo di accedere a questi dati dall'esterno.
+**`TestContext` (mutable):** i tre campi privati (`_tokens`, `_resources`, `_shared_data`) sono `PrivateAttr` di Pydantic, esclusi dalla serializzazione e dalla validazione del modello. L'interfaccia tipizzata e l'unico modo di accedere a questi dati dall'esterno.
 
-Il token e memorizzato **senza** il prefisso `'Bearer '` — i test che costruiscono header `Authorization` devono aggiungerlo esplicitamente: `f"Bearer {context.get_token(ROLE_USER_A)}"`. `set_token()` solleva `ValueError` se il role o il token sono vuoti dopo lo strip, prevenendo token invalidi che causerebbero errori silenziosi nelle request successive.
+**Token channel:** `set_token(role, token)`, `get_token(role) -> str | None`, `has_token(role)`, `stored_roles()`. Il token e memorizzato **senza** il prefisso `'Bearer '` — i test che costruiscono header `Authorization` devono aggiungerlo esplicitamente: `f"Bearer {context.get_token(ROLE_USER_A)}"`. `set_token()` solleva `ValueError` se il role o il token sono vuoti dopo lo strip.
 
-`register_resource_for_teardown()` accetta un parametro opzionale `headers` per le risorse il cui endpoint DELETE richiede autenticazione esplicita. Il caso concreto e la cancellazione di token API Forgejo, che richiede Basic Auth del proprietario del token. `drain_resources()` restituisce una lista di 3-tuple `(method, path, headers)` — non 2-tuple — in ordine LIFO, e svuota il registro interno dopo il drain per prevenire double-delete su una seconda chiamata.
+**Teardown channel:** `register_resource_for_teardown(method, path, headers)`, `drain_resources()`. Accetta un parametro opzionale `headers` per le risorse il cui endpoint DELETE richiede autenticazione esplicita. `drain_resources()` restituisce una lista di 3-tuple `(method, path, headers)` in ordine LIFO e svuota il registro per prevenire double-delete.
+
+**Shared data channel:** `set_shared(key, value)`, `get_shared(key, default)`, `has_shared(key)`, `shared_keys()`. General-purpose per dati calcolati da un test e consumati da test con dipendenze dichiarate. Convenzione: chiave `"{test_id}.{data_name}"` per rendere esplicito il test produttore.
 
 ---
 
@@ -744,7 +748,11 @@ apiguard-assurance/
 |   |
 |   |-- config/                  # [Fase 1] Caricamento e validazione configurazione
 |   |   |-- loader.py            # Lettura, interpolazione env vars, validazione YAML
-|   |   +-- schema.py            # Schemi Pydantic per config.yaml (ToolConfig e sottoclassi)
+|   |   +-- schema/              # Schemi Pydantic per config.yaml — package per dominio
+|   |       |-- tool_config.py   # ToolConfig (gateway, execution, target sections)
+|   |       |-- tests_config.py  # RuntimeTestsConfig + RuntimeTest*Config
+|   |       |-- domain_0.py ... domain_7.py  # Parametri config per test di ciascun dominio
+|   |       +-- external_tools.py  # Re-export da core/models/external_tools.py
 |   |
 |   |-- core/                    # Layer fondamentale — nessuna dipendenza da altri layer src/
 |   |   |-- models/              # Vocabolario condiviso: package con facade __init__.py
@@ -779,20 +787,47 @@ apiguard-assurance/
 |   |   |   +-- test_0_3_deprecated_api_enforcement.py
 |   |   |
 |   |   |-- domain_1/            # Identity and Authentication
-|   |   |   +-- test_1_1_authentication_required.py
+|   |   |   |-- test_1_1_authentication_required.py
+|   |   |   |-- test_1_5_insecure_credential_transport.py
+|   |   |   +-- test_1_6_secure_session_management.py
 |   |   |
-|   |   |-- domain_2/ ... domain_7/   # Struttura pronta per i test futuri
+|   |   |-- domain_2/            # Authorization (placeholder — Milestone 2)
+|   |   |-- domain_3/            # Data Integrity
+|   |   |   +-- test_3_3_hmac_config_audit.py
+|   |   |
+|   |   |-- domain_4/            # Availability & Resilience
+|   |   |   |-- test_4_1_rate_limiting.py
+|   |   |   |-- test_4_2_timeout_config_audit.py
+|   |   |   +-- test_4_3_circuit_breaker_audit.py
+|   |   |
+|   |   |-- domain_5/            # Observability (placeholder — Milestone 2)
+|   |   |-- domain_6/            # Configuration & Hardening
+|   |   |   |-- test_6_2_security_headers_audit.py
+|   |   |   +-- test_6_4_hardcoded_credentials_audit.py
+|   |   |
+|   |   |-- domain_7/            # Business Logic & Sensitive Flows
+|   |   |   +-- test_7_2_ssrf_prevention.py
 |   |   |
 |   |   |-- helpers/             # Moduli condivisi tra test (non importati dal registry)
 |   |   |   |-- auth.py
+|   |   |   |-- auth_forgejo.py
+|   |   |   |-- auth_jwt_login.py
 |   |   |   |-- forgejo_resources.py
-|   |   |   |-- jwt_forge.py       (da implementare in Milestone 2)
 |   |   |   |-- path_resolver.py
 |   |   |   +-- response_inspector.py
 |   |   |
 |   |   +-- data/                # Payload di attacco riutilizzabili
+|   |       |-- auth_payloads.py
+|   |       |-- inspector_patterns.py
+|   |       |-- shadow_wordlists.py
 |   |       |-- ssrf_payloads.py
 |   |       +-- injection_payloads.py  (da implementare in Milestone 2)
+|   |
+|   |-- external_tests/          # [Fase 5] Test con tool esterni — gerarchia parallela a tests/
+|   |   |-- base.py              # ExternalToolTest ABC + dev-mode cache logic
+|   |   |-- registry.py          # ExternalTestRegistry (Phase R4: connector injection)
+|   |   |-- ext_test_0_1_shadow_api_nuclei.py
+|   |   +-- ext_test_1_5_tls_analysis.py
 |   |
 |   +-- report/                  # [Fase 7] Generazione del report finale
 |       |-- builder.py           # ResultSet -> ReportData (DTO, solo aggregazione, zero I/O)

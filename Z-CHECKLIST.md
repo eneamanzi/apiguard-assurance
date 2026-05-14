@@ -1,187 +1,300 @@
 # APIGuard — Checklist Stato Implementazione
 
-## Legenda Stati
+## Legenda
 
 | Simbolo | Significato |
 |---------|-------------|
-| `[TODO]` | Non ancora iniziato. |
-| `[WIP]`  | In corso. |
-| `[OK·C]` | Python **completo**, manca il Connector Cat A obbligatorio (test HYBRID non chiudibile senza). |
-| `[OK]`   | Completato al 100%. |
+| `[x]`   | Complete: NATIVE/Python code done (Cat B never blocks this), OR HYBRID with **all** planned Cat A connectors implemented. |
+| `[~]`   | HYBRID with **at least one** representative Cat A connector done, but additional planned connectors deferred to M2. |
+| `[ ]`   | Not yet started or incomplete. |
 
-**Legenda checkbox milestone:**
+Cat B connectors never influence the symbol — they are always optional enhancements.
 
-| Checkbox | Significato |
-|----------|-------------|
-| `[ ]` | Test non ancora avviato o incompleto. |
-| `[~]` | Python completo. Test **NATIVE+OPT**: funziona già, il Cat B aggiungerebbe copertura ma non è bloccante. Può essere consegnato così. |
-| `[x]` | Test **NATIVE** al 100%, oppure **HYBRID** con tutti i connector Cat A pronti. |
+**`ext.X.X` naming convention:** any test implemented via an external connector gets the `ext.` prefix. Native tests (`BaseTest` subclasses) never carry it.
 
 ---
 
-## MILESTONE 1 — Infrastruttura & No-Auth
-*Test eseguibili senza autenticazione. Validano la pipeline end-to-end.*
+## Tests Overview
 
-- [ ] **0.1** `[HYBRID]` Shadow API Discovery `[OK·C]`
-- [x] **1.1** `[NATIVE]` Auth Required `[OK]`
-- [ ] **1.5** `[HYBRID]` Insecure Transport (TLS) `[OK·C]`
-- [ ] **4.1** `[HYBRID]` Rate Limiting `[OK·C]`
-- [ ] **7.2** `[HYBRID]` SSRF Prevention `[OK·C]`
-
-## MILESTONE 2 — Identità & Hybrid Tooling
-*Auth Abstraction Layer e integrazione tool specialistici.*
-
-- [ ] **1.2** `[HYBRID]` JWT Cryptographic Validity `[TODO]`
-- [ ] **1.3** `[HYBRID]` Credentials Not Expired `[TODO]`
-- [ ] **3.1** `[HYBRID]` Input Validation (Injection) `[TODO]`
-- [ ] **6.3** `[HYBRID]` Gateway Layer-7 Hardening `[TODO]`
-- [ ] **7.3** `[HYBRID]` Race Condition `[TODO]`
-- [ ] **7.4** `[HYBRID]` Unsafe Ext. Consumption `[TODO]`
-
-## MILESTONE 3 — Business Logic, White Box & Hardening
-*Audit configurazione Gateway e flussi applicativi complessi.*
-
-- [~] **0.2** `[NATIVE+OPT]` Deny-by-Default `[OK]` *(cherrybomb Cat B disponibile)*
-- [~] **0.3** `[NATIVE+OPT]` Deprecated API Enforcement `[OK]` *(oasdiff Cat B disponibile)*
-- [ ] **1.4** `[NATIVE]` Token Revocation `[TODO]`
-- [x] **1.6** `[NATIVE]` Session Management `[OK]`
-- [ ] **2.1** `[NATIVE]` RBAC Endpoint Privilege `[TODO]`
-- [ ] **2.2** `[NATIVE+OPT]` BOLA Prevention `[TODO]`
-- [ ] **2.3** `[NATIVE+OPT]` Destructive Ops Privilege `[TODO]`
-- [ ] **2.4** `[NATIVE]` Auth Policy Consistency `[TODO]`
-- [ ] **2.5** `[NATIVE]` Excessive Data Exposure `[TODO]`
-- [x] **3.3** `[NATIVE]` HMAC Config Audit `[OK]`
-- [x] **4.2** `[NATIVE]` Timeout Config `[OK]`
-- [x] **4.3** `[NATIVE]` Circuit Breaker `[OK]`
-- [ ] **5.1** `[NATIVE]` Audit Logging `[TODO]` *(⚠ richiede log aggregator nel Docker setup)*
-- [ ] **5.2** `[NATIVE]` Real-Time Alerts `[TODO]` *(⚠ richiede sistema di alerting configurato)*
-- [ ] **6.1** `[NATIVE]` Error Handling `[TODO]`
-- [x] **6.2** `[NATIVE]` Security Headers `[OK]`
-- [~] **6.4** `[NATIVE+OPT]` Hardcoded Credentials `[OK]` *(trufflehog/gitleaks Cat B disponibili)*
-- [ ] **7.1** `[NATIVE]` Anti-Automation `[TODO]`
-
----
-
-## Riepilogo Connettori
-
-### Categoria A — HYBRID (Bloccanti e Obbligatori)
-*Senza di essi il test associato non produce evidenza valida.*
-
-> **Changelog decisioni v2:**
-> `kiterunner` rimosso (abbandonato) → `ffuf` promosso da Cat B.
-> `crlfuzz` rimosso (abbandonato, inattivo dal 2021) → copertura CRLF delegata a template Nuclei `crlf-injection`.
-> `smuggler` rimosso (nessuna release ufficiale) → sostituito da connector Python `raw sockets` per pattern CL.TE / TE.CL.
-> `race-the-web` rimosso (abbandonato) → `vegeta` copre sia 4.1 (volume) che 7.3 (last-byte sync).
-> `jwtXploiter` rimosso (5 anni senza manutenzione) → `jwt_tool` copre già le stesse varianti.
-> `Gopherus` rimosso (abbandonato) → copertura payload Gopher delegata a template Nuclei categoria `ssrf`.
-
-| Connector | Versione Pinnata | Tipo | Test Impattati | Motivazione presenza in Cat A |
-|---|---|---|---|---|
-| **nuclei** | `3.8.0` | Subprocess | 0.1, 3.1, 7.2 | Template vulnerability engine, aggiornamenti community. Copre anche CRLF (ex-crlfuzz) e payload Gopher SSRF (ex-Gopherus). |
-| **interactsh** | `1.3.1` | Subprocess | 7.2, 7.4 | Server OOB per SSRF blind — non sostituibile con Python puro. |
-| **jwt_tool** | `2.3.0` | Subprocess | 1.2, 1.3 | 15+ attacchi CVE-specific (kid SQL, Psychic Sig ECDSA, alg:none); flag `--exp` per claim arbitrari su 1.3. Copre il perimetro di ex-jwtXploiter. |
-| **ffuf** | `2.1.0` | Subprocess | 0.1 | Wordlist API 30k+ path (SecLists `API-endpoints.txt`); output JSON nativo `-of json`; negoziazione metodi REST. **Promosso da Cat B** in sostituzione di kiterunner. |
-| **katana** | `1.6.1` | Subprocess | 0.1 | Crawling headless e parsing AST bundle JavaScript; scopre endpoint dinamici non raggiungibili da wordlist statiche. |
-| **testssl.sh** | `3.2.3` | Subprocess | 1.5 | Analisi TLS completa (20+ CVE, cipher suite, Certificate Transparency). Output JSON strutturato via `--jsonfile`. |
-| **schemathesis** | `4.18.1` | Library | 3.1 | Property-based fuzzing da schema OpenAPI (Hypothesis engine). Genera automaticamente casi limite da vincoli di schema. |
-| **vegeta** | `12.13.0` | Subprocess | 4.1, 7.3 | Rate generation preciso in Go; elimina il GIL jitter di Python sotto carico. `--max-connections` + `-rate=0` abilita last-byte sync per race condition (7.3). **Sostituisce race-the-web**. |
-
-> **Nota connector 3.1 — copertura CRLF:** crlfuzz operava a livello raw socket bypassando la normalizzazione RFC 7230 applicata da `httpx`. I template Nuclei `crlf-injection` usano lo stesso approccio raw TCP e producono evidenza equivalente. **Pre-requisito:** verificare la presenza del tag `crlf-injection` nel bundle `nuclei-templates 10.4.3` prima dell'esecuzione del test 3.1.
-
-> **Nota connector 6.3 — HTTP Request Smuggling:** il connector per il test 6.3 è implementato interamente in Python con `socket` della stdlib per i pattern **CL.TE** e **TE.CL** classici (RFC 9110 §9.3.3). Non dipende da binari esterni. Questo approccio ha valore dimostrativo diretto nella tesi: il codice del connector rende leggibile il meccanismo dell'attacco. `http2smugl` è disponibile in Cat B come estensione per coprire i pattern H2 downgrade smuggling qualora il target esponga HTTP/2.
-
-> **Nota connector 7.2 — copertura Gopher SSRF:** i template Nuclei nella categoria `ssrf` e `network` della versione pinnata coprono SSRF verso Redis, MySQL e SMTP tramite payload Gopher. **Pre-requisito:** verificare la presenza di template `ssrf-via-gopher-*` nel bundle `nuclei-templates 10.4.3` prima dell'esecuzione del test 7.2.
-
-> **Nota connector 7.3 — race condition con vegeta:** `vegeta` con flag `-rate=0 -max-workers=N` lancia N goroutine in parallelo con sincronizzazione last-byte. L'output JSON include `status_codes`, `latencies` e `bytes_in`; il connector analizza le response anomale (es. doppio 200 su operazione che dovrebbe consentirne uno solo) per rilevare race condition su inventory e withdrawal.
+| ID | Milestone | Status |
+|----|-----------|--------|
+| 0.1 | M1 | [x] |
+| ext.0.1 | M1 | [~] |
+| 0.2 | M1 | [x] |
+| 0.3 | M1 | [x] |
+| 1.1 | M1 | [x] |
+| 1.4 | M1 | [ ] |
+| 1.5 | M1 | [x] |
+| ext.1.5 | M1 | [x] |
+| 1.6 | M1 | [x] |
+| 3.3 | M1 | [x] |
+| 4.1 | M1 | [x] |
+| 4.2 | M1 | [x] |
+| 4.3 | M1 | [x] |
+| 6.2 | M1 | [x] |
+| 6.4 | M1 | [x] |
+| 7.2 | M1 | [x] |
+| ext.0.1 ffuf | M2 | [ ] |
+| ext.0.1 katana | M2 | [ ] |
+| 1.2 | M2 | [ ] |
+| ext.1.2 | M2 | [ ] |
+| 1.3 | M2 | [ ] |
+| ext.1.3 | M2 | [ ] |
+| 2.1 | M2 | [ ] |
+| 2.2 | M2 | [ ] |
+| 2.3 | M2 | [ ] |
+| 2.4 | M2 | [ ] |
+| 2.5 | M2 | [ ] |
+| 3.1 | M2 | [ ] |
+| ext.3.1 | M2 | [ ] |
+| ext.4.1 | M2 | [ ] |
+| 5.1 | M2 | [ ] |
+| 5.2 | M2 | [ ] |
+| 6.3 | M2 | [ ] |
+| ext.6.3 | M2 | [ ] |
+| ext.7.2 | M2 | [ ] |
+| 7.3 | M2 | [ ] |
+| ext.7.3 | M2 | [ ] |
+| 7.4 | M2 | [ ] |
+| ext.7.4 | M2 | [ ] |
 
 ---
 
-### Categoria B — Opzionali (Estensioni per Test NATIVE)
-*Il test funziona già. Il connector espande la superficie di rilevamento.*
+## MILESTONE 1 — Pre-Thesis Writing
 
-| Connector | Versione | Stato | Tipo | Test Impattati | Valore aggiunto |
-|---|---|---|---|---|---|
-| **cherrybomb** | `1.0.1` | `[TODO]` | Subprocess | 0.2, 2.2 | SAST su OpenAPI spec (analisi statica pre-fuzzing). Ultimo commit 2 anni fa: valutare stabilità prima dell'integrazione. |
-| **OFFAT** | `0.19.4` | `[TODO]` | Subprocess | 2.2, 2.3 | Generazione automatica test IDOR/DELETE da spec OpenAPI. Preferibile a cherrybomb per i test di autorizzazione. |
-| **oasdiff** | `1.15.3` | `[TODO]` | Subprocess | 0.3 | Diff semantico tra versioni spec; gestisce edge case `$ref` / `allOf` non coperti dal parser interno. |
-| **trufflehog** | `3.95.2` | `[TODO]` | Subprocess | 6.4 | 800+ regex secret pattern mantenute dalla community. |
-| **gitleaks** | `8.30.1` | `[TODO]` | Subprocess | 6.4 | Scansione commit history — angolazione versionamento. |
-| **detect-secrets** | `1.5.0` | `[TODO]` | Library | 6.4 | Plugin architecture; integrabile come pre-commit hook. |
-| **gau** | `2.2.4` | `[TODO]` | Subprocess | 0.1 | Mining storico passivo di URL (Wayback Machine, Common Crawl). Complementare a ffuf per endpoint non più in produzione ma ancora raggiungibili. |
-| **sslyze** | `6.3.1` | `[TODO]` | Library | 1.5 | Fallback Python puro a testssl.sh; zero dipendenze binarie. Utile in ambienti dove testssl.sh non è installabile. |
-| **http2smugl** | latest stable | `[TODO]` | Subprocess | 6.3 | Copertura HTTP/2 downgrade smuggling. Promovibile a Cat A se il target espone H2. |
+**Scope.** Tests selected for architectural property demonstration value.
+Selection criterion: which test provides the most concrete and verifiable evidence for the
+architectural claims in `docs/apiguard_property.md`. Security coverage is secondary.
+
+### Domain 0 — API Discovery & Inventory
+
+| ID | Type | Status | Strategy / Priority | Key Properties |
+|----|------|--------|---------------------|----------------|
+| 0.1 | NATIVE+OPT | [x] | BLACK_BOX / P0 | P01, P05 |
+| ext.0.1 | HYBRID / nuclei | [~] | BLACK_BOX / P0 | P07, P08, P09, P10, P24, P25 |
+| 0.2 | NATIVE+OPT | [x] | BLACK_BOX / P0 | P01 |
+| 0.3 | NATIVE+OPT | [x] | BLACK_BOX / P0 | P01 |
+
+Files: `src/external_tests/ext_test_0_1_shadow_api_nuclei.py`, `src/connectors/nuclei.py`
+
+### Domain 1 — Identity & Authentication
+
+| ID | Type | Status | Strategy / Priority | Key Properties |
+|----|------|--------|---------------------|----------------|
+| 1.1 | NATIVE | [x] | BLACK_BOX / P0 | P01, P06-PhaseA, P11, P31, P32, P35 |
+| 1.4 | NATIVE | **[ ]** | GREY_BOX / P2 | P04, P06-PhaseB, P19, P21, P33 |
+| 1.5 | NATIVE | [x] | WHITE_BOX / P2 | P21 |
+| ext.1.5 | HYBRID / testssl | [x] | WHITE_BOX / P2 | P07, P08, P09, P10, P21, P25 |
+| 1.6 | NATIVE | [x] | WHITE_BOX / P3 | P19, P21 |
+
+Files: `src/external_tests/ext_test_1_5_tls_analysis.py`, `src/connectors/testssl.py`
+
+### Domain 3 — Data Integrity
+
+| ID | Type | Status | Strategy / Priority | Key Properties |
+|----|------|--------|---------------------|----------------|
+| 3.3 | NATIVE | [x] | WHITE_BOX / P3 | P18, P15 |
+
+### Domain 4 — Availability & Resilience
+
+| ID | Type | Status | Strategy / Priority | Key Properties |
+|----|------|--------|---------------------|----------------|
+| 4.1 | NATIVE+OPT | [x] | BLACK_BOX / P0 | P31 |
+| 4.2 | NATIVE | [x] | WHITE_BOX / P1 | P18, P15 |
+| 4.3 | NATIVE | [x] | WHITE_BOX / P1 | P18, P23, P15 |
+
+### Domain 6 — Configuration & Hardening
+
+| ID | Type | Status | Strategy / Priority | Key Properties |
+|----|------|--------|---------------------|----------------|
+| 6.2 | NATIVE | [x] | WHITE_BOX / P3 | P21, P26 |
+| 6.4 | NATIVE+OPT | [x] | WHITE_BOX / P2 | P18, P32 |
+
+### Domain 7 — Business Logic & Sensitive Flows
+
+| ID | Type | Status | Strategy / Priority | Key Properties |
+|----|------|--------|---------------------|----------------|
+| 7.2 | NATIVE+OPT | [x] | GREY_BOX / P0 | P21, P32 |
 
 ---
 
-## DAG di Esecuzione a Runtime
+### DAG State After Milestone 1 Completion
 
-| Fase | Test |
-|------|------|
-| **A — No Dipendenze** | 0.1, 0.2, 0.3, 1.1, 1.5, 1.6, 3.3, 4.1, 4.2, 4.3, 6.2, 6.4, 7.2 |
-| **B — Auth (requires 1.1)** | 1.2, 1.3, 1.4, 5.2, 6.3 |
-| **C — Multi-Stato (requires 1.2)** | 2.1, 2.2, 2.3, 2.4, 2.5, 3.1, 5.1, 6.1, 7.1, 7.3, 7.4 |
+| Phase | Tests |
+|-------|-------|
+| **A — No Dependencies** | 0.1, ext.0.1, 0.2, 0.3, 1.1, 1.5, ext.1.5, 1.6, 3.3, 4.1, 4.2, 4.3, 6.2, 6.4, 7.2 |
+| **B — requires 1.1** | **1.4** |
+
+Phase C (requires ext.1.2 / jwt_tool connector) → Milestone 2.
+
+### Strategy Coverage
+
+| Strategy | Tests |
+|----------|-------|
+| BLACK_BOX | 0.1, ext.0.1, 0.2, 0.3, 1.1, 4.1 |
+| GREY_BOX | 7.2, **1.4** |
+| WHITE_BOX | 1.5, ext.1.5, 1.6, 3.3, 4.2, 4.3, 6.2, 6.4 |
 
 ---
 
-## Dettaglio per Dominio
+## MILESTONE 2 — Future Work (Thesis Chapter)
 
-### DOMINIO 0 — API Discovery
-| ID | Strategy | Test Name | Milestone | Task Attivi |
-|---|---|---|---|---|
-| 0.1 | HYBRID | Shadow API Discovery | **1** | `test_0_1_shadow_api.py` → Connector Cat A: `ffuf` (ex-kiterunner), `katana`, `nuclei` |
-| 0.2 | NATIVE+OPT | Deny-by-Default | **3** | `test_0_2_deny_by_default.py` → Connector Cat B: `cherrybomb` |
-| 0.3 | NATIVE+OPT | Deprecated API Enforcement | **3** | `test_0_3_deprecated_api.py` → Connector Cat B: `oasdiff` |
+Research-grounded extensions mapped to architectural extension points already in the design.
+Not omissions — honest scope decisions for the July deadline.
 
-### DOMINIO 1 — Identità e Autenticazione
-| ID | Strategy | Test Name | Milestone | Task Attivi |
-|---|---|---|---|---|
-| 1.1 | NATIVE | Auth Required | **1** | `test_1_1_auth_required.py` |
-| 1.2 | HYBRID | JWT Cryptographic Validity | **2** | `ext_test_1_2_jwt_validity.py` → Connector Cat A: `jwt_tool` |
-| 1.3 | HYBRID | Credentials Not Expired | **2** | `ext_test_1_3_jwt_expiry.py` → Connector Cat A: `jwt_tool` (istanza condivisa con 1.2) |
-| 1.4 | NATIVE | Token Revocation | **3** | `test_1_4_token_revocation.py` |
-| 1.5 | HYBRID | Insecure Transport (TLS) | **1** | `ext_test_1_5_tls_analysis.py` → Connector Cat A: `testssl.sh`; Cat B fallback: `sslyze` |
-| 1.6 | NATIVE | Session Management | **3** | `test_1_6_session_mgmt.py` |
+### Domain 0 — Shadow API Discovery (extended tooling)
 
-### DOMINIO 2 — Autorizzazione e Controllo Accessi
-| ID | Strategy | Test Name | Milestone | Task Attivi |
-|---|---|---|---|---|
-| 2.1 | NATIVE | RBAC Endpoint Privilege | **3** | `test_2_1_rbac_privilege.py` |
-| 2.2 | NATIVE+OPT | BOLA Prevention | **3** | `test_2_2_bola_prevention.py` → Connector Cat B: `OFFAT`, `cherrybomb` |
-| 2.3 | NATIVE+OPT | Destructive Ops Privilege | **3** | `test_2_3_destructive_ops.py` → Connector Cat B: `OFFAT` |
-| 2.4 | NATIVE | Auth Policy Consistency | **3** | `test_2_4_policy_consistency.py` |
-| 2.5 | NATIVE | Excessive Data Exposure | **3** | `test_2_5_data_exposure.py` |
+| ID | Type | Status | Strategy | Notes |
+|----|------|--------|----------|-------|
+| ext.0.1 ffuf | HYBRID / ffuf | [ ] | BLACK_BOX | `FfufConnector` — wordlist path fuzzing; demonstrates connector reusability across tools for same domain |
+| ext.0.1 katana | HYBRID / katana | [ ] | BLACK_BOX | `KatanaConnector` — headless crawling for JS-rendered endpoints (vs static wordlist) |
 
-### DOMINIO 3 — Integrità dei Dati
-| ID | Strategy | Test Name | Milestone | Task Attivi |
-|---|---|---|---|---|
-| 3.1 | HYBRID | Input Validation (Injection) | **2** | `ext_test_3_1_injection.py` → Connector Cat A: `schemathesis`, `nuclei` (CRLF via template `crlf-injection`; crlfuzz rimosso — vedi nota) |
-| 3.3 | NATIVE | HMAC Config Audit | **3** | `test_3_3_hmac_config.py` |
+### Domain 1 — JWT & Credential Lifecycle
 
-### DOMINIO 4 — Disponibilità e Resilienza
-| ID | Strategy | Test Name | Milestone | Task Attivi |
-|---|---|---|---|---|
-| 4.1 | HYBRID | Rate Limiting | **1** | `test_4_1_rate_limiting.py` → Connector Cat A: `vegeta` |
-| 4.2 | NATIVE | Timeout Config | **3** | `test_4_2_timeout_config.py` → usa `target.gateway` (`BaseGatewayAdapter`) |
-| 4.3 | NATIVE | Circuit Breaker | **3** | `test_4_3_circuit_breaker.py` → usa `target.gateway` (`BaseGatewayAdapter`) |
+| ID | Type | Status | Strategy | Notes |
+|----|------|--------|----------|-------|
+| 1.2 | NATIVE | [ ] | BLACK_BOX | Basic JWT structure validation; `depends_on=["1.1"]` |
+| ext.1.2 | HYBRID / jwt_tool | [ ] | BLACK_BOX | Crypto-level JWT check via jwt_tool; blocked by jwt_tool Cat A |
+| 1.3 | NATIVE | [ ] | BLACK_BOX | Credential expiry check; `depends_on=["1.1"]` |
+| ext.1.3 | HYBRID / jwt_tool | [ ] | BLACK_BOX | Shares jwt_tool with ext.1.2 (P10 connector sharing); blocked by jwt_tool Cat A |
 
-### DOMINIO 5 — Visibilità e Auditing
-| ID | Strategy | Test Name | Milestone | Task Attivi |
-|---|---|---|---|---|
-| 5.1 | NATIVE | Audit Logging | **3** | `test_5_1_audit_logging.py` ⚠ richiede log aggregator nel Docker setup |
-| 5.2 | NATIVE | Real-Time Alerts | **3** | `test_5_2_alerts.py` ⚠ richiede sistema di alerting configurato |
+### Domain 2 — Authorization (Phase C — requires 1.2)
 
-### DOMINIO 6 — Configurazione e Hardening
-| ID | Strategy | Test Name | Milestone | Task Attivi |
-|---|---|---|---|---|
-| 6.1 | NATIVE | Error Handling | **3** | `test_6_1_error_handling.py` |
-| 6.2 | NATIVE | Security Headers | **3** | `test_6_2_security_headers.py` |
-| 6.3 | HYBRID | Gateway Layer-7 Hardening | **2** | `ext_test_6_3_smuggling.py` → Connector: Python `raw sockets` stdlib (CL.TE / TE.CL); Cat B: `http2smugl` per H2 |
-| 6.4 | NATIVE+OPT | Hardcoded Credentials | **3** | `test_6_4_hardcoded_creds.py` → Connector Cat B: `trufflehog`, `gitleaks`, `detect-secrets` |
+| ID | Type | Status | Strategy | Notes |
+|----|------|--------|----------|-------|
+| 2.1 | NATIVE | [ ] | GREY_BOX | Canonical multi-role demo; ROLE_ADMIN + ROLE_USER_A + ROLE_USER_B (P04, P19) |
+| 2.2 | NATIVE+OPT | [ ] | GREY_BOX | Cat B: OFFAT, cherrybomb |
+| 2.3 | NATIVE+OPT | [ ] | GREY_BOX | Cat B: OFFAT |
+| 2.4 | NATIVE | [ ] | GREY_BOX | — |
+| 2.5 | NATIVE | [ ] | GREY_BOX | — |
 
-### DOMINIO 7 — Business Logic e Flussi Sensibili
-| ID | Strategy | Test Name | Milestone | Task Attivi |
-|---|---|---|---|---|
-| 7.1 | NATIVE | Anti-Automation | **3** | `test_7_1_anti_automation.py` |
-| 7.2 | HYBRID | SSRF Prevention | **1** | `test_7_2_ssrf_prevention.py` → Connector Cat A: `nuclei` (incl. Gopher via template; Gopherus rimosso), `interactsh` |
-| 7.3 | HYBRID | Race Condition | **2** | `ext_test_7_3_race_condition.py` → Connector Cat A: `vegeta` (istanza condivisa con 4.1; race-the-web rimosso) |
-| 7.4 | HYBRID | Unsafe Ext. Consumption | **2** | `ext_test_7_4_unsafe_consumption.py` → Connector Cat A: `interactsh` |
+### Domain 3 — Injection
+
+| ID | Type | Status | Strategy | Notes |
+|----|------|--------|----------|-------|
+| 3.1 | NATIVE | [ ] | BLACK_BOX | Basic input validation checks |
+| ext.3.1 | HYBRID / schemathesis | [ ] | BLACK_BOX | `schemathesis` BaseLibraryConnector (P08 tier not in M1) + nuclei CRLF templates |
+
+### Domain 4 — Rate Limiting Extended
+
+| ID | Type | Status | Strategy | Notes |
+|----|------|--------|----------|-------|
+| ext.4.1 | HYBRID / vegeta | [ ] | BLACK_BOX | `VegetaConnector` — precise load + last-byte-sync; shared with 7.3 (P10) |
+
+### Domain 5 — Observability
+
+| ID | Type | Status | Strategy | Notes |
+|----|------|--------|----------|-------|
+| 5.1 | NATIVE | [ ] | WHITE_BOX | ⚠ Needs log aggregator (Elasticsearch/Loki) in Docker setup |
+| 5.2 | NATIVE | [ ] | WHITE_BOX | ⚠ Needs alerting system (Alertmanager/PagerDuty mock) |
+
+### Domain 6 — HTTP Request Smuggling
+
+| ID | Type | Status | Strategy | Notes |
+|----|------|--------|----------|-------|
+| 6.3 | NATIVE | [ ] | BLACK_BOX | Basic HTTP request smuggling detection |
+| ext.6.3 | HYBRID / tcp-socket | [ ] | BLACK_BOX | Raw TCP socket (stdlib) for CL.TE/TE.CL — 3rd P08 connector tier (not subprocess, not library). Cat B: http2smugl |
+
+### Domain 7 — Race Condition, Unsafe Consumption, SSRF Extended
+
+| ID | Type | Status | Strategy | Notes |
+|----|------|--------|----------|-------|
+| ext.7.2 | HYBRID / nuclei+interactsh | [ ] | GREY_BOX | nuclei SSRF templates + `InteractshConnector` OOB; extends native 7.2 with blind SSRF |
+| 7.3 | NATIVE | [ ] | GREY_BOX | Race condition detection; `depends_on=["1.1"]` |
+| ext.7.3 | HYBRID / vegeta | [ ] | GREY_BOX | vegeta shared with ext.4.1 (P10 cross-domain); `depends_on=["1.1"]` |
+| 7.4 | NATIVE | [ ] | GREY_BOX | Unsafe external consumption; `depends_on=["1.1"]` |
+| ext.7.4 | HYBRID / interactsh | [ ] | GREY_BOX | interactsh stateful OOB; extends P07; `depends_on=["1.1"]` |
+
+---
+
+## Connectors
+
+### Cat A — Implemented (Milestone 1)
+
+| Connector | Pinned Version | Type | Used by |
+|-----------|---------------|------|---------|
+| **nuclei** | `3.8.0` / templates `10.4.3` | Subprocess | ext.0.1 |
+| **testssl.sh** | `3.2.x` | Subprocess | ext.1.5 |
+
+Source: `src/connectors/nuclei.py` + `src/connectors/testssl.py` — both fully implemented.
+
+### Cat A — Not Yet Implemented (Milestone 2)
+
+| Connector | Pinned Version | Type | Tests | Notes |
+|-----------|---------------|------|-------|-------|
+| **jwt_tool** | `2.3.0` | Subprocess | ext.1.2, ext.1.3 | Unlocks all Phase C tests |
+| **ffuf** | `2.1.0` | Subprocess | ext.0.1 ffuf | — |
+| **katana** | `1.6.1` | Subprocess | ext.0.1 katana | — |
+| **vegeta** | `12.13.0` | Subprocess | ext.4.1, ext.7.3 | last-byte-sync for race condition |
+| **interactsh** | `1.3.1` | Subprocess | ext.7.2, ext.7.4 | OOB server for blind SSRF/consumption |
+| **schemathesis** | `4.18.1` | Library | ext.3.1 | BaseLibraryConnector tier demo |
+
+### Cat B — All Deferred (Milestone 2)
+
+| Connector | For | Value |
+|-----------|-----|-------|
+| cherrybomb | 0.2, 2.2 | SAST on OpenAPI spec |
+| OFFAT | 2.2, 2.3 | Auto-generation of IDOR/DELETE tests from spec |
+| oasdiff | 0.3 | Semantic diff between spec versions; handles `$ref`/`allOf` edge cases |
+| trufflehog | 6.4 | 800+ community-maintained secret regex patterns |
+| gitleaks | 6.4 | Commit history scanning |
+| detect-secrets | 6.4 | Python library; pre-commit hook integration |
+| gau | 0.1 | Passive URL mining (Wayback Machine, Common Crawl) |
+| sslyze | 1.5 | Pure-Python TLS fallback (BaseLibraryConnector) when testssl.sh unavailable |
+| http2smugl | ext.6.3 | H2 downgrade smuggling coverage (Cat B until target exposes HTTP/2) |
+
+> **Connector decision log:**
+> `kiterunner` removed (abandoned) → `ffuf` promoted from Cat B.
+> `crlfuzz` removed (abandoned) → CRLF coverage via nuclei template `crlf-injection`.
+> `smuggler` removed (no official release) → raw socket Python connector for CL.TE / TE.CL.
+> `race-the-web` removed (abandoned) → `vegeta` covers 4.1 (volume) and 7.3 (last-byte sync).
+> `jwtXploiter` removed (5 years unmaintained) → `jwt_tool` covers same attack variants.
+> `Gopherus` removed (abandoned) → Gopher SSRF payload coverage via nuclei templates.
+
+---
+
+## TODO — Milestone 1 Remaining Tasks
+
+### 1.4 Token Revocation `(NATIVE, GREY_BOX/P2)`
+
+1. Acquire ADMIN token via `acquire_tokens()`
+2. Call `DELETE /api/v1/users/{user}/tokens/{name}`
+3. Re-attempt authenticated request with the revoked token
+4. PASS if 401/403, FAIL if 2xx
+
+Engine: add `RuntimeTest14Config` in `engine.py` Phase 3 (standard procedure for any new test).
+DAG: `depends_on = ["1.1"]` — places this test in Phase B.
+
+---
+
+### 2.1 RBAC Endpoint Privilege `(NATIVE, GREY_BOX/P2)` — implement after 1.4
+
+1. Acquire tokens for ROLE_ADMIN, ROLE_USER_A, ROLE_USER_B via `acquire_tokens()`
+2. Identify admin-only endpoints from `target.attack_surface`
+3. Probe each with ROLE_USER_A token
+4. PASS if 403 on all, FAIL if any returns 2xx
+
+Engine: add `RuntimeTest21Config` in `engine.py` Phase 3.
+DAG: `depends_on = ["1.1"]` — Phase B (does not require jwt_tool; authorization check is orthogonal to JWT crypto).
+Note: once implemented, move from M2 → M1 in this checklist and update Overview table.
+
+---
+
+### ext.1.5 sslyze `(HYBRID / sslyze, WHITE_BOX/P2)` — implement after 2.1
+
+Independent TLS evaluation alongside ext.1.5 (testssl.sh) — both run, both produce results.
+Not a fallback: two tools, two connector tiers, same property verified from different angles.
+
+**File:** `src/external_tests/ext_test_1_5_tls_analysis.py` (existing — add second class, update module docstring).
+**New class:** `ExtTest15SslyzeAnalysis(ExternalToolTest)` alongside the existing `ExtTest15TlsAnalysis`.
+The registry discovers both automatically via subclass scan — no registration needed.
+
+1. Create `SslyzeConnector(BaseLibraryConnector)` in `src/connectors/sslyze.py`
+2. Add `ExtTest15SslyzeAnalysis` to `ext_test_1_5_tls_analysis.py`: `test_id = "ext.1.5 sslyze"`, `tool_name = "sslyze"`
+3. `_evaluate()` maps sslyze scan results to the same PASS/FAIL oracle as `ExtTest15TlsAnalysis`
+4. Update module docstring to describe both classes and their relationship
+5. Both results appear independently in the report for Domain 1
+
+Architectural value: first concrete `BaseLibraryConnector` implementation — closes P08 Tier 3 empirically in M1.
+Connector: promote `sslyze` from Cat B → Cat A; update connector tables accordingly.
+Note: once implemented, add `ext.1.5 sslyze` to M1 Domain 1 table and Overview.

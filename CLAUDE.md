@@ -66,10 +66,10 @@ src/
 │   │                        # path_resolver, response_inspector
 │   ├── domain_0/            # test_0_1, test_0_2, test_0_3
 │   ├── domain_1/            # test_1_1, test_1_5, test_1_6
-│   ├── domain_2/            # (placeholder — Milestone 3)
+│   ├── domain_2/            # (placeholder — Milestone 2)
 │   ├── domain_3/            # test_3_3
 │   ├── domain_4/            # test_4_1, test_4_2, test_4_3
-│   ├── domain_5/            # (placeholder — Milestone 3)
+│   ├── domain_5/            # (placeholder — Milestone 2)
 │   ├── domain_6/            # test_6_2, test_6_4
 │   └── domain_7/            # test_7_2
 └── report/
