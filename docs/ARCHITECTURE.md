@@ -390,7 +390,7 @@ che dipendono da token validi.
 
 **Batch 1** — nessuna dipendenza (eseguiti per primi):
 test nativi: `0.1`, `0.2`, `0.3`, `1.1`, `1.5`, `1.6`, `3.3`, `4.1`, `4.2`, `4.3`,
-`6.2`, `6.4`, `7.2`; test esterni (ExternalTestRegistry): `ext.0.1`, `ext.1.5`.
+`6.2`, `6.4`, `7.2`; test esterni (ExternalTestRegistry): `ext.0.1.nuclei`, `ext.1.5.testssl`, `ext.1.5.sslyze`.
 
 Questi test lavorano interamente sulla spec OpenAPI, fanno fuzzing su path,
 eseguono loop empirici o audit di configurazione. Nessuno richiede stato
@@ -717,17 +717,37 @@ Tutte le eccezioni custom del tool sono definite in `src/core/exceptions.py`.
 
 ```
 ToolBaseError
-  |-- ConfigurationError    -> Fase 1: config invalido o var env mancante [BLOCCA AVVIO]
-  |-- OpenAPILoadError      -> Fase 2: spec irraggiungibile o malformata  [BLOCCA AVVIO]
-  |-- DAGCycleError         -> Fase 4: dipendenza circolare tra test      [BLOCCA AVVIO]
-  |-- SecurityClientError   -> Fase 5: errore HTTP non recuperabile       [-> TestResult(ERROR)]
-  |-- GatewayAdapterError   -> Fase 5, WHITE_BOX tests (src/core/gateway/base.py)
-  |                           fields: path, status_code
-  |                           -> catturato in execute() -> TestResult(ERROR)
-  +-- TeardownError         -> Fase 6: fallimento cancellazione risorsa   [WARNING, non propagata]
+  |-- ConfigurationError       -> Fase 1: config invalido o var env mancante [BLOCCA AVVIO]
+  |-- OpenAPILoadError         -> Fase 2: spec irraggiungibile o malformata  [BLOCCA AVVIO]
+  |-- DAGCycleError            -> Fase 4: dipendenza circolare tra test      [BLOCCA AVVIO]
+  |-- SecurityClientError      -> Fase 5: errore HTTP non recuperabile       [-> TestResult(ERROR)]
+  |-- AuthenticationSetupError -> Fase 5, helpers/auth.py: credenziali rifiutate (401/403)
+  |                              fields: role, status_code
+  |                              -> catturato in execute() -> TestResult(ERROR)
+  |-- ExternalToolError        -> Fase 5, external tests
+  |                              fields: tool_name, exit_code, timed_out
+  |                              -> catturato in execute() -> TestResult(ERROR)
+  |-- GatewayAdapterError      -> Fase 5, WHITE_BOX tests (src/core/gateway/base.py)
+  |                              fields: path, status_code
+  |                              -> catturato in execute() -> TestResult(ERROR)
+  +-- TeardownError            -> Fase 6: fallimento cancellazione risorsa   [WARNING, non propagata]
 ```
 
 Le prime tre sono **fatali**: si verificano prima che qualsiasi test giri e producono exit code 10. `SecurityClientError` e **recuperata a livello di singolo test** tramite il catch-all in `execute()` — l'engine non la vede mai. `TeardownError` e **intenzionalmente non propagata**: un fallimento di cleanup non invalida la correttezza dell'assessment, ma viene loggato con `manual_cleanup_required=True` per consentire la pulizia manuale.
+
+Eccezioni dei CLI helper (fuori dalla pipeline Phase 1-7):
+
+```
+ToolBaseError
+  |-- SeedGeneratorFetchError -> apiguard generate-seed: spec OpenAPI non scaricabile
+  |                              fields: spec_source, reason
+  |                              -> catturato in cli.py -> exit code non-zero
+  +-- SeedGeneratorParseError -> apiguard generate-seed: spec OpenAPI non parsabile
+                                 fields: spec_source, reason
+                                 -> catturato in cli.py -> exit code non-zero
+```
+
+Entrambe sono definite localmente in `src/discovery/seed_generator.py` (stesso pattern di `GatewayAdapterError`): ereditano da `ToolBaseError` per uniformità della gerarchia, ma restano vicine al loro dominio d'uso. Non appaiono mai durante un assessment normale; solo il comando `apiguard generate-seed` può sollevarle.
 
 `run()` cattura anche `Exception` generica al livello piu esterno: qualsiasi eccezione imprevista nell'engine stesso produce exit code 10 anziche un crash non gestito del processo.
 
@@ -849,4 +869,4 @@ apiguard-assurance/
 
 ---
 
-*APIGuard Assurance v1.0.0 — Architecture Reference*
+*APIGuard Assurance v0.1.0 — Architecture Reference*

@@ -191,12 +191,14 @@ ext_test_0_1_shadow_api_ffuf.py  ← methodology section 0.1
 
 **`test_id` convention:**
 ```
-"ext.N.M"   ← always prefixed with "ext." to avoid DAG collision with native tests
+"ext.N.M.toolname"   ← always "ext." prefix + tool suffix (e.g. "ext.1.5.testssl")
 ```
 
 The engine builds a global `test_lookup` dict keyed by `test_id`. A native
-`"1.5"` and an external `"1.5"` would silently overwrite each other. Use
-`"ext.1.5"` for the external variant — never reuse the native test_id.
+`"1.5"` and an external `"1.5"` would silently overwrite each other. The
+`ext.` prefix avoids the collision; the `.toolname` suffix makes the ID
+self-documenting and unique when multiple tools cover the same guarantee
+(e.g. `"ext.1.5.testssl"` and `"ext.1.5.sslyze"` coexist for Garanzia 1.5).
 
 **`depends_on` — declaring dependencies on native tests:**
 
@@ -210,7 +212,7 @@ dot form and the `ext.` prefix where applicable.
 depends_on: ClassVar[list[str]] = ["1.5"]
 
 # External test that must run after another external test:
-depends_on: ClassVar[list[str]] = ["ext.1.5"]
+depends_on: ClassVar[list[str]] = ["ext.1.5.testssl"]
 
 # External test with no dependencies (most common):
 depends_on: ClassVar[list[str]] = []
@@ -563,63 +565,68 @@ def run(
     binary_cmd: str = self._resolve_binary_path() or self.BINARY_NAME
     flag_tokens = [t for t in extra_flags.split() if t]
 
-    # nuclei writes to a temp JSON export file, not to stdout.
-    json_export_path = Path(tempfile.mktemp(suffix="_nuclei.json"))  # noqa: S306
+    # nuclei writes to a temp JSON export file inside a freshly created
+    # unique directory.  TemporaryDirectory() handles cleanup automatically
+    # on every exit path (return, exception, timeout) — no leaked temp files.
+    # Use this pattern over tempfile.mktemp() (CWE-377: predictable temp path
+    # is a TOCTOU race-condition risk).
+    with tempfile.TemporaryDirectory(prefix="apiguard_nuclei_") as temp_dir_str:
+        json_export_path = Path(temp_dir_str) / "nuclei_findings.json"
 
-    cmd: list[str] = [
-        binary_cmd, "-u", scan_target,
-        "-tags", template_tags,
-        "-je", str(json_export_path),
-        *flag_tokens,
-    ]
+        cmd: list[str] = [
+            binary_cmd, "-u", scan_target,
+            "-tags", template_tags,
+            "-je", str(json_export_path),
+            *flag_tokens,
+        ]
 
-    # Both command strings are plain space-separated str — never json.dumps().
-    # command      = what the analyst runs manually (identical here, since -je
-    #                is always present in nuclei's normal invocation mode)
-    # command_json = what APIGuard runs internally (same command)
-    command: str = " ".join(cmd)
-    command_json: str = " ".join(cmd)
+        # Both command strings are plain space-separated str — never json.dumps().
+        # command      = what the analyst runs manually (identical here, since -je
+        #                is always present in nuclei's normal invocation mode)
+        # command_json = what APIGuard runs internally (same command)
+        command: str = " ".join(cmd)
+        command_json: str = " ".join(cmd)
 
-    log.info(
-        "nuclei_connector_run_starting",
-        scan_target=scan_target,
-        timeout_seconds=timeout_seconds,
-        reproducible_command=command,
-    )
+        log.info(
+            "nuclei_connector_run_starting",
+            scan_target=scan_target,
+            timeout_seconds=timeout_seconds,
+            reproducible_command=command,
+        )
 
-    start_time_ms = int(time.monotonic() * 1000)
+        start_time_ms = int(time.monotonic() * 1000)
 
-    _stdout, exit_code = self._run_subprocess(
-        cmd=cmd,
-        timeout_seconds=timeout_seconds,
-        tool_name=self.TOOL_NAME,
-    )
+        _stdout, exit_code = self._run_subprocess(
+            cmd=cmd,
+            timeout_seconds=timeout_seconds,
+            tool_name=self.TOOL_NAME,
+        )
 
-    execution_time_ms = int(time.monotonic() * 1000) - start_time_ms
-    all_findings: list[dict[str, Any]] = self._read_json_export(json_export_path)
+        execution_time_ms = int(time.monotonic() * 1000) - start_time_ms
+        all_findings: list[dict[str, Any]] = self._read_json_export(json_export_path)
 
-    log.info(
-        "nuclei_connector_run_complete",
-        scan_target=scan_target,
-        all_count=len(all_findings),
-        execution_time_ms=execution_time_ms,
-    )
+        log.info(
+            "nuclei_connector_run_complete",
+            scan_target=scan_target,
+            all_count=len(all_findings),
+            execution_time_ms=execution_time_ms,
+        )
 
-    raw_output: ConnectorRawOutput = {
-        "command":      command,       # plain str
-        "command_json": command_json,  # plain str — NOT json.dumps()
-        "results":      all_findings,
-        "all_count":    len(all_findings),
-    }
+        raw_output: ConnectorRawOutput = {
+            "command":      command,       # plain str
+            "command_json": command_json,  # plain str — NOT json.dumps()
+            "results":      all_findings,
+            "all_count":    len(all_findings),
+        }
 
-    return ConnectorResult(
-        tool_name=self.TOOL_NAME,
-        tool_version=self.get_version(),
-        raw_output=raw_output,
-        exit_code=exit_code,
-        execution_time_ms=execution_time_ms,
-        timed_out=False,
-    )
+        return ConnectorResult(
+            tool_name=self.TOOL_NAME,
+            tool_version=self.get_version(),
+            raw_output=raw_output,
+            exit_code=exit_code,
+            execution_time_ms=execution_time_ms,
+            timed_out=False,
+        )
 ```
 
 **Output parsing helpers (choose based on tool output format):**
@@ -628,9 +635,12 @@ def run(
 - `_parse_jsonl_output(raw_stdout, tool_name)` — tool writes one JSON
   object per line (JSONL). Returns `list[dict]`. Use for ffuf.
 - nuclei writes to a temp file via `-je` — see `NucleiConnector.run()`
-  for the `tempfile.mktemp()` + `-je` + `_read_json_export()` pattern.
+  for the `tempfile.TemporaryDirectory()` + `-je` + `_read_json_export()`
+  pattern (file path inside a freshly created unique directory, auto-cleanup).
 - testssl.sh writes to a temp file via `--jsonfile` — see `TestsslConnector.run()`
-  for the `tempfile.mkstemp()` + `--jsonfile` pattern.
+  for the `tempfile.mkstemp()` + `--jsonfile` pattern (atomic file creation).
+- Do NOT use `tempfile.mktemp()`: it returns a predictable path without
+  creating the file, which is a TOCTOU race vector (CWE-377).
 
 **"Dumb pipe" contract:** connectors pass ALL findings in `results`.
 Severity-based partitioning (FAIL / note / ignore) is the exclusive

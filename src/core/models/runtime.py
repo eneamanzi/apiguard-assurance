@@ -72,12 +72,36 @@ class RuntimeCredentials(BaseModel):
     # Common credential fields
     # ------------------------------------------------------------------
 
-    admin_username: str | None = Field(default=None)
-    admin_password: str | None = Field(default=None)
-    user_a_username: str | None = Field(default=None)
-    user_a_password: str | None = Field(default=None)
-    user_b_username: str | None = Field(default=None)
-    user_b_password: str | None = Field(default=None)
+    admin_username: str | None = Field(
+        default=None,
+        description="Resolved admin username (from ${VAR}); None if not configured. "
+        "Sensitive — never logged in plain text.",
+    )
+    admin_password: str | None = Field(
+        default=None,
+        description="Resolved admin password (from ${VAR}); None if not configured. "
+        "Sensitive — always [REDACTED] in logs.",
+    )
+    user_a_username: str | None = Field(
+        default=None,
+        description="Resolved user-A username (from ${VAR}); None if not configured. "
+        "Sensitive — never logged in plain text.",
+    )
+    user_a_password: str | None = Field(
+        default=None,
+        description="Resolved user-A password (from ${VAR}); None if not configured. "
+        "Sensitive — always [REDACTED] in logs.",
+    )
+    user_b_username: str | None = Field(
+        default=None,
+        description="Resolved user-B username (from ${VAR}); None if not configured. "
+        "Sensitive — never logged in plain text.",
+    )
+    user_b_password: str | None = Field(
+        default=None,
+        description="Resolved user-B password (from ${VAR}); None if not configured. "
+        "Sensitive — always [REDACTED] in logs.",
+    )
 
     # ------------------------------------------------------------------
     # jwt_login specific fields -- None when auth_type != 'jwt_login'
@@ -726,6 +750,59 @@ class RuntimeTest64Config(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class RuntimeTest14Config(BaseModel):
+    """
+    Runtime mirror of Test14Config fields consumed by Test 1.4.
+
+    Populated by engine.py Phase 3 from config.tests.domain_1.test_1_4.
+    Access pattern inside the test:
+        cfg = target.tests_config.test_1_4
+        cfg.token_name
+    """
+
+    model_config = {"frozen": True}
+
+    token_name: str = Field(
+        default="apiguard-token-revocation-test",
+        description=(
+            "Name of the temporary API token created and immediately revoked "
+            "during the token-revocation probe.  Mirrors Test14Config.token_name.  "
+            "Default: 'apiguard-token-revocation-test'."
+        ),
+    )
+
+
+class RuntimeTest21Config(BaseModel):
+    """
+    Runtime mirror of Test21Config fields consumed by Test 2.1.
+
+    Populated by engine.py Phase 3 from config.tests.domain_2.test_2_1.
+    Access pattern inside the test:
+        cfg = target.tests_config.test_2_1
+        cfg.admin_endpoint_paths
+        cfg.admin_endpoint_method
+    """
+
+    model_config = {"frozen": True}
+
+    admin_endpoint_paths: list[str] = Field(
+        default_factory=lambda: ["/api/v1/admin/users"],
+        description=(
+            "Admin-only endpoint paths to probe with a non-privileged token.  "
+            "Mirrors Test21Config.admin_endpoint_paths.  "
+            "Default: ['/api/v1/admin/users']."
+        ),
+    )
+    admin_endpoint_method: str = Field(
+        default="GET",
+        description=(
+            "HTTP method used for each admin endpoint probe.  "
+            "Mirrors Test21Config.admin_endpoint_method.  "
+            "Default: 'GET'."
+        ),
+    )
+
+
 class RuntimeTest72Config(BaseModel):
     """
     Runtime mirror of Test72SSRFConfig fields consumed by Test 7.2.
@@ -925,6 +1002,21 @@ class RuntimeTestsConfig(BaseModel):
     test_1_1: RuntimeTest11Config = Field(
         default_factory=RuntimeTest11Config,
         description="Runtime parameters for Test 1.1 (Authentication Required).",
+    )
+    test_1_4: RuntimeTest14Config = Field(
+        default_factory=RuntimeTest14Config,
+        description=(
+            "Runtime parameters for Test 1.4 (Revoked Token Rejected After Deletion). "
+            "Mirrors Test14Config from config.tests.domain_1.test_1_4."
+        ),
+    )
+    test_2_1: RuntimeTest21Config = Field(
+        default_factory=RuntimeTest21Config,
+        description=(
+            "Runtime parameters for Test 2.1 "
+            "(Only Authorized Users Access Privileged Endpoints). "
+            "Mirrors Test21Config from config.tests.domain_2.test_2_1."
+        ),
     )
     test_1_5: RuntimeTest15Config = Field(
         default_factory=RuntimeTest15Config,

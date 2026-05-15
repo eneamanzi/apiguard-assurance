@@ -50,9 +50,12 @@ src/
 │   ├── openapi.py           # Fetch + prance dereference + spec validation
 │   └── surface.py           # AttackSurface — structured endpoint map
 ├── connectors/              # External tool wrappers — zero test logic
-│   ├── base.py              # BaseConnector hierarchy + _relativize_display_path()
-│   ├── testssl.py
-│   └── nuclei.py
+│   ├── base.py              # BaseConnector hierarchy + ConnectorRawOutput + _relativize_display_path()
+│   ├── nuclei.py            # NucleiConnector (BaseSubprocessConnector)
+│   ├── testssl.py           # TestsslConnector (BaseSubprocessConnector)
+│   ├── sslyze.py            # SslyzeConnector (BaseLibraryConnector)
+│   └── types/               # shared TypedDict shapes for connector families
+│       └── tls_findings.py  # TlsFinding (testssl + sslyze raw output)
 ├── external_tests/          # Parallel hierarchy to tests/ — NOT BaseTest subclasses
 │   ├── base.py              # ExternalToolTest ABC + dev-mode cache logic
 │   ├── registry.py          # ExternalTestRegistry (Phase R4: connector injection)
@@ -65,8 +68,8 @@ src/
 │   ├── helpers/             # auth, auth_forgejo, auth_jwt_login, forgejo_resources,
 │   │                        # path_resolver, response_inspector
 │   ├── domain_0/            # test_0_1, test_0_2, test_0_3
-│   ├── domain_1/            # test_1_1, test_1_5, test_1_6
-│   ├── domain_2/            # (placeholder — Milestone 2)
+│   ├── domain_1/            # test_1_1, test_1_4, test_1_5, test_1_6
+│   ├── domain_2/            # test_2_1
 │   ├── domain_3/            # test_3_3
 │   ├── domain_4/            # test_4_1, test_4_2, test_4_3
 │   ├── domain_5/            # (placeholder — Milestone 2)
@@ -97,7 +100,10 @@ The adapter type is configured via `target.gateway_adapter: kong` in `config.yam
 If a request conflicts with any of these, **stop and flag it before proceeding.**
 
 ### Code
-- `pass`, `...`, `# TODO`, `# FIXME` — **forbidden**
+- `pass`, `# TODO`, `# FIXME` — **forbidden**.
+  `...` (Ellipsis) is allowed **only** as the body of `@abstractmethod` declarations
+  (idiomatic Python ABC stub) and inside type-only stubs. It must never appear
+  in a concrete method body or as a placeholder for unfinished implementation.
 - `print()` — **forbidden**; use `structlog` (logs) and `rich` (terminal UI)
 - Bare `except:` or `except Exception: pass` — **forbidden**; use the custom hierarchy
 - Magic numbers/strings — **forbidden**; named constants or `config.yaml`
@@ -139,18 +145,26 @@ Use clean placeholders (`nuclei_result.json`, `testssl_result.json`).
 
 ```
 ToolBaseError
- ├── ConfigurationError    # Phase 1 — invalid config or missing env var [BLOCKS STARTUP]
- ├── OpenAPILoadError      # Phase 2 — spec unreachable or malformed [BLOCKS STARTUP]
- ├── DAGCycleError         # Phase 4 — circular dependency [BLOCKS STARTUP]
- ├── SecurityClientError   # Phase 5, native tests → caught in execute() → TestResult(ERROR)
- ├── ExternalToolError     # Phase 5, external tests (fields: tool_name, exit_code, timed_out)
- │                         #   → caught in execute() → TestResult(ERROR)
- └── TeardownError         # Phase 6 → WARNING log, never propagated
+ ├── ConfigurationError       # Phase 1 — invalid config or missing env var [BLOCKS STARTUP]
+ ├── OpenAPILoadError         # Phase 2 — spec unreachable or malformed [BLOCKS STARTUP]
+ ├── DAGCycleError            # Phase 4 — circular dependency [BLOCKS STARTUP]
+ ├── SecurityClientError      # Phase 5, native tests → caught in execute() → TestResult(ERROR)
+ ├── AuthenticationSetupError # Phase 5, helpers/auth.py — credentials rejected (401/403)
+ │                            #   by target API; caught in execute() → TestResult(ERROR)
+ ├── ExternalToolError        # Phase 5, external tests (fields: tool_name, exit_code, timed_out)
+ │                            #   → caught in execute() → TestResult(ERROR)
+ └── TeardownError            # Phase 6 → WARNING log, never propagated
 ```
 
 `GatewayAdapterError` (in `src/core/gateway/base.py`) extends `ToolBaseError` and is raised
 by gateway adapters on transport failure or unexpected HTTP status from the admin endpoint.
 WHITE_BOX tests catch it and return `TestResult(ERROR)`.
+
+`SeedGeneratorFetchError` and `SeedGeneratorParseError` (in `src/discovery/seed_generator.py`)
+extend `ToolBaseError` and are raised exclusively by the `apiguard generate-seed` CLI helper
+when the OpenAPI specification cannot be retrieved or parsed. They are caught in `src/cli.py`
+and converted to a non-zero exit code with an actionable message. They do not appear during
+the main Phase 1–7 assessment pipeline.
 
 Missing external tool → `TestResult(SKIP)` via `_skip_reason_from_registry`. Not an exception.
 

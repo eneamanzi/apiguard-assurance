@@ -104,7 +104,10 @@ class EvidenceRecord(BaseModel):
         default_factory=dict,
         description="Request headers (lowercase keys). Authorization always '[REDACTED]'.",
     )
-    request_body: str | None = Field(default=None)
+    request_body: str | None = Field(
+        default=None,
+        description="Request body as sent (sanitized of secrets); None if no body.",
+    )
     response_status_code: int = Field(description="HTTP status code.")
     response_headers: dict[str, str] = Field(
         default_factory=dict, description="Response headers (lowercase keys)."

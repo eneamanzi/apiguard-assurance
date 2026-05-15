@@ -89,7 +89,10 @@ class TemplateExtTest(ExternalToolTest):
 
     # --- Mandatory ClassVar declarations (LLM_rules.md §3.3) ---
     # Verify test_id uniqueness before committing: grep -r "test_id" src/tests/ src/external_tests/
-    test_id: ClassVar[str] = "ext.X.Y"
+    # Naming convention (mandatory): "ext.X.Y.toolname"
+    #   X = domain number, Y = sequence number, toolname = lowercase tool identifier
+    #   Examples: "ext.0.1.nuclei", "ext.1.5.testssl", "ext.1.5.sslyze"
+    test_id: ClassVar[str] = "ext.X.Y.toolname"
     test_name: ClassVar[str] = "Template External Test Name"
     priority: ClassVar[int] = 2  # 0-3 (P0-P3)
     domain: ClassVar[int] = 0  # methodology domain number

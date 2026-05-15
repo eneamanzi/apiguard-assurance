@@ -384,4 +384,4 @@ apiguard run -c config_crapi.yaml
 
 ---
 
-*APIGuard Assurance v1.0.0 — MIT License*
+*APIGuard Assurance v0.1.0*

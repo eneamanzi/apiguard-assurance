@@ -26,9 +26,10 @@ Relationship with Test 0.1 (native):
         External part -> template-based known-exposure detection (this file)
 
 Test ID:
-    "ext.0.1" -- NOT "0.1" to avoid collision with the native Test 0.1 in the
-    engine's test_lookup dict.  The "ext." prefix is the project convention for
-    all ExternalToolTest subclasses (matches the file prefix "ext_test_").
+    "ext.0.1.nuclei" -- NOT "0.1" to avoid collision with the native Test 0.1 in
+    the engine's test_lookup dict.  The "ext." prefix is the project convention for
+    all ExternalToolTest subclasses; the ".nuclei" suffix names the tool, making
+    the ID self-documenting and unique when multiple tools cover the same guarantee.
 
 Oracle (Garanzia 0.1, OWASP API9:2023 Improper Inventory Management,
         CWE-200 Exposure of Sensitive Information):
@@ -143,7 +144,7 @@ class ExtTest01ShadowApiNuclei(ExternalToolTest):  # noqa: N801
 
     # --- ClassVar attributes (required by BaseTest / ExternalToolTest) ------
 
-    test_id: ClassVar[str] = "ext.0.1"
+    test_id: ClassVar[str] = "ext.0.1.nuclei"
     test_name: ClassVar[str] = "Shadow API Discovery via nuclei (template-based exposure detection)"
     priority: ClassVar[int] = 0
     domain: ClassVar[int] = 0
@@ -222,7 +223,11 @@ class ExtTest01ShadowApiNuclei(ExternalToolTest):  # noqa: N801
             timeout_seconds=timeout_seconds,
         )
 
-        return connector.run(  # type: ignore[return-value]
+        # Narrow the type for mypy and assert the injected connector matches
+        # what _build_connector() returns.  The registry guarantees this in
+        # production; the assert is a defence-in-depth check.
+        assert isinstance(connector, NucleiConnector)
+        return connector.run(
             target_url=target_url,
             timeout_seconds=timeout_seconds,
             template_dir=nuclei_cfg.template_dir,

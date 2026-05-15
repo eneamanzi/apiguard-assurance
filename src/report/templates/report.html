@@ -142,6 +142,14 @@
       margin-top: 0.4rem;
     }
 
+    .stat-card .stat-sublabel {
+      font-size: 0.65rem;
+      color: var(--color-muted);
+      opacity: 0.7;
+      margin-top: 0.2rem;
+      font-style: italic;
+    }
+
     .stat-pass .stat-value {
       color: var(--color-pass);
     }
@@ -1538,8 +1546,14 @@
       </div>
       <div class="exec-grid">
         <div class="stat-card stat-neutral">
-          <div class="stat-value">{{ report.executive_summary.total_tests }}</div>
-          <div class="stat-label">Tests Executed</div>
+          <div class="stat-value">{{ report.executive_summary.scheduled_tests }}</div>
+          <div class="stat-label">Scheduled Tests</div>
+          <div class="stat-sublabel">Total scheduled by engine</div>
+        </div>
+        <div class="stat-card stat-neutral">
+          <div class="stat-value">{{ report.executive_summary.executed_tests }}</div>
+          <div class="stat-label">Executed</div>
+          <div class="stat-sublabel">Pass + Fail + Error</div>
         </div>
         <div class="stat-card stat-pass">
           <div class="stat-value">{{ report.executive_summary.pass_count }}</div>
@@ -1549,13 +1563,14 @@
           <div class="stat-value">{{ report.executive_summary.fail_count }}</div>
           <div class="stat-label">Failed</div>
         </div>
-        <div class="stat-card stat-skip">
-          <div class="stat-value">{{ report.executive_summary.skip_count }}</div>
-          <div class="stat-label">Skipped</div>
-        </div>
         <div class="stat-card stat-error">
           <div class="stat-value">{{ report.executive_summary.error_count }}</div>
           <div class="stat-label">Errors</div>
+        </div>
+        <div class="stat-card stat-skip">
+          <div class="stat-value">{{ report.executive_summary.skip_count }}</div>
+          <div class="stat-label">Skipped</div>
+          <div class="stat-sublabel">Not executed (precondition unmet)</div>
         </div>
         <div class="stat-card stat-neutral">
           <div class="stat-value">{{ report.executive_summary.total_finding_count }}</div>
@@ -1564,6 +1579,7 @@
         <div class="stat-card stat-neutral">
           <div class="stat-value">{{ report.executive_summary.pass_rate_pct }}%</div>
           <div class="stat-label">Pass Rate</div>
+          <div class="stat-sublabel">Pass / Executed</div>
         </div>
         {% if report.executive_summary.assessment_duration_seconds is not none %}
         <div class="stat-card stat-neutral">
@@ -2039,7 +2055,7 @@
   <div id="audit-trail-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title-label">
     <div class="modal-panel" id="audit-trail-modal-panel">
 
-      <!-- Header: identità del test + barra di ricerca + pulsante chiudi -->
+      <!-- Header: test identity + search bar + close button -->
       <div class="modal-header">
         <div class="modal-title-group">
           <span class="modal-title" id="modal-title-label">Audit Trail</span>

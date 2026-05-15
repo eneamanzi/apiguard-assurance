@@ -102,13 +102,13 @@ import structlog
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
+from src.core.gateway.base import BaseGatewayAdapter, GatewayAdapterError
 from src.core.models import (
     Finding,
     InfoNote,
     TestResult,
     TestStrategy,
 )
-from src.core.gateway.base import BaseGatewayAdapter, GatewayAdapterError
 from src.tests.base import BaseTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -412,7 +412,10 @@ class Test64HardcodedCredentialsAudit(BaseTest):
                     + (
                         " and gateway service/plugin configuration audited."
                         if target.gateway is not None
-                        else ". Gateway configuration audit skipped (gateway adapter not configured)."
+                        else (
+                            ". Gateway configuration audit skipped "
+                            "(gateway adapter not configured)."
+                        )
                     )
                 ),
                 notes=notes,

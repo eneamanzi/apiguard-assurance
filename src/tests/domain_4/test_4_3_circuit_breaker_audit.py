@@ -98,6 +98,7 @@ import structlog
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
+from src.core.gateway.base import BaseGatewayAdapter, GatewayAdapterError
 from src.core.models import (
     Finding,
     InfoNote,
@@ -105,7 +106,6 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
-from src.core.gateway.base import BaseGatewayAdapter, GatewayAdapterError
 from src.tests.base import BaseTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)

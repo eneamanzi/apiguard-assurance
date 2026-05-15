@@ -1,7 +1,18 @@
 """
 src/external_tests/ext_test_1_5_tls_analysis.py
 
-ExtTest15TlsAnalysis: external test for deep TLS stack analysis via testssl.sh.
+Two independent TLS analysis tests for Garanzia 1.5, each using a different
+external connector tier.  The registry discovers both classes automatically.
+
+Classes in this module:
+    ExtTest15TlsAnalysis    (test_id="ext.1.5.testssl", tool_name="testssl")
+    ExtTest15SslyzeAnalysis (test_id="ext.1.5.sslyze",  tool_name="sslyze")
+
+Both produce results independently in the report for Domain 1 and use the
+same severity oracle (CRITICAL/HIGH → FAIL, MEDIUM → PASS-with-note).  Their
+results complement each other: testssl.sh is more comprehensive on cipher
+ordering and CVE templates; sslyze has stronger Python-native certificate chain
+validation and structured API output.
 
 Relationship with Test 1.5 (native):
     Test 1.5 (src/tests/domain_1/test_1_5_insecure_credential_transport.py) covers
@@ -10,11 +21,10 @@ Relationship with Test 1.5 (native):
         Sub-test 2: HSTS header validation (SecurityClient GET /)
         Sub-test 3: (legacy) inline testssl.sh via testssl_binary_path config
 
-    This external test extends the coverage with a CONNECTOR-managed TLS scan:
+    These external tests extend the coverage with a CONNECTOR-managed TLS scan:
         Full TLS stack inspection: protocol versions (TLS 1.0/1.1, SSLv3),
         cipher suite weaknesses, certificate chain, forward secrecy,
-        HSTS/HPKP headers at TLS level, Certificate Transparency SCTs, and
-        any CVE-tagged vulnerability testssl.sh has templates for.
+        HSTS headers at TLS level, and CVE-tagged vulnerabilities.
 
     The split follows the HYBRID pattern defined in Z-CHECKLIST.md:
         Native part   -> handles HTTP-level checks (redirects, HSTS headers)
@@ -27,32 +37,22 @@ Relationship with Test 1.5 (native):
     duplicate scans and duplicate findings under different test_ids.
 
 Test ID uniqueness:
-    This test uses test_id = "ext.1.5" (NOT "1.5") to avoid collision with the
-    native Test 1.5 in the engine's test_lookup dict (keyed by test_id).
-    engine.py constructs: test_lookup = {t.__class__.test_id: t for t in all_tests}
-    Two tests with the same id would cause silent overwrite of one of them.
+    Both test_ids follow the "ext.X.Y.toolname" convention: "ext." avoids
+    collision with the native Test 1.5 in the engine's test_lookup dict (keyed
+    by test_id); the tool suffix makes each ID self-documenting and unique.
 
 Timeout source (Proposal C):
-    target.external_tools.testssl.timeout_seconds is the canonical source for
-    the testssl.sh runtime timeout.  With ExternalToolsConfig on TargetContext,
-    every ExternalToolTest uses the uniform pattern:
-        target.external_tools.<tool>.timeout_seconds
-    ExternalToolsConfig.testssl.timeout_seconds also controls the per-tool
-    activation filter (whether this test is scheduled at all by the registry).
+    Each test reads its timeout from the corresponding tool config:
+        ext.1.5.testssl: target.external_tools.testssl.timeout_seconds
+        ext.1.5.sslyze:  target.external_tools.sslyze.timeout_seconds
 
 Oracle (Section 1.5, NIST SP 800-52 Rev.2, OWASP ASVS v5.0.0 V14.2.1):
     CRITICAL or HIGH severity finding -> FAIL with one Finding per item.
-    MEDIUM or WARN severity only      -> PASS with informational note in message.
-    OK / INFO / LOW                   -> silently ignored (not surfaced in report).
-    No findings at all                -> PASS.
-
-    Severity partitioning is the responsibility of this test, not the connector.
-    TestsslConnector passes all findings unfiltered; this module applies the
-    three-bucket split: FAIL_SEVERITIES / NOTE_SEVERITIES / ignored.
+    MEDIUM or WARN severity only      -> PASS with informational note.
+    Anything else                     -> silently ignored.
 
 DAG placement:
-    depends_on = [] -> Phase A (no prerequisites, runs alongside other A-tests).
-    Consistent with the native 1.5 which also has depends_on = [].
+    depends_on = [] for both tests -> Phase A.
 
 Dependency rule:
     Imports from: stdlib, structlog, src.connectors, src.external_tests.base,
@@ -69,7 +69,9 @@ from typing import ClassVar
 import structlog
 
 from src.connectors.base import BaseConnector, ConnectorResult
+from src.connectors.sslyze import SslyzeConnector
 from src.connectors.testssl import TestsslConnector
+from src.connectors.types import TlsFinding
 from src.core.context import TargetContext
 from src.core.models import Finding, InfoNote, TestStrategy
 from src.core.models.results import TestResult
@@ -282,7 +284,7 @@ class ExtTest15TlsAnalysis(ExternalToolTest):
     """
 
     # --- Orchestrator metadata ---
-    test_id: ClassVar[str] = "ext.1.5"
+    test_id: ClassVar[str] = "ext.1.5.testssl"
     test_name: ClassVar[str] = "TLS Stack Analysis (testssl.sh)"
     domain: ClassVar[int] = 1
     priority: ClassVar[int] = 2
@@ -372,6 +374,10 @@ class ExtTest15TlsAnalysis(ExternalToolTest):
             extra_flags=extra_flags,
         )
 
+        # Narrow the type for mypy and assert the injected connector matches
+        # what _build_connector() returns.  The registry guarantees this in
+        # production; the assert is a defence-in-depth check.
+        assert isinstance(connector, TestsslConnector)
         return connector.run(
             target_url=target_url,
             timeout_seconds=timeout_seconds,
@@ -418,7 +424,7 @@ class ExtTest15TlsAnalysis(ExternalToolTest):
         Returns:
             TestResult: PASS or FAIL.  Never raises.
         """
-        all_findings: list[dict] = result.raw_output.get("results", [])
+        all_findings: list[TlsFinding] = result.raw_output.get("results", [])
         all_count: int = result.raw_output.get("all_count", 0)
 
         log.info(
@@ -439,12 +445,12 @@ class ExtTest15TlsAnalysis(ExternalToolTest):
         # Three-bucket partition: FAIL / NOTE / IGNORE.
         # IGNORE items are not assigned to a variable -- they are implicitly
         # discarded by not being included in either of the two named buckets.
-        fail_items: list[dict] = [
+        fail_items: list[TlsFinding] = [
             item
             for item in all_findings
             if str(item.get("severity", "")).upper() in FAIL_SEVERITIES
         ]
-        note_items: list[dict] = [
+        note_items: list[TlsFinding] = [
             item
             for item in all_findings
             if str(item.get("severity", "")).upper() in NOTE_SEVERITIES
@@ -526,7 +532,7 @@ class ExtTest15TlsAnalysis(ExternalToolTest):
 
     def _build_finding(
         self,
-        item: dict,
+        item: TlsFinding,
         artifact_ref: str,
     ) -> Finding:
         """
@@ -578,4 +584,243 @@ class ExtTest15TlsAnalysis(ExternalToolTest):
             detail=" ".join(detail_parts),
             references=references,
             evidence_ref=artifact_ref,
+        )
+
+
+# ---------------------------------------------------------------------------
+# ExtTest15SslyzeAnalysis — independent TLS scan via sslyze Python library
+# ---------------------------------------------------------------------------
+
+# Severity levels shared with ExtTest15TlsAnalysis (same oracle logic).
+# Defined here rather than reusing the module-level frozensets above to keep
+# the two classes independently readable.
+_SSLYZE_FAIL_SEVERITIES: frozenset[str] = frozenset({"HIGH", "CRITICAL"})
+_SSLYZE_NOTE_SEVERITIES: frozenset[str] = frozenset({"MEDIUM", "WARN"})
+
+_SSLYZE_REFERENCES: tuple[str, ...] = (
+    "OWASP-API2:2023",
+    "NIST-SP-800-52-Rev2",
+    "OWASP-ASVS-v5.0.0-V14.2.1",
+    "OWASP-ASVS-v5.0.0-V12.1.2",
+)
+
+_SSLYZE_NOTE_ANALYST_SUFFIX: str = (
+    "Analyst review recommended — not an automatic FAIL per Garanzia 1.5 oracle "
+    "(NIST SP 800-52 Rev.2)."
+)
+
+
+class ExtTest15SslyzeAnalysis(ExternalToolTest):
+    """
+    Independent TLS stack analysis using the sslyze Python library.
+
+    Runs alongside ExtTest15TlsAnalysis (testssl.sh) — both produce separate
+    results in the report for Domain 1.  Demonstrates P08 BaseLibraryConnector
+    tier: sslyze is imported as a Python module, not invoked as a subprocess.
+
+    Oracle (identical structure to ExtTest15TlsAnalysis):
+        FAIL   (CRITICAL, HIGH) -> one Finding per item -> FAIL result.
+        NOTE   (MEDIUM)         -> one InfoNote per item -> PASS-with-note.
+        IGNORE (anything else)  -> silently discarded.
+
+    See module docstring for full context and DAG placement.
+    """
+
+    test_id: ClassVar[str] = "ext.1.5.sslyze"
+    test_name: ClassVar[str] = "TLS Stack Analysis (sslyze)"
+    domain: ClassVar[int] = 1
+    priority: ClassVar[int] = 2
+    strategy: ClassVar[TestStrategy] = TestStrategy.WHITE_BOX
+    depends_on: ClassVar[list[str]] = []
+    tags: ClassVar[list[str]] = [
+        "transport-security",
+        "tls",
+        "cipher-suite",
+        "protocol-version",
+        "sslyze",
+        "OWASP-API2:2023",
+        "NIST-SP-800-52",
+    ]
+    cwe_id: ClassVar[str] = "CWE-326"
+    tool_name: ClassVar[str] = "sslyze"
+
+    # ------------------------------------------------------------------
+    # Abstract method implementations
+    # ------------------------------------------------------------------
+
+    def _build_connector(self) -> BaseConnector:
+        """
+        Instantiate a fresh SslyzeConnector.
+
+        Object construction only — no I/O, no network access, no import of
+        the sslyze library.  Called by _get_connector() and by the registry
+        during availability check.
+
+        Returns:
+            SslyzeConnector: Ready-to-use connector instance.
+        """
+        return SslyzeConnector()
+
+    def _invoke_connector(
+        self,
+        connector: BaseConnector,
+        target: TargetContext,
+        target_url: str,
+    ) -> ConnectorResult:
+        """
+        Call connector.run() with sslyze-specific parameters.
+
+        Timeout source (Proposal C):
+            target.external_tools.sslyze.timeout_seconds is the canonical
+            source for the per-connection network timeout.
+
+        Args:
+            connector:   SslyzeConnector instance (injected or freshly built).
+            target:      Frozen TargetContext with target URL and config.
+            target_url:  HTTPS URL returned by target.effective_endpoint_base_url().
+
+        Returns:
+            ConnectorResult: Complete (unfiltered) sslyze output.
+
+        Raises:
+            ExternalToolError: Propagated to _run() on connectivity failure.
+        """
+        timeout_seconds: int = target.external_tools.sslyze.timeout_seconds  # type: ignore[assignment]
+
+        log.info(
+            "ext_test_1_5_sslyze_invoke_connector",
+            target_url=target_url,
+            timeout_seconds=timeout_seconds,
+        )
+
+        return connector.run(
+            target_url=target_url,
+            timeout_seconds=timeout_seconds,
+        )
+
+    def _evaluate(
+        self,
+        result: ConnectorResult,
+        artifact_ref: str,
+    ) -> TestResult:
+        """
+        Apply the oracle to ConnectorResult and return a TestResult.
+
+        Oracle (same structure as ExtTest15TlsAnalysis):
+            FAIL bucket (CRITICAL / HIGH):
+                Each qualifying finding becomes a separate Finding.
+                The test returns FAIL.  InfoNotes from the NOTE bucket are
+                attached alongside for analyst context.
+
+            NOTE bucket (MEDIUM only, no HIGH/CRITICAL present):
+                Each item becomes an InfoNote.  The test returns PASS.
+
+            IGNORE bucket (anything else):
+                Silently discarded.
+
+            No findings at all:
+                PASS.
+
+        Args:
+            result:       ConnectorResult from SslyzeConnector.run().
+            artifact_ref: Evidence record ID from store.pin_artifact().
+
+        Returns:
+            TestResult: PASS or FAIL.  Never raises.
+        """
+        all_findings: list[TlsFinding] = result.raw_output.get("results", [])
+        all_count: int = result.raw_output.get("all_count", 0)
+
+        log.info(
+            "ext_test_1_5_sslyze_oracle_evaluation",
+            all_count=all_count,
+        )
+
+        if not all_findings:
+            return self._make_pass(
+                message=(
+                    "sslyze TLS scan found no issues.  "
+                    f"Total checks analysed: {all_count}.  "
+                    "All protocols, cipher suites, and certificate parameters "
+                    "are within acceptable bounds."
+                )
+            )
+
+        fail_items: list[TlsFinding] = [
+            item
+            for item in all_findings
+            if str(item.get("severity", "")).upper() in _SSLYZE_FAIL_SEVERITIES
+        ]
+        note_items: list[TlsFinding] = [
+            item
+            for item in all_findings
+            if str(item.get("severity", "")).upper() in _SSLYZE_NOTE_SEVERITIES
+        ]
+
+        ignored_count = len(all_findings) - len(fail_items) - len(note_items)
+        log.debug(
+            "ext_test_1_5_sslyze_severity_partition",
+            fail_count=len(fail_items),
+            note_count=len(note_items),
+            ignored_count=ignored_count,
+        )
+
+        all_notes: list[InfoNote] = [
+            InfoNote(
+                title=(
+                    f"[{str(item.get('severity', '')).upper()}] "
+                    f"TLS observation: {item.get('id', 'unknown')}"
+                ),
+                detail=(
+                    f"{item.get('finding', '')}  {_SSLYZE_NOTE_ANALYST_SUFFIX}"
+                ),
+                references=list(_SSLYZE_REFERENCES),
+            )
+            for item in note_items
+        ]
+
+        if fail_items:
+            findings = [
+                Finding(
+                    title=(
+                        f"[{str(item.get('severity', '')).upper()}] "
+                        f"TLS Issue: {item.get('id', 'unknown')}"
+                    ),
+                    detail=(
+                        f"{item.get('finding', '')}  "
+                        f"CVE: {item.get('cve', '')}." if item.get("cve") else
+                        f"{item.get('finding', '')}"
+                    ),
+                    references=(
+                        list(_SSLYZE_REFERENCES) + ([item["cve"]] if item.get("cve") else [])
+                    ),
+                    evidence_ref=artifact_ref,
+                )
+                for item in fail_items
+            ]
+            note_count = len(all_notes)
+            message_parts = [
+                f"sslyze found {len(fail_items)} critical/high TLS issue(s)."
+            ]
+            if note_count:
+                message_parts.append(
+                    f"Additionally, {note_count} MEDIUM observation(s) are listed as notes."
+                )
+            return self._make_fail(
+                message=" ".join(message_parts),
+                findings=findings,
+                notes=all_notes,
+            )
+
+        log.info(
+            "ext_test_1_5_sslyze_pass_with_notes",
+            note_count=len(all_notes),
+        )
+        return self._make_pass(
+            message=(
+                f"sslyze found {len(note_items)} MEDIUM item(s) "
+                "below the FAIL threshold.  "
+                f"Raw evidence: artifact_ref={artifact_ref}."
+            ),
+            notes=all_notes,
         )

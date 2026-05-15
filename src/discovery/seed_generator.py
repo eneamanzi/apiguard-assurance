@@ -36,9 +36,10 @@ Design constraints
 
 Dependency rule
 ---------------
-This module imports from stdlib (``json``, ``re``, ``pathlib``) and third-party
-``httpx`` and ``yaml``.  It must never import from ``src.config``, ``src.core``,
-``src.tests``, ``src.report``, or ``src.engine``.
+This module imports from stdlib (``json``, ``re``, ``pathlib``), third-party
+``httpx`` and ``yaml``, and ``src.core.exceptions`` (for ``ToolBaseError``,
+which is the root of the project's exception hierarchy).  It must never
+import from ``src.config``, ``src.tests``, ``src.report``, or ``src.engine``.
 
 The ``src.tests.helpers.path_resolver`` module shares the ``{param}`` extraction
 regex but is not imported here to preserve the strict one-way dependency rule:
@@ -55,6 +56,8 @@ from urllib.parse import urlparse
 import httpx
 import structlog
 import yaml
+
+from src.core.exceptions import ToolBaseError
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -420,27 +423,56 @@ def _collect_param_names(
 # ---------------------------------------------------------------------------
 
 
-class SeedGeneratorFetchError(Exception):
+class SeedGeneratorFetchError(ToolBaseError):
     """
-    Raised when the OpenAPI specification cannot be retrieved.
+    Raised when the OpenAPI specification cannot be retrieved by the
+    ``apiguard generate-seed`` CLI helper.
 
     Covers network failures, HTTP error statuses, and missing local files.
+
+    Sibling of ``OpenAPILoadError`` (the production-pipeline equivalent in
+    ``src/core/exceptions.py``), kept local to this module because it carries
+    domain-specific fields (``spec_source``, ``reason``) that are meaningful
+    only to the seed-generator CLI flow.  Both share the ``ToolBaseError``
+    root so the CLI can catch the entire project exception hierarchy with a
+    single handler when needed.
     """
 
     def __init__(self, spec_source: str, reason: str) -> None:
+        """
+        Initialize a seed-generator fetch error.
+
+        Args:
+            spec_source: The URL or file path the helper attempted to read.
+            reason:      Human-readable description of the failure cause.
+        """
         self.spec_source = spec_source
         self.reason = reason
         super().__init__(f"Cannot fetch spec from '{spec_source}': {reason}")
 
 
-class SeedGeneratorParseError(Exception):
+class SeedGeneratorParseError(ToolBaseError):
     """
-    Raised when the retrieved specification text cannot be parsed into a valid dict.
+    Raised when the retrieved specification text cannot be parsed into a valid
+    dict by the ``apiguard generate-seed`` CLI helper.
 
-    Covers JSON/YAML parse failures and structural issues (missing ``paths`` key).
+    Covers JSON/YAML parse failures and structural issues (missing ``paths``
+    key, non-mapping root).
+
+    Sibling of ``SeedGeneratorFetchError`` and the production-pipeline
+    ``OpenAPILoadError``.  Inherits from ``ToolBaseError`` to participate in
+    the project's unified exception hierarchy (see ``CLAUDE.md`` and
+    ``docs/ARCHITECTURE.md`` for the full taxonomy).
     """
 
     def __init__(self, spec_source: str, reason: str) -> None:
+        """
+        Initialize a seed-generator parse error.
+
+        Args:
+            spec_source: The URL or file path whose contents could not be parsed.
+            reason:      Human-readable description of the parse failure.
+        """
         self.spec_source = spec_source
         self.reason = reason
         super().__init__(f"Cannot parse spec from '{spec_source}': {reason}")

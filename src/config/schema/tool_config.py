@@ -398,12 +398,64 @@ class CredentialsConfig(BaseModel):
     # Common credential fields (used by forgejo_token and jwt_login)
     # ------------------------------------------------------------------
 
-    admin_username: str | None = Field(default=None)
-    admin_password: str | None = Field(default=None)
-    user_a_username: str | None = Field(default=None)
-    user_a_password: str | None = Field(default=None)
-    user_b_username: str | None = Field(default=None)
-    user_b_password: str | None = Field(default=None)
+    admin_username: str | None = Field(
+        default=None,
+        description=(
+            "Administrator role username, resolved at load time from a "
+            "${VAR} placeholder in config.yaml (typically ${ADMIN_USERNAME}). "
+            "Required by WHITE_BOX tests that acquire an admin token via the "
+            "auth dispatcher.  Never logged; redacted as '[REDACTED]' in all "
+            "structured log output."
+        ),
+    )
+    admin_password: str | None = Field(
+        default=None,
+        description=(
+            "Administrator role password, resolved at load time from a "
+            "${VAR} placeholder in config.yaml (typically ${ADMIN_PASSWORD}). "
+            "Required by WHITE_BOX tests that acquire an admin token via the "
+            "auth dispatcher.  Never logged; redacted as '[REDACTED]' in all "
+            "structured log output."
+        ),
+    )
+    user_a_username: str | None = Field(
+        default=None,
+        description=(
+            "Primary non-privileged role (user_a) username, resolved at load "
+            "time from a ${VAR} placeholder in config.yaml (typically "
+            "${USER_A_USERNAME}).  Required by GREY_BOX tests that probe with "
+            "standard user credentials.  Never logged; redacted as '[REDACTED]'."
+        ),
+    )
+    user_a_password: str | None = Field(
+        default=None,
+        description=(
+            "Primary non-privileged role (user_a) password, resolved at load "
+            "time from a ${VAR} placeholder in config.yaml (typically "
+            "${USER_A_PASSWORD}).  Required by GREY_BOX tests that probe with "
+            "standard user credentials.  Never logged; redacted as '[REDACTED]'."
+        ),
+    )
+    user_b_username: str | None = Field(
+        default=None,
+        description=(
+            "Secondary non-privileged role (user_b) username, resolved at load "
+            "time from a ${VAR} placeholder in config.yaml (typically "
+            "${USER_B_USERNAME}).  Required by GREY_BOX cross-tenant tests "
+            "(e.g. 2.1 RBAC enforcement) that need a second distinct user.  "
+            "Never logged; redacted as '[REDACTED]'."
+        ),
+    )
+    user_b_password: str | None = Field(
+        default=None,
+        description=(
+            "Secondary non-privileged role (user_b) password, resolved at load "
+            "time from a ${VAR} placeholder in config.yaml (typically "
+            "${USER_B_PASSWORD}).  Required by GREY_BOX cross-tenant tests "
+            "(e.g. 2.1 RBAC enforcement) that need a second distinct user.  "
+            "Never logged; redacted as '[REDACTED]'."
+        ),
+    )
 
     # ------------------------------------------------------------------
     # jwt_login specific fields
@@ -534,15 +586,17 @@ def _is_valid_test_id_format(test_id: str) -> bool:
         Two dot-separated tokens, both of which are non-negative integer
         strings.  Examples: '0.1', '4.1', '7.2'.
 
-    External test -- 'ext.X.Y'
-        Three dot-separated tokens: the literal prefix 'ext' followed by
-        two non-negative integer strings.  Examples: 'ext.1.5', 'ext.0.1'.
-        The prefix distinguishes external test IDs from native ones in the
-        engine's test_lookup dict and prevents silent overwrites.
+    External test -- 'ext.X.Y.toolname'
+        Four dot-separated tokens: the literal prefix 'ext', two non-negative
+        integer strings (domain and sequence), and a non-empty lowercase tool
+        identifier.  Examples: 'ext.0.1.nuclei', 'ext.1.5.testssl',
+        'ext.1.5.sslyze'.  The 'ext.' prefix avoids collision with native test
+        IDs in the engine's test_lookup dict; the tool suffix makes the ID
+        self-documenting and unique when multiple tools cover the same guarantee.
 
-    Any other form (wrong number of tokens, non-integer parts, wrong prefix)
-    returns False and the caller is expected to raise ValueError with an
-    operator-facing message.
+    Any other form (wrong number of tokens, non-integer parts, wrong prefix,
+    empty tool name) returns False and the caller is expected to raise
+    ValueError with an operator-facing message.
 
     Args:
         test_id: The candidate test ID string to validate.
@@ -556,10 +610,16 @@ def _is_valid_test_id_format(test_id: str) -> bool:
     if len(parts) == 2:  # noqa: PLR2004
         return all(p.isdigit() for p in parts)
 
-    # External format: exactly three parts, first is 'ext', last two are digits.
-    if len(parts) == 3:  # noqa: PLR2004
-        prefix, domain_part, seq_part = parts
-        return prefix == "ext" and domain_part.isdigit() and seq_part.isdigit()
+    # External format: exactly four parts — 'ext', digit, digit, toolname.
+    if len(parts) == 4:  # noqa: PLR2004
+        prefix, domain_part, seq_part, tool_part = parts
+        return (
+            prefix == "ext"
+            and domain_part.isdigit()
+            and seq_part.isdigit()
+            and len(tool_part) > 0
+            and tool_part.replace("-", "").replace("_", "").isalnum()
+        )
 
     return False
 
@@ -670,13 +730,15 @@ class ExecutionConfig(BaseModel):
                 Examples: '0.1', '4.1', '7.2'.
                 Used by all BaseTest subclasses in src/tests/domain_*/.
 
-            External tests -- 'ext.X.Y'
+            External tests -- 'ext.X.Y.toolname'
                 Prefixed with the literal string 'ext', followed by two
-                non-negative integer strings X (domain) and Y (sequence).
-                Examples: 'ext.1.5', 'ext.0.1'.
+                non-negative integer strings X (domain) and Y (sequence),
+                then a non-empty alphanumeric tool identifier.
+                Examples: 'ext.0.1.nuclei', 'ext.1.5.testssl', 'ext.1.5.sslyze'.
                 Used by ExternalToolTest subclasses in src/external_tests/.
-                The 'ext.' prefix avoids collision with native test IDs in the
-                engine's test_lookup dict (keyed by test_id).
+                The 'ext.' prefix avoids collision with native test IDs; the
+                tool suffix makes the ID self-documenting and unique when
+                multiple tools cover the same guarantee.
 
         This validator catches obvious typos early, before the registry
         attempts the lookup and silently produces an empty filtered list.
@@ -690,7 +752,8 @@ class ExecutionConfig(BaseModel):
                 raise ValueError(
                     f"Invalid test_id format: {item!r}. "
                     "Accepted formats: 'X.Y' for native tests (e.g. '4.1', '0.2') "
-                    "or 'ext.X.Y' for external tool tests (e.g. 'ext.1.5', 'ext.0.1')."
+                    "or 'ext.X.Y.toolname' for external tests "
+                    "(e.g. 'ext.1.5.testssl', 'ext.0.1.nuclei')."
                 )
         return value
 

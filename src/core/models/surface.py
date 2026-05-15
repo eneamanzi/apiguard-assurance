@@ -34,9 +34,17 @@ class ParameterInfo(BaseModel):
 
     name: str = Field(description="Parameter name as declared in the OpenAPI spec.")
     location: str = Field(description="'path', 'query', 'header', or 'cookie'. Stored lowercase.")
-    required: bool = Field(default=False)
-    schema_type: str | None = Field(default=None)
-    schema_format: str | None = Field(default=None)
+    required: bool = Field(
+        default=False, description="True if the parameter is marked required in the spec."
+    )
+    schema_type: str | None = Field(
+        default=None,
+        description="JSON schema type (e.g. 'string', 'integer'); None if unspecified.",
+    )
+    schema_format: str | None = Field(
+        default=None,
+        description="JSON schema format (e.g. 'uuid', 'date-time'); None if unspecified.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -51,13 +59,34 @@ class EndpointRecord(BaseModel):
 
     path: str = Field(description="API path with template params, e.g. '/api/v1/users/{id}'.")
     method: str = Field(description="HTTP method, uppercase.")
-    operation_id: str | None = Field(default=None)
-    tags: list[str] = Field(default_factory=list)
-    requires_auth: bool = Field(default=True)
-    is_deprecated: bool = Field(default=False)
-    parameters: list[ParameterInfo] = Field(default_factory=list)
-    request_body_required: bool = Field(default=False)
-    request_body_content_types: list[str] = Field(default_factory=list)
+    operation_id: str | None = Field(
+        default=None,
+        description="Spec-declared operationId; None if the spec omits it.",
+    )
+    tags: list[str] = Field(
+        default_factory=list,
+        description="OpenAPI tags assigned to the operation; used for grouping.",
+    )
+    requires_auth: bool = Field(
+        default=True,
+        description="True if the operation declares a security requirement.",
+    )
+    is_deprecated: bool = Field(
+        default=False,
+        description="True if the operation is marked 'deprecated: true' in the spec.",
+    )
+    parameters: list[ParameterInfo] = Field(
+        default_factory=list,
+        description="All declared parameters (path, query, header, cookie).",
+    )
+    request_body_required: bool = Field(
+        default=False,
+        description="True if requestBody.required is true in the spec.",
+    )
+    request_body_content_types: list[str] = Field(
+        default_factory=list,
+        description="MIME types declared in requestBody.content (e.g. 'application/json').",
+    )
 
     @field_validator("method")
     @classmethod
@@ -91,10 +120,22 @@ class AttackSurface(BaseModel):
 
     model_config = {"frozen": True}
 
-    spec_title: str = Field(default="Unknown")
-    spec_version: str = Field(default="Unknown")
-    dialect: SpecDialect = Field(default=SpecDialect.OPENAPI_3)
-    endpoints: list[EndpointRecord] = Field(default_factory=list)
+    spec_title: str = Field(
+        default="Unknown",
+        description="OpenAPI 'info.title' field; 'Unknown' if spec lacked it.",
+    )
+    spec_version: str = Field(
+        default="Unknown",
+        description="OpenAPI 'info.version' field; 'Unknown' if spec lacked it.",
+    )
+    dialect: SpecDialect = Field(
+        default=SpecDialect.OPENAPI_3,
+        description="OpenAPI dialect detected from the spec (OAS 3.0.x / 3.1.x / Swagger 2.0).",
+    )
+    endpoints: list[EndpointRecord] = Field(
+        default_factory=list,
+        description="All (path, method) operations declared in the spec.",
+    )
 
     @property
     def total_endpoint_count(self) -> int:

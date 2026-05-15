@@ -209,6 +209,38 @@ class NucleiConfig(BaseExternalToolConfig):
     )
 
 
+class SslyzeConfig(BaseExternalToolConfig):
+    """
+    Configuration for the sslyze connector (Python TLS scanner library).
+
+    sslyze is a BaseLibraryConnector: it is imported as a Python module, not
+    invoked as a subprocess.  Install via: pip install "apiguard-assurance[sslyze]"
+    or pip install sslyze>=6.0.
+
+    Reference: NIST SP 800-52 Rev.2, OWASP ASVS v5.0.0 V14.2.1.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description=(
+            "Enable the sslyze connector.  When True, timeout_seconds is mandatory.  "
+            "Requires sslyze>=6.0 to be installed "
+            "('pip install apiguard-assurance[sslyze]')."
+        ),
+    )
+    timeout_seconds: int | None = Field(
+        default=None,
+        ge=30,
+        le=300,
+        description=(
+            "Per-connection network timeout for each sslyze TLS check in seconds. "
+            "Mandatory when enabled=True.  Recommended: 60.  "
+            "sslyze runs multiple checks in parallel; this timeout applies to each "
+            "individual TCP connection attempt, not to the total scan duration."
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Root external tools config
 # ---------------------------------------------------------------------------
@@ -243,13 +275,17 @@ class ExternalToolsConfig(BaseModel):
         default_factory=NucleiConfig,
         description="Configuration for the nuclei connector.",
     )
+    sslyze: SslyzeConfig = Field(
+        default_factory=SslyzeConfig,
+        description="Configuration for the sslyze connector (Python TLS library).",
+    )
 
     def is_tool_enabled(self, tool_name: str) -> bool:
         """
         Return True if the given tool is active (master switch AND per-tool switch).
 
         Args:
-            tool_name: Currently "testssl" or "nuclei".
+            tool_name: Currently "testssl", "nuclei", or "sslyze".
 
         Returns:
             bool: True only if both ExternalToolsConfig.enabled and the

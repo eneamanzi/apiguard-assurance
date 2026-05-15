@@ -194,12 +194,6 @@ class BaseConnector(ABC):
         self,
         target_url: str,
         timeout_seconds: int,
-        **kwargs: Any,  # noqa: ANN401 -- Any is justified at the abstract level:
-        # Each concrete subclass declares its own specific keyword parameters.
-        # At this abstraction layer it is technically impossible to express a
-        # more precise type for **kwargs without coupling BaseConnector to every
-        # subclass's signature.  The concrete run() implementations use fully-typed
-        # explicit parameters and do not expose Any to callers.
     ) -> ConnectorResult:
         """
         Execute the tool against the given target URL and return structured output.
@@ -217,14 +211,22 @@ class BaseConnector(ABC):
             Connectors must NOT sanitize raw_output.  Sanitization is the sole
             responsibility of EvidenceStore.pin_artifact().
 
+        Subclass signature extension:
+            Concrete subclasses MAY add their own keyword-only parameters
+            (after a ``*`` separator) with defaults.  This is LSP-safe: a
+            caller using only the abstract signature passes only
+            ``target_url`` and ``timeout_seconds``; subclass-specific
+            parameters are accessed via the concrete type (e.g.
+            ``TestsslConnector(...).run(..., extra_flags=...)``).
+            Do NOT accept ``**kwargs``; declare every supported parameter
+            explicitly with a precise type.
+
         Args:
             target_url:      The base URL of the target API (from
                              TargetContext.effective_endpoint_base_url()).
                              Does not include trailing slash.
             timeout_seconds: Mandatory wall-clock limit for the execution.
                              Sourced from ExternalToolsConfig.<tool>.timeout_seconds.
-            **kwargs:        Tool-specific parameters declared explicitly in the
-                             concrete subclass's run() signature.
 
         Returns:
             ConnectorResult: Parsed output of the tool run.
@@ -1025,8 +1027,8 @@ class BaseLibraryConnector(BaseConnector):
         try:
             module = importlib.import_module(self.LIBRARY_MODULE)
             version: str | None = getattr(module, "__version__", None)
-            if version is not None:
-                return str(version)
+            if isinstance(version, str):
+                return version
             # Fallback: importlib.metadata (PEP 566 / Python 3.8+).
             # Deferred import: importlib.metadata adds a small startup cost;
             # we avoid paying it for every connector that uses __version__ directly.

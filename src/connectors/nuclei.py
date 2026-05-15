@@ -141,7 +141,7 @@ class NucleiConnector(BaseSubprocessConnector):
     LOCAL_TOOLS_SUBDIR: ClassVar[str] = "nuclei"
     SERVICE_ENV_VAR: ClassVar[str] = "NUCLEI_SERVICE_URL"
 
-    def run(  # noqa: PLR0913 -- connector requires all parameters explicitly
+    def run(  # type: ignore[override]  # noqa: PLR0913
         self,
         target_url: str,
         timeout_seconds: int,
@@ -151,6 +151,11 @@ class NucleiConnector(BaseSubprocessConnector):
         rate_limit_rps: int,
         extra_flags: str,
     ) -> ConnectorResult:
+        # Signature is intentionally narrower than BaseConnector.run(): nuclei
+        # requires all parameters explicitly, with no sensible defaults.
+        # Callers (ExtTest01ShadowApiNuclei._invoke_connector) hold a
+        # NucleiConnector reference (narrowed via isinstance), never an
+        # abstract BaseConnector, so LSP is preserved at the call site.
         """
         Execute nuclei against target_url and return parsed ConnectorResult.
 
@@ -214,130 +219,132 @@ class NucleiConnector(BaseSubprocessConnector):
                 exit_code=-1,
             )
 
-        # Build command.  The JSON export file path is a temp file created
-        # below; nuclei writes findings to it (or skips creation if empty).
-        json_export_path = Path(tempfile.mktemp(suffix="_nuclei.json"))  # noqa: S306
-        # mktemp is used intentionally: we need the path before nuclei runs
-        # (to pass it as a CLI argument), and the file must NOT exist yet so
-        # we can detect the zero-findings case (nuclei does not create the
-        # file when there are no matches).  The risk of a race condition is
-        # negligible in this single-user security tool context.
+        # The JSON export file lives inside a freshly created unique temp
+        # directory.  Using TemporaryDirectory() rather than tempfile.mktemp()
+        # eliminates the TOCTOU race condition of CWE-377: the directory is
+        # created atomically by the OS, the path inside is guaranteed not to
+        # exist until nuclei creates the file, and the directory (with any
+        # leftover file) is deleted automatically on exit -- including on
+        # exception from _run_subprocess() or _read_json_export().
+        with tempfile.TemporaryDirectory(prefix="apiguard_nuclei_") as temp_dir_str:
+            json_export_path = Path(temp_dir_str) / "nuclei_findings.json"
 
-        cmd: list[str] = [
-            binary_cmd,
-            "-u",
-            target_url,
-            "-t",
-            str(resolved_template_dir),
-            "-tags",
-            ",".join(tags),
-            "-timeout",
-            str(per_request_timeout),
-            "-rl",
-            str(rate_limit_rps),
-            "-je",
-            str(json_export_path),
-            *_HARDCODED_FLAGS,
-        ]
+            cmd: list[str] = [
+                binary_cmd,
+                "-u",
+                target_url,
+                "-t",
+                str(resolved_template_dir),
+                "-tags",
+                ",".join(tags),
+                "-timeout",
+                str(per_request_timeout),
+                "-rl",
+                str(rate_limit_rps),
+                "-je",
+                str(json_export_path),
+                *_HARDCODED_FLAGS,
+            ]
 
-        # Append operator-supplied extra flags if non-empty.
-        if extra_flags.strip():
-            cmd.extend(extra_flags.split())
+            # Append operator-supplied extra flags if non-empty.
+            if extra_flags.strip():
+                cmd.extend(extra_flags.split())
 
-        log.info(
-            "nuclei_connector_start",
-            target_url=target_url,
-            template_dir=str(resolved_template_dir),
-            tags=tags,
-            per_request_timeout=per_request_timeout,
-            rate_limit_rps=rate_limit_rps,
-            timeout_seconds=timeout_seconds,
-        )
+            log.info(
+                "nuclei_connector_start",
+                target_url=target_url,
+                template_dir=str(resolved_template_dir),
+                tags=tags,
+                per_request_timeout=per_request_timeout,
+                rate_limit_rps=rate_limit_rps,
+                timeout_seconds=timeout_seconds,
+            )
 
-        start_ms = int(time.monotonic() * 1000)
+            start_ms = int(time.monotonic() * 1000)
 
-        # _run_subprocess raises ExternalToolError on timeout or fatal failure.
-        # stdout is discarded: nuclei emits only [INF]/[WRN] log lines to
-        # stdout when -je is used; all structured output is in the JSON file.
-        _stdout, exit_code = self._run_subprocess(
-            cmd=cmd,
-            timeout_seconds=timeout_seconds,
-            tool_name=self.TOOL_NAME,
-        )
+            # _run_subprocess raises ExternalToolError on timeout or fatal failure.
+            # stdout is discarded: nuclei emits only [INF]/[WRN] log lines to
+            # stdout when -je is used; all structured output is in the JSON file.
+            _stdout, exit_code = self._run_subprocess(
+                cmd=cmd,
+                timeout_seconds=timeout_seconds,
+                tool_name=self.TOOL_NAME,
+            )
 
-        execution_time_ms = int(time.monotonic() * 1000) - start_ms
+            execution_time_ms = int(time.monotonic() * 1000) - start_ms
 
-        # Parse results from the JSON export file.
-        results: list[dict[str, Any]] = self._read_json_export(json_export_path)
+            # Parse results from the JSON export file.
+            results: list[dict[str, Any]] = self._read_json_export(json_export_path)
 
-        # Relativize template-path: nuclei writes the absolute filesystem path
-        # of the matched template file because it receives an absolute -t argument.
-        # This is local infrastructure data (which template on OUR machine matched),
-        # not target finding data -- safe to relativize without altering evidence.
-        # All other fields (matched-at, request, response, ...) are untouched.
-        results = self._sanitize_paths_in_findings(results, path_keys=("template-path",))
+            # Relativize template-path: nuclei writes the absolute filesystem path
+            # of the matched template file because it receives an absolute -t argument.
+            # This is local infrastructure data (which template on OUR machine matched),
+            # not target finding data -- safe to relativize without altering evidence.
+            # All other fields (matched-at, request, response, ...) are untouched.
+            results = self._sanitize_paths_in_findings(results, path_keys=("template-path",))
 
-        log.info(
-            "nuclei_connector_complete",
-            exit_code=exit_code,
-            findings_count=len(results),
-            execution_time_ms=execution_time_ms,
-        )
+            log.info(
+                "nuclei_connector_complete",
+                exit_code=exit_code,
+                findings_count=len(results),
+                execution_time_ms=execution_time_ms,
+            )
 
-        # Build human-readable display commands for the report.
-        #
-        # Three categories of tokens in `cmd` need sanitisation:
-        #   1. binary_cmd       -- may be an absolute project-local path;
-        #                         relativized via _relativize_display_path().
-        #   2. resolved_template_dir -- absolute path to the templates dir;
-        #                         relativized via _relativize_display_path().
-        #   3. json_export_path -- /tmp/tmpXXX_nuclei.json temp file;
-        #                         NOT shown in display strings (implementation
-        #                         detail); replaced with "nuclei_result.json"
-        #                         in command_json for analyst clarity.
-        #
-        # The display command is built from scratch (not from `cmd`) so that
-        # the -je temp-file token is omitted from `command` and shown as a
-        # clean placeholder in `command_json`.
-        _display_binary: str = self._relativize_display_path(binary_cmd)
-        _display_templates: str = self._relativize_display_path(str(resolved_template_dir))
-        _display_tokens: list[str] = [
-            _display_binary,
-            "-u",
-            target_url,
-            "-t",
-            _display_templates,
-            "-tags",
-            ",".join(tags),
-            "-timeout",
-            str(per_request_timeout),
-            "-rl",
-            str(rate_limit_rps),
-            *_HARDCODED_FLAGS,
-        ]
-        if extra_flags.strip():
-            _display_tokens.extend(extra_flags.split())
+            # Build human-readable display commands for the report.
+            #
+            # Three categories of tokens in `cmd` need sanitisation:
+            #   1. binary_cmd       -- may be an absolute project-local path;
+            #                         relativized via _relativize_display_path().
+            #   2. resolved_template_dir -- absolute path to the templates dir;
+            #                         relativized via _relativize_display_path().
+            #   3. json_export_path -- /tmp/apiguard_nuclei_*/nuclei_findings.json
+            #                         temp file; NOT shown in display strings
+            #                         (implementation detail); replaced with
+            #                         "nuclei_result.json" in command_json for
+            #                         analyst clarity.
+            #
+            # The display command is built from scratch (not from `cmd`) so that
+            # the -je temp-file token is omitted from `command` and shown as a
+            # clean placeholder in `command_json`.
+            _display_binary: str = self._relativize_display_path(binary_cmd)
+            _display_templates: str = self._relativize_display_path(str(resolved_template_dir))
+            _display_tokens: list[str] = [
+                _display_binary,
+                "-u",
+                target_url,
+                "-t",
+                _display_templates,
+                "-tags",
+                ",".join(tags),
+                "-timeout",
+                str(per_request_timeout),
+                "-rl",
+                str(rate_limit_rps),
+                *_HARDCODED_FLAGS,
+            ]
+            if extra_flags.strip():
+                _display_tokens.extend(extra_flags.split())
 
-        # command: no -je flag -- mirrors what a human runs for text output.
-        # command_json: includes -je placeholder (clean filename, not tmp path).
-        _display_command: str = " ".join(_display_tokens)
-        _display_command_json: str = " ".join(_display_tokens + ["-je", "nuclei_result.json"])
+            # command: no -je flag -- mirrors what a human runs for text output.
+            # command_json: includes -je placeholder (clean filename, not tmp path).
+            _display_command: str = " ".join(_display_tokens)
+            _display_command_json: str = " ".join(_display_tokens + ["-je", "nuclei_result.json"])
 
-        raw_output: dict[str, Any] = {
-            "command": _display_command,
-            "command_json": _display_command_json,
-            "results": results,
-            "all_count": len(results),
-        }
+            raw_output: dict[str, Any] = {
+                "command": _display_command,
+                "command_json": _display_command_json,
+                "results": results,
+                "all_count": len(results),
+            }
 
-        return ConnectorResult(
-            tool_name=self.TOOL_NAME,
-            tool_version=self.get_version(),
-            raw_output=raw_output,
-            exit_code=exit_code,
-            execution_time_ms=execution_time_ms,
-            timed_out=False,
-        )
+            return ConnectorResult(
+                tool_name=self.TOOL_NAME,
+                tool_version=self.get_version(),
+                raw_output=raw_output,
+                exit_code=exit_code,
+                execution_time_ms=execution_time_ms,
+                timed_out=False,
+            )
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -400,7 +407,7 @@ class NucleiConnector(BaseSubprocessConnector):
                     exit_code=0,
                 )
 
-            return data  # type: ignore[return-value]
+            return data
 
         except json.JSONDecodeError as exc:
             raise ExternalToolError(

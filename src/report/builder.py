@@ -230,9 +230,14 @@ class ExecutiveSummary(BaseModel):
 
     model_config = {"frozen": True}
 
-    total_tests: Annotated[int, Field(ge=0)] = Field(
-        description="Total number of tests that were executed (PASS + FAIL + ERROR). "
-        "Does not include SKIP."
+    scheduled_tests: Annotated[int, Field(ge=0)] = Field(
+        description="Total number of tests scheduled by the engine "
+        "(PASS + FAIL + ERROR + SKIP). The 'total' figure for the run."
+    )
+    executed_tests: Annotated[int, Field(ge=0)] = Field(
+        description="Number of tests that produced a verdict against the target "
+        "(PASS + FAIL + ERROR). Excludes SKIP -- a SKIP means the test did not "
+        "run because a precondition was not satisfied (e.g. missing external tool)."
     )
     pass_count: Annotated[int, Field(ge=0)] = Field(default=0)
     fail_count: Annotated[int, Field(ge=0)] = Field(default=0)
@@ -266,6 +271,15 @@ class ReportData(BaseModel):
 
     model_config = {"frozen": True}
 
+    output_schema_version: str = Field(
+        description="Version of the JSON output schema produced by this report builder. "
+        "Independent of the tool version and the OpenAPI spec version. "
+        "Bumped on any structural change to the JSON output."
+    )
+    tool_version: str = Field(
+        description="Version of the APIGuard binary that produced this report "
+        "(read from package metadata at report-generation time)."
+    )
     run_id: str = Field(description="Unique run identifier from the engine.")
     generated_at_utc: str = Field(description="ISO 8601 UTC timestamp of report generation.")
     target_base_url: str = Field(description="Base URL of the assessed API.")
@@ -298,6 +312,19 @@ _EXIT_CODE_LABELS: dict[int, str] = {
     2: "ERROR — At least one verification incomplete",
     10: "INFRASTRUCTURE ERROR — Assessment did not complete",
 }
+
+# Version of the JSON output schema produced by build_report_data().
+# This is INDEPENDENT of the tool version (src.__version__, read from
+# pyproject.toml) and the OpenAPI spec version (ReportData.spec_version):
+#   - tool_version          -- which APIGuard binary produced the report
+#   - spec_version          -- which version of the target API was assessed
+#   - output_schema_version -- which version of THIS JSON structure
+# Bump this when any field is added, removed, or has its semantics changed,
+# so downstream consumers (CI integrations, dashboards) can detect the
+# difference and adapt their parsing. Follows semver: major for breaking
+# changes (field removal/rename), minor for additive changes (new optional
+# field).
+_OUTPUT_SCHEMA_VERSION: str = "1.0"
 
 
 # ---------------------------------------------------------------------------
@@ -357,7 +384,11 @@ def build_report_data(
         s.value for s in sorted(config.execution.strategies, key=lambda s: s.value)
     )
 
+    from src import __version__ as _tool_version
+
     report_data = ReportData(
+        output_schema_version=_OUTPUT_SCHEMA_VERSION,
+        tool_version=_tool_version,
         run_id=run_id,
         generated_at_utc=datetime.now(UTC).isoformat(),
         target_base_url=str(config.target.base_url),
@@ -519,6 +550,7 @@ def _build_executive_summary(
         Frozen ExecutiveSummary.
     """
     executed_count = result_set.pass_count + result_set.fail_count + result_set.error_count
+    scheduled_count = executed_count + result_set.skip_count
 
     pass_rate = (
         round(result_set.pass_count / executed_count * 100.0, 1) if executed_count > 0 else 0.0
@@ -527,7 +559,8 @@ def _build_executive_summary(
     total_findings = sum(r.finding_count for r in all_rows)
 
     return ExecutiveSummary(
-        total_tests=executed_count,
+        scheduled_tests=scheduled_count,
+        executed_tests=executed_count,
         pass_count=result_set.pass_count,
         fail_count=result_set.fail_count,
         skip_count=result_set.skip_count,

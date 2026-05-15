@@ -46,6 +46,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
+from src import __version__
+
 # Load .env file from the project root (the working directory where the tool
 # is invoked). This must happen before any other import or operation reads
 # os.environ, including structlog configuration and config/loader.py.
@@ -61,8 +63,10 @@ load_dotenv(override=False)
 # ---------------------------------------------------------------------------
 
 # Tool metadata displayed in CLI help and startup banner.
+# TOOL_VERSION is sourced from pyproject.toml via importlib.metadata
+# (single source of truth -- see src/__init__.py).
 TOOL_NAME: str = "APIGuard Assurance"
-TOOL_VERSION: str = "1.0.0"
+TOOL_VERSION: str = __version__
 TOOL_DESCRIPTION: str = (
     "Automated security assessment tool for REST APIs in Cloud environments. "
     "Executes the APIGuard methodology (8 domains, 29 guarantees) against "

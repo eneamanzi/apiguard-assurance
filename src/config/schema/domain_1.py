@@ -9,6 +9,8 @@ configurable parameters gets its own model (Test1XConfig); the domain-level
 aggregator (TestDomain1Config) collects them all and is the only symbol
 exported to tests_config.py.
 
+Tests covered: 1.1, 1.4, 1.5, 1.6.
+
 Dependency rule: imports only from pydantic and the stdlib.
 """
 
@@ -24,6 +26,15 @@ from pydantic import BaseModel, Field, field_validator
 
 TEST_11_MAX_ENDPOINTS_CAP_DEFAULT: int = 0
 TEST_11_MAX_ENDPOINTS_CAP_MIN: int = 0
+
+# ---------------------------------------------------------------------------
+# Constants — Test 1.4
+# ---------------------------------------------------------------------------
+
+# Default name for the temporary API token created and immediately revoked
+# during the token-revocation probe.  Must be a valid Forgejo token name
+# (alphanumeric, hyphens allowed).
+TEST_14_TOKEN_NAME_DEFAULT: str = "apiguard-token-revocation-test"  # noqa: S105 -- token NAME, not a credential
 
 # ---------------------------------------------------------------------------
 # Constants — Test 1.5
@@ -60,6 +71,35 @@ TEST_16_SESSION_COOKIE_NAMES_DEFAULT: list[str] = [
 # ---------------------------------------------------------------------------
 # Per-test configs
 # ---------------------------------------------------------------------------
+
+
+class Test14Config(BaseModel):
+    """
+    Tuning parameters for Test 1.4 (Revoked Token Rejected After Deletion).
+
+    The test creates a temporary API token under the admin account, immediately
+    revokes it via DELETE /api/v1/users/{user}/tokens/{name}, then verifies
+    that the revoked token is rejected with 401/403.  This parameter controls
+    the name of the temporary token so operators can identify and clean up
+    any leftover tokens from interrupted runs.
+
+    Reference: OWASP API2:2023, RFC 7009, OWASP ASVS v5.0.0 V7.4+V9,
+    NIST SP 800-63B-4 Section 5.1.
+    """
+
+    model_config = {"frozen": True}
+
+    token_name: str = Field(
+        default=TEST_14_TOKEN_NAME_DEFAULT,
+        min_length=1,
+        max_length=40,
+        description=(
+            "Name of the temporary API token created and revoked during the "
+            "token-revocation probe.  Must be a valid Forgejo token name "
+            "(alphanumeric and hyphens).  "
+            f"Default: '{TEST_14_TOKEN_NAME_DEFAULT}'."
+        ),
+    )
 
 
 class Test11Config(BaseModel):
@@ -274,6 +314,13 @@ class TestDomain1Config(BaseModel):
     test_1_1: Test11Config = Field(
         default_factory=Test11Config,
         description="Tuning parameters for Test 1.1 (Authentication Required).",
+    )
+    test_1_4: Test14Config = Field(
+        default_factory=Test14Config,
+        description=(
+            "Tuning parameters for Test 1.4 (Revoked Token Rejected After Deletion). "
+            "Maps to 'tests.domain_1.test_1_4' in config.yaml."
+        ),
     )
     test_1_5: Test15Config = Field(
         default_factory=Test15Config,

@@ -79,8 +79,8 @@ from src.connectors.base import BaseConnector, ConnectorResult
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.exceptions import ExternalToolError
-from src.core.models import TestStrategy
-from src.core.models.results import Finding, InfoNote, TestResult, TestStatus
+from src.core.models import TestStatus, TestStrategy
+from src.core.models.results import Finding, InfoNote, TestResult
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -329,10 +329,12 @@ class ExternalToolTest(ABC):
         # available to both the dev mode cache lookup and pin_artifact().
         # Formula mirrors _persist_tool_artifact()'s naming convention so
         # the cache file reconstructed here is the same file written by the
-        # prior live run.  Example: test_id="ext.0.1", TOOL_NAME="nuclei"
-        # -> artifact_label="ext.0.1_nuclei"
+        # prior live run.  Example: test_id="ext.0.1.nuclei"
+        # -> artifact_label="ext.0.1.nuclei"
         # -> cache file: outputs/tools/ext_0_1_nuclei_output.json
-        artifact_label: str = f"{self.test_id}_{connector.TOOL_NAME.replace('.', '_')}"
+        # The test_id already carries the tool name (ext.X.Y.toolname convention),
+        # so appending TOOL_NAME again would produce duplicate suffixes.
+        artifact_label: str = self.test_id
 
         # --- Dev mode: attempt cache load before touching the binary ---
         # _is_dev_mode() reads the per-tool dev_mode flag from config.yaml.
@@ -512,7 +514,7 @@ class ExternalToolTest(ABC):
             EvidenceStore._persist_tool_artifact(), ensuring this method
             looks for the file at the same path it was written to.
 
-            Example: artifact_label="ext.0.1_nuclei"
+            Example: artifact_label="ext.0.1.nuclei"
                      safe_label="ext_0_1_nuclei"
                      file path: tools_dir/ext_0_1_nuclei_output.json
 

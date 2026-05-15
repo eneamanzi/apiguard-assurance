@@ -2,40 +2,109 @@
 requires = ["hatchling>=1.21"]
 build-backend = "hatchling.build"
 
+# ---------------------------------------------------------------------------
+# Project metadata (PEP 621).
+#
+# Logical sections inside [project]:
+#   1. Identity                — name, version, description
+#   2. Readme + Python target  — readme, requires-python (+ license note)
+#   3. Authors / URLs          — who and where (project urls in subtable)
+#   4. Discovery metadata      — keywords + classifiers (PyPI search/filters)
+#   5. Runtime dependencies    — installed by every consumer
+#   6. Optional dependencies   — connector-tier extras (separate table below)
+#   7. Entry points / scripts  — CLI binding (separate table below)
+# ---------------------------------------------------------------------------
 [project]
+# --- 1. Identity ---
 name = "apiguard-assurance"
-version = "1.0.0"
+version = "0.1.0"
 description = "Automated security assessment tool for REST APIs in Cloud environments."
+
+# --- 2. Readme + Python target ---
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+# License intentionally left unspecified — the project is the artefact of a
+# Master's thesis and the IP/licensing question is governed by the university's
+# academic-output regulations rather than a standard open-source license. Once
+# the licensing terms are finalised with the institution, add the corresponding
+# license field, append the matching "License :: OSI Approved :: ..." entry to
+# classifiers below, and ship the LICENSE file at the repo root.
+
+# --- 3. Authors ---
+authors = [
+    { name = "Enea Manzi", email = "enea.manzi@gmail.com" },
+]
+
+# --- 4. Discovery metadata (PyPI search + UI filters) ---
+# Keywords are the free-text labels surfaced by PyPI's full-text search;
+# classifiers are the controlled vocabulary used by PyPI's faceted browse
+# (https://pypi.org/classifiers/).  Kept disjoint on purpose: keywords cover
+# the project's identity and target audience in natural English, classifiers
+# cover the categorical filters.
+keywords = [
+    "api-security",
+    "api-gateway-security",
+    "openapi",
+    "rest-api",
+    "dast",
+    "vulnerability-scanner",
+    "owasp-api-security",
+    "kong-gateway",
+    "automated-security-testing",
+    "master-thesis",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Framework :: Pydantic :: 2",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Security",
+    "Topic :: Software Development :: Testing",
+    "Topic :: System :: Networking :: Monitoring",
+    "Typing :: Typed",
+]
 
 # Runtime dependencies — grouped by architectural layer for traceability.
 #
-# Pinning policy
-# --------------
-# Most dependencies use ">=" lower-bound pins to allow compatible upgrades.
-# prance is the sole exception: it is pinned to an exact version ("==") because
-# src/discovery/openapi.py accesses prance's internal attribute
+# Pinning policy ("moderate with tested floor")
+# ---------------------------------------------
+# Each dependency uses ">=FLOOR,<NEXT_MAJOR" where:
+#   • FLOOR is the version actually used to develop and validate Milestone 1
+#     (see MILESTONE1_RELEASE_AUDIT.md, "Versions matrix" appendix).
+#   • NEXT_MAJOR blocks an unintended jump into a major release that may
+#     introduce breaking changes (e.g. pydantic 3.0, rich 16.0).
+# This keeps the package installable side-by-side with other libraries (the
+# floor is wide enough), while protecting reproducibility of the thesis run.
+# prance is the sole strict exception: it is pinned to an exact version ("==")
+# because src/discovery/openapi.py accesses prance's internal attribute
 # _ResolvingParser__reference_cache via Python name-mangling. This is a
 # documented workaround for prance's lack of a public API for skipping backend
 # validation (required to handle Swagger 2.0 specs that use "type: file").
 # Any refactoring of prance's internals in a new release could silently break
 # Phase 2 (OpenAPI Discovery) with an AttributeError at runtime. The exact pin
 # eliminates this risk. When upgrading prance, re-run the full E2E smoke test
-# E2E smoke test to verify compatibility before removing the pin.
+# to verify compatibility before changing the pin.
 dependencies = [
     # HTTP client: async-capable, used exclusively via SecurityClient wrapper.
     # No test module is allowed to import httpx directly.
-    "httpx>=0.27",
+    "httpx>=0.28,<1",
 
     # Data validation and settings management (Pydantic v2 only).
     # TargetContext uses model_config = {"frozen": True}.
-    "pydantic>=2.7",
-    "pydantic-settings>=2.3",
+    "pydantic>=2.12,<3",
+    "pydantic-settings>=2.13,<3",
 
     # YAML parsing for config.yaml loading.
-    "PyYAML>=6.0",
+    "PyYAML>=6.0,<7",
 
     # OpenAPI spec fetching and $ref dereferencing.
     # PINNED to exact version — see "Pinning policy" note above.
@@ -47,27 +116,64 @@ dependencies = [
     "prance==25.4.8.0",
 
     # OpenAPI spec structural validation (dialect-aware: OAS 3.0.x / 3.1.x).
-    "openapi-spec-validator>=0.7",
+    "openapi-spec-validator>=0.8,<1",
 
     # Structured logging (JSON output, bound context propagation).
     # No module uses print() or stdlib logging directly.
-    "structlog>=24.1",
+    "structlog>=25,<26",
 
     # Rich terminal output for CLI progress and status display.
-    "rich>=13.7",
+    "rich>=14,<16",
 
     # CLI framework: declarative argument parsing with type safety.
-    "typer>=0.12",
+    "typer>=0.24,<1",
 
     # Jinja2 for HTML report rendering from templates.
-    "Jinja2>=3.1",
+    "Jinja2>=3.1,<4",
 
     # Retry logic with exponential backoff for SecurityClient.
-    "tenacity>=8.3",
+    "tenacity>=9,<10",
 
     # Environment variable loading from .env files.
     # Called once at process startup in cli.py — not in loader.py.
-    "python-dotenv>=1.0",
+    "python-dotenv>=1.2,<2",
+
+    # Transitive pin: urllib3 is reached via prance → requests → urllib3.
+    # 2.7.0 fixes CVE-2026-44431 (cross-origin redirect header leak in
+    # ProxyManager.connection_from_url) and CVE-2026-44432 (Brotli/drain_conn
+    # over-decompression).  Neither code path is exercised by the tool, but the
+    # pin is held here to keep `pip-audit` clean for thesis reproducibility.
+    "urllib3>=2.7,<3",
+]
+
+# ---------------------------------------------------------------------------
+# Project URLs (rendered as sidebar on PyPI; consumed by `pip show`).
+#
+# Labels are conventional but free-form; keep them stable so external tools
+# linking to specific PyPI sidebars do not break.
+# ---------------------------------------------------------------------------
+[project.urls]
+Repository    = "https://github.com/eneamanzi/apiguard-assurance"
+Issues        = "https://github.com/eneamanzi/apiguard-assurance/issues"
+Documentation = "https://github.com/eneamanzi/apiguard-assurance/blob/main/docs/ARCHITECTURE.md"
+
+# ---------------------------------------------------------------------------
+# Optional dependencies: external-tool connectors (Python-library tier).
+# These are not required for native tests to run.  Install the relevant
+# extra to enable the corresponding BaseLibraryConnector.
+#
+# Usage:
+#   pip install -e ".[sslyze]"   — enables SslyzeConnector (ext.1.5.sslyze)
+# ---------------------------------------------------------------------------
+[project.optional-dependencies]
+sslyze = [
+    # Pure-Python TLS scanner — BaseLibraryConnector tier.
+    # Used by SslyzeConnector (src/connectors/sslyze.py) for ext.1.5.sslyze.
+    # Requires nassl native extension; install via:  pip install sslyze
+    # NOTE: sslyze and its nassl transitive are licensed under AGPL v3 — this
+    # is acceptable for research/thesis use; for SaaS distribution, this extra
+    # must be removed or replaced with a permissively-licensed TLS scanner.
+    "sslyze>=6.3,<7",
 ]
 
 [project.scripts]
@@ -76,6 +182,73 @@ apiguard = "src.cli:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
+
+# ---------------------------------------------------------------------------
+# Source distribution (sdist) content: explicit whitelist.
+#
+# By default hatch ships everything tracked by git, which would leak internal
+# documents (`.claude/`, `Z_*.md`, `MILESTONE*_AUDIT.md`, audit/build scripts,
+# target-specific config) into any tarball generated by `hatch build`.
+#
+# The explicit `include` list below restricts the sdist to the public surface
+# that an end user actually needs to install, configure, and run the tool.
+# Everything else stays in the repository for development but never appears
+# in a distributed tarball.
+#
+# When adding a new top-level public file, append it here. When adding a new
+# top-level internal file, no action is required (default exclusion).
+# ---------------------------------------------------------------------------
+[tool.hatch.build.targets.sdist]
+include = [
+    # Source code
+    "src/",
+
+    # Public documentation
+    "docs/",
+    "README.md",
+    "comandi.md",                # Operator quick-reference (it)
+
+    # Build + dependency declaration
+    "pyproject.toml",
+
+    # Configuration template + env example
+    "config.yaml",
+    ".env.example",
+
+    # External-tool installer (helper for first-time setup)
+    "install_tools.sh",
+]
+exclude = [
+    # Internal LLM context
+    ".claude/",
+    "CLAUDE.md",
+    # Project-state / audit artefacts (regenerated, not for end users)
+    "Z-CHECKLIST.md",
+    "Z_*.md",
+    "MILESTONE*_AUDIT.md",
+    # Personal build helpers and target-specific configs
+    "build_zip.sh",
+    "config_crapi.yaml",
+    "apiguard-assurance.zip",
+    # IDE / local environment
+    ".vscode/",
+    ".env",
+    # Test environments and tooling caches
+    "test-environments/",
+    "specs/",
+    "tools/",                    # external binaries -- user installs via install_tools.sh
+    "outputs/",
+    "dist/",
+]
+
+# ---------------------------------------------------------------------------
+# Default hatch environment: runtime deps + optional connectors.
+# Running `hatch run <cmd>` uses this environment.
+# ---------------------------------------------------------------------------
+[tool.hatch.envs.default]
+# Include the sslyze optional-dependency group so that SslyzeConnector
+# (src/connectors/sslyze.py) is available in the default run environment.
+features = ["sslyze"]
 
 # ---------------------------------------------------------------------------
 # Development dependencies: tooling only, never imported at runtime.
@@ -134,13 +307,13 @@ lint = [
     "mypy src/",
 ]
 audit = [
-    "bandit -r src/ -c pyproject.toml",
+    "bandit -r src/ -c pyproject.toml --severity-level medium",
     "vulture src/ --min-confidence 80",
 ]
 check = [
     "ruff check .",
     "mypy src/ ",
-    "bandit -r src/ -c pyproject.toml",
+    "bandit -r src/ -c pyproject.toml --severity-level medium",
     "vulture src/ --min-confidence 80",
 ]
 deps = [

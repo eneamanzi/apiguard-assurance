@@ -89,14 +89,17 @@ from src.core.exceptions import (
     OpenAPILoadError,
     TeardownError,
 )
+from src.core.gateway.kong import KongGatewayAdapter
 from src.core.models import (
     AttackSurface,
     ResultSet,
     RuntimeCredentials,
     RuntimeTest02Config,
     RuntimeTest11Config,
+    RuntimeTest14Config,
     RuntimeTest15Config,
     RuntimeTest16Config,
+    RuntimeTest21Config,
     RuntimeTest33Config,
     RuntimeTest41Config,
     RuntimeTest42Config,
@@ -111,7 +114,6 @@ from src.core.models import (
 from src.discovery.openapi import load_openapi_spec
 from src.discovery.surface import build_attack_surface
 from src.external_tests.base import ExternalToolTest
-from src.core.gateway.kong import KongGatewayAdapter
 from src.external_tests.registry import ExternalTestRegistry
 from src.report.builder import build_report_data
 from src.report.renderer import render_html_report
@@ -235,21 +237,35 @@ class AssessmentEngine:
             max_retry_attempts=config.execution.max_retry_attempts,
             verify_tls=config.target.verify_tls,
         ) as client:
-            self._phase_5_execute(
-                scheduled_batches=scheduled_batches,
-                active_tests=active_tests,
-                target=target,
-                context=context,
-                client=client,
-                store=store,
-                result_set=result_set,
-                config=config,
-            )
-            self._phase_6_teardown(
-                context=context,
-                client=client,
-                target=target,
-            )
+            # Phase 6 (teardown) MUST run even if Phase 5 is interrupted by
+            # KeyboardInterrupt (Ctrl+C) or terminated by an unexpected
+            # exception.  Tests in Phase 5 register real resources on the
+            # target (Forgejo tokens, repos, gateway routes) via
+            # context.register_resource_for_teardown(); skipping Phase 6
+            # would leave those resources dangling on the target and could
+            # conflict with subsequent runs.
+            #
+            # The try/finally guarantees teardown is always attempted; the
+            # teardown loop itself swallows individual TeardownError instances
+            # (logged as WARNING with manual_cleanup_required=True), so a
+            # single resource failure cannot abort the cleanup of the rest.
+            try:
+                self._phase_5_execute(
+                    scheduled_batches=scheduled_batches,
+                    active_tests=active_tests,
+                    target=target,
+                    context=context,
+                    client=client,
+                    store=store,
+                    result_set=result_set,
+                    config=config,
+                )
+            finally:
+                self._phase_6_teardown(
+                    context=context,
+                    client=client,
+                    target=target,
+                )
 
         result_set.completed_at = datetime.now(UTC)
 
@@ -388,6 +404,13 @@ class AssessmentEngine:
             ),
             test_1_1=RuntimeTest11Config(
                 max_endpoints_cap=config.tests.domain_1.test_1_1.max_endpoints_cap,
+            ),
+            test_1_4=RuntimeTest14Config(
+                token_name=config.tests.domain_1.test_1_4.token_name,
+            ),
+            test_2_1=RuntimeTest21Config(
+                admin_endpoint_paths=list(config.tests.domain_2.test_2_1.admin_endpoint_paths),
+                admin_endpoint_method=config.tests.domain_2.test_2_1.admin_endpoint_method,
             ),
             test_1_5=RuntimeTest15Config(
                 hsts_min_max_age_seconds=config.tests.domain_1.test_1_5.hsts_min_max_age_seconds,

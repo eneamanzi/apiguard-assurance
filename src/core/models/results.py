@@ -203,12 +203,30 @@ class TestResult(BaseModel):
     # Copied from BaseTest ClassVar at result-construction time via
     # _metadata_kwargs(). Allows builder.py to produce a complete report
     # without importing from tests/ (unidirectional dependency rule).
-    test_name: str = Field(default="")
-    domain: int = Field(default=-1)
-    priority: int = Field(default=0)
-    strategy: str = Field(default="")
-    tags: list[str] = Field(default_factory=list)
-    cwe_id: str = Field(default="")
+    test_name: str = Field(
+        default="",
+        description="Human-readable test name from the test class ClassVar.",
+    )
+    domain: int = Field(
+        default=-1,
+        description="Test domain (0-7); -1 if metadata not populated.",
+    )
+    priority: int = Field(
+        default=0,
+        description="Test priority (0=P0 critical, 1=P1, 2=P2, 3=P3 low).",
+    )
+    strategy: str = Field(
+        default="",
+        description="Test strategy: 'BLACK_BOX', 'GREY_BOX', or 'WHITE_BOX'.",
+    )
+    tags: list[str] = Field(
+        default_factory=list,
+        description="Free-form tags from the test class ClassVar (e.g. OWASP refs).",
+    )
+    cwe_id: str = Field(
+        default="",
+        description="Primary CWE identifier addressed by the test (e.g. 'CWE-287').",
+    )
 
     # --- External tool identifier ---
     # Populated exclusively for source='external' results via
@@ -268,9 +286,9 @@ class TestResult(BaseModel):
     # and can embed the record_id in the download envelope for cross-referencing
     # with evidence.json.
     #
-    # Without these fields, the JS in the template would have to fall back to
-    # testId (e.g. "ext.0.1") as the label, producing a filename mismatch
-    # ("ext_0_1_output.json") relative to the disk file ("ext_0_1_nuclei_output.json").
+    # Without these fields, the JS in the template would have to re-derive the
+    # label from testId.  Storing the actual label used by pin_artifact() keeps
+    # the disk file and the download envelope in lock-step.
     #
     # Both fields are None for source='native' results and for external results
     # where pin_artifact() was never called (e.g. SKIP, ERROR before Step 4).
@@ -342,9 +360,18 @@ class ResultSet(BaseModel):
     calculation. Built incrementally by the engine during Phase 5.
     """
 
-    results: list[TestResult] = Field(default_factory=list)
-    started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    completed_at: datetime | None = Field(default=None)
+    results: list[TestResult] = Field(
+        default_factory=list,
+        description="All TestResult objects produced during Phase 5, in scheduling order.",
+    )
+    started_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC),
+        description="UTC timestamp when ResultSet was instantiated (start of Phase 5).",
+    )
+    completed_at: datetime | None = Field(
+        default=None,
+        description="UTC timestamp when Phase 5 finished; None while still in progress.",
+    )
 
     def add_result(self, result: TestResult) -> None:
         """Append a TestResult to the collection."""

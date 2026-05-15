@@ -127,7 +127,7 @@
 
 **Conseguenze.** La separazione dei contratti previene l'ereditarietà di metodi inutilizzabili (es. un `ExternalToolTest` non dovrebbe avere `_log_transaction()` che accede a `SecurityClient`). Il `source` field nel `TestResult` consente al report di distinguere visivamente i risultati nativi da quelli generati da tool specializzati, senza richiedere sezioni fisicamente separate.
 
-**Tipo di evidenza.** Empirica — dimostrata da test ext.0.1 (`ExternalToolTest`, `source="external"`) e test 0.1 (`BaseTest`, `source="native"`) nello stesso dominio: il log di Phase 5 mostra il dispatch `isinstance` differenziato; `TestResult.source` è distinguibile in `evidence.json`.
+**Tipo di evidenza.** Empirica — dimostrata da test ext.0.1.nuclei (`ExternalToolTest`, `source="external"`) e test 0.1 (`BaseTest`, `source="native"`) nello stesso dominio: il log di Phase 5 mostra il dispatch `isinstance` differenziato; `TestResult.source` è distinguibile in `evidence.json`.
 
 **Sviluppo futuro.** La dualità è estendibile: si può aggiungere una terza gerarchia (es. `AgentTest` per test LLM-assisted) senza modificare i contratti esistenti, aggiungendo solo un nuovo ramo nel dispatch dell'engine.
 
@@ -138,14 +138,16 @@
 **Definizione.** I wrapper verso tool esterni seguono una gerarchia a tre livelli: `BaseConnector` (ABC puro, contratto universale), `BaseSubprocessConnector` (per tool invocati come subprocess: testssl.sh, ffuf, nuclei, vegeta), `BaseLibraryConnector` (per tool Python-native: sslyze). Ogni livello eredita solo i meccanismi pertinenti al proprio pattern di integrazione.
 
 **Locus nel codice.**
-- `src/connectors/base.py` — le tre classi + `ConnectorResult`
-- `src/connectors/testssl.py`, `nuclei.py` — implementazioni concrete `BaseSubprocessConnector`
+- `src/connectors/base.py` — le tre classi + `ConnectorResult` (Pydantic) + `ConnectorRawOutput` (TypedDict contratto generico per ogni connector)
+- `src/connectors/nuclei.py`, `src/connectors/testssl.py` — implementazioni concrete `BaseSubprocessConnector`
+- `src/connectors/sslyze.py` — implementazione concreta `BaseLibraryConnector`
+- `src/connectors/types/` — TypedDict condivisi tra famiglie di connector (es. `TlsFinding` per testssl+sslyze)
 - `Implementazione.md §4.6` — motivazione DA-1: "una sottoclasse non deve ereditare metodi che non può usare"
 - `src/connectors/_template_connector.py` — template per sviluppatori futuri
 
-**Conseguenze.** Un `TestsslConnector` non eredita `LIBRARY_MODULE` e `_import_library()` (irrilevanti per un subprocess). Un futuro `SslyzeConnector` non eredita `BINARY_NAME`, `SERVICE_ENV_VAR`, `_run_subprocess()` (irrilevanti per una libreria Python). Il contratto pubblico (`run()`, `is_available()`, `get_version()`) è identico per entrambi: il test chiamante non sa né gli importa come il connector è implementato.
+**Conseguenze.** Un `TestsslConnector` non eredita `LIBRARY_MODULE` né il meccanismo basato su `importlib.util.find_spec()` (irrilevanti per un subprocess). Un `SslyzeConnector` non eredita `BINARY_NAME`, `SERVICE_ENV_VAR`, `_run_subprocess()` (irrilevanti per una libreria Python). Il contratto pubblico (`run()`, `is_available()`, `get_version()`) è identico per entrambi: il test chiamante non sa né gli importa come il connector è implementato.
 
-**Tipo di evidenza.** Empirica (parziale) — i tier `BaseConnector` e `BaseSubprocessConnector` sono dimostrati da ext.0.1 (`NucleiConnector`) e ext.1.5 (`TestsslConnector`). Il tier `BaseLibraryConnector` è verificabile per ispezione di `src/connectors/base.py` ma non è esercitato in Milestone 1 (nessun tool Python-native implementato; sslyze deferred).
+**Tipo di evidenza.** Empirica — tutti e tre i tier sono dimostrati in Milestone 1: `BaseSubprocessConnector` da ext.0.1.nuclei (`NucleiConnector`) e ext.1.5.testssl (`TestsslConnector`); `BaseLibraryConnector` da ext.1.5.sslyze (`SslyzeConnector`, nessun subprocess, importazione via `importlib`).
 
 **Sviluppo futuro.** Aggiungere supporto per un nuovo tool esterno (es. `ffuf` come library Go, `Burp Suite` in modalità headless) richiede solo una nuova sottoclasse del livello appropriato, senza modificare `BaseConnector` né i test che lo usano.
 
@@ -162,7 +164,7 @@
 
 **Conseguenze.** Il connector è riutilizzabile da test diversi con oracle diversi. Il test `ext_test_0_1_shadow_api_nuclei.py` e un ipotetico `ext_test_3_1_injection_nuclei.py` usano lo stesso `NucleiConnector` ma valutano il suo output con logiche di oracle distinte. Il connector è testabile indipendentemente (verifica che l'output sia parsato correttamente) senza richiedere un oracle di sicurezza.
 
-**Tipo di evidenza.** Empirica — dimostrata da ext.0.1 (`NucleiConnector.run()` restituisce tutti i findings inclusi `severity="info"`; `_evaluate()` in `ExtTest01ShadowApiNuclei` applica la partizione FAIL/NOTE/ignored) e da ext.1.5 (stesso pattern con `TestsslConnector` e bucket CRITICAL/HIGH vs MEDIUM/WARN).
+**Tipo di evidenza.** Empirica — dimostrata da ext.0.1.nuclei (`NucleiConnector.run()` restituisce tutti i findings inclusi `severity="info"`; `_evaluate()` in `ExtTest01ShadowApiNuclei` applica la partizione FAIL/NOTE/ignored) e da ext.1.5.testssl (stesso pattern con `TestsslConnector` e bucket CRITICAL/HIGH vs MEDIUM/WARN).
 
 **Sviluppo futuro.** Pattern direttamente trasferibile: lo stesso `connectors/nuclei.py` potrebbe servire, senza modifiche, nuovi test per domini attualmente non coperti (es. OWASP API10 — Unsafe Consumption of APIs con template Nuclei specifici).
 
@@ -214,7 +216,7 @@
 
 **Conseguenze.** Un connector che dimentica di redactare un campo sensibile non crea una violazione: la sanitizzazione avviene sempre e comunque in un punto centralizzato. Aggiungere un nuovo pattern di credenziale (es. `x-api-key`) richiede una modifica in un solo posto. La tripla copertura (key pattern + JWT heuristic + header prefix) garantisce che un token JWT leakato come valore di una chiave `"result"` arbitraria venga comunque redactato.
 
-**Tipo di evidenza.** Empirica — dimostrata da ext.0.1 e ext.1.5: qualsiasi Bearer token presente nel `raw_output` di nuclei o testssl.sh appare come `[REDACTED]` in `evidence.json`. Verificabile confrontando il raw output del tool con l'artifact salvato nella sezione `tool_artifact` di `evidence.json`.
+**Tipo di evidenza.** Empirica — dimostrata da ext.0.1.nuclei e ext.1.5.testssl: qualsiasi Bearer token presente nel `raw_output` di nuclei o testssl.sh appare come `[REDACTED]` in `evidence.json`. Verificabile confrontando il raw output del tool con l'artifact salvato nella sezione `tool_artifact` di `evidence.json`.
 
 **Sviluppo futuro.** Il set di pattern può essere reso configurabile via `config.yaml` per ambienti con naming conventions non standard (es. `X-Custom-Auth`). I pattern compilati a livello di modulo potrebbero essere caricati da un file JSON esterno per ambienti enterprise con policy di sanitizzazione specifiche.
 
@@ -268,7 +270,7 @@
 
 **Conseguenze.** Un'esecuzione in ambiente di produzione senza Kong Admin API esposta produce risultati parziali ma corretti (i test WHITE_BOX sono tutti SKIP con motivo esplicito) anziché errori a cascata. Un ambiente di CI/CD senza tool esterni installati (solo Python) produce comunque risultati validi per i test nativi. I `SKIP` sono distinguibili nel report per motivo (tool mancante / admin API assente / prerequisito funzionale).
 
-**Tipo di evidenza.** Empirica — dimostrata (a) eseguendo con `gateway_adapter: null` in `config.yaml`: test 3.3, 4.2, 4.3 ritornano `SKIP (Admin API not configured)` con motivo esplicito nel report; (b) senza nuclei/testssl installati: ext.0.1 e ext.1.5 ritornano `SKIP` con un solo `WARNING` per tool nel log di Phase R4.
+**Tipo di evidenza.** Empirica — dimostrata (a) eseguendo con `gateway_adapter: null` in `config.yaml`: test 3.3, 4.2, 4.3 ritornano `SKIP (Admin API not configured)` con motivo esplicito nel report; (b) senza nuclei/testssl installati: ext.0.1.nuclei e ext.1.5.testssl ritornano `SKIP` con un solo `WARNING` per tool nel log di Phase R4.
 
 **Sviluppo futuro.** La degradazione graceful è il prerequisito per l'uso del tool in ambienti SaaS dove l'installazione di binari è impossibile: il tool funziona parzialmente con soli test nativi.
 
@@ -427,7 +429,7 @@
 
 **Conseguenze.** La classificazione guida le priorità di sviluppo: i connector Cat A sono prerequisiti per la completezza dei test HYBRID (es. `testssl.sh` per il test 1.5). I connector Cat B sono enhancements: il test 6.4 (Hardcoded Credentials) già funziona con regex interne, `trufflehog`/`gitleaks` ampliano solo la copertura. La classificazione è documentata anche nel changelog delle decisioni (es. promozione di `ffuf` da Cat B a Cat A in sostituzione di `kiterunner` abbandonato).
 
-**Tipo di evidenza.** Empirica — dimostrata da ext.0.1 (nuclei Cat A: il test produce `SKIP` con motivo esplicito se il binario manca) in contrasto con test 0.2 e 0.3 (NATIVE+OPT: producono risultati validi anche senza i connector Cat B `oasdiff`/`cherrybomb`). La distinzione è osservabile dal log di Phase R4.
+**Tipo di evidenza.** Empirica — dimostrata da ext.0.1.nuclei (nuclei Cat A: il test produce `SKIP` con motivo esplicito se il binario manca) in contrasto con test 0.2 e 0.3 (NATIVE+OPT: producono risultati validi anche senza i connector Cat B `oasdiff`/`cherrybomb`). La distinzione è osservabile dal log di Phase R4.
 
 **Sviluppo futuro.** Il framework Cat A/B è riutilizzabile come policy per l'acceptance di contributi esterni: un PR che aggiunge un connector Cat B non richiede modifica del core del test; un PR che aggiunge un connector Cat A richiede la modifica dello stato del test da HYBRID-bloccato a HYBRID-completo.
 
@@ -446,7 +448,7 @@
 
 **Conseguenze.** Il ciclo di sviluppo per un nuovo test HYBRID scende da minuti (run completa con tool esterno) a secondi (lettura da cache). La cache è disabilitata per default e deve essere abilitata esplicitamente: zero rischio di dimenticarla attiva in produzione. Una cache hit restituisce un `ConnectorResult` con `tool_version=None` e `execution_time_ms=0`, distinguibile da una vera esecuzione nel log.
 
-**Tipo di evidenza.** Empirica — dimostrata eseguendo ext.0.1 o ext.1.5 con `external_tools.<tool>.dev_mode: true` dopo una prima run reale (che ha popolato `outputs/tools/`): la seconda run non invoca il binario (nessun subprocess nel log), `execution_time_ms=0` e `tool_version=null` nel `ConnectorResult` sono osservabili.
+**Tipo di evidenza.** Empirica — dimostrata eseguendo ext.0.1.nuclei o ext.1.5.testssl con `external_tools.<tool>.dev_mode: true` dopo una prima run reale (che ha popolato `outputs/tools/`): la seconda run non invoca il binario (nessun subprocess nel log), `execution_time_ms=0` e `tool_version=null` nel `ConnectorResult` sono osservabili.
 
 **Sviluppo futuro.** Il pattern cache potrebbe essere generalizzato a una "snapshot mode" per l'intera pipeline: registra l'output di tutti i tool durante la prima run, riusa le snapshot nelle run successive per CI/CD deterministico (test di regressione sull'oracle senza rete).
 
@@ -465,7 +467,7 @@
 
 **Conseguenze.** Se il formato del display path cambia, la modifica è in un solo posto. Se si aggiunge un nuovo ruolo, la costante è dichiarata una volta e usata ovunque. Se un nuovo pattern di information leakage viene scoperto, viene aggiunto a `inspector_patterns.py` e immediatamente coperto da tutti i test che usano il modulo.
 
-**Tipo di evidenza.** Empirica — dimostrata da test 6.2 e test 6.4 che usano `response_inspector.py` e `inspector_patterns.py` (definiti una sola volta, importati da più test); e da ext.0.1 e ext.1.5 che chiamano `_relativize_display_path()` dalla funzione unica in `connectors/base.py`. Verifica: `grep -c "def _relativize_display_path" src/connectors/base.py` restituisce 1.
+**Tipo di evidenza.** Empirica — dimostrata da test 6.2 e test 6.4 che usano `response_inspector.py` e `inspector_patterns.py` (definiti una sola volta, importati da più test); e da ext.0.1.nuclei e ext.1.5.testssl che chiamano `_relativize_display_path()` dalla funzione unica in `connectors/base.py`. Verifica: `grep -c "def _relativize_display_path" src/connectors/base.py` restituisce 1.
 
 **Sviluppo futuro.** Le costanti di ruolo potrebbero diventare un'enum Pydantic per abilitare la validazione automatica: un `get_token(role="superadmin")` con un ruolo non dichiarato produce errore invece di ritornare silenziosamente `None`.
 
@@ -517,7 +519,7 @@
 
 **Conseguenze.** Un analista che legge il report sa immediatamente se un `FAIL` nel Dominio 1 è stato rilevato da un test Python (con una request HTTP diretta del tool) o da `testssl.sh` (con analisi TLS specializzata). La distinzione è rilevante per la riproduzione manuale del finding: le evidenze native hanno una request HTTP dimostrabile; quelle esterne hanno il raw output del tool.
 
-**Tipo di evidenza.** Empirica — dimostrata dal report HTML di una run che include test 1.1 (`source="native"`) e ext.0.1 (`source="external"`): il report mostra le sezioni `native` ed `external` separatamente per il Dominio 0 e il Dominio 1.
+**Tipo di evidenza.** Empirica — dimostrata dal report HTML di una run che include test 1.1 (`source="native"`) e ext.0.1.nuclei (`source="external"`): il report mostra le sezioni `native` ed `external` separatamente per il Dominio 0 e il Dominio 1.
 
 **Sviluppo futuro.** Il split per source abilita report differenziati per audience: un report "executive summary" che mostra solo i FAIL nativi (prove dirette), un report "technical deep-dive" che include anche le analisi degli external tool.
 
@@ -547,7 +549,7 @@
 **Definizione.** Il tool non si limita a classificare una response come PASS/FAIL: applica una politica di probing sicura a tre risultati — ENFORCED (401/403: il gateway blocca correttamente), BYPASSED (2xx senza credenziali: vulnerabilità dimostrabile), INCONCLUSIVE (qualsiasi altro stato: 404, 405, 3xx, 5xx, timeout, rate-limited, DELETE non inviato) — e suddivide gli endpoint in due tier: Tier A (path non-parametrici, responso diretto e interpretabile) e Tier B (path parametrici, il cui responso dipende dalla qualità del path seed). I metodi HTTP distruttivi ricevono trattamento differenziato: DELETE parametrici usano il fallback sicuro `"apiguard-probe"`, DELETE non-parametrici (es. `/api/delete-all`) non vengono mai inviati e vengono classificati come `INCONCLUSIVE_UNPROBED_DESTRUCTIVE`.
 
 **Locus nel codice.**
-- `src/tests/domain_1/test_1_1_authentication_required.py` — safety matrix e oracle design documentati nel module docstring; costanti `_OUTCOME_ENFORCED`, `_OUTCOME_BYPASSED`, `_OUTCOME_INCONCLUSIVE_PARAMETRIC`, `_OUTCOME_INCONCLUSIVE_UNPROBED_DESTRUCTIVE`; metodo `_classify_probe_method()` con logica Tier A/B
+- `src/tests/domain_1/test_1_1_authentication_required.py` — safety matrix e oracle design documentati nel module docstring; costanti `_OUTCOME_ENFORCED`, `_OUTCOME_BYPASS`, `_OUTCOME_INCONCLUSIVE_PARAMETRIC`, `_OUTCOME_INCONCLUSIVE_UNPROBED_DESTRUCTIVE` e altre `_OUTCOME_INCONCLUSIVE_*`; la classificazione Tier A/B è inline in `_probe_unauthenticated()`
 - `src/tests/helpers/path_resolver.py:PATH_PARAM_FALLBACK_SAFE_DELETE = "apiguard-probe"` — fallback sicuro per DELETE parametrici
 - `src/core/models/results.py` — campi per riepilogo conteggi per categoria nel `TestResult`
 

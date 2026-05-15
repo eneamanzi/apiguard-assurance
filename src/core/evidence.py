@@ -80,7 +80,7 @@ import shutil
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import IO, Any
+from typing import IO, Any, cast
 
 import structlog
 
@@ -651,7 +651,7 @@ class EvidenceStore:
         report's "Download as JSON" button produces in the browser, giving the
         operator a 1:1 correspondence between disk artefacts and downloads.
 
-        Example: test_id "ext.0.1" → file "tool_output_ext_0_1.json".
+        Example: test_id "ext.0.1.nuclei" → file "tool_output_ext_0_1_nuclei.json".
 
         The envelope structure mirrors the one reconstructed by the HTML
         template's export function so that the two files are content-identical
@@ -666,15 +666,16 @@ class EvidenceStore:
         """
         assert self._tools_dir is not None  # noqa: S101 -- caller guarantees this
 
-        # The label already encodes both the test_id and the tool name
-        # (e.g. "ext.0.1_nuclei", "ext.1.5_testssl_sh"), so sanitising it
-        # produces a filename that is:
+        # The label is the test_id itself ("ext.X.Y.toolname" convention),
+        # so it already encodes both the domain/sequence number AND the tool
+        # name.  Sanitising it produces a filename that is:
         #   - sorted by domain/test number (ext_0_1_... comes before ext_1_5_...)
         #   - immediately identifiable by tool name without opening the file
         #   - distinguished from other artefacts by the _output suffix
         # Example mappings:
-        #   "ext.0.1_nuclei"    -> "ext_0_1_nuclei_output.json"
-        #   "ext.1.5_testssl_sh"-> "ext_1_5_testssl_sh_output.json"
+        #   "ext.0.1.nuclei"  -> "ext_0_1_nuclei_output.json"
+        #   "ext.1.5.testssl" -> "ext_1_5_testssl_output.json"
+        #   "ext.1.5.sslyze"  -> "ext_1_5_sslyze_output.json"
         safe_label: str = label
         for char in _ARTIFACT_FILENAME_UNSAFE_CHARS:
             safe_label = safe_label.replace(char, "_")
@@ -777,7 +778,10 @@ class EvidenceStore:
                 return [_walk(item, parent_key) for item in obj]
             return obj
 
-        return _walk(data)  # type: ignore[return-value]
+        # _walk preserves container structure: when called with a dict at the
+        # top level, it always returns a dict.  The cast makes this contract
+        # explicit instead of relying on a blanket type-ignore.
+        return cast("dict[str, Any]", _walk(data))
 
     # ------------------------------------------------------------------
     # Read interface (called by tests -- unchanged from v1.0)

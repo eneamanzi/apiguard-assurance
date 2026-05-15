@@ -43,7 +43,6 @@ report/ to avoid circular dependencies.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import structlog
 from pydantic import AnyHttpUrl, BaseModel, Field, PrivateAttr, computed_field, model_validator

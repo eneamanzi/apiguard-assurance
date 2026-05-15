@@ -656,6 +656,105 @@ result, use `_make_fail_multi()` instead (see "Building a result" below).
 
 ---
 
+### Test class structure: `execute()` is an orchestrator, never a god-method
+
+**Architectural rule (mandatory for every native and external test):**
+
+`execute()` is the **orchestrator** of the test. It must only:
+
+1. Run the guard / credential acquisition prelude.
+2. Read the test config (`target.tests_config.test_N_N`).
+3. Call private helper methods, each implementing one logical phase.
+4. Aggregate the phase outputs into a single `TestResult`.
+
+Every distinct logical step — token setup, resource creation, single-endpoint
+probing, oracle evaluation, finding construction — lives in a **private helper
+method on the test class** with:
+
+- name starting with `_`,
+- full type hints on parameters and return type,
+- a docstring stating what it does and what it returns (especially when it can
+  return either real data or a `TestResult` early-exit).
+
+**Hard limit:** if `execute()` exceeds ~60–80 lines (excluding docstring),
+something is doing too much inline. Extract it.
+
+**Why this matters:**
+
+- Each helper has a name that documents one step. A reader can scan `execute()`
+  in 10 seconds and know the test's full flow without reading every line.
+- Each helper is independently reviewable: you can change the oracle without
+  re-reading the setup code.
+- Module-level constants (status code sets, oracle state labels, path templates,
+  references) hide all magic numbers; helpers operate on parameters, not on
+  ad-hoc literals.
+- Adding a new sub-test later is just adding a helper and one call in
+  `execute()` — no surgery on a 200-line block.
+
+**Helper return-type pattern for early exits:**
+
+A helper that performs setup may need to abort the test (SKIP if credentials
+are missing, ERROR if a setup HTTP call fails). The canonical return type is
+a **union of the real return value and `TestResult`**:
+
+```python
+def _setup_admin_session(
+    self,
+    target: TargetContext,
+    context: TestContext,
+    client: SecurityClient,
+) -> tuple[str, str] | TestResult:
+    """
+    Acquire the admin token and build the Basic Auth header.
+
+    Returns:
+        Either (admin_username, basic_auth_value) on success, or a TestResult
+        (SKIP / ERROR) describing the setup failure.
+    """
+    ...
+```
+
+The orchestrator dispatches with `isinstance`:
+
+```python
+session = self._setup_admin_session(target, context, client)
+if isinstance(session, TestResult):
+    return session
+admin_username, basic_auth_value = session
+```
+
+A helper that performs a sub-step that might error but otherwise has no return
+value uses `TestResult | None`:
+
+```python
+def _revoke_token(self, ...) -> TestResult | None:
+    """Returns None on success, TestResult(ERROR) on failure."""
+    ...
+```
+
+**Reference implementations to copy:**
+
+- [test_1_4_token_revocation.py](../src/tests/domain_1/test_1_4_token_revocation.py)
+  — 4 helpers (`_setup_admin_session`, `_create_temp_token`, `_revoke_token`,
+  `_verify_revocation`) demonstrating both early-exit patterns.
+- [test_2_1_rbac_enforcement.py](../src/tests/domain_2/test_2_1_rbac_enforcement.py)
+  — single helper (`_probe_admin_endpoint`) called in a loop, returning
+  `Finding | None`.
+- [test_0_1_shadow_api_discovery.py](../src/tests/domain_0/test_0_1_shadow_api_discovery.py)
+  — class helpers (`_probe_shadow_paths`, `_probe_undeclared_methods`) plus a
+  module-level pure function (`_build_exclusion_set`) used by both.
+
+**Module-level vs class-level helpers:**
+
+- **Class private method** (`def _name(self, ...)`) when the helper uses
+  `self.test_id`, `self._log_transaction`, `self._make_*`, or any other test
+  state. This is the common case.
+- **Module-level function** (`def _name(...)`) when the helper is a pure
+  utility with no test state — e.g. building a frozenset from config, regex
+  compilation, label normalisation. Keep it stateless and stateless-named.
+
+---
+
 ### Canonical entry patterns for `execute()`
 
 Choose the pattern that matches the test's `strategy`. Copy it verbatim,
@@ -1378,11 +1477,11 @@ alongside tests 1.2 and 1.3. Do not create the file in advance.
   calling the two functions separately.
 
 **If the functionality you need is not in this table:** implement it as a
-**private method on the test class** (name prefixed with `_`, full type hints,
-docstring). Do not write the logic inline in `execute()`, and do not create a
-new helper module in `src/tests/helpers/` without confirming that the
-functionality is genuinely reusable across at least two distinct tests. A
-function used by exactly one test belongs on that test's class, not in `helpers/`.
+**private method on the test class** (see "Test class structure: `execute()`
+is an orchestrator" above for the full rule). Do not create a new helper
+module in `src/tests/helpers/` without confirming that the functionality is
+genuinely reusable across at least two distinct tests. A function used by
+exactly one test belongs on that test's class, not in `helpers/`.
 
 ### `AttackSurface` filter methods
 
@@ -1402,6 +1501,12 @@ function used by exactly one test belongs on that test's class, not in `helpers/
 This example shows the exact naming chain from Step 1 through Step 8 for a
 hypothetical GREY_BOX test. **Every step is shown completely — no
 placeholder logic.**
+
+> **Note:** test_2_1 has since been implemented in `src/tests/domain_2/`.
+> The shipped test uses a different config field (`admin_endpoint_paths`)
+> than the simplified `sample_size` shown here.  This example preserves the
+> minimum-viable shape for teaching the 8-file pipeline; for the actual
+> production code, see [test_2_1_rbac_enforcement.py](../src/tests/domain_2/test_2_1_rbac_enforcement.py).
 
 **Step 1** — `src/config/schema/domain_2.py` (new file):
 
