@@ -4,7 +4,7 @@ src/tests/domain_1/test_1_4_token_revocation.py
 Test14TokenRevocation: verifies that an explicitly revoked API token is
 immediately rejected by the gateway.
 
-Guarantee covered (Metodologia.md §Garanzia 1.4 — Sub-Test 1):
+Guarantee covered (3-Metodologia.md §Garanzia 1.4 — Sub-Test 1):
     After a token is deleted via the API (Forgejo-equivalent of logout /
     token revocation), any subsequent request authenticated with that token
     must be rejected with 401 or 403.  A 2xx response indicates the gateway

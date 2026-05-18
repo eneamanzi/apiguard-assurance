@@ -16,7 +16,7 @@ component:
     - What to record:      EvidenceStore (populated by tests)
     - What to report:      report/builder.py + report/renderer.py
 
-Pipeline phases (Implementazione.md, Section 5):
+Pipeline phases (4-Implementazione.md, Section 5):
 
     Phase 1 -- Initialization:
         Load and validate config.yaml via config/loader.py.
@@ -38,7 +38,6 @@ Pipeline phases (Implementazione.md, Section 5):
         TargetConfig to TargetContext (exactly one will be non-None).
         Build TestContext (mutable, empty).
         Build EvidenceStore (streaming JSONL, unbounded capacity).
-        Build SecurityClient (context manager, not yet open).
 
     Phase 4 -- Test Discovery and Scheduling:
         TestRegistry discovers and filters active tests.
@@ -58,9 +57,10 @@ Pipeline phases (Implementazione.md, Section 5):
         Log TeardownError as WARNING; continue on failure.
 
     Phase 7 -- Report Generation:
-        Aggregate ResultSet statistics via report/builder.py.
-        Serialize EvidenceStore to config.output.evidence_path.
-        Render HTML report to config.output.report_path.
+        Serialize EvidenceStore to config.output.evidence_path via merge_and_finalize().
+        Aggregate ResultSet statistics via report/builder.py -> ReportData.
+        Render HTML report to config.output.report_path via report/renderer.py.
+        Write JSON report via ReportData.model_dump_json().
         Compute and return exit code.
 
 Dependency rule:
@@ -713,7 +713,7 @@ class AssessmentEngine:
         Each test is located by test_id in the active_tests list, then
         executed via test.execute(). The TestResult is added to result_set.
 
-        Fail-fast condition (Implementazione.md, Section 4.7):
+        Fail-fast condition (4-Implementazione.md, Section 4.7):
             If config.execution.fail_fast is True and a P0 test returns
             FAIL or ERROR, execution stops immediately.
         """

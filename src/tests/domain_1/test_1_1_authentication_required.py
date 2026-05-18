@@ -3,7 +3,7 @@ src/tests/domain_1/test_1_1_authentication_required.py
 
 Test 1.1 -- Only Authenticated Requests Access Protected Resources.
 
-Guarantee (Implementazione.md, Dominio 0):
+Guarantee (4-Implementazione.md, Dominio 0):
     Every endpoint that exposes sensitive data or privileged operations must
     reject requests that carry no credentials before reaching the business
     logic. The enforcement must produce HTTP 401 Unauthorized or 403 Forbidden

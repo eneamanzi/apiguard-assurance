@@ -21,7 +21,7 @@ class TestStatus(StrEnum):
 
     Inherits from str so values serialize natively to JSON strings.
 
-    Semantic contract (Implementazione.md, Section 4.6):
+    Semantic contract (4-Implementazione.md, Section 4.6):
         PASS  -- Control executed, security guarantee satisfied.
         FAIL  -- Control executed, guarantee NOT satisfied. Requires a Finding.
         SKIP  -- Not executed for an explicit, documented reason. Not a failure.

@@ -2,6 +2,27 @@
 
 # APIGuard Assurance
 
+- [Table of Contents](#table-of-contents)
+- [1. Value proposition and use cases](#1-value-proposition-and-use-cases)
+- [2. Requirements and installation](#2-requirements-and-installation)
+- [3. Configuration](#3-configuration)
+  - [3.1 `config.yaml` — structural parameters (versionable)](#31-configyaml--structural-parameters-versionable)
+  - [3.2 `.env` file — secrets (do not version)](#32-env-file--secrets-do-not-version)
+  - [3.3 Configuration validation (without starting an assessment)](#33-configuration-validation-without-starting-an-assessment)
+- [4. Practical usage](#4-practical-usage)
+  - [Starting an assessment](#starting-an-assessment)
+  - [Generating the `path_seed` template](#generating-the-path_seed-template)
+  - [Selecting a test subset](#selecting-a-test-subset)
+  - [CI/CD pipeline integration](#cicd-pipeline-integration)
+- [5. Assessment output](#5-assessment-output)
+  - [`evidence.json` — Forensic archive](#evidencejson--forensic-archive)
+  - [`assessment_report.html` — Interactive report](#assessment_reporthtml--interactive-report)
+- [6. How it works — High-level pipeline](#6-how-it-works--high-level-pipeline)
+- [7. Test domains and priorities](#7-test-domains-and-priorities)
+- [8. Exit codes](#8-exit-codes)
+- [9. Repository structure](#9-repository-structure)
+- [Alternative target — cRAPI](#alternative-target--crapi)
+
 **Automated Security Assessment Tool for REST APIs in Cloud Environments**
 
 APIGuard Assurance is a CLI tool for security auditing of REST APIs protected by an API Gateway. It executes the APIGuard methodology — 8 domains, up to 29 verifiable security guarantees — against any target documented with an OpenAPI 3.x or Swagger 2.0 specification, producing an interactive HTML report and a formal, reproducible evidence archive.
@@ -13,15 +34,26 @@ APIGuard Assurance is a CLI tool for security auditing of REST APIs protected by
 
 ## Table of Contents
 
-1. [Value proposition and use cases](#1-value-proposition-and-use-cases)
-2. [Requirements and installation](#2-requirements-and-installation)
-3. [Configuration](#3-configuration)
-4. [Practical usage](#4-practical-usage)
-5. [Assessment output](#5-assessment-output)
-6. [How it works — High-level pipeline](#6-how-it-works--high-level-pipeline)
-7. [Test domains and priorities](#7-test-domains-and-priorities)
-8. [Exit codes](#8-exit-codes)
-9. [Repository structure](#9-repository-structure)
+- [Table of Contents](#table-of-contents)
+- [1. Value proposition and use cases](#1-value-proposition-and-use-cases)
+- [2. Requirements and installation](#2-requirements-and-installation)
+- [3. Configuration](#3-configuration)
+  - [3.1 `config.yaml` — structural parameters (versionable)](#31-configyaml--structural-parameters-versionable)
+  - [3.2 `.env` file — secrets (do not version)](#32-env-file--secrets-do-not-version)
+  - [3.3 Configuration validation (without starting an assessment)](#33-configuration-validation-without-starting-an-assessment)
+- [4. Practical usage](#4-practical-usage)
+  - [Starting an assessment](#starting-an-assessment)
+  - [Generating the `path_seed` template](#generating-the-path_seed-template)
+  - [Selecting a test subset](#selecting-a-test-subset)
+  - [CI/CD pipeline integration](#cicd-pipeline-integration)
+- [5. Assessment output](#5-assessment-output)
+  - [`evidence.json` — Forensic archive](#evidencejson--forensic-archive)
+  - [`assessment_report.html` — Interactive report](#assessment_reporthtml--interactive-report)
+- [6. How it works — High-level pipeline](#6-how-it-works--high-level-pipeline)
+- [7. Test domains and priorities](#7-test-domains-and-priorities)
+- [8. Exit codes](#8-exit-codes)
+- [9. Repository structure](#9-repository-structure)
+- [Alternative target — cRAPI](#alternative-target--crapi)
 
 ---
 
@@ -110,13 +142,32 @@ The configuration is split into two distinct and deliberately decoupled layers: 
 
 ```yaml
 target:
-  base_url: "http://localhost:8000"           # Gateway proxy URL
-  openapi_spec_url: "http://localhost:3000/swagger.v1.json"
-  admin_api_url: "http://localhost:8001"      # Omit to disable WHITE_BOX tests
+  base_url: "https://my-gateway.example.com:8443"
+  openapi_spec_url: "http://my-backend.example.com:3000/swagger.v1.json"
+  # Alternative: spec from a local file
+  # openapi_spec_path: "./specs/openapi.yaml"
+  admin_api_url: "http://my-gateway.example.com:8001"  # omit to disable WHITE_BOX tests
+  gateway_adapter: "kong"   # gateway adapter for WHITE_BOX tests; currently only "kong"
+  # Optional timeouts for Admin API calls (only relevant when admin_api_url is configured).
+  # admin_connect_timeout_seconds: 5.0    # TCP connect timeout — default: 5.0 s (range: 1–30)
+  # admin_read_timeout_seconds: 10.0      # HTTP read timeout — default: 10.0 s (range: 1–60)
+  verify_tls: false         # true in production; false accepts self-signed certs (lab only)
+
+  # Maps OpenAPI path parameters to real resource identifiers on the target.
+  # Generate the template with: apiguard generate-seed <openapi_spec_url>
+  path_seed:
+    owner: "mario_rossi"
+    repo: "my-test-repo"
+    id: "1"
 
 credentials:
   # Credentials NEVER appear in clear text here.
   # ${VAR} placeholders are resolved from environment variables at runtime.
+  #
+  # Token-acquisition strategy for GREY_BOX tests.
+  # "forgejo_token" (default): Forgejo/Gitea Token API (POST /users/{u}/tokens).
+  # "jwt_login": generic JSON login endpoint (crAPI, Django REST, FastAPI, Rails, etc.).
+  auth_type: "forgejo_token"
   admin_username: "${ADMIN_USERNAME}"
   admin_password: "${ADMIN_PASSWORD}"
   user_a_username: "${USER_A_USERNAME}"
@@ -124,13 +175,20 @@ credentials:
   user_b_username: "${USER_B_USERNAME}"
   user_b_password: "${USER_B_PASSWORD}"
 
+  # Additional fields required only with auth_type: "jwt_login"
+  # login_endpoint: "/identity/api/auth/login"  # path relative to base_url
+  # username_body_field: "email"                 # default: "username"
+  # password_body_field: "password"              # default: "password"
+  # token_response_path: "token"                 # dotted JSONPath — e.g. "data.access_token"
+
 execution:
   min_priority: 3        # 0 = only P0 | 1 = P0+P1 | 2 = P0-P2 | 3 = all (default)
   strategies:
     - BLACK_BOX
     - GREY_BOX
     - WHITE_BOX
-  fail_fast: false       # If true, halt execution at the first FAIL on a P0 test
+  test_ids: []           # list of test_ids to run; empty list = run all (normal behaviour)
+  fail_fast: false       # if true, halt at the first FAIL on a P0 test
   connect_timeout: 5.0
   read_timeout: 30.0
   max_retry_attempts: 3
@@ -139,13 +197,38 @@ execution:
 output:
   directory: "outputs"   # Accepts relative or absolute paths; created if missing
 
-rate_limit_probe:
-  max_requests: 150      # Maximum requests for the empirical rate-limit probe
-  request_interval_ms: 50
-
 tests:
+  # Per-test tuning. The config.yaml included in the repository contains
+  # full documentation for every parameter.
   domain_1:
-    max_endpoints_cap: 0 # 0 = probe every protected endpoint (recommended)
+    test_1_1:
+      max_endpoints_cap: 0    # 0 = probe every protected endpoint (recommended)
+  domain_4:
+    test_4_1:
+      max_requests: 150       # request budget before declaring rate limit absent
+      request_interval_ms: 50
+
+external_tools:
+  enabled: true   # false = disable all external tests in one line (useful in CI without binaries)
+  testssl:
+    enabled: true
+    timeout_seconds: 180
+    extra_flags: "--quiet --color 0 --connect-timeout 10"
+    expected_version: "3.2.3"      # expected binary version; WARNING if it differs, test still runs
+    dev_mode: false                # true = use local cache instead of running the binary
+  nuclei:
+    enabled: true
+    timeout_seconds: 240
+    template_dir: "./tools/nuclei-templates"
+    tags: ["api", "exposure", "misconfig", "panel"]
+    per_request_timeout: 10        # per-request HTTP timeout for nuclei (seconds)
+    rate_limit_rps: 30             # max req/s — avoids triggering Test 4.1 Rate Limiting
+    expected_version: "3.8.0"      # expected binary version; WARNING if it differs, test still runs
+    dev_mode: false                # true = use local cache instead of running the binary
+  sslyze:
+    enabled: true
+    timeout_seconds: 60
+    dev_mode: false                # true = use local cache instead of running sslyze
 ```
 
 ### 3.2 `.env` file — secrets (do not version)
@@ -198,9 +281,28 @@ apiguard run --log-level debug
 apiguard run --no-banner
 ```
 
+### Generating the `path_seed` template
+
+The `generate-seed` command reads the OpenAPI specification and produces a YAML template with every path parameter (`{owner}`, `{repo}`, `{id}`, etc.) pre-filled with the placeholder `FILL_ME`. Paste the result into the `path_seed` section of `config.yaml` and replace each placeholder with a real value from your target deployment.
+
+```bash
+# From an OpenAPI spec URL
+apiguard generate-seed http://localhost:3000/swagger.v1.json
+
+# From a local file — writing output to a file
+apiguard generate-seed ./specs/forgejo-swagger.v1.json --output seed.yaml
+
+# From a remote URL with extended timeout (default: 30 s)
+apiguard generate-seed https://api.example.com/openapi.json --output seed.yaml --timeout 60
+```
+
+Without a populated `path_seed`, probes against parametric paths (e.g. `/api/v1/repos/{owner}/{repo}/issues`) receive a `404` before reaching the authentication middleware, producing an oracle state of `INCONCLUSIVE_PARAMETRIC` instead of `ENFORCED` or `BYPASS`.
+
 ### Selecting a test subset
 
-Selection happens via `config.yaml`, not via CLI arguments. Edit the `execution` parameters to narrow the perimeter:
+Selection happens via `config.yaml`, not via CLI arguments. Two independent and composable mechanisms are available:
+
+**By priority and strategy** — filter by required privilege level:
 
 ```yaml
 # Black Box tests only — no credentials required
@@ -217,6 +319,18 @@ execution:
     - GREY_BOX
     - WHITE_BOX
 ```
+
+**By specific test_ids** — runs exactly the listed tests, ignoring priority and strategy filters:
+
+```yaml
+execution:
+  test_ids: ["1.1", "1.4"]            # specific native tests
+  test_ids: ["ext.1.5.testssl"]       # external tests only
+  test_ids: ["0.1", "ext.0.1.nuclei"] # mix of native and external
+  test_ids: []                         # empty list = run all (default behaviour)
+```
+
+Native tests use numeric IDs (`"0.1"`, `"1.1"`, etc.); external tests use the `ext.` prefix (`"ext.0.1.nuclei"`, `"ext.1.5.testssl"`, `"ext.1.5.sslyze"`).
 
 ### CI/CD pipeline integration
 
@@ -287,7 +401,7 @@ config.yaml + .env
   Phase 2: OpenAPI Discovery   — Downloads the spec, dereferences $ref, builds the endpoint map
       |
       v
-  Phase 3: Context Construction — Creates the four runtime objects
+  Phase 3: Context Construction — Creates the three shared runtime objects
       |
       v
   Phase 4: Test Discovery      — Discovers tests dynamically, orders by dependencies (DAG),
@@ -328,7 +442,7 @@ The APIGuard methodology structures security coverage in 8 thematic domains and 
 
 | Priority | Label | Typical strategy | Description |
 |---|---|---|---|
-| P0 | Critical | BLACK_BOX | Fundamental perimeter checks. A FAIL on P0 with `fail_fast: true` aborts the whole assessment |
+| P0 | Critical | BLACK_BOX¹ | Fundamental perimeter checks. A FAIL on P0 with `fail_fast: true` aborts the whole assessment |
 | P1 | High | GREY_BOX | Authentication and authorisation guarantees with valid credentials |
 | P2 | Medium | GREY_BOX | Application logic, data integrity, visibility |
 | P3 | Low | WHITE_BOX | Configuration audit via the Gateway's Admin API |
@@ -337,17 +451,12 @@ The APIGuard methodology structures security coverage in 8 thematic domains and 
 
 | `min_priority` | Included tests |
 |---|---|
-| `0` | P0 only (pure Black Box) |
+| `0` | P0 only |
 | `1` | P0 + P1 |
 | `2` | P0 + P1 + P2 |
 | `3` | All — P0 + P1 + P2 + P3 (recommended default) |
 
-**Selective pytest markers:**
-
-```bash
-pytest -m "p0 and domain_0" -v
-pytest -m "black_box" -v
-```
+> ¹ Most P0 tests use BLACK_BOX. Exception: **7.2 SSRF Prevention** is P0 + GREY_BOX because it requires credentials to create the target resource used as injection vector. Include GREY_BOX in strategies to cover all P0 tests.
 
 ---
 
@@ -369,21 +478,38 @@ Priority is: **FAIL (1) > ERROR (2) > CLEAN (0)**. A single FAIL overrides any n
 ```
 apiguard-assurance/
 |-- config.yaml                  # Configuration template (versionable)
+|-- config_crapi.yaml            # Alternative configuration for crAPI target (OWASP)
 |-- .env.example                 # Environment variable template (do not version .env)
+|-- install_tools.sh             # External tool installer (nuclei, testssl.sh)
 |-- pyproject.toml               # Project metadata, dependencies, tool configuration
 |
 |-- src/
-|   |-- cli.py                   # CLI entry point (Typer)
+|   |-- cli.py                   # CLI entry point (Typer) — 4 commands: run, version, validate-config, generate-seed
 |   |-- engine.py                # Pipeline orchestrator — 7 sequential phases
 |   |
 |   |-- config/                  # Phase 1: configuration loading and validation
-|   |-- core/                    # Foundation layer — shared vocabulary and infrastructure
+|   |-- core/                    # Foundation layer: HTTP client, context, DAG, evidence, models, exceptions
+|   |   |-- gateway/             # Gateway adapters (BaseGatewayAdapter + KongGatewayAdapter)
+|   |   `-- models/              # Pydantic v2 models: Finding, TestResult, AttackSurface, etc.
 |   |-- discovery/               # Phase 2: OpenAPI parsing and AttackSurface construction
-|   |-- tests/                   # Phase 5: per-domain test implementations
+|   |-- connectors/              # External tool wrappers (NucleiConnector, TestsslConnector, SslyzeConnector)
+|   |-- tests/                   # Native BaseTest implementations per domain (domain_0 ... domain_7)
+|   |-- external_tests/          # ExternalToolTest implementations: ext.0.1.nuclei, ext.1.5.testssl/sslyze
 |   `-- report/                  # Phase 7: HTML and JSON generation plus statistics aggregation
 |
+|-- tools/                       # Binaries and templates installed by install_tools.sh
+|   |-- nuclei/                  # nuclei binary (pinned version)
+|   |-- nuclei-templates/        # nuclei templates (pinned version)
+|   `-- testssl/                 # testssl.sh script (pinned version)
+|
 |-- test-environments/
-|   `-- forgejo-kong/            # Docker Compose for the local test environment
+|   `-- forgejo-kong/            # Docker Compose for the local test environment (Forgejo + Kong)
+|
+|-- specs/                       # Downloaded or locally provided OpenAPI specifications
+`-- docs/pub/                    # Public documentation for contributors
+    |-- ARCHITECTURE.md          # Detailed internal architecture
+    |-- ADDING_tests.md          # Guide to implementing native tests
+    `-- ADDING_external_tests.md # Guide to implementing external tests
 ```
 
 > The complete map with every single file annotated lives in [`docs/pub/ARCHITECTURE.md`](docs/pub/ARCHITECTURE.md#repository-structure).
@@ -398,6 +524,8 @@ It is useful to validate the tool against a second target independent from Forge
 ```bash
 apiguard run -c config_crapi.yaml
 ```
+
+`config_crapi.yaml` sets `auth_type: "jwt_login"` in the `credentials` section: crAPI exposes a JSON login endpoint (`/identity/api/auth/login`) rather than the Forgejo/Gitea Token API. The field `token_response_path: "token"` extracts the JWT from the login response.
 
 ---
 

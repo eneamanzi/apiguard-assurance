@@ -1,5 +1,33 @@
 # APIGuard — Checklist Stato Implementazione
 
+- [Legenda](#legenda)
+- [Tests Overview](#tests-overview)
+- [MILESTONE 1 — Pre-Thesis Writing](#milestone-1--pre-thesis-writing)
+  - [Domain 0 — API Discovery \& Inventory](#domain-0--api-discovery--inventory)
+  - [Domain 1 — Identity \& Authentication](#domain-1--identity--authentication)
+  - [Domain 2 — Authorization](#domain-2--authorization)
+  - [Domain 3 — Data Integrity](#domain-3--data-integrity)
+  - [Domain 4 — Availability \& Resilience](#domain-4--availability--resilience)
+  - [Domain 6 — Configuration \& Hardening](#domain-6--configuration--hardening)
+  - [Domain 7 — Business Logic \& Sensitive Flows](#domain-7--business-logic--sensitive-flows)
+  - [DAG State After Milestone 1 Completion](#dag-state-after-milestone-1-completion)
+  - [Strategy Coverage](#strategy-coverage)
+- [MILESTONE 2 — Future Work (Thesis Chapter)](#milestone-2--future-work-thesis-chapter)
+  - [Domain 0 — Shadow API Discovery (extended tooling)](#domain-0--shadow-api-discovery-extended-tooling)
+  - [Domain 1 — JWT \& Credential Lifecycle](#domain-1--jwt--credential-lifecycle)
+  - [Domain 2 — Authorization (Phase C — requires 1.2)](#domain-2--authorization-phase-c--requires-12)
+  - [Domain 3 — Injection](#domain-3--injection)
+  - [Domain 4 — Rate Limiting Extended](#domain-4--rate-limiting-extended)
+  - [Domain 5 — Observability](#domain-5--observability)
+  - [Domain 6 — HTTP Request Smuggling](#domain-6--http-request-smuggling)
+  - [Domain 7 — Race Condition, Unsafe Consumption, SSRF Extended](#domain-7--race-condition-unsafe-consumption-ssrf-extended)
+- [Connectors](#connectors)
+  - [Cat A — Implemented (Milestone 1)](#cat-a--implemented-milestone-1)
+  - [Cat A — Not Yet Implemented (Milestone 2)](#cat-a--not-yet-implemented-milestone-2)
+  - [Cat B — All Deferred (Milestone 2)](#cat-b--all-deferred-milestone-2)
+- [TODO — Milestone 1 Remaining Tasks](#todo--milestone-1-remaining-tasks)
+
+
 ## Legenda
 
 | Simbolo | Significato |
@@ -194,8 +222,8 @@ Not omissions — honest scope decisions for the July deadline.
 
 | ID | Type | Status | Strategy | Notes |
 |----|------|--------|----------|-------|
-| 5.1 | NATIVE | [ ] | WHITE_BOX | ⚠ Needs log aggregator (Elasticsearch/Loki) in Docker setup |
-| 5.2 | NATIVE | [ ] | WHITE_BOX | ⚠ Needs alerting system (Alertmanager/PagerDuty mock) |
+| 5.1 | NATIVE | [ ] | WHITE_BOX | Requires log aggregator (Elasticsearch/Loki) in Docker setup |
+| 5.2 | NATIVE | [ ] | WHITE_BOX | Requires alerting system (Alertmanager/PagerDuty mock) |
 
 ### Domain 6 — HTTP Request Smuggling
 

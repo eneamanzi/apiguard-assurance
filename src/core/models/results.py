@@ -88,7 +88,7 @@ class InfoNote(BaseModel):
                     Does NOT affect the test status or exit code.
                     Rendered in blue in the HTML report.
 
-    Design rationale (Implementazione.md, Section 4.6):
+    Design rationale (4-Implementazione.md, Section 4.6):
         The model_validator on TestResult enforces that a PASS result must have
         zero Findings. This is correct: a PASS with findings would be a
         contradiction in terms. However, some tests need to surface contextual

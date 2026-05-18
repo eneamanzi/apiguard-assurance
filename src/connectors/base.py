@@ -796,7 +796,7 @@ class BaseSubprocessConnector(BaseConnector):
         construction logic that every connector needs to produce the
         ``command`` and ``command_json`` keys in ``ConnectorResult.raw_output``.
 
-        Before this method existed (Proposal A), each concrete connector
+        Before this method existed, each concrete connector
         reimplemented the same ~15 lines of path-relativisation logic.
         Any connector that forgot to inject ``command`` / ``command_json``
         into ``raw_output`` would silently break the HTML report template,
@@ -858,7 +858,7 @@ class BaseSubprocessConnector(BaseConnector):
 
 
 # ---------------------------------------------------------------------------
-# ConnectorRawOutput -- documented contract for raw_output keys (Proposal D)
+# ConnectorRawOutput -- documented contract for raw_output keys
 # ---------------------------------------------------------------------------
 
 

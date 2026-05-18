@@ -1,0 +1,31 @@
+# Static analysis cache directories (tools configured in pyproject.toml)
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+.pytest_cache/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Build outputs
+dist/
+*.egg-info/
+build/
+
+# External tool templates (thousands of YAML files, not useful as Claude context)
+tools/nuclei-templates/
+
+# Assessment runtime artifacts (generated on each run, not source)
+outputs/
+specs/
+
+# Local environment files
+.env
+.venv/
+venv/
+
+# Hatch virtual environments
+.hatch/

@@ -1,98 +1,53 @@
 # Metodologia di Security Assurance per API REST — Tool di Testing
 
-[Nota Metodologica: Gradiente Black Box / Grey Box / White Box	3](#nota-metodologica:-gradiente-black-box-/-grey-box-/-white-box)
+- [**Nota Metodologica: Gradiente Black Box / Grey Box / White Box**](#nota-metodologica-gradiente-black-box--grey-box--white-box)
+- [**Matrice di Priorità (Riepilogo)**](#matrice-di-priorità-riepilogo)
+- [**DOMINIO 0: API DISCOVERY E INVENTORY MANAGEMENT**](#dominio-0-api-discovery-e-inventory-management)
+  - [**0.1 Tutti gli Endpoint Esposti Sono Documentati e Autorizzati `[P0]`**](#01-tutti-gli-endpoint-esposti-sono-documentati-e-autorizzati-p0)
+  - [**0.2 Il Gateway Rifiuta Richieste a Path Non Registrati (Deny-by-Default) `[P0]`**](#02-il-gateway-rifiuta-richieste-a-path-non-registrati-deny-by-default-p0)
+  - [**0.3 Le API Deprecate Sono Disabilitate o Sottoposte a Monitoraggio Rafforzato `[P0]`**](#03-le-api-deprecate-sono-disabilitate-o-sottoposte-a-monitoraggio-rafforzato-p0)
+- [**DOMINIO 1: IDENTITÀ E AUTENTICAZIONE**](#dominio-1-identità-e-autenticazione)
+  - [**1.1 Solo Richieste Autenticate Accedono a Risorse Protette `[P0]`**](#11-solo-richieste-autenticate-accedono-a-risorse-protette-p0)
+  - [**1.2 Le Credenziali Sono Crittograficamente Valide `[P0]`**](#12-le-credenziali-sono-crittograficamente-valide-p0)
+  - [**1.3 Le Credenziali Non Sono Scadute `[P0]`**](#13-le-credenziali-non-sono-scadute-p0)
+  - [**1.4 Le Credenziali Non Sono State Revocate `[P2]`**](#14-le-credenziali-non-sono-state-revocate-p2)
+  - [**1.5 Le Credenziali Non Sono Trasmesse via Canali Insicuri `[P2]`**](#15-le-credenziali-non-sono-trasmesse-via-canali-insicuri-p2)
+  - [**1.6 Le Sessioni Sono Gestite in Modo Sicuro in Architetture Distribuite `[P3]`**](#16-le-sessioni-sono-gestite-in-modo-sicuro-in-architetture-distribuite-p3)
+- [**DOMINIO 2: AUTORIZZAZIONE E CONTROLLO ACCESSI**](#dominio-2-autorizzazione-e-controllo-accessi)
+  - [**2.1 Solo Utenti Autorizzati Accedono a Endpoint Privilegiati `[P2]`**](#21-solo-utenti-autorizzati-accedono-a-endpoint-privilegiati-p2)
+  - [**2.2 Gli Utenti Accedono Solo ai Propri Dati (BOLA Prevention) `[P1]`**](#22-gli-utenti-accedono-solo-ai-propri-dati-bola-prevention-p1)
+  - [**2.3 Le Operazioni Distruttive Richiedono Privilegi Appropriati `[P1]`**](#23-le-operazioni-distruttive-richiedono-privilegi-appropriati-p1)
+  - [**2.4 Le Policy di Autorizzazione Sono Consistenti Across Endpoint `[P1]`**](#24-le-policy-di-autorizzazione-sono-consistenti-across-endpoint-p1)
+  - [**2.5 L'API Non Espone Dati Eccessivi `[P2]`**](#25-lapi-non-espone-dati-eccessivi-p2)
+- [**DOMINIO 3: INTEGRITÀ DEI DATI**](#dominio-3-integrità-dei-dati)
+  - [**3.1 Tutti gli Input Sono Validati Secondo Schema e Constraints `[P2]`**](#31-tutti-gli-input-sono-validati-secondo-schema-e-constraints-p2)
+  - [**3.2 → Fusa in Garanzia 6.1**](#32--fusa-in-garanzia-61)
+  - [**3.3 I Dati in Transit Sono Protetti da Manipolazione (Beyond TLS) `[P3]`**](#33-i-dati-in-transit-sono-protetti-da-manipolazione-beyond-tls-p3)
+- [**DOMINIO 4: DISPONIBILITÀ E RESILIENZA**](#dominio-4-disponibilità-e-resilienza)
+  - [**4.1 Il Sistema Previene Resource Exhaustion via Rate Limiting `[P0]`**](#41-il-sistema-previene-resource-exhaustion-via-rate-limiting-p0)
+  - [**4.2 Il Sistema Implementa Timeout per Prevenire Resource Lock `[P1]`**](#42-il-sistema-implementa-timeout-per-prevenire-resource-lock-p1)
+  - [**4.3 Il Sistema Degrada Gracefully con Circuit Breaker `[P1]`**](#43-il-sistema-degrada-gracefully-con-circuit-breaker-p1)
+- [**DOMINIO 5: VISIBILITÀ E AUDITING**](#dominio-5-visibilità-e-auditing)
+  - [**5.1 Ogni Richiesta È Logged con Metadata Essenziali `[P1]`**](#51-ogni-richiesta-è-logged-con-metadata-essenziali-p1)
+  - [**5.2 Eventi Security Anomali Triggerano Alert Real-Time `[P2]`**](#52-eventi-security-anomali-triggerano-alert-real-time-p2)
+- [**DOMINIO 6: CONFIGURAZIONE E HARDENING**](#dominio-6-configurazione-e-hardening)
+  - [**6.1 Error Handling e Information Disclosure `[P2]`**](#61-error-handling-e-information-disclosure-p2)
+  - [**6.2 Security Header Configurati Appropriatamente `[P3]`**](#62-security-header-configurati-appropriatamente-p3)
+  - [**6.3 La Configurazione del Gateway È Hardenata Contro Exploit Layer-7 `[P1]`**](#63-la-configurazione-del-gateway-è-hardenata-contro-exploit-layer-7-p1)
+  - [**6.4 Le Credenziali di Servizio Non Sono Hardcoded o Esposte `[P2]`**](#64-le-credenziali-di-servizio-non-sono-hardcoded-o-esposte-p2)
+- [**DOMINIO 7: BUSINESS LOGIC E FLUSSI SENSIBILI**](#dominio-7-business-logic-e-flussi-sensibili)
+  - [**7.1 I Flussi Business Sensibili Sono Protetti da Abuse Automatizzato `[P2]`**](#71-i-flussi-business-sensibili-sono-protetti-da-abuse-automatizzato-p2)
+  - [**7.2 Il Sistema Previene Server-Side Request Forgery (SSRF) `[P0]`**](#72-il-sistema-previene-server-side-request-forgery-ssrf-p0)
+  - [**7.3 Le Operazioni Critiche Sono Idempotent o Protette da Race Condition `[P2]`**](#73-le-operazioni-critiche-sono-idempotent-o-protette-da-race-condition-p2)
+  - [**7.4 L'API Consuma Servizi Esterni in Modo Sicuro `[P2]`**](#74-lapi-consuma-servizi-esterni-in-modo-sicuro-p2)
+- [**MATRICE DI PRIORITIZZAZIONE RISK-BASED (RIVISTA)**](#matrice-di-prioritizzazione-risk-based-rivista)
+  - [**Priority P0 — Critico: Gateway Core + OWASP Top Risk**](#priority-p0--critico-gateway-core--owasp-top-risk)
+  - [**Priority P1 — Alto: Business Critical + Gateway Feature Avanzate**](#priority-p1--alto-business-critical--gateway-feature-avanzate)
+  - [**Priority P2 — Medio: Application Logic + Defense in Depth**](#priority-p2--medio-application-logic--defense-in-depth)
+  - [**Priority P3 — Basso: Compliance e Best Practice Statiche**](#priority-p3--basso-compliance-e-best-practice-statiche)
 
-[Matrice di Priorità (Riepilogo)	4](#matrice-di-priorità-\(riepilogo\))
 
-[DOMINIO 0: API DISCOVERY E INVENTORY MANAGEMENT	4](#dominio-0:-api-discovery-e-inventory-management)
-
-[0.1 Tutti gli Endpoint Esposti Sono Documentati e Autorizzati \[P0\]	4](#0.1-tutti-gli-endpoint-esposti-sono-documentati-e-autorizzati-[p0])
-
-[0.2 Il Gateway Rifiuta Richieste a Path Non Registrati (Deny-by-Default) \[P0\]	6](#0.2-il-gateway-rifiuta-richieste-a-path-non-registrati-\(deny-by-default\)-[p0])
-
-[0.3 Le API Deprecate Sono Disabilitate o Sottoposte a Monitoraggio Rafforzato \[P0\]	7](#0.3-le-api-deprecate-sono-disabilitate-o-sottoposte-a-monitoraggio-rafforzato-[p0])
-
-[DOMINIO 1: IDENTITÀ E AUTENTICAZIONE	8](#dominio-1:-identità-e-autenticazione)
-
-[1.1 Solo Richieste Autenticate Accedono a Risorse Protette \[P0\]	8](#1.1-solo-richieste-autenticate-accedono-a-risorse-protette-[p0])
-
-[1.2 Le Credenziali Sono Crittograficamente Valide \[P0\]	9](#1.2-le-credenziali-sono-crittograficamente-valide-[p0])
-
-[1.3 Le Credenziali Non Sono Scadute \[P0\]	10](#1.3-le-credenziali-non-sono-scadute-[p0])
-
-[1.4 Le Credenziali Non Sono State Revocate \[P1\]	11](#1.4-le-credenziali-non-sono-state-revocate-[p1])
-
-[1.5 Le Credenziali Non Sono Trasmesse via Canali Insicuri \[P2\]	12](#1.5-le-credenziali-non-sono-trasmesse-via-canali-insicuri-[p2])
-
-[1.6 Le Sessioni Sono Gestite in Modo Sicuro in Architetture Distribuite \[P3\]	13](#1.6-le-sessioni-sono-gestite-in-modo-sicuro-in-architetture-distribuite-[p3])
-
-[DOMINIO 2: AUTORIZZAZIONE E CONTROLLO ACCESSI	14](#dominio-2:-autorizzazione-e-controllo-accessi)
-
-[2.1 Solo Utenti Autorizzati Accedono a Endpoint Privilegiati \[P1\]	14](#2.1-solo-utenti-autorizzati-accedono-a-endpoint-privilegiati-[p1])
-
-[2.2 Gli Utenti Accedono Solo ai Propri Dati (BOLA Prevention) \[P1\]	15](#2.2-gli-utenti-accedono-solo-ai-propri-dati-\(bola-prevention\)-[p1])
-
-[2.3 Le Operazioni Distruttive Richiedono Privilegi Appropriati \[P1\]	16](#2.3-le-operazioni-distruttive-richiedono-privilegi-appropriati-[p1])
-
-[2.4 Le Policy di Autorizzazione Sono Consistenti Across Endpoint \[P1\]	17](#2.4-le-policy-di-autorizzazione-sono-consistenti-across-endpoint-[p1])
-
-[2.5 L'API Non Espone Dati Eccessivi \[P2\]	17](#2.5-l'api-non-espone-dati-eccessivi-[p2])
-
-[DOMINIO 3: INTEGRITÀ DEI DATI	18](#dominio-3:-integrità-dei-dati)
-
-[3.1 Tutti gli Input Sono Validati Secondo Schema e Constraints \[P2\]	18](#3.1-tutti-gli-input-sono-validati-secondo-schema-e-constraints-[p2])
-
-[3.2 → Fusa in Garanzia 6.1	19](#3.2-→-fusa-in-garanzia-6.1)
-
-[3.3 I Dati in Transit Sono Protetti da Manipolazione (Beyond TLS) \[P3\]	19](#3.3-i-dati-in-transit-sono-protetti-da-manipolazione-\(beyond-tls\)-[p3])
-
-[DOMINIO 4: DISPONIBILITÀ E RESILIENZA	20](#dominio-4:-disponibilità-e-resilienza)
-
-[4.1 Il Sistema Previene Resource Exhaustion via Rate Limiting \[P0\]	20](#4.1-il-sistema-previene-resource-exhaustion-via-rate-limiting-[p0])
-
-[4.2 Il Sistema Implementa Timeout per Prevenire Resource Lock \[P1\]	21](#4.2-il-sistema-implementa-timeout-per-prevenire-resource-lock-[p1])
-
-[4.3 Il Sistema Degrada Gracefully con Circuit Breaker \[P1\]	22](#4.3-il-sistema-degrada-gracefully-con-circuit-breaker-[p1])
-
-[DOMINIO 5: VISIBILITÀ E AUDITING	24](#dominio-5:-visibilità-e-auditing)
-
-[5.1 Ogni Richiesta È Logged con Metadata Essenziali \[P1\]	24](#5.1-ogni-richiesta-è-logged-con-metadata-essenziali-[p1])
-
-[5.2 Eventi Security Anomali Triggerano Alert Real-Time \[P2\]	25](#5.2-eventi-security-anomali-triggerano-alert-real-time-[p2])
-
-[DOMINIO 6: CONFIGURAZIONE E HARDENING	25](#dominio-6:-configurazione-e-hardening)
-
-[6.1 Error Handling e Information Disclosure \[P2\]	26](#6.1-error-handling-e-information-disclosure-[p2])
-
-[6.2 Security Header Configurati Appropriatamente \[P3\]	27](#6.2-security-header-configurati-appropriatamente-[p3])
-
-[6.3 La Configurazione del Gateway È Hardenata Contro Exploit Layer-7 \[P1\]	28](#6.3-la-configurazione-del-gateway-è-hardenata-contro-exploit-layer-7-[p1])
-
-[6.4 Le Credenziali di Servizio Non Sono Hardcoded o Esposte \[P2\]	29](#6.4-le-credenziali-di-servizio-non-sono-hardcoded-o-esposte-[p2])
-
-[DOMINIO 7: BUSINESS LOGIC E FLUSSI SENSIBILI	30](#dominio-7:-business-logic-e-flussi-sensibili)
-
-[7.1 I Flussi Business Sensibili Sono Protetti da Abuse Automatizzato \[P2\]	31](#7.1-i-flussi-business-sensibili-sono-protetti-da-abuse-automatizzato-[p2])
-
-[7.2 Il Sistema Previene Server-Side Request Forgery (SSRF) \[P0\]	31](#7.2-il-sistema-previene-server-side-request-forgery-\(ssrf\)-[p0])
-
-[7.3 Le Operazioni Critiche Sono Idempotent o Protette da Race Condition \[P2\]	33](#7.3-le-operazioni-critiche-sono-idempotent-o-protette-da-race-condition-[p2])
-
-[7.4 L'API Consuma Servizi Esterni in Modo Sicuro \[P2\]	34](#7.4-l'api-consuma-servizi-esterni-in-modo-sicuro-[p2])
-
-[MATRICE DI PRIORITIZZAZIONE RISK-BASED (RIVISTA)	35](#matrice-di-prioritizzazione-risk-based-\(rivista\))
-
-[Priority P0 — Critico: Gateway Core \+ OWASP Top Risk	35](#priority-p0-—-critico:-gateway-core-+-owasp-top-risk)
-
-[Priority P1 — Alto: Business Critical \+ Gateway Feature Avanzate	35](#priority-p1-—-alto:-business-critical-+-gateway-feature-avanzate)
-
-[Priority P2 — Medio: Application Logic \+ Defense in Depth	36](#priority-p2-—-medio:-application-logic-+-defense-in-depth)
-
-[Priority P3 — Basso: Compliance e Best Practice Statiche	36](#priority-p3-—-basso:-compliance-e-best-practice-statiche)
-
-## 
-
-## **Nota Metodologica: Gradiente Black Box / Grey Box / White Box** {#nota-metodologica:-gradiente-black-box-/-grey-box-/-white-box}
+## **Nota Metodologica: Gradiente Black Box / Grey Box / White Box**
 
 La presente metodologia non adotta un approccio di testing monolitico, bensì si muove lungo un **gradiente continuo di conoscenza e privilegio** dell'attore di test. Tale gradiente — ispirato alla classificazione internazionale Black Box / Grey Box / White Box — determina concretamente quali informazioni il tester deve possedere prima di avviare le verifiche di ciascun dominio, e con quale tecnica le esegue. Questo approccio riflette la realtà operativa degli assessment di sicurezza: applicare la tecnica sbagliata al controllo sbagliato produce sia falsi negativi (vulnerabilità non rilevate) che effort sprecato (test costosi su controlli verificabili in pochi secondi di ispezione configurazionale).
 
@@ -113,20 +68,20 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-## **Matrice di Priorità (Riepilogo)** {#matrice-di-priorità-(riepilogo)}
+## **Matrice di Priorità (Riepilogo)**
 
 | Priorità | Garanzie | Criterio |
 | ----- | ----- | ----- |
 | **P0 — Critico** | 0.1, 0.2, 0.3, 1.1, 1.2, 1.3, 4.1, 7.2 | Funzione nativa Gateway, automatizzabile al 100%, OWASP Top 3 |
-| **P1 — Alto** | 1.4, 2.1, 2.3, 2.4, 4.2, 4.3, 5.1, 6.3 | Parzialmente Gateway, automatizzabile con setup, business critical |
-| **P2 — Medio** | 1.5, 2.2, 2.5, 3.1, 5.2, 6.1+3.2, 6.4, 7.1, 7.3, 7.4 | Applicativo o complesso, automazione parziale |
+| **P1 — Alto** | 2.3, 2.4, 4.2, 4.3, 5.1, 6.3 | Parzialmente Gateway, automatizzabile con setup, business critical |
+| **P2 — Medio** | 1.4, 1.5, 2.1, 2.2, 2.5, 3.1, 5.2, 6.1+3.2, 6.4, 7.1, 7.3, 7.4 | Applicativo o complesso, automazione parziale |
 | **P3 — Basso** | 1.6, 3.3, 6.2 | Configurazione statica, best practice, logica backend profonda |
 
 ---
 
-## **DOMINIO 0: API DISCOVERY E INVENTORY MANAGEMENT** {#dominio-0:-api-discovery-e-inventory-management}
+## **DOMINIO 0: API DISCOVERY E INVENTORY MANAGEMENT**
 
-### **0.1 Tutti gli Endpoint Esposti Sono Documentati e Autorizzati `[P0]`** {#0.1-tutti-gli-endpoint-esposti-sono-documentati-e-autorizzati-[p0]}
+### **0.1 Tutti gli Endpoint Esposti Sono Documentati e Autorizzati `[P0]`**
 
 **\[Riferimenti: OWASP API9:2023 Improper Inventory Management, NIST SP 800-204 Section 3.1, OWASP ASVS v5.0.0 V4.1.1\]**
 
@@ -149,7 +104,7 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-### **0.2 Il Gateway Rifiuta Richieste a Path Non Registrati (Deny-by-Default) `[P0]`** {#0.2-il-gateway-rifiuta-richieste-a-path-non-registrati-(deny-by-default)-[p0]}
+### **0.2 Il Gateway Rifiuta Richieste a Path Non Registrati (Deny-by-Default) `[P0]`**
 
 **\[Riferimenti: NIST SP 800-204 Section 4.1, OWASP ASVS v5.0.0 V4.1.1, CIS Benchmark API Gateway Controls 2.3\]**
 
@@ -171,7 +126,7 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-### **0.3 Le API Deprecate Sono Disabilitate o Sottoposte a Monitoraggio Rafforzato `[P0]`** {#0.3-le-api-deprecate-sono-disabilitate-o-sottoposte-a-monitoraggio-rafforzato-[p0]}
+### **0.3 Le API Deprecate Sono Disabilitate o Sottoposte a Monitoraggio Rafforzato `[P0]`**
 
 **\[Riferimenti: OWASP API9:2023 Improper Inventory Management, NIST SP 800-204 Section 3.1.3, OWASP ASVS v5.0.0 V4.1.1\]**
 
@@ -182,7 +137,7 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 * **Vulnerabilità Non Backportata:** API v1 deprecata contiene una SQL injection risolta in v2 ma non corretta retroattivamente perché "in via di dismissione". Il team non monitora v1 attivamente; l'endpoint rimane sfruttabile per l'intera durata del periodo di deprecazione.  
 * **Sunset Header Senza Enforcement:** Il Gateway restituisce `Sunset: Wed, 01 Jan 2026 00:00:00 GMT` ma non implementa alcun controllo alla data indicata. Dopo il sunset pianificato, l'endpoint continua a funzionare indefinitamente come "zombie API".
 
-**Assunzioni e Prerequisiti:** Approccio **Grey Box**. Il tester ha accesso alla specifica OpenAPI per identificare tutti gli endpoint con `deprecated: true`. Per i sotto-test di rate limiting e logging differenziale, è necessario un token JWT valido per utente standard e accesso in lettura al log aggregator o alla Admin API del Gateway.
+**Assunzioni e Prerequisiti:** Approccio **Black Box** per i sotto-test di accessibilità (Milestone 1 implementato): zero credenziali, solo spec OpenAPI per identificare endpoint con `deprecated: true`. I sotto-test di rate limiting differenziale e logging verbosity richiedono **Grey Box** (token JWT per utente standard + accesso in lettura al log aggregator o alla Admin API del Gateway): pianificati per Milestone 2.
 
 **Logica di Test.**
 
@@ -192,9 +147,9 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-## **DOMINIO 1: IDENTITÀ E AUTENTICAZIONE** {#dominio-1:-identità-e-autenticazione}
+## **DOMINIO 1: IDENTITÀ E AUTENTICAZIONE**
 
-### **1.1 Solo Richieste Autenticate Accedono a Risorse Protette `[P0]`** {#1.1-solo-richieste-autenticate-accedono-a-risorse-protette-[p0]}
+### **1.1 Solo Richieste Autenticate Accedono a Risorse Protette `[P0]`**
 
 **\[Riferimenti: OWASP API2:2023 Broken Authentication, NIST SP 800-63B-4 Section 4.3.1, OWASP ASVS v5.0.0 Chapter V6.3\]**
 
@@ -217,7 +172,7 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-### **1.2 Le Credenziali Sono Crittograficamente Valide `[P0]`** {#1.2-le-credenziali-sono-crittograficamente-valide-[p0]}
+### **1.2 Le Credenziali Sono Crittograficamente Valide `[P0]`**
 
 **\[Riferimenti: OWASP API2:2023 Broken Authentication, RFC 8725 Section 3.2, OWASP ASVS v5.0.0 V9.1.1 \+ V11.5.1, NIST SP 800-63B-4 Section 4.3.1\]**
 
@@ -242,7 +197,7 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-### **1.3 Le Credenziali Non Sono Scadute `[P0]`** {#1.3-le-credenziali-non-sono-scadute-[p0]}
+### **1.3 Le Credenziali Non Sono Scadute `[P0]`**
 
 **\[Riferimenti: OWASP API2:2023 Broken Authentication, RFC 7519 Section 4.1.4, OWASP ASVS v5.0.0 V9.2.1, NIST SP 800-63B-4 Section 4.2\]**
 
@@ -264,7 +219,7 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-### **1.4 Le Credenziali Non Sono State Revocate `[P1]`** {#1.4-le-credenziali-non-sono-state-revocate-[p1]}
+### **1.4 Le Credenziali Non Sono State Revocate `[P2]`**
 
 **\[Riferimenti: OWASP API2:2023 Broken Authentication, RFC 7009 (OAuth 2.0 Token Revocation), RFC 7519 Section 4.1.7, OWASP ASVS v5.0.0 V7.4 \+ V9, NIST SP 800-63B-4 Section 5.1\]**
 
@@ -285,7 +240,7 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-### **1.5 Le Credenziali Non Sono Trasmesse via Canali Insicuri `[P2]`** {#1.5-le-credenziali-non-sono-trasmesse-via-canali-insicuri-[p2]}
+### **1.5 Le Credenziali Non Sono Trasmesse via Canali Insicuri `[P2]`**
 
 **\[Riferimenti: OWASP API2:2023, RFC 9110 Section 4.2.2, NIST SP 800-52 Rev. 2, OWASP ASVS v5.0.0 V12.1.1 \+ V12.1.2 \+ V14.2.1\]**
 
@@ -309,7 +264,7 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-### **1.6 Le Sessioni Sono Gestite in Modo Sicuro in Architetture Distribuite `[P3]`** {#1.6-le-sessioni-sono-gestite-in-modo-sicuro-in-architetture-distribuite-[p3]}
+### **1.6 Le Sessioni Sono Gestite in Modo Sicuro in Architetture Distribuite `[P3]`**
 
 **\[Riferimenti: OWASP API2:2023, OWASP ASVS v5.0.0 V3.2.1 \+ V3.2.3 \+ V3.2.4, NIST SP 800-63B-4 Section 4.2, NIST SP 800-204A Section 4.3\]**
 
@@ -331,9 +286,9 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-## **DOMINIO 2: AUTORIZZAZIONE E CONTROLLO ACCESSI** {#dominio-2:-autorizzazione-e-controllo-accessi}
+## **DOMINIO 2: AUTORIZZAZIONE E CONTROLLO ACCESSI**
 
-### **2.1 Solo Utenti Autorizzati Accedono a Endpoint Privilegiati `[P1]`** {#2.1-solo-utenti-autorizzati-accedono-a-endpoint-privilegiati-[p1]}
+### **2.1 Solo Utenti Autorizzati Accedono a Endpoint Privilegiati `[P2]`**
 
 **\[Riferimenti: OWASP API5:2023 Broken Function Level Authorization, OWASP ASVS v5.0.0 V8.3.1 \+ V8.2.2, NIST SP 800-53 Rev. 5 AC-3\]**
 
@@ -354,7 +309,7 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-### **2.2 Gli Utenti Accedono Solo ai Propri Dati (BOLA Prevention) `[P1]`** {#2.2-gli-utenti-accedono-solo-ai-propri-dati-(bola-prevention)-[p1]}
+### **2.2 Gli Utenti Accedono Solo ai Propri Dati (BOLA Prevention) `[P1]`**
 
 **\[Riferimenti: OWASP API1:2023 Broken Object Level Authorization, CWE-639, OWASP ASVS v5.0.0 V8.2.2, NIST SP 800-162 Section 2.2\]**
 
@@ -377,7 +332,7 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-### **2.3 Le Operazioni Distruttive Richiedono Privilegi Appropriati `[P1]`** {#2.3-le-operazioni-distruttive-richiedono-privilegi-appropriati-[p1]}
+### **2.3 Le Operazioni Distruttive Richiedono Privilegi Appropriati `[P1]`**
 
 **\[Riferimenti: OWASP API5:2023, OWASP ASVS v5.0.0 V8.2.1 \+ V8.1.1, NIST SP 800-53 Rev. 5 AC-6 Least Privilege\]**
 
@@ -398,7 +353,7 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-### **2.4 Le Policy di Autorizzazione Sono Consistenti Across Endpoint `[P1]`** {#2.4-le-policy-di-autorizzazione-sono-consistenti-across-endpoint-[p1]}
+### **2.4 Le Policy di Autorizzazione Sono Consistenti Across Endpoint `[P1]`**
 
 **\[Riferimenti: OWASP API8:2023 Security Misconfiguration, OWASP ASVS v5.0.0 V8.1, NIST SP 800-53 Rev. 5 AC-3\]**
 
@@ -419,7 +374,7 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-### **2.5 L'API Non Espone Dati Eccessivi `[P2]`** {#2.5-l'api-non-espone-dati-eccessivi-[p2]}
+### **2.5 L'API Non Espone Dati Eccessivi `[P2]`**
 
 **\[Riferimenti: OWASP API3:2023 Broken Object Property Level Authorization, OWASP ASVS v5.0.0 V8.2.3 \+ V14.2.6, NIST SP 800-53 Rev. 5 SC-4\]**
 
@@ -439,9 +394,9 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-## **DOMINIO 3: INTEGRITÀ DEI DATI** {#dominio-3:-integrità-dei-dati}
+## **DOMINIO 3: INTEGRITÀ DEI DATI**
 
-### **3.1 Tutti gli Input Sono Validati Secondo Schema e Constraints `[P2]`** {#3.1-tutti-gli-input-sono-validati-secondo-schema-e-constraints-[p2]}
+### **3.1 Tutti gli Input Sono Validati Secondo Schema e Constraints `[P2]`**
 
 **\[Riferimenti: OWASP API10:2023, CWE-20, OWASP ASVS v5.0.0 V2.2.1 \+ V1.2, NIST SP 800-53 Rev. 5 SI-10\]**
 
@@ -464,13 +419,13 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-### **3.2 → Fusa in Garanzia 6.1** {#3.2-→-fusa-in-garanzia-6.1}
+### **3.2 → Fusa in Garanzia 6.1**
 
 *(I contenuti sulla prevenzione di information leakage via error message e debug data sono stati integrati nella Garanzia 6.1 "Error Handling e Information Disclosure". La sezione è stata eliminata per evitare ridondanza strutturale.)*
 
 ---
 
-### **3.3 I Dati in Transit Sono Protetti da Manipolazione (Beyond TLS) `[P3]`** {#3.3-i-dati-in-transit-sono-protetti-da-manipolazione-(beyond-tls)-[p3]}
+### **3.3 I Dati in Transit Sono Protetti da Manipolazione (Beyond TLS) `[P3]`**
 
 **\[Riferimenti: OWASP ASVS v5.0.0 V4.1.5, NIST SP 800-175B Rev. 1, NIST SP 800-107 Rev. 1\]**
 
@@ -491,9 +446,9 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-## **DOMINIO 4: DISPONIBILITÀ E RESILIENZA** {#dominio-4:-disponibilità-e-resilienza}
+## **DOMINIO 4: DISPONIBILITÀ E RESILIENZA**
 
-### **4.1 Il Sistema Previene Resource Exhaustion via Rate Limiting `[P0]`** {#4.1-il-sistema-previene-resource-exhaustion-via-rate-limiting-[p0]}
+### **4.1 Il Sistema Previene Resource Exhaustion via Rate Limiting `[P0]`**
 
 **\[Riferimenti: OWASP API4:2023 Unrestricted Resource Consumption, OWASP ASVS v5.0.0 V2.4.1, NIST SP 800-204 Section 4.5\]**
 
@@ -517,7 +472,7 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-### **4.2 Il Sistema Implementa Timeout per Prevenire Resource Lock `[P1]`** {#4.2-il-sistema-implementa-timeout-per-prevenire-resource-lock-[p1]}
+### **4.2 Il Sistema Implementa Timeout per Prevenire Resource Lock `[P1]`**
 
 **\[Riferimenti: OWASP API4:2023, CWE-400, NIST SP 800-204A Section 4.3\]**
 
@@ -539,7 +494,7 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-### **4.3 Il Sistema Degrada Gracefully con Circuit Breaker `[P1]`** {#4.3-il-sistema-degrada-gracefully-con-circuit-breaker-[p1]}
+### **4.3 Il Sistema Degrada Gracefully con Circuit Breaker `[P1]`**
 
 **\[Riferimenti: OWASP API4:2023, OWASP ASVS v5.0.0 V16.5.2, NIST SP 800-204 Section 4.5.1, Martin Fowler — Circuit Breaker Pattern (2014)\]**
 
@@ -561,9 +516,9 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-## **DOMINIO 5: VISIBILITÀ E AUDITING** {#dominio-5:-visibilità-e-auditing}
+## **DOMINIO 5: VISIBILITÀ E AUDITING**
 
-### **5.1 Ogni Richiesta È Logged con Metadata Essenziali `[P1]`** {#5.1-ogni-richiesta-è-logged-con-metadata-essenziali-[p1]}
+### **5.1 Ogni Richiesta È Logged con Metadata Essenziali `[P1]`**
 
 **\[Riferimenti: NIST SP 800-92, NIST SP 800-53 Rev. 5 AU-2, OWASP ASVS v5.0.0 V16.2.1, GDPR Article 30\]**
 
@@ -587,7 +542,7 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-### **5.2 Eventi Security Anomali Triggerano Alert Real-Time `[P2]`** {#5.2-eventi-security-anomali-triggerano-alert-real-time-[p2]}
+### **5.2 Eventi Security Anomali Triggerano Alert Real-Time `[P2]`**
 
 **\[Riferimenti: NIST SP 800-61 Rev. 3 Section 2.3, OWASP ASVS v5.0.0 V7.1.1, GDPR Article 33\]**
 
@@ -608,9 +563,9 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-## **DOMINIO 6: CONFIGURAZIONE E HARDENING** {#dominio-6:-configurazione-e-hardening}
+## **DOMINIO 6: CONFIGURAZIONE E HARDENING**
 
-### **6.1 Error Handling e Information Disclosure `[P2]`** {#6.1-error-handling-e-information-disclosure-[p2]}
+### **6.1 Error Handling e Information Disclosure `[P2]`**
 
 **\[Riferimenti: OWASP API8:2023 Security Misconfiguration, OWASP ASVS v5.0.0 V13.4.2 \+ V13.4.6 \+ V16.5.1, CWE-209, NIST SP 800-53 Rev. 5 SI-11 \+ SC-7\]**
 
@@ -635,7 +590,7 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-### **6.2 Security Header Configurati Appropriatamente `[P3]`** {#6.2-security-header-configurati-appropriatamente-[p3]}
+### **6.2 Security Header Configurati Appropriatamente `[P3]`**
 
 **\[Riferimenti: OWASP API8:2023, OWASP ASVS v5.0.0 V3.4 (3.4.1–3.4.7), RFC 9110, Mozilla Observatory Security Headers Best Practices\]**
 
@@ -658,7 +613,7 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-### **6.3 La Configurazione del Gateway È Hardenata Contro Exploit Layer-7 `[P1]`** {#6.3-la-configurazione-del-gateway-è-hardenata-contro-exploit-layer-7-[p1]}
+### **6.3 La Configurazione del Gateway È Hardenata Contro Exploit Layer-7 `[P1]`**
 
 **\[Riferimenti: OWASP API8:2023, OWASP ASVS v5.0.0 V14.2.1 \+ V14.5.3, RFC 9110 Section 9.3, CWE-444 (HTTP Request Smuggling), NIST SP 800-204 Section 4.5.1\]**
 
@@ -682,7 +637,7 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-### **6.4 Le Credenziali di Servizio Non Sono Hardcoded o Esposte `[P2]`** {#6.4-le-credenziali-di-servizio-non-sono-hardcoded-o-esposte-[p2]}
+### **6.4 Le Credenziali di Servizio Non Sono Hardcoded o Esposte `[P2]`**
 
 **\[Riferimenti: OWASP API8:2023, OWASP ASVS v5.0.0 V13.3.1 \+ V13.3.4 \+ V13.4.1, CWE-798, NIST SP 800-53 Rev. 5 IA-5(1), NIST SP 800-204 Section 5.4\]**
 
@@ -705,9 +660,9 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-## **DOMINIO 7: BUSINESS LOGIC E FLUSSI SENSIBILI** {#dominio-7:-business-logic-e-flussi-sensibili}
+## **DOMINIO 7: BUSINESS LOGIC E FLUSSI SENSIBILI**
 
-### **7.1 I Flussi Business Sensibili Sono Protetti da Abuse Automatizzato `[P2]`** {#7.1-i-flussi-business-sensibili-sono-protetti-da-abuse-automatizzato-[p2]}
+### **7.1 I Flussi Business Sensibili Sono Protetti da Abuse Automatizzato `[P2]`**
 
 **\[Riferimenti: OWASP API6:2023 Unrestricted Access to Sensitive Business Flows, OWASP Automated Threats OAT-001–OAT-021, OWASP ASVS v5.0.0 V2.4.1 \+ V2.4.2, NIST SP 800-63B-4 Section 5.2.5\]**
 
@@ -729,7 +684,7 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-### **7.2 Il Sistema Previene Server-Side Request Forgery (SSRF) `[P0]`** {#7.2-il-sistema-previene-server-side-request-forgery-(ssrf)-[p0]}
+### **7.2 Il Sistema Previene Server-Side Request Forgery (SSRF) `[P0]`**
 
 **\[Riferimenti: OWASP API7:2023 Server Side Request Forgery, CWE-918, OWASP ASVS v5.0.0 V1.3.6, NIST SP 800-204 Section 3.2.2\]**
 
@@ -754,7 +709,7 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-### **7.3 Le Operazioni Critiche Sono Idempotent o Protette da Race Condition `[P2]`** {#7.3-le-operazioni-critiche-sono-idempotent-o-protette-da-race-condition-[p2]}
+### **7.3 Le Operazioni Critiche Sono Idempotent o Protette da Race Condition `[P2]`**
 
 **\[Riferimenti: CWE-362 (Race Condition), OWASP ASVS v5.0.0 V2.3.3 \+ V2.3.4, RFC 7231 Section 4.2.2\]**
 
@@ -775,7 +730,7 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-### **7.4 L'API Consuma Servizi Esterni in Modo Sicuro `[P2]`** {#7.4-l'api-consuma-servizi-esterni-in-modo-sicuro-[p2]}
+### **7.4 L'API Consuma Servizi Esterni in Modo Sicuro `[P2]`**
 
 **\[Riferimenti: OWASP API10:2023 Unsafe Consumption of APIs, NIST SP 800-161 Rev. 1, OWASP ASVS v5.0.0 V13.2.4 \+ V4, NIST SP 800-204 Section 4.3\]**
 
@@ -798,11 +753,11 @@ La tabella seguente sintetizza il mapping tra livello di priorità, approccio me
 
 ---
 
-## **MATRICE DI PRIORITIZZAZIONE RISK-BASED (RIVISTA)** {#matrice-di-prioritizzazione-risk-based-(rivista)}
+## **MATRICE DI PRIORITIZZAZIONE RISK-BASED (RIVISTA)**
 
 La seguente matrice riflette una doppia prioritizzazione: **rilevanza per il testing Gateway-centrico** (automatizzabilità, locus di enforcement) e **severità intrinseca** (impatto se la garanzia fallisce).
 
-### **Priority P0 — Critico: Gateway Core \+ OWASP Top Risk** {#priority-p0-—-critico:-gateway-core-+-owasp-top-risk}
+### **Priority P0 — Critico: Gateway Core \+ OWASP Top Risk**
 
 Controlli che il Gateway **deve** applicare per definizione, automatizzabili al 100% senza dipendenze applicative profonde. Il tool deve coprire queste garanzie con test eseguibili su qualsiasi API Gateway conforme.
 
@@ -817,7 +772,7 @@ Controlli che il Gateway **deve** applicare per definizione, automatizzabili al 
 | **4.1** | Rate Limiting (Resource Exhaustion Prevention) |
 | **7.2** | SSRF Prevention (Cloud Metadata Protection) |
 
-### **Priority P1 — Alto: Business Critical \+ Gateway Feature Avanzate** {#priority-p1-—-alto:-business-critical-+-gateway-feature-avanzate}
+### **Priority P1 — Alto: Business Critical \+ Gateway Feature Avanzate**
 
 Controlli parzialmente Gateway-side o configurabili via Gateway, con impatto business-critical. Richiedono setup più elaborato (token multipli, mock service) ma rimangono automatizzabili.
 
@@ -832,7 +787,7 @@ Controlli parzialmente Gateway-side o configurabili via Gateway, con impatto bus
 | **5.1** | Audit Logging con Metadata Essenziali |
 | **6.3** | Gateway Hardenato Contro Exploit Layer-7 (HTTP Smuggling, Slowloris) |
 
-### **Priority P2 — Medio: Application Logic \+ Defense in Depth** {#priority-p2-—-medio:-application-logic-+-defense-in-depth}
+### **Priority P2 — Medio: Application Logic \+ Defense in Depth**
 
 Controlli principalmente applicativi o che richiedono conoscenza della business logic interna. Il tool può includerli come moduli ausiliari (delegando a tool specializzati come OWASP ZAP) o come checklist guidate.
 
@@ -849,7 +804,7 @@ Controlli principalmente applicativi o che richiedono conoscenza della business 
 | **7.3** | Operazioni Critiche Idempotent (Race Condition) |
 | **7.4** | Consumo Sicuro di Servizi Esterni (Webhook Verification) |
 
-### **Priority P3 — Basso: Compliance e Best Practice Statiche** {#priority-p3-—-basso:-compliance-e-best-practice-statiche}
+### **Priority P3 — Basso: Compliance e Best Practice Statiche**
 
 Configurazioni statiche o logica applicativa profonda non testabile dall'esterno. Documentate come requisiti architetturali e raccomandazioni di compliance, non come test automatici nel tool.
 

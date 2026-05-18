@@ -28,5 +28,17 @@
   // Uccide tutti gli errori nel pannello che finiscono con la scritta "source: Mypy".
   "mypy-type-checker.ignorePatterns": [
     "**/scripts/**/*.py"
-  ]
+  ],
+  // 4. ESCLUDE DALL'EXPLORER VS CODE (cartelle cache e build)
+  // Nasconde queste directory dal pannello file e dal file picker (incluso @-picker di Claude Code).
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/.mypy_cache": true,
+    "**/.ruff_cache": true,
+    "**/.pytest_cache": true,
+    "**/*.pyc": true,
+    "**/*.egg-info": true,
+    "**/.hatch": true
+  },
+  "markdown.extension.toc.levels": "2..6"
 }

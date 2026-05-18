@@ -1,5 +1,49 @@
 # Developer Guide — Adding a New Native Test
 
+- [Which steps apply to your case](#which-steps-apply-to-your-case)
+- [The file pipeline: 6 files for an existing domain, 9 for a new one](#the-file-pipeline-6-files-for-an-existing-domain-9-for-a-new-one)
+- [Why two config layers? (read this before Step 1)](#why-two-config-layers-read-this-before-step-1)
+- [Step 1 — `src/config/schema/domain_N.py`](#step-1--srcconfigschemadomain_npy)
+- [Step 2 — `src/config/schema/tests_config.py`  *(new domain only)*](#step-2--srcconfigschematests_configpy--new-domain-only)
+- [Step 3 — `src/config/schema/__init__.py`  *(new domain only)*  \[CRITICAL — missed most often\]](#step-3--srcconfigschema__init__py--new-domain-only--critical--missed-most-often)
+- [Step 4 — `src/core/models/runtime.py`](#step-4--srccoremodelsruntimepy)
+- [Step 5 — `src/core/models/__init__.py`  \[CRITICAL — missed most often\]](#step-5--srccoremodels__init__py--critical--missed-most-often)
+- [Step 6 — `src/engine.py`](#step-6--srcenginepy)
+- [Step 7 — `src/tests/domain_N/__init__.py`  *(new domain only)*  \[CRITICAL — silent failure\]](#step-7--srctestsdomain_n__init__py--new-domain-only--critical--silent-failure)
+- [Step 8 — `src/tests/domain_N/test_N_N_name.py`](#step-8--srctestsdomain_ntest_n_n_namepy)
+  - [Filename convention (mandatory for TestRegistry discovery)](#filename-convention-mandatory-for-testregistry-discovery)
+  - [Module docstring](#module-docstring)
+  - [Canonical import block](#canonical-import-block)
+  - [Module-level constants (before the class)](#module-level-constants-before-the-class)
+  - [8 mandatory ClassVar attributes](#8-mandatory-classvar-attributes)
+  - [`_transaction_log` — what it is and how it works](#_transaction_log--what-it-is-and-how-it-works)
+  - [Test class structure: `execute()` is an orchestrator, never a god-method](#test-class-structure-execute-is-an-orchestrator-never-a-god-method)
+  - [Canonical entry patterns for `execute()`](#canonical-entry-patterns-for-execute)
+    - [BLACK\_BOX — no credentials (real code from test 1.1)](#black_box--no-credentials-real-code-from-test-11)
+    - [GREY\_BOX — test acquires and uses tokens](#grey_box--test-acquires-and-uses-tokens)
+    - [WHITE\_BOX with gateway adapter (real code from test 4.2)](#white_box-with-gateway-adapter-real-code-from-test-42)
+  - [Iterating the AttackSurface](#iterating-the-attacksurface)
+  - [Building a result — four cases](#building-a-result--four-cases)
+    - [PASS](#pass)
+    - [FAIL — single finding](#fail--single-finding)
+    - [FAIL — multiple findings](#fail--multiple-findings)
+    - [SKIP](#skip)
+  - [Recording HTTP transactions](#recording-http-transactions)
+  - [Building `Finding` objects](#building-finding-objects)
+  - [Creating and cleaning up persistent resources](#creating-and-cleaning-up-persistent-resources)
+- [Step 9 — `config.yaml`](#step-9--configyaml)
+  - [How the config value reaches `execute()`](#how-the-config-value-reaches-execute)
+- [Strategy → Priority → Guard mapping](#strategy--priority--guard-mapping)
+- [Reference tables](#reference-tables)
+  - [Guards](#guards)
+  - [BaseTest helpers](#basetest-helpers)
+  - [`src/tests/helpers/` modules](#srctestshelpers-modules)
+  - [`AttackSurface` filter methods](#attacksurface-filter-methods)
+- [Worked example — Test 2.1 (minimal GREY\_BOX)](#worked-example--test-21-minimal-grey_box)
+- [Post-implementation verification](#post-implementation-verification)
+- [Pre-output checklist](#pre-output-checklist)
+- [Common errors and fixes](#common-errors-and-fixes)
+
 **Source of truth:** every pattern in this document was extracted directly
 from the 15 native `BaseTest` subclasses verified OK against a live target
 in Milestone 1:
@@ -460,13 +504,14 @@ python -c "
 import pkgutil, importlib
 pkg = importlib.import_module('src.tests')
 names = [m.name for m in pkgutil.walk_packages(pkg.__path__, prefix='src.tests.')]
-print([n for n in names if 'domain_N' in n])
+print([n for n in names if 'domain_N' in n])  # Replace 'domain_N' with your actual domain, e.g. 'domain_2'
 "
 ```
 
 If the output includes your new test module name, the `__init__.py` is in place
 and the directory is discoverable. An empty output means the file is missing
-or in the wrong location.
+or in the wrong location. **Replace `'domain_N'` in the command with your actual
+domain directory name (e.g. `'domain_2'`) before running.**
 
 ---
 
@@ -738,13 +783,13 @@ def _revoke_token(self, ...) -> TestResult | None:
 
 **Reference implementations to copy:**
 
-- [test_1_4_token_revocation.py](../src/tests/domain_1/test_1_4_token_revocation.py)
+- [test_1_4_token_revocation.py](../../src/tests/domain_1/test_1_4_token_revocation.py)
   — 4 helpers (`_setup_admin_session`, `_create_temp_token`, `_revoke_token`,
   `_verify_revocation`) demonstrating both early-exit patterns.
-- [test_2_1_rbac_enforcement.py](../src/tests/domain_2/test_2_1_rbac_enforcement.py)
+- [test_2_1_rbac_enforcement.py](../../src/tests/domain_2/test_2_1_rbac_enforcement.py)
   — single helper (`_probe_admin_endpoint`) called in a loop, returning
   `Finding | None`.
-- [test_0_1_shadow_api_discovery.py](../src/tests/domain_0/test_0_1_shadow_api_discovery.py)
+- [test_0_1_shadow_api_discovery.py](../../src/tests/domain_0/test_0_1_shadow_api_discovery.py)
   — class helpers (`_probe_shadow_paths`, `_probe_undeclared_methods`) plus a
   module-level pure function (`_build_exclusion_set`) used by both.
 
@@ -1427,7 +1472,7 @@ acquired yet.
 | `_make_fail_multi(message, findings, notes=None)` | Multiple findings across distinct targets | Captures `_transaction_log` and metadata automatically — preferred over manual `TestResult(...)` |
 | `_make_skip(reason, notes=None)` | Precondition not met (predictable) | Captures `_transaction_log` automatically; `notes=` for manual-check guidance |
 | `_make_error(exc)` | Unexpected exception | Captures `_transaction_log` automatically |
-| `_log_transaction(record, oracle_state, is_fail=False)` | After every `client.request()` | Appends to `_transaction_log` |
+| `_log_transaction(record, oracle_state, is_fail=False, duration_ms=None)` | After every `client.request()` | Appends to `_transaction_log`; pass `duration_ms` in timeout-enforcement tests |
 
 ### `src/tests/helpers/` modules
 
@@ -1440,7 +1485,7 @@ test file is a violation of the DRY principle and a bug risk.**
 |---|---|
 | `auth.py` | `acquire_tokens(target, context, client, required_roles=None)` — dispatcher; always import from here, never from `auth_forgejo` or `auth_jwt_login` directly |
 | `src/core/gateway/base.py` | `BaseGatewayAdapter`, `GatewayAdapterError` — accessed via `target.gateway.*`; methods: `get_routes()`, `get_services()`, `get_plugins()`, `get_upstreams()`, `get_status()`, `get_plugin_by_name(name)` |
-| `path_resolver.py` | `resolve_path_with_seed(endpoint, seed)`, `extract_param_names_from_path(path)`, `PATH_PARAM_FALLBACK_DEFAULT`, `PATH_PARAM_FALLBACK_SAFE_DELETE` |
+| `path_resolver.py` | `resolve_path_with_seed(path, seed)`, `extract_param_names_from_path(path)`, `PATH_PARAM_FALLBACK_DEFAULT`, `PATH_PARAM_FALLBACK_SAFE_DELETE` |
 | `response_inspector.py` | `find_missing_security_headers(headers)`, `find_invalid_security_headers(headers)`, `find_leaky_headers(headers)`, `check_security_headers(headers)`, `contains_stack_trace(body)`, `contains_sensitive_fields(data)`, `extract_debug_fields(data)`, `auth_errors_are_uniform(response_bodies)`, `SECURITY_HEADER_DEFINITIONS`, `STACK_TRACE_PATTERNS`, `SENSITIVE_FIELD_NAMES`, `LEAKY_HEADERS` |
 | `forgejo_resources.py` | `create_repository(target, context, client, role)`, `create_issue(target, context, client, role, repo_owner, repo_name)`, `get_authenticated_user(target, context, client, role)`, `list_repositories(target, context, client, role)`, `ForgejoResourceError` |
 | `jwt_forge.py` | **Not yet implemented.** Will be added when tests 1.2/1.3 are implemented (Milestone 2). Functions planned: `forge_alg_none`, `forge_tampered_payload`, `forge_expired`, `forge_strip_signature`, `forge_hs256_key_confusion`, `decode_header`, `decode_payload`, `is_jwt_format`. |
@@ -1510,7 +1555,7 @@ placeholder logic.**
 > The shipped test uses a different config field (`admin_endpoint_paths`)
 > than the simplified `sample_size` shown here.  This example preserves the
 > minimum-viable shape for teaching the 8-file pipeline; for the actual
-> production code, see [test_2_1_rbac_enforcement.py](../src/tests/domain_2/test_2_1_rbac_enforcement.py).
+> production code, see [test_2_1_rbac_enforcement.py](../../src/tests/domain_2/test_2_1_rbac_enforcement.py).
 
 **Step 1** — `src/config/schema/domain_2.py` (new file):
 
@@ -1637,7 +1682,7 @@ _REFERENCES: list[str] = [
 class Test21RbacEnforcement(BaseTest):
     test_id:    ClassVar[str]          = "2.1"
     test_name:  ClassVar[str]          = "Only Authorized Users Access Privileged Endpoints"
-    priority:   ClassVar[int]          = 1
+    priority:   ClassVar[int]          = 2
     domain:     ClassVar[int]          = 2
     strategy:   ClassVar[TestStrategy] = TestStrategy.GREY_BOX
     depends_on: ClassVar[list[str]]    = ["1.1"]
@@ -1743,9 +1788,13 @@ from the Common Errors table.
 
 ```bash
 python -c "
+from src.core.models import TestStrategy
 from src.tests.registry import TestRegistry
 r = TestRegistry()
-tests = r.discover(min_priority=3)  # 3 includes P0+P1+P2+P3 — all tests
+tests = r.discover(
+    min_priority=3,  # 3 includes P0+P1+P2+P3 — all tests
+    enabled_strategies={TestStrategy.BLACK_BOX, TestStrategy.GREY_BOX, TestStrategy.WHITE_BOX},
+)
 ids = [t.test_id for t in tests]
 print('Discovered test IDs:', ids)
 print()

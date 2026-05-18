@@ -3,7 +3,7 @@ src/tests/domain_0/test_0_2_deny_by_default.py
 
 Test 0.2 -- Gateway Deny-by-Default on Unregistered Paths.
 
-Guarantee (Implementazione.md, Dominio 0):
+Guarantee (4-Implementazione.md, Dominio 0):
     The Gateway blocks any request whose path does not match exactly a
     registered route, returning 404 or 403 without forwarding to a backend
     or revealing internal topology information.

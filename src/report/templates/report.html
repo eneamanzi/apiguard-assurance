@@ -120,6 +120,25 @@
       margin-bottom: 2rem;
     }
 
+    .exec-grid-top {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 1rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .exec-grid-bottom {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+
+    .exec-grid-bottom .stat-card {
+      flex: 0 0 auto;
+      min-width: 160px;
+    }
+
     .stat-card {
       background: var(--color-surface);
       border: 1px solid var(--color-border);
@@ -1544,7 +1563,8 @@
       <div class="section-header">
         <h2>Executive Summary</h2>
       </div>
-      <div class="exec-grid">
+      <!-- Row 1: aggregate metrics -->
+      <div class="exec-grid-top">
         <div class="stat-card stat-neutral">
           <div class="stat-value">{{ report.executive_summary.scheduled_tests }}</div>
           <div class="stat-label">Scheduled Tests</div>
@@ -1555,6 +1575,24 @@
           <div class="stat-label">Executed</div>
           <div class="stat-sublabel">Pass + Fail + Error</div>
         </div>
+        <div class="stat-card stat-neutral">
+          <div class="stat-value">{{ report.executive_summary.total_finding_count }}</div>
+          <div class="stat-label">Total Findings</div>
+        </div>
+        <div class="stat-card stat-neutral">
+          <div class="stat-value">{{ report.executive_summary.pass_rate_pct }}%</div>
+          <div class="stat-label">Pass Rate</div>
+          <div class="stat-sublabel">Pass / Executed</div>
+        </div>
+        {% if report.executive_summary.assessment_duration_seconds is not none %}
+        <div class="stat-card stat-neutral">
+          <div class="stat-value">{{ report.executive_summary.assessment_duration_seconds | round(1) }}s</div>
+          <div class="stat-label">Duration</div>
+        </div>
+        {% endif %}
+      </div>
+      <!-- Row 2: per-status counts -->
+      <div class="exec-grid-bottom">
         <div class="stat-card stat-pass">
           <div class="stat-value">{{ report.executive_summary.pass_count }}</div>
           <div class="stat-label">Passed</div>
@@ -1572,21 +1610,6 @@
           <div class="stat-label">Skipped</div>
           <div class="stat-sublabel">Not executed (precondition unmet)</div>
         </div>
-        <div class="stat-card stat-neutral">
-          <div class="stat-value">{{ report.executive_summary.total_finding_count }}</div>
-          <div class="stat-label">Total Findings</div>
-        </div>
-        <div class="stat-card stat-neutral">
-          <div class="stat-value">{{ report.executive_summary.pass_rate_pct }}%</div>
-          <div class="stat-label">Pass Rate</div>
-          <div class="stat-sublabel">Pass / Executed</div>
-        </div>
-        {% if report.executive_summary.assessment_duration_seconds is not none %}
-        <div class="stat-card stat-neutral">
-          <div class="stat-value">{{ report.executive_summary.assessment_duration_seconds | round(1) }}s</div>
-          <div class="stat-label">Duration</div>
-        </div>
-        {% endif %}
       </div>
     </section>
 

@@ -1,5 +1,20 @@
 # APIGuard Assurance — Command Cheat Sheet
 
+- [Export Utility](#export-utility)
+  - [New mode (recommended)](#new-mode-recommended)
+  - [Legacy mode (manual)](#legacy-mode-manual)
+- [Viewing the Report (VS Code Remote)](#viewing-the-report-vs-code-remote)
+- [Environment Management (Hatch)](#environment-management-hatch)
+- [Running the Tool (CLI)](#running-the-tool-cli)
+  - [Other CLI commands](#other-cli-commands)
+  - [Exit codes](#exit-codes)
+- [Building the Package](#building-the-package)
+- [Static Analysis](#static-analysis)
+- [Kong Configuration Changes](#kong-configuration-changes)
+- [Git — Clean Up Commit History](#git--clean-up-commit-history)
+- [Git tag + release](#git-tag--release)
+
+
 ## Export Utility
 
 Create an updated ZIP with all sources and tests (excluding cache, pycache, and reports).
@@ -165,4 +180,19 @@ Add a forgotten file to the previous commit:
 ```bash
 git add <file>
 git commit --amend --no-edit
+```
+
+## Git tag + release
+Create and push tag
+```bash
+git tag -a v0.1.0 -m "Release v0.1.0 — Milestone 1: 18 automated tests, 3 connectors, full 7-phase pipeline"
+
+git push origin v0.1.0
+```
+
+Delete tag localy and remote
+```bash
+git tag -d v0.1.0
+
+git push origin -d v0.1.0
 ```

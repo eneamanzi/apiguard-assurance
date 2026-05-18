@@ -13,8 +13,8 @@ helpers (`src/tests/helpers/`); these are environment adapters, not hardcoded lo
 
 Reference documents — load with `/add-file` when needed:
 - `docs/priv/knowledge/RULES_claude.md` — coding rules, anti-patterns, workflow protocol
-- `docs/priv/knowledge/Implementazione.md` — full architecture (v4.2)
-- `docs/priv/knowledge/Metodologia.md` — test methodology, oracles, box-gradient
+- `docs/priv/knowledge/4-Implementazione.md` — full architecture (v4.2)
+- `docs/priv/knowledge/3-Metodologia.md` — test methodology, oracles, box-gradient
 
 ---
 
@@ -93,8 +93,11 @@ docs/
     ├── LOCAL_commands.md
     ├── AUDIT_milestone1_release.md
     └── knowledge/           # Pre-project knowledge base (load with /add-file when needed)
-        ├── Implementazione.md
-        ├── Metodologia.md
+        ├── 2-Background_compact.md
+        ├── 2-Background_extensive.md
+        ├── 3-Metodologia.md
+        ├── 4-Implementazione.md
+        ├── 5-Scenario-test.md
         └── RULES_claude.md
 ```
 
@@ -201,8 +204,8 @@ before implementing any new test.
 1. Check `docs/priv/PROJECT_status.md` to identify what to implement next.
 2. Load reference docs as needed:
    - `/add-file docs/priv/knowledge/RULES_claude.md` — always useful for a new session
-   - `/add-file docs/priv/knowledge/Metodologia.md` — when implementing a test
-   - `/add-file docs/priv/knowledge/Implementazione.md` — when touching infrastructure
+   - `/add-file docs/priv/knowledge/3-Metodologia.md` — when implementing a test
+   - `/add-file docs/priv/knowledge/4-Implementazione.md` — when touching infrastructure
 3. **If implementing a test:** read the relevant guide in `docs/pub/` before writing any code:
    - `/add-file docs/pub/ADDING_tests.md` — for native `BaseTest` subclasses
    - `/add-file docs/pub/ADDING_external_tests.md` — for `ExternalToolTest` subclasses

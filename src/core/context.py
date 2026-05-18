@@ -226,7 +226,7 @@ class TargetContext(BaseModel):
         ),
     )
 
-    # --- External tool configuration on TargetContext (Proposal C) ---
+    # --- External tool configuration on TargetContext ---
     # ExternalToolsConfig is placed on TargetContext so that every ExternalToolTest
     # subclass can read timeout_seconds and extra_flags from a single, semantically
     # correct location:

@@ -7,7 +7,7 @@ All exceptions inherit from ToolBaseError, which serves as the single
 catch-all root for any caller that needs to distinguish tool-internal
 errors from generic Python exceptions (e.g., ValueError, TypeError).
 
-Pipeline phase mapping (from Implementazione.md, Section 8):
+Pipeline phase mapping (from 4-Implementazione.md, Section 8):
     Phase 1 - Configuration loading    -> ConfigurationError     [BLOCKS STARTUP]
     Phase 2 - OpenAPI discovery        -> OpenAPILoadError       [BLOCKS STARTUP]
     Phase 4 - DAG scheduling           -> DAGCycleError          [BLOCKS STARTUP]

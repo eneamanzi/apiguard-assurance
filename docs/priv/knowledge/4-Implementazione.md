@@ -1,29 +1,29 @@
 # ***Implementazione — Tool Python per API Security Assessment***
 
-## ***Manuale di Pianificazione e Funzionamento (v4.2)***
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+- [***1. Il Problema e i Vincoli di Progetto***](#1-il-problema-e-i-vincoli-di-progetto)
+- [***2. Struttura del Progetto***](#2-struttura-del-progetto)
+- [***3. Principi di Design Fondamentali***](#3-principi-di-design-fondamentali)
+  - [***3.1 Filosofia API-Agnostica***](#31-filosofia-api-agnostica)
+  - [***3.2 Stato Scisso e Immutabilità***](#32-stato-scisso-e-immutabilità)
+- [***4. I Componenti e Come Si Parlano***](#4-i-componenti-e-come-si-parlano)
+  - [***4.1 Il Layer di Configurazione (`config/`)***](#41-il-layer-di-configurazione-config)
+  - [***4.2 Il Discovery della Superficie d'Attacco (`discovery/`)***](#42-il-discovery-della-superficie-dattacco-discovery)
+  - [***4.3 I Due Contesti di Esecuzione: `TargetContext` e `TestContext`***](#43-i-due-contesti-di-esecuzione-targetcontext-e-testcontext)
+  - [***4.4 SecurityClient e EvidenceStore — La Coppia HTTP***](#44-securityclient-e-evidencestore--la-coppia-http)
+  - [***4.5 TestRegistry e DAGScheduler — Discovery e Ordinamento***](#45-testregistry-e-dagscheduler--discovery-e-ordinamento)
+  - [***4.6 Il Layer Connector (`connectors/`)***](#46-il-layer-connector-connectors)
+  - [**4.6.1 `BaseGatewayAdapter` — Astrazione del Piano di Configurazione**](#461-basegatewayadapter--astrazione-del-piano-di-configurazione)
+  - [***4.7 ExternalToolTest e ExternalTestRegistry***](#47-externaltooltest-e-externaltestregistry)
+  - [***4.8 BaseTest — Il Contratto di Ogni Test Nativo***](#48-basetest--il-contratto-di-ogni-test-nativo)
+  - [***4.9 Engine — L'Orchestratore***](#49-engine--lorchestratore)
+  - [***4.10 Report Layer***](#410-report-layer)
+- [***5. La Pipeline di Esecuzione — Flusso Completo***](#5-la-pipeline-di-esecuzione--flusso-completo)
+- [***6. Comportamenti Speciali e Casi Limite***](#6-comportamenti-speciali-e-casi-limite)
+  - [***6.1 Graceful Degradation per Ambienti DB-less***](#61-graceful-degradation-per-ambienti-db-less)
+  - [***6.2 Teardown Best-Effort***](#62-teardown-best-effort)
+  - [***6.3 Rate Limit Discovery Empirica (Test 4.1)***](#63-rate-limit-discovery-empirica-test-41)
+- [***7. Exit Code e Integrazione CI/CD***](#7-exit-code-e-integrazione-cicd)
+- [***8. Gerarchia delle Eccezioni***](#8-gerarchia-delle-eccezioni)
 
 ## ***1\. Il Problema e i Vincoli di Progetto***
 
@@ -92,7 +92,7 @@
 
  *│   ├── config/                 \# Caricamento e validazione della configurazione*
 
- *│   │   ├── schema.py           \# Schema Pydantic del config.yaml*
+ *│   │   └── schema/             \# Schema Pydantic (tool\_config.py + domain\_N.py + tests\_config.py)*
 
  *│   │   └── loader.py           \# Parser YAML \+ interpolazione variabili d'ambiente*
 
@@ -206,7 +206,7 @@
 
 ***Cosa fa:** è il cancello d'ingresso del tool. Legge il `config.yaml`, lo trasforma in un oggetto Python tipizzato, e blocca l'esecuzione immediatamente se qualcosa non va.*
 
-***Come funziona internamente:** il processo di caricamento avviene in due passaggi sequenziali. Prima, `loader.py` esegue un **pre-processing** del YAML grezzo: sostituisce tutte le occorrenze di `${VAR_NAME}` con il valore della variabile d'ambiente corrispondente. Se una variabile non è impostata nell'ambiente, il loader solleva un errore esplicito prima ancora di chiamare Pydantic. Questo garantisce che le credenziali non vengano mai scritte in chiaro nel `config.yaml` (che potrebbe finire in version control), ma che l'assenza di una credenziale necessaria sia segnalata subito. Poi, il YAML risolto viene passato a `schema.py`, che lo valida tramite uno schema **Pydantic v2**: URL malformati vengono rifiutati come `AnyHttpUrl` non validi, valori interi vengono verificati contro range accettabili, campi obbligatori mancanti producono messaggi di errore strutturati.*
+***Come funziona internamente:** il processo di caricamento avviene in due passaggi sequenziali. Prima, `loader.py` esegue un **pre-processing** del YAML grezzo: sostituisce tutte le occorrenze di `${VAR_NAME}` con il valore della variabile d'ambiente corrispondente. Se una variabile non è impostata nell'ambiente, il loader solleva un errore esplicito prima ancora di chiamare Pydantic. Questo garantisce che le credenziali non vengano mai scritte in chiaro nel `config.yaml` (che potrebbe finire in version control), ma che l'assenza di una credenziale necessaria sia segnalata subito. Poi, il YAML risolto viene passato a `src/config/schema/tool_config.py` (e ai moduli di dominio aggregati da `TestsConfig`), che lo validano tramite schema **Pydantic v2**: URL malformati vengono rifiutati come `AnyHttpUrl` non validi, valori interi vengono verificati contro range accettabili, campi obbligatori mancanti producono messaggi di errore strutturati.*
 
 ***Output verso il resto del tool:** `loader.py` produce un oggetto `ToolConfig` (Pydantic, frozen) che viene passato a `engine.py`. Da lì, le parti rilevanti confluiscono nel `TargetContext`. Nessun altro modulo legge direttamente il file YAML: chiunque abbia bisogno di configurazione legge dal `ToolConfig` o dal `TargetContext`.*
 
@@ -459,7 +459,7 @@
 
 *Il layer di reporting (`report/`) opera interamente dopo che tutti i test sono stati eseguiti e il teardown è completato. Riceve il `ResultSet` e l'`EvidenceStore` dall'engine.*
 
-*`builder.py` aggrega le statistiche iterando su tutti i `TestResult`. Prima del rendering, partiziona i risultati per `domain` e per `source` (`"native"` / `"external"`), producendo una struttura `DomainReport` per ogni dominio che il template Jinja2 consuma direttamente. Questo **Domain-Centric Split** rende immediatamente evidente al lettore del report cosa è prodotto dal motore Python nativo e cosa è delegato a tool specializzati, senza richiedere sezioni fisicamente separate.*
+*`builder.py` aggrega le statistiche iterando su tutti i `TestResult`. Prima del rendering, partiziona i risultati per `domain` e per `source` (`"native"` / `"external"`), producendo una struttura `DomainSummary` per ogni dominio che il template Jinja2 consuma direttamente. Questo **Domain-Centric Split** rende immediatamente evidente al lettore del report cosa è prodotto dal motore Python nativo e cosa è delegato a tool specializzati, senza richiedere sezioni fisicamente separate.*
 
 *Il campo `source: Literal["native", "external"]` nel `TestResult` è la primitiva su cui si basa l'intero split: valorizzato a `"native"` da `TestRegistry` e a `"external"` da `ExternalTestRegistry`, non viene mai modificato dall'engine.*
 
@@ -529,11 +529,9 @@
 
  *│ EvidenceStore (streaming JSONL v2.0) ← creato qui       │*
 
- *│ SecurityClient (httpx) ← inizializzato con store        │*
-
  *└───────────────────────────┬─────────────────────────────┘*
 
-                             *│ I 4 oggetti pronti*
+                             *│ I 3 oggetti pronti (TargetContext, TestContext, EvidenceStore)*
 
                              *▼*
 
@@ -651,7 +649,7 @@
 
  *│ → Partiziona per domain × source (native / external)    │*
 
- *│ → Produce struttura DomainReport per ogni dominio       │*
+ *│ → Produce struttura DomainSummary per ogni dominio      │*
 
  *│ EvidenceStore serializzato → evidence.json              │*
 
@@ -665,7 +663,7 @@
 
  *OUTPUT: evidence.json  report.html*
 
- *Exit code del processo (0 / 1 / 2 / 3 / 10\)*
+ *Exit code del processo (0 / 1 / 2 / 10\)*
 
 ## ***6\. Comportamenti Speciali e Casi Limite***
 
@@ -740,5 +738,5 @@
 
 *Nota: il tool non implementa `ExternalToolNotFoundError`. Un tool esterno non disponibile non produce un'eccezione — produce un `TestResult(SKIP)` tramite il meccanismo `_skip_reason_from_registry` (Phase R4) o tramite `_check_and_skip()`. Questa scelta è intenzionale: un tool mancante è una condizione operativa attesa, non un errore inaspettato.*
 
-*Fine documento — `Implementazione.md` v4.2 Changelog v4.2: corretta struttura §2 (models/ package, gateway/ in core/, connectors implementati rimosso [futuro], ext_test files implementati); aggiornata §4.3 (aggiunto canale shared_data in TestContext); aggiornata §4.4 (EvidenceStore da deque v1.0 a streaming JSONL v2.0); rinominata §4.6.1 (BaseGatewayInspector → BaseGatewayAdapter, path connectors/gateway → core/gateway, interfaccia aggiornata); aggiornata §8 (aggiunte AuthenticationSetupError e GatewayAdapterError alla gerarchia).*
+*Fine documento — `4-Implementazione.md` v4.2 Changelog v4.2: corretta struttura §2 (models/ package, gateway/ in core/, connectors implementati rimosso [futuro], ext_test files implementati); aggiornata §4.3 (aggiunto canale shared_data in TestContext); aggiornata §4.4 (EvidenceStore da deque v1.0 a streaming JSONL v2.0); rinominata §4.6.1 (BaseGatewayInspector → BaseGatewayAdapter, path connectors/gateway → core/gateway, interfaccia aggiornata); aggiornata §8 (aggiunte AuthenticationSetupError e GatewayAdapterError alla gerarchia).*
 

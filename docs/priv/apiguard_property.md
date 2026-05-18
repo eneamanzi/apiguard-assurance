@@ -1,5 +1,46 @@
 # APIGuard Assurance — Catalogo delle Proprietà Architetturali
 
+- [P01 — API-Agnosticism (Agnosticismo Applicativo)](#p01--api-agnosticism-agnosticismo-applicativo)
+- [P02 — Unidirectional Dependency Flow (Architettura a Strati con Dipendenze Monodirezionali)](#p02--unidirectional-dependency-flow-architettura-a-strati-con-dipendenze-monodirezionali)
+- [P03 — Config-Driven Development (Sviluppo Guidato dalla Configurazione)](#p03--config-driven-development-sviluppo-guidato-dalla-configurazione)
+- [P04 — Split State e Immutabilità (TargetContext Frozen + TestContext Mutable)](#p04--split-state-e-immutabilità-targetcontext-frozen--testcontext-mutable)
+- [P05 — Dynamic Test Discovery (Zero-Registration via pkgutil)](#p05--dynamic-test-discovery-zero-registration-via-pkgutil)
+- [P06 — DAG-Based Dependency Scheduling (Ordinamento Topologico delle Dipendenze)](#p06--dag-based-dependency-scheduling-ordinamento-topologico-delle-dipendenze)
+- [P07 — Dual Test Hierarchy (Native vs External — Contratti Paralleli)](#p07--dual-test-hierarchy-native-vs-external--contratti-paralleli)
+- [P08 — Three-Tier Connector Hierarchy (DA-1)](#p08--three-tier-connector-hierarchy-da-1)
+- [P09 — Separation of Data from Evaluation (ConnectorResult)](#p09--separation-of-data-from-evaluation-connectorresult)
+- [P10 — Connector Lifecycle con Dependency Injection (DA-2)](#p10--connector-lifecycle-con-dependency-injection-da-2)
+- [P11 — Streaming Evidence Store (JSONL — Unbounded Capacity)](#p11--streaming-evidence-store-jsonl--unbounded-capacity)
+- [P12 — Evidence Sanitization come Responsabilità Centralizzata](#p12--evidence-sanitization-come-responsabilità-centralizzata)
+- [P13 — Fail-Safe Error Isolation (Errori Isolati per Test)](#p13--fail-safe-error-isolation-errori-isolati-per-test)
+- [P14 — Custom Exception Hierarchy con Phase Mapping](#p14--custom-exception-hierarchy-con-phase-mapping)
+- [P15 — Graceful Degradation Multi-Livello](#p15--graceful-degradation-multi-livello)
+- [P16 — Best-Effort Teardown (LIFO con Registrazione Esplicita)](#p16--best-effort-teardown-lifo-con-registrazione-esplicita)
+- [P17 — Semantic Exit Codes per CI/CD Integration](#p17--semantic-exit-codes-per-cicd-integration)
+- [P18 — Gateway-Agnostic Adapter Pattern](#p18--gateway-agnostic-adapter-pattern)
+- [P19 — Auth Abstraction Layer (Auth Dispatcher)](#p19--auth-abstraction-layer-auth-dispatcher)
+- [P20 — Single Source of Truth per Stato, Topologia e Ambiente](#p20--single-source-of-truth-per-stato-topologia-e-ambiente)
+- [P21 — Black/Grey/White Box Gradient con Mapping Priorità-Strategia](#p21--blackgreywhite-box-gradient-con-mapping-priorità-strategia)
+- [P22 — Methodology Traceability (Tracciabilità alla Metodologia)](#p22--methodology-traceability-tracciabilità-alla-metodologia)
+- [P23 — Finding/InfoNote Semantic Distinction](#p23--findinginfonote-semantic-distinction)
+- [P24 — Category A/B Connector Classification (Obbligatorio vs Opzionale)](#p24--category-ab-connector-classification-obbligatorio-vs-opzionale)
+- [P25 — Dev-Mode Evidence Cache (Acceleratore dello Sviluppo)](#p25--dev-mode-evidence-cache-acceleratore-dello-sviluppo)
+- [P26 — DRY Principle con Funzioni Autoritative Centrali](#p26--dry-principle-con-funzioni-autoritative-centrali)
+- [P27 — Structured Logging con Credential Redaction Obbligatoria](#p27--structured-logging-con-credential-redaction-obbligatoria)
+- [P28 — Reproducibility (Determinismo dell'Esecuzione)](#p28--reproducibility-determinismo-dellesecuzione)
+- [P29 — Report Domain-Centric Split (Native vs External)](#p29--report-domain-centric-split-native-vs-external)
+- [P30 — Context-Aware Path Seed System con generate-seed CLI](#p30--context-aware-path-seed-system-con-generate-seed-cli)
+- [P31 — Safe HTTP Probing Policy (Three-Outcome Oracle + Tier Segregation)](#p31--safe-http-probing-policy-three-outcome-oracle--tier-segregation)
+- [P32 — Test Data Catalog Architecture (Pure-Data Layer)](#p32--test-data-catalog-architecture-pure-data-layer)
+- [P33 — Fail-Fast P0 Escalation Mode](#p33--fail-fast-p0-escalation-mode)
+- [P34 — Zero External State Dependency at Runtime](#p34--zero-external-state-dependency-at-runtime)
+- [P35 — Type-Level TestResult Invariant Enforcement](#p35--type-level-testresult-invariant-enforcement)
+- [P36 — Three-Channel Binary Resolution (Deployment Multi-Modale)](#p36--three-channel-binary-resolution-deployment-multi-modale)
+- [P37 — License-Gated Optional Dependency (AGPL Isolation)](#p37--license-gated-optional-dependency-agpl-isolation)
+- [P38 — Deployment-Transparent URL Abstraction (effective\_base\_url)](#p38--deployment-transparent-url-abstraction-effective_base_url)
+- [P39 — Dual-Layer Type Safety (Mypy Strict + Pydantic v2 Runtime)](#p39--dual-layer-type-safety-mypy-strict--pydantic-v2-runtime)
+- [Riepilogo Tassonomico](#riepilogo-tassonomico)
+
 > Documento di analisi interno per la stesura della tesi magistrale.
 > Ogni proprietà riporta: definizione, locus nel codice, conseguenze architetturali, e potenziale di sviluppo futuro.
 
@@ -13,7 +54,7 @@
 - `src/discovery/openapi.py` — fetch, dereferenziazione `$ref` via `prance`, validazione via `openapi-spec-validator`
 - `src/discovery/surface.py` — `AttackSurface`: mappa strutturata degli endpoint derivata dalla spec
 - `src/core/context.py` — `TargetContext.attack_surface` trasporta la mappa per tutta la pipeline
-- `Implementazione.md §3.1` — principio dichiarato esplicitamente come vincolo fondamentale
+- `4-Implementazione.md §3.1` — principio dichiarato esplicitamente come vincolo fondamentale
 
 **Conseguenze.** Un test che interroga `target.attack_surface` e non trova endpoint applicabili ritorna `SKIP` (motivo: condizione prevista) e non `ERROR` (condizione imprevista). Le Shadow API costituiscono l'unica eccezione intenzionale: sono proprio gli endpoint non documentati, dunque non presenti nell'OpenAPI, e il test 0.1 le cerca attivamente.
 
@@ -68,7 +109,7 @@
   - **Token channel**: `set_token(role, token)`, `get_token(role)`, `has_token(role)`, `stored_roles()` — keyed by role constant, not test ID
   - **Teardown channel**: `register_resource_for_teardown(method, path, headers)`, `drain_resources()`, `registered_resource_count()` — LIFO ordered
   - **Shared data channel**: `set_shared(key, value)`, `get_shared(key, default)`, `has_shared(key)`, `shared_keys()` — general-purpose inter-test data; convention `"{test_id}.{data_name}"` makes the producing test explicit
-- `Implementazione.md §3.2` e `§4.3` — principio dichiarato: "Stato Scisso e Immutabilità"
+- `4-Implementazione.md §3.2` e `§4.3` — principio dichiarato: "Stato Scisso e Immutabilità"
 - `src/core/context.py:ROLE_ADMIN`, `ROLE_USER_A`, `ROLE_USER_B` — costanti nominate per eliminare magic strings
 
 **Conseguenze.** Un test non può accidentalmente corrompere la configurazione di base letta da tutti gli altri (freeze Pydantic a livello di tipo). Lo stato condiviso tra test è accessibile solo tramite interfacce esplicite e tipizzate, non tramite dizionari liberi a chiavi arbitrarie: un `get_token` che ritorna `None` perché il prerequisito non ha girato è una condizione gestita, non un `KeyError` silenzioso. Il canale shared_data consente a test in Phase B o C di consumare dati calcolati da test in Phase A (es. un endpoint scoperto da test 0.1 e riusato da test 2.x) senza introdurre dipendenze di importazione tra moduli.
@@ -105,13 +146,13 @@
 - `src/core/dag.py` — `DAGScheduler`, `ScheduledBatch`
 - `src/tests/base.py` — `depends_on: ClassVar[list[str]]` su ogni test concreto
 - `docs/priv/PROJECT_status.md §DAG State After Milestone 1 Completion` — tre fasi: A (no deps), B (requires 1.1), C (requires ext.1.2)
-- `Implementazione.md §4.5` — semantica di batch e batch-parallelism futuro
+- `4-Implementazione.md §4.5` — semantica di batch e batch-parallelism futuro
 
 **Conseguenze.** Test come 1.2 (JWT cryptographic validity) dipendono correttamente da 1.1 (auth required), garantendo che i token siano disponibili nel `TestContext` prima che siano necessari. Un ciclo di dipendenze è un errore rilevato staticamente in Phase 4 prima di eseguire un solo test (`DAGCycleError` blocca lo startup). Dipendenze mancanti nel set attivo vengono ignorate con `WARNING` (graceful degradation).
 
 **Tipo di evidenza.** Empirica — dimostrata da test 1.1 (Phase A, `depends_on=[]`) e test 1.4 (Phase B, `depends_on=["1.1"]`): il log di Phase 4 mostra due batch distinti. Con `execution.fail_fast: true` e test 1.1 in FAIL, il log di Phase 5 mostra l'interruzione prima che test 1.4 venga eseguito, confermando la semantica del DAG.
 
-**Sviluppo futuro.** La struttura a batch esiste già: ogni batch è concettualmente parallelizzabile. L'aggiunta di un `ThreadPoolExecutor` in Phase 5 dell'engine è una modifica localizzata senza impatto sul design dei test, purché si risolvano le questioni di thread-safety su `TestContext` e `EvidenceStore` (già note in `Implementazione.md §4.3`).
+**Sviluppo futuro.** La struttura a batch esiste già: ogni batch è concettualmente parallelizzabile. L'aggiunta di un `ThreadPoolExecutor` in Phase 5 dell'engine è una modifica localizzata senza impatto sul design dei test, purché si risolvano le questioni di thread-safety su `TestContext` e `EvidenceStore` (già note in `4-Implementazione.md §4.3`).
 
 ---
 
@@ -142,7 +183,7 @@
 - `src/connectors/nuclei.py`, `src/connectors/testssl.py` — implementazioni concrete `BaseSubprocessConnector`
 - `src/connectors/sslyze.py` — implementazione concreta `BaseLibraryConnector`
 - `src/connectors/types/` — TypedDict condivisi tra famiglie di connector (es. `TlsFinding` per testssl+sslyze)
-- `Implementazione.md §4.6` — motivazione DA-1: "una sottoclasse non deve ereditare metodi che non può usare"
+- `4-Implementazione.md §4.6` — motivazione DA-1: "una sottoclasse non deve ereditare metodi che non può usare"
 - `src/connectors/_template_connector.py` — template per sviluppatori futuri
 
 **Nota.** Dentro `BaseSubprocessConnector`, la ricerca del binario usa una cascata a tre canali (Channel 0: `./tools/LOCAL_TOOLS_SUBDIR/BINARY_NAME` locale, Channel 1: `shutil.which(BINARY_NAME)` di sistema, Channel 2: `os.getenv(SERVICE_ENV_VAR)` per microservizi HTTP). Questa capacità di deployment multi-modale è documentata come proprietà autonoma in **P36**.
@@ -179,7 +220,7 @@
 **Locus nel codice.**
 - `src/external_tests/registry.py` — `_inject_connectors()`: raggruppa per `tool_name`, una sola `is_available()`, un solo log per tool
 - `src/external_tests/base.py` — `_skip_reason_from_registry`, `_injected_connector`, `_get_connector()`, `_check_and_skip()`
-- `Implementazione.md §4.7` — "con 5 test nuclei e il binario assente: 1 solo WARNING invece di 5"
+- `4-Implementazione.md §4.7` — "con 5 test nuclei e il binario assente: 1 solo WARNING invece di 5"
 
 **Conseguenze.** Con N test che usano lo stesso tool, il filesystem viene interrogato una sola volta (zero syscall ridondanti). Il log mostra un singolo `WARNING "nuclei not found — 5 tests will SKIP"` anziché 5 entry identiche. La stessa istanza connector è condivisa tra i test del gruppo: zero overhead di costruzione ripetuta.
 
@@ -232,7 +273,7 @@
 - `src/tests/base.py` — `_make_error()` helper e documentazione del contratto
 - `src/external_tests/base.py` — blocco `try/except` nel metodo `_run()`
 - `src/engine.py` — nessun `try/except` attorno a `test.execute()`: il contratto è del test, non dell'engine
-- `Implementazione.md §4.8` — "Il metodo execute() deve sempre ritornare un TestResult. Non può propagare eccezioni"
+- `4-Implementazione.md §4.8` — "Il metodo execute() deve sempre ritornare un TestResult. Non può propagare eccezioni"
 
 **Conseguenze.** Un test che va in eccezione produce un `TestResult(ERROR)` e il pipeline prosegue con il test successivo. L'errore è registrato nell'evidenza con traceback (troncato a `_ERROR_MESSAGE_MAX_CHARS = 500` caratteri). Nessun test può bloccare un altro. La proprietà di solidità del sistema è implementata a livello di contratto, non di difesa perimetrale in `engine.py`.
 
@@ -251,7 +292,7 @@
 - `src/core/gateway/base.py:GatewayAdapterError` — errori Admin API gateway; definita accanto all'ABC che protegge (principio di locality). Campi: `path: str | None`, `status_code: int | None`
 - `src/discovery/seed_generator.py` — `SeedGeneratorFetchError`, `SeedGeneratorParseError`; raised esclusivamente dal comando CLI `generate-seed`, **non coinvolgono la pipeline Phase 1-7**; catturate in `cli.py` e convertite in exit code 10
 - `CLAUDE.md §Exception Hierarchy` — schema con descrizione del comportamento per fase
-- `Implementazione.md §8` — "Nota: il tool non implementa ExternalToolNotFoundError — un tool mancante è una condizione operativa attesa, non un errore"
+- `4-Implementazione.md §8` — "Nota: il tool non implementa ExternalToolNotFoundError — un tool mancante è una condizione operativa attesa, non un errore"
 
 **Conseguenze.** La gerarchia conta **11 classi** (8 in `exceptions.py` + `GatewayAdapterError` in `gateway/base.py` + 2 in `seed_generator.py`) distribuite in 3 file. Il codice chiamante può fare `except ConfigurationError` (solo errori di config) o `except ToolBaseError` (qualsiasi errore del tool) con semantica precisa. Vietato `except Exception: pass` (regola esplicita). `AuthenticationSetupError` è distinto da `SecurityClientError`: il primo indica che le credenziali configurate sono invalide (errore di setup), il secondo che la rete ha fallito (errore transiente). I test WHITE_BOX catturano `GatewayAdapterError` e ritornano `TestResult(ERROR)` senza propagare l'eccezione all'engine. La scelta di NON avere `ExternalToolNotFoundError` è documentata: un tool mancante produce `SKIP`, non un'eccezione. `SeedGeneratorFetchError`/`SeedGeneratorParseError` sono le uniche eccezioni del tool che non transitano dall'engine: sono un'estensione della gerarchia per la CLI helper, architetturalmente isolata dal loop di assessment.
 
@@ -269,7 +310,7 @@
 - `src/external_tests/registry.py` — Phase R4 e master switch `external_tools.enabled`
 - `src/tests/base.py` — pattern `if target.gateway is None: return self._make_skip(...)`
 - `src/core/context.py` — `admin_api_available: bool` computed field
-- `Implementazione.md §6.1` — sezione dedicata "Graceful Degradation per Ambienti DB-less"
+- `4-Implementazione.md §6.1` — sezione dedicata "Graceful Degradation per Ambienti DB-less"
 
 **Conseguenze.** Un'esecuzione in ambiente di produzione senza Kong Admin API esposta produce risultati parziali ma corretti (i test WHITE_BOX sono tutti SKIP con motivo esplicito) anziché errori a cascata. Un ambiente di CI/CD senza tool esterni installati (solo Python) produce comunque risultati validi per i test nativi. I `SKIP` sono distinguibili nel report per motivo (tool mancante / admin API assente / prerequisito funzionale).
 
@@ -286,7 +327,7 @@
 **Locus nel codice.**
 - `src/core/context.py` — `register_resource_for_teardown()`, `drain_resources()` con documentazione LIFO
 - `src/engine.py` — Phase 6 loop con `TeardownError` catturato come WARNING
-- `Implementazione.md §6.2` — "Teardown Best-Effort"
+- `4-Implementazione.md §6.2` — "Teardown Best-Effort"
 
 **Conseguenze.** Il tool mantiene la proprietà di "Pulizia": le risorse create durante l'assessment vengono rimosse, lasciando il target in uno stato equivalente a quello iniziale. L'ordine LIFO garantisce che risorse con dipendenze implicite di creazione (es. un `order` che dipende da un `user`) siano eliminate nell'ordine corretto. Un fallimento di teardown è un warning operativo, non un'invalidazione scientifica dell'assessment.
 
@@ -303,7 +344,7 @@
 **Locus nel codice.**
 - `src/engine.py` — costanti `EXIT_CODE_CLEAN`, `EXIT_CODE_FAIL`, `EXIT_CODE_ERROR`, `EXIT_CODE_INFRASTRUCTURE`
 - `src/report/builder.py` — calcolo dell'exit code da `ResultSet`
-- `Implementazione.md §7` — tabella exit code con condizioni esatte
+- `4-Implementazione.md §7` — tabella exit code con condizioni esatte
 
 **Conseguenze.** Il tool può essere inserito direttamente in pipeline CI/CD (GitHub Actions, GitLab CI, Jenkins) con un semplice check sul codice di uscita: `apiguard run --config config.yaml && echo "Assessment passed"`. Un exit code `1` blocca il merge di una PR su endpoint che hanno introdotto vulnerabilità. L'exit code `10` è separato per permettere di distinguere "il tool non si è avviato" da "il tool si è avviato e ha trovato problemi".
 
@@ -359,7 +400,7 @@
 - `src/core/context.py` — `TargetContext.attack_surface` distribuisce la mappa a tutti i test
 - `src/config/loader.py` — docstring: "No other module in src/ reads files or calls os.environ directly"; risolve placeholder `${VAR}` da `os.environ`
 - `src/cli.py` — unico punto dove `load_dotenv(override=False)` è invocato
-- `Implementazione.md §3.1` — "L'AttackSurface è l'unica sorgente di verità sulla topologia del target"
+- `4-Implementazione.md §3.1` — "L'AttackSurface è l'unica sorgente di verità sulla topologia del target"
 
 **Eccezioni documentate a `os.environ`/`os.getenv` fuori da `loader.py`:**
 - `src/connectors/base.py:BaseSubprocessConnector._resolve_binary()` — `os.getenv(SERVICE_ENV_VAR)` per il Channel 2 della three-channel binary resolution (vedi P36); accesso a una env var il cui *nome* è parametrico per connector e non conoscibile staticamente da `loader.py`
@@ -383,7 +424,7 @@ Entrambe le eccezioni sono architetturalmente giustificate: non leggono parametr
 - `src/tests/strategy.py` — re-export di `TestStrategy` da `src/core/models`
 - `src/core/models/enums.py` — `TestStrategy` enum
 - `src/tests/base.py` — `strategy: ClassVar[TestStrategy]` su ogni test
-- `Implementazione.md §4.8` — tabella mapping strategia → priorità → prerequisiti tipici (nota: la tabella descrive il caso comune; il codebase contiene deviazioni architetturalmente giustificate)
+- `4-Implementazione.md §4.8` — tabella mapping strategia → priorità → prerequisiti tipici (nota: la tabella descrive il caso comune; il codebase contiene deviazioni architetturalmente giustificate)
 
 **Conseguenze.** Un'esecuzione in modalità `BLACK_BOX` (solo test P0) simula un attaccante esterno senza credenziali ed è eseguibile senza preparare account di test. Un'esecuzione `WHITE_BOX` completa richiede accesso all'Admin API e credential per tutti i ruoli. L'operatore può scegliere il livello di privilegio appropriato per il contesto (audit esterno vs. review interna). Il mapping flessibile consente deviazioni documentate: `test_7_2_ssrf_prevention.py` è `GREY_BOX` con `priority=0` perché le vulnerabilità SSRF su Forgejo sono raggiungibili solo via endpoint autenticati (webhook, mirror); `ext_test_1_5_tls_analysis.py` è `WHITE_BOX` con `priority=2` perché l'analisi TLS è un audit di configurazione ma non richiede Admin API; `test_6_2_security_headers_audit.py` è `WHITE_BOX` con `priority=3` perché verifica header HTTP-osservabili (senza Admin API) ma costituisce un audit di configurazione perimetrale.
 
@@ -401,7 +442,7 @@ Entrambe le eccezioni sono architetturalmente giustificate: non leggono parametr
 - `src/tests/base.py` — `cwe_id: ClassVar[str]`, `tags: ClassVar[list[str]]` obbligatori
 - `src/core/models/results.py` — `Finding.references: list[str]`
 - `src/report/builder.py` — aggregazione con propagazione dei riferimenti
-- `Metodologia.md` — ogni garanzia ha ID, riferimenti OWASP, CWE, NIST, RFC
+- `3-Metodologia.md` — ogni garanzia ha ID, riferimenti OWASP, CWE, NIST, RFC
 
 **Conseguenze.** Un analista che legge un `Finding` nel report HTML può risalire direttamente alla sezione della metodologia che descrive il test, all'OWASP category, al CWE, e al RFC applicabile. Il report non è un output opaco ma un documento tracciabile e verificabile. Questa proprietà è essenziale per un tool con pretese accademiche e potenziale enterprise.
 
@@ -506,8 +547,8 @@ Entrambe le eccezioni sono architetturalmente giustificate: non leggono parametr
 **Locus nel codice.**
 - `src/tests/registry.py` — ordine lessicografico per test_id
 - `src/core/dag.py` — topological sort deterministico
-- `Implementazione.md §4.3` — "modello di esecuzione strettamente sequenziale"
-- `Implementazione.md §1` — "Riproducibilità" come vincolo non negoziabile
+- `4-Implementazione.md §4.3` — "modello di esecuzione strettamente sequenziale"
+- `4-Implementazione.md §1` — "Riproducibilità" come vincolo non negoziabile
 
 **Conseguenze.** Il tool è inseribile in audit trail formali: lo stesso assessment rieseguito a distanza di una settimana sullo stesso target non modificato produce output equivalente (escludendo timestamp e UUID generati a runtime). Questa proprietà è essenziale per un tool con pretese di security assurance: un risultato non riproducibile non è un risultato scientifico.
 
@@ -519,12 +560,12 @@ Entrambe le eccezioni sono architetturalmente giustificate: non leggono parametr
 
 ## P29 — Report Domain-Centric Split (Native vs External)
 
-**Definizione.** Il `report/builder.py` partiziona i risultati per `domain` × `source` (`"native"` / `"external"`), producendo una struttura `DomainReport` per ogni dominio. Nel report HTML, per ogni dominio è immediatamente chiaro quali risultati provengono da test Python nativi e quali da tool specializzati. Il campo `source` è un `Literal` nel `TestResult`, propagato dal registry al momento della costruzione.
+**Definizione.** Il `report/builder.py` partiziona i risultati per `domain` × `source` (`"native"` / `"external"`), producendo una struttura `DomainSummary` per ogni dominio. Nel report HTML, per ogni dominio è immediatamente chiaro quali risultati provengono da test Python nativi e quali da tool specializzati. Il campo `source` è un `Literal` nel `TestResult`, propagato dal registry al momento della costruzione.
 
 **Locus nel codice.**
 - `src/core/models/results.py` — `TestResult.source: Literal["native", "external"]`
 - `src/report/builder.py` — partizionamento per `domain` × `source`
-- `Implementazione.md §4.10` — "Domain-Centric Split"
+- `4-Implementazione.md §4.10` — "Domain-Centric Split"
 
 **Conseguenze.** Un analista che legge il report sa immediatamente se un `FAIL` nel Dominio 1 è stato rilevato da un test Python (con una request HTTP diretta del tool) o da `testssl.sh` (con analisi TLS specializzata). La distinzione è rilevante per la riproduzione manuale del finding: le evidenze native hanno una request HTTP dimostrabile; quelle esterne hanno il raw output del tool.
 
@@ -583,7 +624,7 @@ Entrambe le eccezioni sono architetturalmente giustificate: non leggono parametr
 
 **Conseguenze.** I payload sono mantenibili indipendentemente dalla logica: aggiungere un nuovo vettore SSRF (es. un nuovo cloud provider metadata endpoint) non richiede modificare la logica del test, solo aggiungere una riga al catalogue. La pre-compilazione delle strutture a import time (un `frozenset` di nomi di campo sensibili normalizzati per rimuovere underscore e trattini, costruito una sola volta) garantisce lookup O(1) durante l'esecuzione dei test. Il filtro per categoria SSRF (`payload_categories: ["cloud_metadata", "private_network"]` in `config.yaml`) consente di escludere payload non applicabili al cloud provider del target, riducendo la durata dell'assessment e i falsi positivi.
 
-**Tipo di evidenza.** Empirica — dimostrata da test 7.2 (73 payload SSRF da `ssrf_payloads.py`; il numero effettivo di probe varia in base al filtro `payload_categories` in `config.yaml`), test 1.1 (5 token malformati strutturalmente distinti da `auth_payloads.py`) e test 6.4 (27 nomi di campo sensibili normalizzati da `inspector_patterns.py` in lookup O(1)).
+**Tipo di evidenza.** Empirica — dimostrata da test 7.2 (73 payload SSRF da `ssrf_payloads.py`; il numero effettivo di probe varia in base al filtro `payload_categories` in `config.yaml`), test 1.1 (5 token malformati strutturalmente distinti da `auth_payloads.py`) e test 6.4 (33 nomi di campo sensibili normalizzati da `inspector_patterns.py` in lookup O(1)).
 
 **Sviluppo futuro.** Il catalogue è il punto naturale di contribuzione esterna alla community: un PR che aggiunge un nuovo cloud provider metadata endpoint a `ssrf_payloads.py` non richiede conoscenza dell'architettura del tool. Con il catalogue come modulo separato dal core, è possibile distribuirlo come pacchetto autonomo (`apiguard-payloads`) aggiornabile indipendentemente — utile in contesti enterprise dove i payload di attacco devono essere revisionati e approvati separatamente dal codice.
 
@@ -608,7 +649,7 @@ Entrambe le eccezioni sono architetturalmente giustificate: non leggono parametr
 
 ## P34 — Zero External State Dependency at Runtime
 
-**Definizione.** Il tool non ha dipendenze di stato esterno a runtime: nessun database, nessun message broker, nessuna cache esterna, nessuna connessione persistente oltre all'API HTTP del target. Tutto lo stato mutabile vive in memoria di processo (`TargetContext`, `TestContext`) o in file locali scritti nella directory `outputs/` (`evidence_tmp/`, `assessment_report.html`, `evidence.json`). Questa è un vincolo esplicito dichiarato in `Implementazione.md §1`: *"Nessun database esterno a runtime: tutto lo stato vive in memoria o in file locali."* La formalizzazione come proprietà architetturale rende esplicite le implicazioni di deployment.
+**Definizione.** Il tool non ha dipendenze di stato esterno a runtime: nessun database, nessun message broker, nessuna cache esterna, nessuna connessione persistente oltre all'API HTTP del target. Tutto lo stato mutabile vive in memoria di processo (`TargetContext`, `TestContext`) o in file locali scritti nella directory `outputs/` (`evidence_tmp/`, `assessment_report.html`, `evidence.json`). Questa è un vincolo esplicito dichiarato in `4-Implementazione.md §1`: *"Nessun database esterno a runtime: tutto lo stato vive in memoria o in file locali."* La formalizzazione come proprietà architetturale rende esplicite le implicazioni di deployment.
 
 **Locus nel codice.**
 - Nessun modulo in `src/` apre una connessione a database o chiama un servizio di stato esterno

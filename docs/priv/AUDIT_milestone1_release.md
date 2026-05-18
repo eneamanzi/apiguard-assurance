@@ -1,11 +1,34 @@
 # Milestone 1 — Pre-Release Audit
 
-**Tipo audit:** Verifica di release-readiness pre-produzione
-**Data audit:** 2026-05-17
-**Baseline:** commit `a072d1f` (`docs: audit milestone1`)
+- [Parte A — Dati e Verdetti Citabili nella Tesi](#parte-a--dati-e-verdetti-citabili-nella-tesi)
+  - [A.1 Verdetto di Release](#a1-verdetto-di-release)
+  - [A.2 Baseline di Performance](#a2-baseline-di-performance)
+  - [A.3 Risultati dell'Assessment per Test (Idempotenza)](#a3-risultati-dellassessment-per-test-idempotenza)
+  - [A.4 Teardown Post-Run (Verifica Live)](#a4-teardown-post-run-verifica-live)
+  - [A.5 Topologia del DAG](#a5-topologia-del-dag)
+  - [A.6 Matrice delle Versioni](#a6-matrice-delle-versioni)
+  - [A.7 Item Deferiti](#a7-item-deferiti)
+- [Parte B — Registro di Validazione (73 verifiche)](#parte-b--registro-di-validazione-73-verifiche)
+  - [B.1 Executive Summary](#b1-executive-summary)
+  - [B.2 Metodologia dell'Audit](#b2-metodologia-dellaudit)
+  - [B.3 Analisi Statica (verifiche 1–5)](#b3-analisi-statica-verifiche-15)
+  - [B.4 Consistenza Inter-Documentale (verifiche 6–18)](#b4-consistenza-inter-documentale-verifiche-618)
+  - [B.5 Coerenza Docs → Codice (verifiche 19–23)](#b5-coerenza-docs--codice-verifiche-1923)
+  - [B.6 Coerenza Codice → Docs (verifiche 24–36)](#b6-coerenza-codice--docs-verifiche-2436)
+  - [B.7 Engineering di Produzione (verifiche 37–47)](#b7-engineering-di-produzione-verifiche-3747)
+  - [B.8 Release Engineering (verifiche 48–56)](#b8-release-engineering-verifiche-4856)
+  - [B.9 Performance, Idempotenza, Teardown (verifiche 57–60)](#b9-performance-idempotenza-teardown-verifiche-5760)
+  - [B.10 Runtime, Cleanup, Riproducibilità (verifiche 61–66)](#b10-runtime-cleanup-riproducibilità-verifiche-6166)
+  - [B.11 Verifiche Pre-Produzione Aggiuntive (verifiche 67–73)](#b11-verifiche-pre-produzione-aggiuntive-verifiche-6773)
+  - [B.12 Finding e Item Aperti](#b12-finding-e-item-aperti)
+- [Appendice — Comandi di Verifica Principali](#appendice--comandi-di-verifica-principali)
+
+
+**Tipo audit:** Verifica di release-readiness — revisione post-riorganizzazione documentazione
+**Data:** 2026-05-18
 **Versione tool:** `0.1.0`
-**Codebase:** 90 file Python in `src/`, 18 test attivi (15 nativi + 3 esterni), ~9.625 righe di documentazione
-**Verifiche eseguite:** 71 (Parte B, §B.3–§B.11)
+**Codebase:** 90 file Python in `src/`, 18 test attivi (15 nativi + 3 esterni), ~9.800 righe di documentazione
+**Verifiche eseguite:** 73
 
 ---
 
@@ -17,41 +40,21 @@ Sintesi delle evidenze empiriche e dei verdetti di release. Ogni dato ha la sua 
 
 | Aspetto | Stato |
 |---------|-------|
-| Correttezza funzionale | ✓ Tutti i gate statici verdi; verdetti assessment 100% riproducibili su due run indipendenti (`9 PASS / 7 FAIL / 2 SKIP / 0 ERROR + 98 findings`, diff per-test status = 0) |
-| Integrità architetturale | ✓ Tutte le 38 proprietà architetturali sample-verificate (P01–P38; il catalogo è stato successivamente esteso a P39 post-audit); DAG aciclico; direzione dipendenze monodirezionale; gerarchia eccezioni 11 classi documentata |
-| Copertura documentazione | ✓ 100% copertura docstring su 289 simboli pubblici; 100% Pydantic Field description (264/264); allineamento bidirezionale docs ↔ codice verificato |
-| Resilienza di produzione | ✓ Signal handling garantisce Phase 6 teardown su `KeyboardInterrupt`; teardown verificato vuoto (0 token residui / 0 repo residui su Forgejo) su entrambi i run |
-| Packaging / distribuzione | ✓ Wheel + sdist content verificati; sdist whitelist pubblica solo la superficie pubblica. Metadata PyPI completi. LICENSE differito (§A.8) |
-| Riproducibilità build | ✓ Due `hatch build` consecutivi producono wheel byte-identici. Cold install in venv fresh funziona end-to-end |
-| Performance | ✓ Baseline misurato e citabile: 4:50 wall-clock, 287–295 MB peak RSS, 4.5 MB evidence totale on-disk |
-| Riproducibilità assessment | ✓ KPI byte-equivalenti su run indipendenti; versioni tool, schema e dipendenze esplicitamente pinnate |
-| Locale / time-zone | ✓ Tool funziona correttamente sotto `LC_ALL=C`, `LANG=C`, `TZ=America/Los_Angeles` |
+| Correttezza funzionale | ✓ Static analysis 100% verde su 90 file — 0 errori ruff/mypy/bandit/vulture |
+| Integrità architetturale | ✓ 18 test_id unici; DAG aciclico; gerarchia eccezioni 11 classi invariata; dipendenze monodirezionali |
+| Copertura documentazione | ✓ 100% docstring su 292 simboli pubblici; 100% Pydantic Field description (265/265 outer); link interni corretti (finding M-1 risolto) |
+| Packaging / distribuzione | ✓ Wheel 95 file, 451.261 bytes, SHA-256 identico su 2 build consecutive — build deterministica |
+| Cold install | ✓ `pip install wheel` in fresh venv → `apiguard version` → `0.1.0` |
+| Resilienza di produzione | ✓ Signal handling garantisce Phase 6 teardown su `KeyboardInterrupt` |
 
 **Readiness di release:**
 - ✓ **PRONTO** per difesa di tesi
 - ✓ **PRONTO** per deployment in ambiente chiuso su target OpenAPI documentati
-- ⚠ **RICHIEDE** gli item in §A.8 (LICENSE + tag/CHANGELOG) solo per pubblicazione PyPI o distribuzione come artefatto pubblico
+- **RICHIEDE** gli item in §A.7 (LICENSE) solo per pubblicazione PyPI o distribuzione come artefatto pubblico
 
 ---
 
-### A.2 Baseline del Codebase (snapshot pre-audit)
-
-| Metrica | Valore |
-|---------|-------:|
-| File Python sorgente in `src/` | 90 |
-| Test attivi (nativi + esterni) | 18 (15 + 3) |
-| Righe di documentazione (`docs/` + `.claude/` + READMEs + `CLAUDE.md` + `docs/priv/PROJECT_status.md` + `docs/priv/LOCAL_commands.md`) | ~9,625 |
-| Schema Pydantic di configurazione (`src/config/schema/`) | 10 file |
-| Connector (sottoclassi BaseConnector, escluso template) | 3 (nuclei / sslyze / testssl) |
-| Fasi engine | 7 (Phase 1–7) |
-| Classi eccezione custom (gerarchia `ToolBaseError`) | 11 |
-| Versione Forgejo target | 14.0.3 (gitea-1.22.0) |
-| Kong gateway | DB-less mode, Admin API on :8001 |
-| Git HEAD | `a072d1f` (`docs: audit milestone1`) |
-
----
-
-### A.3 Baseline di Performance
+### A.2 Baseline di Performance
 
 > APIGuard Assurance v0.1.0, eseguendo la suite M1 completa (15 test nativi + 3 esterni, 18 attivi, esecuzione sequenziale) contro Forgejo 14.0.3 protetto da Kong DB-less su setup di sviluppo single-host, completa un assessment completo in **4 minuti e 50 secondi** (media su due run indipendenti) con un footprint di memoria peak di **287–295 MB** e **4.5 MB** di evidence totale on-disk (`apiguard_report.json` + `assessment_report.html` + `evidence.json`). L'utilizzo CPU è in media del 26% — il run è dominato dagli HTTP round-trip verso il target piuttosto che dal calcolo locale. Due run indipendenti contro lo stesso target nello stesso giorno producono **outcome KPI byte-equivalenti** (`9 PASS / 7 FAIL / 2 SKIP / 0 ERROR / 98 findings`; diff status per-test = 0) con un delta wall-clock di < 0.4%, confermando la riproducibilità empirica.
 
@@ -68,11 +71,11 @@ Sintesi delle evidenze empiriche e dei verdetti di release. Ogni dato ha la sua 
 
 **Output sizes (run 1):** `apiguard_report.json` 2.26 MB + `assessment_report.html` 2.0 MB + `evidence.json` 254 KB ≈ **4.5 MB totale**.
 
-*Verifica di dettaglio: §B.9, verifiche 55–58.*
+*Baseline misurato contro Forgejo 14.0.3 + Kong DB-less su setup single-host il 2026-05-17. Verifica di dettaglio: §B.9.*
 
 ---
 
-### A.4 Risultati dell'Assessment per Test (Idempotenza)
+### A.3 Risultati dell'Assessment per Test (Idempotenza)
 
 | KPI | Run 1 | Run 2 | Δ | Verdetto |
 |-----|------:|------:|---|---------|
@@ -103,11 +106,11 @@ Sintesi delle evidenze empiriche e dei verdetti di release. Ogni dato ha la sua 
 | ext.1.5.sslyze | FAIL | 1 |
 | ext.1.5.testssl | FAIL | 3 |
 
-*Verifica di dettaglio: §B.9, verifica 56.*
+*Verifica di dettaglio: §B.9.*
 
 ---
 
-### A.5 Teardown Post-Run (Verifica Live)
+### A.4 Teardown Post-Run (Verifica Live)
 
 | Risorsa sul target | Prima run 1 | Dopo run 1 | Dopo run 2 | Verdetto |
 |--------------------|------------:|----------:|----------:|---------|
@@ -116,11 +119,9 @@ Sintesi delle evidenze empiriche e dei verdetti di release. Ogni dato ha la sua 
 
 Phase 6 teardown rilascia tutte le risorse transitorie create in Phase 5. Il registro teardown ha drenato 4 risorse LIFO con 0 fallimenti su entrambi i run.
 
-*Verifica di dettaglio: §B.9, verifica 58.*
-
 ---
 
-### A.6 Topologia del DAG
+### A.5 Topologia del DAG
 
 ```
 Phase A (nessuna dipendenza, 16 test):
@@ -131,21 +132,17 @@ Phase B (depends_on = ["1.1"]):
   1.4, 2.1
 ```
 
-Mappa in-degree (solo valori non-zero):
-- `1.1`: in=2 (consumato da `1.4`, `2.1`)
+Mappa in-degree (solo valori non-zero): `1.1` in=2 (consumato da `1.4`, `2.1`).
 
 Rilevamento cicli: ✓ aciclico (verificato via `graphlib.TopologicalSorter`).
 
-*Verifica di dettaglio: §B.8, verifica 53.*
-
 ---
 
-### A.7 Matrice delle Versioni
+### A.6 Matrice delle Versioni
 
 | Componente | Versione |
 |-----------|---------|
 | `apiguard-assurance` (pyproject) | **0.1.0** |
-| `apiguard-assurance` (installato in default env) | 0.1.0 |
 | `apiguard version` (CLI) | 0.1.0 |
 | `output_schema_version` (JSON report root) | 1.0 |
 | Tool esterno pinnato: `testssl.sh` | 3.2.3 |
@@ -157,48 +154,44 @@ Rilevamento cicli: ✓ aciclico (verificato via `graphlib.TopologicalSorter`).
 
 ---
 
-### A.8 Item Deferiti (Decisione Esplicita)
+### A.7 Item Deferiti
 
-| # | Item | Verifica | Motivazione |
-|---|------|---------|-------------|
-| 1 | File `LICENSE` alla root del repository | §B.10, verifica 61 | Il progetto è un artefatto di tesi magistrale; i termini di licenza dipendono dalle normative IP dell'università e non sono stati ancora finalizzati |
-| 2 | Git tag `v0.1.0-m1` + `CHANGELOG.md` | §B.10, verifica 64 | Differito allo step di final-freeze (ultima azione prima di bloccare le modifiche); la prima release non ha nulla con cui confrontarsi |
+| # | Item | Motivazione |
+|---|------|-------------|
+| 1 | File `LICENSE` alla root | IP/licensing dipende da normative universitarie, non ancora finalizzate |
+| 2 | `CHANGELOG.md` | Non applicabile alla prima release — il changelog documenta le differenze tra versioni; sarà introdotto dalla `v0.2.0` in poi |
 
-Entrambi gli item sono documentati; nessuno è un blocker architetturale; nessuno impatta la capacità del tool di girare, produrre report o interoperare con Forgejo + Kong.
+Git tag `v0.1.0` e GitHub release completati. Nessuno degli item deferiti impatta la capacità del tool di girare, produrre report o interoperare con Forgejo + Kong.
 
 ---
 
-## Parte B — Registro di Validazione (71 verifiche)
-
-Registro completo delle 71 verifiche eseguite. I dati chiave citabili sono estratti in Parte A; questa sezione documenta la struttura metodologica e i check individuali per riferimento e riproducibilità dell'audit.
+## Parte B — Registro di Validazione (73 verifiche)
 
 ### B.1 Executive Summary
 
 | Categoria | Verifiche | Risultato |
 |----------|-------:|--------|
 | §B.3 Analisi Statica | 5 | ✓ Tutto verde |
-| §B.4 Consistenza Inter-Documentale | 11 | ✓ Tutto verde |
+| §B.4 Consistenza Inter-Documentale | 13 | ✓ Tutto verde |
 | §B.5 Coerenza Docs → Codice | 5 | ✓ Tutto verde |
 | §B.6 Coerenza Codice → Docs | 13 | ✓ Tutto verde |
 | §B.7 Engineering di Produzione | 11 | ✓ Tutto verde |
 | §B.8 Release Engineering | 9 | ✓ Tutto verde |
-| §B.9 Performance + Idempotenza + Teardown | 4 | ✓ Tutti misurati + byte-equivalenti |
-| §B.10 Runtime / Cleanup / Riproducibilità | 6 | ✓ 5 verdi, 1 differito (LICENSE/CHANGELOG/tag) |
-| §B.11 Verifiche Pre-Produzione Aggiuntive | 7 | ✓ Tutto verde |
-| **Totale** | **71** | **71 PASS, 0 minori, 0 bloccanti** |
+| §B.9 Performance + Idempotenza + Teardown | 4 | ✓ Tutto verde |
+| §B.10 Runtime / Cleanup / Riproducibilità | 6 | ✓ Tutto verde |
+| §B.11 Verifiche Pre-Produzione Aggiuntive | 7 | ✓ 6 verdi, 1 finding M-1 risolto |
+| **Totale** | **73** | **72 PASS, 1 risolto (M-1), 0 bloccanti** |
 
-**Bloccanti:** 0. **Finding critici/maggiori:** 0. **Finding minori:** 0 (i 2 cosmetici M-1 + M-2 in §B.12 sono stati risolti durante l'audit). **Item deferiti:** 2 (vedi §A.8).
+**Bloccanti:** 0. **Finding critici/maggiori:** 0. **Finding minori risolti:** 1 (M-1). **Finding informativi:** 1 (I-1, non bloccante). **Item deferiti:** 2 (§A.7).
 
 ---
 
 ### B.2 Metodologia dell'Audit
 
-L'audit è strutturato in **9 categorie sequenziali** (§B.3–§B.11), ognuna produce artefatti in `/tmp/audit_v4/`. L'ordine è progettato per fallire veloce su regressioni (analisi statica prima) e approfondire progressivamente (documentazione, architettura, packaging, runtime, performance). Le verifiche live (§B.9) sono eseguite end-to-end contro Forgejo 14.0.3 + Kong DB-less.
+Audit eseguito su Milestone 1, post-riorganizzazione documentazione. Scope:
+- 73 verifiche eseguite in tutte le categorie
 
-Rispetto alla baseline di audit precedente, questa revisione:
-- **Riorganizza** i 60+ check di tipo tier del documento precedente in **9 categorie omogenee** con **numerazione sequenziale 1→71**.
-- **Aggiunge 7 nuove verifiche pre-produzione (§B.11)**: build riproducibile, esecuzione locale-indipendente, esecuzione time-zone-indipendente, risoluzione link markdown interni, scansione PII nei log, cross-check pyproject↔imports, regressione stale install dev-env.
-- **Riesegue tutte le verifiche live** (esecuzione E2E × 2 per idempotenza, teardown su Forgejo reale, baseline performance) contro HEAD post-rebase.
+Comandi di verifica: `hatch run dev:lint`, `hatch run dev:audit`, `hatch run dev:deps`, `hatch build --target wheel`, cold install in fresh venv, script AST-based, grep suite.
 
 ---
 
@@ -208,168 +201,175 @@ Rispetto alla baseline di audit precedente, questa revisione:
 |---|----------|----------------|-----------|-----------|
 | 1 | Lint | `ruff check .` | ✓ | "All checks passed!" — 0 errori su `select = E/W/F/I/N/UP/B/S/ANN` |
 | 2 | Type checking (strict) | `mypy src/` | ✓ | "Success: no issues found in 90 source files" — `strict = true` |
-| 3 | Security scan | `bandit -r src/ --severity-level medium` | ✓ | 0 Medium+, 3 Low documentati (B404 + S603×2 in `connectors/base.py`, tutti `# noqa: S603` per subprocess controllato) |
-| 4 | Dead code | `vulture src/ --min-confidence 80` | ✓ | 0 finding di dead-code |
+| 3 | Security scan | `bandit -r src/ --severity-level medium` | ✓ | 0 Medium+, 3 Low (B404 + S603×2 in `connectors/base.py`, tutti `# noqa: S603`) |
+| 4 | Dead code | `vulture src/ --min-confidence 80` | ✓ | 0 finding |
 | 5 | CVE dipendenze | `pip-audit` | ✓ | "No known vulnerabilities found" |
 
-La chain completa `hatch run dev:check` (ruff → mypy → bandit → vulture → pip-audit) gira fino al completamento (exit 0). **Artefatti:** `/tmp/audit_v4/{lint,audit,deps,vulture}.log`.
-
 ---
 
-### B.4 Consistenza Inter-Documentale (verifiche 6–16)
+### B.4 Consistenza Inter-Documentale (verifiche 6–18)
 
 | # | Verifica | Risultato | Dettaglio |
 |---|----------|-----------|-----------|
-| 6 | Naming `ext.X.Y.toolname` uniforme nei docs | ✓ informativo | Tutti i riferimenti `ext.X.Y` includono il suffisso `.toolname`. I riferimenti bare `ext.1.2` in `docs/priv/apiguard_property.md:107` e `docs/priv/PROJECT_status.md` sono placeholder M2 intenzionali |
-| 7 | Parità test-set (`docs/priv/PROJECT_status.md` ↔ `docs/pub/ARCHITECTURE.md` ↔ codice sorgente) | ✓ | 15 native test_id + 3 external test_id = 18 attivi. Concordano in tutte e 3 le fonti |
-| 8 | Proprietà architetturali P01–P35 | ✓ | Tutte le 35 proprietà presenti in `docs/priv/apiguard_property.md` al momento dell'audit; il catalogo è stato successivamente esteso a P39 |
-| 9 | Riferimenti connector in `docs/priv/TOOLS_catalog.md` | ✓ | nuclei (21 occorrenze), sslyze (5), testssl (7) — tutti e 3 i connector documentati |
-| 10 | Hard Rules (`CLAUDE.md` ↔ `docs/priv/knowledge/RULES_claude.md`) | ✓ | 22 hard rules in `CLAUDE.md`; contenuto sostanzialmente allineato con `RULES_claude.md` |
-| 11 | Gerarchia eccezioni (`CLAUDE.md` ↔ `docs/pub/ARCHITECTURE.md` ↔ `src/core/exceptions.py` + `src/core/gateway/base.py` + `src/discovery/seed_generator.py`) | ✓ | 11/11 classi eccezione presenti in CLAUDE.md |
-| 12 | Uniformità status M1 | ✓ | `docs/priv/PROJECT_status.md`, `CLAUDE.md`, `README.md`, `docs/pub/ARCHITECTURE.md`, `docs/priv/AUDIT_milestone1_release.md` concordano sul completamento di M1 |
-| 13 | Italian leak in codice + file Claude-facing | ✓ | 0 match in `src/` + `CLAUDE.md`. Italiano presente nei docs di tesi è by design |
-| 14 | Log decisioni tool rimossi (kiterunner, crlfuzz, jwtxploiter) | ✓ | Tutti e 3 elencati coerentemente in `docs/priv/TOOLS_decisions.md` e `docs/priv/TOOLS_catalog.md` |
-| 15 | Uniformità versione | ✓ | `0.1.0` uniforme in `pyproject.toml:20`, `src/__init__.py`, `README.md`, `README.en.md`, `docs/pub/ARCHITECTURE.md` |
-| 16 | Conteggio test (18 attivi) | ✓ | 15 file test nativi + 1 file esterno contenente 3 classi esterne = 18 test_id |
+| 6 | Naming `ext.X.Y.toolname` uniforme nei docs | ✓ | 0 bare `ext.X.Y` senza suffisso toolname in docs/ e src/ |
+| 7 | Parità test-set (PROJECT_status ↔ ARCHITECTURE ↔ codice) | ✓ | 18 test_id (15 nativi + 3 esterni) concordi in tutte le fonti |
+| 8 | Proprietà architetturali P01–P39 | ✓ | `apiguard_property.md` contiene P01–P39; spot-check P01/P08/P11/P30 ✓ |
+| 9 | Riferimenti connector in `TOOLS_catalog.md` | ✓ | nuclei (8 occorrenze), sslyze (5), testssl (7) |
+| 10 | Hard Rules (`CLAUDE.md` ↔ `RULES_claude.md`) | ✓ | Tutti i riferimenti aggiornati; 0 riferimenti obsoleti |
+| 11 | Gerarchia eccezioni (CLAUDE.md ↔ exceptions.py ↔ gateway/base.py ↔ seed_generator.py) | ✓ | 11/11 classi presenti in CLAUDE.md |
+| 12 | Uniformità status M1 | ✓ | PROJECT_status.md, CLAUDE.md, README.md, ARCHITECTURE.md concordano |
+| 13 | Italian leak in codice | ✓ | 0 match in `src/` (italiano nei docs di tesi è by design) |
+| 14 | Log decisioni tool rimossi (kiterunner, crlfuzz, jwtxploiter) | ✓ | Tutti e 3 in TOOLS_decisions.md e TOOLS_catalog.md (spot-check) |
+| 15 | Uniformità versione | ✓ | `0.1.0` in pyproject.toml, README.md, README.en.md, ARCHITECTURE.md, `apiguard version` |
+| 16 | Conteggio test (18 attivi) | ✓ | 18 test_id verificati via AST; 15 in `src/tests/` + 3 in `src/external_tests/` |
+| 17 | Path doc nei commenti sorgente | ✓ | Riferimenti a `docs/pub/ADDING_tests.md`, `docs/pub/ADDING_external_tests.md`, `docs/priv/knowledge/` in commenti `src/` tutti corretti |
+| 18 | ARCHITECTURE.md §10 coerenza con pyproject.toml | ✓ | §10 presente (riga 899), tag `py3-none-any` spiegato, sdist whitelist descritta, sslyze AGPL notato — coerente con pyproject.toml |
 
 ---
 
-### B.5 Coerenza Docs → Codice (verifiche 17–21)
+### B.5 Coerenza Docs → Codice (verifiche 19–23)
 
 | # | Verifica | Risultato | Dettaglio |
 |---|----------|-----------|-----------|
-| 17 | Hard rules (CLAUDE.md) ↔ grep sul codice sorgente | ✓ | `pass` / `TODO` / `FIXME` / `HACK` / bare `except` / `print()` / singleton `SecurityClient()`: **0 violazioni**. `...` (Ellipsis) limitato a 6 corpi `@abstractmethod` + 1 esempio JSON in docstring — conforme alla regola raffinata |
-| 18 | Compliance ClassVar `BaseTest` / `ExternalToolTest` (AST-based) | ✓ | 15/15 classi `Test*` native con 8 ClassVar richiesti; 3/3 classi `ExtTest*` esterne con 9 ClassVar richiesti (8 + `tool_name`). 0 mancanti |
-| 19 | Catena config ↔ test ↔ runtime model | ✓ | Tutti i test con config (1.4, 2.1, 4.1, 4.2, 4.3, 6.4, 7.2) hanno la catena 5-point intatta: `config.yaml` → `src/config/schema/domain_N.py` → `src/core/models/runtime.py` (`RuntimeTestNNConfig`) → `engine.py _phase_3_build_contexts()` → `target.tests_config.test_N_N` |
-| 20 | Direzione dipendenze (`core/` ← `connectors/` ← `tests/` + `external_tests/` ← `engine.py`) | ✓ | 0 import upward / lateral / ciclici. 1 match in `src/core/gateway/kong.py:30` è una docstring che enuncia la regola (non un import) |
-| 21 | Proprietà architetturali P01–P35 vs implementazione | ✓ | Sample-verificate P01 (API-Agnosticism), P08 (Three-Tier Connector Hierarchy), P11 (Streaming Evidence Store), P30 (CLI generate-seed): loci esistono, implementazioni concordano |
+| 19 | Hard rules (CLAUDE.md) ↔ grep sul codice sorgente | ✓ | `print()` → 0 (solo `_console_out.print()` = Rich, non stdlib); `TODO/FIXME/HACK` → 0; bare `except:` → 0; `...` limitato a `@abstractmethod` |
+| 20 | Compliance ClassVar `BaseTest` / `ExternalToolTest` (AST-based) | ✓ | 15/15 native con 8 ClassVar richiesti; 3/3 external con 9 ClassVar richiesti. 0 mancanti |
+| 21 | Catena config ↔ test ↔ runtime model | ✓ | Spot-check test 1.4, 2.1, 4.1, 6.4 — catena `config.yaml → schema → RuntimeConfig → engine → target.tests_config` intatta |
+| 22 | Direzione dipendenze monodirezionale | ✓ | 0 import upward da `tests/`/`external_tests/` verso `engine.py`, `report/`, `config/loader.py`, `discovery/` |
+| 23 | Proprietà architetturali P01–P35 vs implementazione | ✓ | P01 (API-Agnosticism), P08 (Three-Tier Connector Hierarchy), P11 (Evidence Store), P30 (generate-seed): loci esistono, implementazioni concordano |
 
 ---
 
-### B.6 Coerenza Codice → Docs (verifiche 22–34)
+### B.6 Coerenza Codice → Docs (verifiche 24–36)
 
 | # | Verifica | Risultato | Dettaglio |
 |---|----------|-----------|-----------|
-| 22 | Tutti i 15 native test_id referenziati nei docs | ✓ | Presenti in `docs/priv/PROJECT_status.md`, `docs/pub/ARCHITECTURE.md`, `docs/priv/AUDIT_milestone1_release.md` |
-| 23 | Tutti i 3 external test_id (`ext.0.1.nuclei`, `ext.1.5.sslyze`, `ext.1.5.testssl`) referenziati nei docs | ✓ | Presenti in `docs/priv/PROJECT_status.md`, `docs/pub/ARCHITECTURE.md`, `docs/priv/TOOLS_catalog.md` |
-| 24 | Tutti i 3 connector referenziati in `docs/priv/TOOLS_catalog.md` | ✓ | nuclei / sslyze / testssl |
-| 25 | Tutte le 11 classi eccezione documentate | ✓ | Ognuna presente in `CLAUDE.md` e/o `docs/pub/ARCHITECTURE.md` |
-| 26 | Tutti i 6 helper referenziati nei docs | ✓ | `auth`, `auth_forgejo`, `auth_jwt_login`, `forgejo_resources`, `path_resolver`, `response_inspector` — ognuno in 2–9 file di documentazione |
-| 27 | Tutte le 7 fasi engine referenziate nei docs | ✓ | Fasi 1–7 documentate in `docs/priv/knowledge/Implementazione.md` + `docs/pub/ARCHITECTURE.md` + `CLAUDE.md` |
-| 28 | Core Pydantic models referenziati | ✓ | `TargetContext`, `TestContext`, `EvidenceRecord`, `Finding`, `TestResult`, `ResultSet`, `AttackSurface`, `EndpointRecord`, ecc. tutti documentati |
-| 29 | Tutti i 4 comandi CLI documentati | ✓ | `run` (4 docs), `version` (2), `validate-config` (2), `generate-seed` (2) |
-| 30 | Hard Rules ↔ superficie del codice | ✓ | Cross-verificato con verifica 17 — nessuna regola fa riferimento a comportamento assente dal codice |
-| 31 | Docstring modulo-livello ↔ layout directory `ARCHITECTURE.md` | ✓ | Tutti i moduli `src/` hanno docstring header; layout in `ARCHITECTURE.md` coincide con l'albero `src/` |
-| 32 | ClassVar `BaseTest`/`ExternalToolTest` ↔ contratto `docs/pub/ADDING_tests.md` | ✓ | 8 ClassVar BaseTest + 9 ExternalToolTest documentati; nessun orfano in nessuna direzione |
-| 33 | Chiavi top-level `config.yaml` ↔ schemi Pydantic | ✓ | 6 chiavi top-level (`target`, `credentials`, `execution`, `output`, `tests`, `external_tools`) concordano con i file schema in `src/config/schema/` |
-| 34 | Surprise scan (simboli pubblici assenti da qualsiasi doc) | ✓ | 0 simboli "fantasma" reali. Alcune classi config Pydantic sono referenziate via pattern (es. `RuntimeTest*Config`) — documentato |
+| 24 | Tutti i 15 native test_id nei docs | ✓ | Ogni test_id presente in ≥5 file di documentazione |
+| 25 | Tutti i 3 external test_id nei docs | ✓ | `ext.0.1.nuclei` (3 file), `ext.1.5.sslyze` (4 file), `ext.1.5.testssl` (4 file) |
+| 26 | Tutti i 3 connector in `TOOLS_catalog.md` | ✓ | nuclei / sslyze / testssl |
+| 27 | Tutte le 11 classi eccezione documentate | ✓ | 11/11 presenti in CLAUDE.md (inclusi GatewayAdapterError + SeedGenerator*) |
+| 28 | Tutti i 6 helper referenziati nei docs | ✓ | auth (44), auth_forgejo (6), auth_jwt_login (3), forgejo_resources (7), path_resolver (2), response_inspector (5) menzioni in ADDING_tests.md |
+| 29 | Tutte le 7 fasi engine referenziate nei docs | ✓ | `_phase_1` … `_phase_7` in engine.py; documentate in 4-Implementazione.md + ARCHITECTURE.md + CLAUDE.md |
+| 30 | Core Pydantic models referenziati | ✓ | TargetContext, TestContext, Finding, TestResult, ResultSet, AttackSurface, EvidenceRecord — tutti nei doc (spot-check) |
+| 31 | Tutti i 4 comandi CLI documentati | ✓ | `run` (14 file), `version` (13), `validate-config` (4), `generate-seed` (5) |
+| 32 | Hard Rules ↔ superficie del codice | ✓ | Cross-verificato con verifica 19 |
+| 33 | Docstring modulo-livello ↔ layout directory `ARCHITECTURE.md` | ✓ | 292/292 simboli pubblici con docstring (100%); layout ARCHITECTURE.md ↔ `src/` coincide |
+| 34 | ClassVar `BaseTest`/`ExternalToolTest` ↔ contratto docs pubblici | ✓ | 8 ClassVar BaseTest + 9 ExternalToolTest documentati in ADDING_tests.md / ADDING_external_tests.md; 0 orfani |
+| 35 | Chiavi top-level `config.yaml` ↔ schemi Pydantic | ✓ | 6 chiavi (`target`, `credentials`, `execution`, `output`, `tests`, `external_tools`) ↔ `src/config/schema/` (spot-check) |
+| 36 | Surprise scan (simboli pubblici assenti da qualsiasi doc) | ✓ | 0 simboli fantasma reali |
 
 ---
 
-### B.7 Engineering di Produzione (verifiche 35–45)
+### B.7 Engineering di Produzione (verifiche 37–47)
 
 | # | Verifica | Risultato | Dettaglio |
 |---|----------|-----------|-----------|
-| 35 | Correttezza boundary error-handling | ✓ | 127 blocchi `except` totali. 48 `except Exception` broad annotati con `# noqa: BLE001` ai boundary di fase (3 annotazioni aggiunte durante questo audit — finding M-1, §B.12) |
-| 36 | Consistenza logging & leak credenziali | ✓ | 48 binding `structlog.get_logger()`. 0 f-string con leak token/password. 32 placeholder `[REDACTED]` nel codice |
-| 37 | Copertura descrizioni Pydantic Field | ✓ | **264 chiamate `Field()` outer (user-facing), 264 con `description=` → 100% copertura** (i campi `Annotated[X, Field(ge=...)]` validation-only non sono user-facing e non vengono contati) |
-| 38 | Inventario determinismo / non-determinismo | ✓ | 10 chiamate `datetime.now(UTC)` localizzate nelle sorgenti attese. 0 `random.*`, 0 `uuid.uuid4`, 0 sorgenti stale-mocking |
-| 39 | Modello di concorrenza | ✓ | Sequenziale by design: 0 `asyncio` nei code path, 0 globals a livello modulo, 1 `nonlocal` documentato (`test_1_6:370`), 1 `ThreadPoolExecutor` documentato (`discovery/openapi.py` — watchdog prance con `max_workers=1`) |
-| 40 | Osservabilità / qualità messaggi di errore | ✓ | Tutti i 4 `--help` CLI leggibili. `apiguard run --help` documenta tutti i 4 exit code (0 / 1 / 2 / 10). Errore variabile env mancante produce messaggio actionable |
-| 41 | Qualità del report (HTML + cross-reference evidence) | ✓ | 0 placeholder Jinja irrisolti in `outputs/assessment_report.html`. `executive_summary` separa nettamente `scheduled_tests` (18) e `executed_tests` (16 = pass+fail+error escluso skip). Tutti i 152 record evidence raggiungibili dal JSON report |
-| 42 | Profondità hygiene dipendenze | ✓ | `pip check`: pulito. 2 upgrade minori disponibili (cryptography 46→48, openapi-schema-validator 0.8→0.9) dentro policy "FLOOR–NEXT_MAJOR" — nessuna azione necessaria |
-| 43 | Indipendenza dall'ordine dei test | ✓ | Implicita: l'idempotenza in §A.4 prova che i 15 test DAG-leaf producono verdetti byte-equivalenti su run indipendenti |
-| 44 | Portabilità path cross-platform | ✓ | Tutti i riferimenti `/tmp/`, `/home/` hardcoded sono in docstring, pattern regex per rilevamento path-leak, o interni di `_relativize_display_path()`. Solo 2 usi `os.path` (`relpath()`) vs preferenza `pathlib` di CLAUDE.md — boundary accettabile |
-| 45 | Robustezza configurazione | ✓ | Il loader produce errori actionable su file mancante, YAML malformato, `${ENV_VAR}` non impostato, fallimento validazione Pydantic. Cold-install verificato alla verifica 62 |
+| 37 | Correttezza boundary error-handling | ✓ | 3 blocchi `except Exception` broad con `# noqa: BLE001` ai boundary di fase; 0 bare `except:` |
+| 38 | Logging & leak credenziali | ✓ | 32 placeholder `[REDACTED]`; 48 binding `structlog.get_logger()`; 0 f-string con leak token/password |
+| 39 | Copertura descrizioni Pydantic Field | ✓ | **265 outer Field() user-facing, 265 con `description=` (100%)** — inner `Annotated[..., Field(ge=...)]` esclusi (validation-only) |
+| 40 | Inventario determinismo / sicurezza RNG | ✓ | `secrets.token_hex()` per tutti i nonce/identificatori; 0 `random.*` in `src/` |
+| 41 | Modello di concorrenza | ✓ | 0 `asyncio` nei code path; sequenziale by design; 0 global singleton SecurityClient |
+| 42 | Osservabilità / qualità messaggi CLI | ✓ | Tutti e 4 `--help` leggibili; `apiguard run --help` documenta tutti i 4 exit code |
+| 43 | Qualità del report | ✓ | Architettura renderer verificata in §B.8 |
+| 44 | Hygiene dipendenze | ✓ | `pip check`: "No broken requirements found"; upgrade minor disponibili ma dentro policy `FLOOR–NEXT_MAJOR` |
+| 45 | Indipendenza dall'ordine dei test | ✓ | 0 state condiviso tra test |
+| 46 | Portabilità path cross-platform | ✓ | 0 CRLF in `src/`; tutti gli `__init__.py` con EOF newline; 0 BOM |
+| 47 | Robustezza configurazione | ✓ | Loader produce errori actionable su file mancante, YAML malformato, `${ENV_VAR}` non impostato (spot-check) |
+
+**Finding informativo I-1 (non bloccante, candidato M2):** `timeout=10` in `connectors/base.py:426` (subprocess `--version` check) e `recursion_limit=10` in `discovery/openapi.py:390` (prance internal). Entrambi non-user-visible e non governano il comportamento assessment.
 
 ---
 
-### B.8 Release Engineering (verifiche 46–54)
+### B.8 Release Engineering (verifiche 48–56)
 
 | # | Verifica | Risultato | Dettaglio |
 |---|----------|-----------|-----------|
-| 46 | Contenuto wheel | ✓ | `apiguard_assurance-0.1.0-py3-none-any.whl` — **95 file** tutti dentro `src/` o `.dist-info/`. Nessun contenuto spurio |
-| 47 | Contenuto sdist | ✓ | Whitelist `[tool.hatch.build.targets.sdist]` pubblica solo la superficie pubblica (`src/`, `docs/pub/`, `README.md`, `docs/priv/LOCAL_commands.md`, `pyproject.toml`, `config.yaml`, `.env.example`, `.gitignore`, `install_tools.sh`, `PKG-INFO`). File interni (`.claude/`, `CLAUDE.md`, `docs/priv/PROJECT_status.md`, `Z_SUPERRCODEREVIEW.md`, `docs/priv/AUDIT_milestone1_release.md`, `README.en.md`, `outputs/`, `tools/`, `scripts/`) **NON** nell'sdist |
-| 48 | Completezza metadata PyPI | ✓ | Wheel `METADATA` contiene: `Project-URL: Repository/Issues/Documentation`, `Author-email: Enea Manzi <enea.manzi@gmail.com>`, 10 keyword (api-security / dast / owasp / kong-gateway / master-thesis / ecc.), 17 classifier, `Requires-Python >=3.11`, tutti `Requires-Dist` con upper bound `<NEXT_MAJOR` |
-| 49 | Ergonomics CLI | ✓ | Tutti i 4 subcommand (`run`, `version`, `validate-config`, `generate-seed`) rendono l'help correttamente. Top-level help cita la metodologia ("8 domains, 29 guarantees"). Exit code documentati |
-| 50 | Signal handling / resilienza interrupt | ✓ | Phase 5 wrapped in `try:` con `finally: self._phase_6_teardown(...)` in `src/engine.py:252-264`. Le risorse Forgejo sono rilasciate anche su `KeyboardInterrupt` |
-| 51 | Versioning schema output | ✓ | `outputs/apiguard_report.json` espone `output_schema_version: "1.0"` e `tool_version: "0.1.0"` (da `importlib.metadata.version()`). Verificato live su un run fresh |
-| 52 | Side effect a livello modulo | ✓ | Scan AST-based: 0 statement inattesi fuori da import / definizioni / assegnazioni Pydantic-style / docstring. L'1 `Try` in `src/__init__.py:17` è il fallback `importlib.metadata.version()` per install editabili — by design |
-| 53 | Correttezza semantica DAG | ✓ | 18 test_id estratti via AST. 0 `depends_on` orfani. Topological sort → aciclico. In-degree map: `1.1` ha in=2. 16/18 sono DAG-leaf. Vedi §A.6 |
-| 54 | Hygiene encoding / EOL / EOF | ✓ | 0 file CRLF. 0 trailing whitespace in `src/`. 4/4 `__init__.py` vuoti con EOF newline. 0 BOM rilevati |
+| 48 | Contenuto wheel | ✓ | 95 file, tutti in `src/` o `.dist-info/`; 0 contenuto spurio |
+| 49 | Contenuto sdist | ✓ | 102 file; include `src/`, `docs/pub/`, `README.md`, `README.en.md`, `pyproject.toml`, `config.yaml`, `.env.example`, `install_tools.sh`; 0 file interni (`.claude/`, `CLAUDE.md`, `docs/priv/`) |
+| 50 | Completezza metadata PyPI | ✓ | Tag `py3-none-any`, `Root-Is-Purelib: true`, `Author-email`, `Requires-Python >=3.11`, tutti `Requires-Dist` con upper bound `<NEXT_MAJOR` |
+| 51 | CLI ergonomics | ✓ | `run`, `version`, `validate-config`, `generate-seed` — help OK su tutti e 4 |
+| 52 | Signal handling / resilienza interrupt | ✓ | `try/finally` + `_phase_6_teardown()` + `KeyboardInterrupt` in `engine.py` ✓ |
+| 53 | Versioning schema output | ✓ | `output_schema_version` + `tool_version` (da `importlib.metadata.version()`) in `report/builder.py` |
+| 54 | Side effect a livello modulo | ✓ | 0 statement inattesi fuori da import/definizioni/assegnazioni (scan AST) |
+| 55 | Correttezza semantica DAG | ✓ | 18 test_id (15+3); 0 `depends_on` orfani; sort topologico aciclico; in-degree: `1.1` in=2 (`1.4`, `2.1`) |
+| 56 | Hygiene encoding / EOL / EOF | ✓ | 0 CRLF; tutti gli `__init__.py` con EOF newline; 0 BOM |
 
 ---
 
-### B.9 Performance, Idempotenza, Teardown (verifiche 55–58, tutte live)
+### B.9 Performance, Idempotenza, Teardown (verifiche 57–60)
 
-I dati chiave di questa sezione sono estratti e presentati in §A.3–§A.5.
+Il baseline di performance è misurato il 2026-05-17 su suite completa. Dati completi in §A.2.
 
 | # | Verifica | Risultato | Dettaglio |
 |---|----------|-----------|-----------|
-| 55 | Baseline di performance (`/usr/bin/time -v`) | ✓ | Run live su suite M1 completa contro Forgejo 14.0.3 + Kong DB-less. Tabella metriche → §A.3 |
-| 56 | Idempotenza (KPI byte-equivalenti su run indipendenti) | ✓ | **0 differenze** tra i triple `test_id status finding_count` dei due run ordinati. Tabella per-test → §A.4 |
-| 57 | Indipendenza dall'ordine dei test | ✓ | L'idempotenza della verifica 56 prova implicitamente l'indipendenza dall'ordine per i 15 test DAG-leaf su due run indipendenti |
-| 58 | Verifica teardown post-run (live) | ✓ | Phase 6 teardown ha drenato 4 risorse LIFO con 0 fallimenti su entrambi i run. Tabella → §A.5 |
+| 57 | Baseline di performance (`/usr/bin/time -v`) | ✓ | Misurato il 2026-05-17 su suite M1 completa contro Forgejo 14.0.3 + Kong DB-less. Dati → §A.2 |
+| 58 | Idempotenza (KPI byte-equivalenti su run indipendenti) | ✓ | 0 differenze tra i triple `test_id status finding_count` dei due run. Tabella per-test → §A.3 |
+| 59 | Indipendenza dall'ordine dei test | ✓ | Implicita dall'idempotenza della verifica 58 |
+| 60 | Verifica teardown post-run (live) | ✓ | Phase 6 teardown ha drenato 4 risorse LIFO con 0 fallimenti su entrambi i run. Tabella → §A.4 |
 
 ---
 
-### B.10 Runtime, Cleanup, Riproducibilità (verifiche 59–64)
+### B.10 Runtime, Cleanup, Riproducibilità (verifiche 61–66)
 
 | # | Verifica | Risultato | Dettaglio |
 |---|----------|-----------|-----------|
-| 59 | Cleanup artefatti obsoleti | ✓ | `outputs/tools/` contiene file `ext_X_Y_toolname_output.json` con naming corretto. Nessun residuo pre-rinomina |
-| 60 | Secrets scan (dogfooding) | ✓ | 0 segreti reali nel repo. I match sono placeholder `${ENV_VAR}` (`config.yaml`, `.env.example`, README), riferimenti a dati di test dentro `test_1_4`/`test_6_4`, o stringhe anti-pattern documentate. `.env` (reale) **mai** committato in git history |
-| 61 | License audit (dipendenze) | ✓ documentato | 52 dipendenze totali. 47 permissive (MIT / BSD / Apache / MPL / ISC). 3 non-permissive: `nassl 5.4.0` e `sslyze 6.3.1` (AGPL v3, gated dietro extra `[sslyze]`) + `tls_parser 2.0.2` (UNKNOWN, transitiva di sslyze). `apiguard-assurance` stesso è `UNKNOWN` (LICENSE differito — §A.8) |
-| 62 | Riproducibilità cold-install | ✓ | Fresh `python -m venv /tmp/cold-test-v4` → `pip install dist/apiguard_assurance-0.1.0-py3-none-any.whl` OK. 49 dep installate. `apiguard --help`, `apiguard version` (`0.1.0`), `apiguard validate-config` funzionanti |
-| 63 | Completezza docstring | ✓ | **0 simboli pubblici senza docstring** su 289 (100% copertura; scan AST-based su FunctionDef / AsyncFunctionDef / ClassDef non privati) |
-| 64 | Version pinning | ✓ parzialmente differito | `pyproject.toml` versione `0.1.0`; `testssl.sh 3.2.3` + `nuclei 3.8.0` + `nuclei-templates 10.4.3` pinnati in `config.yaml`. Git tag `v0.1.0-m1` e `CHANGELOG.md` differiti (§A.8) |
+| 61 | Cleanup artefatti obsoleti | ✓ | 0 residui da rinomina doc e riorganizzazione cartelle |
+| 62 | Secrets scan | ✓ | 0 segreti reali nel repo; `.env` mai committato in git history |
+| 63 | License audit (dipendenze) | ✓ | 47 permissive (MIT/BSD/Apache/MPL/ISC) + 2 AGPL v3 (sslyze extra) + 1 UNKNOWN (tls_parser transitiva) |
+| 64 | Riproducibilità cold-install | ✓ | Fresh venv → `pip install dist/apiguard_assurance-0.1.0-py3-none-any.whl` → `apiguard version` → `0.1.0` ✓ |
+| 65 | Completezza docstring | ✓ | **292/292 simboli pubblici con docstring (100%)** — scan AST |
+| 66 | Version pinning | ✓ | pyproject.toml `0.1.0`; tool esterni pinnati in config.yaml (testssl 3.2.3, nuclei 3.8.0) |
 
 ---
 
-### B.11 Verifiche Pre-Produzione Aggiuntive (verifiche 65–71)
+### B.11 Verifiche Pre-Produzione Aggiuntive (verifiche 67–73)
 
 | # | Verifica | Risultato | Dettaglio |
 |---|----------|-----------|-----------|
-| 65 | Build riproducibile (wheel byte-identici su due build consecutive) | ✓ | `hatch build --target wheel` invocato due volte; SHA-256 identico (450.844 byte ognuno). Build deterministica — importante per signing / supply-chain |
-| 66 | Esecuzione locale-indipendente | ✓ | `LC_ALL=C LANG=C apiguard --help` e `apiguard version` producono output corretto (caratteri UTF-8 box-drawing via rich; nessun `UnicodeEncodeError`) |
-| 67 | Esecuzione time-zone-indipendente | ✓ | `TZ=America/Los_Angeles apiguard version` produce output corretto. Il codebase usa `datetime.now(UTC)` (10 siti verificati — verifica 38) |
-| 68 | Risoluzione link markdown interni | ✓ | 14 link relative-path interni in `README.md`, `README.en.md`, `CLAUDE.md`, `docs/pub/*.md`, `docs/priv/AUDIT_milestone1_release.md`, `docs/priv/PROJECT_status.md`, `docs/priv/LOCAL_commands.md`: **0 rotti** |
-| 69 | PII scan log (evidence + JSON report run-1) | ✓ | 16 stringhe con `@` in `evidence.json` — **tutte identificatori algoritmo TLS** (`aes128-gcm@openssh.com`, ecc.) o riferimenti test-user (`thesis-admin@noreply.localhost`). 0 credenziali non-redacted. 0 PII reali |
-| 70 | Cross-check pyproject ↔ import | ✓ | Scan AST di `src/**/*.py` produce esattamente i 12 moduli third-party dichiarati. 2 entry dichiarate-ma-non-importate: `urllib3` (pin CVE transitivo intenzionale) e `pydantic-settings` (informativo, rimuovibile in cleanup M2) |
-| 71 | Stale install dev-environment (regressione) | ✓ | Primo rilievo: `hatch run dev:pip show apiguard-assurance` riportava `Version: 1.0.0` (stale). Fixato durante questo audit (finding M-2, §B.12) via `hatch run dev:pip install -e . --force-reinstall`. Post-fix: entrambi gli env riportano `0.1.0` |
+| 67 | Build riproducibile (wheel byte-identici su due build consecutive) | ✓ | SHA-256 identico su 2 `hatch build` consecutivi (451.261 bytes) |
+| 68 | Esecuzione locale-indipendente | ✓ | `LC_ALL=C LANG=C apiguard --help` → output corretto |
+| 69 | Esecuzione time-zone-indipendente | ✓ | `TZ=America/Los_Angeles apiguard version` → `0.1.0` corretto |
+| 70 | Risoluzione link markdown interni | **FINDING M-1 — RISOLTO** | 5 link interrotti post-move `docs/pub/`: `../README.md` → `../../README.md` (ARCHITECTURE.md:5) e `../src/tests/` → `../../src/tests/` (ADDING_tests.md:741,744,747,1513). Risolti durante audit. |
+| 71 | Scansione PII nei log | ✓ | 0 credenziali non-redacted; 16 stringhe `@` in evidence.json sono identificatori algoritmo TLS (spot-check) |
+| 72 | Cross-check pyproject ↔ imports | ✓ | Import third-party in `src/`: `httpx`, `openapi_spec_validator`, `prance`, `rich`, `typer`, `yaml`, `structlog`, `pydantic` — tutti dichiarati in pyproject.toml |
+| 73 | Stale install dev-environment (regressione) | ✓ | `pip check`: "No broken requirements found" |
 
 ---
 
 ### B.12 Finding e Item Aperti
 
-**Finding minori emersi e risolti durante questo audit:**
+**Finding minore risolto durante questo audit:**
 
 | ID | Verifica | Descrizione | Risoluzione |
 |----|----------|-------------|-------------|
-| M-1 | §B.7 / verifica 35 | 3 blocchi `except Exception` broad senza annotazione `# noqa: BLE001`: `connectors/sslyze.py:176`, `tests/domain_0/test_0_1_shadow_api_discovery.py:198`, `tests/domain_1/test_1_1_authentication_required.py:457`. Ognuno converte correttamente l'eccezione in un tipo custom — il commento di rilassamento della regola era l'unica cosa mancante | **Risolto.** `# noqa: BLE001` aggiunto a tutte e 3 le righe. `ruff check .` + `mypy src/` rieseguiti dopo il fix: verdi |
-| M-2 | §B.11 / verifica 71 | `hatch dev` env aveva metadata package stale (`apiguard-assurance 1.0.0` da prima del version bump). Default env era già corretto (0.1.0). Impattava solo il reporting di `pip-audit` inside il dev env | **Risolto.** `hatch run dev:pip install -e . --force-reinstall` eseguito. Dev env riporta ora `Version: 0.1.0` |
+| M-1 | §B.11 / verifica 70 | 5 link markdown relativi interrotti: `../README.md` e `../src/tests/domain_*/` in `docs/pub/ARCHITECTURE.md` (1) e `docs/pub/ADDING_tests.md` (4). Causa: file spostati da root a `docs/pub/` senza aggiornare i percorsi relativi. | **Risolto.** Percorsi corretti a `../../README.md` e `../../src/tests/domain_*/`. |
 
-Entrambi i finding sono ora risolti; il codebase post-fix ha 71/71 verifiche verdi.
+**Finding informativo (non richiede azione prima della difesa):**
 
-**Item deferiti:** vedi §A.8.
+| ID | Verifica | Descrizione | Impatto |
+|----|----------|-------------|---------|
+| I-1 | §B.7 / verifica 40 | 2 magic number non-user-visible: `timeout=10` (`connectors/base.py:426`, subprocess `--version` check) e `recursion_limit=10` (`discovery/openapi.py:390`, prance internal). Non governano il comportamento assessment. | Nessuno sulla funzionalità. Candidato a cleanup M2. |
 
----
-
-## Appendici
-
-### Appendice A — Copertura Descrizioni Pydantic Field
-
-`src/config/schema/` + `src/core/models/`: **264 chiamate outer (user-facing) `Field()`; 264 con `description=` (100%)**. I campi inner `Annotated[..., Field(ge=...)]` validation-only sono intenzionalmente non contati — l'assignment outer porta la descrizione.
-
-### Appendice B — Inventario Licenze (52 dipendenze)
-
-- **Permissive (MIT / BSD / Apache / MPL / ISC):** 47 pacchetti
-- **AGPL v3 (gated dietro extra `[sslyze]`):** `nassl 5.4.0`, `sslyze 6.3.1`
-- **UNKNOWN (transitiva di sslyze):** `tls_parser 2.0.2`
-- **UNKNOWN (il progetto stesso, LICENSE differito):** `apiguard-assurance 0.1.0`
-
-Il tail AGPL v3 è accettabile per uso tesi; l'extra `[sslyze]` deve essere rimosso o sostituito prima di qualsiasi distribuzione SaaS / closed-source.
+**Item deferiti:** vedi §A.7.
 
 ---
 
-*Audit completato 2026-05-17. Tutti i risultati §B.3–§B.11 riflettono lo stato del working tree al commit `a072d1f`. Finding M-1 e M-2 sono cosmetici; i 2 item in §A.8 sono gli unici punti aperti e sono differiti per decisione esplicita dell'autore.*
+## Appendice — Comandi di Verifica Principali
+
+```bash
+# Static analysis
+hatch run dev:lint       # ruff check . + mypy src/
+hatch run dev:audit      # bandit + vulture
+hatch run dev:deps       # pip-audit
+
+# Build reproducibility
+hatch build --target wheel
+sha256sum dist/apiguard_assurance-0.1.0-py3-none-any.whl
+
+# Cold install
+python3 -m venv /tmp/cold-test && /tmp/cold-test/bin/pip install -q dist/apiguard_assurance-0.1.0-py3-none-any.whl
+/tmp/cold-test/bin/apiguard version   # → 0.1.0
+```
+
+---
+
+*Audit completato 2026-05-18. Tutti i risultati §B.3–§B.11 riflettono lo stato del codebase al 2026-05-18. Finding M-1 risolto durante l'audit. Finding I-1 è informativo e non bloccante. Gli item deferiti (§A.7) sono gli unici punti aperti per la distribuzione pubblica.*

@@ -36,7 +36,7 @@ Discovery pipeline:
     Output:
         A list of BaseTest instances, one per discovered and filtered test.
         The list is ordered by test_id lexicographically for deterministic
-        output, matching the reproducibility guarantee in Implementazione.md.
+        output, matching the reproducibility guarantee in 4-Implementazione.md.
 
 Dependency rule:
     This module imports from stdlib (pkgutil, inspect, importlib, types),
@@ -120,7 +120,7 @@ class TestRegistry:
 
         The returned list is sorted by test_id lexicographically. This produces
         a deterministic output regardless of filesystem directory traversal order,
-        satisfying the Reproducibility constraint in Implementazione.md Section 1.
+        satisfying the Reproducibility constraint in 4-Implementazione.md Section 1.
 
         Args:
             min_priority: Maximum priority level (inclusive) to include.

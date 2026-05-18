@@ -1,4 +1,46 @@
 # APIGuard — Tool Decisions per Test
+
+- [Documento Operativo Consolidato](#documento-operativo-consolidato)
+- [DOMINIO 0 — API Discovery \& Inventory Management](#dominio-0--api-discovery--inventory-management)
+  - [0.1 Shadow API Discovery `[P0]` `[HYBRID]`](#01-shadow-api-discovery-p0-hybrid)
+  - [0.2 Deny-by-Default `[P0]` `[NATIVE + opzionale]`](#02-deny-by-default-p0-native--opzionale)
+  - [0.3 Deprecated API Enforcement `[P0]` `[NATIVE + opzionale]`](#03-deprecated-api-enforcement-p0-native--opzionale)
+- [DOMINIO 1 — Identità e Autenticazione](#dominio-1--identità-e-autenticazione)
+  - [1.1 Solo Richieste Autenticate `[P0]` `[NATIVE]`](#11-solo-richieste-autenticate-p0-native)
+  - [1.2 Credenziali Crittograficamente Valide `[P0]` `[HYBRID]`](#12-credenziali-crittograficamente-valide-p0-hybrid)
+  - [1.3 Credenziali Non Scadute `[P0]` `[HYBRID]`](#13-credenziali-non-scadute-p0-hybrid)
+  - [1.4 Credenziali Non Revocate `[P1]` `[NATIVE]`](#14-credenziali-non-revocate-p1-native)
+  - [1.5 Credenziali su Canali Insicuri `[P2]` `[HYBRID]`](#15-credenziali-su-canali-insicuri-p2-hybrid)
+  - [1.6 Session Management `[P3]` `[NATIVE]`](#16-session-management-p3-native)
+- [DOMINIO 2 — Autorizzazione e Controllo Accessi](#dominio-2--autorizzazione-e-controllo-accessi)
+  - [2.1 RBAC Endpoint Privilege `[P1]` `[NATIVE]`](#21-rbac-endpoint-privilege-p1-native)
+  - [2.2 BOLA Prevention `[P1]` `[NATIVE + opzionale]`](#22-bola-prevention-p1-native--opzionale)
+  - [2.3 Operazioni Distruttive `[P1]` `[NATIVE + opzionale]`](#23-operazioni-distruttive-p1-native--opzionale)
+  - [2.4 Consistenza Policy `[P1]` `[NATIVE]`](#24-consistenza-policy-p1-native)
+  - [2.5 Excessive Data Exposure `[P2]` `[NATIVE]`](#25-excessive-data-exposure-p2-native)
+- [DOMINIO 3 — Integrità dei Dati](#dominio-3--integrità-dei-dati)
+  - [3.1 Input Validation `[P2]` `[HYBRID]`](#31-input-validation-p2-hybrid)
+  - [3.3 HMAC Config Audit `[P3]` `[NATIVE]`](#33-hmac-config-audit-p3-native)
+- [DOMINIO 4 — Disponibilità e Resilienza](#dominio-4--disponibilità-e-resilienza)
+  - [4.1 Rate Limiting `[P0]` `[HYBRID]`](#41-rate-limiting-p0-hybrid)
+  - [4.2 Timeout Config Audit `[P1]` `[NATIVE]`](#42-timeout-config-audit-p1-native)
+  - [4.3 Circuit Breaker `[P1]` `[NATIVE]`](#43-circuit-breaker-p1-native)
+- [DOMINIO 5 — Visibilità e Auditing](#dominio-5--visibilità-e-auditing)
+  - [5.1 Audit Logging `[P1]` `[NATIVE]`](#51-audit-logging-p1-native)
+  - [5.2 Alert Real-Time `[P2]` `[NATIVE]`](#52-alert-real-time-p2-native)
+- [DOMINIO 6 — Configurazione e Hardening](#dominio-6--configurazione-e-hardening)
+  - [6.1 Error Handling e Information Disclosure `[P2]` `[NATIVE]`](#61-error-handling-e-information-disclosure-p2-native)
+  - [6.2 Security Headers `[P3]` `[NATIVE]`](#62-security-headers-p3-native)
+  - [6.3 Gateway Layer-7 Hardening `[P1]` `[HYBRID]`](#63-gateway-layer-7-hardening-p1-hybrid)
+  - [6.4 Hardcoded Credentials `[P2]` `[NATIVE + opzionale]`](#64-hardcoded-credentials-p2-native--opzionale)
+- [DOMINIO 7 — Business Logic e Flussi Sensibili](#dominio-7--business-logic-e-flussi-sensibili)
+  - [7.1 Anti-Automation `[P2]` `[NATIVE]`](#71-anti-automation-p2-native)
+  - [7.2 SSRF Prevention `[P0]` `[HYBRID]`](#72-ssrf-prevention-p0-hybrid)
+  - [7.3 Race Condition `[P2]` `[HYBRID]`](#73-race-condition-p2-hybrid)
+  - [7.4 Consumo Sicuro Servizi Esterni `[P2]` `[HYBRID]`](#74-consumo-sicuro-servizi-esterni-p2-hybrid)
+- [Riepilogo Connector Condivisi](#riepilogo-connector-condivisi)
+- [Riepilogo Classificazione](#riepilogo-classificazione)
+
 ## Documento Operativo Consolidato
 
 **Versione:** 3.0 — Maggio 2026
@@ -16,7 +58,7 @@ La classificazione completa è in `TOOLS_catalog.md`. Questo documento riporta
 solo le Categorie A (connector obbligatori) e B (connector facoltativi con fallback nativo).
 I tool Categoria C non compaiono nelle tabelle operative. Le quattro ragioni di scarto sono:
 - **C.1 Ridondanza / Deprecazione:** sostituito da un tool A o B già presente, oppure abbandonato
-- **C.2 Platform-specific:** rompe l'agnosticismo dell'architettura (Implementazione.md §3.1)
+- **C.2 Platform-specific:** rompe l'agnosticismo dell'architettura (4-Implementazione.md §3.1)
 - **C.3 Scope diverso:** contract testing, SAST, IaC — dominio adiacente non security assessment API
 - **C.4 Valore solo documentale:** Python nativo produce risultato equivalente senza dipendenze
 

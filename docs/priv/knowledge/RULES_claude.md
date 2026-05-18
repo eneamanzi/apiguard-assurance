@@ -4,13 +4,13 @@
 
 **Nota:** Questo documento è un estratto operativo del manuale di progettazione completo. Le sezioni sono numerate in continuità con il documento originale da cui sono state estratte; le sezioni intermedie (5–8) appartengono ad altri estratti e non sono incluse qui.
 
-**Scopo:** Definire come devi lavorare su questo progetto. Non descrive l'architettura — quella è in `Implementazione.md`, che è la tua fonte di verità primaria. Questo documento descrive la roadmap da seguire, gli anti-pattern da non riprodurre, le regole che governano ogni tua generazione di codice, e la checklist da soddisfare prima di considerare un output pronto.
+**Scopo:** Definire come devi lavorare su questo progetto. Non descrive l'architettura — quella è in `4-Implementazione.md`, che è la tua fonte di verità primaria. Questo documento descrive la roadmap da seguire, gli anti-pattern da non riprodurre, le regole che governano ogni tua generazione di codice, e la checklist da soddisfare prima di considerare un output pronto.
 
 ---
 
 ## **0\. Fonte di Verità Architetturale**
 
-`Implementazione.md` è la fonte di verità unica sull'architettura del progetto. Se una richiesta che ricevi è in conflitto con quanto definito in `Implementazione.md` — sui confini di responsabilità dei moduli, sull'interfaccia di un componente, sul flusso di esecuzione — non procedere silenziosamente. Segnala il conflitto esplicitamente, indica la sezione rilevante del documento, e chiedi conferma prima di generare codice. La richiesta potrebbe riflettere un'evoluzione del design: in quel caso la risposta corretta è aggiornare `Implementazione.md` prima di implementare, non aggirare il documento.
+`4-Implementazione.md` è la fonte di verità unica sull'architettura del progetto. Se una richiesta che ricevi è in conflitto con quanto definito in `4-Implementazione.md` — sui confini di responsabilità dei moduli, sull'interfaccia di un componente, sul flusso di esecuzione — non procedere silenziosamente. Segnala il conflitto esplicitamente, indica la sezione rilevante del documento, e chiedi conferma prima di generare codice. La richiesta potrebbe riflettere un'evoluzione del design: in quel caso la risposta corretta è aggiornare `4-Implementazione.md` prima di implementare, non aggirare il documento.
 
 Se una richiesta viola uno dei principi fondamentali del progetto — agnosticismo API, separazione `TargetContext`/`TestContext`, monodirezionalità delle dipendenze — segnalalo esplicitamente prima di procedere. Non produrre codice che viola questi principi anche se la richiesta è formulata in modo diretto.
 
@@ -106,11 +106,11 @@ Tutto il codice che produci è in inglese senza eccezioni: nomi di variabili, fu
 
 ### **5.2 Type Hints e Pydantic**
 
-Inserisci type hints su ogni firma di funzione e metodo, incluso il return type. Usa `Any` solo se tecnicamente inevitabile (es. payload JSON a struttura arbitraria) e accompagnalo con un commento inline che ne giustifichi l'uso. Usa Pydantic v2 come unico strumento per modellare strutture dati validate a runtime: non usare `TypedDict` o plain dataclasses per dati che transitano da fonti esterne (config, response HTTP). I modelli immutabili usano `model_config = {"frozen": True}`.
+Inserisci type hints su ogni firma di funzione e metodo, incluso il return type. Usa `Any` solo se tecnicamente inevitabile (es. payload JSON a struttura arbitraria) e accompagnalo con un commento inline che ne giustifichi l'uso. Usa Pydantic v2 come unico strumento per modellare strutture dati validate a runtime: non usare `TypedDict` o plain dataclasses per dati che transitano da fonti esterne (config, response HTTP). I modelli immutabili usano `model_config = {"frozen": True}`. Eccezione: `TypedDict` è ammesso esclusivamente per le shape di wire-format raw provenienti da tool esterni (`connectors/types/`), dove la validazione Pydantic non è necessaria perché il dato viene immediatamente proiettato in strutture validate da `_evaluate()`.
 
 ### **5.3 Code Quality — Ruff**
 
-Ruff è il solo tool di formatting e linting del progetto. Non usare Black, isort separato, o flake8. La configurazione in `pyproject.toml` attiva i ruleset `E, W, F, I, B, C4, UP, ANN, S, RUF` con `line-length = 88` e `target-version = "py311"`. Il codice che produci deve superare `ruff check .` e `ruff format --check .` senza errori.
+Ruff è il solo tool di formatting e linting del progetto. Non usare Black, isort separato, o flake8. La configurazione in `pyproject.toml` attiva i ruleset `E, W, F, I, N, UP, B, S, ANN` con `line-length = 100` e `target-version = "py311"`. Il codice che produci deve superare `ruff check .` e `ruff format --check .` senza errori.
 
 ### **5.4 Error Handling**
 

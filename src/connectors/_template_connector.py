@@ -116,7 +116,7 @@ class TemplateConnector(BaseSubprocessConnector):
         flag_tokens = [t for t in extra_flags.split() if t]
         cmd.extend(flag_tokens)
 
-        # Build human-readable commands using the base class helper (Proposal A).
+        # Build human-readable commands using the base class helper.
         # Replace ["-json"] with whatever flag your tool uses to produce JSON output.
         reproducible_command, reproducible_command_json = self._build_reproducible_commands(
             cmd_prefix=cmd,

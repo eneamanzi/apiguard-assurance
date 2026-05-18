@@ -4,7 +4,7 @@ src/tests/domain_2/test_2_1_rbac_enforcement.py
 Test21RbacEnforcement: verifies that admin-only endpoints reject requests
 from authenticated users who lack the required administrative role.
 
-Guarantee covered (Metodologia.md §Garanzia 2.1 — Sub-Test 1):
+Guarantee covered (3-Metodologia.md §Garanzia 2.1 — Sub-Test 1):
     After authentication, the gateway or application middleware must enforce
     role-based access control (RBAC).  A request authenticated as ROLE_USER_A
     to an admin-only endpoint must return 403 Forbidden.  A 2xx response

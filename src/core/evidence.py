@@ -69,7 +69,7 @@ Architecture (v2.0 — streaming JSONL):
 
     Thread safety:
         Not thread-safe by design.  Sequential execution guaranteed by the
-        tool architecture (Implementazione.md, Section 4.3).
+        tool architecture (4-Implementazione.md, Section 4.3).
 """
 
 from __future__ import annotations

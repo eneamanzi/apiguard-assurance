@@ -203,10 +203,10 @@ include = [
     # Source code
     "src/",
 
-    # Public documentation
-    "docs/",
+    # Public documentation only (docs/priv/ is internal and not distributed)
+    "docs/pub/",
     "README.md",
-    "docs/priv/LOCAL_commands.md", # Operator quick-reference (it)
+    "README.en.md",
 
     # Build + dependency declaration
     "pyproject.toml",
@@ -222,10 +222,6 @@ exclude = [
     # Internal development context (IDE settings, session config)
     ".claude/",
     "CLAUDE.md",
-    # Project-state / audit artefacts (regenerated, not for end users)
-    "docs/priv/PROJECT_status.md",
-    "Z_*.md",
-    "docs/priv/AUDIT_*_release.md",
     # Personal build helpers and target-specific configs
     "build_zip.sh",
     "config_crapi.yaml",

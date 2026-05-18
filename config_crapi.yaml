@@ -1,5 +1,4 @@
 target:
-  name: "crAPI"
   base_url: "http://localhost:8888"
   openapi_spec_path: "./specs/crapi-openapi.json"
   admin_api_url: null

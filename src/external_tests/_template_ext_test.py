@@ -14,7 +14,7 @@ Steps to add a new ExternalToolTest:
     4. Implement _build_connector(), _invoke_connector(), and _evaluate().
     5. Verify test_id uniqueness: grep for your chosen test_id across all test files.
 
-Timeout access pattern (Proposal C):
+Timeout access pattern:
     Read timeout from target.external_tools.<tool>.timeout_seconds.
     This is the canonical source; do NOT read from tests_config domain fields.
 
@@ -102,7 +102,7 @@ class TemplateExtTest(ExternalToolTest):
     cwe_id: ClassVar[str] = "CWE-000"
 
     # tool_name must match a field name in ExternalToolsConfig (testssl/nuclei/ffuf).
-    # A typo here triggers a WARNING in is_tool_enabled() (Proposal E) and
+    # A typo here triggers a WARNING in is_tool_enabled() and
     # causes this test to be excluded from the run.
     tool_name: ClassVar[str] = "template-tool"  # replace with "testssl", "nuclei", or "ffuf"
 
@@ -135,8 +135,7 @@ class TemplateExtTest(ExternalToolTest):
         """
         Call connector.run() with tool-specific parameters.
 
-        Reads timeout_seconds from target.external_tools.<tool>.timeout_seconds
-        (Proposal C canonical pattern).
+        Reads timeout_seconds from target.external_tools.<tool>.timeout_seconds.
 
         Args:
             connector:   Connector instance (injected by registry or freshly built).
@@ -146,7 +145,7 @@ class TemplateExtTest(ExternalToolTest):
         Returns:
             ConnectorResult: Parsed tool output.
         """
-        # Proposal C canonical pattern: always read from external_tools.
+        # Read timeout from external_tools, not from tests_config domain fields.
         # Replace "testssl" with the actual tool name (nuclei, ffuf, ...).
         # timeout_seconds is guaranteed non-None here because Phase 1 validation
         # rejects enabled=True with timeout_seconds=None (ConfigurationError).

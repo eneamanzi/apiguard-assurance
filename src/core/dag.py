@@ -14,7 +14,7 @@ could theoretically run in parallel. In Version 1.0, the engine executes batches
 and the tests within each batch strictly sequentially (no ThreadPoolExecutor).
 
 The batch abstraction preserves the option for future parallelism without
-implementing it now (Implementazione.md, Section 4.3).
+implementing it now (4-Implementazione.md, Section 4.3).
 
 Dependency rule: this module imports from stdlib and src.core.exceptions only.
 It operates on plain strings (test_id values) and does not import BaseTest or
@@ -187,7 +187,7 @@ class DAGScheduler:
         because min_priority=1), tests that declared depends_on that test would
         cause graphlib to reference an unknown node. Rather than treating this
         as a fatal error, we drop the reference and log a WARNING per
-        Implementazione.md Section 4.5:
+        4-Implementazione.md Section 4.5:
 
             "If a declared dependency is not in the active set (because filtered
             by priority), DAGScheduler ignores it with a WARNING — without error."
@@ -314,7 +314,7 @@ class DAGScheduler:
         The test_ids within each batch are sorted lexicographically for
         deterministic ordering. graphlib does not guarantee ordering within a level,
         and deterministic output is required by the Reproducibility constraint
-        (Implementazione.md, Section 1).
+        (4-Implementazione.md, Section 1).
 
         Stall detection
         ---------------

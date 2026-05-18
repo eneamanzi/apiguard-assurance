@@ -1,4 +1,125 @@
 # APIGuard — Catalogo Completo dei Tool di Security Assessment
+
+- [Catalogo Tool di Sicurezza API](#catalogo-tool-di-sicurezza-api)
+- [Legenda Colonne](#legenda-colonne)
+- [DOMINIO 0 — API Discovery \& Inventory Management](#dominio-0--api-discovery--inventory-management)
+  - [Test 0.1 — Tutti gli Endpoint Esposti Sono Documentati (Shadow API Discovery) `[P0]`](#test-01--tutti-gli-endpoint-esposti-sono-documentati-shadow-api-discovery-p0)
+    - [Categoria A — Da implementare come connector](#categoria-a--da-implementare-come-connector)
+    - [Categoria B — Connector facoltativo (fallback nativo disponibile)](#categoria-b--connector-facoltativo-fallback-nativo-disponibile)
+    - [Categoria C — Scartato](#categoria-c--scartato)
+  - [Test 0.2 — Il Gateway Rifiuta Richieste a Path Non Registrati (Deny-by-Default) `[P0]`](#test-02--il-gateway-rifiuta-richieste-a-path-non-registrati-deny-by-default-p0)
+    - [Categoria A — Da implementare come connector](#categoria-a--da-implementare-come-connector-1)
+    - [Categoria B — Connector facoltativo (fallback nativo disponibile)](#categoria-b--connector-facoltativo-fallback-nativo-disponibile-1)
+    - [Categoria C — Scartato](#categoria-c--scartato-1)
+  - [Test 0.3 — Le API Deprecate Sono Disabilitate o con Monitoraggio Rafforzato `[P0]`](#test-03--le-api-deprecate-sono-disabilitate-o-con-monitoraggio-rafforzato-p0)
+    - [Categoria A — Da implementare come connector](#categoria-a--da-implementare-come-connector-2)
+    - [Categoria B — Connector facoltativo (fallback nativo disponibile)](#categoria-b--connector-facoltativo-fallback-nativo-disponibile-2)
+    - [Categoria C — Scartato](#categoria-c--scartato-2)
+- [DOMINIO 1 — Identità e Autenticazione](#dominio-1--identità-e-autenticazione)
+  - [Test 1.1 — Solo Richieste Autenticate Accedono a Risorse Protette `[P0]`](#test-11--solo-richieste-autenticate-accedono-a-risorse-protette-p0)
+    - [Categoria A / B — Da implementare come connector](#categoria-a--b--da-implementare-come-connector)
+    - [Categoria C — Scartato](#categoria-c--scartato-3)
+  - [Test 1.2 — Le Credenziali Sono Crittograficamente Valide (JWT Signature) `[P0]`](#test-12--le-credenziali-sono-crittograficamente-valide-jwt-signature-p0)
+    - [Categoria A — Da implementare come connector](#categoria-a--da-implementare-come-connector-3)
+    - [Categoria B — Connector facoltativo (fallback nativo disponibile)](#categoria-b--connector-facoltativo-fallback-nativo-disponibile-3)
+    - [Categoria C — Scartato](#categoria-c--scartato-4)
+  - [Test 1.3 — Le Credenziali Non Sono Scadute (Expiry Check) `[P0]`](#test-13--le-credenziali-non-sono-scadute-expiry-check-p0)
+    - [Categoria A — Da implementare come connector](#categoria-a--da-implementare-come-connector-4)
+    - [Categoria B / C](#categoria-b--c)
+  - [Test 1.4 — Le Credenziali Non Sono State Revocate (Token Revocation) `[P1]`](#test-14--le-credenziali-non-sono-state-revocate-token-revocation-p1)
+    - [Categoria A / B — Da implementare come connector](#categoria-a--b--da-implementare-come-connector-1)
+    - [Categoria C — Scartato](#categoria-c--scartato-5)
+  - [Test 1.5 — Le Credenziali Non Sono Trasmesse via Canali Insicuri (TLS) `[P2]`](#test-15--le-credenziali-non-sono-trasmesse-via-canali-insicuri-tls-p2)
+    - [Categoria A — Da implementare come connector](#categoria-a--da-implementare-come-connector-5)
+    - [Categoria C — Scartato](#categoria-c--scartato-6)
+  - [Test 1.6 — Le Sessioni Sono Gestite in Modo Sicuro in Architetture Distribuite `[P3]`](#test-16--le-sessioni-sono-gestite-in-modo-sicuro-in-architetture-distribuite-p3)
+    - [Categoria A / B — Da implementare come connector](#categoria-a--b--da-implementare-come-connector-2)
+    - [Categoria C — Scartato](#categoria-c--scartato-7)
+- [DOMINIO 2 — Autorizzazione e Controllo Accessi](#dominio-2--autorizzazione-e-controllo-accessi)
+  - [Test 2.1 — Solo Utenti Autorizzati Accedono a Endpoint Privilegiati (RBAC) `[P1]`](#test-21--solo-utenti-autorizzati-accedono-a-endpoint-privilegiati-rbac-p1)
+    - [Categoria A / B — Da implementare come connector](#categoria-a--b--da-implementare-come-connector-3)
+    - [Categoria C — Scartato](#categoria-c--scartato-8)
+  - [Test 2.2 — Gli Utenti Accedono Solo ai Propri Dati (BOLA Prevention) `[P1]`](#test-22--gli-utenti-accedono-solo-ai-propri-dati-bola-prevention-p1)
+    - [Categoria A — Da implementare come connector](#categoria-a--da-implementare-come-connector-6)
+    - [Categoria B — Connector facoltativo (fallback nativo disponibile)](#categoria-b--connector-facoltativo-fallback-nativo-disponibile-4)
+    - [Categoria C — Scartato](#categoria-c--scartato-9)
+  - [Test 2.3 — Le Operazioni Distruttive Richiedono Privilegi Appropriati `[P1]`](#test-23--le-operazioni-distruttive-richiedono-privilegi-appropriati-p1)
+    - [Categoria A — Da implementare come connector](#categoria-a--da-implementare-come-connector-7)
+    - [Categoria B — Connector facoltativo (fallback nativo disponibile)](#categoria-b--connector-facoltativo-fallback-nativo-disponibile-5)
+    - [Categoria C — Scartato](#categoria-c--scartato-10)
+  - [Test 2.4 — Le Policy di Autorizzazione Sono Consistenti Across Endpoint `[P1]`](#test-24--le-policy-di-autorizzazione-sono-consistenti-across-endpoint-p1)
+    - [Categoria A / B — Da implementare come connector](#categoria-a--b--da-implementare-come-connector-4)
+    - [Categoria C — Scartato](#categoria-c--scartato-11)
+  - [Test 2.5 — L'API Non Espone Dati Eccessivi `[P2]`](#test-25--lapi-non-espone-dati-eccessivi-p2)
+    - [Categoria A / B — Da implementare come connector](#categoria-a--b--da-implementare-come-connector-5)
+    - [Categoria C — Scartato](#categoria-c--scartato-12)
+- [DOMINIO 3 — Integrità dei Dati](#dominio-3--integrità-dei-dati)
+  - [Test 3.1 — Tutti gli Input Sono Validati Secondo Schema e Constraints `[P2]`](#test-31--tutti-gli-input-sono-validati-secondo-schema-e-constraints-p2)
+    - [Categoria A — Da implementare come connector](#categoria-a--da-implementare-come-connector-8)
+    - [Categoria B — Connector facoltativo (fallback nativo disponibile)](#categoria-b--connector-facoltativo-fallback-nativo-disponibile-6)
+    - [Categoria C — Scartato](#categoria-c--scartato-13)
+  - [Test 3.3 — I Dati in Transit Sono Protetti da Manipolazione (HMAC Config Audit) `[P3]`](#test-33--i-dati-in-transit-sono-protetti-da-manipolazione-hmac-config-audit-p3)
+    - [Categoria A / B — Da implementare come connector](#categoria-a--b--da-implementare-come-connector-6)
+    - [Categoria C — Scartato](#categoria-c--scartato-14)
+- [DOMINIO 4 — Disponibilità e Resilienza](#dominio-4--disponibilità-e-resilienza)
+  - [Test 4.1 — Il Sistema Previene Resource Exhaustion via Rate Limiting `[P0]`](#test-41--il-sistema-previene-resource-exhaustion-via-rate-limiting-p0)
+    - [Categoria A — Da implementare come connector](#categoria-a--da-implementare-come-connector-9)
+    - [Categoria B / C](#categoria-b--c-1)
+    - [Categoria C — Scartato](#categoria-c--scartato-15)
+  - [Test 4.2 — Il Sistema Implementa Timeout per Prevenire Resource Lock `[P1]`](#test-42--il-sistema-implementa-timeout-per-prevenire-resource-lock-p1)
+    - [Categoria A / B — Da implementare come connector](#categoria-a--b--da-implementare-come-connector-7)
+    - [Categoria C — Scartato](#categoria-c--scartato-16)
+  - [Test 4.3 — Il Sistema Degrada Gracefully con Circuit Breaker `[P1]`](#test-43--il-sistema-degrada-gracefully-con-circuit-breaker-p1)
+    - [Categoria A / B — Da implementare come connector](#categoria-a--b--da-implementare-come-connector-8)
+    - [Categoria C — Scartato](#categoria-c--scartato-17)
+- [DOMINIO 5 — Visibilità e Auditing](#dominio-5--visibilità-e-auditing)
+  - [Test 5.1 — Ogni Richiesta È Logged con Metadata Essenziali `[P1]`](#test-51--ogni-richiesta-è-logged-con-metadata-essenziali-p1)
+    - [Categoria A / B — Da implementare come connector](#categoria-a--b--da-implementare-come-connector-9)
+    - [Categoria C — Scartato](#categoria-c--scartato-18)
+  - [Test 5.2 — Eventi Security Anomali Triggerano Alert Real-Time `[P2]`](#test-52--eventi-security-anomali-triggerano-alert-real-time-p2)
+    - [Categoria A / B — Da implementare come connector](#categoria-a--b--da-implementare-come-connector-10)
+    - [Categoria C — Scartato](#categoria-c--scartato-19)
+- [DOMINIO 6 — Configurazione e Hardening](#dominio-6--configurazione-e-hardening)
+  - [Test 6.1 — Error Handling e Information Disclosure `[P2]`](#test-61--error-handling-e-information-disclosure-p2)
+    - [Categoria A / B — Da implementare come connector](#categoria-a--b--da-implementare-come-connector-11)
+    - [Categoria C — Scartato](#categoria-c--scartato-20)
+  - [Test 6.2 — Security Header Configurati Appropriatamente `[P3]`](#test-62--security-header-configurati-appropriatamente-p3)
+    - [Categoria A / B — Da implementare come connector](#categoria-a--b--da-implementare-come-connector-12)
+    - [Categoria C — Scartato](#categoria-c--scartato-21)
+  - [Test 6.3 — La Configurazione del Gateway È Hardenata Contro Exploit Layer-7 `[P1]`](#test-63--la-configurazione-del-gateway-è-hardenata-contro-exploit-layer-7-p1)
+    - [Categoria A — Da implementare come connector](#categoria-a--da-implementare-come-connector-10)
+    - [Categoria B — Connector facoltativo (fallback nativo disponibile)](#categoria-b--connector-facoltativo-fallback-nativo-disponibile-7)
+    - [Categoria B / C precedente](#categoria-b--c-precedente)
+    - [Categoria C — Scartato](#categoria-c--scartato-22)
+  - [Test 6.4 — Le Credenziali di Servizio Non Sono Hardcoded o Esposte `[P2]`](#test-64--le-credenziali-di-servizio-non-sono-hardcoded-o-esposte-p2)
+    - [Categoria A — Da implementare come connector](#categoria-a--da-implementare-come-connector-11)
+    - [Categoria B — Connector facoltativo (fallback nativo disponibile)](#categoria-b--connector-facoltativo-fallback-nativo-disponibile-8)
+    - [Categoria C — Scartato](#categoria-c--scartato-23)
+- [DOMINIO 7 — Business Logic e Flussi Sensibili](#dominio-7--business-logic-e-flussi-sensibili)
+  - [Test 7.1 — I Flussi Business Sensibili Sono Protetti da Abuse Automatizzato `[P2]`](#test-71--i-flussi-business-sensibili-sono-protetti-da-abuse-automatizzato-p2)
+    - [Categoria A / B — Da implementare come connector](#categoria-a--b--da-implementare-come-connector-13)
+    - [Categoria C — Scartato](#categoria-c--scartato-24)
+  - [Test 7.2 — Il Sistema Previene Server-Side Request Forgery (SSRF) `[P0]`](#test-72--il-sistema-previene-server-side-request-forgery-ssrf-p0)
+    - [Categoria A — Da implementare come connector](#categoria-a--da-implementare-come-connector-12)
+    - [Categoria B — Connector facoltativo (fallback nativo disponibile)](#categoria-b--connector-facoltativo-fallback-nativo-disponibile-9)
+    - [Categoria C — Scartato](#categoria-c--scartato-25)
+  - [Test 7.3 — Le Operazioni Critiche Sono Idempotent o Protette da Race Condition `[P2]`](#test-73--le-operazioni-critiche-sono-idempotent-o-protette-da-race-condition-p2)
+    - [Categoria A — Da implementare come connector](#categoria-a--da-implementare-come-connector-13)
+    - [Categoria B / C](#categoria-b--c-2)
+    - [Categoria C — Scartato](#categoria-c--scartato-26)
+  - [Test 7.4 — L'API Consuma Servizi Esterni in Modo Sicuro (Webhook Verification) `[P2]`](#test-74--lapi-consuma-servizi-esterni-in-modo-sicuro-webhook-verification-p2)
+    - [Categoria A — Da implementare come connector](#categoria-a--da-implementare-come-connector-14)
+    - [Categoria B / C](#categoria-b--c-3)
+    - [Categoria C — Scartato](#categoria-c--scartato-27)
+- [APPENDICE A — Tool Cross-Cutting (Multi-Dominio) — v1.3](#appendice-a--tool-cross-cutting-multi-dominio--v13)
+- [APPENDICE B — Tool per Protocolli Non-REST (Fuori Scope v1.0, Documentati per Completezza)](#appendice-b--tool-per-protocolli-non-rest-fuori-scope-v10-documentati-per-completezza)
+  - [GraphQL](#graphql)
+  - [gRPC](#grpc)
+  - [WebSocket](#websocket)
+- [APPENDICE C — Tool Segnalati come Datati o Abbandonati](#appendice-c--tool-segnalati-come-datati-o-abbandonati)
+- [APPENDICE D — Tool per Sviluppi Futuri (Fuori Scope v1.0)](#appendice-d--tool-per-sviluppi-futuri-fuori-scope-v10)
+- [APPENDICE E — Matrice di Confidenza](#appendice-e--matrice-di-confidenza)
+
 ## Catalogo Tool di Sicurezza API
 
 **Versione:** 1.3 — Maggio 2026
@@ -230,12 +351,7 @@ La classificazione completa con motivazioni estese è in `TOOLS_decisions.md`.
 | Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Note |
 |---|---|---|---|---|---|
 | **testssl.sh 3.2** | `testssl/testssl.sh` | Bash script (dipendenze: OpenSSL) | **Standard de facto per TLS security assessment.** Copre: versioni protocollo (SSLv2–TLS 1.3), cipher suite, forward secrecy, certificate transparency (SCT count), vulnerabilità CVE-based (BEAST, POODLE, ROBOT, DROWN, Heartbleed, LUCKY13, SWEET32, FREAK, LOGJAM, CRIME, BREACH, RENEGOTIATION, TICKETBLEED). Replicare in Python richiederebbe centinaia di handshake TLS a livello socket raw. | JSON (`--jsonfile <path>`) con `{id, severity, finding, cve, cwe}` | **Tool primario.** Versione 3.2 stabile. Docker: `drwetter/testssl.sh`. Filtrare `severity in {MEDIUM, HIGH, CRITICAL, WARN}`. |
-
-#### Categoria B — Connector facoltativo (fallback nativo disponibile)
-
-| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Note |
-|---|---|---|---|---|---|
-| **sslyze** | `nabla-c0d3/sslyze` | Python — libreria / CLI | Alternativa Python-native importabile come libreria (`from sslyze import ...`) invece di subprocess. Meno completa di testssl.sh per vulnerability scanning ma zero binary dependencies. Fallback quando testssl.sh non è disponibile nell'ambiente. | JSON | **Libreria Python** → `BaseLibraryConnector`, non `BaseSubprocessConnector` |
+| **sslyze** | `nabla-c0d3/sslyze` | Python — libreria / CLI | Connector parallelo a testssl.sh: importabile come libreria Python pura (`from sslyze import ...`), zero binary dependencies. Analisi TLS complementare. Implementato come `SslyzeConnector(BaseLibraryConnector)` e `ExtTest15SslyzeAnalysis` in Milestone 1. | JSON | **Libreria Python** → `BaseLibraryConnector`, non `BaseSubprocessConnector`. Entrambi i connectors (testssl.sh e sslyze) vengono eseguiti in parallelo nella stessa run. |
 
 #### Categoria C — Scartato
 
@@ -794,7 +910,7 @@ Tool che coprono aspetti di più test o domini.
 | **trufflehog** | B | 6.4 | Secret scanning runtime |
 | **gitleaks** | B | 6.4 | Secret scanning git history |
 | **detect-secrets** | B | 6.4 | Secret scanning Python library |
-| **sslyze** | B | 1.5 (fallback testssl.sh) | TLS analysis Python library |
+| **sslyze** | A | 1.5 (parallelo a testssl.sh) | TLS analysis Python library — connector parallelo, non fallback |
 
 Tool Categoria C con copertura multi-dominio (documentati per completezza storica):
 

@@ -30,8 +30,9 @@ Dependency rule:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Annotated, Any, Literal
+from zoneinfo import ZoneInfo
 
 import structlog
 from pydantic import BaseModel, Field
@@ -200,7 +201,7 @@ class DomainSummary(BaseModel):
     skip_count: Annotated[int, Field(ge=0)] = Field(default=0)
     error_count: Annotated[int, Field(ge=0)] = Field(default=0)
     total_finding_count: Annotated[int, Field(ge=0)] = Field(default=0)
-    # Domain-Centric Split (ADR-001 §8.5 / Implementazione.md §4.10).
+    # Domain-Centric Split (ADR-001 §8.5 / 4-Implementazione.md §4.10).
     # native_rows and external_rows partition rows by source for template rendering.
     # They are a derived subset of rows (same objects, different references).
     native_rows: list[TestResultRow] = Field(
@@ -281,7 +282,7 @@ class ReportData(BaseModel):
         "(read from package metadata at report-generation time)."
     )
     run_id: str = Field(description="Unique run identifier from the engine.")
-    generated_at_utc: str = Field(description="ISO 8601 UTC timestamp of report generation.")
+    generated_at_utc: str = Field(description="ISO 8601 timestamp of report generation.")
     target_base_url: str = Field(description="Base URL of the assessed API.")
     spec_title: str = Field(description="OpenAPI spec title from the AttackSurface.")
     spec_version: str = Field(description="OpenAPI spec version from the AttackSurface.")
@@ -390,7 +391,7 @@ def build_report_data(
         output_schema_version=_OUTPUT_SCHEMA_VERSION,
         tool_version=_tool_version,
         run_id=run_id,
-        generated_at_utc=datetime.now(UTC).isoformat(),
+        generated_at_utc=datetime.now(ZoneInfo("Europe/Rome")).isoformat(),
         target_base_url=str(config.target.base_url),
         spec_title=spec_title,
         spec_version=spec_version,

@@ -41,7 +41,7 @@ Test ID uniqueness:
     collision with the native Test 1.5 in the engine's test_lookup dict (keyed
     by test_id); the tool suffix makes each ID self-documenting and unique.
 
-Timeout source (Proposal C):
+Timeout source:
     Each test reads its timeout from the corresponding tool config:
         ext.1.5.testssl: target.external_tools.testssl.timeout_seconds
         ext.1.5.sslyze:  target.external_tools.sslyze.timeout_seconds
@@ -330,7 +330,7 @@ class ExtTest15TlsAnalysis(ExternalToolTest):
         """
         Call connector.run() with testssl-specific parameters.
 
-        Timeout source (Proposal C):
+        Timeout source:
             target.external_tools.testssl.timeout_seconds is the authoritative
             source for the testssl.sh runtime timeout.  This replaces the
             previous pattern of reading from
@@ -670,7 +670,7 @@ class ExtTest15SslyzeAnalysis(ExternalToolTest):
         """
         Call connector.run() with sslyze-specific parameters.
 
-        Timeout source (Proposal C):
+        Timeout source:
             target.external_tools.sslyze.timeout_seconds is the canonical
             source for the per-connection network timeout.
 
