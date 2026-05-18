@@ -7,7 +7,7 @@
 APIGuard Assurance is a CLI tool for security auditing of REST APIs protected by an API Gateway. It executes the APIGuard methodology — 8 domains, up to 29 verifiable security guarantees — against any target documented with an OpenAPI 3.x or Swagger 2.0 specification, producing an interactive HTML report and a formal, reproducible evidence archive.
 
 > **Are you a contributor or developer?**
-> This document is aimed at people who *use* the tool. If you want to understand the internal architecture, data model, or how to add a new test, read **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)**.
+> This document is aimed at people who *use* the tool. If you want to understand the internal architecture, data model, or how to add a new test, read **[`docs/pub/ARCHITECTURE.md`](docs/pub/ARCHITECTURE.md)**.
 
 ---
 
@@ -65,6 +65,21 @@ pip install -e .
 # Verify the installation
 apiguard version
 ```
+
+**Alternative: install from a pre-built wheel:**
+
+```bash
+# Build the installable wheel into dist/
+hatch build --target wheel
+
+# Install the wheel into any virtual environment
+pip install dist/apiguard_assurance-*.whl
+
+# Verify
+apiguard version
+```
+
+The wheel is cross-platform and cross-Python 3 (`py3-none-any`): it works on any system with Python 3.11+. The `dist/` folder is excluded from the repository.
 
 **Installation with development dependencies (for contributors):**
 
@@ -290,7 +305,7 @@ config.yaml + .env
   Outputs: assessment_report.html  evidence.json  apiguard_report.json
 ```
 
-> For a detailed description of every phase, including edge cases, in-memory data model, and the `BaseTest.execute()` protocol, see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+> For a detailed description of every phase, including edge cases, in-memory data model, and the `BaseTest.execute()` protocol, see [`docs/pub/ARCHITECTURE.md`](docs/pub/ARCHITECTURE.md).
 
 ---
 
@@ -300,14 +315,16 @@ The APIGuard methodology structures security coverage in 8 thematic domains and 
 
 | Domain | Name | Currently implemented tests |
 |---|---|---|
-| 0 | API Discovery and Inventory Management | 0.1 Shadow API, 0.2 Deny by Default, 0.3 Deprecated API Enforcement |
-| 1 | Identity and Authentication | 1.1 Authentication Required |
-| 2 | Authorization and Access Control | — |
-| 3 | Data Integrity | — |
-| 4 | Availability and Resilience | — |
-| 5 | Visibility and Auditing | — |
-| 6 | Configuration and Hardening | — |
-| 7 | Business Logic and Sensitive Flows | — |
+| 0 | API Discovery and Inventory Management | 0.1 Shadow API Discovery, 0.2 Deny by Default, 0.3 Deprecated API Enforcement; `ext.0.1.nuclei` (template scan) |
+| 1 | Identity and Authentication | 1.1 Authentication Required, 1.4 Token Revocation, 1.5 Insecure Credential Transport, 1.6 Secure Session Management; `ext.1.5.testssl`, `ext.1.5.sslyze` (TLS analysis) |
+| 2 | Authorization and Access Control | 2.1 RBAC Enforcement |
+| 3 | Data Integrity | 3.3 HMAC Config Audit |
+| 4 | Availability and Resilience | 4.1 Rate Limiting, 4.2 Timeout Config Audit, 4.3 Circuit Breaker Audit |
+| 5 | Visibility and Auditing | — (Milestone 2) |
+| 6 | Configuration and Hardening | 6.2 Security Headers Audit, 6.4 Hardcoded Credentials Audit |
+| 7 | Business Logic and Sensitive Flows | 7.2 SSRF Prevention |
+
+**Milestone 1 total: 18 active tests** — 15 native (`BaseTest`) + 3 external (`ExternalToolTest` wrapping nuclei / testssl.sh / sslyze). Full status and the M2 roadmap are in [`docs/priv/PROJECT_status.md`](docs/priv/PROJECT_status.md).
 
 | Priority | Label | Typical strategy | Description |
 |---|---|---|---|
@@ -369,7 +386,7 @@ apiguard-assurance/
 |   `-- forgejo-kong/            # Docker Compose for the local test environment
 ```
 
-> The complete map with every single file annotated lives in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#repository-structure).
+> The complete map with every single file annotated lives in [`docs/pub/ARCHITECTURE.md`](docs/pub/ARCHITECTURE.md#repository-structure).
 
 ---
 

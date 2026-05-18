@@ -1,10 +1,14 @@
 # Developer Guide — Adding a New Native Test
 
 **Source of truth:** every pattern in this document was extracted directly
-from the tests verified OK against a live target:
-`0.1`, `0.2`, `0.3`, `1.1`, `1.2`, `1.3`, `1.4`, `1.5`, `2.1`,
+from the 15 native `BaseTest` subclasses verified OK against a live target
+in Milestone 1:
+`0.1`, `0.2`, `0.3`, `1.1`, `1.4`, `1.5`, `1.6`, `2.1`,
 `3.3`, `4.1`, `4.2`, `4.3`, `6.2`, `6.4`, `7.2`.
 Code excerpts are canonical. Do not invent patterns not present here.
+Planned but not yet implemented tests (`1.2`, `1.3`, `2.2`–`2.5`, `3.1`,
+`5.1`, `5.2`, `6.1`, `6.3`, `7.1`, `7.3`, `7.4`) are part of the
+Milestone 2 roadmap — see [`PROJECT_status.md`](../priv/PROJECT_status.md).
 
 **Read this document top to bottom before writing a single line of code.**
 Every step is mandatory. Skipping one produces a runtime error or a

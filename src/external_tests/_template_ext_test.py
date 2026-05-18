@@ -87,7 +87,7 @@ class TemplateExtTest(ExternalToolTest):
         depends_on = ["1.1"] -- requires native Test 1.1 to have run first.
     """
 
-    # --- Mandatory ClassVar declarations (LLM_rules.md §3.3) ---
+    # --- Mandatory ClassVar declarations ---
     # Verify test_id uniqueness before committing: grep -r "test_id" src/tests/ src/external_tests/
     # Naming convention (mandatory): "ext.X.Y.toolname"
     #   X = domain number, Y = sequence number, toolname = lowercase tool identifier

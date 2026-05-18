@@ -7,9 +7,9 @@ show_help() {
     cat << EOF
 Usage: ./build_zip.sh [OPTIONS]
 
-Builds an optimized zip archive ("apiguard-assurance.zip") for LLM consumption.
-It automatically excludes Git history, caches, heavy payload data, 
-integration tests, and non-target domains to save context tokens.
+Builds an optimized zip archive ("apiguard-assurance.zip") for offline distribution.
+It automatically excludes Git history, caches, heavy payload data,
+integration tests, and non-target domains to keep the archive compact.
 
 Options:
   -d <numbers>  Specify the Domain number(s) to include, comma-separated (e.g., -d 6 or -d 1,4,6).
@@ -66,7 +66,7 @@ EXCLUDES=(
 )
 
 if [ -n "$TARGET_DOMAIN_STR" ]; then
-    echo "[INFO] Building LLM context package for Domain(s): $TARGET_DOMAIN_STR..."
+    echo "[INFO] Building domain-filtered package for Domain(s): $TARGET_DOMAIN_STR..."
     
     # Converte la stringa separata da virgole in un array
     IFS=',' read -r -a TARGET_DOMAINS <<< "$TARGET_DOMAIN_STR"

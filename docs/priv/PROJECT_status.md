@@ -67,7 +67,7 @@ Cat B connectors never influence the symbol — they are always optional enhance
 
 **Scope.** Tests selected for architectural property demonstration value.
 Selection criterion: which test provides the most concrete and verifiable evidence for the
-architectural claims in `docs/apiguard_property.md`. Security coverage is secondary.
+architectural claims in `docs/priv/apiguard_property.md`. Security coverage is secondary.
 
 ### Domain 0 — API Discovery & Inventory
 

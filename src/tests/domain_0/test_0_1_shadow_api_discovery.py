@@ -195,7 +195,7 @@ class Test_0_1_ShadowApiDiscovery(BaseTest):  # noqa: N801
                 )
             )
 
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             return self._make_error(exc)
 
     def _probe_shadow_paths(

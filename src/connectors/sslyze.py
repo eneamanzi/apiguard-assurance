@@ -173,7 +173,7 @@ class SslyzeConnector(BaseLibraryConnector):
 
         except ExternalToolError:
             raise
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             raise ExternalToolError(
                 message=f"sslyze scan failed for {host}:{port}: {exc}",
                 tool_name=self.TOOL_NAME,

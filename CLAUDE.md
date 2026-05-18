@@ -3,18 +3,18 @@
 ## Project
 
 Python tool for automated REST API security assessment. Master's thesis in Cybersecurity.
-**Phase 4 active:** implementation.
+**Milestone 1 complete** — 15 native + 3 external tests implemented; thesis-writing phase active.
 **Development target:** Forgejo REST API protected by Kong Gateway (DB-less mode).
 The tool is API-agnostic for documented REST API surface (OpenAPI spec + `config.yaml`).
 WHITE_BOX tests use gateway-specific adapters (`src/core/gateway/`) and application-specific
 helpers (`src/tests/helpers/`); these are environment adapters, not hardcoded logic.
 
-**Project state (implemented tests, connectors, milestones):** `Z-CHECKLIST.md` — single source of truth.
+**Project state (implemented tests, connectors, milestones):** `docs/priv/PROJECT_status.md` — single source of truth.
 
 Reference documents — load with `/add-file` when needed:
-- `.claude/LLM_rules.md` — coding rules, anti-patterns, workflow protocol
-- `.claude/Implementazione.md` — full architecture (v4.1)
-- `.claude/Metodologia.md` — test methodology, oracles, box-gradient
+- `docs/priv/knowledge/RULES_claude.md` — coding rules, anti-patterns, workflow protocol
+- `docs/priv/knowledge/Implementazione.md` — full architecture (v4.2)
+- `docs/priv/knowledge/Metodologia.md` — test methodology, oracles, box-gradient
 
 ---
 
@@ -80,7 +80,22 @@ src/
     ├── renderer.py
     └── templates/report.html
 
-Z-CHECKLIST.md               # Project state — implemented tests, connectors, milestones
+docs/
+├── pub/                     # Public docs (contributor guides, architecture)
+│   ├── ADDING_tests.md
+│   ├── ADDING_external_tests.md
+│   └── ARCHITECTURE.md
+└── priv/                    # Internal docs (thesis research, audit, project state)
+    ├── PROJECT_status.md    # Project state — implemented tests, connectors, milestones
+    ├── apiguard_property.md
+    ├── TOOLS_catalog.md
+    ├── TOOLS_decisions.md
+    ├── LOCAL_commands.md
+    ├── AUDIT_milestone1_release.md
+    └── knowledge/           # Pre-project knowledge base (load with /add-file when needed)
+        ├── Implementazione.md
+        ├── Metodologia.md
+        └── RULES_claude.md
 ```
 
 **Dependency direction (absolute):**
@@ -173,24 +188,24 @@ Missing external tool → `TestResult(SKIP)` via `_skip_reason_from_registry`. N
 ## Test Implementation Guides
 
 Full contracts, templates, and step-by-step guides for implementing native and external tests:
-- `docs/ADDING_TESTS.md` — `BaseTest` contract, `ClassVar` fields, `execute()` signature,
+- `docs/pub/ADDING_tests.md` — `BaseTest` contract, `ClassVar` fields, `execute()` signature,
   `TestResult` statuses, strategy/priority mapping
-- `docs/ADDING_EXTERNAL_TESTS.md` — `ExternalToolTest` contract, `_build_connector()`,
+- `docs/pub/ADDING_external_tests.md` — `ExternalToolTest` contract, `_build_connector()`,
   `_invoke_connector()`, `_evaluate()`, dev-mode cache, connector injection (Phase R4)
 
-Load with `/add-file docs/ADDING_TESTS.md` or `/add-file docs/ADDING_EXTERNAL_TESTS.md`
+Load with `/add-file docs/pub/ADDING_tests.md` or `/add-file docs/pub/ADDING_external_tests.md`
 before implementing any new test.
 
 ## Session Startup
 
-1. Check `Z-CHECKLIST.md` to identify what to implement next.
+1. Check `docs/priv/PROJECT_status.md` to identify what to implement next.
 2. Load reference docs as needed:
-   - `/add-file .claude/LLM_rules.md` — always useful for a new session
-   - `/add-file .claude/Metodologia.md` — when implementing a test
-   - `/add-file .claude/Implementazione.md` — when touching infrastructure
-3. **If implementing a test:** read the relevant guide in `docs/` before writing any code:
-   - `/add-file docs/ADDING_TESTS.md` — for native `BaseTest` subclasses
-   - `/add-file docs/ADDING_EXTERNAL_TESTS.md` — for `ExternalToolTest` subclasses
+   - `/add-file docs/priv/knowledge/RULES_claude.md` — always useful for a new session
+   - `/add-file docs/priv/knowledge/Metodologia.md` — when implementing a test
+   - `/add-file docs/priv/knowledge/Implementazione.md` — when touching infrastructure
+3. **If implementing a test:** read the relevant guide in `docs/pub/` before writing any code:
+   - `/add-file docs/pub/ADDING_tests.md` — for native `BaseTest` subclasses
+   - `/add-file docs/pub/ADDING_external_tests.md` — for `ExternalToolTest` subclasses
 4. State the file you are about to write. Wait for confirmation.
 5. Write one file. Explain internal logic and rationale.
-6. After completing a test, update `Z-CHECKLIST.md` to reflect the new state.
+6. After completing a test, update `docs/priv/PROJECT_status.md` to reflect the new state.

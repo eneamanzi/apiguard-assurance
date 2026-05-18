@@ -200,7 +200,7 @@ class RuntimeTest02Config(BaseModel):
         complexity of a custom Pydantic type for a small set of strings.
     """
 
-    model_config = {"frozen": True}  # mandatory — see "Why two layers?" in ADDING_TESTS.md
+    model_config = {"frozen": True}  # mandatory — see "Why two layers?" in docs/pub/ADDING_tests.md
 
     gateway_server_identifiers: list[str] = Field(
         default_factory=lambda: [
@@ -264,7 +264,7 @@ class RuntimeTest15Config(BaseModel):
         cfg.expected_redirect_status_codes
     """
 
-    model_config = {"frozen": True}  # mandatory — see "Why two layers?" in ADDING_TESTS.md
+    model_config = {"frozen": True}  # mandatory — see "Why two layers?" in docs/pub/ADDING_tests.md
 
     hsts_min_max_age_seconds: int = Field(
         default=31_536_000,
@@ -325,7 +325,7 @@ class RuntimeTest16Config(BaseModel):
         cfg.expected_samesite_value
     """
 
-    model_config = {"frozen": True}  # mandatory — see "Why two layers?" in ADDING_TESTS.md
+    model_config = {"frozen": True}  # mandatory — see "Why two layers?" in docs/pub/ADDING_tests.md
 
     cookie_probe_paths: list[str] = Field(
         default_factory=lambda: ["/"],
@@ -399,7 +399,7 @@ class RuntimeTest33Config(BaseModel):
         cfg.clock_skew_unconfigured_value
     """
 
-    model_config = {"frozen": True}  # mandatory — see "Why two layers?" in ADDING_TESTS.md
+    model_config = {"frozen": True}  # mandatory — see "Why two layers?" in docs/pub/ADDING_tests.md
 
     # --- Oracle thresholds --------------------------------------------------
 

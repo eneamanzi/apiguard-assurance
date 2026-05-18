@@ -106,7 +106,7 @@ class _MetadataKwargs(TypedDict):
     """
     Static type hint for ``**kwargs`` unpacking in ``_metadata_kwargs()``.
 
-    LLM_rules.md mandates Pydantic v2 for data structures validated at runtime.
+    Pydantic v2 is the project standard for data structures validated at runtime.
     This TypedDict is an intentional, documented exception:
 
         - It is a **static annotation only** -- no runtime validation occurs.

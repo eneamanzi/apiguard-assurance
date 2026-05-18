@@ -89,7 +89,7 @@ EvidenceStore policy:
     Sub-test B: no EvidenceRecord objects are produced (Kong Admin API helper
     uses its own internal httpx client, not SecurityClient).  The transaction_log
     for Sub-test B findings will be empty -- this is correct per the config-audit
-    pattern documented in ADDING_TESTS.md.
+    pattern documented in docs/pub/ADDING_tests.md.
 """
 
 from __future__ import annotations

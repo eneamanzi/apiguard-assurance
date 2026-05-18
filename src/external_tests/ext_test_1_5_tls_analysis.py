@@ -26,7 +26,7 @@ Relationship with Test 1.5 (native):
         cipher suite weaknesses, certificate chain, forward secrecy,
         HSTS headers at TLS level, and CVE-tagged vulnerabilities.
 
-    The split follows the HYBRID pattern defined in Z-CHECKLIST.md:
+    The split follows the HYBRID pattern defined in docs/priv/PROJECT_status.md:
         Native part   -> handles HTTP-level checks (redirects, HSTS headers)
         External part -> handles TLS-level checks (protocols, ciphers, CVEs)
 

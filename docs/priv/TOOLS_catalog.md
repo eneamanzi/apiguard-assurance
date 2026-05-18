@@ -1,5 +1,5 @@
 # APIGuard — Catalogo Completo dei Tool di Security Assessment
-## Raccolta Integrale dalle Ricerche (use.ai × 4 sessioni + Gemini Deep Search + Analisi Claude)
+## Catalogo Tool di Sicurezza API
 
 **Versione:** 1.3 — Maggio 2026
 **Scopo:** Documento di riferimento unico per la ricerca. Ogni tool menzionato in qualsiasi fonte verificabile è incluso.
@@ -21,7 +21,7 @@ Ogni sezione di test è organizzata in tre sotto-sezioni nell'ordine di priorit�
 - **Categoria B** — Connector facoltativo con fallback nativo (Python può, il tool aggiunge copertura genuina)
 - **Categoria C — Scartato** — Non entra nel codice; motivazione sintetizzata in nota
 
-La classificazione completa con motivazioni estese è in `TODO-decisioni-tool.md`.
+La classificazione completa con motivazioni estese è in `TOOLS_decisions.md`.
 
 ---
 
@@ -34,7 +34,6 @@ La classificazione completa con motivazioni estese è in `TODO-decisioni-tool.md
 | **Linguaggio/Tipo** | Linguaggio di implementazione o tipo (CLI, Libreria, API, Script) |
 | **Valore Architetturale** | Perché è utile vs Python nativo puro |
 | **Output** | Formato di output rilevante per l'integrazione |
-| **Fonte** | Da quale sessione/documento proviene la segnalazione |
 | **Note** | Avvertenze, stato manutenzione, dipendenze |
 
 ---
@@ -49,18 +48,18 @@ La classificazione completa con motivazioni estese è in `TODO-decisioni-tool.md
 
 #### Categoria A — Da implementare come connector
 
-| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
-|---|---|---|---|---|---|---|
-| **ffuf** | `ffuf/ffuf` | Go — CLI binario | Fuzzer ultrarapido per path enumeration con wordlist API. Supporta wordlist SecLists (`API-endpoints.txt`, `common-api-endpoints-mazen160.txt`, 30k+ path). Output JSON nativo con `-of json`. Negoziazione metodi HTTP multipli, recursion, filtri avanzati su status code e dimensione risposta. Attivamente mantenuto. **Promosso da Cat B** in sostituzione di kiterunner (abbandonato). | JSON (`-of json -o result.json`) | use.ai-1, use.ai-2, Claude Analysis | Strumento primario per shadow API discovery. Connector condiviso con fallback 0.2. |
-| **katana** | `projectdiscovery/katana` | Go — CLI binario | Crawler headless con estrazione JavaScript, scopre endpoint non documentati tramite parsing AST di bundle JS. Indispensabile per SPA moderne dove gli endpoint sono definiti nel routing client-side, non server-side. | JSON | use.ai-2, use.ai-3 v3 | Copre scenari JS-heavy che ffuf non gestisce |
-| **Nuclei** | `projectdiscovery/nuclei` | Go — CLI binario | Scanner template-based con libreria di template `http/api/` per vulnerabilità API specifiche. Dopo shadow discovery, scala il test da "endpoint non documentato esiste" a "endpoint sfruttabile". Template aggiornati dalla community. | JSON (`-json`), SARIF | use.ai-2, use.ai-3 v3, Claude Analysis | **Connector condiviso** con test 3.1 e 7.2 |
+| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Note |
+|---|---|---|---|---|---|
+| **ffuf** | `ffuf/ffuf` | Go — CLI binario | Fuzzer ultrarapido per path enumeration con wordlist API. Supporta wordlist SecLists (`API-endpoints.txt`, `common-api-endpoints-mazen160.txt`, 30k+ path). Output JSON nativo con `-of json`. Negoziazione metodi HTTP multipli, recursion, filtri avanzati su status code e dimensione risposta. Attivamente mantenuto. **Promosso da Cat B** in sostituzione di kiterunner (abbandonato). | JSON (`-of json -o result.json`) | Strumento primario per shadow API discovery. Connector condiviso con fallback 0.2. |
+| **katana** | `projectdiscovery/katana` | Go — CLI binario | Crawler headless con estrazione JavaScript, scopre endpoint non documentati tramite parsing AST di bundle JS. Indispensabile per SPA moderne dove gli endpoint sono definiti nel routing client-side, non server-side. | JSON | Copre scenari JS-heavy che ffuf non gestisce |
+| **Nuclei** | `projectdiscovery/nuclei` | Go — CLI binario | Scanner template-based con libreria di template `http/api/` per vulnerabilità API specifiche. Dopo shadow discovery, scala il test da "endpoint non documentato esiste" a "endpoint sfruttabile". Template aggiornati dalla community. | JSON (`-json`), SARIF | **Connector condiviso** con test 3.1 e 7.2 |
 
 #### Categoria B — Connector facoltativo (fallback nativo disponibile)
 
-| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
-|---|---|---|---|---|---|---|
-| **gau** (GetAllURLs) | `lc/gau` | Go — CLI binario | Aggrega URL da Wayback Machine, CommonCrawl, OTX, URLScan. Pipeline: `gau domain \| grep api` produce endpoint storici mai rimossi. Trova versioni API obsolete ancora raggiungibili. Angolazione completamente diversa: passiva. | Text (pipe-friendly) | use.ai-1, use.ai-2, use.ai-3 v3 | Strumento di mining passivo; complementare ai fuzzer attivi |
-| **cherrybomb** | GitHub open source | Rust — CLI binario | Analisi statica OpenAPI spec: rileva endpoint non protetti, parameter tampering vectors, BOLA patterns. Approccio SAST complementare al DAST dei tool sopra. | JSON | use.ai-3 v2 | Copre anche 0.2, 2.2; multi-test tool |
+| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Note |
+|---|---|---|---|---|---|
+| **gau** (GetAllURLs) | `lc/gau` | Go — CLI binario | Aggrega URL da Wayback Machine, CommonCrawl, OTX, URLScan. Pipeline: `gau domain \ | grep api` produce endpoint storici mai rimossi. Trova versioni API obsolete ancora raggiungibili. Angolazione completamente diversa: passiva. || Strumento di mining passivo; complementare ai fuzzer attivi |
+| **cherrybomb** | GitHub open source | Rust — CLI binario | Analisi statica OpenAPI spec: rileva endpoint non protetti, parameter tampering vectors, BOLA patterns. Approccio SAST complementare al DAST dei tool sopra. | JSON | Copre anche 0.2, 2.2; multi-test tool |
 
 #### Categoria C — Scartato
 
@@ -93,9 +92,9 @@ La classificazione completa con motivazioni estese è in `TODO-decisioni-tool.md
 
 #### Categoria B — Connector facoltativo (fallback nativo disponibile)
 
-| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
-|---|---|---|---|---|---|---|
-| **cherrybomb** | GitHub open source | Rust — CLI binario | Analisi statica OpenAPI: identifica endpoint non protetti e path senza policy deny-by-default configurata. Connector già presente per 0.1 — zero costo aggiuntivo. | JSON | use.ai-3 v2 | Approccio statico complementare ai test dinamici |
+| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Note |
+|---|---|---|---|---|---|
+| **cherrybomb** | GitHub open source | Rust — CLI binario | Analisi statica OpenAPI: identifica endpoint non protetti e path senza policy deny-by-default configurata. Connector già presente per 0.1 — zero costo aggiuntivo. | JSON | Approccio statico complementare ai test dinamici |
 
 #### Categoria C — Scartato
 
@@ -122,9 +121,9 @@ La classificazione completa con motivazioni estese è in `TODO-decisioni-tool.md
 
 #### Categoria B — Connector facoltativo (fallback nativo disponibile)
 
-| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
-|---|---|---|---|---|---|---|
-| **oasdiff** | `tufin/oasdiff` | Go — CLI binario | Confronta due OpenAPI spec e identifica breaking changes, deprecation, sunset header compliance (RFC 9110). Gestisce edge case del diff (nested `$ref`, `allOf`/`anyOf`) che Python nativo produce false negative su spec complesse. | JSON, YAML | use.ai-2, use.ai-3 v3 | Strumento primario per diff tra versioni spec |
+| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Note |
+|---|---|---|---|---|---|
+| **oasdiff** | `tufin/oasdiff` | Go — CLI binario | Confronta due OpenAPI spec e identifica breaking changes, deprecation, sunset header compliance (RFC 9110). Gestisce edge case del diff (nested `$ref`, `allOf`/`anyOf`) che Python nativo produce false negative su spec complesse. | JSON, YAML | Strumento primario per diff tra versioni spec |
 
 #### Categoria C — Scartato
 
@@ -164,9 +163,9 @@ La classificazione completa con motivazioni estese è in `TODO-decisioni-tool.md
 
 #### Categoria A — Da implementare come connector
 
-| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
-|---|---|---|---|---|---|---|
-| **jwt_tool** (alias jwttool) | `ticarpi/jwt_tool` | Python — CLI / libreria | Implementa **20+ attacchi JWT automatizzati**: `alg:none` bypass (CVE-2015-9235), key confusion RS256→HS256, claim injection, payload tampering, `kid` header injection (path traversal, SQL injection nel kid), Psychic Signature ECDSA (CVE-2022-21449), iniezioni JWKS. Flag `-M at` per all-tests mode. Copre il perimetro di ex-jwtXploiter. | JSON (con `-op`), text | use.ai-1, use.ai-2, use.ai-3 v2, use.ai-3 v3, Gemini Deep Search | **Strumento primario per JWT security**. Nonostante sia Python, incapsula logica crittografica complessa aggiornata |
+| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Note |
+|---|---|---|---|---|---|
+| **jwt_tool** (alias jwttool) | `ticarpi/jwt_tool` | Python — CLI / libreria | Implementa **20+ attacchi JWT automatizzati**: `alg:none` bypass (CVE-2015-9235), key confusion RS256→HS256, claim injection, payload tampering, `kid` header injection (path traversal, SQL injection nel kid), Psychic Signature ECDSA (CVE-2022-21449), iniezioni JWKS. Flag `-M at` per all-tests mode. Copre il perimetro di ex-jwtXploiter. | JSON (con `-op`), text | **Strumento primario per JWT security**. Nonostante sia Python, incapsula logica crittografica complessa aggiornata |
 
 #### Categoria B — Connector facoltativo (fallback nativo disponibile)
 
@@ -189,9 +188,9 @@ La classificazione completa con motivazioni estese è in `TODO-decisioni-tool.md
 
 #### Categoria A — Da implementare come connector
 
-| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
-|---|---|---|---|---|---|---|
-| **jwt_tool** | `ticarpi/jwt_tool` | Python — CLI / libreria | Connector già presente per 1.2. Permette di costruire JWT con claim `exp` arbitrari per testare il comportamento del server (scaduto, valido, negativo, leeway). Stesso tool, parametri diversi. | JSON, text | use.ai-2, use.ai-3 v3 | Condiviso con 1.2; zero costo aggiuntivo di dipendenze |
+| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Note |
+|---|---|---|---|---|---|
+| **jwt_tool** | `ticarpi/jwt_tool` | Python — CLI / libreria | Connector già presente per 1.2. Permette di costruire JWT con claim `exp` arbitrari per testare il comportamento del server (scaduto, valido, negativo, leeway). Stesso tool, parametri diversi. | JSON, text | Condiviso con 1.2; zero costo aggiuntivo di dipendenze |
 
 #### Categoria B / C
 
@@ -228,15 +227,15 @@ La classificazione completa con motivazioni estese è in `TODO-decisioni-tool.md
 
 #### Categoria A — Da implementare come connector
 
-| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
-|---|---|---|---|---|---|---|
-| **testssl.sh 3.2** | `testssl/testssl.sh` | Bash script (dipendenze: OpenSSL) | **Standard de facto per TLS security assessment.** Copre: versioni protocollo (SSLv2–TLS 1.3), cipher suite, forward secrecy, certificate transparency (SCT count), vulnerabilità CVE-based (BEAST, POODLE, ROBOT, DROWN, Heartbleed, LUCKY13, SWEET32, FREAK, LOGJAM, CRIME, BREACH, RENEGOTIATION, TICKETBLEED). Replicare in Python richiederebbe centinaia di handshake TLS a livello socket raw. | JSON (`--jsonfile <path>`) con `{id, severity, finding, cve, cwe}` | Claude Analysis, use.ai-3 v3 | **Tool primario.** Versione 3.2 stabile. Docker: `drwetter/testssl.sh`. Filtrare `severity in {MEDIUM, HIGH, CRITICAL, WARN}`. |
+| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Note |
+|---|---|---|---|---|---|
+| **testssl.sh 3.2** | `testssl/testssl.sh` | Bash script (dipendenze: OpenSSL) | **Standard de facto per TLS security assessment.** Copre: versioni protocollo (SSLv2–TLS 1.3), cipher suite, forward secrecy, certificate transparency (SCT count), vulnerabilità CVE-based (BEAST, POODLE, ROBOT, DROWN, Heartbleed, LUCKY13, SWEET32, FREAK, LOGJAM, CRIME, BREACH, RENEGOTIATION, TICKETBLEED). Replicare in Python richiederebbe centinaia di handshake TLS a livello socket raw. | JSON (`--jsonfile <path>`) con `{id, severity, finding, cve, cwe}` | **Tool primario.** Versione 3.2 stabile. Docker: `drwetter/testssl.sh`. Filtrare `severity in {MEDIUM, HIGH, CRITICAL, WARN}`. |
 
 #### Categoria B — Connector facoltativo (fallback nativo disponibile)
 
-| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
-|---|---|---|---|---|---|---|
-| **sslyze** | `nabla-c0d3/sslyze` | Python — libreria / CLI | Alternativa Python-native importabile come libreria (`from sslyze import ...`) invece di subprocess. Meno completa di testssl.sh per vulnerability scanning ma zero binary dependencies. Fallback quando testssl.sh non è disponibile nell'ambiente. | JSON | Claude Analysis, use.ai-3 v2 | **Libreria Python** → `BaseLibraryConnector`, non `BaseSubprocessConnector` |
+| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Note |
+|---|---|---|---|---|---|
+| **sslyze** | `nabla-c0d3/sslyze` | Python — libreria / CLI | Alternativa Python-native importabile come libreria (`from sslyze import ...`) invece di subprocess. Meno completa di testssl.sh per vulnerability scanning ma zero binary dependencies. Fallback quando testssl.sh non è disponibile nell'ambiente. | JSON | **Libreria Python** → `BaseLibraryConnector`, non `BaseSubprocessConnector` |
 
 #### Categoria C — Scartato
 
@@ -300,10 +299,10 @@ La classificazione completa con motivazioni estese è in `TODO-decisioni-tool.md
 
 #### Categoria B — Connector facoltativo (fallback nativo disponibile)
 
-| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
-|---|---|---|---|---|---|---|
-| **OWASP OFFAT** | `OWASP/OFFAT` | Python — CLI / libreria | Parser OpenAPI → generazione automatica test IDOR sostituendo ID utente su tutti gli endpoint con path parameters. Copre sistematicamente l'intera superficie senza configurazione manuale per endpoint. | JSON | use.ai-1, use.ai-2, use.ai-3 v2, use.ai-3 v3 | Strumento primario per BOLA; copre anche mass assignment |
-| **cherrybomb** | GitHub open source | Rust — CLI binario | Analisi statica OpenAPI: identifica pattern BOLA nella spec (endpoint con ID path param senza ownership check dichiarato) prima del test dinamico. Connector già presente. | JSON | use.ai-3 v2, use.ai-3 v3 | Approccio SAST complementare al DAST |
+| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Note |
+|---|---|---|---|---|---|
+| **OWASP OFFAT** | `OWASP/OFFAT` | Python — CLI / libreria | Parser OpenAPI → generazione automatica test IDOR sostituendo ID utente su tutti gli endpoint con path parameters. Copre sistematicamente l'intera superficie senza configurazione manuale per endpoint. | JSON | Strumento primario per BOLA; copre anche mass assignment |
+| **cherrybomb** | GitHub open source | Rust — CLI binario | Analisi statica OpenAPI: identifica pattern BOLA nella spec (endpoint con ID path param senza ownership check dichiarato) prima del test dinamico. Connector già presente. | JSON | Approccio SAST complementare al DAST |
 
 #### Categoria C — Scartato
 
@@ -326,9 +325,9 @@ La classificazione completa con motivazioni estese è in `TODO-decisioni-tool.md
 
 #### Categoria B — Connector facoltativo (fallback nativo disponibile)
 
-| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
-|---|---|---|---|---|---|---|
-| **OWASP OFFAT** | `OWASP/OFFAT` | Python — CLI | Genera automaticamente test di authorization su operazioni distruttive dalla spec OpenAPI. Connector già presente per 2.2. | JSON | use.ai-3 v3 | Condiviso con 2.2 |
+| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Note |
+|---|---|---|---|---|---|
+| **OWASP OFFAT** | `OWASP/OFFAT` | Python — CLI | Genera automaticamente test di authorization su operazioni distruttive dalla spec OpenAPI. Connector già presente per 2.2. | JSON | Condiviso con 2.2 |
 
 #### Categoria C — Scartato
 
@@ -388,20 +387,20 @@ La classificazione completa con motivazioni estese è in `TODO-decisioni-tool.md
 
 #### Categoria A — Da implementare come connector
 
-| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
-|---|---|---|---|---|---|---|
-| **Schemathesis** | `schemathesis/schemathesis` | Python — libreria / CLI | **Unico tool integrabile come libreria Python nativa** (`from schemathesis import from_uri`). Property-based testing con Hypothesis engine: genera centinaia di input per ogni parametro di ogni endpoint basandosi sulla spec OpenAPI. Esplora lo spazio degli input in modo esaustivo rispetto allo schema — paradigma di testing diverso da una lista di payload. OpenAPI 3.1 nativo. | JUnit XML, JSON | Claude Analysis, use.ai-3 v2 | **Nota architetturale**: `BaseLibraryConnector`, non `BaseSubprocessConnector` |
-| **Nuclei** | `projectdiscovery/nuclei` | Go — CLI binario | Template `http/vulnerabilities/` per injection specifiche per framework noti (Spring Boot, Django, Laravel, Rails). Aggiornati dalla community senza intervento manuale. Copre anche CRLF injection tramite template `crlf-injection` (sostituisce ex-CRLFuzz). | JSON (`-json`), SARIF | Claude Analysis, use.ai-3 v2 | Connector condiviso con 0.1 e 7.2 |
+| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Note |
+|---|---|---|---|---|---|
+| **Schemathesis** | `schemathesis/schemathesis` | Python — libreria / CLI | **Unico tool integrabile come libreria Python nativa** (`from schemathesis import from_uri`). Property-based testing con Hypothesis engine: genera centinaia di input per ogni parametro di ogni endpoint basandosi sulla spec OpenAPI. Esplora lo spazio degli input in modo esaustivo rispetto allo schema — paradigma di testing diverso da una lista di payload. OpenAPI 3.1 nativo. | JUnit XML, JSON | **Nota architetturale**: `BaseLibraryConnector`, non `BaseSubprocessConnector` |
+| **Nuclei** | `projectdiscovery/nuclei` | Go — CLI binario | Template `http/vulnerabilities/` per injection specifiche per framework noti (Spring Boot, Django, Laravel, Rails). Aggiornati dalla community senza intervento manuale. Copre anche CRLF injection tramite template `crlf-injection` (sostituisce ex-CRLFuzz). | JSON (`-json`), SARIF | Connector condiviso con 0.1 e 7.2 |
 
 #### Categoria B — Connector facoltativo (fallback nativo disponibile)
 
-| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
-|---|---|---|---|---|---|---|
-| **sqlmap** | `sqlmapproject/sqlmap` | Python — CLI | Standard de facto per SQLi. Motore di payload generation basato su grammar context-aware che supera qualsiasi lista manuale. Flag `--batch --forms --risk=3 --level=5`. | JSON (`--output-dir`) | use.ai-2, use.ai-3 v2, use.ai-3 v3 | Standard de facto per SQL injection |
-| **NoSQLMap** | `codingo/NoSQLMap` | Python — CLI | Specifico per MongoDB/CouchDB injection. Critico per API moderne. Unico tool maturo per NoSQL injection. | Strutturato | use.ai-2, use.ai-3 v2, use.ai-3 v3 | Angolazione completamente separata da sqlmap |
-| **Dalfox** | `hahwul/dalfox` | Go — CLI binario | XSS context-aware con DOM analysis e blind detection. Motore di payload generation basato su grammar context-aware. Supera liste statiche di payload per falsi negativi. | JSON (`--format json`) | use.ai-1, use.ai-2, use.ai-3 v2, use.ai-3 v3 | Strumento primario per XSS; molto attivo |
-| **commix** | `commixproject/commix` | Python — CLI | Unico tool maturo per OS command injection automatizzato. Rileva blind injection via time-based, error-based, output-based. Copre header injection, path injection, varianti OS. | Strutturato | use.ai-2, use.ai-3 v2, use.ai-3 v3 | Nessuna alternativa equivalente per command injection |
-| **SSTImap** | Repository pubblico | Python — CLI | Fork attivo di tplmap. Copre Jinja2, Twig, Smarty, Velocity, FreeMarker, Pebble. Rileva engine automaticamente e adatta i payload. | Strutturato | use.ai-3 v3 | **Preferire SSTImap** come fork attivo di tplmap |
+| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Note |
+|---|---|---|---|---|---|
+| **sqlmap** | `sqlmapproject/sqlmap` | Python — CLI | Standard de facto per SQLi. Motore di payload generation basato su grammar context-aware che supera qualsiasi lista manuale. Flag `--batch --forms --risk=3 --level=5`. | JSON (`--output-dir`) | Standard de facto per SQL injection |
+| **NoSQLMap** | `codingo/NoSQLMap` | Python — CLI | Specifico per MongoDB/CouchDB injection. Critico per API moderne. Unico tool maturo per NoSQL injection. | Strutturato | Angolazione completamente separata da sqlmap |
+| **Dalfox** | `hahwul/dalfox` | Go — CLI binario | XSS context-aware con DOM analysis e blind detection. Motore di payload generation basato su grammar context-aware. Supera liste statiche di payload per falsi negativi. | JSON (`--format json`) | Strumento primario per XSS; molto attivo |
+| **commix** | `commixproject/commix` | Python — CLI | Unico tool maturo per OS command injection automatizzato. Rileva blind injection via time-based, error-based, output-based. Copre header injection, path injection, varianti OS. | Strutturato | Nessuna alternativa equivalente per command injection |
+| **SSTImap** | Repository pubblico | Python — CLI | Fork attivo di tplmap. Copre Jinja2, Twig, Smarty, Velocity, FreeMarker, Pebble. Rileva engine automaticamente e adatta i payload. | Strutturato | **Preferire SSTImap** come fork attivo di tplmap |
 
 #### Categoria C — Scartato
 
@@ -451,9 +450,9 @@ La classificazione completa con motivazioni estese è in `TODO-decisioni-tool.md
 
 #### Categoria A — Da implementare come connector
 
-| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
-|---|---|---|---|---|---|---|
-| **vegeta** | `tsenart/vegeta` | Go — CLI binario | Rate control preciso con goroutine Go. Il GIL Python e il garbage collector introducono jitter che rende inaffidabile la soglia osservata. Per verificare che il rate limit scatti esattamente a N req/s, il load generator deve essere preciso al millisecondo. Istogrammi latenza (p50/p90/p99). | JSON (`vegeta attack \| vegeta report --type=json`) | use.ai-2, use.ai-3 v2, use.ai-3 v3 | **Connector condiviso con 7.3.** `-rate=0 -max-workers=N` per race condition. |
+| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Note |
+|---|---|---|---|---|---|
+| **vegeta** | `tsenart/vegeta` | Go — CLI binario | Rate control preciso con goroutine Go. Il GIL Python e il garbage collector introducono jitter che rende inaffidabile la soglia osservata. Per verificare che il rate limit scatti esattamente a N req/s, il load generator deve essere preciso al millisecondo. Istogrammi latenza (p50/p90/p99). | JSON (`vegeta attack \ || **Connector condiviso con 7.3.** `-rate=0 -max-workers=N` per race condition. |
 
 #### Categoria B / C
 
@@ -612,9 +611,9 @@ La classificazione completa con motivazioni estese è in `TODO-decisioni-tool.md
 
 #### Categoria B — Connector facoltativo (fallback nativo disponibile)
 
-| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
-|---|---|---|---|---|---|---|
-| **http2smugl** | Repository Go pubblico | Go — CLI binario | Copre HTTP/2 downgrade smuggling — angolazione distinta dai pattern CL.TE/TE.CL implementati nel connector nativo. Promovibile a Cat A se il target espone HTTP/2. Attivamente mantenuto. | Strutturato | use.ai-3 v3 | **Cat B opzionale.** Candidato a Cat A se il target usa H2. |
+| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Note |
+|---|---|---|---|---|---|
+| **http2smugl** | Repository Go pubblico | Go — CLI binario | Copre HTTP/2 downgrade smuggling — angolazione distinta dai pattern CL.TE/TE.CL implementati nel connector nativo. Promovibile a Cat A se il target espone HTTP/2. Attivamente mantenuto. | Strutturato | **Cat B opzionale.** Candidato a Cat A se il target usa H2. |
 
 #### Categoria B / C precedente
 
@@ -654,11 +653,11 @@ La classificazione completa con motivazioni estese è in `TODO-decisioni-tool.md
 
 #### Categoria B — Connector facoltativo (fallback nativo disponibile)
 
-| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
-|---|---|---|---|---|---|---|
-| **trufflehog** | `trufflesecurity/trufflehog` | Go — CLI binario | **800+ detector per API keys, tokens, secrets** (AWS, Stripe, GitHub, Slack, ecc.). Scansiona response body, spec files, JS bundles, git history. Mantenere questi regex aggiornati in Python sarebbe un incubo di manutenzione continua. | JSON | use.ai-1, use.ai-2, use.ai-3 v2, use.ai-3 v3 | **Strumento primario** |
-| **gitleaks** | `gitleaks/gitleaks` | Go — CLI binario | Scansiona commit history del repository dove risiede la spec OpenAPI o i file di configurazione. Angolazione distinta da trufflehog: runtime vs versionamento git. | JSON | use.ai-2, use.ai-3 v2 | Complementare a trufflehog |
-| **detect-secrets** | `Yelp/detect-secrets` | Python — CLI / libreria | Plugin architecture per custom detectors. Importabile come libreria Python. Pre-commit hook nativo. Utile sia per testare il target che per la CI del progetto stesso. | JSON | use.ai-2, use.ai-3 v2, use.ai-3 v3 | Importabile come libreria Python |
+| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Note |
+|---|---|---|---|---|---|
+| **trufflehog** | `trufflesecurity/trufflehog` | Go — CLI binario | **800+ detector per API keys, tokens, secrets** (AWS, Stripe, GitHub, Slack, ecc.). Scansiona response body, spec files, JS bundles, git history. Mantenere questi regex aggiornati in Python sarebbe un incubo di manutenzione continua. | JSON | **Strumento primario** |
+| **gitleaks** | `gitleaks/gitleaks` | Go — CLI binario | Scansiona commit history del repository dove risiede la spec OpenAPI o i file di configurazione. Angolazione distinta da trufflehog: runtime vs versionamento git. | JSON | Complementare a trufflehog |
+| **detect-secrets** | `Yelp/detect-secrets` | Python — CLI / libreria | Plugin architecture per custom detectors. Importabile come libreria Python. Pre-commit hook nativo. Utile sia per testare il target che per la CI del progetto stesso. | JSON | Importabile come libreria Python |
 
 #### Categoria C — Scartato
 
@@ -705,10 +704,10 @@ La classificazione completa con motivazioni estese è in `TODO-decisioni-tool.md
 
 #### Categoria A — Da implementare come connector
 
-| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
-|---|---|---|---|---|---|---|
-| **Nuclei** | `projectdiscovery/nuclei` | Go — CLI binario | Template `http/vulnerabilities/generic/ssrf*` con bypass specifici per tecnologie e configurazioni cloud emergenti. Aggiornati dalla community. Angolazione distinta da `ssrf_payloads.py` nativo. Copre anche payload Gopher tramite template `ssrf-via-gopher-*` (sostituisce ex-Gopherus). | JSON | Claude Analysis | Connector condiviso con 0.1 e 3.1 |
-| **interactsh** | `projectdiscovery/interactsh` | Go — server / client | **OOB (Out-of-Band) callback server** per confermare SSRF blind. Senza OOB, le SSRF blind non sono rilevabili. interactsh registra DNS/HTTP callbacks che confermano l'exploitation. Angolazione non sostituibile con Python puro. | JSON | use.ai-2, use.ai-3 v2, use.ai-3 v3 | **Indispensabile per Blind SSRF**. Condiviso con 7.4 |
+| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Note |
+|---|---|---|---|---|---|
+| **Nuclei** | `projectdiscovery/nuclei` | Go — CLI binario | Template `http/vulnerabilities/generic/ssrf*` con bypass specifici per tecnologie e configurazioni cloud emergenti. Aggiornati dalla community. Angolazione distinta da `ssrf_payloads.py` nativo. Copre anche payload Gopher tramite template `ssrf-via-gopher-*` (sostituisce ex-Gopherus). | JSON | Connector condiviso con 0.1 e 3.1 |
+| **interactsh** | `projectdiscovery/interactsh` | Go — server / client | **OOB (Out-of-Band) callback server** per confermare SSRF blind. Senza OOB, le SSRF blind non sono rilevabili. interactsh registra DNS/HTTP callbacks che confermano l'exploitation. Angolazione non sostituibile con Python puro. | JSON | **Indispensabile per Blind SSRF**. Condiviso con 7.4 |
 
 #### Categoria B — Connector facoltativo (fallback nativo disponibile)
 
@@ -732,9 +731,9 @@ La classificazione completa con motivazioni estese è in `TODO-decisioni-tool.md
 
 #### Categoria A — Da implementare come connector
 
-| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
-|---|---|---|---|---|---|---|
-| **vegeta** | `tsenart/vegeta` | Go — CLI binario | Connector già presente per 4.1. Flag `-rate=0 -max-workers=N` lancia N goroutine Go in parallelo con sincronizzazione last-byte — equivalente funzionale del ex-race-the-web. Python asyncio introduce jitter di scheduling che sfasa la sincronizzazione sub-millisecondo necessaria per TOCTOU. Output JSON con `status_codes` e `latencies` per rilevare response anomale (es. doppio 200 su operazione idempotente). | JSON (`vegeta attack \| vegeta report --type=json`) | use.ai-2, use.ai-3 v2, use.ai-3 v3 | **Connector condiviso con 4.1.** `-rate=0 -max-workers=N` per last-byte sync. |
+| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Note |
+|---|---|---|---|---|---|
+| **vegeta** | `tsenart/vegeta` | Go — CLI binario | Connector già presente per 4.1. Flag `-rate=0 -max-workers=N` lancia N goroutine Go in parallelo con sincronizzazione last-byte — equivalente funzionale del ex-race-the-web. Python asyncio introduce jitter di scheduling che sfasa la sincronizzazione sub-millisecondo necessaria per TOCTOU. Output JSON con `status_codes` e `latencies` per rilevare response anomale (es. doppio 200 su operazione idempotente). | JSON (`vegeta attack \ || **Connector condiviso con 4.1.** `-rate=0 -max-workers=N` per last-byte sync. |
 
 #### Categoria B / C
 
@@ -760,9 +759,9 @@ La classificazione completa con motivazioni estese è in `TODO-decisioni-tool.md
 
 #### Categoria A — Da implementare come connector
 
-| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Fonte | Note |
-|---|---|---|---|---|---|---|
-| **interactsh** | `projectdiscovery/interactsh` | Go — server / client | Connector già presente per 7.2. Registra webhook URL malevolo che punta a interactsh, verifica che il sistema lo chiami e riceva il callback. Fondamentale per verificare che webhook callback URL malevoli vengano rilevati — senza OOB server non c'è evidenza diretta. | JSON | use.ai-3 v3 | Condiviso con 7.2 |
+| Tool | Repository | Linguaggio/Tipo | Valore Architetturale vs Python Nativo | Output | Note |
+|---|---|---|---|---|---|
+| **interactsh** | `projectdiscovery/interactsh` | Go — server / client | Connector già presente per 7.2. Registra webhook URL malevolo che punta a interactsh, verifica che il sistema lo chiami e riceva il callback. Fondamentale per verificare che webhook callback URL malevoli vengano rilevati — senza OOB server non c'è evidenza diretta. | JSON | Condiviso con 7.2 |
 
 #### Categoria B / C
 
@@ -852,16 +851,16 @@ Documentati per completezza storica e per tracciabilità delle fonti. **Non racc
 
 | Tool | Motivo | Alternativa Raccomandata | Fonte della Segnalazione |
 |---|---|---|---|
-| **astra** (`flipkart-incubator/Astra`) | Ultimo commit 2020 | OFFAT, cherrybomb | use.ai-3 v2, use.ai-3 v3 |
-| **GAP-Burp-Extension** | Dipende da Burp Suite | katana + LinkFinder standalone | use.ai-3 v3 |
-| **recaptcha-cracker** | Non mantenuto | Test manuale o Python nativo | use.ai-3 v3 |
-| **SSRFfire** | Ultimo commit 2021 | SSRFmap integrato come nativo | use.ai-3 v3 |
-| **kiterunner** (`assetnote/kiterunner`) | Abbandonato, nessun commit recente | ffuf (Cat A, promosso in v1.3) | Claude Analysis v1.3 |
-| **CRLFuzz** (`dwisiswant0/crlfuzz`) | Inattivo dal 2021 | Nuclei templates `crlf-injection` | Claude Analysis v1.3 |
-| **smuggler** (`defparam/smuggler`) | Nessuna release ufficiale taggata | Python raw sockets stdlib (connector 6.3) | Claude Analysis v1.3 |
-| **race-the-web** (`TheHackerDev/race-the-web`) | Abbandonato, poche stelle, nessuna release recente | vegeta (Cat A, last-byte sync con `-rate=0 -max-workers=N`) | Claude Analysis v1.3 |
-| **jwtXploiter** (`DontPanicO/jwtXploiter`) | Ultimo commit 5 anni fa, nessuna release recente | jwt_tool (Cat A, copre le stesse varianti kid injection) | Claude Analysis v1.3 |
-| **Gopherus** (`tarunkant/Gopherus`) | Ultimo commit 4 anni fa, nessuna release | Nuclei templates `ssrf-via-gopher-*` | Claude Analysis v1.3 |
+| **astra** (`flipkart-incubator/Astra`) | Ultimo commit 2020 | OFFAT, cherrybomb ||
+| **GAP-Burp-Extension** | Dipende da Burp Suite | katana + LinkFinder standalone ||
+| **recaptcha-cracker** | Non mantenuto | Test manuale o Python nativo ||
+| **SSRFfire** | Ultimo commit 2021 | SSRFmap integrato come nativo ||
+| **kiterunner** (`assetnote/kiterunner`) | Abbandonato, nessun commit recente | ffuf (Cat A, promosso in v1.3) ||
+| **CRLFuzz** (`dwisiswant0/crlfuzz`) | Inattivo dal 2021 | Nuclei templates `crlf-injection` ||
+| **smuggler** (`defparam/smuggler`) | Nessuna release ufficiale taggata | Python raw sockets stdlib (connector 6.3) ||
+| **race-the-web** (`TheHackerDev/race-the-web`) | Abbandonato, poche stelle, nessuna release recente | vegeta (Cat A, last-byte sync con `-rate=0 -max-workers=N`) ||
+| **jwtXploiter** (`DontPanicO/jwtXploiter`) | Ultimo commit 5 anni fa, nessuna release recente | jwt_tool (Cat A, copre le stesse varianti kid injection) ||
+| **Gopherus** (`tarunkant/Gopherus`) | Ultimo commit 4 anni fa, nessuna release | Nuclei templates `ssrf-via-gopher-*` ||
 
 ---
 
@@ -890,7 +889,7 @@ Tool validi ma esclusi dallo scope v1.0 per le ragioni indicate. Candidati per v
 ## APPENDICE E — Matrice di Confidenza
 
 Tool primari operativi per ogni test, ordinati per categoria.
-**Versione 1.4** — allineata a `test_tool_decisions.md` v3.0.
+**Versione 1.4** — allineata a `TOOLS_decisions.md` v3.0.
 
 Cambiamenti rispetto a v1.3:
 - 0.1: kiterunner → ffuf (Cat A), rimosso da Cat B
@@ -934,21 +933,3 @@ Cambiamenti rispetto a v1.3:
 
 ---
 
-## APPENDICE F — Fonti di Riferimento
-
-| Fonte | Descrizione |
-|---|---|
-| **use.ai Sessione 1** | Prima analisi tool specializzati — identificazione gap Python |
-| **use.ai Sessione 2** | Analisi estesa per dominio — multi-tool coverage |
-| **use.ai Sessione 3 v2** | Tool 2024-2025, gap colmati, GraphQL/gRPC/WebSocket |
-| **use.ai Sessione 3 v3** | Analisi definitiva maggio 2026 — tool emergenti, HTTP/2, K8s |
-| **Gemini Deep Search** | Analisi architetturale approfondita — paradigmi DevSecOps |
-| **Claude Analysis** | Mappa strategica Native vs Hybrid, decisioni architetturali |
-| **Altri Tool** | Ricerca complementare su GitHub — endpoint discovery, schema fuzzing |
-
----
-
-*Fine documento — Catalogo Tool APIGuard v1.3*
-*Revisione v1.1: rimossi tool non verificabili (SSRFHunter Elite v3.0, Ice-Tea, Lonkero, QitOps CLI, openapi-security-scanner).*
-*Revisione v1.2: tripartizione A/B/C applicata a ogni sezione di test. Tool Categoria C spostati in sotto-sezioni dedicate con motivazione esplicita dello scarto. Appendice A aggiornata con classificazione. Appendice E riscritta come matrice operativa post-tripartizione.*
-*Revisione v1.3: 6 tool rimossi per abbandono/nessuna release (kiterunner, CRLFuzz, smuggler, race-the-web, jwtXploiter, Gopherus). ffuf e vegeta aggiornati a Cat A con copertura estesa. http2smugl aggiunto Cat B per 6.3. Appendice C aggiornata. Appendice E portata a v1.4.*

@@ -17,6 +17,7 @@ Questo documento descrive l'architettura interna di APIGuard Assurance in dettag
 7. [Guida per i contributor — Come aggiungere un nuovo test](#7-guida-per-i-contributor--come-aggiungere-un-nuovo-test)
 8. [Gerarchia delle eccezioni](#8-gerarchia-delle-eccezioni)
 9. [Repository Structure](#9-repository-structure)
+10. [Packaging e distribuzione](#10-packaging-e-distribuzione)
 
 ---
 
@@ -399,15 +400,20 @@ ma sono privi di dipendenze; vengono eseguiti nella stessa finestra temporale
 via ExternalTestRegistry (Phase R4).
 
 **Batch 2** — dipende solo da `1.1`:
-`1.2`, `5.2`, `6.3`
-
-`1.2` è il test più complesso del progetto: acquisisce i token tramite login
-su Forgejo e li scrive nel `TestContext`, e forgia JWT malformati per i
-sotto-test di signature validation. `5.2` simula brute-force (loop
-sequenziale inline). `6.3` testa HTTP smuggling e CORS con request ad hoc.
+test pianificati: `1.2`, `1.4`, `6.3`. **In Milestone 1**, dove `1.2` non è ancora
+implementato, il batch effettivo è composto da **`1.4`** (token revocation)
+e **`2.1`** (RBAC enforcement): entrambi dichiarano `depends_on=["1.1"]` perché
+condividono il token JWT acquisito via `acquire_tokens()` nel `TestContext`.
+Quando `1.2` sarà aggiunto in Milestone 2, sarà il test più complesso del
+progetto (acquisizione token, forgia JWT malformati per signature validation
+sub-tests); `5.2` simulerà brute-force (loop sequenziale inline); `6.3`
+testerà HTTP smuggling e CORS con request ad hoc.
 
 **Batch 3** — dipende da `1.1` + `1.2` (o da test del Batch 2):
-tutti i rimanenti GREY_BOX dei domini 2, 3, 5, 6, 7.
+tutti i rimanenti GREY_BOX dei domini 2, 3, 5, 6, 7 della roadmap M2.
+**In Milestone 1 il Batch 3 è vuoto** perché `1.2` non esiste ancora — i
+test che lo richiederebbero (`2.1`, `2.2`, `3.1`, ecc.) o non sono implementati
+o hanno il `depends_on` ridotto al solo `1.1` (caso di `2.1`).
 
 #### Mappa degli helper condivisi
 
@@ -654,6 +660,10 @@ RuntimeTestsConfig  Frozen Pydantic — parametri per test specifici (es. max_en
 
 ---
 
+## 7. Guida per i contributor — Come aggiungere un nuovo test
+
+Questa sezione raccoglie i dettagli operativi di `BaseTest` che un contributor deve conoscere prima di scrivere un nuovo test nativo. Il **contratto completo + il template passo-passo per aggiungere un nuovo test** vivono in [`docs/pub/ADDING_tests.md`](ADDING_tests.md) (per i test nativi `BaseTest`) e in [`docs/pub/ADDING_external_tests.md`](ADDING_external_tests.md) (per i test esterni `ExternalToolTest` con connector verso tool come `nuclei`, `testssl.sh`, `sslyze`). Quei due documenti sono l'authoritative reference. Questa sezione qui sotto è la sintesi *strutturale* dei pattern interni di `BaseTest`, utile come quick-reference durante la scrittura di un test.
+
 ### Struttura interna di BaseTest: dettagli rilevanti
 
 **`_transaction_log` e instance-level, non ClassVar.** Questo e deliberato: un `ClassVar` significherebbe che tutte le istanze della stessa classe condividono un unico log, corrompendo l'audit trail se la classe venisse istanziata piu di una volta nel pipeline. Poiche `TestRegistry` crea ogni classe esattamente una volta e l'engine chiama `execute()` esattamente una volta per istanza, non e necessario un meccanismo di reset.
@@ -811,7 +821,9 @@ apiguard-assurance/
 |   |   |   |-- test_1_5_insecure_credential_transport.py
 |   |   |   +-- test_1_6_secure_session_management.py
 |   |   |
-|   |   |-- domain_2/            # Authorization (placeholder — Milestone 2)
+|   |   |-- domain_2/            # Authorization
+|   |   |   +-- test_2_1_rbac_enforcement.py
+|   |   |
 |   |   |-- domain_3/            # Data Integrity
 |   |   |   +-- test_3_3_hmac_config_audit.py
 |   |   |
@@ -864,8 +876,40 @@ apiguard-assurance/
 |-- specs/
 |   +-- crapi-openapi.json       # Spec alternativo: crAPI (target di validazione secondario)
 |-- config_crapi.yaml            # Configurazione pronta per crAPI (vedi README sezione target alternativo)
-+-- Z-CHECKLIST.md               # Stato implementazione: test, connector, milestone
++-- docs/
+    +-- pub/                     # Public docs (contributor guides, architecture)
+    |   +-- ADDING_tests.md
+    |   +-- ADDING_external_tests.md
+    |   +-- ARCHITECTURE.md
+    +-- priv/                    # Internal docs (thesis, audit, project state)
+        +-- PROJECT_status.md    # Stato implementazione: test, connector, milestone
+        +-- apiguard_property.md
+        +-- TOOLS_catalog.md
+        +-- TOOLS_decisions.md
+        +-- LOCAL_commands.md
+        +-- AUDIT_milestone1_release.md
+        +-- knowledge/           # Pre-project knowledge base (architecture, methodology, rules)
+            +-- Implementazione.md
+            +-- Metodologia.md
+            +-- RULES_claude.md
 ```
+
+---
+
+## 10. Packaging e distribuzione
+
+`hatch build` produce due artefatti nella cartella `dist/` (esclusa dal repository):
+
+| Artefatto | Nome | Scopo |
+|-----------|------|-------|
+| Wheel | `apiguard_assurance-X.Y.Z-py3-none-any.whl` | Installazione rapida via `pip install` — contiene solo `src/` |
+| Source distribution | `apiguard_assurance-X.Y.Z.tar.gz` | Superficie pubblica completa — include `src/`, `docs/pub/`, `README.md`, `config.yaml`, `pyproject.toml`, `.env.example` |
+
+Il tag `py3-none-any` indica che il pacchetto è **pure Python** (nessuna estensione C compilata), quindi portabile su qualsiasi sistema operativo e architettura con Python 3.11+.
+
+**Contenuto del wheel:** esclusivamente `src/` e i metadata PyPI. I file `docs/priv/`, `outputs/`, `tools/`, `CLAUDE.md` e la cartella `.claude/` non entrano nel wheel — la whitelist è definita in `pyproject.toml` sotto `[tool.hatch.build.targets]`.
+
+**Dipendenza opzionale sslyze:** un'installazione standard (`pip install apiguard-assurance`) non include sslyze (AGPL). Per abilitare `ext.1.5.sslyze` serve l'extra esplicito: `pip install "apiguard-assurance[sslyze]"`. Vedi P37 in `docs/priv/apiguard_property.md`.
 
 ---
 

@@ -454,7 +454,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
                 )
             )
 
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             return self._make_error(exc)
 
     # ------------------------------------------------------------------

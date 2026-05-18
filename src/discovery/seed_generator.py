@@ -462,7 +462,7 @@ class SeedGeneratorParseError(ToolBaseError):
     Sibling of ``SeedGeneratorFetchError`` and the production-pipeline
     ``OpenAPILoadError``.  Inherits from ``ToolBaseError`` to participate in
     the project's unified exception hierarchy (see ``CLAUDE.md`` and
-    ``docs/ARCHITECTURE.md`` for the full taxonomy).
+    ``docs/pub/ARCHITECTURE.md`` for the full taxonomy).
     """
 
     def __init__(self, spec_source: str, reason: str) -> None:

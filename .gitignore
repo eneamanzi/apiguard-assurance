@@ -1,9 +1,47 @@
-apiguard-assurance.zip
+# =============================================================================
+# PROJECT-SPECIFIC — entries specific to APIGuard Assurance
+# =============================================================================
 
-# Tools Folder
+# External tools binaries (nuclei, testssl, sslyze) — installed locally, not committed
 /tools/*
 
-# Python bytecode
+# Assessment outputs — generated at runtime by `apiguard run`, never committed.
+# outputs/ is the canonical location; individual filenames are legacy fallbacks.
+outputs/
+evidence.json
+assessment_report.html
+test_report.html
+
+# OpenAPI specs downloaded at runtime
+specs/
+
+# Local config overrides and secrets
+config.local.yaml
+.env
+.env.*
+!.env.example
+
+# Claude Code local IDE settings (hooks, session cache) — machine-specific
+.claude/
+
+# Project archive
+apiguard-assurance.zip
+
+# Docker local overrides with secrets
+docker-compose.override.yml
+docker-compose.local.yml
+
+# Static analysis caches (tools configured in pyproject.toml)
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+
+# =============================================================================
+# PYTHON — standard Python project artifacts
+# =============================================================================
+
+# Bytecode
 __pycache__/
 *.py[cod]
 *$py.class
@@ -15,14 +53,14 @@ venv/
 env/
 ENV/
 
-# Distribution / packaging
+# Build and distribution
 dist/
 build/
 *.egg-info/
 *.egg
 MANIFEST
 
-# Unit test / coverage reports
+# Test and coverage reports
 htmlcov/
 .tox/
 .nox/
@@ -35,23 +73,13 @@ coverage.xml
 .pytest_cache/
 nosetests.xml
 
-# Tool outputs — generated at runtime, never committed.
-# The outputs/ directory is the canonical location for assessment results.
-# Individual filenames are kept as fallbacks for compatibility with any
-# existing CI scripts that still reference them directly.
-outputs/
-evidence.json
-assessment_report.html
-test_report.html
+# Logs
 *.log
 
-# Secrets and local config overrides
-config.local.yaml
-.env
-.env.*
-!.env.example
+# =============================================================================
+# IDE AND EDITOR — generic editor artifacts
+# =============================================================================
 
-# IDE and editor artifacts
 .idea/
 .vscode/*
 !.vscode/settings.json
@@ -60,18 +88,3 @@ config.local.yaml
 *~
 .DS_Store
 Thumbs.db
-
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Ruff cache
-.ruff_cache/
-
-# Docker (compose override files with local secrets)
-docker-compose.override.yml
-docker-compose.local.yml
-
-# Apiguard 
-specs/

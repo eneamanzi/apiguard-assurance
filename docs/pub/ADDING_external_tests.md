@@ -1,11 +1,14 @@
 # Developer Guide — Adding a New External Test (and Connector)
 
 **Source of truth:** every pattern in this document was extracted directly
-from the verified implementation: `ext_test_1_5_tls_analysis.py` (testssl),
-`ext_test_0_1_shadow_api_nuclei.py` (nuclei), `TestsslConnector`,
-`NucleiConnector`, `BaseSubprocessConnector`, `ExternalToolTest`,
-`ExternalToolsConfig`. Code excerpts are canonical. Do not invent patterns
-not present here.
+from the verified implementation: `ext_test_1_5_tls_analysis.py` (contains
+both `ext.1.5.testssl` and `ext.1.5.sslyze`), `ext_test_0_1_shadow_api_nuclei.py`
+(nuclei); the connectors `TestsslConnector` and `NucleiConnector` (both
+`BaseSubprocessConnector` tier) and `SslyzeConnector` (`BaseLibraryConnector`
+tier — Python-native library, no subprocess); the bases `ExternalToolTest`,
+`BaseSubprocessConnector`, `BaseLibraryConnector`, `BaseConnector`; and the
+configuration `ExternalToolsConfig`. Code excerpts are canonical. Do not
+invent patterns not present here.
 
 **Scope:** this guide covers two distinct scenarios:
 

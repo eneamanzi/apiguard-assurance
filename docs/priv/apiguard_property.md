@@ -30,7 +30,7 @@
 **Locus nel codice.**
 - Ogni file `.py` riporta nella docstring di apertura la regola esatta: es. `src/core/evidence.py` — *"Dependency rule: this module imports only from pydantic, stdlib, structlog, and src.core.models. It must never import from config/, discovery/, tests/, or report/"*
 - `CLAUDE.md` — regola dichiarata come non negoziabile con diagramma esplicito
-- `.claude/LLM_rules.md §A` — anti-pattern esplicito "Circular Dependencies"
+- `knowledge/RULES_claude.md §A` — anti-pattern esplicito "Circular Dependencies"
 
 **Conseguenze.** Modificare un test non può rompere `core/`. Modificare `core/` può rompere i test solo se l'interfaccia pubblica cambia, e la rottura è visibile staticamente. L'aggiunta di un nuovo modulo in un livello non richiede modifiche ai livelli superiori (tranne `engine.py`, che è il coordinatore universale).
 
@@ -49,7 +49,7 @@
 - `src/config/schema/tool_config.py` — schema infrastrutturale: timeout HTTP, retry, strategy abilitata, priorità minima, path di output
 - `src/core/models/runtime.py` — mirror immutabile dei parametri di configurazione propagato in `TargetContext`
 - `config.yaml` — file operatore con valori di default documentati per ogni parametro
-- `.claude/LLM_rules.md §F` — regola denominata "Config-Driven Development" con divieto esplicito di hardcoding
+- `knowledge/RULES_claude.md §F` — regola denominata "Config-Driven Development" con divieto esplicito di hardcoding
 
 **Conseguenze.** Un operatore può adattare completamente il comportamento del tool (es. abbassare il timeout per un network lento, aumentare il numero di request per il test di rate limiting, limitare le categorie di payload SSRF al cloud provider del target) senza toccare il codice. Ogni esecuzione è riproducibile: stesso `config.yaml` + stesso target = stessi risultati.
 
@@ -104,7 +104,7 @@
 **Locus nel codice.**
 - `src/core/dag.py` — `DAGScheduler`, `ScheduledBatch`
 - `src/tests/base.py` — `depends_on: ClassVar[list[str]]` su ogni test concreto
-- `Z-CHECKLIST.md §DAG State After Milestone 1 Completion` — tre fasi: A (no deps), B (requires 1.1), C (requires ext.1.2)
+- `docs/priv/PROJECT_status.md §DAG State After Milestone 1 Completion` — tre fasi: A (no deps), B (requires 1.1), C (requires ext.1.2)
 - `Implementazione.md §4.5` — semantica di batch e batch-parallelism futuro
 
 **Conseguenze.** Test come 1.2 (JWT cryptographic validity) dipendono correttamente da 1.1 (auth required), garantendo che i token siano disponibili nel `TestContext` prima che siano necessari. Un ciclo di dipendenze è un errore rilevato staticamente in Phase 4 prima di eseguire un solo test (`DAGCycleError` blocca lo startup). Dipendenze mancanti nel set attivo vengono ignorate con `WARNING` (graceful degradation).
@@ -145,6 +145,8 @@
 - `Implementazione.md §4.6` — motivazione DA-1: "una sottoclasse non deve ereditare metodi che non può usare"
 - `src/connectors/_template_connector.py` — template per sviluppatori futuri
 
+**Nota.** Dentro `BaseSubprocessConnector`, la ricerca del binario usa una cascata a tre canali (Channel 0: `./tools/LOCAL_TOOLS_SUBDIR/BINARY_NAME` locale, Channel 1: `shutil.which(BINARY_NAME)` di sistema, Channel 2: `os.getenv(SERVICE_ENV_VAR)` per microservizi HTTP). Questa capacità di deployment multi-modale è documentata come proprietà autonoma in **P36**.
+
 **Conseguenze.** Un `TestsslConnector` non eredita `LIBRARY_MODULE` né il meccanismo basato su `importlib.util.find_spec()` (irrilevanti per un subprocess). Un `SslyzeConnector` non eredita `BINARY_NAME`, `SERVICE_ENV_VAR`, `_run_subprocess()` (irrilevanti per una libreria Python). Il contratto pubblico (`run()`, `is_available()`, `get_version()`) è identico per entrambi: il test chiamante non sa né gli importa come il connector è implementato.
 
 **Tipo di evidenza.** Empirica — tutti e tre i tier sono dimostrati in Milestone 1: `BaseSubprocessConnector` da ext.0.1.nuclei (`NucleiConnector`) e ext.1.5.testssl (`TestsslConnector`); `BaseLibraryConnector` da ext.1.5.sslyze (`SslyzeConnector`, nessun subprocess, importazione via `importlib`).
@@ -160,7 +162,7 @@
 **Locus nel codice.**
 - `src/connectors/base.py` — `ConnectorResult` (Pydantic frozen): `raw_output`, `exit_code`, `timed_out`, `execution_time_ms`
 - `src/external_tests/base.py` — `_evaluate()` abstract method: responsabilità oracle dell'ExternalToolTest
-- `docs/ADDING_EXTERNAL_TESTS.md` — contratto esplicito: "il connector restituisce dati; il test valuta"
+- `docs/pub/ADDING_external_tests.md` — contratto esplicito: "il connector restituisce dati; il test valuta"
 
 **Conseguenze.** Il connector è riutilizzabile da test diversi con oracle diversi. Il test `ext_test_0_1_shadow_api_nuclei.py` e un ipotetico `ext_test_3_1_injection_nuclei.py` usano lo stesso `NucleiConnector` ma valutano il suo output con logiche di oracle distinte. Il connector è testabile indipendentemente (verifica che l'output sia parsato correttamente) senza richiedere un oracle di sicurezza.
 
@@ -212,7 +214,7 @@
 - `src/core/evidence.py:EvidenceStore._sanitize_artifact()` — metodo statico con sanitizzazione ricorsiva
 - `src/core/evidence.py` — costanti `_SENSITIVE_KEY_RE`, `_SANITIZE_JWT_PATTERN`, `_SANITIZE_HEADER_PREFIXES` definite a livello di modulo
 - `src/external_tests/base.py` — commento esplicito: "EvidenceStore.pin_artifact() is responsible for sanitizing credentials from raw_output before persistence"
-- `.claude/LLM_rules.md §5.7` — regola: "La sanitizzazione deve essere attiva ed esplicita"
+- `knowledge/RULES_claude.md §5.7` — regola: "La sanitizzazione deve essere attiva ed esplicita"
 
 **Conseguenze.** Un connector che dimentica di redactare un campo sensibile non crea una violazione: la sanitizzazione avviene sempre e comunque in un punto centralizzato. Aggiungere un nuovo pattern di credenziale (es. `x-api-key`) richiede una modifica in un solo posto. La tripla copertura (key pattern + JWT heuristic + header prefix) garantisce che un token JWT leakato come valore di una chiave `"result"` arbitraria venga comunque redactato.
 
@@ -245,14 +247,15 @@
 **Definizione.** Tutte le eccezioni custom del tool sono sottoclassi di `ToolBaseError` con un mapping esplicito alla fase della pipeline in cui si verificano. Eccezioni di Phase 1-4 sono fatali e bloccano lo startup. Eccezioni di Phase 5-6 sono recuperate localmente (ERROR nei risultati o WARNING nel log).
 
 **Locus nel codice.**
-- `src/core/exceptions.py` — gerarchia completa con docstring per ogni classe: `ToolBaseError`, `ConfigurationError` (Phase 1), `OpenAPILoadError` (Phase 2), `DAGCycleError` (Phase 4), `SecurityClientError` (Phase 5 nativi), `AuthenticationSetupError` (helper autenticazione), `ExternalToolError` (Phase 5 esterni), `TeardownError` (Phase 6)
-- `src/core/gateway/base.py:GatewayAdapterError` — eccezione per errori dell'Admin API gateway; estende `ToolBaseError`; definita accanto all'ABC che protegge (principio di locality), non nel file centrale. Campi: `path: str | None`, `status_code: int | None`
+- `src/core/exceptions.py` — 8 classi: `ToolBaseError` (root), `ConfigurationError` (Phase 1), `OpenAPILoadError` (Phase 2), `DAGCycleError` (Phase 4), `SecurityClientError` (Phase 5 nativi), `AuthenticationSetupError` (helper autenticazione), `ExternalToolError` (Phase 5 esterni), `TeardownError` (Phase 6)
+- `src/core/gateway/base.py:GatewayAdapterError` — errori Admin API gateway; definita accanto all'ABC che protegge (principio di locality). Campi: `path: str | None`, `status_code: int | None`
+- `src/discovery/seed_generator.py` — `SeedGeneratorFetchError`, `SeedGeneratorParseError`; raised esclusivamente dal comando CLI `generate-seed`, **non coinvolgono la pipeline Phase 1-7**; catturate in `cli.py` e convertite in exit code 10
 - `CLAUDE.md §Exception Hierarchy` — schema con descrizione del comportamento per fase
 - `Implementazione.md §8` — "Nota: il tool non implementa ExternalToolNotFoundError — un tool mancante è una condizione operativa attesa, non un errore"
 
-**Conseguenze.** Il codice chiamante può fare `except ConfigurationError` (solo errori di config) o `except ToolBaseError` (qualsiasi errore del tool) con semantica precisa. Vietato `except Exception: pass` (regola esplicita). `AuthenticationSetupError` è distinto da `SecurityClientError`: il primo indica che le credenziali configurate sono invalide (errore di setup), il secondo che la rete ha fallito (errore transiente). I test WHITE_BOX catturano `GatewayAdapterError` e ritornano `TestResult(ERROR)` senza propagare l'eccezione all'engine. La scelta di NON avere `ExternalToolNotFoundError` è documentata: un tool mancante produce `SKIP`, non un'eccezione.
+**Conseguenze.** La gerarchia conta **11 classi** (8 in `exceptions.py` + `GatewayAdapterError` in `gateway/base.py` + 2 in `seed_generator.py`) distribuite in 3 file. Il codice chiamante può fare `except ConfigurationError` (solo errori di config) o `except ToolBaseError` (qualsiasi errore del tool) con semantica precisa. Vietato `except Exception: pass` (regola esplicita). `AuthenticationSetupError` è distinto da `SecurityClientError`: il primo indica che le credenziali configurate sono invalide (errore di setup), il secondo che la rete ha fallito (errore transiente). I test WHITE_BOX catturano `GatewayAdapterError` e ritornano `TestResult(ERROR)` senza propagare l'eccezione all'engine. La scelta di NON avere `ExternalToolNotFoundError` è documentata: un tool mancante produce `SKIP`, non un'eccezione. `SeedGeneratorFetchError`/`SeedGeneratorParseError` sono le uniche eccezioni del tool che non transitano dall'engine: sono un'estensione della gerarchia per la CLI helper, architetturalmente isolata dal loop di assessment.
 
-**Tipo di evidenza.** Per costruzione — verificabile per ispezione di `src/core/exceptions.py` e `src/core/gateway/base.py` (gerarchia completa). `GatewayAdapterError` è osservabile empiricamente se l'Admin API restituisce uno status HTTP inatteso durante un run con test 4.2 o 4.3: il test produce `TestResult(ERROR)` senza interrompere la pipeline.
+**Tipo di evidenza.** Per costruzione — verificabile per ispezione di `src/core/exceptions.py`, `src/core/gateway/base.py`, `src/discovery/seed_generator.py`. `GatewayAdapterError` è osservabile empiricamente se l'Admin API restituisce uno status HTTP inatteso durante un run con test 4.2 o 4.3: il test produce `TestResult(ERROR)` senza interrompere la pipeline.
 
 **Sviluppo futuro.** La gerarchia è estendibile per fasi future (es. `ReportRenderError` per Phase 7) senza modificare le classi esistenti o i relativi handler.
 
@@ -348,19 +351,25 @@
 
 ## P20 — Single Source of Truth per Stato, Topologia e Ambiente
 
-**Definizione.** Quattro "fonti di verità uniche" coesistono con responsabilità distinte e non sovrapposte: `Z-CHECKLIST.md` per lo stato di implementazione del progetto; `config.yaml` per tutti i parametri operativi; `AttackSurface` (derivata dall'OpenAPI spec) per la topologia degli endpoint del target; `src/config/loader.py` come unico punto di accesso a `os.environ` (nessun altro modulo legge variabili d'ambiente direttamente).
+**Definizione.** Quattro "fonti di verità uniche" coesistono con responsabilità distinte e non sovrapposte: `PROJECT_status.md` per lo stato di implementazione del progetto; `config.yaml` per tutti i parametri operativi; `AttackSurface` (derivata dall'OpenAPI spec) per la topologia degli endpoint del target; `src/config/loader.py` come unico punto di accesso a `os.environ` (nessun altro modulo legge variabili d'ambiente direttamente).
 
 **Locus nel codice.**
-- `CLAUDE.md` — "Z-CHECKLIST.md — single source of truth" per stato progetto
+- `CLAUDE.md` — "docs/priv/PROJECT_status.md — single source of truth" per stato progetto
 - `src/discovery/surface.py` — `AttackSurface` come unica fonte per endpoint topology
 - `src/core/context.py` — `TargetContext.attack_surface` distribuisce la mappa a tutti i test
-- `src/config/loader.py` — docstring: "No other module in src/ reads files or calls os.environ directly"
+- `src/config/loader.py` — docstring: "No other module in src/ reads files or calls os.environ directly"; risolve placeholder `${VAR}` da `os.environ`
 - `src/cli.py` — unico punto dove `load_dotenv(override=False)` è invocato
 - `Implementazione.md §3.1` — "L'AttackSurface è l'unica sorgente di verità sulla topologia del target"
 
-**Conseguenze.** Un test che consulta `target.attack_surface.endpoints` lavora sempre sulla stessa vista degli endpoint, identica per ogni test nell'intera pipeline. L'isolamento dell'accesso alle variabili d'ambiente in un solo modulo rende prevedibile e auditabile il percorso di ogni credenziale: dal file `.env` (o dall'ambiente CI/CD) al `ToolConfig`, senza cortocircuiti. Il flag `override=False` in `load_dotenv()` garantisce che le variabili iniettate dall'orchestratore CI/CD non vengano sovrascritte da un eventuale file `.env` locale.
+**Eccezioni documentate a `os.environ`/`os.getenv` fuori da `loader.py`:**
+- `src/connectors/base.py:BaseSubprocessConnector._resolve_binary()` — `os.getenv(SERVICE_ENV_VAR)` per il Channel 2 della three-channel binary resolution (vedi P36); accesso a una env var il cui *nome* è parametrico per connector e non conoscibile staticamente da `loader.py`
+- `src/engine.py` Phase 3 — `os.getenv("APIGUARD_TARGET_EFFECTIVE_URL")` per il Docker Compose URL override (vedi P38); avviene una sola volta a startup, il risultato è frozen in `TargetContext.effective_base_url`
 
-**Tipo di evidenza.** Per costruzione — verificabile con `grep -r "os.environ" src/`: solo `src/config/loader.py` e `src/cli.py` accedono all'ambiente. La unicità di `AttackSurface` come fonte di topologia è verificabile per ispezione: nessun test esegue chiamate HTTP di discovery indipendenti al di fuori di Phase 2.
+Entrambe le eccezioni sono architetturalmente giustificate: non leggono parametri di configurazione dell'assessment ma risolvono binding infrastrutturali (tool availability e deployment URL) che per natura devono bypassare il file YAML.
+
+**Conseguenze.** Un test che consulta `target.attack_surface.endpoints` lavora sempre sulla stessa vista degli endpoint, identica per ogni test nell'intera pipeline. L'isolamento dell'accesso config in un solo modulo rende prevedibile e auditabile il percorso di ogni credenziale: dal file `.env` (o dall'ambiente CI/CD) al `ToolConfig`, senza cortocircuiti. Il flag `override=False` in `load_dotenv()` garantisce che le variabili iniettate dall'orchestratore CI/CD non vengano sovrascritte da un eventuale file `.env` locale.
+
+**Tipo di evidenza.** Per costruzione — verificabile con `grep -rn "os.environ\|os.getenv" src/ | grep -v loader.py`: i soli 2 accessi residui sono `connectors/base.py` (Channel 2) e `engine.py` (effective URL), entrambi documentati. La unicità di `AttackSurface` come fonte di topologia è verificabile per ispezione: nessun test esegue chiamate HTTP di discovery indipendenti al di fuori di Phase 2.
 
 **Sviluppo futuro.** La separazione netta delle fonti di verità è prerequisito per un eventuale "diff assessment": confrontare due `AttackSurface` da due run successive per rilevare endpoint scomparsi o aggiunti tra una versione API e l'altra.
 
@@ -423,8 +432,8 @@
 **Definizione.** I connector verso tool esterni sono classificati in due categorie: Categoria A (HYBRID — bloccanti, obbligatori per produrre evidenza valida per quel test) e Categoria B (Opzionali — il test funziona già come NATIVE, il connector espande la superficie di rilevamento senza essere necessario). Un test HYBRID senza il connector Cat A è un test SKIP con evidenza incompleta.
 
 **Locus nel codice.**
-- `Z-CHECKLIST.md §Connectors` — tabella completa Cat A e Cat B con motivazione
-- `Z-CHECKLIST.md` — legenda `[OK·C]`: "Python completo, manca il Connector Cat A obbligatorio"
+- `docs/priv/PROJECT_status.md §Connectors` — tabella completa Cat A e Cat B con motivazione
+- `docs/priv/PROJECT_status.md` — legenda `[OK·C]`: "Python completo, manca il Connector Cat A obbligatorio"
 - `src/external_tests/base.py` — gestione dello SKIP per tool mancante
 
 **Conseguenze.** La classificazione guida le priorità di sviluppo: i connector Cat A sono prerequisiti per la completezza dei test HYBRID (es. `testssl.sh` per il test 1.5). I connector Cat B sono enhancements: il test 6.4 (Hardcoded Credentials) già funziona con regex interne, `trufflehog`/`gitleaks` ampliano solo la copertura. La classificazione è documentata anche nel changelog delle decisioni (es. promozione di `ffuf` da Cat B a Cat A in sostituzione di `kiterunner` abbandonato).
@@ -443,7 +452,7 @@
 - `src/external_tests/base.py:ExternalToolTest._load_dev_cache()` — logica di cache lookup; il filename è `{safe_label}_output.json` dove `safe_label` sostituisce i caratteri `./\\ ` con underscore
 - `src/external_tests/base.py:ExternalToolTest._is_dev_mode()` — verifica il flag `dev_mode` per tool specifico tramite `TargetContext.external_tools`
 - `config.yaml` — `external_tools.testssl.dev_mode: false` e `external_tools.nuclei.dev_mode: false` (default per tutti i tool)
-- `docs/ADDING_EXTERNAL_TESTS.md` — workflow documentato per sviluppatori
+- `docs/pub/ADDING_external_tests.md` — workflow documentato per sviluppatori
 - La cache è scritta nella directory `outputs/tools/` (`store.tools_dir`); l'engine Phase 3 imposta questo path. L'envelope ha struttura `{"source_test_id": ..., "label": ..., "record_id": ..., "generated_at_utc": ..., "data": {...}}` con chiavi `_apiguard_meta_*` per il metadata di enrichment
 
 **Conseguenze.** Il ciclo di sviluppo per un nuovo test HYBRID scende da minuti (run completa con tool esterno) a secondi (lettura da cache). La cache è disabilitata per default e deve essere abilitata esplicitamente: zero rischio di dimenticarla attiva in produzione. Una cache hit restituisce un `ConnectorResult` con `tool_version=None` e `execution_time_ms=0`, distinguibile da una vera esecuzione nel log.
@@ -478,8 +487,8 @@
 **Definizione.** Tutto il logging usa `structlog` con eventi strutturati a coppie chiave-valore (non stringhe interpolate). `print()` è categoricamente vietato. Ogni log message che potrebbe contenere dati sensibili deve usare `[REDACTED]`. La regola è attiva ed esplicita: non è sufficiente "non loggare" un campo — la struttura dell'oggetto potrebbe essere serializzata automaticamente da layer sottostanti.
 
 **Locus nel codice.**
-- `.claude/LLM_rules.md §5.4` — "No print(), use structlog with structured events (key-value pairs)"
-- `.claude/LLM_rules.md §5.7` — "Credential sanitization: replace with [REDACTED]"
+- `knowledge/RULES_claude.md §5.4` — "No print(), use structlog with structured events (key-value pairs)"
+- `knowledge/RULES_claude.md §5.7` — "Credential sanitization: replace with [REDACTED]"
 - Ogni modulo: `log: structlog.BoundLogger = structlog.get_logger(__name__)` come prima dichiarazione
 
 **Conseguenze.** Il log prodotto è machine-readable e ingestibile direttamente in sistemi di log aggregation (ELK, Loki) senza parsing custom. La redaction sistematica delle credenziali previene che un log leak esponga token JWT o password nei file di log di un CI/CD runner.
@@ -609,7 +618,7 @@
 
 **Conseguenze.** Il tool gira in qualsiasi ambiente con Python 3.11+ e accesso di rete al target, senza setup service o migration. Il deployment Docker richiede solo l'injection di `config.yaml`. Il tool può essere aggiunto a un CI/CD runner come pip install + config file, senza prerequisiti infrastrutturali. Questa proprietà è il prerequisito di P17 (semantic exit codes per CI/CD): un tool con dipendenze di stato esterno richiederebbe service readiness check prima che l'exit code possa essere considerato affidabile.
 
-**Tipo di evidenza.** Per costruzione — verificabile per ispezione di `requirements.txt` (assenza di `psycopg`, `redis`, `sqlalchemy`, `boto3`, client RabbitMQ) e con `grep -r "import redis\|import psycopg\|import boto3" src/` (zero risultati). Osservabile empiricamente: ogni run produce output solo nella directory `outputs/` locale senza accedere a servizi di stato esterni.
+**Tipo di evidenza.** Per costruzione — verificabile per ispezione di `pyproject.toml` (sezione `[project] dependencies`: assenza di `psycopg`, `redis`, `sqlalchemy`, `boto3`, client RabbitMQ) e con `grep -r "import redis\|import psycopg\|import boto3" src/` (zero risultati). Osservabile empiricamente: ogni run produce output solo nella directory `outputs/` locale senza accedere a servizi di stato esterni.
 
 **Sviluppo futuro.** Una futura modalità "multi-target" richiederebbe un external state store per coordinare assessment paralleli. L'architettura attuale rende questo un'estensione deliberata opt-in, non un requisito implicito.
 
@@ -632,6 +641,84 @@
 
 ---
 
+## P36 — Three-Channel Binary Resolution (Deployment Multi-Modale)
+
+**Definizione.** `BaseSubprocessConnector._resolve_binary()` risolve il path del binario esterno tramite una cascata a tre canali, in ordine di priorità crescente di deployment:
+1. **Channel 0 — Local bundle** (`./tools/LOCAL_TOOLS_SUBDIR/BINARY_NAME`): usa la copia locale presente nel repo sotto `tools/`, attivo solo se `LOCAL_TOOLS_SUBDIR` è non-vuoto. Garantisce versione pinned senza installazione di sistema.
+2. **Channel 1 — System PATH** (`shutil.which(BINARY_NAME)`): binario installato globalmente (`apt`, `brew`, build from source).
+3. **Channel 2 — HTTP Microservice** (`os.getenv(SERVICE_ENV_VAR)`): il tool esterno è esposto come servizio HTTP (tipicamente in Docker Compose); il connector invia richieste HTTP invece di invocare un subprocess.
+
+La cascata si arresta al primo canale disponibile. Se nessun canale è attivo, `is_available()` ritorna `False` e il test ottiene `SKIP`.
+
+**Locus nel codice.**
+- `src/connectors/base.py:BaseSubprocessConnector._resolve_binary()` — cascata a tre canali
+- `src/connectors/base.py:BaseSubprocessConnector.LOCAL_TOOLS_SUBDIR` — `ClassVar[str] = ""` (default disabilitato); `TestsslConnector` lo imposta a `"testssl"`, `NucleiConnector` a `"nuclei"`
+- `src/connectors/base.py:BaseSubprocessConnector.SERVICE_ENV_VAR` — `ClassVar[str]` (e.g. `"TESTSSL_SERVICE_URL"`, `"NUCLEI_SERVICE_URL"`)
+- `pyproject.toml` — tools bundled nella directory `tools/` (esclusa dal wheel, presente nel repo)
+
+**Conseguenze.** Il medesimo `NucleiConnector` funziona senza modifiche in tre contesti: sviluppo su macOS con `nuclei` installato via `brew` (Channel 1), CI/CD con il binario sotto `./tools/nuclei/` (Channel 0), e deployment containerizzato con nuclei come Docker sidecar (Channel 2). Zero `if DEV_MODE / if DOCKER` nel codice applicativo: la logica di discovery è incapsulata nel connector. L'operatore configura solo l'env var `SERVICE_ENV_VAR` per abilitare il Channel 2; tutto il resto è automatico.
+
+**Tipo di evidenza.** Per costruzione — verificabile per ispezione di `src/connectors/base.py` (metodo `_resolve_binary()` con le tre rami). Channel 0 verificabile con `./tools/testssl/testssl.sh` presente nel repo; Channel 1 verificabile dopo `sudo apt install nuclei`; Channel 2 richiederebbe `docker-compose.yml` con sidecar (non incluso in M1 ma architetturalmente supportato).
+
+**Sviluppo futuro.** Il Channel 2 abilita un'architettura tool-as-microservice in cui tool costosi (nuclei con molti template, testssl con full scan) girano come container persistenti e ricevono richieste dallo stesso run del tool, riducendo drasticamente l'overhead di startup per N run consecutivi.
+
+---
+
+## P37 — License-Gated Optional Dependency (AGPL Isolation)
+
+**Definizione.** Il componente `sslyze` (e la sua dipendenza nativa `nassl`) è rilasciato sotto AGPL v3. Per mantenere il core del tool distribuibile sotto licenza MIT senza obblighi copyleft, `sslyze` è dichiarato esclusivamente in `[project.optional-dependencies.sslyze]` in `pyproject.toml`. Un'installazione standard (`pip install apiguard-assurance`) non installa sslyze. L'utente che vuole abilitare `ext.1.5.sslyze` installa esplicitamente `pip install "apiguard-assurance[sslyze]"` (o `pip install -e ".[sslyze]"` in sviluppo), accettando consapevolmente l'AGPL.
+
+**Locus nel codice.**
+- `pyproject.toml:[project.optional-dependencies.sslyze]` — `"sslyze>=6.3,<7"` con commento AGPL esplicito
+- `pyproject.toml:[tool.hatch.envs.default]` — `features = ["sslyze"]` incluso per lo sviluppo (il dev env installa sslyze)
+- `src/connectors/sslyze.py` — `SslyzeConnector(BaseLibraryConnector)` usa `importlib.util.find_spec("sslyze")` per `is_available()`: se il pacchetto opzionale non è installato, `is_available()` ritorna `False` → `ext.1.5.sslyze` ottiene `SKIP`
+
+**Conseguenze.** Il meccanismo `BaseLibraryConnector.is_available()` (P36/P08) rende il gating completamente trasparente a runtime: se sslyze non è installato, il test è `SKIP` con motivo esplicito. Il core dell'applicazione rimane MIT-clean senza alcun import condizionale. Il wheel distribuibile su PyPI (`apiguard-assurance-X.Y.Z-py3-none-any.whl`) non include sslyze nel proprio `METADATA`'s `Requires-Dist` per default, ma è "PyPI extras-ready".
+
+**Tipo di evidenza.** Per costruzione — verificabile in `pyproject.toml` (assenza di `sslyze` nella sezione `[project] dependencies`, presenza in `[project.optional-dependencies]`). Verificabile a runtime: in un virtualenv senza `pip install ".[sslyze]"`, `SslyzeConnector().is_available()` ritorna `False` e `ext.1.5.sslyze` produce `SKIP ("sslyze library not available")`.
+
+**Sviluppo futuro.** Il pattern extras-gated è replicabile per qualsiasi componente con licenza incompatibile o dipendenza pesante: es. un futuro `[project.optional-dependencies.burp]` per il BurpSuite headless integration o `[project.optional-dependencies.ml]` per feature LLM-assisted che dipendono da PyTorch.
+
+---
+
+## P38 — Deployment-Transparent URL Abstraction (effective_base_url)
+
+**Definizione.** Il tool funziona senza modifiche in due modalità di deployment che differiscono nell'indirizzo di rete del target: *standalone* (il tool gira direttamente sulla macchina host e raggiunge Forgejo su `localhost` o IP pubblico) e *Docker Compose* (il tool gira in un container e raggiunge Forgejo tramite il nome del servizio Compose, es. `http://forgejo:3000`). `TargetContext.effective_base_url` è il campo che astrae questa differenza: in standalone è uguale a `base_url` (letto da `config.yaml`); in Docker Compose viene sovrascritto dal valore di `APIGUARD_TARGET_EFFECTIVE_URL` (env var iniettata dal Compose file), risolto **una sola volta** in Phase 3 e frozen nel `TargetContext`.
+
+**Locus nel codice.**
+- `src/core/context.py:TargetContext.effective_base_url` — campo `AnyHttpUrl | None`, popolato da engine Phase 3
+- `src/core/context.py:TargetContext.effective_endpoint_base_url()` — metodo usato dai connector per costruire gli URL di target; mai `base_url` direttamente
+- `src/engine.py` Phase 3 — `os.getenv("APIGUARD_TARGET_EFFECTIVE_URL")` con fallback a `config.target.base_url`; risultato assegnato al campo `effective_base_url`
+- `src/connectors/nuclei.py`, `src/connectors/testssl.py`, `src/connectors/sslyze.py` — usano tutti `target.effective_endpoint_base_url()`, non `target.base_url`
+
+**Conseguenze.** L'operatore che sposta il tool da standalone a Docker Compose modifica solo il Compose file (aggiunge `APIGUARD_TARGET_EFFECTIVE_URL=http://forgejo:3000`) senza toccare `config.yaml` né il codice. I connector non hanno logica condizionale di deployment: non sanno e non devono sapere se stanno girando in un container o sulla macchina host. La risoluzione è effettuata una sola volta e il campo è frozen: zero inconsistenze tra connector diversi che potrebbero leggere l'env var in momenti diversi.
+
+**Tipo di evidenza.** Per costruzione — verificabile con `grep -r "base_url" src/connectors/`: tutti i connector usano `target.effective_endpoint_base_url()` (mai `target.base_url` direttamente). La logica di Phase 3 è verificabile in `src/engine.py` per ispezione.
+
+**Sviluppo futuro.** Il pattern si estende naturalmente a un profilo `config_docker.yaml` che può referenziare `${APIGUARD_TARGET_EFFECTIVE_URL}` come placeholder, con il medesimo meccanismo di interpolazione di `loader.py`. Abilita anche il testing multi-stage: tool che usano indirizzi diversi per il target applicativo vs il Kong Admin API.
+
+---
+
+## P39 — Dual-Layer Type Safety (Mypy Strict + Pydantic v2 Runtime)
+
+**Definizione.** Il codebase applica due strati di type enforcement indipendenti e complementari: (1) **mypy strict** a compile-time (verificato con `mypy src/` — 0 errori su 90 file sorgente, con `strict = true` in `pyproject.toml`); (2) **Pydantic v2 validators** a runtime al momento della costruzione degli oggetti (model_validator, field_validator, Annotated constraints). I due strati coprono scenari diversi: mypy rileva errori di tipo nella logica del codice sorgente prima dell'esecuzione; Pydantic rileva dati invalidi alle *system boundaries* (config YAML caricato da disco, output dei connector, construction dei TestResult). Un `wrong_type` in un helper interno è catturato da mypy; un `timeout_seconds=None` con `enabled=True` nel config YAML è catturato dal validator Pydantic `_timeout_required_when_enabled`. Il combinazione elimina la classe di bug "typecheck verde, runtime crash".
+
+**Locus nel codice.**
+- `pyproject.toml:[tool.mypy] strict = true` — abilita l'intero set di flag strict (no-implicit-optional, disallow-untyped-defs, warn-return-any, ecc.)
+- `src/config/schema/` — tutti i `BaseModel` con `frozen=True` + validatori specifici per ogni parameter (ge/le, min_length, description)
+- `src/core/models/results.py:TestResult.validate_status_finding_consistency()` — model_validator che enforca la coerenza status-evidence
+- `src/core/models/external_tools.py:BaseExternalToolConfig._timeout_required_when_enabled()` — field_validator che enforca `timeout_seconds != None` quando `enabled=True`
+- `src/core/models/runtime.py` — tutti i `RuntimeTest*Config` con `frozen=True` che rendono `TargetContext` completamente immutabile
+- `hatch run dev:lint` — gate CI che esegue `ruff check . && mypy src/` prima di ogni push; "Success: no issues found in 90 source files" è il contratto di release
+
+**Conseguenze.** Aggiungere un parametro con il tipo sbagliato (es. `timeout_seconds: str` invece di `int | None`) viene catturato immediatamente da `mypy` — prima che il codice venga mai eseguito. Passare `timeout_seconds=None` con `enabled=True` in `config.yaml` viene catturato da Pydantic durante il `load_config()` in Phase 1 con messaggio actionable, non durante `_invoke_connector()` alle 3:00 di notte in produzione. Il costo mantenuto di questo sistema è zero per l'autore del test: type hints sono già obbligatori (Hard Rule), `frozen=True` è già obbligatorio per i config models. La safety emerge dalla struttura, non da disciplina manuale.
+
+**Tipo di evidenza.** Per costruzione — verificabile con `mypy src/ --strict` (ritorna exit 0, "no issues in 90 source files"). La coverage runtime Pydantic è verificabile aggiungendo deliberatamente un valore invalido in `config.yaml` (es. `enabled: true` senza `timeout_seconds`) e osservando che `apiguard validate-config` produce `ConfigurationError` con il path del campo violato invece di un crash silenzioso.
+
+**Sviluppo futuro.** L'aggiunta di `py.typed` marker al package (PEP 561) renderebbe i type hints esportati ai downstream consumer: chi scrive test personalizzati come plugin esterno otterrebbe la stessa sicurezza di tipo nell'IDE senza configurazione aggiuntiva.
+
+---
+
 ## Riepilogo Tassonomico
 
 | Categoria | Proprietà |
@@ -641,4 +728,5 @@
 | **Config & Riproducibilità** | P03 Config-Driven Development, P20 Single Source of Truth, P21 Box Gradient, P28 Reproducibility, P34 Zero External State Dependency |
 | **Robustezza & Sicurezza** | P11 Streaming Evidence Store, P12 Evidence Sanitization, P13 Fail-Safe Isolation, P14 Exception Hierarchy, P15 Graceful Degradation, P16 Best-Effort Teardown, P31 Safe HTTP Probing Policy, P33 Fail-Fast P0 Escalation, P35 TestResult Invariant Enforcement |
 | **Qualità & Osservabilità** | P22 Methodology Traceability, P23 Finding/InfoNote Distinction, P26 DRY, P27 Structured Logging, P29 Report Domain-Centric Split |
-| **CI/CD & DevEx** | P17 Semantic Exit Codes, P25 Dev-Mode Cache |
+| **CI/CD & DevEx** | P17 Semantic Exit Codes, P25 Dev-Mode Cache, **P39 Dual-Layer Type Safety** |
+| **Packaging & Deployment** | P36 Three-Channel Binary Resolution, P37 License-Gated Optional Dependency, P38 Deployment-Transparent URL |

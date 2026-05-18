@@ -12,7 +12,7 @@
 - Escluse appendici enciclopediche
 
 **Criteri aggiuntivi applicati in v2.0 — Tripartizione A/B/C:**
-La classificazione completa è in `TODO-decisioni-tool.md`. Questo documento riporta
+La classificazione completa è in `TOOLS_catalog.md`. Questo documento riporta
 solo le Categorie A (connector obbligatori) e B (connector facoltativi con fallback nativo).
 I tool Categoria C non compaiono nelle tabelle operative. Le quattro ragioni di scarto sono:
 - **C.1 Ridondanza / Deprecazione:** sostituito da un tool A o B già presente, oppure abbandonato
@@ -109,8 +109,8 @@ Nessun tool esterno. La sequenza login → usa token → logout → replay token
 
 | Tool | Cat. | Ruolo | Motivazione |
 |---|---|---|---|
-| **testssl.sh** | A | Primario | Standard de facto per TLS analysis. Copre versioni protocollo, cipher suite, forward secrecy, certificate transparency, 20+ vulnerabilità CVE-based (BEAST, POODLE, ROBOT, Heartbleed). Replicare in Python richiederebbe centinaia di handshake personalizzati a livello socket raw. Output JSON strutturato (`--jsonfile`). |
-| **sslyze** | B | Fallback | Importabile come libreria Python (`BaseLibraryConnector`) — zero binary dependencies. Meno completa di testssl.sh ma usabile quando testssl.sh non è disponibile nell'ambiente. |
+| **testssl.sh** | A | Primario CLI | Standard de facto per TLS analysis. Copre versioni protocollo, cipher suite, forward secrecy, certificate transparency, 20+ vulnerabilità CVE-based (BEAST, POODLE, ROBOT, Heartbleed). Replicare in Python richiederebbe centinaia di handshake personalizzati a livello socket raw. Output JSON strutturato (`--jsonfile`). |
+| **sslyze** | A | Primario libreria | Implementato come connector parallelo a testssl.sh in Milestone 1. Importabile come libreria Python (`BaseLibraryConnector`) — zero binary dependencies, utilizzabile in ambienti dove testssl.sh non è installabile. Copre cipher suite, forward secrecy, certificate validation, vulnerabilità CVE-based (Heartbleed, ROBOT, CCS injection). Output strutturato via `ScanCommandsResultsObserver` di sslyze. Genera evidenza indipendente da testssl.sh tramite `ext.1.5.sslyze` (test classe parallela a `ext.1.5.testssl`). |
 
 **Scartati (Categoria C):** tlsx (C.4 — più veloce per multi-target ma meno profondo per singolo target; il nostro caso è sempre singolo target), sslscan2 (C.1 — alternativa a sslyze senza vantaggi su sslyze), tls-scan (C.4 — ottimizzato per bulk scan, non per analisi profonda), h2spec (C.3 — HTTP/2 conformance testing, scope diverso), quiche+curl (C.3 — HTTP/3, fuori scope v1.0).
 
@@ -359,11 +359,11 @@ Tool che compaiono in più test — l'`ExternalTestRegistry` li istanzia una sol
 **Nota:** la categoria TOOL non si applica a nessun test del catalogo. Per design architetturale, Python contribuisce sempre logica di sicurezza indipendente in ogni test che usa connector esterni. I test `[NATIVE]` con tool Cat B opzionali sono elencati nella colonna NATIVE — il Cat B non cambia la classificazione del test, ne estende la copertura.
 
 **Connector definitivi (Categoria A — obbligatori):**
-ffuf (ex-kiterunner), katana, Nuclei, jwt_tool, testssl.sh, Schemathesis, vegeta, interactsh
+ffuf (ex-kiterunner), katana, Nuclei, jwt_tool, testssl.sh, sslyze, Schemathesis, vegeta, interactsh
 
 **Connector definitivi (Categoria B — facoltativi con fallback nativo):**
-gau, cherrybomb, sslyze, OFFAT, sqlmap, NoSQLMap, Dalfox, commix, SSTImap, trufflehog, gitleaks, detect-secrets, oasdiff, http2smugl
+gau, cherrybomb, OFFAT, sqlmap, NoSQLMap, Dalfox, commix, SSTImap, trufflehog, gitleaks, detect-secrets, oasdiff, http2smugl
 
-**Totale:** 8 connector Categoria A + 14 connector Categoria B = 22 connector operativi.
-Categoria C: ~77 tool — documentati in `TODO-decisioni-tool.md`, non entrano nel codice.
+**Totale:** 9 connector Categoria A + 13 connector Categoria B = 22 connector operativi.
+Categoria C: ~77 tool — documentati in `TOOLS_catalog.md`, non entrano nel codice.
 *(Rispetto a v2.0: -4 Cat A rimossi per abbandono/nessuna release, +1 Cat B promosso ad A, -3 Cat B rimossi per abbandono, +1 Cat B aggiunto. Netto: -5 connector operativi.)*
