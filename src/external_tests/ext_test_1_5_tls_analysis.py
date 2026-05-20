@@ -615,7 +615,7 @@ class ExtTest15SslyzeAnalysis(ExternalToolTest):
     Independent TLS stack analysis using the sslyze Python library.
 
     Runs alongside ExtTest15TlsAnalysis (testssl.sh) — both produce separate
-    results in the report for Domain 1.  Demonstrates P08 BaseLibraryConnector
+    results in the report for Domain 1.  Demonstrates D1.P5 BaseLibraryConnector
     tier: sslyze is imported as a Python module, not invoked as a subprocess.
 
     Oracle (identical structure to ExtTest15TlsAnalysis):

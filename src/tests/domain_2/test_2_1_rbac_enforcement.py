@@ -96,8 +96,8 @@ class Test21RbacEnforcement(BaseTest):
     and expects 403/404 (RBAC enforced).  A 2xx response is a FAIL finding
     (broken function-level authorisation).
 
-    Demonstrates properties P04 (multi-role token management via TestContext),
-    P19 (auth dispatcher), P21 (GREY_BOX strategy gradient), P06-PhaseB.
+    Demonstrates properties D1.P3 (multi-role token management via TestContext),
+    D2.P5 (auth dispatcher), D3.P3 (GREY_BOX strategy gradient), D2.P2-PhaseB.
     """
 
     test_id: ClassVar[str] = "2.1"

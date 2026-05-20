@@ -3,7 +3,7 @@ src/connectors/sslyze.py
 
 SslyzeConnector: BaseLibraryConnector wrapper for the sslyze TLS scanner.
 
-This connector is the third P08 connector tier (BaseLibraryConnector — Python
+This connector is the third D1.P5 connector tier (BaseLibraryConnector — Python
 library, not a subprocess).  sslyze is imported lazily inside run() so that
 the rest of the codebase is unaffected when the library is absent; the
 registry will call is_available() and inject a skip reason before run() is

@@ -944,7 +944,7 @@ Il tag `py3-none-any` indica che il pacchetto è **pure Python** (nessuna estens
 
 **Contenuto del wheel:** esclusivamente `src/` e i metadata PyPI. I file `docs/priv/`, `outputs/`, `tools/`, `CLAUDE.md` e la cartella `.claude/` non entrano nel wheel — la whitelist è definita in `pyproject.toml` sotto `[tool.hatch.build.targets]`.
 
-**Dipendenza opzionale sslyze:** un'installazione standard (`pip install apiguard-assurance`) non include sslyze (AGPL). Per abilitare `ext.1.5.sslyze` serve l'extra esplicito: `pip install "apiguard-assurance[sslyze]"`. Vedi P37 in `docs/priv/apiguard_property.md`.
+**Dipendenza opzionale sslyze:** un'installazione standard (`pip install apiguard-assurance`) non include sslyze (AGPL). Per abilitare `ext.1.5.sslyze` serve l'extra esplicito: `pip install "apiguard-assurance[sslyze]"`. Vedi D7.P2 in `docs/priv/apiguard_property.md`.
 
 ---
 

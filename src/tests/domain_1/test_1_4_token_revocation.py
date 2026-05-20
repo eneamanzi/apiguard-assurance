@@ -105,9 +105,9 @@ class Test14TokenRevocation(BaseTest):
     PASS if the gateway returns 401/403; FAIL if the revoked token is still
     accepted (2xx).
 
-    Demonstrates properties P04 (TestContext token+teardown channels),
-    P06-PhaseB (DAG dependency on 1.1), P16 (teardown registration),
-    P19 (auth dispatcher).
+    Demonstrates properties D1.P3 (TestContext token+teardown channels),
+    D2.P2-PhaseB (DAG dependency on 1.1), D4.P6 (teardown registration),
+    D2.P5 (auth dispatcher).
     """
 
     test_id: ClassVar[str] = "1.4"

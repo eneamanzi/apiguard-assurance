@@ -213,7 +213,7 @@ Comandi di verifica: `hatch run dev:lint`, `hatch run dev:audit`, `hatch run dev
 |---|----------|-----------|-----------|
 | 6 | Naming `ext.X.Y.toolname` uniforme nei docs | ✓ | 0 bare `ext.X.Y` senza suffisso toolname in docs/ e src/ |
 | 7 | Parità test-set (PROJECT_status ↔ ARCHITECTURE ↔ codice) | ✓ | 18 test_id (15 nativi + 3 esterni) concordi in tutte le fonti |
-| 8 | Proprietà architetturali P01–P39 | ✓ | `apiguard_property.md` contiene P01–P39; spot-check P01/P08/P11/P30 ✓ |
+| 8 | 39 proprietà architetturali (7 domini) | ✓ | `apiguard_property.md` contiene 39 proprietà su 7 domini; spot-check D1.P1/D1.P5/D4.P1/D2.P7 ✓ |
 | 9 | Riferimenti connector in `TOOLS_catalog.md` | ✓ | nuclei (8 occorrenze), sslyze (5), testssl (7) |
 | 10 | Hard Rules (`CLAUDE.md` ↔ `RULES_claude.md`) | ✓ | Tutti i riferimenti aggiornati; 0 riferimenti obsoleti |
 | 11 | Gerarchia eccezioni (CLAUDE.md ↔ exceptions.py ↔ gateway/base.py ↔ seed_generator.py) | ✓ | 11/11 classi presenti in CLAUDE.md |
@@ -235,7 +235,7 @@ Comandi di verifica: `hatch run dev:lint`, `hatch run dev:audit`, `hatch run dev
 | 20 | Compliance ClassVar `BaseTest` / `ExternalToolTest` (AST-based) | ✓ | 15/15 native con 8 ClassVar richiesti; 3/3 external con 9 ClassVar richiesti. 0 mancanti |
 | 21 | Catena config ↔ test ↔ runtime model | ✓ | Spot-check test 1.4, 2.1, 4.1, 6.4 — catena `config.yaml → schema → RuntimeConfig → engine → target.tests_config` intatta |
 | 22 | Direzione dipendenze monodirezionale | ✓ | 0 import upward da `tests/`/`external_tests/` verso `engine.py`, `report/`, `config/loader.py`, `discovery/` |
-| 23 | Proprietà architetturali P01–P35 vs implementazione | ✓ | P01 (API-Agnosticism), P08 (Three-Tier Connector Hierarchy), P11 (Evidence Store), P30 (generate-seed): loci esistono, implementazioni concordano |
+| 23 | 39 proprietà architetturali vs implementazione | ✓ | D1.P1 (API-Agnosticism), D1.P5 (Three-Tier Connector Hierarchy), D4.P1 (Evidence Store), D2.P7 (generate-seed): loci esistono, implementazioni concordano |
 
 ---
 

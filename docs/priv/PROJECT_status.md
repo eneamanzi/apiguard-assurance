@@ -101,10 +101,10 @@ architectural claims in `docs/priv/apiguard_property.md`. Security coverage is s
 
 | ID | Type | Status | Strategy / Priority | Key Properties |
 |----|------|--------|---------------------|----------------|
-| 0.1 | NATIVE+OPT | [x] | BLACK_BOX / P0 | P01, P05 |
-| ext.0.1.nuclei | HYBRID / nuclei | [~] | BLACK_BOX / P0 | P07, P08, P09, P10, P24, P25 |
-| 0.2 | NATIVE+OPT | [x] | BLACK_BOX / P0 | P01 |
-| 0.3 | NATIVE+OPT | [x] | BLACK_BOX / P0 | P01 |
+| 0.1 | NATIVE+OPT | [x] | BLACK_BOX / P0 | D1.P1, D2.P1 |
+| ext.0.1.nuclei | HYBRID / nuclei | [~] | BLACK_BOX / P0 | D1.P4, D1.P5, D2.P3, D2.P4, D2.P6, D6.P2 |
+| 0.2 | NATIVE+OPT | [x] | BLACK_BOX / P0 | D1.P1 |
+| 0.3 | NATIVE+OPT | [x] | BLACK_BOX / P0 | D1.P1 |
 
 Files: `src/external_tests/ext_test_0_1_shadow_api_nuclei.py`, `src/connectors/nuclei.py`
 
@@ -112,12 +112,12 @@ Files: `src/external_tests/ext_test_0_1_shadow_api_nuclei.py`, `src/connectors/n
 
 | ID | Type | Status | Strategy / Priority | Key Properties |
 |----|------|--------|---------------------|----------------|
-| 1.1 | NATIVE | [x] | BLACK_BOX / P0 | P01, P06-PhaseA, P11, P31, P32, P35 |
-| 1.4 | NATIVE | [x] | GREY_BOX / P2 | P04, P06-PhaseB, P16, P19, P21, P33 |
-| 1.5 | NATIVE | [x] | WHITE_BOX / P2 | P21 |
-| ext.1.5.testssl | HYBRID / testssl | [x] | WHITE_BOX / P2 | P07, P08, P09, P10, P21, P25 |
-| ext.1.5.sslyze | HYBRID / sslyze | [x] | WHITE_BOX / P2 | P07, P08, P09, P10, P21, P25 |
-| 1.6 | NATIVE | [x] | WHITE_BOX / P3 | P19, P21 |
+| 1.1 | NATIVE | [x] | BLACK_BOX / P0 | D1.P1, D2.P2-PhaseA, D4.P1, D4.P7, D2.P8, D4.P9 |
+| 1.4 | NATIVE | [x] | GREY_BOX / P2 | D1.P3, D2.P2-PhaseB, D4.P6, D2.P5, D3.P3, D4.P8 |
+| 1.5 | NATIVE | [x] | WHITE_BOX / P2 | D3.P3 |
+| ext.1.5.testssl | HYBRID / testssl | [x] | WHITE_BOX / P2 | D1.P4, D1.P5, D2.P3, D2.P4, D3.P3, D6.P2 |
+| ext.1.5.sslyze | HYBRID / sslyze | [x] | WHITE_BOX / P2 | D1.P4, D1.P5, D2.P3, D2.P4, D3.P3, D6.P2 |
+| 1.6 | NATIVE | [x] | WHITE_BOX / P3 | D2.P5, D3.P3 |
 
 Files: `src/external_tests/ext_test_1_5_tls_analysis.py`, `src/connectors/testssl.py`, `src/connectors/sslyze.py`
 
@@ -125,34 +125,34 @@ Files: `src/external_tests/ext_test_1_5_tls_analysis.py`, `src/connectors/testss
 
 | ID | Type | Status | Strategy / Priority | Key Properties |
 |----|------|--------|---------------------|----------------|
-| 2.1 | NATIVE | [x] | GREY_BOX / P2 | P04, P19, P21 |
+| 2.1 | NATIVE | [x] | GREY_BOX / P2 | D1.P3, D2.P5, D3.P3 |
 
 ### Domain 3 — Data Integrity
 
 | ID | Type | Status | Strategy / Priority | Key Properties |
 |----|------|--------|---------------------|----------------|
-| 3.3 | NATIVE | [x] | WHITE_BOX / P3 | P18, P15 |
+| 3.3 | NATIVE | [x] | WHITE_BOX / P3 | D1.P6, D4.P5 |
 
 ### Domain 4 — Availability & Resilience
 
 | ID | Type | Status | Strategy / Priority | Key Properties |
 |----|------|--------|---------------------|----------------|
-| 4.1 | NATIVE+OPT | [x] | BLACK_BOX / P0 | P31 |
-| 4.2 | NATIVE | [x] | WHITE_BOX / P1 | P18, P15 |
-| 4.3 | NATIVE | [x] | WHITE_BOX / P1 | P18, P23, P15 |
+| 4.1 | NATIVE+OPT | [x] | BLACK_BOX / P0 | D4.P7 |
+| 4.2 | NATIVE | [x] | WHITE_BOX / P1 | D1.P6, D4.P5 |
+| 4.3 | NATIVE | [x] | WHITE_BOX / P1 | D1.P6, D5.P2, D4.P5 |
 
 ### Domain 6 — Configuration & Hardening
 
 | ID | Type | Status | Strategy / Priority | Key Properties |
 |----|------|--------|---------------------|----------------|
-| 6.2 | NATIVE | [x] | WHITE_BOX / P3 | P21, P26 |
-| 6.4 | NATIVE+OPT | [x] | WHITE_BOX / P2 | P18, P32 |
+| 6.2 | NATIVE | [x] | WHITE_BOX / P3 | D3.P3, D5.P3 |
+| 6.4 | NATIVE+OPT | [x] | WHITE_BOX / P2 | D1.P6, D2.P8 |
 
 ### Domain 7 — Business Logic & Sensitive Flows
 
 | ID | Type | Status | Strategy / Priority | Key Properties |
 |----|------|--------|---------------------|----------------|
-| 7.2 | NATIVE+OPT | [x] | GREY_BOX / P0 | P21, P32 |
+| 7.2 | NATIVE+OPT | [x] | GREY_BOX / P0 | D3.P3, D2.P8 |
 
 ---
 
@@ -194,7 +194,7 @@ Not omissions — honest scope decisions for the July deadline.
 | 1.2 | NATIVE | [ ] | BLACK_BOX | Basic JWT structure validation; `depends_on=["1.1"]` |
 | ext.1.2.jwt_tool | HYBRID / jwt_tool | [ ] | BLACK_BOX | Crypto-level JWT check via jwt_tool; blocked by jwt_tool Cat A |
 | 1.3 | NATIVE | [ ] | BLACK_BOX | Credential expiry check; `depends_on=["1.1"]` |
-| ext.1.3.jwt_tool | HYBRID / jwt_tool | [ ] | BLACK_BOX | Shares jwt_tool with ext.1.2.jwt_tool (P10 connector sharing); blocked by jwt_tool Cat A |
+| ext.1.3.jwt_tool | HYBRID / jwt_tool | [ ] | BLACK_BOX | Shares jwt_tool with ext.1.2.jwt_tool (D2.P4 connector sharing); blocked by jwt_tool Cat A |
 
 ### Domain 2 — Authorization (Phase C — requires 1.2)
 
@@ -210,13 +210,13 @@ Not omissions — honest scope decisions for the July deadline.
 | ID | Type | Status | Strategy | Notes |
 |----|------|--------|----------|-------|
 | 3.1 | NATIVE | [ ] | BLACK_BOX | Basic input validation checks |
-| ext.3.1.schemathesis | HYBRID / schemathesis | [ ] | BLACK_BOX | `schemathesis` BaseLibraryConnector (P08 tier) + nuclei CRLF templates |
+| ext.3.1.schemathesis | HYBRID / schemathesis | [ ] | BLACK_BOX | `schemathesis` BaseLibraryConnector (D1.P5 tier) + nuclei CRLF templates |
 
 ### Domain 4 — Rate Limiting Extended
 
 | ID | Type | Status | Strategy | Notes |
 |----|------|--------|----------|-------|
-| ext.4.1.vegeta | HYBRID / vegeta | [ ] | BLACK_BOX | `VegetaConnector` — precise load + last-byte-sync; shared with ext.7.3.vegeta (P10) |
+| ext.4.1.vegeta | HYBRID / vegeta | [ ] | BLACK_BOX | `VegetaConnector` — precise load + last-byte-sync; shared with ext.7.3.vegeta (D2.P4) |
 
 ### Domain 5 — Observability
 
@@ -230,7 +230,7 @@ Not omissions — honest scope decisions for the July deadline.
 | ID | Type | Status | Strategy | Notes |
 |----|------|--------|----------|-------|
 | 6.3 | NATIVE | [ ] | BLACK_BOX | Basic HTTP request smuggling detection |
-| ext.6.3.socket | HYBRID / tcp-socket | [ ] | BLACK_BOX | Raw TCP socket (stdlib) for CL.TE/TE.CL — 3rd P08 connector tier. Cat B: http2smugl |
+| ext.6.3.socket | HYBRID / tcp-socket | [ ] | BLACK_BOX | Raw TCP socket (stdlib) for CL.TE/TE.CL — 3rd D1.P5 connector tier. Cat B: http2smugl |
 
 ### Domain 7 — Race Condition, Unsafe Consumption, SSRF Extended
 
@@ -238,9 +238,9 @@ Not omissions — honest scope decisions for the July deadline.
 |----|------|--------|----------|-------|
 | ext.7.2.interactsh | HYBRID / nuclei+interactsh | [ ] | GREY_BOX | nuclei SSRF templates + `InteractshConnector` OOB; extends native 7.2 with blind SSRF |
 | 7.3 | NATIVE | [ ] | GREY_BOX | Race condition detection; `depends_on=["1.1"]` |
-| ext.7.3.vegeta | HYBRID / vegeta | [ ] | GREY_BOX | vegeta shared with ext.4.1.vegeta (P10 cross-domain); `depends_on=["1.1"]` |
+| ext.7.3.vegeta | HYBRID / vegeta | [ ] | GREY_BOX | vegeta shared with ext.4.1.vegeta (D2.P4 cross-domain); `depends_on=["1.1"]` |
 | 7.4 | NATIVE | [ ] | GREY_BOX | Unsafe external consumption; `depends_on=["1.1"]` |
-| ext.7.4.interactsh | HYBRID / interactsh | [ ] | GREY_BOX | interactsh stateful OOB; extends P07; `depends_on=["1.1"]` |
+| ext.7.4.interactsh | HYBRID / interactsh | [ ] | GREY_BOX | interactsh stateful OOB; extends D1.P4; `depends_on=["1.1"]` |
 
 ---
 
