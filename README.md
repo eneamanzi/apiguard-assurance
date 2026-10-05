@@ -28,7 +28,7 @@
 APIGuard Assurance is a CLI tool for security auditing of REST APIs protected by an API Gateway. It executes the APIGuard methodology — 8 domains, up to 29 verifiable security guarantees — against any target documented with an OpenAPI 3.x or Swagger 2.0 specification, producing an interactive HTML report and a formal, reproducible evidence archive.
 
 > **Sei un contributor o sviluppatore?**
-> Questo documento è rivolto a chi *usa* il tool. Se vuoi capire l'architettura interna, il modello dei dati, o come aggiungere un nuovo test, leggi **[`docs/pub/ARCHITECTURE.md`](docs/pub/ARCHITECTURE.md)**.
+> Questo documento è rivolto a chi *usa* il tool. Se vuoi capire l'architettura interna, il modello dei dati, o come aggiungere un nuovo test, leggi **[`docs/architecture/overview.md`](docs/architecture/overview.md)**.
 
 ---
 
@@ -419,7 +419,7 @@ config.yaml + .env
   Outputs: assessment_report.html  evidence.json  apiguard_report.json
 ```
 
-> Per una descrizione dettagliata di ogni fase, inclusi edge case, modello dei dati in memoria e protocollo di `BaseTest.execute()`, consulta [`docs/pub/ARCHITECTURE.md`](docs/pub/ARCHITECTURE.md).
+> Per una descrizione dettagliata di ogni fase, inclusi edge case, modello dei dati in memoria e protocollo di `BaseTest.execute()`, consulta [`docs/architecture/overview.md`](docs/architecture/overview.md).
 
 ---
 
@@ -438,7 +438,7 @@ La metodologia APIGuard struttura la copertura di sicurezza in 8 domini tematici
 | 6 | Configuration and Hardening | 6.2 Security Headers Audit, 6.4 Hardcoded Credentials Audit |
 | 7 | Business Logic and Sensitive Flows | 7.2 SSRF Prevention |
 
-**Totale Milestone 1: 18 test attivi** — 15 nativi (`BaseTest`) + 3 esterni (`ExternalToolTest` wrapping nuclei / testssl.sh / sslyze). Lo stato completo e la roadmap M2 sono in [`docs/priv/PROJECT_status.md`](docs/priv/PROJECT_status.md).
+**Totale Milestone 1: 18 test attivi** — 15 nativi (`BaseTest`) + 3 esterni (`ExternalToolTest` wrapping nuclei / testssl.sh / sslyze). Lo stato completo e la roadmap M2 sono in [`docs/project/roadmap.md`](docs/project/roadmap.md).
 
 | Priorita | Label | Strategia tipica | Descrizione |
 |---|---|---|---|
@@ -506,13 +506,12 @@ apiguard-assurance/
 |   `-- forgejo-kong/            # Docker Compose per l'ambiente di test locale (Forgejo + Kong)
 |
 |-- specs/                       # Specifiche OpenAPI scaricate o fornite localmente
-`-- docs/pub/                    # Documentazione pubblica per contributor
-    |-- ARCHITECTURE.md          # Architettura interna dettagliata
-    |-- ADDING_tests.md          # Guida implementazione test nativi
-    `-- ADDING_external_tests.md # Guida implementazione test esterni
+`-- docs/                        # Documentazione (mappa in docs/index.md)
+    |-- architecture/overview.md # Architettura interna dettagliata
+    `-- guides/extending/        # Guide per aggiungere test nativi ed esterni
 ```
 
-> La mappa completa con ogni singolo file commentato si trova in [`docs/pub/ARCHITECTURE.md`](docs/pub/ARCHITECTURE.md#repository-structure).
+> La mappa completa con ogni singolo file commentato si trova in [`docs/architecture/overview.md`](docs/architecture/overview.md#repository-structure).
 
 ---
 

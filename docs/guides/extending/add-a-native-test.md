@@ -52,7 +52,7 @@ in Milestone 1:
 Code excerpts are canonical. Do not invent patterns not present here.
 Planned but not yet implemented tests (`1.2`, `1.3`, `2.2`–`2.5`, `3.1`,
 `5.1`, `5.2`, `6.1`, `6.3`, `7.1`, `7.3`, `7.4`) are part of the
-Milestone 2 roadmap — see [`PROJECT_status.md`](../priv/PROJECT_status.md).
+Milestone 2 roadmap — see [`PROJECT_status.md`](../../project/roadmap.md).
 
 **Read this document top to bottom before writing a single line of code.**
 Every step is mandatory. Skipping one produces a runtime error or a
@@ -783,13 +783,13 @@ def _revoke_token(self, ...) -> TestResult | None:
 
 **Reference implementations to copy:**
 
-- [test_1_4_token_revocation.py](../../src/tests/domain_1/test_1_4_token_revocation.py)
+- [test_1_4_token_revocation.py](../../../src/tests/domain_1/test_1_4_token_revocation.py)
   — 4 helpers (`_setup_admin_session`, `_create_temp_token`, `_revoke_token`,
   `_verify_revocation`) demonstrating both early-exit patterns.
-- [test_2_1_rbac_enforcement.py](../../src/tests/domain_2/test_2_1_rbac_enforcement.py)
+- [test_2_1_rbac_enforcement.py](../../../src/tests/domain_2/test_2_1_rbac_enforcement.py)
   — single helper (`_probe_admin_endpoint`) called in a loop, returning
   `Finding | None`.
-- [test_0_1_shadow_api_discovery.py](../../src/tests/domain_0/test_0_1_shadow_api_discovery.py)
+- [test_0_1_shadow_api_discovery.py](../../../src/tests/domain_0/test_0_1_shadow_api_discovery.py)
   — class helpers (`_probe_shadow_paths`, `_probe_undeclared_methods`) plus a
   module-level pure function (`_build_exclusion_set`) used by both.
 
@@ -1555,7 +1555,7 @@ placeholder logic.**
 > The shipped test uses a different config field (`admin_endpoint_paths`)
 > than the simplified `sample_size` shown here.  This example preserves the
 > minimum-viable shape for teaching the 8-file pipeline; for the actual
-> production code, see [test_2_1_rbac_enforcement.py](../../src/tests/domain_2/test_2_1_rbac_enforcement.py).
+> production code, see [test_2_1_rbac_enforcement.py](../../../src/tests/domain_2/test_2_1_rbac_enforcement.py).
 
 **Step 1** — `src/config/schema/domain_2.py` (new file):
 

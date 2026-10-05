@@ -28,7 +28,7 @@
 APIGuard Assurance is a CLI tool for security auditing of REST APIs protected by an API Gateway. It executes the APIGuard methodology — 8 domains, up to 29 verifiable security guarantees — against any target documented with an OpenAPI 3.x or Swagger 2.0 specification, producing an interactive HTML report and a formal, reproducible evidence archive.
 
 > **Are you a contributor or developer?**
-> This document is aimed at people who *use* the tool. If you want to understand the internal architecture, data model, or how to add a new test, read **[`docs/pub/ARCHITECTURE.md`](docs/pub/ARCHITECTURE.md)**.
+> This document is aimed at people who *use* the tool. If you want to understand the internal architecture, data model, or how to add a new test, read **[`docs/architecture/overview.md`](docs/architecture/overview.md)**.
 
 ---
 
@@ -419,7 +419,7 @@ config.yaml + .env
   Outputs: assessment_report.html  evidence.json  apiguard_report.json
 ```
 
-> For a detailed description of every phase, including edge cases, in-memory data model, and the `BaseTest.execute()` protocol, see [`docs/pub/ARCHITECTURE.md`](docs/pub/ARCHITECTURE.md).
+> For a detailed description of every phase, including edge cases, in-memory data model, and the `BaseTest.execute()` protocol, see [`docs/architecture/overview.md`](docs/architecture/overview.md).
 
 ---
 
@@ -438,7 +438,7 @@ The APIGuard methodology structures security coverage in 8 thematic domains and 
 | 6 | Configuration and Hardening | 6.2 Security Headers Audit, 6.4 Hardcoded Credentials Audit |
 | 7 | Business Logic and Sensitive Flows | 7.2 SSRF Prevention |
 
-**Milestone 1 total: 18 active tests** — 15 native (`BaseTest`) + 3 external (`ExternalToolTest` wrapping nuclei / testssl.sh / sslyze). Full status and the M2 roadmap are in [`docs/priv/PROJECT_status.md`](docs/priv/PROJECT_status.md).
+**Milestone 1 total: 18 active tests** — 15 native (`BaseTest`) + 3 external (`ExternalToolTest` wrapping nuclei / testssl.sh / sslyze). Full status and the M2 roadmap are in [`docs/project/roadmap.md`](docs/project/roadmap.md).
 
 | Priority | Label | Typical strategy | Description |
 |---|---|---|---|
@@ -506,13 +506,12 @@ apiguard-assurance/
 |   `-- forgejo-kong/            # Docker Compose for the local test environment (Forgejo + Kong)
 |
 |-- specs/                       # Downloaded or locally provided OpenAPI specifications
-`-- docs/pub/                    # Public documentation for contributors
-    |-- ARCHITECTURE.md          # Detailed internal architecture
-    |-- ADDING_tests.md          # Guide to implementing native tests
-    `-- ADDING_external_tests.md # Guide to implementing external tests
+`-- docs/                        # Documentation (map in docs/index.md)
+    |-- architecture/overview.md # Detailed internal architecture
+    `-- guides/extending/        # Guides to implementing native and external tests
 ```
 
-> The complete map with every single file annotated lives in [`docs/pub/ARCHITECTURE.md`](docs/pub/ARCHITECTURE.md#repository-structure).
+> The complete map with every single file annotated lives in [`docs/architecture/overview.md`](docs/architecture/overview.md#repository-structure).
 
 ---
 

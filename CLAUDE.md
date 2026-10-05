@@ -9,12 +9,16 @@ The tool is API-agnostic for documented REST API surface (OpenAPI spec + `config
 WHITE_BOX tests use gateway-specific adapters (`src/core/gateway/`) and application-specific
 helpers (`src/tests/helpers/`); these are environment adapters, not hardcoded logic.
 
-**Project state (implemented tests, connectors, milestones):** `docs/priv/PROJECT_status.md` — single source of truth.
+**Project state (implemented tests, connectors, milestones):** `docs/project/roadmap.md` — single source of truth.
 
-Reference documents — load with `/add-file` when needed:
-- `docs/priv/knowledge/RULES_claude.md` — coding rules, anti-patterns, workflow protocol
-- `docs/priv/knowledge/4-Implementazione.md` — full architecture (v4.2)
-- `docs/priv/knowledge/3-Metodologia.md` — test methodology, oracles, box-gradient
+Reference documents — load with `/add-file` when needed (full map: `docs/index.md`):
+- `docs/project/claude-rules.it.md` — coding rules, anti-patterns, workflow protocol
+- `docs/architecture/overview.md` — architecture reference (English, current)
+- `docs/knowledge/archive/implementation-chapter.it.md` — thesis implementation chapter (v4.2)
+- `docs/knowledge/methodology/methodology.it.md` — test methodology, oracles, box-gradient
+
+**Documentation restructuring in progress:** plan and section-by-section mapping in
+`docs/project/docs-inventory.md`; unresolved doubts in `OPEN_QUESTIONS.md` (repo root).
 
 ---
 
@@ -80,25 +84,19 @@ src/
     ├── renderer.py
     └── templates/report.html
 
-docs/
-├── pub/                     # Public docs (contributor guides, architecture)
-│   ├── ADDING_tests.md
-│   ├── ADDING_external_tests.md
-│   └── ARCHITECTURE.md
-└── priv/                    # Internal docs (thesis research, audit, project state)
-    ├── PROJECT_status.md    # Project state — implemented tests, connectors, milestones
-    ├── apiguard_property.md
-    ├── TOOLS_catalog.md
-    ├── TOOLS_decisions.md
-    ├── LOCAL_commands.md
-    ├── AUDIT_milestone1_release.md
-    └── knowledge/           # Pre-project knowledge base (load with /add-file when needed)
-        ├── 2-Background_compact.md
-        ├── 2-Background_extensive.md
-        ├── 3-Metodologia.md
-        ├── 4-Implementazione.md
-        ├── 5-Scenario-test.md
-        └── RULES_claude.md
+docs/                        # Restructuring in progress — map: docs/index.md
+├── index.md                 # Documentation map (start here)
+├── architecture/overview.md # Architecture reference (English)
+├── guides/extending/        # add-a-native-test.md, add-an-external-test.md
+├── knowledge/               # Thesis research (Italian sources: *.it.md, pending selective translation)
+│   ├── background/          # Ch.2 state of the art (compact + archive/extensive)
+│   ├── methodology/         # Ch.3 methodology — guarantees, oracles, box-gradient
+│   ├── archive/             # Ch.4 implementation chapter (superseded by architecture/)
+│   ├── target-selection.it.md   # Ch.5 test scenario / target requirements
+│   ├── design-properties.it.md  # Architectural properties catalogue (D1-D7)
+│   └── tools/               # catalog.it.md, decisions.it.md — external tool research
+└── project/                 # roadmap.md (project state), audits/, maintainer-commands.md,
+                             #   claude-rules.it.md, docs-inventory.md (restructuring worklog)
 ```
 
 **Dependency direction (absolute):**
@@ -191,24 +189,24 @@ Missing external tool → `TestResult(SKIP)` via `_skip_reason_from_registry`. N
 ## Test Implementation Guides
 
 Full contracts, templates, and step-by-step guides for implementing native and external tests:
-- `docs/pub/ADDING_tests.md` — `BaseTest` contract, `ClassVar` fields, `execute()` signature,
+- `docs/guides/extending/add-a-native-test.md` — `BaseTest` contract, `ClassVar` fields, `execute()` signature,
   `TestResult` statuses, strategy/priority mapping
-- `docs/pub/ADDING_external_tests.md` — `ExternalToolTest` contract, `_build_connector()`,
+- `docs/guides/extending/add-an-external-test.md` — `ExternalToolTest` contract, `_build_connector()`,
   `_invoke_connector()`, `_evaluate()`, dev-mode cache, connector injection (Phase R4)
 
-Load with `/add-file docs/pub/ADDING_tests.md` or `/add-file docs/pub/ADDING_external_tests.md`
+Load with `/add-file docs/guides/extending/add-a-native-test.md` or `/add-file docs/guides/extending/add-an-external-test.md`
 before implementing any new test.
 
 ## Session Startup
 
-1. Check `docs/priv/PROJECT_status.md` to identify what to implement next.
+1. Check `docs/project/roadmap.md` to identify what to implement next.
 2. Load reference docs as needed:
-   - `/add-file docs/priv/knowledge/RULES_claude.md` — always useful for a new session
-   - `/add-file docs/priv/knowledge/3-Metodologia.md` — when implementing a test
-   - `/add-file docs/priv/knowledge/4-Implementazione.md` — when touching infrastructure
-3. **If implementing a test:** read the relevant guide in `docs/pub/` before writing any code:
-   - `/add-file docs/pub/ADDING_tests.md` — for native `BaseTest` subclasses
-   - `/add-file docs/pub/ADDING_external_tests.md` — for `ExternalToolTest` subclasses
+   - `/add-file docs/project/claude-rules.it.md` — always useful for a new session
+   - `/add-file docs/knowledge/methodology/methodology.it.md` — when implementing a test
+   - `/add-file docs/knowledge/archive/implementation-chapter.it.md` — when touching infrastructure
+3. **If implementing a test:** read the relevant guide in `docs/guides/extending/` before writing any code:
+   - `/add-file docs/guides/extending/add-a-native-test.md` — for native `BaseTest` subclasses
+   - `/add-file docs/guides/extending/add-an-external-test.md` — for `ExternalToolTest` subclasses
 4. State the file you are about to write. Wait for confirmation.
 5. Write one file. Explain internal logic and rationale.
-6. After completing a test, update `docs/priv/PROJECT_status.md` to reflect the new state.
+6. After completing a test, update `docs/project/roadmap.md` to reflect the new state.

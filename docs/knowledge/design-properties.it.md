@@ -196,7 +196,7 @@
 **Locus nel codice.**
 - `src/core/dag.py` — `DAGScheduler`, `ScheduledBatch`
 - `src/tests/base.py` — `depends_on: ClassVar[list[str]]` su ogni test concreto
-- `docs/priv/PROJECT_status.md §DAG State After Milestone 1 Completion` — tre fasi: A (no deps), B (requires 1.1), C (requires ext.1.2)
+- `docs/project/roadmap.md §DAG State After Milestone 1 Completion` — tre fasi: A (no deps), B (requires 1.1), C (requires ext.1.2)
 - `4-Implementazione.md §4.5` — semantica di batch e batch-parallelism futuro
 
 **Conseguenze.** Test come 1.2 (JWT cryptographic validity) dipendono correttamente da 1.1 (auth required), garantendo che i token siano disponibili nel `TestContext` prima che siano necessari. Un ciclo di dipendenze è un errore rilevato staticamente in Phase 4 prima di eseguire un solo test (`DAGCycleError` blocca lo startup). Dipendenze mancanti nel set attivo vengono ignorate con `WARNING` (graceful degradation).
@@ -214,7 +214,7 @@
 **Locus nel codice.**
 - `src/connectors/base.py` — `ConnectorResult` (Pydantic frozen): `raw_output`, `exit_code`, `timed_out`, `execution_time_ms`
 - `src/external_tests/base.py` — `_evaluate()` abstract method: responsabilità oracle dell'ExternalToolTest
-- `docs/pub/ADDING_external_tests.md` — contratto esplicito: "il connector restituisce dati; il test valuta"
+- `docs/guides/extending/add-an-external-test.md` — contratto esplicito: "il connector restituisce dati; il test valuta"
 
 **Conseguenze.** Il connector è riutilizzabile da test diversi con oracle diversi. Il test `ext_test_0_1_shadow_api_nuclei.py` e un ipotetico `ext_test_3_1_injection_nuclei.py` usano lo stesso `NucleiConnector` ma valutano il suo output con logiche di oracle distinte. Il connector è testabile indipendentemente (verifica che l'output sia parsato correttamente) senza richiedere un oracle di sicurezza.
 
@@ -263,8 +263,8 @@
 **Definizione.** I connector verso tool esterni sono classificati in due categorie: Categoria A (HYBRID — bloccanti, obbligatori per produrre evidenza valida per quel test) e Categoria B (Opzionali — il test funziona già come NATIVE, il connector espande la superficie di rilevamento senza essere necessario). Un test HYBRID senza il connector Cat A è un test SKIP con evidenza incompleta.
 
 **Locus nel codice.**
-- `docs/priv/PROJECT_status.md §Connectors` — tabella completa Cat A e Cat B con motivazione
-- `docs/priv/PROJECT_status.md` — legenda `[OK·C]`: "Python completo, manca il Connector Cat A obbligatorio"
+- `docs/project/roadmap.md §Connectors` — tabella completa Cat A e Cat B con motivazione
+- `docs/project/roadmap.md` — legenda `[OK·C]`: "Python completo, manca il Connector Cat A obbligatorio"
 - `src/external_tests/base.py` — gestione dello SKIP per tool mancante
 
 **Conseguenze.** La classificazione guida le priorità di sviluppo: i connector Cat A sono prerequisiti per la completezza dei test HYBRID (es. `testssl.sh` per il test 1.5). I connector Cat B sono enhancements: il test 6.4 (Hardcoded Credentials) già funziona con regex interne, `trufflehog`/`gitleaks` ampliano solo la copertura. La classificazione è documentata anche nel changelog delle decisioni (es. promozione di `ffuf` da Cat B a Cat A in sostituzione di `kiterunner` abbandonato).
@@ -339,7 +339,7 @@
 **Definizione.** Quattro "fonti di verità uniche" coesistono con responsabilità distinte e non sovrapposte: `PROJECT_status.md` per lo stato di implementazione del progetto; `config.yaml` per tutti i parametri operativi; `AttackSurface` (derivata dall'OpenAPI spec) per la topologia degli endpoint del target; `src/config/loader.py` come unico punto di accesso a `os.environ` (nessun altro modulo legge variabili d'ambiente direttamente).
 
 **Locus nel codice.**
-- `CLAUDE.md` — "docs/priv/PROJECT_status.md — single source of truth" per stato progetto
+- `CLAUDE.md` — "docs/project/roadmap.md — single source of truth" per stato progetto
 - `src/discovery/surface.py` — `AttackSurface` come unica fonte per endpoint topology
 - `src/core/context.py` — `TargetContext.attack_surface` distribuisce la mappa a tutti i test
 - `src/config/loader.py` — docstring: "No other module in src/ reads files or calls os.environ directly"; risolve placeholder `${VAR}` da `os.environ`
@@ -690,7 +690,7 @@ Entrambe le eccezioni sono architetturalmente giustificate: non leggono parametr
 - `src/external_tests/base.py:ExternalToolTest._load_dev_cache()` — logica di cache lookup; il filename è `{safe_label}_output.json` dove `safe_label` sostituisce i caratteri `./\\ ` con underscore
 - `src/external_tests/base.py:ExternalToolTest._is_dev_mode()` — verifica il flag `dev_mode` per tool specifico tramite `TargetContext.external_tools`
 - `config.yaml` — `external_tools.testssl.dev_mode: false` e `external_tools.nuclei.dev_mode: false` (default per tutti i tool)
-- `docs/pub/ADDING_external_tests.md` — workflow documentato per sviluppatori
+- `docs/guides/extending/add-an-external-test.md` — workflow documentato per sviluppatori
 - La cache è scritta nella directory `outputs/tools/` (`store.tools_dir`); l'engine Phase 3 imposta questo path. L'envelope ha struttura `{"source_test_id": ..., "label": ..., "record_id": ..., "generated_at_utc": ..., "data": {...}}` con chiavi `_apiguard_meta_*` per il metadata di enrichment
 
 **Conseguenze.** Il ciclo di sviluppo per un nuovo test HYBRID scende da minuti (run completa con tool esterno) a secondi (lettura da cache). La cache è disabilitata per default e deve essere abilitata esplicitamente: zero rischio di dimenticarla attiva in produzione. Una cache hit restituisce un `ConnectorResult` con `tool_version=None` e `execution_time_ms=0`, distinguibile da una vera esecuzione nel log.

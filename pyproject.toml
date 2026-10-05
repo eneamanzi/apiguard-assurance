@@ -79,7 +79,7 @@ classifiers = [
 # ---------------------------------------------
 # Each dependency uses ">=FLOOR,<NEXT_MAJOR" where:
 #   • FLOOR is the version actually used to develop and validate Milestone 1
-#     (see docs/priv/AUDIT_milestone1_release.md, "Versions matrix" appendix).
+#     (see docs/project/audits/2026-05-18-v0.1.0-release.it.md, "Versions matrix" appendix).
 #   • NEXT_MAJOR blocks an unintended jump into a major release that may
 #     introduce breaking changes (e.g. pydantic 3.0, rich 16.0).
 # This keeps the package installable side-by-side with other libraries (the
@@ -155,7 +155,7 @@ dependencies = [
 [project.urls]
 Repository    = "https://github.com/eneamanzi/apiguard-assurance"
 Issues        = "https://github.com/eneamanzi/apiguard-assurance/issues"
-Documentation = "https://github.com/eneamanzi/apiguard-assurance/blob/main/docs/pub/ARCHITECTURE.md"
+Documentation = "https://github.com/eneamanzi/apiguard-assurance/blob/main/docs/index.md"
 
 # ---------------------------------------------------------------------------
 # Optional dependencies: external-tool connectors (Python-library tier).
@@ -203,8 +203,8 @@ include = [
     # Source code
     "src/",
 
-    # Public documentation only (docs/priv/ is internal and not distributed)
-    "docs/pub/",
+    # Documentation (docs/knowledge/ and docs/project/ are internal, excluded below)
+    "docs/",
     "README.md",
     "README.en.md",
 
@@ -219,6 +219,9 @@ include = [
     "install_tools.sh",
 ]
 exclude = [
+    # Internal documentation (thesis research, roadmap, audits, working notes)
+    "docs/knowledge/",
+    "docs/project/",
     # Internal development context (IDE settings, session config)
     ".claude/",
     "CLAUDE.md",

@@ -692,7 +692,7 @@ RuntimeTestsConfig  Frozen Pydantic — parametri per test specifici (es. max_en
 
 ## 7. Guida per i contributor — Come aggiungere un nuovo test
 
-Questa sezione raccoglie i dettagli operativi di `BaseTest` che un contributor deve conoscere prima di scrivere un nuovo test nativo. Il **contratto completo + il template passo-passo per aggiungere un nuovo test** vivono in [`docs/pub/ADDING_tests.md`](ADDING_tests.md) (per i test nativi `BaseTest`) e in [`docs/pub/ADDING_external_tests.md`](ADDING_external_tests.md) (per i test esterni `ExternalToolTest` con connector verso tool come `nuclei`, `testssl.sh`, `sslyze`). Quei due documenti sono l'authoritative reference. Questa sezione qui sotto è la sintesi *strutturale* dei pattern interni di `BaseTest`, utile come quick-reference durante la scrittura di un test.
+Questa sezione raccoglie i dettagli operativi di `BaseTest` che un contributor deve conoscere prima di scrivere un nuovo test nativo. Il **contratto completo + il template passo-passo per aggiungere un nuovo test** vivono in [`docs/guides/extending/add-a-native-test.md`](../guides/extending/add-a-native-test.md) (per i test nativi `BaseTest`) e in [`docs/guides/extending/add-an-external-test.md`](../guides/extending/add-an-external-test.md) (per i test esterni `ExternalToolTest` con connector verso tool come `nuclei`, `testssl.sh`, `sslyze`). Quei due documenti sono l'authoritative reference. Questa sezione qui sotto è la sintesi *strutturale* dei pattern interni di `BaseTest`, utile come quick-reference durante la scrittura di un test.
 
 ### Struttura interna di BaseTest: dettagli rilevanti
 
@@ -908,25 +908,11 @@ apiguard-assurance/
 |-- specs/
 |   +-- crapi-openapi.json       # Spec alternativo: crAPI (target di validazione secondario)
 |-- config_crapi.yaml            # Configurazione pronta per crAPI (vedi README sezione target alternativo)
-+-- docs/
-    +-- pub/                     # Public docs (contributor guides, architecture)
-    |   +-- ADDING_tests.md
-    |   +-- ADDING_external_tests.md
-    |   +-- ARCHITECTURE.md
-    +-- priv/                    # Internal docs (thesis, audit, project state)
-        +-- PROJECT_status.md    # Stato implementazione: test, connector, milestone
-        +-- apiguard_property.md
-        +-- TOOLS_catalog.md
-        +-- TOOLS_decisions.md
-        +-- LOCAL_commands.md
-        +-- AUDIT_milestone1_release.md
-        +-- knowledge/           # Pre-project knowledge base (architecture, methodology, rules)
-            +-- 2-Background_compact.md
-            +-- 2-Background_extensive.md
-            +-- 3-Metodologia.md
-            +-- 4-Implementazione.md
-            +-- 5-Scenario-test.md
-            +-- RULES_claude.md
++-- docs/                      # Documentazione — mappa completa in docs/index.md
+    +-- architecture/            # Questo documento
+    +-- guides/extending/        # Guide per aggiungere test nativi ed esterni
+    +-- knowledge/               # Ricerca di tesi (background, metodologia, tool, proprieta)
+    +-- project/                 # Roadmap, audit, note dei maintainer
 ```
 
 ---
@@ -938,13 +924,13 @@ apiguard-assurance/
 | Artefatto | Nome | Scopo |
 |-----------|------|-------|
 | Wheel | `apiguard_assurance-X.Y.Z-py3-none-any.whl` | Installazione rapida via `pip install` — contiene solo `src/` |
-| Source distribution | `apiguard_assurance-X.Y.Z.tar.gz` | Superficie pubblica completa — include `src/`, `docs/pub/`, `README.md`, `README.en.md`, `config.yaml`, `pyproject.toml`, `.env.example`, `install_tools.sh` |
+| Source distribution | `apiguard_assurance-X.Y.Z.tar.gz` | Superficie pubblica completa — include `src/`, `docs/` (esclusi `docs/knowledge/` e `docs/project/`), `README.md`, `README.en.md`, `config.yaml`, `pyproject.toml`, `.env.example`, `install_tools.sh` |
 
 Il tag `py3-none-any` indica che il pacchetto è **pure Python** (nessuna estensione C compilata), quindi portabile su qualsiasi sistema operativo e architettura con Python 3.11+.
 
-**Contenuto del wheel:** esclusivamente `src/` e i metadata PyPI. I file `docs/priv/`, `outputs/`, `tools/`, `CLAUDE.md` e la cartella `.claude/` non entrano nel wheel — la whitelist è definita in `pyproject.toml` sotto `[tool.hatch.build.targets]`.
+**Contenuto del wheel:** esclusivamente `src/` e i metadata PyPI. I file `docs/knowledge/`, `docs/project/`, `outputs/`, `tools/`, `CLAUDE.md` e la cartella `.claude/` non entrano nel wheel — la whitelist è definita in `pyproject.toml` sotto `[tool.hatch.build.targets]`.
 
-**Dipendenza opzionale sslyze:** un'installazione standard (`pip install apiguard-assurance`) non include sslyze (AGPL). Per abilitare `ext.1.5.sslyze` serve l'extra esplicito: `pip install "apiguard-assurance[sslyze]"`. Vedi D7.P2 in `docs/priv/apiguard_property.md`.
+**Dipendenza opzionale sslyze:** un'installazione standard (`pip install apiguard-assurance`) non include sslyze (AGPL). Per abilitare `ext.1.5.sslyze` serve l'extra esplicito: `pip install "apiguard-assurance[sslyze]"`. Vedi D7.P2 in `docs/knowledge/design-properties.it.md`.
 
 ---
 

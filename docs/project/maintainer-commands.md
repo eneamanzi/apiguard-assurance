@@ -118,7 +118,7 @@ hatch build --target wheel   # wheel only (faster — use for install testing)
 | `dist/apiguard_assurance-X.Y.Z.tar.gz` | Source distribution — contains only the public surface (see below) |
 
 **What the sdist includes** (whitelist in `pyproject.toml`):
-`src/`, `docs/pub/`, `README.md`, `docs/priv/LOCAL_commands.md`, `pyproject.toml`, `config.yaml`, `.env.example`, `.gitignore`, `install_tools.sh`
+`src/`, `docs/pub/`, `README.md`, `docs/project/maintainer-commands.md`, `pyproject.toml`, `config.yaml`, `.env.example`, `.gitignore`, `install_tools.sh`
 
 **What the sdist excludes**: `docs/priv/` internal files (audit, status, knowledge), `outputs/`, `tools/`, `.claude/`, `CLAUDE.md`.
 
