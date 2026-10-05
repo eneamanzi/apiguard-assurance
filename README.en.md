@@ -511,7 +511,7 @@ apiguard-assurance/
     `-- guides/extending/        # Guides to implementing native and external tests
 ```
 
-> The complete map with every single file annotated lives in [`docs/architecture/overview.md`](docs/architecture/overview.md#repository-structure).
+> The complete map with every single file annotated lives in [`docs/architecture/overview.md`](docs/architecture/overview.md#module-structure-and-dependencies).
 
 ---
 

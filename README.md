@@ -511,7 +511,7 @@ apiguard-assurance/
     `-- guides/extending/        # Guide per aggiungere test nativi ed esterni
 ```
 
-> La mappa completa con ogni singolo file commentato si trova in [`docs/architecture/overview.md`](docs/architecture/overview.md#repository-structure).
+> La mappa completa con ogni singolo file commentato si trova in [`docs/architecture/overview.md`](docs/architecture/overview.md#module-structure-and-dependencies).
 
 ---
 

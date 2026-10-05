@@ -13,8 +13,8 @@ helpers (`src/tests/helpers/`); these are environment adapters, not hardcoded lo
 
 Reference documents — load with `/add-file` when needed (full map: `docs/index.md`):
 - `docs/project/claude-rules.it.md` — coding rules, anti-patterns, workflow protocol
-- `docs/architecture/overview.md` — architecture reference (English, current)
-- `docs/knowledge/archive/implementation-chapter.it.md` — thesis implementation chapter (v4.2)
+- `docs/architecture/`: overview, data model, assessment model, security model (English, current)
+- `docs/knowledge/archive/implementation-chapter.it.md`: thesis implementation chapter (v4.2)
 - `docs/knowledge/methodology/methodology.it.md` — test methodology, oracles, box-gradient
 
 **Documentation restructuring in progress:** plan and section-by-section mapping in
@@ -84,17 +84,21 @@ src/
     ├── renderer.py
     └── templates/report.html
 
-docs/                        # Restructuring in progress — map: docs/index.md
+docs/                        # Restructuring in progress, map: docs/index.md
 ├── index.md                 # Documentation map (start here)
-├── architecture/overview.md # Architecture reference (English)
-├── guides/extending/        # add-a-native-test.md, add-an-external-test.md
+├── tests/                   # One page per implemented test (behaviour, oracles, side effects,
+│                            #   coverage vs methodology); index in tests/README.md
+├── reference/               # Verified facts: configuration, cli, exit-codes, report-schema,
+│                            #   evidence-format, compatibility (check here before answering "what does X do")
+├── architecture/            # overview, data-model, assessment-model, security-model (English)
+├── guides/extending/        # add-a-native-test, add-an-external-test, add-a-gateway-adapter, coding-rules
 ├── knowledge/               # Thesis research (Italian sources: *.it.md, pending selective translation)
 │   ├── background/          # Ch.2 state of the art (compact + archive/extensive)
-│   ├── methodology/         # Ch.3 methodology — guarantees, oracles, box-gradient
+│   ├── methodology/         # Ch.3 methodology: guarantees, oracles, box-gradient
 │   ├── archive/             # Ch.4 implementation chapter (superseded by architecture/)
 │   ├── target-selection.it.md   # Ch.5 test scenario / target requirements
 │   ├── design-properties.it.md  # Architectural properties catalogue (D1-D7)
-│   └── tools/               # catalog.it.md, decisions.it.md — external tool research
+│   └── tools/               # catalog.it.md, decisions.it.md: external tool research
 └── project/                 # roadmap.md (project state), audits/, maintainer-commands.md,
                              #   claude-rules.it.md, docs-inventory.md (restructuring worklog)
 ```
