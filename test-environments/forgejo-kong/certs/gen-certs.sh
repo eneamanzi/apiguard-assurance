@@ -19,12 +19,16 @@
 # docker-compose.yml volume: ./certs:/etc/kong/certs:ro
 #
 # IMPORTANT: This certificate is for LOCAL LAB USE ONLY.
-# - It is self-signed (not issued by a trusted CA).
+# - It is self-signed (not issued by a trusted CA) and valid only for localhost.
 # - The tool must be configured with verify_tls: false in config.yaml.
-# - Never use a self-signed certificate in a production environment.
+# - server.crt and server.key are committed on purpose as example files, so the
+#   lab starts without running this script. The private key is public: never
+#   reuse it, or any self-signed certificate, outside this lab. Real deployments
+#   use a certificate managed outside the repository.
 #
-# Both files are already in .gitignore (*.crt, *.key).
-# Do NOT commit private keys to version control.
+# Permissions: the script makes both files readable by everyone (644) because
+# Kong runs as a non-root user (uid 1001) inside its container and cannot read
+# a key with mode 600, the mode openssl uses by default.
 
 set -euo pipefail
 
@@ -55,6 +59,6 @@ echo "  SAN:      $(openssl x509 -noout -ext subjectAltName -in "${CERT_FILE}" 2
 echo ""
 echo "[gen-certs] REMINDER: Set verify_tls: false in config.yaml for lab use."
 
-# Lab only: relax permissions so the Kong container process (non-root)
-# can read the key. In production, use a secrets manager instead.
-# chmod 644 server.key server.crt
+# Lab only: Kong (uid 1001 in its container) must be able to read the key.
+chmod 644 "${KEY_FILE}" "${CERT_FILE}"
+echo "[gen-certs] Permissions set to 644 (readable by the Kong container)."

@@ -164,7 +164,8 @@ Add the tool block under `external_tools` with `enabled`, `timeout_seconds`, `ex
 ## Verify
 
 1. `apiguard validate-config` (an enabled tool without `timeout_seconds` fails here).
-2. `execution.test_ids: ["ext.<D>.<N>.<tool>"]` in a copy of the config, then `apiguard run -c <copy>`.
+2. `execution.test_ids: ["ext.<D>.<N>.<tool>"]` in a copy of the config (all native tests still run with an
+   `ext.`-only list, Q-45), then `apiguard run -c <copy>`.
 3. In `outputs/apiguard_report.json`: the row with `source: "external"`, `tool_name`, `tool_artifact` with the four
    keys; the artefact in `evidence.json` and `outputs/tools/`.
 4. Disable the tool and check the test disappears from the report; enable it with the binary missing and check it

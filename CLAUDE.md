@@ -17,8 +17,9 @@ Reference documents — load with `/add-file` when needed (full map: `docs/index
 - `docs/knowledge/archive/implementation-chapter.it.md`: thesis implementation chapter (v4.2)
 - `docs/knowledge/methodology/methodology.it.md` — test methodology, oracles, box-gradient
 
-**Documentation restructuring in progress:** plan and section-by-section mapping in
-`docs/project/docs-inventory.md`; unresolved doubts in `OPEN_QUESTIONS.md` (repo root).
+**Work in progress:** follow `docs/project/plan.md` (operational plan, one step at a time); unresolved doubts in
+`OPEN_QUESTIONS.md` (repo root, closed only by the owner's decision); old-to-new docs mapping in
+`docs/project/docs-inventory.md`.
 
 ---
 

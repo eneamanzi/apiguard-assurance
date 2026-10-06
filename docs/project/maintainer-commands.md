@@ -155,7 +155,7 @@ mypy src/
 
 Reload Kong and pick up a new declarative configuration:
 ```bash
-docker compose up -d --force-recreate kong
+docker compose --env-file ../../.env up -d --force-recreate kong   # from test-environments/forgejo-kong
 ```
 
 

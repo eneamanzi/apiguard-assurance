@@ -45,7 +45,8 @@ implemented tests do not always follow it (4.2 and 4.3 are P1 and WHITE_BOX, 7.2
 
 Configured in `execution` ([`reference/configuration.md`](../reference/configuration.md#execution)):
 
-1. `test_ids` non-empty → only those IDs; priority filter ignored; strategy filter ignored for native tests.
+1. `test_ids` non-empty → only the listed IDs of the families present in the list (native, external); a family
+   with no ID in the list is not filtered (Q-45). Priority filter ignored; strategy filter ignored for native tests.
 2. Otherwise `min_priority` keeps tests with `priority <= min_priority`, and `strategies` keeps native tests whose
    strategy is listed. **External tests are not filtered by strategy** (Q-10).
 3. External tests are scheduled only if their tool is enabled (`external_tools`).

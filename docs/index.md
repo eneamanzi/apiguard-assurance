@@ -8,7 +8,7 @@
 
 | I want to… | Go to |
 |---|---|
-| Install and try the tool | [`README.en.md`](../README.en.md) §2-4 - *planned:* `getting-started/` |
+| Install and try the tool | [`getting-started/installation.md`](getting-started/installation.md), [`getting-started/first-assessment.md`](getting-started/first-assessment.md) |
 | Configure and run it on a target | [`README.en.md`](../README.en.md) §3-5 - *planned:* `guides/usage/` |
 | Integrate it in a pipeline or another system | [`README.en.md`](../README.en.md) §4, §8 - *planned:* `guides/integration/` |
 | Add a native test | [`guides/extending/add-a-native-test.md`](guides/extending/add-a-native-test.md) |

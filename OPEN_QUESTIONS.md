@@ -2,18 +2,19 @@
 
 Living log of doubts raised while restructuring the documentation.
 Rule: nothing is written in the final docs on the basis of an open entry.
-Each entry is closed only with evidence (command output, code location, or a test run).
+Claude collects evidence (command output, code location, test run) and may write a *proposed resolution*;
+an entry is closed only by a decision of the project owner. Working order: see `docs/project/plan.md`.
 
 Status values: `open` · `verified` (fact confirmed, recorded below) · `resolved` (decision taken) · `deferred` (out of current scope).
 
 ---
 
 ### Q-01 - Supported operating systems
-- Status: open
+- Status: resolved
 - Source: `README.md:92` (Windows venv activation), `README.md:114` ("wheel is cross-platform … works on any system with Python 3.11+"), `pyproject.toml:63-64` (classifiers: Linux, macOS only)
 - Question: Is Windows supported? Has the tool been run on macOS? The wheel being `py3-none-any` does not imply external tools (testssl.sh, nuclei) work on every OS.
 - How to verify: user confirms on which OSes the tool has actually been run; docs then state only tested platforms.
-- Resolution:
+- Resolution: Linux only (user decision, 2026-10-05). Docs state Linux as the only supported platform; README Windows line to be removed in B.7.
 
 ### Q-02 - Supported Python versions
 - Status: open
@@ -21,6 +22,7 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Question: Which Python versions have actually been tested (3.11, 3.12, 3.13+)?
 - How to verify: user confirms; optionally run `hatch run dev:pytest` under each interpreter.
 - Evidence found: `docs/project/audits/2026-05-18-v0.1.0-release.it.md` §A.6 records the v0.1.0 audit run on Python 3.12.3.
+- Evidence found (2026-10-05): fresh install in a new venv with Python 3.12.3 works (`pip install <repo>`, `apiguard version`). 3.11 and 3.13 not tested; docs say "tested with Python 3.12".
 - Resolution:
 
 ### Q-03 - Reference target for `getting-started/first-assessment.md`
@@ -28,6 +30,7 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Source: `test-environments/forgejo-kong/docker-compose.yml`, `config_crapi.yaml:3-4`
 - Question: All tests were developed and run against Forgejo + Kong. `config_crapi.yaml` targets cRAPI directly on `:8888` with `admin_api_url: null`, so WHITE_BOX tests SKIP; no cRAPI compose file exists in the repo. Which target does the tutorial use? Should cRAPI be put behind Kong?
 - How to verify: discussion with user; the chosen environment is brought up from scratch following the tutorial steps literally.
+- Evidence (2026-10-06): Forgejo + Kong lab rebuilt from scratch in an isolated copy and run end to end (exit 1, 18 tests, 4 min 56 s) after manual fixes to user provisioning and TLS key permissions (both since automated in the lab). cRAPI (upstream clone `crAPI-main/deploy/docker`, not in this repo) runs directly without a gateway; its web service also needs `crapi-chatbot` running.
 - Resolution:
 
 ### Q-04 - Generated reference documentation
@@ -53,13 +56,15 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Source: `docs/guides/extending/add-a-native-test.md:1078` references `src/core/models.py`
 - Question: The module is now the package `src/core/models/`. Are other parts of ADDING_tests.md equally outdated?
 - How to verify: full read of ADDING_tests.md during the inventory, checking each code reference.
-- Resolution: Path is stale (verified: `src/core/models/` is a package). Extent of drift to be assessed in the inventory.
+- Proposed resolution (to be decided by the user): `add-a-native-test.md` rewritten from the code on 2026-10-05 (no reference to `src/core/models.py`); drift of the old guide recorded in Q-37.
+- Resolution:
 
 ### Q-08 - Public README links an internal document
 - Status: verified
 - Source: `README.md:441`, `README.en.md:441` link `docs/project/roadmap.md`
 - Question: In the new structure the link must target `docs/project/roadmap.md`.
-- Resolution: Fix during the move phase.
+- Proposed resolution (to be decided by the user): Phase A updated the README links to `docs/project/roadmap.md`; the README itself is rewritten in B.7.
+- Resolution:
 
 ### Q-09 - `ext.0.1.nuclei` partial status
 - Status: open
@@ -132,6 +137,7 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Question: For a production integration, which tests run on any OpenAPI target, which need Forgejo (or a config switch), which need Kong? Behaviour of 1.4 on a non-Forgejo target is unknown. The only cRAPI output (`outputs/crapi/`, 2026-04-28) predates the current report schema, so it is not valid evidence.
 - How to verify: code reading per test + a fresh run against a second target (ties into Q-03).
 - Evidence found (2026-10-05, per-test pages): Forgejo-specific code or defaults in 1.4 (token API paths and `token` auth scheme), 2.1 (default `admin_endpoint_paths`), 7.2 (default `injection_mode: forgejo_webhook`); Kong-specific defaults in 0.2 (`gateway_server_identifiers` includes kong) and 6.4 (`gateway_block_body_fragment` is Kong's message); 3.3, 4.2, 4.3 and 6.4 sub-test B need the Kong adapter.
+- Evidence (2026-10-06, fresh isolated cRAPI, `config_crapi.yaml`, no gateway): 1.4 ERROR (`ForgejoResourceError: GET /api/v1/user returned HTTP 404`); 2.1 PASS only because the default Forgejo path does not exist on cRAPI (404 counted as enforced); 7.2 works in `fixed_path` mode (73 payloads rejected); 3.3, 4.2, 4.3 SKIP (no adapter); 0.1, 0.2, 0.3, 1.1, 1.5, 1.6, 4.1, 6.2, 6.4 run normally. No `ext.*` tests (no `external_tools` section). Totals: 4 PASS, 5 FAIL, 5 SKIP, 1 ERROR, exit 1, 3 min 8 s.
 - Resolution:
 
 ### Q-19 - Stale documentation paths in source comments and scripts
@@ -195,6 +201,7 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Source: `src/connectors/base.py:364-384` (`is_available()` returns True when `os.getenv(SERVICE_ENV_VAR)` is set); `NUCLEI_SERVICE_URL` (`src/connectors/nuclei.py:142`), `TESTSSL_SERVICE_URL` (`src/connectors/testssl.py:138`).
 - Question: When only the service variable is set (no local binary, nothing in PATH), how does `run()` execute the tool? Is this channel functional or a placeholder? Not documented in user docs until clarified.
 - How to verify: code reading of `run()` / `_resolve_binary_path()` with the env var set; test with the variable set and no binary.
+- Evidence (2026-10-06): `is_available()` (`src/connectors/base.py:362-384`) returns True when `<TOOL>_SERVICE_URL` is set, but `NucleiConnector.run()` (`src/connectors/nuclei.py:197-205`) raises `ExternalToolError` "binary not found via any discovery channel" when `_resolve_binary_path()` is None; no code ever calls the URL. So with only the variable set, the test is scheduled and ends in ERROR instead of SKIP. The channel is a non-functional placeholder; docs do not mention it.
 - Resolution:
 
 ---
@@ -241,6 +248,7 @@ None has been changed in code.
   - [ ] 7.2 - only `200`/`201` count as accepted (`_ACCEPTED_STATUS_CODES`); acceptance of the URL is checked, not an actual outbound request.
   - [ ] 7.2 - FAIL carries a single consolidated Finding; per-payload detail only in the transaction log and `evidence.json` (`test_7_2_ssrf_prevention.py:402-427`).
 - How to verify: decision per item; tests pages "Limitations" sections list the same points.
+- Evidence (2026-10-06): 2.1 on cRAPI returned PASS with the Forgejo default `admin_endpoint_paths`, a path that does not exist there.
 - Resolution:
 
 ### Q-30 - Side effects on the target
@@ -323,4 +331,48 @@ None has been changed in code.
   - [ ] `claude-rules.it.md` §5.6 refers to an E2E suite in `tests_e2e/` that does not exist (see Q-12).
   - [ ] `hatch run dev:check` passes (ruff check, mypy strict, bandit medium, vulture 80) as of 2026-10-05.
 - How to verify: decision with user; `hatch run dev:ruff format --check .`.
+- Resolution:
+
+### Q-42 - Two installation modes (venv + pip, Hatch) give different results
+- Status: open
+- Source: `README.md` §2 (venv recommended, Hatch "for contributors"), `docs/project/maintainer-commands.md` (Hatch), `pyproject.toml` `[tool.hatch.envs.default] features = ["sslyze"]`.
+- Evidence (2026-10-05/06): Hatch envs live in `~/.local/share/hatch/env/virtual/apiguard-assurance/<hash>/{apiguard-assurance,dev}`, install the project editable (`Editable project location: /home/manzi/apiguard-assurance`) and include sslyze; `pip install .` in a new venv copies the package and has no sslyze. Same target, same code: `ext.1.5.sslyze` FAIL with Hatch, SKIP with pip. Dev tools (ruff, mypy, bandit, vulture) exist only in the Hatch `dev` env (no `dev` extra).
+- Proposal: Hatch is the only documented way to work from the repository; pip is documented only for installing the package into another product (integration guide), with `[sslyze]` explicit.
+- Also: `.env.example` has no trailing newline (appending a line merges it with `USER_B_PASSWORD=`) and lacks the `CRAPI_*` variables required by `config_crapi.yaml`.
+- Resolution: Hatch is the single documented way to work from the repository; pip only in the integration guide (user decision, 2026-10-06). Verified 2026-10-06: a fresh `git clone` gets its own Hatch environment automatically (`hatch run apiguard version`, 13 s, installs project + sslyze); `install_tools.sh` and a partial run (`test_ids`) work from that clone.
+
+
+### Q-43 - The tool is meant to be application- and gateway-agnostic, but several parts are tied to Forgejo and Kong
+- Status: open
+- Goal (user, 2026-10-06): the tool must be agnostic with respect to the target API and the gateway.
+- Known couplings (consolidates and extends Q-18 and Q-38):
+  - [ ] Forgejo, code: `src/tests/helpers/auth_forgejo.py`, `forgejo_resources.py`; test 1.4 token paths and `token` auth scheme (`test_1_4_token_revocation.py:70-76`); test 7.2 `forgejo_webhook` mode and default body.
+  - [ ] Forgejo, defaults: `credentials.auth_type` default `forgejo_token`; test 2.1 `admin_endpoint_paths` default `/api/v1/admin/users`; test 7.2 `injection_mode`, `injection_path_template`, `injection_body_template`; `config.yaml` `path_seed` and test 1.5 `http_probe_url` are lab values.
+  - [ ] Kong, code: `KongGatewayAdapter` is the only adapter; tests 3.3, 4.2, 4.3, 6.4 (sub-test B) read Kong field names and `/status`; test 4.3 levels are designed around Kong OSS.
+  - [ ] Kong, defaults: test 0.2 `gateway_server_identifiers`; test 6.4 `gateway_block_body_fragment` ("no Route matched with those values").
+  - [ ] Silent false results instead of an explicit "not applicable": 2.1 PASS on a target where the configured admin path does not exist (observed on cRAPI, 2026-10-06); 1.4 ERROR on a non-Forgejo target.
+- Question: For each item decide: (a) move to configuration with a neutral default, (b) keep behind an adapter/strategy selected by `config.yaml`, (c) return SKIP "not applicable to this target" when the precondition does not hold. Which items block the production integration?
+- How to verify: decision with user; re-run on cRAPI (`config_crapi.yaml`) as a second target.
+- Resolution:
+
+### Q-44 - A run looks stuck, and interrupting it discards everything
+- Status: open
+- Evidence (2026-10-06): during the author's first run from a fresh clone, the run was stopped by hand with Ctrl+C because it seemed to hang; `outputs/` then contained only `evidence_tmp/` (14 `.jsonl` files, no report). In my own runs the console stayed for minutes on the external-tool tests (nuclei, testssl, sslyze) with no progress indication.
+- Source: reports are written only in Phase 7 (`src/engine.py`); Ctrl+C ends the run with exit 130 and skips Phase 7 (`docs/reference/exit-codes.md`).
+- Question: Add progress output (current test, elapsed time, expected duration) and/or write partial reports on interruption? Meanwhile `first-assessment.md` tells users to wait and not to interrupt.
+- How to verify: decision with user (code change).
+- Resolution:
+
+### Q-45 - `execution.test_ids` does not restrict the other family of tests
+- Status: verified
+- Source: `src/engine.py:595-606` splits `test_ids` into native and `ext.` IDs; an empty subset is passed as "no filter" to the corresponding registry (`if allowed_ids:` in `src/tests/registry.py` / `src/external_tests/registry.py`).
+- Evidence (2026-10-06): `test_ids: ["1.1", "1.4", "2.1", "7.2"]` also ran `ext.0.1.nuclei`, `ext.1.5.sslyze`, `ext.1.5.testssl`. By the same code path, a list with only `ext.*` IDs runs every native test.
+- Question: Should a non-empty `test_ids` run exactly the listed tests (fix), or is the current behaviour intended? `docs/reference/configuration.md` now documents the current behaviour.
+- Resolution:
+
+### Q-46 - `path_seed` in `config.yaml` duplicates names now defined in `.env`
+- Status: open
+- Source: `config.yaml` `target.path_seed` (`owner`, `username`, `user`: `"user-a"`; `repo`, `repo_name`: `"test-repo"`); the lab creates the user from `USER_A_USERNAME` and the repository from `LAB_TEST_REPO` (`test-environments/forgejo-kong/docker-compose.yml`, service `forgejo-setup`).
+- Risk: changing `USER_A_USERNAME` or `LAB_TEST_REPO` in `.env` makes the lab create a different resource while the tool still probes `user-a/test-repo`: no error, parametric probes end inconclusive (404).
+- Proposal: write `owner: "${USER_A_USERNAME}"`, `repo: "${LAB_TEST_REPO}"` (and the aliases) in `path_seed`; keep the numeric IDs (`user-id: 2`, `repository-id: 1`, verified on a fresh lab).
 - Resolution:

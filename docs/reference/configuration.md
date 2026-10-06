@@ -82,7 +82,7 @@ Each role's username and password must be set together or not at all.
 |---|---|---|---|---|
 | `min_priority` | int | `3` | 0-3 | **Highest** priority level included (the name is historical): `0` = P0 only, `3` = all. |
 | `strategies` | list | all three | non-empty; `BLACK_BOX`, `GREY_BOX`, `WHITE_BOX` | Native tests whose strategy is not listed are excluded. **External tests are not filtered by strategy** (Q-10). |
-| `test_ids` | list of strings | `[]` | `X.Y` or `ext.X.Y.tool` | Non-empty → run only these tests; replaces the `min_priority` filter (and `strategies` for native tests). |
+| `test_ids` | list of strings | `[]` | `X.Y` or `ext.X.Y.tool` | Non-empty: run only the listed tests **of the families that appear in the list**. If the list has only native IDs, all enabled external tests still run; if it has only `ext.*` IDs, all native tests still run (Q-45). Replaces the `min_priority` filter (and `strategies` for native tests). To run only native tests, also set `external_tools.enabled: false`. |
 | `fail_fast` | bool | `false` | - | Stop after the first P0 test returning FAIL or ERROR ([`exit-codes.md`](exit-codes.md)). |
 | `connect_timeout` | float | `5.0` | 1-30 | TCP connect timeout (s) for requests to the target. |
 | `read_timeout` | float | `30.0` | 5-120 | Read timeout (s) for requests to the target. |
