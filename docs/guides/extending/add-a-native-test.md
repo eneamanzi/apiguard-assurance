@@ -119,7 +119,9 @@ class Test21RbacEnforcement(BaseTest):
     cwe_id: ClassVar[str] = "CWE-285"
 ```
 
-Take priority and strategy from the methodology; `depends_on` lists test IDs whose results or tokens this test
+Take the priority from the methodology's severity criteria ([priorities](../../architecture/assessment-model.md#priorities)); set
+the strategy from what the test needs to run (nothing, credentials, or configuration access), independently of the
+priority; `depends_on` lists test IDs whose results or tokens this test
 needs (`[]` otherwise).
 
 **`execute()`** must always return a `TestResult` and never raise. Structure: guards, setup, probes in private
@@ -226,7 +228,7 @@ test page.
 
 ## 4. Verify
 
-There is no automated test suite (Q-12). Verify against the lab target:
+There is no automated test suite yet (planned: Q-51). Verify against the lab target:
 
 1. `apiguard validate-config` - the new parameters load.
 2. Run only the new test: in a copy of `config.yaml` set `execution.test_ids: ["<D>.<N>"]` and

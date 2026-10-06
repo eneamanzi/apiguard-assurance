@@ -11,10 +11,11 @@ is local and disposable.
 
 ## What the lab is
 
-`test-environments/forgejo-kong/` is a Docker Compose environment: PostgreSQL, Forgejo 14 (the API under test),
-Kong 3.9 in DB-less mode (the gateway, with an HTTPS proxy and the Admin API) and a one-shot setup container that
-creates three users and a test repository. The tool is developed and tested against this setup
-([compatibility](../reference/compatibility.md)).
+`test-environments/forgejo-kong/` is a Docker Compose environment: PostgreSQL, Forgejo 14.0.5 (the API under test),
+Kong 3.9.3 in DB-less mode (the gateway, with an HTTPS proxy and the Admin API) and a one-shot setup container that
+creates three users and the test data (a repository, an organization, a tag, an issue and a comment). The tool is developed and tested against this setup
+([compatibility](../reference/compatibility.md); every image version is pinned, see
+[Test lab](../reference/compatibility.md#test-lab)).
 
 The lab publishes ports **3000** (Forgejo), **8000** and **8443** (Kong proxy, HTTP and HTTPS) and **8001** (Kong
 Admin API). All commands run from the repository folder unless a `cd` says otherwise.
@@ -78,19 +79,25 @@ The first command starts PostgreSQL, Forgejo and Kong and waits until they are h
 downloads the images). Kong uses the self-signed example certificate already in `certs/` (valid until 2028-08-02,
 lab only, see [If you regenerate the TLS certificate](#if-you-regenerate-the-tls-certificate)).
 
-The second runs the setup container once. With the credentials of `.env` it creates the three users and the
-repository `LAB_TEST_REPO` owned by `user-a`. `config.yaml` points the tool at that repository (`target.path_seed`),
-so that paths like `/api/v1/repos/{owner}/{repo}` reach a real resource instead of returning 404. Expected output:
+The second runs the setup container once. With the values of `.env` it creates the three users and, owned by
+`user-a`, the repository `LAB_TEST_REPO`, the organization `LAB_TEST_ORG`, the tag `LAB_TEST_TAG`, issue 1 and
+comment 1. `config.yaml` points the tool at these resources (`target.path_seed`, which reads the same variables), so
+that paths like `/api/v1/repos/{owner}/{repo}/issues/{index}` reach a real resource instead of returning 404.
+Expected output:
 
 ```
 New user 'thesis-admin' has been successfully created!
 New user 'user-a' has been successfully created!
 New user 'user-b' has been successfully created!
 Repository user-a/test-repo created.
+Organization test-org created.
+Tag v0.1.0 created.
+Issue 1 created.
+Comment 1 created.
 Provisioning completed.
 ```
 
-Running it again is harmless: it reports `user already exists` and `Repository ... already exists`.
+Running it again is harmless: it reports `user already exists` and `already exists` for each resource.
 
 ## 4. Check that the lab is ready
 
@@ -132,8 +139,8 @@ hatch run apiguard run
 
 About 5 minutes; progress is logged to the terminal (add `--log-level debug` to see every HTTP request).
 
-**Do not interrupt it.** About 3 of the 5 minutes are spent in the external-tool tests (nuclei, testssl.sh,
-sslyze), which print nothing while they run, so it can look stuck. Reports are written only at the very end: if
+**Do not interrupt it.** Almost all of the 5 minutes are spent in the external-tool tests (nuclei, testssl.sh,
+sslyze; the native tests take about 30 seconds), which print nothing while they run, so it can look stuck. Reports are written only at the very end: if
 you press `Ctrl+C` there are no reports and `outputs/` keeps only `evidence_tmp/` (Q-44).
 
 When it finishes, print its exit code:
@@ -188,7 +195,7 @@ Removes the lab's containers, volumes and network. The Docker images stay, so th
 
 ## Next step
 
-Run it against your own API: *planned:* `guides/usage/configure-a-target.md`. Every parameter is in the
+Run it against your own API: [Configure a target](../guides/usage/configure-a-target.md). Every parameter is in the
 [configuration reference](../reference/configuration.md); the commands are in the [CLI reference](../reference/cli.md).
 
 ---
@@ -227,7 +234,7 @@ cd ../..
 | Symptom | Cause and fix |
 |---|---|
 | `required variable ... is missing a value` or `... missing in .env` | `--env-file ../../.env` missing from the command, `.env` does not exist (step 1), or the variable is missing from `.env` (compare with `.env.example`) |
-| `Repository creation failed: HTTP ...` in the setup output | Forgejo rejected the request: check `USER_A_USERNAME`, `USER_A_PASSWORD` and `LAB_TEST_REPO` in `.env`, reset (step 2) and start again |
+| `... creation failed: HTTP ...` in the setup output | Forgejo rejected the request: check `USER_A_USERNAME`, `USER_A_PASSWORD` and the `LAB_TEST_*` names in `.env`, reset (step 2) and start again |
 | Kong never becomes healthy and `docker logs kong` shows `Permission denied` on `server.key` | the key is not readable by Kong (permissions changed by hand, or created without `gen-certs.sh`): run `chmod 644 test-environments/forgejo-kong/certs/server.key`, then restart Kong as in [If you regenerate the TLS certificate](#if-you-regenerate-the-tls-certificate) |
 | `Configuration invalid: Environment variable(s) not set: X` | `.env` has no value for `X` (also checked for `${X}` written inside YAML comments) |
 | many `INCONCLUSIVE_PARAMETRIC` states in the report | the test repository is missing: check the setup output (step 3) |

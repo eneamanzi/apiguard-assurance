@@ -38,15 +38,16 @@ v0.1.0 implements 15 native and 3 external tests covering 15 of the 29 guarantee
 | P2 Medium | application-level or complex, partial automation | 1.4, 1.5, `ext.1.5.*`, 2.1, 6.4 |
 | P3 Low | static configuration, best practice | 1.6, 3.3, 6.2 |
 
-The methodology also pairs priorities with a typical strategy (P0 black box, P1/P2 grey box, P3 white box); the
-implemented tests do not always follow it (4.2 and 4.3 are P1 and WHITE_BOX, 7.2 is P0 and GREY_BOX; Q-14).
+**Priority and strategy are independent.** The priority says how serious a violation of the guarantee is
+(methodology criteria above); the strategy says what the tester needs to run the test. A critical test can need
+credentials (7.2 is P0 and GREY_BOX) and a configuration audit can be important (4.2 and 4.3 are P1 and WHITE_BOX).
 
 ## Selecting tests
 
 Configured in `execution` ([`reference/configuration.md`](../reference/configuration.md#execution)):
 
-1. `test_ids` non-empty → only the listed IDs of the families present in the list (native, external); a family
-   with no ID in the list is not filtered (Q-45). Priority filter ignored; strategy filter ignored for native tests.
+1. `test_ids` non-empty → only the listed IDs; exception: a list with only native IDs also runs every enabled
+   external test (Q-45). Priority filter ignored; strategy filter ignored for native tests.
 2. Otherwise `min_priority` keeps tests with `priority <= min_priority`, and `strategies` keeps native tests whose
    strategy is listed. **External tests are not filtered by strategy** (Q-10).
 3. External tests are scheduled only if their tool is enabled (`external_tools`).
@@ -69,7 +70,7 @@ A PASS is bounded by what the test covers: each test page lists the methodology 
 implemented and the test's known limitations.
 
 **Finding vs InfoNote.** A Finding is a violation, with references (CWE, OWASP, NIST, RFC) and, for HTTP tests, an
-`evidence_ref` to the proving transaction. An InfoNote is context the analyst must know but that is not a
+`evidence_ref` to the proving transaction (not yet for 4.1 and 7.2, Q-50). An InfoNote is context the analyst must know but that is not a
 violation: a compensating control, a sub-test that could not run, an ambiguous result (e.g. SSRF probe timeout),
 an item requiring manual verification.
 

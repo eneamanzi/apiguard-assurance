@@ -79,8 +79,7 @@ Runtime dependencies use `>=FLOOR,<NEXT_MAJOR`, where FLOOR is the version teste
 
 There is no automated unit test suite; mocking `httpx` is not accepted because it would not prove anything about
 security behaviour. Changes are verified by running the affected tests against the lab target
-(`test-environments/forgejo-kong/`) with `execution.test_ids`. How tests are verified for contributions is open
-(Q-12).
+(`test-environments/forgejo-kong/`) with `execution.test_ids`. An E2E suite against the lab is planned (Q-51).
 
 ## Before submitting
 

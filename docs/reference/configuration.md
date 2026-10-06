@@ -6,7 +6,7 @@
 > `apiguard validate-config`)
 
 Every field, type, default and constraint below comes from the Pydantic models. For a guided setup see
-*planned:* `guides/usage/configure-a-target.md`; the annotated example in the repository is
+[`guides/usage/configure-a-target.md`](../guides/usage/configure-a-target.md); the annotated example in the repository is
 [`config.yaml`](../../config.yaml).
 
 ## Loading rules
@@ -18,8 +18,8 @@ Every field, type, default and constraint below comes from the Pydantic models. 
    - `${VAR:-default}` is **not** supported.
    - An unset variable stops the tool with `ConfigurationError` naming the variable (exit `10`). This applies
      to placeholders **inside YAML comments too**, because interpolation happens on the raw text.
-   - `.env` in the working directory is loaded first; variables already in the environment win
-     ([`cli.md`](cli.md#environment-and-env)).
+   - `.env` is loaded first (with Hatch: the repository's `.env`; with a `pip` install it is not found, see
+     [where `.env` is searched](cli.md#environment-and-env)); variables already in the environment win.
 3. **Relative paths** (`openapi_spec_path`, `output.directory`, `external_tools.nuclei.template_dir`) are
    resolved against the **working directory**, not the location of `config.yaml`.
 4. **Unknown keys are ignored.** A misspelled key (e.g. `min_prioriti`) passes validation and the default
@@ -38,7 +38,7 @@ target:
 
 With this configuration GREY_BOX tests return SKIP (no `credentials`), tests that read the gateway
 configuration return SKIP or skip that part (no `admin_api_url` / `gateway_adapter`), and external tools are
-not scheduled (disabled by default). Which tests are affected is stated on each test page (*planned:* `tests/`). Phase 1 logs a
+not scheduled (disabled by default). Which tests are affected is stated on each test page ([`tests/`](../tests/README.md)). Phase 1 logs a
 `config_coherence_warning` for the missing credentials and Admin API; they are warnings, not errors.
 
 ---
@@ -82,7 +82,7 @@ Each role's username and password must be set together or not at all.
 |---|---|---|---|---|
 | `min_priority` | int | `3` | 0-3 | **Highest** priority level included (the name is historical): `0` = P0 only, `3` = all. |
 | `strategies` | list | all three | non-empty; `BLACK_BOX`, `GREY_BOX`, `WHITE_BOX` | Native tests whose strategy is not listed are excluded. **External tests are not filtered by strategy** (Q-10). |
-| `test_ids` | list of strings | `[]` | `X.Y` or `ext.X.Y.tool` | Non-empty: run only the listed tests **of the families that appear in the list**. If the list has only native IDs, all enabled external tests still run; if it has only `ext.*` IDs, all native tests still run (Q-45). Replaces the `min_priority` filter (and `strategies` for native tests). To run only native tests, also set `external_tools.enabled: false`. |
+| `test_ids` | list of strings | `[]` | `X.Y` or `ext.X.Y.tool` | Non-empty: run only the listed tests, with one exception: if the list has **only native IDs**, every enabled external test runs as well (Q-45). A list with only `ext.*` IDs, or a mixed list, runs exactly the listed tests. Replaces the `min_priority` filter (and `strategies` for native tests). To run only native tests, also set `external_tools.enabled: false`. |
 | `fail_fast` | bool | `false` | - | Stop after the first P0 test returning FAIL or ERROR ([`exit-codes.md`](exit-codes.md)). |
 | `connect_timeout` | float | `5.0` | 1-30 | TCP connect timeout (s) for requests to the target. |
 | `read_timeout` | float | `30.0` | 5-120 | Read timeout (s) for requests to the target. |

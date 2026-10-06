@@ -59,33 +59,35 @@ target:
   #   An empty dict {} preserves the pre-seed behaviour entirely.
   path_seed: {
     # === CORE ===
-    owner: "user-a",
-    username: "user-a",
-    user: "user-a",
-    repo: "test-repo",
-    repo_name: "test-repo",
+    # Lab values come from .env: the lab setup creates these resources with the
+    # same variables (test-environments/forgejo-kong/docker-compose.yml).
+    owner: "${USER_A_USERNAME}",
+    username: "${USER_A_USERNAME}",
+    user: "${USER_A_USERNAME}",
+    repo: "${LAB_TEST_REPO}",
+    repo_name: "${LAB_TEST_REPO}",
 
     # === IDs NUMERICI ===
     "user-id": "2",
     "repository-id": "1",
     id: "1",          
 
-    # === ORGANIZATION (must be created in Forgejo before running tests) ===
-    org: "test-org",   # {org} != {owner}
+    # === ORGANIZATION (created by the lab setup) ===
+    org: "${LAB_TEST_ORG}",   # {org} != {owner}
 
     # === GIT ===
     branch: "main",
     ref: "main",
-    sha: "52407ec34d313f5550ee4d7df1b41865df812eba",
+    sha: "main",       # Forgejo accepts a branch name where a commit SHA is expected
     filepath: "README.md",
     archive: "main.tar.gz",
 
     # === OTHERS ===
     name: "MIT",
-    index: "1",        # issue index (create a Forgejo issue first)
-    tag: "v0.1.0",
-    comment: "1",
-    team: "1",         # create a team in the org first
+    index: "1",        # issue 1, created by the lab setup
+    tag: "${LAB_TEST_TAG}",
+    comment: "1",      # comment 1, created by the lab setup
+    team: "1",         # "Owners" team of the organization, created with it
 
     # === ADVANCED PARAMETERS (often for disabled features) ===
     "activity-id": "1",

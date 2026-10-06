@@ -1,108 +1,53 @@
-# APIGuard Assurance — Claude Code Context
+# APIGuard Assurance - Claude Code Context
 
 ## Project
 
-Python tool for automated REST API security assessment. Master's thesis in Cybersecurity.
-**Milestone 1 complete** — 15 native + 3 external tests implemented; thesis-writing phase active.
-**Development target:** Forgejo REST API protected by Kong Gateway (DB-less mode).
-The tool is API-agnostic for documented REST API surface (OpenAPI spec + `config.yaml`).
-WHITE_BOX tests use gateway-specific adapters (`src/core/gateway/`) and application-specific
-helpers (`src/tests/helpers/`); these are environment adapters, not hardcoded logic.
+Python CLI for automated security assessment of REST APIs behind an API gateway. Born as a Master's thesis in
+Cybersecurity; v0.1.0 released 2026-05-18 (15 native + 3 external tests). Current phase: documentation and
+hardening for production use and integration into another product.
 
-**Project state (implemented tests, connectors, milestones):** `docs/project/roadmap.md` — single source of truth.
+**Development target:** Forgejo REST API behind Kong Gateway (DB-less), lab in `test-environments/forgejo-kong/`.
+The goal is a tool agnostic of the target API and gateway (OpenAPI spec + `config.yaml`); the parts still tied to
+Forgejo or Kong are tracked in `OPEN_QUESTIONS.md` (Q-18, Q-38, Q-43).
 
-Reference documents — load with `/add-file` when needed (full map: `docs/index.md`):
-- `docs/project/claude-rules.it.md` — coding rules, anti-patterns, workflow protocol
-- `docs/architecture/`: overview, data model, assessment model, security model (English, current)
-- `docs/knowledge/archive/implementation-chapter.it.md`: thesis implementation chapter (v4.2)
-- `docs/knowledge/methodology/methodology.it.md` — test methodology, oracles, box-gradient
+## Where things are
 
-**Work in progress:** follow `docs/project/plan.md` (operational plan, one step at a time); unresolved doubts in
-`OPEN_QUESTIONS.md` (repo root, closed only by the owner's decision); old-to-new docs mapping in
-`docs/project/docs-inventory.md`.
+| Need | Read |
+|---|---|
+| Map of all documentation | `docs/index.md` |
+| Current work: what to do next, step by step | `docs/project/plan.md` |
+| Open doubts, with evidence (closed **only** by the owner) | `OPEN_QUESTIONS.md` |
+| What is implemented, milestones | `docs/project/roadmap.md` (single source of truth) |
+| Pipeline, modules, dependencies, components | `docs/architecture/overview.md` |
+| Data models, assessment model, security model | `docs/architecture/data-model.md`, `assessment-model.md`, `security-model.md` |
+| Coding rules (English) | `docs/guides/extending/coding-rules.md` |
+| Adding a native test / external test / gateway adapter | `docs/guides/extending/add-a-native-test.md`, `add-an-external-test.md`, `add-a-gateway-adapter.md` |
+| What each test does, its oracle, its effects on the target | `docs/tests/` (index `docs/tests/README.md`) |
+| Verified facts: configuration, CLI, exit codes, report and evidence formats, compatibility | `docs/reference/` (check here before answering "what does X do") |
+| Methodology (guarantees, oracles, box gradient), Italian | `docs/knowledge/methodology/methodology.it.md` |
+| Thesis implementation chapter (superseded by `docs/architecture/`), Italian | `docs/knowledge/archive/implementation-chapter.it.md` |
+| Original coding rules and workflow protocol, Italian | `docs/project/claude-rules.it.md` |
+| Old-to-new documentation mapping | `docs/project/docs-inventory.md` |
 
----
+`*.it.md` files are Italian sources pending selective translation.
 
 ## Directory Layout
 
 ```
 src/
-├── cli.py                   # Entry point (Typer)
-├── engine.py                # Orchestrator — only module with full visibility
-├── core/                    # Shared infrastructure — zero test logic
-│   ├── client.py            # SecurityClient (httpx, no auto-redirect)
-│   ├── context.py           # TargetContext (frozen) + TestContext (mutable)
-│   ├── evidence.py          # EvidenceStore (streaming JSONL v2.0, per-test files,
-│   │                        #   unbounded; merge in Phase 7)
-│   ├── dag.py               # DAGScheduler (graphlib.TopologicalSorter)
-│   ├── gateway/             # Gateway adapter abstraction + implementations
-│   │   ├── base.py          # BaseGatewayAdapter ABC + GatewayAdapterError
-│   │   └── kong.py          # KongGatewayAdapter (Kong DB-less Admin API v3.x)
-│   ├── models/              # Pydantic v2 data models (package)
-│   │   ├── enums.py         # TestStatus, TestStrategy, SpecDialect
-│   │   ├── http.py          # EvidenceRecord, TransactionSummary
-│   │   ├── results.py       # Finding, InfoNote, TestResult, ResultSet
-│   │   ├── runtime.py       # RuntimeCredentials, RuntimeTest*Config, RuntimeTestsConfig
-│   │   ├── surface.py       # ParameterInfo, EndpointRecord, AttackSurface
-│   │   └── external_tools.py # BaseExternalToolConfig, TestsslConfig, NucleiConfig,
-│   │                          #   ExternalToolsConfig
-│   └── exceptions.py        # Custom exception hierarchy
-├── config/
-│   ├── schema/              # Pydantic v2 schemas per domain + tool_config.py
-│   │                        # (external_tools.py re-exports from core/models/external_tools.py)
-│   └── loader.py            # YAML load + ${VAR} env interpolation
-├── discovery/
-│   ├── openapi.py           # Fetch + prance dereference + spec validation
-│   └── surface.py           # AttackSurface — structured endpoint map
-├── connectors/              # External tool wrappers — zero test logic
-│   ├── base.py              # BaseConnector hierarchy + ConnectorRawOutput + _relativize_display_path()
-│   ├── nuclei.py            # NucleiConnector (BaseSubprocessConnector)
-│   ├── testssl.py           # TestsslConnector (BaseSubprocessConnector)
-│   ├── sslyze.py            # SslyzeConnector (BaseLibraryConnector)
-│   └── types/               # shared TypedDict shapes for connector families
-│       └── tls_findings.py  # TlsFinding (testssl + sslyze raw output)
-├── external_tests/          # Parallel hierarchy to tests/ — NOT BaseTest subclasses
-│   ├── base.py              # ExternalToolTest ABC + dev-mode cache logic
-│   ├── registry.py          # ExternalTestRegistry (Phase R4: connector injection)
-│   ├── ext_test_0_1_shadow_api_nuclei.py
-│   └── ext_test_1_5_tls_analysis.py
-├── tests/
-│   ├── base.py              # BaseTest ABC
-│   ├── registry.py          # Dynamic discovery via pkgutil.walk_packages
-│   ├── strategy.py          # TestStrategy Enum
-│   ├── helpers/             # auth, auth_forgejo, auth_jwt_login, forgejo_resources,
-│   │                        # path_resolver, response_inspector
-│   ├── domain_0/            # test_0_1, test_0_2, test_0_3
-│   ├── domain_1/            # test_1_1, test_1_4, test_1_5, test_1_6
-│   ├── domain_2/            # test_2_1
-│   ├── domain_3/            # test_3_3
-│   ├── domain_4/            # test_4_1, test_4_2, test_4_3
-│   ├── domain_5/            # (placeholder — Milestone 2)
-│   ├── domain_6/            # test_6_2, test_6_4
-│   └── domain_7/            # test_7_2
-└── report/
-    ├── builder.py
-    ├── renderer.py
-    └── templates/report.html
-
-docs/                        # Restructuring in progress, map: docs/index.md
-├── index.md                 # Documentation map (start here)
-├── tests/                   # One page per implemented test (behaviour, oracles, side effects,
-│                            #   coverage vs methodology); index in tests/README.md
-├── reference/               # Verified facts: configuration, cli, exit-codes, report-schema,
-│                            #   evidence-format, compatibility (check here before answering "what does X do")
-├── architecture/            # overview, data-model, assessment-model, security-model (English)
-├── guides/extending/        # add-a-native-test, add-an-external-test, add-a-gateway-adapter, coding-rules
-├── knowledge/               # Thesis research (Italian sources: *.it.md, pending selective translation)
-│   ├── background/          # Ch.2 state of the art (compact + archive/extensive)
-│   ├── methodology/         # Ch.3 methodology: guarantees, oracles, box-gradient
-│   ├── archive/             # Ch.4 implementation chapter (superseded by architecture/)
-│   ├── target-selection.it.md   # Ch.5 test scenario / target requirements
-│   ├── design-properties.it.md  # Architectural properties catalogue (D1-D7)
-│   └── tools/               # catalog.it.md, decisions.it.md: external tool research
-└── project/                 # roadmap.md (project state), audits/, maintainer-commands.md,
-                             #   claude-rules.it.md, docs-inventory.md (restructuring worklog)
+├── cli.py            # Entry point (Typer): run, validate-config, generate-seed, version
+├── engine.py         # Orchestrator, the only module with full visibility
+├── config/           # Phase 1: loader (YAML + ${VAR} interpolation) + Pydantic schemas
+├── discovery/        # Phase 2: OpenAPI fetch/dereference, AttackSurface, seed generator
+├── core/             # Shared infrastructure, zero test logic: client, context, evidence, dag,
+│                     #   gateway/ (BaseGatewayAdapter + Kong), models/, exceptions
+├── connectors/       # External tool wrappers, zero test logic (nuclei, testssl, sslyze)
+├── external_tests/   # ExternalToolTest hierarchy, parallel to tests/ (NOT BaseTest subclasses)
+├── tests/            # BaseTest, registry, helpers/, domain_0 … domain_7
+└── report/           # Phase 7: builder, renderer, templates/report.html
 ```
+
+Module-level detail and the actual import graph: `docs/architecture/overview.md`.
 
 **Dependency direction (absolute):**
 `core/` ← `connectors/` ← `tests/` and `external_tests/` ← `engine.py`
@@ -116,18 +61,18 @@ The adapter type is configured via `target.gateway_adapter: kong` in `config.yam
 
 ---
 
-## Hard Rules — Non-Negotiable
+## Hard Rules - Non-Negotiable
 
 If a request conflicts with any of these, **stop and flag it before proceeding.**
 
 ### Code
-- `pass`, `# TODO`, `# FIXME` — **forbidden**.
+- `pass`, `# TODO`, `# FIXME` - **forbidden**.
   `...` (Ellipsis) is allowed **only** as the body of `@abstractmethod` declarations
   (idiomatic Python ABC stub) and inside type-only stubs. It must never appear
   in a concrete method body or as a placeholder for unfinished implementation.
-- `print()` — **forbidden**; use `structlog` (logs) and `rich` (terminal UI)
-- Bare `except:` or `except Exception: pass` — **forbidden**; use the custom hierarchy
-- Magic numbers/strings — **forbidden**; named constants or `config.yaml`
+- `print()` - **forbidden**; use `structlog` (logs) and `rich` (terminal UI)
+- Bare `except:` or `except Exception: pass` - **forbidden**; use the custom hierarchy
+- Magic numbers/strings - **forbidden**; named constants or `config.yaml`
 - No global module-level singletons for `SecurityClient`
 - No numbers in module filenames
 - Native `BaseTest` subclasses must **never** invoke external binary subprocesses.
@@ -139,7 +84,7 @@ accessed via `TargetContext` or `TestContext`.
 **Before adding a new config param: stop, flag it, wait for confirmation.**
 
 ### Types and Documentation
-- Pydantic v2 only — no `TypedDict` for data models
+- Pydantic v2 only - no `TypedDict` for data models
 - Type hints on every function signature (params + return type)
 - Full docstrings on every public method
 - All identifiers, docstrings, log keys, comments in **English**
@@ -152,7 +97,7 @@ Temp file paths (`/tmp/xxx.json`) must never appear in `command`/`command_json` 
 Use clean placeholders (`nuclei_result.json`, `testssl_result.json`).
 
 ### Testing
-- E2E only against the real target — no `httpx` mocks, no `MagicMock`
+- E2E only against the real target - no `httpx` mocks, no `MagicMock`
 - Native test filename: `tests/domain_X/test_X_Y_<description>.py`
 - External test filename: `external_tests/ext_test_X_Y_<description>.py`
 
@@ -160,17 +105,22 @@ Use clean placeholders (`nuclei_result.json`, `testssl_result.json`).
 - One file/class per response. Explain internal logic and rationale. Wait for explicit go-ahead.
 - Before writing: state the file and why. Wait for confirmation.
 
+### Documentation
+- Write only facts verified against the code or a run; a doubt goes to `OPEN_QUESTIONS.md` with its evidence,
+  never guessed. Claude may propose a resolution; only the owner closes a question.
+- Documentation in English, Markdown.
+
 ---
 
 ## Exception Hierarchy (`src/core/exceptions.py`)
 
 ```
 ToolBaseError
- ├── ConfigurationError       # Phase 1 — invalid config or missing env var [BLOCKS STARTUP]
- ├── OpenAPILoadError         # Phase 2 — spec unreachable or malformed [BLOCKS STARTUP]
- ├── DAGCycleError            # Phase 4 — circular dependency [BLOCKS STARTUP]
+ ├── ConfigurationError       # Phase 1 - invalid config or missing env var [BLOCKS STARTUP]
+ ├── OpenAPILoadError         # Phase 2 - spec unreachable or malformed [BLOCKS STARTUP]
+ ├── DAGCycleError            # Phase 4 - circular dependency [BLOCKS STARTUP]
  ├── SecurityClientError      # Phase 5, native tests → caught in execute() → TestResult(ERROR)
- ├── AuthenticationSetupError # Phase 5, helpers/auth.py — credentials rejected (401/403)
+ ├── AuthenticationSetupError # Phase 5, helpers/auth.py - credentials rejected (401/403)
  │                            #   by target API; caught in execute() → TestResult(ERROR)
  ├── ExternalToolError        # Phase 5, external tests (fields: tool_name, exit_code, timed_out)
  │                            #   → caught in execute() → TestResult(ERROR)
@@ -185,33 +135,20 @@ WHITE_BOX tests catch it and return `TestResult(ERROR)`.
 extend `ToolBaseError` and are raised exclusively by the `apiguard generate-seed` CLI helper
 when the OpenAPI specification cannot be retrieved or parsed. They are caught in `src/cli.py`
 and converted to a non-zero exit code with an actionable message. They do not appear during
-the main Phase 1–7 assessment pipeline.
+the main Phase 1-7 assessment pipeline.
 
 Missing external tool → `TestResult(SKIP)` via `_skip_reason_from_registry`. Not an exception.
 
 ---
 
-## Test Implementation Guides
-
-Full contracts, templates, and step-by-step guides for implementing native and external tests:
-- `docs/guides/extending/add-a-native-test.md` — `BaseTest` contract, `ClassVar` fields, `execute()` signature,
-  `TestResult` statuses, strategy/priority mapping
-- `docs/guides/extending/add-an-external-test.md` — `ExternalToolTest` contract, `_build_connector()`,
-  `_invoke_connector()`, `_evaluate()`, dev-mode cache, connector injection (Phase R4)
-
-Load with `/add-file docs/guides/extending/add-a-native-test.md` or `/add-file docs/guides/extending/add-an-external-test.md`
-before implementing any new test.
-
 ## Session Startup
 
-1. Check `docs/project/roadmap.md` to identify what to implement next.
-2. Load reference docs as needed:
-   - `/add-file docs/project/claude-rules.it.md` — always useful for a new session
-   - `/add-file docs/knowledge/methodology/methodology.it.md` — when implementing a test
-   - `/add-file docs/knowledge/archive/implementation-chapter.it.md` — when touching infrastructure
-3. **If implementing a test:** read the relevant guide in `docs/guides/extending/` before writing any code:
-   - `/add-file docs/guides/extending/add-a-native-test.md` — for native `BaseTest` subclasses
-   - `/add-file docs/guides/extending/add-an-external-test.md` — for `ExternalToolTest` subclasses
-4. State the file you are about to write. Wait for confirmation.
-5. Write one file. Explain internal logic and rationale.
-6. After completing a test, update `docs/project/roadmap.md` to reflect the new state.
+1. Read `docs/project/plan.md` to see the current step; check `OPEN_QUESTIONS.md` for the questions it involves.
+2. For code work, check `docs/project/roadmap.md` and read the relevant files from "Where things are":
+   - implementing a test: the matching guide in `docs/guides/extending/`, then the methodology;
+   - touching infrastructure: `docs/architecture/overview.md`.
+3. State the file you are about to write. Wait for confirmation.
+4. Write one file. Explain internal logic and rationale.
+5. Verify against the lab with only the affected tests (`execution.test_ids` in a copy of `config.yaml`), not the
+   full assessment.
+6. After completing a test, update `docs/project/roadmap.md`, the test page in `docs/tests/` and `CHANGELOG.md`.

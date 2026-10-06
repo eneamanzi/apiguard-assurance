@@ -1,46 +1,56 @@
-# APIGuard — Checklist Stato Implementazione
+# APIGuard Assurance - Roadmap
 
-- [Legenda](#legenda)
+> **Audience:** project owner, contributors · **Status:** interim (2026-10-06). The current work, step by step, is in
+> [`plan.md`](plan.md). This file still describes the thesis milestones: it will be rewritten as a product roadmap
+> after the code work of group 3.D is planned (Q-17). Until then, Milestone 2 is a list of candidate tests, not a plan.
+
+- [Legend](#legend)
 - [Tests Overview](#tests-overview)
-- [MILESTONE 1 — Pre-Thesis Writing](#milestone-1--pre-thesis-writing)
-  - [Domain 0 — API Discovery \& Inventory](#domain-0--api-discovery--inventory)
-  - [Domain 1 — Identity \& Authentication](#domain-1--identity--authentication)
-  - [Domain 2 — Authorization](#domain-2--authorization)
-  - [Domain 3 — Data Integrity](#domain-3--data-integrity)
-  - [Domain 4 — Availability \& Resilience](#domain-4--availability--resilience)
-  - [Domain 6 — Configuration \& Hardening](#domain-6--configuration--hardening)
-  - [Domain 7 — Business Logic \& Sensitive Flows](#domain-7--business-logic--sensitive-flows)
+- [MILESTONE 1 - v0.1.0 (released 2026-05-18)](#milestone-1---v010-released-2026-05-18)
+  - [Domain 0 - API Discovery \& Inventory](#domain-0---api-discovery--inventory)
+  - [Domain 1 - Identity \& Authentication](#domain-1---identity--authentication)
+  - [Domain 2 - Authorization](#domain-2---authorization)
+  - [Domain 3 - Data Integrity](#domain-3---data-integrity)
+  - [Domain 4 - Availability \& Resilience](#domain-4---availability--resilience)
+  - [Domain 6 - Configuration \& Hardening](#domain-6---configuration--hardening)
+  - [Domain 7 - Business Logic \& Sensitive Flows](#domain-7---business-logic--sensitive-flows)
   - [DAG State After Milestone 1 Completion](#dag-state-after-milestone-1-completion)
   - [Strategy Coverage](#strategy-coverage)
-- [MILESTONE 2 — Future Work (Thesis Chapter)](#milestone-2--future-work-thesis-chapter)
-  - [Domain 0 — Shadow API Discovery (extended tooling)](#domain-0--shadow-api-discovery-extended-tooling)
-  - [Domain 1 — JWT \& Credential Lifecycle](#domain-1--jwt--credential-lifecycle)
-  - [Domain 2 — Authorization (Phase C — requires 1.2)](#domain-2--authorization-phase-c--requires-12)
-  - [Domain 3 — Injection](#domain-3--injection)
-  - [Domain 4 — Rate Limiting Extended](#domain-4--rate-limiting-extended)
-  - [Domain 5 — Observability](#domain-5--observability)
-  - [Domain 6 — HTTP Request Smuggling](#domain-6--http-request-smuggling)
-  - [Domain 7 — Race Condition, Unsafe Consumption, SSRF Extended](#domain-7--race-condition-unsafe-consumption-ssrf-extended)
+- [MILESTONE 2 - Candidate tests (not yet planned)](#milestone-2---candidate-tests-not-yet-planned)
+  - [Domain 0 - Shadow API Discovery (extended tooling)](#domain-0---shadow-api-discovery-extended-tooling)
+  - [Domain 1 - JWT \& Credential Lifecycle](#domain-1---jwt--credential-lifecycle)
+  - [Domain 2 - Authorization (Phase C - requires 1.2)](#domain-2---authorization-phase-c---requires-12)
+  - [Domain 3 - Injection](#domain-3---injection)
+  - [Domain 4 - Rate Limiting Extended](#domain-4---rate-limiting-extended)
+  - [Domain 5 - Observability](#domain-5---observability)
+  - [Domain 6 - HTTP Request Smuggling](#domain-6---http-request-smuggling)
+  - [Domain 7 - Race Condition, Unsafe Consumption, SSRF Extended](#domain-7---race-condition-unsafe-consumption-ssrf-extended)
 - [Connectors](#connectors)
-  - [Cat A — Implemented (Milestone 1)](#cat-a--implemented-milestone-1)
-  - [Cat A — Not Yet Implemented (Milestone 2)](#cat-a--not-yet-implemented-milestone-2)
-  - [Cat B — All Deferred (Milestone 2)](#cat-b--all-deferred-milestone-2)
-- [TODO — Milestone 1 Remaining Tasks](#todo--milestone-1-remaining-tasks)
+  - [Cat A - Implemented (Milestone 1)](#cat-a---implemented-milestone-1)
+  - [Cat A - Not Yet Implemented (Milestone 2)](#cat-a---not-yet-implemented-milestone-2)
+  - [Cat B - All Deferred (Milestone 2)](#cat-b---all-deferred-milestone-2)
+- [TODO - Milestone 1 Remaining Tasks](#todo---milestone-1-remaining-tasks)
 
 
-## Legenda
+## Legend
 
-| Simbolo | Significato |
+| Symbol | Meaning |
 |---------|-------------|
-| `[x]`   | Complete: NATIVE/Python code done (Cat B never blocks this), OR HYBRID with **all** planned Cat A connectors implemented. |
-| `[~]`   | HYBRID with **at least one** representative Cat A connector done, but additional planned connectors deferred to M2. |
+| `[x]`   | The test is implemented. |
 | `[ ]`   | Not yet started or incomplete. |
 
-Cat B connectors never influence the symbol — they are always optional enhancements.
+The symbol describes a **test**, not a guarantee. How much of a guarantee is covered is stated separately below.
+
+**Guarantee coverage.** A guarantee is fully covered when its native test and **all** its planned Cat A external
+tests are implemented (Cat B connectors are optional and never count). Guarantees covered only in part:
+
+| Guarantee | Implemented | Planned (M2) |
+|---|---|---|
+| 0.1 All exposed endpoints are documented and authorized | `0.1` (native), `ext.0.1.nuclei` | `ext.0.1.ffuf` (large wordlists), `ext.0.1.katana` (JavaScript crawling) |
 
 **Naming convention:**
 - Native tests: `X.Y` (e.g. `1.4`, `2.1`)
-- External tests: `ext.X.Y.toolname` (e.g. `ext.0.1.nuclei`, `ext.1.5.testssl`) — the tool suffix makes the ID self-documenting and unique when multiple tools cover the same guarantee.
+- External tests: `ext.X.Y.toolname` (e.g. `ext.0.1.nuclei`, `ext.1.5.testssl`) - the tool suffix makes the ID self-documenting and unique when multiple tools cover the same guarantee.
 
 ---
 
@@ -49,7 +59,7 @@ Cat B connectors never influence the symbol — they are always optional enhance
 | ID | Milestone | Status |
 |----|-----------|--------|
 | 0.1 | M1 | [x] |
-| ext.0.1.nuclei | M1 | [~] |
+| ext.0.1.nuclei | M1 | [x] |
 | 0.2 | M1 | [x] |
 | 0.3 | M1 | [x] |
 | 1.1 | M1 | [x] |
@@ -91,24 +101,24 @@ Cat B connectors never influence the symbol — they are always optional enhance
 
 ---
 
-## MILESTONE 1 — Pre-Thesis Writing
+## MILESTONE 1 - v0.1.0 (released 2026-05-18)
 
 **Scope.** Tests selected for architectural property demonstration value.
 Selection criterion: which test provides the most concrete and verifiable evidence for the
 architectural claims in `docs/knowledge/design-properties.it.md`. Security coverage is secondary.
 
-### Domain 0 — API Discovery & Inventory
+### Domain 0 - API Discovery & Inventory
 
 | ID | Type | Status | Strategy / Priority | Key Properties |
 |----|------|--------|---------------------|----------------|
 | 0.1 | NATIVE+OPT | [x] | BLACK_BOX / P0 | D1.P1, D2.P1 |
-| ext.0.1.nuclei | HYBRID / nuclei | [~] | BLACK_BOX / P0 | D1.P4, D1.P5, D2.P3, D2.P4, D2.P6, D6.P2 |
+| ext.0.1.nuclei | HYBRID / nuclei | [x] | BLACK_BOX / P0 | D1.P4, D1.P5, D2.P3, D2.P4, D2.P6, D6.P2 |
 | 0.2 | NATIVE+OPT | [x] | BLACK_BOX / P0 | D1.P1 |
 | 0.3 | NATIVE+OPT | [x] | BLACK_BOX / P0 | D1.P1 |
 
 Files: `src/external_tests/ext_test_0_1_shadow_api_nuclei.py`, `src/connectors/nuclei.py`
 
-### Domain 1 — Identity & Authentication
+### Domain 1 - Identity & Authentication
 
 | ID | Type | Status | Strategy / Priority | Key Properties |
 |----|------|--------|---------------------|----------------|
@@ -121,19 +131,19 @@ Files: `src/external_tests/ext_test_0_1_shadow_api_nuclei.py`, `src/connectors/n
 
 Files: `src/external_tests/ext_test_1_5_tls_analysis.py`, `src/connectors/testssl.py`, `src/connectors/sslyze.py`
 
-### Domain 2 — Authorization
+### Domain 2 - Authorization
 
 | ID | Type | Status | Strategy / Priority | Key Properties |
 |----|------|--------|---------------------|----------------|
 | 2.1 | NATIVE | [x] | GREY_BOX / P2 | D1.P3, D2.P5, D3.P3 |
 
-### Domain 3 — Data Integrity
+### Domain 3 - Data Integrity
 
 | ID | Type | Status | Strategy / Priority | Key Properties |
 |----|------|--------|---------------------|----------------|
 | 3.3 | NATIVE | [x] | WHITE_BOX / P3 | D1.P6, D4.P5 |
 
-### Domain 4 — Availability & Resilience
+### Domain 4 - Availability & Resilience
 
 | ID | Type | Status | Strategy / Priority | Key Properties |
 |----|------|--------|---------------------|----------------|
@@ -141,14 +151,14 @@ Files: `src/external_tests/ext_test_1_5_tls_analysis.py`, `src/connectors/testss
 | 4.2 | NATIVE | [x] | WHITE_BOX / P1 | D1.P6, D4.P5 |
 | 4.3 | NATIVE | [x] | WHITE_BOX / P1 | D1.P6, D5.P2, D4.P5 |
 
-### Domain 6 — Configuration & Hardening
+### Domain 6 - Configuration & Hardening
 
 | ID | Type | Status | Strategy / Priority | Key Properties |
 |----|------|--------|---------------------|----------------|
 | 6.2 | NATIVE | [x] | WHITE_BOX / P3 | D3.P3, D5.P3 |
 | 6.4 | NATIVE+OPT | [x] | WHITE_BOX / P2 | D1.P6, D2.P8 |
 
-### Domain 7 — Business Logic & Sensitive Flows
+### Domain 7 - Business Logic & Sensitive Flows
 
 | ID | Type | Status | Strategy / Priority | Key Properties |
 |----|------|--------|---------------------|----------------|
@@ -160,8 +170,8 @@ Files: `src/external_tests/ext_test_1_5_tls_analysis.py`, `src/connectors/testss
 
 | Phase | Tests |
 |-------|-------|
-| **A — No Dependencies** | 0.1, ext.0.1.nuclei, 0.2, 0.3, 1.1, 1.5, ext.1.5.testssl, ext.1.5.sslyze, 1.6, 3.3, 4.1, 4.2, 4.3, 6.2, 6.4, 7.2 |
-| **B — requires 1.1** | **1.4**, **2.1** |
+| **A - No Dependencies** | 0.1, ext.0.1.nuclei, 0.2, 0.3, 1.1, 1.5, ext.1.5.testssl, ext.1.5.sslyze, 1.6, 3.3, 4.1, 4.2, 4.3, 6.2, 6.4, 7.2 |
+| **B - requires 1.1** | **1.4**, **2.1** |
 
 Phase C (requires ext.1.2.jwt_tool / jwt_tool connector) → Milestone 2.
 
@@ -175,19 +185,20 @@ Phase C (requires ext.1.2.jwt_tool / jwt_tool connector) → Milestone 2.
 
 ---
 
-## MILESTONE 2 — Future Work (Thesis Chapter)
+## MILESTONE 2 - Candidate tests (not yet planned)
 
-Research-grounded extensions mapped to architectural extension points already in the design.
-Not omissions — honest scope decisions for the July deadline.
+Candidate tests and connectors from the methodology and the tool research, recorded during the thesis. Their
+strategy, priority, tools and order are not decided: confirm them when each test is designed (Q-17). The quality
+review of the implemented tests (Q-29, Q-32) and the work of group 3.D in `plan.md` come first.
 
-### Domain 0 — Shadow API Discovery (extended tooling)
+### Domain 0 - Shadow API Discovery (extended tooling)
 
 | ID | Type | Status | Strategy | Notes |
 |----|------|--------|----------|-------|
-| ext.0.1.ffuf | HYBRID / ffuf | [ ] | BLACK_BOX | `FfufConnector` — wordlist path fuzzing; demonstrates connector reusability across tools for same domain |
-| ext.0.1.katana | HYBRID / katana | [ ] | BLACK_BOX | `KatanaConnector` — headless crawling for JS-rendered endpoints (vs static wordlist) |
+| ext.0.1.ffuf | HYBRID / ffuf | [ ] | BLACK_BOX | `FfufConnector` - wordlist path fuzzing; demonstrates connector reusability across tools for same domain |
+| ext.0.1.katana | HYBRID / katana | [ ] | BLACK_BOX | `KatanaConnector` - headless crawling for JS-rendered endpoints (vs static wordlist) |
 
-### Domain 1 — JWT & Credential Lifecycle
+### Domain 1 - JWT & Credential Lifecycle
 
 | ID | Type | Status | Strategy | Notes |
 |----|------|--------|----------|-------|
@@ -196,43 +207,43 @@ Not omissions — honest scope decisions for the July deadline.
 | 1.3 | NATIVE | [ ] | BLACK_BOX | Credential expiry check; `depends_on=["1.1"]` |
 | ext.1.3.jwt_tool | HYBRID / jwt_tool | [ ] | BLACK_BOX | Shares jwt_tool with ext.1.2.jwt_tool (D2.P4 connector sharing); blocked by jwt_tool Cat A |
 
-### Domain 2 — Authorization (Phase C — requires 1.2)
+### Domain 2 - Authorization (Phase C - requires 1.2)
 
 | ID | Type | Status | Strategy | Notes |
 |----|------|--------|----------|-------|
 | 2.2 | NATIVE+OPT | [ ] | GREY_BOX | Cat B: OFFAT, cherrybomb |
 | 2.3 | NATIVE+OPT | [ ] | GREY_BOX | Cat B: OFFAT |
-| 2.4 | NATIVE | [ ] | GREY_BOX | — |
-| 2.5 | NATIVE | [ ] | GREY_BOX | — |
+| 2.4 | NATIVE | [ ] | GREY_BOX | - |
+| 2.5 | NATIVE | [ ] | GREY_BOX | - |
 
-### Domain 3 — Injection
+### Domain 3 - Injection
 
 | ID | Type | Status | Strategy | Notes |
 |----|------|--------|----------|-------|
 | 3.1 | NATIVE | [ ] | BLACK_BOX | Basic input validation checks |
 | ext.3.1.schemathesis | HYBRID / schemathesis | [ ] | BLACK_BOX | `schemathesis` BaseLibraryConnector (D1.P5 tier) + nuclei CRLF templates |
 
-### Domain 4 — Rate Limiting Extended
+### Domain 4 - Rate Limiting Extended
 
 | ID | Type | Status | Strategy | Notes |
 |----|------|--------|----------|-------|
-| ext.4.1.vegeta | HYBRID / vegeta | [ ] | BLACK_BOX | `VegetaConnector` — precise load + last-byte-sync; shared with ext.7.3.vegeta (D2.P4) |
+| ext.4.1.vegeta | HYBRID / vegeta | [ ] | BLACK_BOX | `VegetaConnector` - precise load + last-byte-sync; shared with ext.7.3.vegeta (D2.P4) |
 
-### Domain 5 — Observability
+### Domain 5 - Observability
 
 | ID | Type | Status | Strategy | Notes |
 |----|------|--------|----------|-------|
 | 5.1 | NATIVE | [ ] | WHITE_BOX | Requires log aggregator (Elasticsearch/Loki) in Docker setup |
 | 5.2 | NATIVE | [ ] | WHITE_BOX | Requires alerting system (Alertmanager/PagerDuty mock) |
 
-### Domain 6 — HTTP Request Smuggling
+### Domain 6 - HTTP Request Smuggling
 
 | ID | Type | Status | Strategy | Notes |
 |----|------|--------|----------|-------|
 | 6.3 | NATIVE | [ ] | BLACK_BOX | Basic HTTP request smuggling detection |
-| ext.6.3.socket | HYBRID / tcp-socket | [ ] | BLACK_BOX | Raw TCP socket (stdlib) for CL.TE/TE.CL — 3rd D1.P5 connector tier. Cat B: http2smugl |
+| ext.6.3.socket | HYBRID / tcp-socket | [ ] | BLACK_BOX | Raw TCP socket (stdlib) for CL.TE/TE.CL - 3rd D1.P5 connector tier. Cat B: http2smugl |
 
-### Domain 7 — Race Condition, Unsafe Consumption, SSRF Extended
+### Domain 7 - Race Condition, Unsafe Consumption, SSRF Extended
 
 | ID | Type | Status | Strategy | Notes |
 |----|------|--------|----------|-------|
@@ -246,7 +257,7 @@ Not omissions — honest scope decisions for the July deadline.
 
 ## Connectors
 
-### Cat A — Implemented (Milestone 1)
+### Cat A - Implemented (Milestone 1)
 
 | Connector | Pinned Version | Type | Used by |
 |-----------|---------------|------|---------|
@@ -254,20 +265,20 @@ Not omissions — honest scope decisions for the July deadline.
 | **testssl.sh** | `3.2.x` | Subprocess | ext.1.5.testssl |
 | **sslyze** | `>=6.0` (6.3.1 tested) | Library | ext.1.5.sslyze |
 
-Source: `src/connectors/nuclei.py` + `src/connectors/testssl.py` + `src/connectors/sslyze.py` — all fully implemented.
+Source: `src/connectors/nuclei.py` + `src/connectors/testssl.py` + `src/connectors/sslyze.py` - all fully implemented.
 
-### Cat A — Not Yet Implemented (Milestone 2)
+### Cat A - Not Yet Implemented (Milestone 2)
 
 | Connector | Pinned Version | Type | Tests | Notes |
 |-----------|---------------|------|-------|-------|
 | **jwt_tool** | `2.3.0` | Subprocess | ext.1.2.jwt_tool, ext.1.3.jwt_tool | Unlocks all Phase C tests |
-| **ffuf** | `2.1.0` | Subprocess | ext.0.1.ffuf | — |
-| **katana** | `1.6.1` | Subprocess | ext.0.1.katana | — |
+| **ffuf** | `2.1.0` | Subprocess | ext.0.1.ffuf | - |
+| **katana** | `1.6.1` | Subprocess | ext.0.1.katana | - |
 | **vegeta** | `12.13.0` | Subprocess | ext.4.1.vegeta, ext.7.3.vegeta | last-byte-sync for race condition |
 | **interactsh** | `1.3.1` | Subprocess | ext.7.2.interactsh, ext.7.4.interactsh | OOB server for blind SSRF/consumption |
-| **schemathesis** | `4.18.1` | Library | ext.3.1.schemathesis | BaseLibraryConnector tier demo |
+| **schemathesis** | `4.18.1` | Library | ext.3.1.schemathesis | Python library connector |
 
-### Cat B — All Deferred (Milestone 2)
+### Cat B - All Deferred (Milestone 2)
 
 | Connector | For | Value |
 |-----------|-----|-------|
@@ -290,6 +301,6 @@ Source: `src/connectors/nuclei.py` + `src/connectors/testssl.py` + `src/connecto
 
 ---
 
-## TODO — Milestone 1 Remaining Tasks
+## TODO - Milestone 1 Remaining Tasks
 
 **All Milestone 1 tasks implemented.** M1 is complete.

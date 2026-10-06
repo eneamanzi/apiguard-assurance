@@ -14,7 +14,7 @@ Getting started has two pages, in this order:
 | Requirement | Notes |
 |---|---|
 | Linux | the only supported platform ([compatibility](../reference/compatibility.md)) |
-| Python 3.12 | `pyproject.toml` declares `>=3.11`; only 3.12 has been tested |
+| Python 3.11 to 3.14 | the versions verified on the lab ([compatibility](../reference/compatibility.md)) |
 | `git` | to clone the repository |
 | [Hatch](https://hatch.pypa.io) | creates and manages the Python environment: `pip install hatch` |
 | `curl`, `tar`, `unzip` | used by `install_tools.sh` |
@@ -135,7 +135,7 @@ Go to **[First assessment](first-assessment.md)**.
 `~/.local/share/hatch/env/virtual/`), installs the project in editable mode with its dependencies **including
 sslyze**, and defines the project scripts in `pyproject.toml`. Every clone gets its own environment. A manual
 `python -m venv` + `pip install .` gives a different environment (no sslyze, no development tools, code copied
-instead of linked), so the same run can give different results: `ext.1.5.sslyze` is SKIP without sslyze (Q-42).
+instead of linked), so the same run can give different results: `ext.1.5.sslyze` is SKIP without sslyze.
 Use pip only to install the package into another product.
 
 **Binary lookup.** The tool looks for external binaries in `./tools/<tool>/` relative to the working directory,

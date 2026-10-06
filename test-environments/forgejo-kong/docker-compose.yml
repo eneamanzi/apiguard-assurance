@@ -10,6 +10,11 @@
 #   docker compose --env-file ../../.env <command>
 # Create .env once with: cp .env.example .env (from the repository root).
 #
+# Versions: every image is pinned to an exact version, so that the lab (and the
+# results of an assessment on it) does not change when a new image is published.
+# The pinned versions are listed in docs/reference/compatibility.md ("Test lab");
+# update both places together, then verify the lab from scratch.
+#
 # TLS: certs/ already contains a self-signed example certificate and key,
 # committed on purpose, lab only (never reuse them elsewhere). To regenerate:
 #   cd certs && ./gen-certs.sh
@@ -31,7 +36,7 @@ services:
   # PostgreSQL 15: backend di persistenza per Forgejo.
   # Versione Alpine per footprint ridotto in ambiente di laboratorio.
   forgejo-db:
-    image: postgres:15-alpine
+    image: postgres:15.19-alpine
     container_name: forgejo-db
     restart: unless-stopped
     environment:
@@ -52,7 +57,7 @@ services:
   # INSTALL_LOCK=true bypassa il wizard di primo avvio.
   # ENABLE_SWAGGER=true espone /api/swagger per OpenAPI discovery.
   forgejo:
-    image: codeberg.org/forgejo/forgejo:14
+    image: codeberg.org/forgejo/forgejo:14.0.5
     container_name: forgejo
     restart: unless-stopped
     environment:
@@ -96,7 +101,7 @@ services:
   # The committed example certificate is used as is; to regenerate it:
   #   cd test-environments/forgejo-kong/certs && ./gen-certs.sh
   kong:
-    image: kong:3.9
+    image: kong:3.9.3
     container_name: kong
     restart: unless-stopped
     environment:
@@ -139,7 +144,7 @@ services:
       retries: 5
 
   forgejo-setup:
-    image: codeberg.org/forgejo/forgejo:14
+    image: codeberg.org/forgejo/forgejo:14.0.5
     container_name: forgejo_setup
     depends_on:
       forgejo:
@@ -176,5 +181,50 @@ services:
           409) echo "Repository ${USER_A_USERNAME}/${LAB_TEST_REPO} already exists." ;;
           *)   echo "Repository creation failed: HTTP $$code"; exit 1 ;;
         esac
+
+        # Other resources named in config.yaml (target.path_seed), all owned by user A,
+        # so that test 1.1 probes reach the authentication check instead of a 404.
+        auth="${USER_A_USERNAME}:${USER_A_PASSWORD}"
+        repo_api="http://forgejo:3000/api/v1/repos/${USER_A_USERNAME}/${LAB_TEST_REPO}"
+
+        # Organization (Forgejo also creates its "Owners" team, id 1 on a fresh lab).
+        # HTTP 201 = created, 422 = already exists.
+        code=$$(curl -s -o /dev/null -w '%{http_code}' -u "$$auth" -H 'Content-Type: application/json' \
+          -d '{"username":"${LAB_TEST_ORG:?missing in .env}"}' \
+          http://forgejo:3000/api/v1/orgs)
+        case "$$code" in
+          201) echo "Organization ${LAB_TEST_ORG} created." ;;
+          422) echo "Organization ${LAB_TEST_ORG} already exists." ;;
+          *)   echo "Organization creation failed: HTTP $$code"; exit 1 ;;
+        esac
+
+        # Tag on the default branch. HTTP 201 = created, 409 = already exists.
+        code=$$(curl -s -o /dev/null -w '%{http_code}' -u "$$auth" -H 'Content-Type: application/json' \
+          -d '{"tag_name":"${LAB_TEST_TAG:?missing in .env}","target":"main"}' \
+          "$$repo_api/tags")
+        case "$$code" in
+          201) echo "Tag ${LAB_TEST_TAG} created." ;;
+          409) echo "Tag ${LAB_TEST_TAG} already exists." ;;
+          *)   echo "Tag creation failed: HTTP $$code"; exit 1 ;;
+        esac
+
+        # Issue 1 and comment 1. Creating them again would add issue 2 and comment 2,
+        # so they are created only if missing.
+        if [ "$$(curl -s -o /dev/null -w '%{http_code}' -u "$$auth" "$$repo_api/issues/1")" = 200 ]; then
+          echo "Issue 1 already exists."
+        else
+          code=$$(curl -s -o /dev/null -w '%{http_code}' -u "$$auth" -H 'Content-Type: application/json' \
+            -d '{"title":"APIGuard lab issue"}' "$$repo_api/issues")
+          [ "$$code" = 201 ] || { echo "Issue creation failed: HTTP $$code"; exit 1; }
+          echo "Issue 1 created."
+        fi
+        if [ "$$(curl -s -o /dev/null -w '%{http_code}' -u "$$auth" "$$repo_api/issues/comments/1")" = 200 ]; then
+          echo "Comment 1 already exists."
+        else
+          code=$$(curl -s -o /dev/null -w '%{http_code}' -u "$$auth" -H 'Content-Type: application/json' \
+            -d '{"body":"APIGuard lab comment"}' "$$repo_api/issues/1/comments")
+          [ "$$code" = 201 ] || { echo "Comment creation failed: HTTP $$code"; exit 1; }
+          echo "Comment 1 created."
+        fi
 
         echo "Provisioning completed."

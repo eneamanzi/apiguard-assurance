@@ -12,7 +12,7 @@ target, and how it relates to the methodology.
 |---|---|---|---|---|---|---|
 | **Domain 0 - API Discovery and Inventory Management** | | | | | | |
 | `0.1` | All Exposed Endpoints Are Documented and Authorized | P0 | BLACK_BOX | CWE-1059 | spec | [0.1](domain-0/0-1-shadow-api-discovery.md) |
-| `ext.0.1.nuclei` | Shadow API Discovery via nuclei | P0 | BLACK_BOX | CWE-200 | nuclei | [ext.0.1.nuclei](external/domain-0/ext-0-1-nuclei.md) |
+| `ext.0.1.nuclei` | Shadow API Discovery via nuclei | P0 | BLACK_BOX | CWE-200 | nuclei | [ext.0.1.nuclei](external/domain-0/ext-0-1-nuclei.md) (guarantee 0.1 covered in part: ffuf and katana planned) |
 | `0.2` | Gateway Deny-by-Default on Unregistered Paths | P0 | BLACK_BOX | CWE-284 | spec | [0.2](domain-0/0-2-deny-by-default.md) |
 | `0.3` | Deprecated APIs Are Disabled or Under Enhanced Monitoring | P0 | BLACK_BOX | CWE-1059 | spec with `deprecated` | [0.3](domain-0/0-3-deprecated-api-enforcement.md) |
 | **Domain 1 - Identity and Authentication** | | | | | | |

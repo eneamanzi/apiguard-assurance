@@ -79,4 +79,4 @@ Treat `evidence.json` as sensitive.
 ## See also
 
 - [`report-schema.md`](report-schema.md)
-- *planned:* `guides/usage/read-the-report.md`
+- [`guides/usage/read-the-report.md`](../guides/usage/read-the-report.md)

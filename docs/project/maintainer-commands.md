@@ -1,4 +1,8 @@
-# APIGuard Assurance — Command Cheat Sheet
+# APIGuard Assurance - Maintainer Cheat Sheet
+
+> **Audience:** project owner · Personal commands for maintaining the repository. Product commands are
+> documented in [`reference/cli.md`](../reference/cli.md) and [`CONTRIBUTING.md`](../../CONTRIBUTING.md); this page
+> repeats them only as a quick reminder.
 
 - [Export Utility](#export-utility)
   - [New mode (recommended)](#new-mode-recommended)
@@ -11,7 +15,7 @@
 - [Building the Package](#building-the-package)
 - [Static Analysis](#static-analysis)
 - [Kong Configuration Changes](#kong-configuration-changes)
-- [Git — Clean Up Commit History](#git--clean-up-commit-history)
+- [Git - Clean Up Commit History](#git---clean-up-commit-history)
 - [Git tag + release](#git-tag--release)
 
 
@@ -48,32 +52,25 @@ Open `http://localhost:8080` in your browser and click `assessment_report.html`.
 
 ## Environment Management (Hatch)
 
-Activate the virtual environment:
+Open a shell in an environment (`exit` to leave):
 ```bash
-hatch shell dev
+hatch shell        # default environment: the tool (apiguard ...)
+hatch shell dev    # dev environment: the tool + ruff, mypy, bandit, vulture, pip-audit
 ```
 
-Or prefix commands with `hatch run -e dev`.
+Or prefix single commands: `hatch run apiguard ...`, `hatch run dev:<script>`.
 
 
 ## Running the Tool (CLI)
 
-> Ensure `.env` variables are loaded or the file exists in the project root.
+> `.env` is read from the working directory: run from the repository root.
 
-**Development (direct):**
 ```bash
-python -m src.cli
+hatch run apiguard run                        # config.yaml in the working directory
+hatch run apiguard run -c config_crapi.yaml   # another configuration file
 ```
 
-**Installed (if configured in pyproject.toml):**
-```bash
-apiguard run
-```
-
-**Run against a different config:**
-```bash
-apiguard run -c config_crapi.yaml
-```
+Inside `hatch shell` drop the `hatch run` prefix.
 
 ### Other CLI commands
 
@@ -93,12 +90,8 @@ assessment instead of generic placeholders.
 
 ### Exit codes
 
-| Code | Meaning |
-|------|---------|
-| `0` | CLEAN — no violation detected |
-| `1` | FAIL — at least one security guarantee violated |
-| `2` | ERROR — at least one verification did not complete |
-| `10` | INFRA — configuration / OpenAPI / DAG bootstrap error (assessment did not start) |
+`0` clean, `1` violation, `2` a check did not complete, `10` the assessment did not run, `130` interrupted.
+Details: [`reference/exit-codes.md`](../reference/exit-codes.md).
 
 
 ## Building the Package
@@ -107,20 +100,22 @@ assessment instead of generic placeholders.
 
 ```bash
 hatch build                  # produces both wheel (.whl) and source distribution (.tar.gz)
-hatch build --target wheel   # wheel only (faster — use for install testing)
+hatch build --target wheel   # wheel only (faster: use for install testing)
 ```
 
 **What gets produced:**
 
 | File | Purpose |
 |------|---------|
-| `dist/apiguard_assurance-X.Y.Z-py3-none-any.whl` | Installable wheel — use for cold-install tests or PyPI upload |
-| `dist/apiguard_assurance-X.Y.Z.tar.gz` | Source distribution — contains only the public surface (see below) |
+| `dist/apiguard_assurance-X.Y.Z-py3-none-any.whl` | Installable wheel: use for cold-install tests or PyPI upload |
+| `dist/apiguard_assurance-X.Y.Z.tar.gz` | Source distribution: contains only the public surface (see below) |
 
-**What the sdist includes** (whitelist in `pyproject.toml`):
-`src/`, `docs/pub/`, `README.md`, `docs/project/maintainer-commands.md`, `pyproject.toml`, `config.yaml`, `.env.example`, `.gitignore`, `install_tools.sh`
+**What the sdist includes** (whitelist in `pyproject.toml`, checked with `hatch build -t sdist` on 2026-10-06):
+`src/`, `docs/` except `docs/knowledge/` and `docs/project/`, `README.md`, `pyproject.toml`, `config.yaml`,
+`.env.example`, `.gitignore`, `install_tools.sh`.
 
-**What the sdist excludes**: `docs/priv/` internal files (audit, status, knowledge), `outputs/`, `tools/`, `.claude/`, `CLAUDE.md`.
+**What the sdist excludes**: `docs/knowledge/`, `docs/project/`, `CLAUDE.md`, `CONTRIBUTING.md`, `CHANGELOG.md`,
+`OPEN_QUESTIONS.md`, `test-environments/`, `outputs/`, `tools/`, `.claude/`, `.env`.
 
 **Cold-install test** (verifies the wheel works in a clean environment):
 ```bash
@@ -132,15 +127,15 @@ apiguard validate-config --config config.yaml
 deactivate && rm -rf /tmp/cold-test
 ```
 
-> `dist/` is regenerated on every `hatch build` and is deterministic — two consecutive builds produce byte-identical wheels.
+> `dist/` is regenerated on every `hatch build`.
 
 
 ## Static Analysis
 
 ```bash
-hatch run dev:lint    # ruff + mypy           (fast — run on every commit)
-hatch run dev:audit   # bandit + vulture       (slower — run before push)
-hatch run dev:check   # full suite in sequence (CI gate)
+hatch run dev:lint    # ruff + mypy           (fast: run on every commit)
+hatch run dev:audit   # bandit + vulture       (slower: run before push)
+hatch run dev:check   # full suite in sequence
 hatch run dev:deps    # pip-audit              (run before any release)
 ```
 
@@ -159,7 +154,7 @@ docker compose --env-file ../../.env up -d --force-recreate kong   # from test-e
 ```
 
 
-## Git — Clean Up Commit History
+## Git - Clean Up Commit History
 
 View commit log:
 ```bash
@@ -183,14 +178,14 @@ git commit --amend --no-edit
 ```
 
 ## Git tag + release
-Create and push tag
+Create and push tag (update `CHANGELOG.md` first: move "Unreleased" under the new version)
 ```bash
-git tag -a v0.1.0 -m "Release v0.1.0 — Milestone 1: 18 automated tests, 3 connectors, full 7-phase pipeline"
+git tag -a v0.1.0 -m "Release v0.1.0 - Milestone 1: 18 automated tests, 3 connectors, full 7-phase pipeline"
 
 git push origin v0.1.0
 ```
 
-Delete tag localy and remote
+Delete tag locally and remote
 ```bash
 git tag -d v0.1.0
 

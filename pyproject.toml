@@ -22,7 +22,7 @@ description = "Automated security assessment tool for REST APIs in Cloud environ
 
 # --- 2. Readme + Python target ---
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.15"  # only versions verified on the lab: docs/reference/compatibility.md
 # License intentionally left unspecified — the project is the artefact of a
 # Master's thesis and the IP/licensing question is governed by the university's
 # academic-output regulations rather than a standard open-source license. Once
@@ -61,11 +61,12 @@ classifiers = [
     "Intended Audience :: Information Technology",
     "Intended Audience :: Science/Research",
     "Operating System :: POSIX :: Linux",
-    "Operating System :: MacOS",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Internet :: WWW/HTTP",
     "Topic :: Security",
     "Topic :: Software Development :: Testing",
@@ -206,7 +207,7 @@ include = [
     # Documentation (docs/knowledge/ and docs/project/ are internal, excluded below)
     "docs/",
     "README.md",
-    "README.en.md",
+    "CHANGELOG.md",
 
     # Build + dependency declaration
     "pyproject.toml",

@@ -1,7 +1,7 @@
 # ext.0.1.nuclei Shadow API Discovery via nuclei
 
-> **Audience:** analysts, contributors · **Status:** implemented (v0.1.0); guarantee 0.1 partially covered by
-> external tools (see roadmap) · **Source of truth:**
+> **Audience:** analysts, contributors · **Status:** implemented (v0.1.0); guarantee 0.1 is covered only in part
+> (ffuf and katana planned, see roadmap) · **Source of truth:**
 > [`src/external_tests/ext_test_0_1_shadow_api_nuclei.py`](../../../../src/external_tests/ext_test_0_1_shadow_api_nuclei.py),
 > [`src/connectors/nuclei.py`](../../../../src/connectors/nuclei.py) · **Verified:** 2026-10-05
 
@@ -69,7 +69,8 @@ scan does not interfere with test 4.1), `extra_flags`, `expected_version`, `dev_
 Same guarantee as [0.1](../../domain-0/0-1-shadow-api-discovery.md) (OWASP API9:2023). Tooling decision
 ([`decisions.it.md` §0.1](../../../knowledge/tools/decisions.it.md)): nuclei is the Cat A tool that turns
 "undocumented endpoint exists" into "known-dangerous exposure". The other planned Cat A tools for 0.1 (ffuf,
-katana) are not implemented, which is why the roadmap marks the guarantee as partially covered (Q-09).
+katana) are not implemented: the test is complete, the guarantee is covered only in part
+([roadmap, guarantee coverage](../../../project/roadmap.md#legend)).
 
 ## Limitations
 

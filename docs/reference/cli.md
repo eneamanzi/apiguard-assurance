@@ -22,9 +22,18 @@ There are no CLI options to select tests: selection is done in `config.yaml` (`e
 
 ## Environment and `.env`
 
-At startup every command loads a `.env` file from the **current working directory**, if present. Variables
-already set in the process environment take precedence over `.env` (`load_dotenv(override=False)`,
-`src/cli.py:59`). `${VAR}` placeholders in `config.yaml` are resolved from this environment.
+At startup every command loads a `.env` file, if found. Variables already set in the process environment take
+precedence over `.env` (`load_dotenv(override=False)`, `src/cli.py:59`). `${VAR}` placeholders in `config.yaml` are
+resolved from this environment.
+
+**Where `.env` is searched (verified 2026-10-06):** `load_dotenv()` is called without a path, so python-dotenv looks
+for `.env` starting from the folder of the tool's own code (`src/cli.py`) and moving up, **not** from the folder
+where you run the command. In practice:
+
+- working from the repository with Hatch (the code is installed in editable mode, inside the repository): the
+  repository's `.env` is found;
+- tool installed with `pip install` (code inside the virtual environment): `.env` is **not** found, even when the
+  command is run from the folder that contains it. Export the variables in the environment instead (Q-54).
 
 ## Output streams
 
