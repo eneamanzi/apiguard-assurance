@@ -280,6 +280,10 @@ dependencies = [
     # Run with: hatch run dev:deps
     "pip-audit>=2.7",
 
+    # Dependency rules between src/ packages ([tool.importlinter] below).
+    # Run by: hatch run dev:check
+    "import-linter>=2.15,<3",
+
     # Documentation generator for context building
     "pydoc-markdown"
 ]
@@ -316,6 +320,7 @@ check = [
     "mypy src/ ",
     "bandit -r src/ -c pyproject.toml --severity-level medium",
     "vulture src/ --min-confidence 80",
+    "lint-imports",
 ]
 deps = [
     "echo '--- PIP-AUDIT ---' && pip-audit --desc on",
@@ -406,6 +411,35 @@ disallow_incomplete_defs = true
 check_untyped_defs = true
 no_implicit_reexport = true
 show_error_codes = true
+
+# ---------------------------------------------------------------------------
+# Import-linter: dependency rules between src/ packages (CLAUDE.md "Dependency
+# direction", docs/architecture/overview.md). Checked by: hatch run dev:check
+# ---------------------------------------------------------------------------
+[tool.importlinter]
+root_package = "src"
+
+[[tool.importlinter.contracts]]
+name = "Dependency direction: core <- connectors <- tests/external_tests <- engine"
+type = "layers"
+layers = [
+    "src.engine",
+    "src.tests | src.external_tests",
+    "src.connectors",
+    "src.core",
+]
+
+[[tool.importlinter.contracts]]
+name = "core, connectors and tests never import config, discovery, report, cli"
+type = "forbidden"
+source_modules = ["src.core", "src.connectors", "src.tests", "src.external_tests"]
+forbidden_modules = ["src.config", "src.discovery", "src.report", "src.cli"]
+
+[[tool.importlinter.contracts]]
+name = "Native tests never use connectors (no external tools)"
+type = "forbidden"
+source_modules = ["src.tests"]
+forbidden_modules = ["src.connectors"]
 
 # ---------------------------------------------------------------------------
 # Pytest: test discovery configuration.

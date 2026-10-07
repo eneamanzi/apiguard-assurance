@@ -35,7 +35,8 @@ about security behaviour. Until then a change is verified by hand against the la
    hatch run dev:check
    ```
 
-   It runs `ruff check`, `mypy src/` (strict), `bandit` (medium severity) and `vulture`.
+   It runs `ruff check`, `ruff format --check`, `mypy src/` (strict), `bandit` (medium severity), `vulture` and
+   `lint-imports` (the dependency rules between packages). To fix the formatting: `hatch run dev:ruff format .`.
 
 2. Run the affected tests only, not the full assessment: copy `config.yaml`, set `execution.test_ids` and turn off
    the external tools if you do not need them ([select tests](docs/guides/usage/select-tests.md)). Compare the
@@ -53,7 +54,6 @@ about security behaviour. Until then a change is verified by hand against the la
    hatch run dev:deps
    ```
 
-`ruff format --check .` is not part of `dev:check` and currently reports files to reformat (Q-39).
 
 ## Update the documentation in the same change
 

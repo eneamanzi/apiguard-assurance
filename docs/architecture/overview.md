@@ -97,7 +97,7 @@ engine         -> config, core/*, discovery, external_tests, report, tests
 config         -> core/exceptions, core/models
 discovery      -> core/exceptions, core/models
 tests          -> core/client, core/context, core/evidence, core/exceptions, core/gateway, core/models
-external_tests -> config (registry only, Q-15), connectors, core/context, core/evidence, core/exceptions, core/models
+external_tests -> connectors, core/context, core/evidence, core/exceptions, core/models
 connectors     -> core/exceptions
 report         -> config, core/models
 core/gateway   -> core/exceptions
@@ -105,7 +105,8 @@ core/gateway   -> core/exceptions
 
 Rules that hold today: nothing imports `engine`; `tests/` never imports `config/`, `discovery/`, `report/`,
 `connectors/` or `external_tests/`; `connectors/` depend only on `core/exceptions`. Native tests must not start
-subprocesses: running external binaries is the job of connectors used by external tests.
+subprocesses: running external binaries is the job of connectors used by external tests. The main rules are
+checked automatically by `lint-imports` in `hatch run dev:check` (`[tool.importlinter]` in `pyproject.toml`).
 
 ## Components
 

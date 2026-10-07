@@ -51,7 +51,9 @@ Module-level detail and the actual import graph: `docs/architecture/overview.md`
 
 **Dependency direction (absolute):**
 `core/` ← `connectors/` ← `tests/` and `external_tests/` ← `engine.py`
-No lateral, no upward, no circular imports.
+No lateral, no upward, no circular imports. `core/`, `connectors/`, `tests/` and `external_tests/` never import
+`config/`, `discovery/`, `report/` or `cli`; native tests never import `connectors/`.
+Checked automatically by `lint-imports` in `hatch run dev:check` (`[tool.importlinter]` in `pyproject.toml`).
 
 **Gateway adapter pattern:**
 WHITE_BOX tests access the gateway admin plane via `target.gateway` (a `BaseGatewayAdapter`
@@ -74,7 +76,8 @@ If a request conflicts with any of these, **stop and flag it before proceeding.*
 - Bare `except:` or `except Exception: pass` - **forbidden**; use the custom hierarchy
 - Magic numbers/strings - **forbidden**; named constants or `config.yaml`
 - No global module-level singletons for `SecurityClient`
-- No numbers in module filenames
+- No numbers in module filenames, except test modules, which follow the `test_X_Y_` / `ext_test_X_Y_` naming
+  required in Testing below
 - Native `BaseTest` subclasses must **never** invoke external binary subprocesses.
   That responsibility belongs exclusively to `ExternalToolTest` subclasses via connectors.
 
@@ -84,7 +87,9 @@ accessed via `TargetContext` or `TestContext`.
 **Before adding a new config param: stop, flag it, wait for confirmation.**
 
 ### Types and Documentation
-- Pydantic v2 only - no `TypedDict` for data models
+- Pydantic v2 only - no `TypedDict` for data models. `TypedDict` is allowed only as a static type for plain
+  dicts that are not data models: the shape of raw external-tool output (`ConnectorRawOutput`, `TlsFinding`) and
+  `**kwargs` bundles (`_MetadataKwargs`, `_ExternalTestMetadataKwargs`)
 - Type hints on every function signature (params + return type)
 - Full docstrings on every public method
 - All identifiers, docstrings, log keys, comments in **English**

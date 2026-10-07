@@ -54,12 +54,13 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Resolution:
 
 ### Q-15 - Layering: `external_tests` imports `config`
-- Status: decided (owner, 2026-10-06), implementation pending (group 3.D, cleanup block)
+- Status: implemented (2026-10-07), awaiting the owner to close
 - Source: `src/external_tests/registry.py:61` (`from src.config.schema.external_tools import ExternalToolsConfig`); CLAUDE.md dependency direction does not mention `config/`
 - Question: Is this an accepted exception (the module is a re-export of `core/models/external_tools.py`) or a rule violation? Determines how the dependency rule is written in `architecture/overview.md`.
 - How to verify: decision with user.
 - Evidence (2026-10-06): it is the only import from `config/` in `core/`, `connectors/`, `tests/`, `external_tests/`. `src/config/schema/external_tools.py` is a re-export shim of `src/core/models/external_tools.py`; both imports return the same class object (`A is B` → `True`).
 - Decision (owner, 2026-10-06): no exception to the dependency rule. Change `src/external_tests/registry.py:61` to `from src.core.models.external_tools import ExternalToolsConfig` (no behaviour change); verify with `hatch run dev:check` and a run with the external tools; remove "(registry only, Q-15)" from `docs/architecture/overview.md`. Also add an automatic check of the dependency rule (e.g. `import-linter`) to `dev:check` (see Q-39).
+- Implemented (2026-10-07, block 1 step 3): `src/external_tests/registry.py:61` imports from `src.core.models.external_tools`; `import-linter` (2.15) added to the dev environment with three contracts in `pyproject.toml` (layer direction; core, connectors and tests never import config, discovery, report, cli; native tests never use connectors) and `lint-imports` in `dev:check`. Verified: 3 contracts kept; with the old import put back the second contract is BROKEN at `registry.py:61`; `dev:check` passes; external discovery on `config.yaml` finds the same 3 tests; 15 native tests and `ext.1.5.sslyze` unchanged on the lab. `docs/architecture/overview.md` updated.
 - Resolution:
 
 ### Q-16 - No CI and no pre-commit
@@ -307,6 +308,7 @@ None has been changed in code.
   - [ ] `hatch run dev:check` passes (ruff check, mypy strict, bandit medium, vulture 80) as of 2026-10-05.
 - How to verify: decision with user; `hatch run dev:ruff format --check .`.
 - Done (2026-10-07, block 1 step 2): `ruff format` applied to the 7 Python files (syntax trees identical to the previous commit; 15 native tests and `ext.1.5.sslyze` give the same results on the lab); `ruff format --check .` added to `dev:check`; Markdown excluded from the formatter (`[tool.ruff.format] exclude = ["*.md"]`). Remaining items: rule exceptions, `scripts/` lint config, E2E reference (Q-51), layering check (with Q-15).
+- Done (2026-10-07, block 1 step 4): the two exceptions written in `CLAUDE.md` and `coding-rules.md` (numbers in test module names; `TypedDict` only for raw external-tool output shapes and `**kwargs` bundles, the 4 current uses); the full dependency rule written in `CLAUDE.md`. Remaining items: `scripts/` lint configuration; `claude-rules.it.md` §5.6 E2E reference (Q-51).
 - Resolution:
 
 ### Q-43 - The tool is meant to be application- and gateway-agnostic, but several parts are tied to Forgejo and Kong

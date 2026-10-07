@@ -2,7 +2,7 @@
 
 > **Audience:** contributors · **Status:** v0.1.0 · **Source of truth:** `pyproject.toml` (tool configuration and
 > hatch scripts), the project rules in `CLAUDE.md` and `docs/project/claude-rules.it.md` §5 ·
-> **Verified:** 2026-10-05 (`hatch run dev:check` passes; `ruff format --check` does not, see below)
+> **Verified:** 2026-10-07 (`hatch run dev:check` passes, formatting and import rules included)
 
 Rules every change must follow. Where the current code deviates, the deviation is stated and tracked in
 `OPEN_QUESTIONS.md`.
@@ -23,8 +23,9 @@ Rules every change must follow. Where the current code deviates, the deviation i
 - mypy in strict mode with the Pydantic plugin.
 - Data that crosses a boundary (configuration, HTTP data, results) is modelled with Pydantic v2; configuration and
   context models are `frozen`.
-- `TypedDict` is currently used for typed dict shapes: `ConnectorRawOutput`, `TlsFinding` and two internal
-  metadata helpers. Where it is allowed is to be clarified (Q-39).
+- `TypedDict` is allowed only as a static type for plain dicts that are not data models: the shape of raw
+  external-tool output (`ConnectorRawOutput`, `TlsFinding`) and `**kwargs` bundles (`_MetadataKwargs`,
+  `_ExternalTestMetadataKwargs`). Never for the tool's own data models.
 - Public functions and methods have full docstrings.
 
 ## Constants and configuration
@@ -67,8 +68,8 @@ Rules every change must follow. Where the current code deviates, the deviation i
 | Config key | `test_<D>_<N>` |
 | Oracle states | `SCREAMING_SNAKE_CASE` module constants |
 
-Numbers in module names are reserved for test modules (the general rule "no numbers in module filenames" has this
-exception, Q-39).
+Numbers in module names are reserved for test modules: the general rule "no numbers in module filenames" has this
+single exception, required by the `test_<D>_<N>_` / `ext_test_<D>_<N>_` naming above.
 
 ## Dependencies
 
@@ -84,12 +85,13 @@ security behaviour. Changes are verified by running the affected tests against t
 ## Before submitting
 
 ```bash
-hatch run dev:check                  # ruff check, mypy src/, bandit (medium), vulture (80)
-hatch run dev:ruff format --check .  # not part of dev:check
-hatch run dev:deps                   # pip-audit, before a release
+hatch run dev:check   # ruff check, ruff format --check, mypy src/, bandit (medium), vulture (80), lint-imports
+hatch run dev:deps    # pip-audit, before a release
 ```
 
-State on 2026-10-05: `dev:check` passes; `ruff format --check` reports 7 files to reformat (listed in Q-39).
+`lint-imports` enforces the dependency rules written in `pyproject.toml` (`[tool.importlinter]`): the layer
+direction core <- connectors <- tests/external_tests <- engine; core, connectors and tests never import `config`,
+`discovery`, `report`, `cli`; native tests never use connectors. To fix formatting: `hatch run dev:ruff format .`.
 
 Update the documentation in the same change: the test page in `docs/tests/`, the catalogue row,
 `reference/configuration.md` for new parameters, and `docs/project/roadmap.md`.

@@ -58,7 +58,7 @@ from collections import defaultdict
 import structlog
 
 import src.external_tests as _ext_tests_pkg
-from src.config.schema.external_tools import ExternalToolsConfig
+from src.core.models.external_tools import ExternalToolsConfig
 from src.external_tests.base import ExternalToolTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
