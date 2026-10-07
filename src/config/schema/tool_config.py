@@ -246,7 +246,7 @@ class TargetConfig(BaseModel):
             "Currently supported: 'kong' (Kong DB-less Admin API v3.x). "
             "Leave unset (None) to skip all gateway-specific WHITE_BOX tests: "
             "those tests will return SKIP with the reason "
-            "'Admin API not configured (target.gateway_adapter missing from config.yaml)'. "
+            "'Gateway adapter not configured: ...' (BaseTest._requires_admin_api). "
             "Requires admin_api_url to also be set when non-None."
         ),
     )

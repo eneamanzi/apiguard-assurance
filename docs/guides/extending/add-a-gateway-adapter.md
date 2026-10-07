@@ -74,7 +74,7 @@ It sends no credentials and always verifies TLS (Q-34). Tested against Kong 3.9 
 
 1. `apiguard validate-config` with `target.gateway_adapter: <name>` and `target.admin_api_url` set.
 2. Run the WHITE_BOX audits only (`execution.test_ids: ["3.3", "4.2", "4.3", "6.4"]`) and check that they do not
-   SKIP with "Admin API not configured" and that their findings reflect the gateway's real configuration.
+   SKIP with "Gateway adapter not configured" and that their findings reflect the gateway's real configuration.
 3. Stop the Admin API and check that the tests return ERROR, not FAIL.
 
 ## See also

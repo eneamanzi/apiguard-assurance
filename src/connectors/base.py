@@ -12,7 +12,7 @@ Architecture — DA-1 split (ADR-001 §3):
 
     The split is motivated by the principle that a subclass must not inherit
     methods it cannot use.  Before DA-1, a hypothetical SslyzeConnector would
-    have inherited _run_subprocess(), BINARY_NAME, and SERVICE_ENV_VAR even
+    have inherited _run_subprocess() and BINARY_NAME even
     though none of them apply to a library-based tool.  The three-tier hierarchy
     removes this coupling: each concrete subclass inherits exactly the discovery
     and execution mechanisms that match its integration pattern.
@@ -223,7 +223,7 @@ class BaseConnector(ABC):
 
         Args:
             target_url:      The base URL of the target API (from
-                             TargetContext.effective_endpoint_base_url()).
+                             TargetContext.endpoint_base_url()).
                              Does not include trailing slash.
             timeout_seconds: Mandatory wall-clock limit for the execution.
                              Sourced from ExternalToolsConfig.<tool>.timeout_seconds.
@@ -249,13 +249,11 @@ class BaseSubprocessConnector(BaseConnector):
     Provides complete implementations of is_available(), get_version(), and
     the protected helpers _run_subprocess(), _parse_json_output(), and
     _parse_jsonl_output().  Concrete subclasses (e.g. TestsslConnector,
-    FfufConnector, NucleiConnector) only need to declare BINARY_NAME,
-    SERVICE_ENV_VAR, and implement run().
+    NucleiConnector) only need to declare BINARY_NAME and implement run().
 
     Discovery channels (evaluated in cascade by is_available()):
-        1. shutil.which(BINARY_NAME) -- binary installed locally in PATH.
-        2. os.getenv(SERVICE_ENV_VAR) -- binary exposed as HTTP microservice
-           via Docker Compose, referenced by a dedicated env variable.
+        0. ./tools/<LOCAL_TOOLS_SUBDIR>/<BINARY_NAME> -- installed by install_tools.sh.
+        1. shutil.which(BINARY_NAME) -- binary installed in PATH.
 
     ClassVar declarations (required on every concrete subclass):
 
@@ -264,12 +262,6 @@ class BaseSubprocessConnector(BaseConnector):
             Example: "testssl.sh", "ffuf", "nuclei".
             Used by is_available() via shutil.which() for local discovery.
 
-        SERVICE_ENV_VAR: str
-            The environment variable name that, if set, points to the tool
-            running as an HTTP microservice (Docker Compose mode).
-            Example: "TESTSSL_SERVICE_URL", "FFUF_SERVICE_URL".
-            Used by is_available() as a fallback when shutil.which() returns None.
-
         DEFAULT_TIMEOUT_SECONDS: int
             Fallback timeout used as a safety net only -- the ADR mandates that
             callers always pass an explicit timeout read from config.yaml.
@@ -277,14 +269,13 @@ class BaseSubprocessConnector(BaseConnector):
     """
 
     BINARY_NAME: ClassVar[str]
-    SERVICE_ENV_VAR: ClassVar[str]
     DEFAULT_TIMEOUT_SECONDS: ClassVar[int] = 120
 
     # Optional: subdirectory name inside the project-local ``./tools/`` directory
     # where the binary is installed by install_tools.sh.  When non-empty, Channel 0
     # of _resolve_binary_path() checks:
     #     Path.cwd() / "tools" / LOCAL_TOOLS_SUBDIR / BINARY_NAME
-    # before falling back to shutil.which() (Channel 1) and SERVICE_ENV_VAR (Channel 2).
+    # before falling back to shutil.which() (Channel 1).
     # Set this in concrete subclasses when the tool is distributed via install_tools.sh.
     # Example: LOCAL_TOOLS_SUBDIR = "testssl"  -> ./tools/testssl/testssl.sh
     # Leave as "" (default) to skip the local-tools check for that connector.
@@ -296,7 +287,7 @@ class BaseSubprocessConnector(BaseConnector):
 
     def _resolve_binary_path(self) -> str | None:
         """
-        Return the filesystem path to the binary using a three-channel cascade.
+        Return the filesystem path to the binary using a two-channel cascade.
 
         Discovery channels (evaluated in priority order, first hit wins):
 
@@ -315,7 +306,7 @@ class BaseSubprocessConnector(BaseConnector):
                 This is the traditional "binary installed globally" scenario.
 
         Returns None if neither channel locates the binary.  The caller (is_available,
-        get_version, _build_command) falls through to the SERVICE_ENV_VAR channel
+        get_version, _build_command) then treats the tool as unavailable
         if applicable, or reports the tool as unavailable.
 
         This method never raises.
@@ -351,7 +342,7 @@ class BaseSubprocessConnector(BaseConnector):
         """
         Return True if the binary is discoverable via any channel.
 
-        Three-channel cascade (evaluated in priority order):
+        Two-channel cascade (evaluated in priority order):
 
             Channel 0 -- project-local tools directory (via _resolve_binary_path):
                 ``./tools/{LOCAL_TOOLS_SUBDIR}/{BINARY_NAME}`` relative to CWD.
@@ -360,10 +351,8 @@ class BaseSubprocessConnector(BaseConnector):
             Channel 1 -- system PATH (via _resolve_binary_path):
                 ``shutil.which(BINARY_NAME)``
 
-            Channel 2 -- Docker Compose service URL:
-                ``os.getenv(SERVICE_ENV_VAR)``
-
-        Returns False if all three channels return None / empty string.
+        Returns False if neither channel finds the binary: the registry then
+        marks the tool's tests as SKIP.
         This method never raises.
 
         Returns:
@@ -373,21 +362,10 @@ class BaseSubprocessConnector(BaseConnector):
         if resolved is not None:
             return True
 
-        service_url = os.getenv(self.SERVICE_ENV_VAR)
-        if service_url:
-            log.debug(
-                "connector_service_url_found",
-                binary=self.BINARY_NAME,
-                env_var=self.SERVICE_ENV_VAR,
-                url=service_url,
-            )
-            return True
-
         log.debug(
             "connector_not_available",
             binary=self.BINARY_NAME,
             local_tools_subdir=self.LOCAL_TOOLS_SUBDIR or "(not configured)",
-            env_var=self.SERVICE_ENV_VAR,
         )
         return False
 

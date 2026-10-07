@@ -80,7 +80,6 @@ class TemplateConnector(BaseSubprocessConnector):
 
     TOOL_NAME: ClassVar[str] = "template-tool"  # human-readable; used in logs and report
     BINARY_NAME: ClassVar[str] = "template-tool"  # name of the binary in PATH
-    SERVICE_ENV_VAR: ClassVar[str] = "TEMPLATE_TOOL_SERVICE_URL"
     DEFAULT_TIMEOUT_SECONDS: ClassVar[int] = 60
 
     # Set this to the subdirectory name inside ./tools/ if install_tools.sh

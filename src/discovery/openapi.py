@@ -54,11 +54,14 @@ Three sequential phases
         Prance uses the requests library internally for HTTP sources. requests
         has no default timeout (it waits indefinitely). To prevent the pipeline
         from hanging on an unresponsive spec URL, _fetch_and_dereference() runs
-        the entire prance operation in a background thread via concurrent.futures
-        and waits for it with an explicit timeout_seconds parameter. If the thread
-        does not complete within the deadline, a TimeoutError is converted to
-        OpenAPILoadError. For local file sources the timeout is still enforced but
-        file I/O completes well within any reasonable budget.
+        the entire prance operation in a background daemon thread and waits for
+        its concurrent.futures.Future with an explicit timeout_seconds parameter.
+        If the thread does not complete within the deadline, a TimeoutError is
+        converted to OpenAPILoadError. The thread is a daemon so that a fetch
+        still blocked on an unresponsive server cannot keep the process alive
+        after the error (a ThreadPoolExecutor would wait for it on exit). For
+        local file sources the timeout is still enforced but file I/O completes
+        well within any reasonable budget.
 
         Pre-flight check for local paths
         ---------------------------------
@@ -98,6 +101,7 @@ Dependency rule:
 from __future__ import annotations
 
 import concurrent.futures
+import threading
 
 import structlog
 from openapi_spec_validator import OpenAPIV30SpecValidator, OpenAPIV31SpecValidator
@@ -393,17 +397,38 @@ def _prance_worker(source_url: str) -> dict[str, object]:
     return parser.specification  # type: ignore[no-any-return]
 
 
+def _run_prance_worker_into(
+    source_url: str, future: concurrent.futures.Future[dict[str, object]]
+) -> None:
+    """
+    Target of the fetch daemon thread: run _prance_worker and store its outcome.
+
+    The result, or the exception raised by prance / requests, is stored in the
+    future, so that _fetch_and_dereference() re-raises it in the calling thread
+    through Future.result() exactly as a ThreadPoolExecutor would.
+
+    Args:
+        source_url: HTTP/HTTPS URL or absolute filesystem path of the spec.
+        future:     Future that receives the result or the exception.
+    """
+    try:
+        future.set_result(_prance_worker(source_url))
+    except Exception as exc:  # noqa: BLE001 - not swallowed: re-raised by Future.result()
+        future.set_exception(exc)
+
+
 def _fetch_and_dereference(source_url: str, timeout_seconds: float) -> dict[str, object]:
     """
     Pre-flight check (for local paths) then fetch/read + dereference with watchdog.
 
     For local filesystem paths, verifies existence before invoking prance.
-    For all sources, runs _prance_worker in a ThreadPoolExecutor with an
-    explicit timeout. If the deadline is exceeded, OpenAPILoadError is raised.
+    For all sources, runs _prance_worker in a daemon thread and waits for its
+    result with an explicit timeout. If the deadline is exceeded,
+    OpenAPILoadError is raised.
 
-    The abandoned background thread may continue running briefly (Python
-    threads cannot be forcibly terminated), but this is acceptable in the
-    CLI context where the process exits after raising the error.
+    The abandoned thread may keep running (Python threads cannot be forcibly
+    terminated), but as a daemon it does not prevent the process from exiting
+    after the error: a hanging spec server cannot block the run.
 
     Args:
         source_url: HTTP/HTTPS URL or absolute filesystem path of the spec.
@@ -426,49 +451,54 @@ def _fetch_and_dereference(source_url: str, timeout_seconds: float) -> dict[str,
     else:
         log.debug("openapi_fetching_remote_spec", source_url=source_url)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(_prance_worker, source_url)
+    future: concurrent.futures.Future[dict[str, object]] = concurrent.futures.Future()
+    threading.Thread(
+        target=_run_prance_worker_into,
+        args=(source_url, future),
+        name="openapi-fetch",
+        daemon=True,
+    ).start()
 
-        try:
-            spec = future.result(timeout=timeout_seconds)
+    try:
+        spec = future.result(timeout=timeout_seconds)
 
-        except concurrent.futures.TimeoutError as exc:
-            raise OpenAPILoadError(
-                message=(
-                    f"Timed out after {timeout_seconds}s waiting for the OpenAPI spec "
-                    f"to be fetched and dereferenced from '{source_url}'. "
-                    "Verify that the spec URL is reachable and that the document "
-                    "does not contain an excessive number of remote $ref entries. "
-                    "Increase 'execution.openapi_fetch_timeout_seconds' in config.yaml "
-                    "if the spec is large and the network is slow."
-                ),
-                source_url=source_url,
-                underlying_error="concurrent.futures.TimeoutError",
-            ) from exc
+    except concurrent.futures.TimeoutError as exc:
+        raise OpenAPILoadError(
+            message=(
+                f"Timed out after {timeout_seconds}s waiting for the OpenAPI spec "
+                f"to be fetched and dereferenced from '{source_url}'. "
+                "Verify that the spec URL is reachable and that the document "
+                "does not contain an excessive number of remote $ref entries. "
+                "Increase 'execution.openapi_fetch_timeout_seconds' in config.yaml "
+                "if the spec is large and the network is slow."
+            ),
+            source_url=source_url,
+            underlying_error="concurrent.futures.TimeoutError",
+        ) from exc
 
-        except PranceResolutionError as exc:
-            raise OpenAPILoadError(
-                message=(
-                    f"Failed to resolve one or more $ref pointers in the spec "
-                    f"at '{source_url}'. This may indicate a circular reference, an "
-                    f"unreachable remote $ref, or a malformed $ref path. "
-                    f"Underlying error: {exc}"
-                ),
-                source_url=source_url,
-                underlying_error=str(exc),
-            ) from exc
+    except PranceResolutionError as exc:
+        raise OpenAPILoadError(
+            message=(
+                f"Failed to resolve one or more $ref pointers in the spec "
+                f"at '{source_url}'. This may indicate a circular reference, an "
+                f"unreachable remote $ref, or a malformed $ref path. "
+                f"Underlying error: {exc}"
+            ),
+            source_url=source_url,
+            underlying_error=str(exc),
+        ) from exc
 
-        except Exception as exc:  # noqa: BLE001
-            raise OpenAPILoadError(
-                message=(
-                    f"Failed to fetch or parse the spec from '{source_url}'. "
-                    f"Verify that the source is a valid "
-                    f"Swagger 2.0 or OpenAPI 3.x JSON/YAML document. "
-                    f"Underlying error: {type(exc).__name__}: {exc}"
-                ),
-                source_url=source_url,
-                underlying_error=f"{type(exc).__name__}: {exc}",
-            ) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise OpenAPILoadError(
+            message=(
+                f"Failed to fetch or parse the spec from '{source_url}'. "
+                f"Verify that the source is a valid "
+                f"Swagger 2.0 or OpenAPI 3.x JSON/YAML document. "
+                f"Underlying error: {type(exc).__name__}: {exc}"
+            ),
+            source_url=source_url,
+            underlying_error=f"{type(exc).__name__}: {exc}",
+        ) from exc
 
     if not isinstance(spec, dict):
         raise OpenAPILoadError(

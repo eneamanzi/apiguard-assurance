@@ -419,9 +419,9 @@ def _emit_coherence_warnings(config: ToolConfig) -> None:
             condition="white_box_without_admin_api",
             detail=(
                 "execution.strategies includes WHITE_BOX but target.admin_api_url "
-                "is not configured. All P3 (WHITE_BOX) tests will return SKIP "
-                "with reason 'Admin API not configured'. "
-                "Set target.admin_api_url in config.yaml to enable WHITE_BOX tests."
+                "is not configured. The tests that read the gateway configuration "
+                "through the Admin API will return SKIP (or skip that part). "
+                "Set target.admin_api_url and target.gateway_adapter to run them."
             ),
         )
 
@@ -432,9 +432,9 @@ def _emit_coherence_warnings(config: ToolConfig) -> None:
             detail=(
                 "execution.strategies includes GREY_BOX but no credentials are "
                 "configured (admin, user_a, and user_b are all absent). "
-                "All P1/P2 (GREY_BOX) tests will return SKIP "
-                "with reason 'No credentials available'. "
-                "Set credential environment variables to enable GREY_BOX tests."
+                "The tests that need credentials will return SKIP. "
+                "Set the credentials in config.yaml (through environment variables) "
+                "to run them."
             ),
         )
 

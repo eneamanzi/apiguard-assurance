@@ -369,10 +369,8 @@ class ExternalToolTest(ABC):
             self._warn_if_version_mismatch(connector, target)
 
             # Step 2: retrieve target URL for external binary.
-            # Connectors use effective_endpoint_base_url(), not endpoint_base_url(),
-            # so Docker Compose service names are used when APIGUARD_TARGET_EFFECTIVE_URL
-            # is set in the environment (ADR-001 §6).
-            target_url = target.effective_endpoint_base_url()
+            # External tools address the same base URL as the native tests.
+            target_url = target.endpoint_base_url()
 
             # Step 3: execute binary.
             try:
@@ -740,7 +738,7 @@ class ExternalToolTest(ABC):
 
         Returns None if the tool IS available (execution should proceed normally).
         Returns a SKIP TestResult if the tool is not found via either discovery
-        channel (shutil.which or SERVICE_ENV_VAR or importlib.find_spec).
+        channel (./tools/, shutil.which, or importlib.find_spec for libraries).
 
         DA-2 fast-path B: if _injected_connector is not None, the registry has
         already confirmed availability.  We skip the is_available() call entirely
@@ -774,7 +772,8 @@ class ExternalToolTest(ABC):
         if not available:
             reason = (
                 f"External tool '{connector.TOOL_NAME}' is not available. "
-                "Install it in PATH or configure its discovery env variable. "
+                "Install it: binaries with ./install_tools.sh (./tools/) or in PATH; "
+                "Python libraries with their extra (e.g. sslyze: [sslyze]). "
                 f"Test '{self.test_id}' ({self.test_name}) requires this tool."
             )
             log.info(

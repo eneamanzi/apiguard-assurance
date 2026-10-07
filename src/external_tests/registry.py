@@ -599,7 +599,8 @@ class ExternalTestRegistry:
             # --- Mark all tests as pre-determined SKIP ---
             skip_reason = (
                 f"External tool '{tool_name}' is not available on this system. "
-                "Install it in PATH or configure its discovery environment variable. "
+                "Install it: binaries with ./install_tools.sh (./tools/) or in PATH; "
+                "Python libraries with their extra (e.g. sslyze: [sslyze]). "
                 f"This affects {test_count} test(s)."
             )
             for test in group:

@@ -87,7 +87,7 @@ Each role's username and password must be set together or not at all.
 | `connect_timeout` | float | `5.0` | 1-30 | TCP connect timeout (s) for requests to the target. |
 | `read_timeout` | float | `30.0` | 5-120 | Read timeout (s) for requests to the target. |
 | `max_retry_attempts` | int | `3` | 1-10 | Total attempts (initial + retries). Only transport errors are retried, never HTTP status codes. |
-| `openapi_fetch_timeout_seconds` | float | `60.0` | 10-300 | Intended wall-clock limit for fetching and dereferencing the spec in Phase 2. **Does not stop a server that accepts the connection and never answers**: the run waits indefinitely (verified, Q-35). |
+| `openapi_fetch_timeout_seconds` | float | `60.0` | 10-300 | Wall-clock limit for fetching and dereferencing the spec in Phase 2. When it expires the run stops with `OpenAPILoadError` (exit `10`), also if the server accepts the connection and never answers. |
 
 ## `output`
 

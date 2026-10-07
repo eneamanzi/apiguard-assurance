@@ -37,17 +37,16 @@ where you run the command. In practice:
 
 ## Output streams
 
-| Stream | Content |
-|---|---|
-| stdout | Structured logs (console or JSON lines), startup banner, completion panel, command results |
-| stderr | Human-readable error summary for `validate-config` and `generate-seed` failures |
+| Command | stdout | stderr |
+|---|---|---|
+| `run`, `validate-config`, `version` | structured logs (console or JSON lines), startup banner, completion panel, result messages | human-readable error summary of `validate-config` |
+| `generate-seed` | **only the YAML template** (when `--output` is not given), so that `generate-seed SPEC > seed.yaml` writes a valid file | the panel, logs, messages and errors |
 
 With `--log-format json`, the tool's own log events are one JSON object per line and the banner and completion
 panel are not printed. Messages emitted by third-party libraries through Python's standard `logging`
-(httpx, prance, …) are printed as plain text (`logging.basicConfig(format="%(message)s")`, `src/cli.py:537-541`);
-above `debug` level only their WARNING and higher messages appear. A consumer parsing stdout should skip lines
-that are not valid JSON. `validate-config` and `generate-seed` also print their result message on stdout as
-plain text in JSON mode.
+(httpx, prance, …) are printed as plain text on the same stream as the logs (`logging.basicConfig`, `src/cli.py`);
+above `debug` level only their WARNING and higher messages appear. A consumer parsing the logs should skip lines
+that are not valid JSON. `validate-config` also prints its result message as plain text in JSON mode.
 
 ## `run`
 
@@ -109,8 +108,8 @@ target and paste the `path_seed:` block under `target:` in `config.yaml`.
 | `--timeout` | `30.0` | Fetch timeout in seconds for URLs, range 1-120. Ignored for local files. |
 | `--log-format` | `console` | As for `run`. |
 
-**Use `--output` to produce a file.** Without it, the template is printed to stdout together with logs and a
-panel, and long lines may be wrapped: redirecting stdout to a file does not produce valid YAML (Q-21).
+Without `--output` the template is printed to stdout and everything else to stderr, so both
+`generate-seed SPEC -o seed.yaml` and `generate-seed SPEC > seed.yaml` produce the same valid file.
 
 Generated template (from `specs/crapi-openapi.json`):
 

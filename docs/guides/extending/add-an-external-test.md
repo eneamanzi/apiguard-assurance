@@ -31,7 +31,7 @@ Copy `_template_connector.py`. Pick the base class:
 
 | Base | For | Class attributes |
 |---|---|---|
-| `BaseSubprocessConnector` | a binary (nuclei, testssl.sh) | `TOOL_NAME`, `BINARY_NAME`, `SERVICE_ENV_VAR`, `DEFAULT_TIMEOUT_SECONDS`, `LOCAL_TOOLS_SUBDIR` |
+| `BaseSubprocessConnector` | a binary (nuclei, testssl.sh) | `TOOL_NAME`, `BINARY_NAME`, `DEFAULT_TIMEOUT_SECONDS`, `LOCAL_TOOLS_SUBDIR` |
 | `BaseLibraryConnector` | a Python library (sslyze) | `TOOL_NAME`, `LIBRARY_MODULE` |
 
 Implement `run(self, target_url: str, timeout_seconds: int, ...) -> ConnectorResult`. Helpers provided by
@@ -124,7 +124,7 @@ tool_name: ClassVar[str] = "testssl"            # = field name in ExternalToolsC
 | Method | Rule |
 |---|---|
 | `_build_connector(self) -> BaseConnector` | construct the connector only: no I/O. The registry uses it to check availability once per tool and injects one shared instance into all tests of that tool. |
-| `_invoke_connector(self, connector, target, target_url) -> ConnectorResult` | call `connector.run(...)` with `target.external_tools.<tool>.timeout_seconds` and tool options. `target_url` comes from `target.effective_endpoint_base_url()`. |
+| `_invoke_connector(self, connector, target, target_url) -> ConnectorResult` | call `connector.run(...)` with `target.external_tools.<tool>.timeout_seconds` and tool options. `target_url` comes from `target.endpoint_base_url()`. |
 | `_evaluate(self, result, artifact_ref) -> TestResult` | apply the oracle to `result.raw_output["results"]`; put `artifact_ref` in each Finding's `evidence_ref`. Return only through the helpers below. |
 
 **Result helpers** (`ExternalToolTest`, different from `BaseTest`):

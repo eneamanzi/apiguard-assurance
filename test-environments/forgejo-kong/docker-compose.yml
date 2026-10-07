@@ -208,22 +208,31 @@ services:
           *)   echo "Tag creation failed: HTTP $$code"; exit 1 ;;
         esac
 
-        # Issue 1 and comment 1. Creating them again would add issue 2 and comment 2,
-        # so they are created only if missing.
+        # Issue 1 and comment 1, created only if missing. Forgejo never reuses issue
+        # numbers or comment ids: if they were deleted (for example by a successful
+        # unauthenticated DELETE during a test), recreating them gives new numbers that
+        # path_seed does not point to. In that case stop and ask for a full reset.
+        reset_hint="reset the lab from scratch: docker compose --env-file ../../.env down -v, then start it again"
         if [ "$$(curl -s -o /dev/null -w '%{http_code}' -u "$$auth" "$$repo_api/issues/1")" = 200 ]; then
           echo "Issue 1 already exists."
         else
-          code=$$(curl -s -o /dev/null -w '%{http_code}' -u "$$auth" -H 'Content-Type: application/json' \
+          resp=$$(curl -s -w '\n%{http_code}' -u "$$auth" -H 'Content-Type: application/json' \
             -d '{"title":"APIGuard lab issue"}' "$$repo_api/issues")
+          code=$$(echo "$$resp" | tail -n 1)
           [ "$$code" = 201 ] || { echo "Issue creation failed: HTTP $$code"; exit 1; }
+          number=$$(echo "$$resp" | grep -o '"number":[0-9]*' | head -n 1 | cut -d: -f2)
+          [ "$$number" = 1 ] || { echo "Issue 1 was deleted earlier: Forgejo created issue $$number instead; $$reset_hint"; exit 1; }
           echo "Issue 1 created."
         fi
         if [ "$$(curl -s -o /dev/null -w '%{http_code}' -u "$$auth" "$$repo_api/issues/comments/1")" = 200 ]; then
           echo "Comment 1 already exists."
         else
-          code=$$(curl -s -o /dev/null -w '%{http_code}' -u "$$auth" -H 'Content-Type: application/json' \
+          resp=$$(curl -s -w '\n%{http_code}' -u "$$auth" -H 'Content-Type: application/json' \
             -d '{"body":"APIGuard lab comment"}' "$$repo_api/issues/1/comments")
-          [ "$$code" = 201 ] || { echo "Comment creation failed: HTTP $$code"; exit 1; }
+          code=$$(echo "$$resp" | tail -n 1)
+          [ "$$code" = 201 ] || { echo "Comment creation failed: HTTP $$code; $$reset_hint"; exit 1; }
+          comment_id=$$(echo "$$resp" | grep -o '"id":[0-9]*' | head -n 1 | cut -d: -f2)
+          [ "$$comment_id" = 1 ] || { echo "Comment 1 was deleted earlier: Forgejo created comment $$comment_id instead; $$reset_hint"; exit 1; }
           echo "Comment 1 created."
         fi
 

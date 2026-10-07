@@ -140,7 +140,7 @@ class TemplateExtTest(ExternalToolTest):
         Args:
             connector:   Connector instance (injected by registry or freshly built).
             target:      Frozen TargetContext.
-            target_url:  URL returned by target.effective_endpoint_base_url().
+            target_url:  URL returned by target.endpoint_base_url().
 
         Returns:
             ConnectorResult: Parsed tool output.

@@ -61,8 +61,8 @@ Hardcoded flags (not configurable, architectural invariants):
                   parsing.  A dedicated temp file produces clean JSON.
 
 Discovery channels (inherited from BaseSubprocessConnector):
-    Channel 1 -- Path.cwd() / "tools" / "nuclei" / "nuclei"  (local install)
-    Channel 2 -- shutil.which("nuclei")                        (system PATH)
+    Channel 0 -- Path.cwd() / "tools" / "nuclei" / "nuclei"  (local install)
+    Channel 1 -- shutil.which("nuclei")                        (system PATH)
 
 Dependency rule:
     Imports from stdlib, structlog, src.connectors.base, src.core.exceptions
@@ -139,7 +139,6 @@ class NucleiConnector(BaseSubprocessConnector):
     TOOL_NAME: ClassVar[str] = "nuclei"
     BINARY_NAME: ClassVar[str] = "nuclei"
     LOCAL_TOOLS_SUBDIR: ClassVar[str] = "nuclei"
-    SERVICE_ENV_VAR: ClassVar[str] = "NUCLEI_SERVICE_URL"
 
     def run(  # type: ignore[override]  # noqa: PLR0913
         self,

@@ -9,6 +9,23 @@ follow [Semantic Versioning](https://semver.org/) (0.x: interfaces may still cha
 The test logic is unchanged since 0.1.0. Results on the lab differ only because the lab changed (below): with
 the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
+### Fixed
+
+- Lab setup: if issue 1 or comment 1 was deleted (they are `path_seed` resources), the setup stops and asks for a
+  full reset instead of reporting "Issue 1 created" for a resource Forgejo created under a new number.
+- The `config_coherence_warning` messages no longer link priorities and strategies and no longer quote skip
+  reasons that did not exist.
+- `apiguard generate-seed SPEC > seed.yaml` writes a valid YAML file: stdout carries only the template, the panel,
+  logs and messages go to stderr.
+- A spec URL that accepts the connection and never answers no longer hangs the run: after
+  `execution.openapi_fetch_timeout_seconds` the run stops with exit `10`.
+
+### Removed
+
+- `TargetContext.effective_base_url` and the `<TOOL>_SERVICE_URL` tool discovery: both were never functional.
+  External tools are found in `./tools/` or `PATH`; a missing tool gives SKIP (with `<TOOL>_SERVICE_URL` set it
+  used to give ERROR).
+
 ### Changed
 
 - Test lab (`test-environments/forgejo-kong/`): every credential and secret comes from `.env` (new variables

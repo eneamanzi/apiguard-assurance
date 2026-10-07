@@ -25,6 +25,7 @@
   - [Domain 5 - Observability](#domain-5---observability)
   - [Domain 6 - HTTP Request Smuggling](#domain-6---http-request-smuggling)
   - [Domain 7 - Race Condition, Unsafe Consumption, SSRF Extended](#domain-7---race-condition-unsafe-consumption-ssrf-extended)
+- [Ideas (not planned)](#ideas-not-planned)
 - [Connectors](#connectors)
   - [Cat A - Implemented (Milestone 1)](#cat-a---implemented-milestone-1)
   - [Cat A - Not Yet Implemented (Milestone 2)](#cat-a---not-yet-implemented-milestone-2)
@@ -254,6 +255,13 @@ review of the implemented tests (Q-29, Q-32) and the work of group 3.D in `plan.
 | ext.7.4.interactsh | HYBRID / interactsh | [ ] | GREY_BOX | interactsh stateful OOB; extends D1.P4; `depends_on=["1.1"]` |
 
 ---
+
+## Ideas (not planned)
+
+- **External tools in containers or as HTTP services.** Run nuclei, testssl.sh and other tools from containers, or
+  call them as services, instead of local binaries; the target would then be reached by a service name. A first,
+  never wired attempt (`effective_base_url`, `<TOOL>_SERVICE_URL`) was removed in 2026-10; to be
+  designed for real if the integration into another product needs it.
 
 ## Connectors
 

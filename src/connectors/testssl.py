@@ -44,8 +44,8 @@ Extra flags:
     which is the correct combination for silent, colour-free machine parsing.
 
 Discovery channels (inherited from BaseSubprocessConnector):
-    Channel 1 -- shutil.which("testssl.sh")   : binary installed locally in PATH.
-    Channel 2 -- os.getenv("TESTSSL_SERVICE_URL") : binary exposed as HTTP service.
+    Channel 0 -- ./tools/testssl/testssl.sh  : installed by install_tools.sh.
+    Channel 1 -- shutil.which("testssl.sh")   : binary installed in PATH.
 
 Dependency rule:
     This module imports from stdlib, pydantic, structlog, src.connectors.base,
@@ -106,7 +106,6 @@ class TestsslConnector(BaseSubprocessConnector):
     ClassVar declarations:
         TOOL_NAME             : "testssl.sh"
         BINARY_NAME           : "testssl.sh"
-        SERVICE_ENV_VAR       : "TESTSSL_SERVICE_URL"
         DEFAULT_TIMEOUT_SECONDS : 120 (testssl full scan takes 90-180 s)
 
     ConnectorResult.raw_output structure::
@@ -135,14 +134,13 @@ class TestsslConnector(BaseSubprocessConnector):
 
     TOOL_NAME: ClassVar[str] = "testssl.sh"
     BINARY_NAME: ClassVar[str] = "testssl.sh"
-    SERVICE_ENV_VAR: ClassVar[str] = "TESTSSL_SERVICE_URL"
     DEFAULT_TIMEOUT_SECONDS: ClassVar[int] = 120
 
     # install_tools.sh places the pinned testssl.sh binary at:
     #     ./tools/testssl/testssl.sh   (relative to project root / CWD)
     # Declaring LOCAL_TOOLS_SUBDIR activates Channel 0 of _resolve_binary_path()
     # in BaseSubprocessConnector so that the connector is found there before
-    # falling back to shutil.which() or TESTSSL_SERVICE_URL.
+    # falling back to shutil.which().
     LOCAL_TOOLS_SUBDIR: ClassVar[str] = "testssl"
 
     # Per-instance version cache -- populated on the first get_version() call
@@ -389,10 +387,9 @@ class TestsslConnector(BaseSubprocessConnector):
             Uses _resolve_binary_path() to support both local-tools-directory
             installations (./tools/testssl/testssl.sh, via install_tools.sh)
             and system PATH installations transparently.  Falls back to
-            self.BINARY_NAME only if _resolve_binary_path() returns None
-            (this path is reached only when is_available() returned True via
-            the SERVICE_ENV_VAR channel, which means the binary is available
-            as a Docker service rather than a local executable).
+            self.BINARY_NAME only if _resolve_binary_path() returns None, a
+            defensive fallback: run() is reached only after is_available()
+            found the binary.
 
         Args:
             scan_target: The ``hostname:port`` string (unused here, present for

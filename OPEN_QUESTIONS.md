@@ -47,10 +47,11 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Resolution:
 
 ### Q-13 - Existing `hatch run dev:docs` script
-- Status: open
+- Status: deferred to block 9 with Q-04 (owner, 2026-10-07)
 - Source: `pyproject.toml` `[tool.hatch.envs.dev.scripts] docs` (pydoc-markdown → `docs/API_REFERENCE.md`, file not present in repo)
 - Question: Keep, remove, or replace it as part of Q-04?
 - How to verify: decide together with Q-04.
+- Evidence (2026-10-07): `hatch run dev:docs` works and writes `docs/API_REFERENCE.md` (about 80 KB, pydoc-markdown output of selected modules); the file is not kept in the repository (removed after the test). Owner: handle with Q-04 in block 9.
 - Resolution:
 
 ### Q-15 - Layering: `external_tests` imports `config`
@@ -107,10 +108,12 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Resolution:
 
 ### Q-21 - `generate-seed` stdout output is not valid YAML when redirected
-- Status: open
+- Status: fixed (2026-10-07, block 3), awaiting the owner to close
 - Source: `src/cli.py:443-450` prints panel, log lines and template on stdout; Rich wraps long comment lines. Verified 2026-10-05: `apiguard generate-seed ./specs/crapi-openapi.json --log-format json > f` → `yaml.safe_load` fails; with `--output f` the file is valid.
 - Question: Make stdout mode redirect-safe (logs to stderr, no wrapping)? Docs currently tell users to use `--output`.
 - How to verify: decision with user (code change).
+- Decision (owner, 2026-10-07): without `--output`, stdout carries only the template (no Rich wrapping); log lines and the help line go to stderr (standard CLI convention: stdout = result, stderr = messages). Verify: `generate-seed <spec> > f.yaml` is valid YAML and identical to `--output`.
+- Fixed (2026-10-07): `_configure_logging()` takes the log stream (default stdout); `generate-seed` sends logs to stderr, writes the template with `Console.out()` (no wrapping, no markup) and prints the panel and messages on stderr. Verified on the lab spec: redirected stdout is valid YAML (44 parameters) and byte-identical to the `--output` file in console and JSON log modes; `--output` file unchanged; unreachable spec → exit 1 with nothing on stdout; `dev:check` passes. `docs/reference/cli.md` updated.
 - Resolution:
 
 ### Q-22 - Unknown keys in config.yaml are silently ignored
@@ -159,11 +162,13 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Resolution:
 
 ### Q-27 - `<TOOL>_SERVICE_URL` availability channel
-- Status: open
+- Status: removed (2026-10-07, block 3), awaiting the owner to close
 - Source: `src/connectors/base.py:364-384` (`is_available()` returns True when `os.getenv(SERVICE_ENV_VAR)` is set); `NUCLEI_SERVICE_URL` (`src/connectors/nuclei.py:142`), `TESTSSL_SERVICE_URL` (`src/connectors/testssl.py:138`).
 - Question: When only the service variable is set (no local binary, nothing in PATH), how does `run()` execute the tool? Is this channel functional or a placeholder? Not documented in user docs until clarified.
 - How to verify: code reading of `run()` / `_resolve_binary_path()` with the env var set; test with the variable set and no binary.
 - Evidence (2026-10-06): `is_available()` (`src/connectors/base.py:362-384`) returns True when `<TOOL>_SERVICE_URL` is set, but `NucleiConnector.run()` (`src/connectors/nuclei.py:197-205`) raises `ExternalToolError` "binary not found via any discovery channel" when `_resolve_binary_path()` is None; no code ever calls the URL. So with only the variable set, the test is scheduled and ends in ERROR instead of SKIP. The channel is a non-functional placeholder; docs do not mention it.
+- Decision (owner, 2026-10-07): remove the `<TOOL>_SERVICE_URL` channel (non-functional: it makes a missing tool end in ERROR instead of SKIP); availability = `./tools/` or `PATH` only. Future idea recorded in the roadmap together with Q-36.
+- Done (2026-10-07): `SERVICE_ENV_VAR` and the service-URL branch of `is_available()` removed (`connectors/base.py`, `nuclei.py`, `testssl.py`, `_template_connector.py`); discovery is `./tools/<subdir>/` then `PATH`. The skip message no longer suggests a "discovery environment variable" (it now says how to install binaries and libraries); `config.yaml` comments (testssl section) and docs updated. Verified: nuclei and testssl still available; with `TESTSSL_SERVICE_URL` set and no testssl binary, `ext.1.5.testssl` is SKIP (before: ERROR); `dev:check` passes.
 - Resolution:
 
 ---
@@ -269,17 +274,21 @@ None has been changed in code.
 - Resolution:
 
 ### Q-35 - `openapi_fetch_timeout_seconds` does not stop a hanging spec server
-- Status: verified (bug)
+- Status: fixed (2026-10-07, block 3), awaiting the owner to close
 - Source: `src/discovery/openapi.py:429-447` - the `TimeoutError` is raised inside `with ThreadPoolExecutor(...)`; leaving the block calls `shutdown(wait=True)`, which waits for the blocked prance/requests thread.
 - Evidence: 2026-10-05, local socket server that accepts and never answers; `_fetch_and_dereference(url, 2.0)` was still blocked after 20 s and the process could not exit (killed by `timeout 60`, exit 124).
 - Question: Fix (e.g. `executor.shutdown(wait=False)` / daemon thread, or a socket timeout on prance's requests session)? Until then the run can hang indefinitely in Phase 2 when `openapi_spec_url` points to an unresponsive server. Documented in `docs/reference/configuration.md`.
+- Decision (owner, 2026-10-07): run the fetch in a daemon thread so that the timeout raises `OpenAPILoadError` (exit 10) and the process can exit; verify with a server that accepts and never answers.
+- Fixed (2026-10-07): `src/discovery/openapi.py` runs `_prance_worker` in a daemon thread that stores its outcome in a `concurrent.futures.Future` (`_run_prance_worker_into`); error handling unchanged. Verified: hanging server → exit 10 after 10 s with "Timed out after 10.0s" (before: still blocked after 40 s, exit 124 from the external limit); refused port → exit 10 after 1 s; local spec file parsed (304 paths); lab URL spec, 15 native tests: no differences; `dev:check` passes. Docs updated (overview, security-model, configuration).
 - Resolution:
 
 ### Q-36 - `effective_base_url` / `APIGUARD_TARGET_EFFECTIVE_URL` not wired
-- Status: verified
+- Status: removed (2026-10-07, block 3), awaiting the owner to close
 - Source: `src/core/context.py:200-227` says the engine reads `APIGUARD_TARGET_EFFECTIVE_URL` in Phase 3 and refers to `docker-compose.external-tools.yml`; `grep` finds no read of that variable in `src/` and the compose file does not exist. `TargetContext` is built in `src/engine.py` Phase 3 without `effective_base_url`, so `effective_endpoint_base_url()` always falls back to `base_url`.
 - Question: Implement the "Docker Compose mode" (external tools in a container addressing the target by service name), or remove the field and comments? Also listed as property D7.P3 in `docs/knowledge/design-properties.it.md`.
 - How to verify: decision with user.
+- Decision (owner, 2026-10-07): remove `effective_base_url` and its comments (never wired); `effective_endpoint_base_url()` usage to be replaced by the plain endpoint base URL. Running external tools from containers or as HTTP services is a good future idea: recorded in `docs/project/roadmap.md` (ideas), to be designed for real if the integration needs it.
+- Done (2026-10-07): `effective_base_url` and `effective_endpoint_base_url()` removed from `src/core/context.py`; external tests call `target.endpoint_base_url()` (same value: the field was always None). Comments and docs updated (`connectors/base.py`, `_template_ext_test.py`, `ext_test_1_5_tls_analysis.py`, `data-model.md`, `add-an-external-test.md`). Verified: `dev:check`; `ext.1.5.sslyze` same command (`sslyze --regular localhost:8443`) and results; 15 native tests unchanged.
 - Resolution:
 
 ### Q-37 - Convention "every test has a config model" vs code
@@ -345,10 +354,12 @@ None has been changed in code.
 - Resolution:
 
 ### Q-48 - `config_coherence_warning` messages confuse priority and strategy
-- Status: open
+- Status: fixed (2026-10-07, block 3), awaiting the owner to close
 - Source: `src/config/loader.py` (warnings `white_box_without_admin_api`, `grey_box_without_credentials`).
 - Evidence (2026-10-06, `apiguard validate-config` on a minimal configuration): the messages say "All P3 (WHITE_BOX) tests will return SKIP with reason 'Admin API not configured'" and "All P1/P2 (GREY_BOX) tests will return SKIP". Priority and strategy are independent (`docs/architecture/assessment-model.md`): 4.2 and 4.3 are P1 WHITE_BOX, 7.2 is P0 GREY_BOX; WHITE_BOX tests 1.5, 1.6, 6.2 and 6.4 (sub-test A) run without the Admin API (verified: same minimal run, 1.5 FAIL, 6.2 and 6.4 PASS). The real skip reason is also different: "Gateway adapter not configured: ...".
 - Question: rewrite the two messages (strategy only, list the affected tests or point to the docs)? Note: priority and strategy are independent (owner decision on the former Q-14, 2026-10-06); the messages must not link them.
+- Decision (owner, 2026-10-07): messages state what is needed (tests that read the gateway configuration / tests that need credentials will return SKIP), no priorities, no hard-coded test list.
+- Fixed (2026-10-07): `src/config/loader.py` messages now say "the tests that read the gateway configuration through the Admin API will return SKIP (or skip that part)" and "the tests that need credentials will return SKIP"; no priorities and no quoted skip reasons (the old ones, 'Admin API not configured' and 'No credentials available', were not the real texts). Verified with `validate-config` on a minimal configuration; `dev:check` passes.
 - Resolution:
 
 ### Q-50 - Some findings have no `evidence_ref`
@@ -391,9 +402,11 @@ None has been changed in code.
 - Resolution:
 
 ### Q-55 - Lab setup misreports a recreated issue
-- Status: verified (bug, lab only)
+- Status: fixed (2026-10-07, block 3), awaiting the owner to close
 - Source: `test-environments/forgejo-kong/docker-compose.yml`, service `forgejo-setup` (issue and comment creation).
 - Evidence (2026-10-07, lab): after `DELETE /repos/user-a/test-repo/issues/1` (204), running the setup again prints `Issue 1 created.` but Forgejo creates issue **2** (issue numbers are never reused); the comment step then posts to issue 1 and fails with `Comment creation failed: HTTP 404`. The deleted issue's comment is gone too. A full reset (`down -v`, start, setup) restores issue 1 and comment 1.
 - Question: make the setup read the number Forgejo returns and, if it is not 1, stop with a clear message ("issue 1 was deleted: reset the lab with down -v")? Lab change only, the tool is not involved. Until then `getting-started/first-assessment.md` (troubleshooting) says to reset from scratch.
+- Decision (owner, 2026-10-07): the setup reads the issue number returned by Forgejo and, if it is not 1, stops with a message asking to reset the lab (`down -v`).
+- Fixed (2026-10-07): the setup reads the number Forgejo returns for the new issue and the id of the new comment; if it is not 1 it stops (exit 1) with "Issue 1 / Comment 1 was deleted earlier: Forgejo created ... instead; reset the lab from scratch ...". Verified: fresh lab (created, exit 0), setup again (already exists, exit 0), comment 1 deleted (stops: created comment 2), issue 1 deleted (stops: created issue 2); after a full reset the 15 native tests show no differences. Troubleshooting row in `first-assessment.md` updated.
 - Resolution:
 

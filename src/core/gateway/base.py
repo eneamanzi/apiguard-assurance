@@ -16,17 +16,15 @@ BaseGatewayAdapter lives in core/ so that TargetContext (also in core/)
 can reference it without violating the unidirectional dependency rule
 (core/ ← connectors/ ← tests/ ← engine.py).
 
-Concrete adapter implementations live in src/gateways/ (e.g.
-KongGatewayAdapter in src/gateways/kong.py) and are instantiated by
+Concrete adapter implementations live in src/core/gateway/ (e.g.
+KongGatewayAdapter in src/core/gateway/kong.py) and are instantiated by
 engine.py Phase 3 based on the target.gateway_adapter config field.
 
 Tests that require gateway access guard with::
 
-    if target.gateway is None:
-        return self._make_skip(
-            "Admin API not configured "
-            "(target.gateway_adapter missing from config.yaml)."
-        )
+    guard = self._requires_admin_api(target)  # SKIP when target.gateway is None
+    if guard is not None:
+        return guard
     services = target.gateway.get_services()
 
 Dependency rule: this module imports only from stdlib and src.core.exceptions.

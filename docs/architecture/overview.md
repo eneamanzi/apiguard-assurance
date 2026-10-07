@@ -44,9 +44,9 @@ Phases 1 to 4 are blocking. Any unexpected exception in the engine also ends the
 
 ### Phase 2 details
 
-- Remote specs are fetched by prance inside a `ThreadPoolExecutor` with a timeout
-  (`execution.openapi_fetch_timeout_seconds`). **The timeout does not interrupt a server that accepts the
-  connection and never answers** (verified; Q-35).
+- Remote specs are fetched by prance in a background daemon thread with a timeout
+  (`execution.openapi_fetch_timeout_seconds`). When it expires the run stops with `OpenAPILoadError` (exit `10`),
+  also when the server accepts the connection and never answers (verified 2026-10-07).
 - Swagger 2.0 specs are dereferenced with `_NonValidatingResolvingParser`, which skips prance's internal validation
   (it rejects `type: file`); OpenAPI 3.0.x / 3.1.x are validated with `openapi-spec-validator`. `prance` is pinned
   exactly (`==25.4.8.0`) because the parser relies on an internal attribute.
@@ -134,8 +134,8 @@ credentials and always verifies TLS (Q-34). It is created in Phase 3 only when `
 
 **Connectors** (`src/connectors/`). `BaseConnector` with two tiers: `BaseSubprocessConnector` (nuclei,
 testssl.sh; `subprocess.run` with an argument list, no shell) and `BaseLibraryConnector` (sslyze). Binaries are
-looked up in `./tools/<tool>/` relative to the working directory, then in `PATH` (a third channel through
-`<TOOL>_SERVICE_URL` exists, Q-27). Each connector returns a `ConnectorResult` whose `raw_output` has `command`,
+looked up in `./tools/<tool>/` relative to the working directory, then in `PATH`; if neither has it, the tool's
+tests return SKIP. Each connector returns a `ConnectorResult` whose `raw_output` has `command`,
 `command_json`, `results`, `all_count`. How to add one:
 [`guides/extending/add-an-external-test.md`](../guides/extending/add-an-external-test.md).
 

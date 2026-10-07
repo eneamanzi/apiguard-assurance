@@ -644,19 +644,14 @@ external_tools:
   # testssl.sh — Deep TLS stack analysis (Garanzia 1.5)
   # ---------------------------------------------------------------------------
   # Binary discovery:
-  #   1. shutil.which("testssl.sh")          — local binary in PATH
-  #   2. os.getenv("TESTSSL_SERVICE_URL")    — HTTP service in Docker Compose
-  #
-  # Install: https://github.com/drwetter/testssl.sh
-  #   git clone --depth 1 https://github.com/drwetter/testssl.sh.git
-  #   sudo cp testssl.sh/testssl.sh /usr/local/bin/
-  #   sudo chmod +x /usr/local/bin/testssl.sh
+  #   1. ./tools/testssl/testssl.sh          — installed by install_tools.sh
+  #   2. shutil.which("testssl.sh")          — binary in PATH
+  # If neither is found, ext.1.5.testssl returns SKIP.
   #
   # Test: ext.1.5.testssl (ExtTest15TlsAnalysis in external_tests/ext_test_1_5_tls_analysis.py)
   # Oracle: CRITICAL/HIGH -> FAIL; MEDIUM/WARN -> PASS with note; empty -> PASS
   testssl:
-    # Set true once testssl.sh is installed in PATH or TESTSSL_SERVICE_URL is set.
-    # When false, ext.1.5.testssl returns SKIP without attempting binary discovery.
+    # When false, ext.1.5.testssl is not scheduled and does not appear in the report.
     enabled: true
 
     # Wall-clock timeout for a single testssl.sh execution (seconds).

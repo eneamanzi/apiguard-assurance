@@ -62,7 +62,6 @@ Treat all output files as sensitive (Q-31). The HTML report is rendered with Jin
 
 | Gap | Question |
 |---|---|
-| A spec URL that accepts the connection and never answers hangs Phase 2 indefinitely | Q-35 |
 | Admin API authentication and custom TLS not supported | Q-34 |
 | Only `authorization` is redacted in outputs | Q-31 |
 | Unauthenticated write requests and leftover objects on the target | Q-30 |

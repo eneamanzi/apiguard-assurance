@@ -76,7 +76,6 @@ Built in Phase 2 from the specification (`src/discovery/surface.py`):
 | `path_seed`, `verify_tls` | from `target.*` |
 | `external_tools` | `ExternalToolsConfig` |
 | `gateway` | `BaseGatewayAdapter` instance, or `None` |
-| `effective_base_url` | intended for containerised external tools; never set by the engine today (Q-36) |
 
 Helpers: `endpoint_base_url()` and `admin_endpoint_base_url()` (string URLs without trailing slash),
 `admin_api_available` (= `gateway is not None`), `get_openapi_source()`, `is_local_spec`.

@@ -37,7 +37,7 @@ import logging
 import sys
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, TextIO
 
 import structlog
 import typer
@@ -389,8 +389,12 @@ def generate_seed(
     Exit codes:
         0   Template generated successfully.
         1   Fetch or parse error (spec unreachable or malformed).
+
+    Streams: stdout carries only the YAML template (without --output), so
+    that it can be redirected to a file; the panel, logs and messages always go
+    to stderr.
     """
-    _configure_logging(log_format=log_format, log_level=LogLevel.INFO)
+    _configure_logging(log_format=log_format, log_level=LogLevel.INFO, stream=sys.stderr)
 
     from src.discovery.seed_generator import (
         SeedGeneratorFetchError,
@@ -402,7 +406,7 @@ def generate_seed(
     log_inner = structlog.get_logger("cli.generate_seed")
 
     if log_format == LogFormat.CONSOLE:
-        _console_out.print(
+        _console_err.print(
             Panel(
                 f"[dim]Spec source:[/dim] [white]{spec}[/white]",
                 title="[bold cyan]APIGuard — Generate Seed[/bold cyan]",
@@ -441,10 +445,11 @@ def generate_seed(
     yaml_content = render_seed_template(param_names=param_names, spec_source=spec)
 
     if output is None:
-        # Print to stdout: the user can redirect or copy-paste manually.
-        _console_out.print(yaml_content)
+        # stdout carries only the template, written raw (no wrapping, no markup)
+        # so that `generate-seed SPEC > seed.yaml` produces valid YAML.
+        _console_out.out(yaml_content, highlight=False, end="")
         if log_format == LogFormat.CONSOLE:
-            _console_out.print(
+            _console_err.print(
                 f"[dim]Found [bold]{len(param_names)}[/bold] unique path parameter(s). "
                 "Paste the block above under 'target:' in config.yaml.[/dim]"
             )
@@ -461,7 +466,7 @@ def generate_seed(
         )
 
         if log_format == LogFormat.CONSOLE:
-            _console_out.print(
+            _console_err.print(
                 f"[bold green]Seed template written:[/bold green] {output_path.resolve()}\n"
                 f"[dim]Found [bold]{len(param_names)}[/bold] unique path parameter(s): "
                 f"{', '.join(param_names) if param_names else '(none)'}[/dim]\n"
@@ -481,7 +486,9 @@ def generate_seed(
 # ---------------------------------------------------------------------------
 
 
-def _configure_logging(log_format: LogFormat, log_level: LogLevel) -> None:
+def _configure_logging(
+    log_format: LogFormat, log_level: LogLevel, stream: TextIO | None = None
+) -> None:
     """
     Configure the structlog logging pipeline for this process run.
 
@@ -499,13 +506,16 @@ def _configure_logging(log_format: LogFormat, log_level: LogLevel) -> None:
 
         Third-party libraries that use stdlib logging (httpx, prance,
         openapi-spec-validator) are configured with logging.basicConfig: their
-        entries go to the same stream (stdout) as plain text, not through the
-        structlog processors (so they are not JSON in --log-format json).
+        entries go to the same stream as plain text, not through the structlog
+        processors (so they are not JSON in --log-format json).
 
     Args:
         log_format: CONSOLE or JSON output format.
         log_level: Minimum log level to emit.
+        stream: Destination of every log entry. Default stdout; commands whose
+                stdout is data (generate-seed) pass stderr.
     """
+    log_stream: TextIO = sys.stdout if stream is None else stream
     level_int = getattr(logging, log_level.value.upper(), logging.INFO)
 
     # Shared processors applied to every log entry before rendering.
@@ -528,15 +538,16 @@ def _configure_logging(log_format: LogFormat, log_level: LogLevel) -> None:
         processors=shared_processors + [renderer],
         wrapper_class=structlog.make_filtering_bound_logger(level_int),
         context_class=dict,
-        logger_factory=structlog.PrintLoggerFactory(),
+        logger_factory=structlog.PrintLoggerFactory(file=log_stream),
         cache_logger_on_first_use=True,
     )
 
     # Third-party libraries (httpx, prance, openapi-spec-validator, yaml) log
-    # through stdlib logging: plain text on stdout, not the structlog pipeline.
+    # through stdlib logging: plain text on the same stream, not the structlog
+    # pipeline.
     logging.basicConfig(
         format="%(message)s",
-        stream=sys.stdout,
+        stream=log_stream,
         level=level_int,
     )
 

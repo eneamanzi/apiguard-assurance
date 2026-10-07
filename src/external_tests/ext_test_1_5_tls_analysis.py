@@ -345,7 +345,7 @@ class ExtTest15TlsAnalysis(ExternalToolTest):
         Args:
             connector:   TestsslConnector instance (injected or freshly built).
             target:      Frozen TargetContext with target URL and config.
-            target_url:  HTTPS URL returned by target.effective_endpoint_base_url().
+            target_url:  HTTPS URL returned by target.endpoint_base_url().
 
         Returns:
             ConnectorResult: Complete (unfiltered) testssl.sh output.
@@ -671,7 +671,7 @@ class ExtTest15SslyzeAnalysis(ExternalToolTest):
         Args:
             connector:   SslyzeConnector instance (injected or freshly built).
             target:      Frozen TargetContext with target URL and config.
-            target_url:  HTTPS URL returned by target.effective_endpoint_base_url().
+            target_url:  HTTPS URL returned by target.endpoint_base_url().
 
         Returns:
             ConnectorResult: Complete (unfiltered) sslyze output.

@@ -758,7 +758,7 @@ class BaseTest(ABC):
         """
         Guard clause: return a SKIP result if no gateway adapter is configured.
 
-        Used by all WHITE_BOX tests (P3) that query the gateway admin plane.
+        Used by the tests that query the gateway admin plane (Admin API).
         A gateway without admin access is often an intentional security choice,
         not a gap — SKIP communicates this honestly.
 
