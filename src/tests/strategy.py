@@ -7,7 +7,7 @@ The canonical definition of TestStrategy lives in src/core/models.py,
 where it is co-located with the other shared domain types (TestStatus,
 TestResult, Finding). It is defined there — rather than here — because
 it is consumed by multiple layers: TargetContext (core/context.py),
-ToolConfig (config/schema.py), TestRegistry (tests/registry.py), and
+ToolConfig (config/schema/tool_config.py), TestRegistry (tests/registry.py), and
 the engine. Defining it in tests/ would require those layers to import
 from tests/, violating the unidirectional dependency rule.
 

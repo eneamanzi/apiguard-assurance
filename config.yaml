@@ -192,7 +192,7 @@ tests:
       max_endpoints_cap: 0
 
     # Test 1.4 — Revoked Token Rejected After Deletion
-    # Methodology: 3_TOP_metodologia.md Section 1.4 (Sub-Test 1: token revocation)
+    # Methodology: docs/knowledge/methodology/methodology.it.md Section 1.4 (Sub-Test 1: token revocation)
     # Strategy: GREY_BOX
     # Priority: P2
     test_1_4:
@@ -203,7 +203,7 @@ tests:
       token_name: "apiguard-token-revocation-test"
 
     # Test 1.5 — Credentials Not Transmitted via Insecure Channels
-    # Methodology: 3_TOP_metodologia.md Section 1.5
+    # Methodology: docs/knowledge/methodology/methodology.it.md Section 1.5
     # Strategy: WHITE_BOX (Configuration Audit + single empirical HTTP probe)
     # Priority: P2
     test_1_5:
@@ -236,7 +236,7 @@ tests:
       expected_redirect_status_codes: [301, 308]
 
     # Test 1.6 — Secure Session Management in Distributed Architectures
-    # Methodology: 3_TOP_metodologia.md Section 1.6
+    # Methodology: docs/knowledge/methodology/methodology.it.md Section 1.6
     # Strategy: WHITE_BOX (Configuration Audit via response header inspection)
     # Priority: P3
     test_1_6:
@@ -271,7 +271,7 @@ tests:
 
   domain_2:
     # Test 2.1 — Only Authorized Users Access Privileged Endpoints
-    # Methodology: 3_TOP_metodologia.md Section 2.1 (Sub-Test 1: Admin Access with User Token)
+    # Methodology: docs/knowledge/methodology/methodology.it.md Section 2.1 (Sub-Test 1: Admin Access with User Token)
     # Strategy: GREY_BOX
     # Priority: P2
     test_2_1:

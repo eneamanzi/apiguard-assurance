@@ -19,22 +19,18 @@ Relationship with Test 1.5 (native):
     the PYTHON-verifiable parts of Garanzia 1.5:
         Sub-test 1: HTTP redirect enforcement (httpx probe)
         Sub-test 2: HSTS header validation (SecurityClient GET /)
-        Sub-test 3: (legacy) inline testssl.sh via testssl_binary_path config
 
     These external tests extend the coverage with a CONNECTOR-managed TLS scan:
         Full TLS stack inspection: protocol versions (TLS 1.0/1.1, SSLv3),
         cipher suite weaknesses, certificate chain, forward secrecy,
         HSTS headers at TLS level, and CVE-tagged vulnerabilities.
 
-    The split follows the HYBRID pattern defined in docs/priv/PROJECT_status.md:
+    The split follows the HYBRID pattern (docs/architecture/assessment-model.md):
         Native part   -> handles HTTP-level checks (redirects, HSTS headers)
         External part -> handles TLS-level checks (protocols, ciphers, CVEs)
 
-    IMPORTANT: if config.tests.domain_1.test_1_5.testssl_binary_path is also
-    set to a non-empty path, testssl.sh will be invoked twice -- once from
-    native test 1.5 sub-test 3 and once from this external test.  Set
-    testssl_binary_path = "" when this external test is enabled to avoid
-    duplicate scans and duplicate findings under different test_ids.
+    Native test 1.5 never runs testssl.sh (native tests do not start external
+    tools): TLS scanning happens only here.
 
 Test ID uniqueness:
     Both test_ids follow the "ext.X.Y.toolname" convention: "ext." avoids
@@ -390,7 +386,7 @@ class ExtTest15TlsAnalysis(ExternalToolTest):
         """
         Apply the oracle to ConnectorResult and return a TestResult.
 
-        Oracle (Section 1.5 of 3_TOP_metodologia.md, NIST SP 800-52 Rev.2):
+        Oracle (Section 1.5 of docs/knowledge/methodology/methodology.it.md, NIST SP 800-52 Rev.2):
 
             FAIL bucket (CRITICAL / HIGH):
                 Each qualifying finding becomes a separate Finding object.

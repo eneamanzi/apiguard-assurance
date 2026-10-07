@@ -3,7 +3,7 @@ src/tests/domain_4/test_4_1_rate_limiting.py
 
 Test 4.1 -- Rate Limiting: Resource Exhaustion Prevention.
 
-Guarantee (3_TOP_metodologia.md, Section 4.1):
+Guarantee (docs/knowledge/methodology/methodology.it.md, Section 4.1):
     The Gateway applies rate limiting to prevent automated abuse (DoS,
     brute-force, scraping). Exceeding the configured limit produces
     HTTP 429 Too Many Requests with a Retry-After or X-RateLimit-Reset

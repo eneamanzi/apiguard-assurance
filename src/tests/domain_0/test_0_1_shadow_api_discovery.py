@@ -3,13 +3,13 @@ src/tests/domain_0/test_0_1_shadow_api_discovery.py
 
 Test 0.1 -- All Exposed Endpoints Are Documented and Authorized.
 
-Guarantee (4-Implementazione.md, Dominio 0):
+Guarantee (docs/knowledge/methodology/methodology.it.md, Section 0.1):
     Every active endpoint on the Gateway corresponds to an entry in the
     official OpenAPI specification. Endpoints that are active but undocumented
     (Shadow APIs) constitute unknown attack surface: they are not subject to
     security review, rate limiting, or systematic authentication policies.
 
-Methodology (3_TOP_metodologia.md, Section 0.1):
+Methodology (docs/knowledge/methodology/methodology.it.md, Section 0.1):
     - Path Enumeration via Fuzzing: scan with standard wordlist of common
       undocumented paths and compare responses against documented endpoints.
     - HTTP Method Discovery: for each documented endpoint, send OPTIONS and
@@ -98,13 +98,14 @@ class Test_0_1_ShadowApiDiscovery(BaseTest):  # noqa: N801
     """
     Verify that all active endpoints are documented in the OpenAPI specification.
 
-    Performs three sub-checks:
+    Performs two sub-checks:
         1. Path fuzzing: probes a wordlist of common undocumented paths,
            excluding the spec URL path (when using URL-sourced spec) to
-           prevent false positives.
-        2. Method discovery: for each documented endpoint, tests whether
-           undeclared HTTP methods are accepted.
-        3. Version discovery: probes common version prefix variants.
+           prevent false positives. Version prefixes are covered only by the
+           /api/v1/* and /api/v2/* entries of the wordlist.
+        2. Method discovery: takes the first 10 documented endpoints, skips the
+           parametric ones, and sends undeclared HTTP methods directly to the
+           others (no OPTIONS / Allow check).
     """
 
     test_id: ClassVar[str] = "0.1"

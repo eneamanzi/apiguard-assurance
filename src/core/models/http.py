@@ -106,7 +106,7 @@ class EvidenceRecord(BaseModel):
     )
     request_body: str | None = Field(
         default=None,
-        description="Request body as sent (sanitized of secrets); None if no body.",
+        description="Request body as sent (not sanitized); None if no body.",
     )
     response_status_code: int = Field(description="HTTP status code.")
     response_headers: dict[str, str] = Field(

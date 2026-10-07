@@ -15,7 +15,8 @@ Design rules:
        tests, overriding per-tool settings.
     2. Timeout obligation: an enabled tool MUST declare timeout_seconds.
     3. Per-tool on/off: each tool can be independently disabled.
-    4. extra_flags: additional CLI flags, must not contain secrets.
+    4. extra_flags: additional CLI flags, must not contain secrets. Declared only
+       by command-line tools (testssl, nuclei); a library (sslyze) has none.
 
 Dependency rule: imports from pydantic and stdlib only.
 Must never import from config/, tests/, connectors/, external_tests/, or report/.
@@ -41,7 +42,6 @@ class BaseExternalToolConfig(BaseModel):
     Enforces the two invariants shared by every tool:
         1. enabled: bool -- master flag for this specific tool.
         2. timeout_seconds: int | None -- mandatory when enabled=True.
-        3. extra_flags: str -- additional CLI flags, no secrets allowed.
 
     The model_validator ``_timeout_required_when_enabled`` centralises the
     timeout obligation check (ADR-001 §3.2) so that subclasses do not need
@@ -49,8 +49,9 @@ class BaseExternalToolConfig(BaseModel):
 
     Subclass protocol:
         1. Inherit from BaseExternalToolConfig.
-        2. Override ``enabled``, ``timeout_seconds``, and ``extra_flags`` with
-           tool-specific Field() declarations (ge/le constraints, descriptions).
+        2. Override ``enabled`` and ``timeout_seconds`` with tool-specific
+           Field() declarations (ge/le constraints, descriptions). Command-line
+           tools also declare ``extra_flags`` (additional CLI flags, no secrets).
         3. Add tool-specific fields after the shared fields.
         4. Do NOT redeclare ``_timeout_required_when_enabled``.
     """
@@ -61,8 +62,8 @@ class BaseExternalToolConfig(BaseModel):
         default=False,
         description=(
             "Enable this tool connector.  When True, timeout_seconds is "
-            "mandatory.  When False, all tests for this tool return SKIP "
-            "without attempting binary discovery."
+            "mandatory.  When False, the tests for this tool are not scheduled "
+            "and do not appear in the report (no binary discovery)."
         ),
     )
     timeout_seconds: int | None = Field(
@@ -70,13 +71,6 @@ class BaseExternalToolConfig(BaseModel):
         description=(
             "Wall-clock timeout for a single tool execution in seconds. "
             "Mandatory when enabled=True."
-        ),
-    )
-    extra_flags: str = Field(
-        default="",
-        description=(
-            "Additional CLI flags appended to the tool invocation, verbatim. "
-            "Must not contain credentials or secrets."
         ),
     )
     expected_version: str | None = Field(
@@ -250,7 +244,7 @@ class ExternalToolsConfig(BaseModel):
     If the section is absent, all fields use their defaults (all disabled).
 
     Master switch semantics:
-        enabled=False  -> ALL external tests return SKIP immediately.
+        enabled=False  -> no external test is scheduled (absent from the report).
         enabled=True   -> per-tool ``enabled`` fields are evaluated individually.
     """
 

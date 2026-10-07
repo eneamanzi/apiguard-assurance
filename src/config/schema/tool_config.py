@@ -174,8 +174,9 @@ class TargetConfig(BaseModel):
     admin_api_url: AnyHttpUrl | None = Field(
         default=None,
         description=(
-            "URL of the API Gateway Admin API, required for WHITE_BOX tests (P3). "
-            "If absent, all WHITE_BOX tests return SKIP. "
+            "URL of the API Gateway Admin API, required by the tests that read the "
+            "gateway configuration (3.3, 4.2, 4.3, 6.4 sub-test B). If absent, those "
+            "tests return SKIP or skip that part. "
             "Example: http://localhost:8001"
         ),
     )
@@ -858,9 +859,9 @@ class ToolConfig(BaseModel):
     external_tools: ExternalToolsConfig = Field(
         default_factory=ExternalToolsConfig,
         description=(
-            "Configuration for external tool connectors (testssl.sh, nuclei, ffuf). "
-            "If the 'external_tools' key is absent from config.yaml, all external "
-            "tool tests degrade gracefully to SKIP (native-only mode). "
+            "Configuration for external tool connectors (testssl.sh, nuclei, sslyze). "
+            "If the 'external_tools' key is absent from config.yaml, every tool is "
+            "disabled: no external test is scheduled (native-only mode). "
             "When a tool is enabled=True, timeout_seconds is mandatory or Phase 1 "
             "raises ConfigurationError."
         ),

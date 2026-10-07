@@ -82,8 +82,8 @@ affected is updated in the same change.
 | # | Block | Questions | Content | Risk | Status |
 |---|---|---|---|---|---|
 | 1 | Safety net | Q-39 (+ Q-15) | development helper `scripts/compare_reports.py` (compare two reports, development only, to be removed later); `ruff format` + check in `dev:check` (Markdown excluded); `import-linter` with the dependency rule in `dev:check` (after fixing Q-15); the two rule exceptions written in CLAUDE.md and `coding-rules.md`. Pre-commit hook comes with block 9 | low: adds checks only, no behaviour change | done 2026-10-07 |
-| 2 | Cleanup | Q-19, Q-28, Q-15, Q-26 (descriptions), Q-24 (`sslyze.extra_flags`) | stale paths and comments, comments that contradict the code, one import, one no-op field | very low | to do |
-| 3 | Small bugs | Q-35, Q-21, Q-48, Q-36, Q-27, Q-13 | spec fetch hang, `generate-seed` stdout, warning messages, two unwired features (implement or remove), broken `dev:docs` | low-medium | to do |
+| 2 | Cleanup | Q-19, Q-28, Q-26 (descriptions), Q-24 (`sslyze.extra_flags`) | stale paths and comments, comments that contradict the code, one no-op field (Q-15 done in block 1) | very low | done 2026-10-07 |
+| 3 | Small bugs | Q-35, Q-21, Q-48, Q-36, Q-27, Q-13, Q-55 (lab setup) | spec fetch hang, `generate-seed` stdout, warning messages, two unwired features (implement or remove), broken `dev:docs` | low-medium | to do |
 | 4 | Configuration structure | Q-53, Q-37 | one definition per parameter (models in `core/`), every test has a config model, check in `dev:check` | medium: after block 1 | to do |
 | 5 | Contract 1.0 | Q-25, Q-20, Q-22, Q-23, Q-45, Q-50, Q-54, Q-10, Q-31, Q-26 ("not run by choice" list), Q-44 | everything an integrator sees; then the stability policy | medium-high | to do |
 | - | Integration guide | (step 2.2) | written on the fixed contract | - | to do |
@@ -144,3 +144,5 @@ CI (Q-16), E2E test suite (Q-51), documentation generated from code with a drift
 | 2026-10-07 | Block 1 step 2 done: `ruff format` on 7 files (syntax trees identical to HEAD), `ruff format --check .` in `dev:check`, Markdown excluded; lab: 15 native tests and `ext.1.5.sslyze` unchanged (compare_reports: no differences) |
 | 2026-10-07 | Block 1 step 3 done: Q-15 import fixed, `import-linter` with 3 contracts in `dev:check` (proved to catch the old import), docs updated; lab results unchanged |
 | 2026-10-07 | Block 1 step 4 done: rule exceptions (test module numbers, `TypedDict` uses) and the full dependency rule written in `CLAUDE.md` and `coding-rules.md`. Block 1 done |
+| 2026-10-07 | Block 2 done: 58 stale references, 13 contradicting comments, 3 SKIP descriptions, `sslyze.extra_flags` removed. Code identical apart from comments/docstrings in 29 files; string texts only in 5; one structural change (field removed). `dev:check` passes; lab: 15 native tests, `ext.1.5.sslyze` and external discovery unchanged |
+| 2026-10-07 | Review of blocks 1-2: 48 doc references added in code all resolve; 2 comments made more precise (0.1 sampling, 2.1 statuses); no question ID left in code; CHANGELOG and the 1.5 oracle example corrected; the "issue 1 comes back as issue 2" claim verified on the lab, which also found Q-55 (setup misreports the recreated issue); lab reset, results back to baseline |

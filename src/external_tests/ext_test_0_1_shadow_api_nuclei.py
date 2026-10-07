@@ -8,8 +8,10 @@ Relationship with Test 0.1 (native):
     PYTHON-native parts of Garanzia 0.1:
         - Path fuzzing from the internal shadow_wordlists.py wordlist via
           SecurityClient (httpx), comparing active paths against the OpenAPI spec.
-        - HTTP method discovery (OPTIONS vs spec-declared methods).
-        - Versioning completeness check (active version variants vs documented).
+        - HTTP method discovery: undeclared methods sent directly to documented
+          endpoints (no OPTIONS / Allow comparison).
+        - Version prefixes only through the /api/v1/* and /api/v2/* wordlist
+          entries (no dedicated versioning check).
 
     This external test extends coverage with a CONNECTOR-managed nuclei scan:
         - Template-based detection of known exposure patterns:
@@ -21,7 +23,7 @@ Relationship with Test 0.1 (native):
           OpenAPI spec.  The two approaches are complementary: native catches
           spec drift; nuclei catches known-bad exposure patterns.
 
-    The split follows the HYBRID pattern defined in docs/priv/PROJECT_status.md:
+    The split follows the HYBRID pattern (docs/architecture/assessment-model.md):
         Native part   -> spec-diff-based shadow API discovery
         External part -> template-based known-exposure detection (this file)
 

@@ -840,15 +840,15 @@ class ExternalToolTest(ABC):
 
         This method is the bridge between the generic ExternalToolTest lifecycle
         and the specific CLI interface of each tool.  It reads tool-specific
-        parameters from target.tests_config (populated from config.yaml) and
-        passes them to connector.run() as named keyword arguments.
+        parameters from target.external_tools.<tool> (populated from config.yaml)
+        and passes them to connector.run() as named keyword arguments.
 
         Example (testssl):
             def _invoke_connector(self, connector, target, target_url):
                 return connector.run(
                     target_url=target_url,
-                    timeout_seconds=target.tests_config.external_testssl_timeout,
-                    extra_flags=target.tests_config.external_testssl_flags,
+                    timeout_seconds=target.external_tools.testssl.timeout_seconds,
+                    extra_flags=target.external_tools.testssl.extra_flags,
                 )
 
         Args:

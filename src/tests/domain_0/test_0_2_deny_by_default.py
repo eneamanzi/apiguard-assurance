@@ -3,12 +3,12 @@ src/tests/domain_0/test_0_2_deny_by_default.py
 
 Test 0.2 -- Gateway Deny-by-Default on Unregistered Paths.
 
-Guarantee (4-Implementazione.md, Dominio 0):
+Guarantee (docs/knowledge/methodology/methodology.it.md, Section 0.2):
     The Gateway blocks any request whose path does not match exactly a
     registered route, returning 404 or 403 without forwarding to a backend
     or revealing internal topology information.
 
-Methodology (3_TOP_metodologia.md, Section 0.2):
+Methodology (docs/knowledge/methodology/methodology.it.md, Section 0.2):
     - Unregistered path rejection: probe guaranteed-nonexistent paths and
       verify the Gateway returns 404/403 without leaking internal topology.
     - Default backend fallback detection: check response headers for

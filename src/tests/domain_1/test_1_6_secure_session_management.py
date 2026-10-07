@@ -3,7 +3,7 @@ src/tests/domain_1/test_1_6_secure_session_management.py
 
 Test 1.6 -- Secure Session Management in Distributed Architectures.
 
-Guarantee (3_TOP_metodologia.md, Section 1.6):
+Guarantee (docs/knowledge/methodology/methodology.it.md, Section 1.6):
     Session cookies emitted by the API must carry the mandatory security
     attributes: HttpOnly, Secure, and SameSite.  Without HttpOnly, JavaScript
     running in a compromised page can exfiltrate the session token.  Without
@@ -50,7 +50,7 @@ Session fixation empirical sub-test -- NOT implemented (documented gap):
     login flow with a browser-level session cookie exchange that cannot be
     implemented generically in a config-driven agnostic tool.  This gap is
     documented via an InfoNote on PASS results so that the analyst can
-    perform the check manually following 3_TOP_metodologia.md Section 1.6.
+    perform the check manually following docs/knowledge/methodology/methodology.it.md Section 1.6.
 
 EvidenceStore policy:
     FAIL transactions from client.request() are passed to
@@ -244,8 +244,9 @@ class Test16SecureSessionManagement(BaseTest):
                             "target-specific browser-level login flow outside the "
                             "scope of a config-driven agnostic tool.  "
                             "Perform this check manually following "
-                            "3_TOP_metodologia.md Section 1.6: capture the pre-login "
-                            "cookie, authenticate, and verify the cookie value differs "
+                            "docs/knowledge/methodology/methodology.it.md Section 1.6: "
+                            "capture the pre-login cookie, authenticate, and verify the "
+                            "cookie value differs "
                             "post-authentication."
                         ),
                         references=["OWASP-ASVS-v5.0.0-V3.2.1", "NIST-SP-800-63B-4-S4.2"],

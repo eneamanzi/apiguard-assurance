@@ -201,7 +201,7 @@ class DomainSummary(BaseModel):
     skip_count: Annotated[int, Field(ge=0)] = Field(default=0)
     error_count: Annotated[int, Field(ge=0)] = Field(default=0)
     total_finding_count: Annotated[int, Field(ge=0)] = Field(default=0)
-    # Domain-Centric Split (ADR-001 §8.5 / 4-Implementazione.md §4.10).
+    # Domain-Centric Split (docs/knowledge/archive/implementation-chapter.it.md §4.10).
     # native_rows and external_rows partition rows by source for template rendering.
     # They are a derived subset of rows (same objects, different references).
     native_rows: list[TestResultRow] = Field(

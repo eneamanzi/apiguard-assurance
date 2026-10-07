@@ -497,10 +497,10 @@ def _configure_logging(log_format: LogFormat, log_level: LogLevel) -> None:
             4. Format exceptions as strings.
             5. Render as ConsoleRenderer (human) or JSONRenderer (machine).
 
-        The stdlib logging bridge (structlog.stdlib.ProcessorFormatter) is
-        configured so that third-party libraries that use stdlib logging
-        (httpx, prance, openapi-spec-validator) emit their log entries
-        through the same pipeline and appear in the same output stream.
+        Third-party libraries that use stdlib logging (httpx, prance,
+        openapi-spec-validator) are configured with logging.basicConfig: their
+        entries go to the same stream (stdout) as plain text, not through the
+        structlog processors (so they are not JSON in --log-format json).
 
     Args:
         log_format: CONSOLE or JSON output format.
@@ -532,8 +532,8 @@ def _configure_logging(log_format: LogFormat, log_level: LogLevel) -> None:
         cache_logger_on_first_use=True,
     )
 
-    # Bridge stdlib logging to structlog so that third-party libraries
-    # (httpx, prance, openapi-spec-validator, yaml) use the same pipeline.
+    # Third-party libraries (httpx, prance, openapi-spec-validator, yaml) log
+    # through stdlib logging: plain text on stdout, not the structlog pipeline.
     logging.basicConfig(
         format="%(message)s",
         stream=sys.stdout,

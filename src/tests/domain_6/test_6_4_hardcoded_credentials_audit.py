@@ -3,7 +3,7 @@ src/tests/domain_6/test_6_4_hardcoded_credentials_audit.py
 
 Test 6.4 -- Hardcoded Credentials Audit.
 
-Guarantee (3_TOP_metodologia.md, Section 6.4):
+Guarantee (docs/knowledge/methodology/methodology.it.md, Section 6.4):
     Service credentials used by the Gateway (database passwords, API keys,
     TLS private keys) must be managed via a dedicated Secret Manager and must
     NOT be hardcoded in configuration files, environment variables exposed via
@@ -88,8 +88,8 @@ EvidenceStore policy:
     store.add_fail_evidence() for inclusion in evidence.json.
     Sub-test B: no EvidenceRecord objects are produced (Kong Admin API helper
     uses its own internal httpx client, not SecurityClient).  The transaction_log
-    for Sub-test B findings will be empty -- this is correct per the config-audit
-    pattern documented in docs/pub/ADDING_tests.md.
+    for Sub-test B findings will be empty -- this is expected: Admin API calls do
+    not go through SecurityClient, so they produce no HTTP evidence.
 """
 
 from __future__ import annotations

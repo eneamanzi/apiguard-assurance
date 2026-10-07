@@ -3,7 +3,7 @@ src/tests/domain_4/test_4_2_timeout_config_audit.py
 
 Test 4.2 -- Timeout Configuration Audit: Prevention of Resource Lock.
 
-Guarantee (3_TOP_metodologia.md, Section 4.2):
+Guarantee (docs/knowledge/methodology/methodology.it.md, Section 4.2):
     Every I/O operation (DB query, outbound HTTP call) must have a configured
     timeout. Without timeouts, a single blocked thread occupies a slot in the
     connection pool indefinitely; accumulated blocked threads exhaust the pool

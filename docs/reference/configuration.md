@@ -237,7 +237,7 @@ Common keys for each tool (`testssl`, `nuclei`, `sslyze`):
 |---|---|---|---|
 | `enabled` | bool | **`false`** | Enable the tool. |
 | `timeout_seconds` | int \| null | `null` | **Required when `enabled: true`** (Phase 1 error otherwise). Ranges: testssl 30-600, nuclei 60-600, sslyze 30-300. For testssl and nuclei: wall-clock limit of one execution. For sslyze: timeout of each TLS connection, not of the whole scan. |
-| `extra_flags` | string | testssl: `--quiet --color 0`; others `""` | Flags appended verbatim to the command line. Must not contain secrets. **sslyze: no effect** (library, not a command; Q-24). |
+| `extra_flags` | string | testssl: `--quiet --color 0`; nuclei: `""` | **testssl and nuclei only** (command-line tools). Flags appended verbatim to the command line. Must not contain secrets. sslyze is a library and has no such key. |
 | `expected_version` | string \| null | `null` | Expected tool version; a mismatch logs a WARNING and the test still runs. |
 | `dev_mode` | bool | `false` | Development only: reuse `outputs/tools/<label>_output.json` instead of running the tool. Never enable in a real assessment. |
 

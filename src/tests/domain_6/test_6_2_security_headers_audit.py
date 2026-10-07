@@ -3,7 +3,7 @@ src/tests/domain_6/test_6_2_security_headers_audit.py
 
 Test 6.2 -- Security Header Configuration Audit.
 
-Guarantee (3_TOP_metodologia.md, Section 6.2):
+Guarantee (docs/knowledge/methodology/methodology.it.md, Section 6.2):
     HTTP security headers constitute defense-in-depth against client-side
     attacks.  Their presence and correctness are a Gateway configuration
     requirement, not an application-level concern.  A missing or misconfigured
@@ -16,8 +16,9 @@ Guarantee (3_TOP_metodologia.md, Section 6.2):
         Strict-Transport-Security
             Must contain 'max-age=' followed by a value >=
             hsts_min_max_age_seconds (default: 31 536 000 s = 1 year).
-            Must include 'includeSubDomains' (best practice, ASVS V3.4.1).
-            Absence or a max-age below the minimum is a FAIL.
+            'includeSubDomains' (best practice, ASVS V3.4.1) is not required:
+            its absence is only logged at debug level.
+            Absence of the header or a max-age below the minimum is a FAIL.
 
         X-Content-Type-Options
             Must be exactly 'nosniff' (ASVS V3.4.4).

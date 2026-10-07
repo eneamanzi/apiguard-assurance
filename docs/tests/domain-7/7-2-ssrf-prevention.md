@@ -106,7 +106,6 @@ despite requiring credentials: any valid account is enough to pivot.
 
 - A `2xx` other than `200`/`201` is not counted as accepted.
 - The FAIL result has a single finding; count and payloads must be read from the transaction log.
-- The redirect InfoNote and skip reason call it "Sub-test E" while the module docstring calls it "G".
 
 ## See also
 

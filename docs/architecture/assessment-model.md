@@ -60,7 +60,8 @@ return SKIP. Phase 1 warns about both situations.
 ## Oracles and verdicts
 
 Every test judges what it observes against its own **oracle**: the source of truth for that guarantee (for example
-the OpenAPI specification for 1.1, the gateway configuration for 4.2, the TLS requirements for 1.5). Each test page
+the OpenAPI specification for 1.1, the gateway configuration for 4.2, the transport-security requirements (HTTP
+to HTTPS redirect, HSTS) for 1.5). Each test page
 states its oracle. The oracles are checked against the methodology and the standards it cites; when an oracle is
 judged reliable, its verdict is trusted.
 

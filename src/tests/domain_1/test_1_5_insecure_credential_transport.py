@@ -3,7 +3,7 @@ src/tests/domain_1/test_1_5_insecure_credential_transport.py
 
 Test 1.5 -- Credentials Not Transmitted via Insecure Channels.
 
-Guarantee (3_TOP_metodologia.md, Section 1.5):
+Guarantee (docs/knowledge/methodology/methodology.it.md, Section 1.5):
     Credentials must be transmitted exclusively over TLS 1.2+ channels.
     The Gateway must enforce HTTPS for all API traffic: HTTP requests must
     either be rejected (port 80 closed) or permanently redirected to HTTPS

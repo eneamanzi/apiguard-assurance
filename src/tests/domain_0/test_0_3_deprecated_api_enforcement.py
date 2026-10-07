@@ -3,12 +3,12 @@ src/tests/domain_0/test_0_3_deprecated_api_enforcement.py
 
 Test 0.3 -- Deprecated APIs Are Disabled or Under Enhanced Monitoring.
 
-Guarantee (4-Implementazione.md, Dominio 0):
+Guarantee (docs/knowledge/methodology/methodology.it.md, Section 0.3):
     Endpoints marked as deprecated in the OpenAPI spec are either completely
     disabled (HTTP 410 Gone) or carry a Sunset header (RFC 8594) declaring
     the planned decommission date. Post-sunset endpoints must return 410 Gone.
 
-Methodology (3_TOP_metodologia.md, Section 0.3):
+Methodology (docs/knowledge/methodology/methodology.it.md, Section 0.3):
     - Deprecated endpoint accessibility: extract all endpoints with
       deprecated:true from the OpenAPI spec and check their live status.
     - Sunset header presence: active deprecated endpoints must carry a

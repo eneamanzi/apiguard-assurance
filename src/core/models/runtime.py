@@ -200,7 +200,7 @@ class RuntimeTest02Config(BaseModel):
         complexity of a custom Pydantic type for a small set of strings.
     """
 
-    model_config = {"frozen": True}  # mandatory — see "Why two layers?" in docs/pub/ADDING_tests.md
+    model_config = {"frozen": True}  # mandatory, see docs/architecture/data-model.md
 
     gateway_server_identifiers: list[str] = Field(
         default_factory=lambda: [
@@ -241,7 +241,7 @@ class RuntimeTest11Config(BaseModel):
         description=(
             "Maximum protected endpoints to probe in Test 1.1. "
             "0 = probe all (recommended for academic completeness). "
-            "Mirrors TestDomain1Config.max_endpoints_cap from config/schema.py."
+            "Mirrors Test11Config.max_endpoints_cap from config/schema/domain_1.py."
         ),
     )
 
@@ -264,7 +264,7 @@ class RuntimeTest15Config(BaseModel):
         cfg.expected_redirect_status_codes
     """
 
-    model_config = {"frozen": True}  # mandatory — see "Why two layers?" in docs/pub/ADDING_tests.md
+    model_config = {"frozen": True}  # mandatory, see docs/architecture/data-model.md
 
     hsts_min_max_age_seconds: int = Field(
         default=31_536_000,
@@ -325,7 +325,7 @@ class RuntimeTest16Config(BaseModel):
         cfg.expected_samesite_value
     """
 
-    model_config = {"frozen": True}  # mandatory — see "Why two layers?" in docs/pub/ADDING_tests.md
+    model_config = {"frozen": True}  # mandatory, see docs/architecture/data-model.md
 
     cookie_probe_paths: list[str] = Field(
         default_factory=lambda: ["/"],
@@ -399,7 +399,7 @@ class RuntimeTest33Config(BaseModel):
         cfg.clock_skew_unconfigured_value
     """
 
-    model_config = {"frozen": True}  # mandatory — see "Why two layers?" in docs/pub/ADDING_tests.md
+    model_config = {"frozen": True}  # mandatory, see docs/architecture/data-model.md
 
     # --- Oracle thresholds --------------------------------------------------
 
@@ -519,7 +519,7 @@ class RuntimeTest42Config(BaseModel):
     Runtime mirror of Test42AuditConfig fields consumed by Test 4.2.
 
     Stores the maximum acceptable timeout values (in milliseconds) for Kong
-    service objects. Mirrored from config/schema.py:Test42AuditConfig, which
+    service objects. Mirrored from config/schema/domain_4.py:Test42AuditConfig, which
     is nested under config.tests.domain_4.test_4_2.
 
     Access pattern in the test:
@@ -566,7 +566,7 @@ class RuntimeTest43Config(BaseModel):
     Runtime mirror of Test43AuditConfig fields consumed by Test 4.3.
 
     Stores all parameters needed by the Dual-Check a 3 Livelli strategy.
-    Mirrored from config/schema.py:Test43AuditConfig, nested under
+    Mirrored from config/schema/domain_4.py:Test43AuditConfig, nested under
     config.tests.domain_4.test_4_3.
 
     Level 1 parameters (native CB plugin validation):

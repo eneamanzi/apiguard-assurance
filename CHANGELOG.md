@@ -6,7 +6,8 @@ follow [Semantic Versioning](https://semver.org/) (0.x: interfaces may still cha
 
 ## [Unreleased]
 
-No change to the tool's behaviour since 0.1.0 (in `src/` only comments changed).
+The test logic is unchanged since 0.1.0. Results on the lab differ only because the lab changed (below): with
+the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
 ### Changed
 
@@ -20,6 +21,12 @@ No change to the tool's behaviour since 0.1.0 (in `src/` only comments changed).
   `docs/reference/compatibility.md`.
 - `config.yaml`: `path_seed` reads the lab names from `.env`; `sha` is `main` instead of a commit hash that
   changed on every new lab.
+- `external_tools.sslyze.extra_flags` removed: it never had an effect (sslyze is a library, not a command line);
+  `extra_flags` remains for testssl and nuclei.
+- Test 7.2: the redirect sub-test is called "Sub-test G" in the report texts (was "Sub-test E", which is the DNS
+  bypass sub-test).
+- Development checks: `hatch run dev:check` also runs `ruff format --check` and `lint-imports` (dependency rules
+  between packages); code formatted; one import fixed to respect the dependency rule.
 - Documentation rewritten in English and reorganised under `docs/` (getting started, usage guides, reference,
   test catalogue, architecture, contributor guides). `README.en.md` removed; `README.md` is the single README.
 

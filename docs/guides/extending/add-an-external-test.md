@@ -73,8 +73,9 @@ Add it to `src/connectors/__init__.py` (import and `__all__`).
 ## 3. Configuration model (`src/core/models/external_tools.py`)
 
 Subclass `BaseExternalToolConfig`, which already provides `enabled` (default `false`), `timeout_seconds`
-(required when enabled), `extra_flags`, `expected_version`, `dev_mode`. Override fields to set ranges and defaults,
-add tool-specific fields, then add a field to `ExternalToolsConfig`:
+(required when enabled), `expected_version`, `dev_mode`. A command-line tool also declares `extra_flags` (see
+`TestsslConfig`, `NucleiConfig`); a library has none. Override fields to set ranges and defaults, add tool-specific
+fields, then add a field to `ExternalToolsConfig`:
 
 ```python
 class ExternalToolsConfig(BaseModel):
@@ -158,8 +159,8 @@ What the base class does around your methods (`ExternalToolTest._run`):
 
 ## 6. `config.yaml`
 
-Add the tool block under `external_tools` with `enabled`, `timeout_seconds`, `extra_flags`, `expected_version`,
-`dev_mode: false` and tool-specific keys, each commented.
+Add the tool block under `external_tools` with `enabled`, `timeout_seconds`, `extra_flags` (command-line tools only),
+`expected_version`, `dev_mode: false` and tool-specific keys, each commented.
 
 ## Verify
 

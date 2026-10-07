@@ -21,7 +21,7 @@ class TestStatus(StrEnum):
 
     Inherits from str so values serialize natively to JSON strings.
 
-    Semantic contract (4-Implementazione.md, Section 4.6):
+    Semantic contract (docs/architecture/assessment-model.md, "Outcomes"):
         PASS  -- Control executed, security guarantee satisfied.
         FAIL  -- Control executed, guarantee NOT satisfied. Requires a Finding.
         SKIP  -- Not executed for an explicit, documented reason. Not a failure.
@@ -39,7 +39,7 @@ class TestStatus(StrEnum):
 class TestStrategy(StrEnum):
     """
     Execution privilege level mapping to the Black/Grey/White Box gradient
-    defined in the methodology (3_TOP_metodologia.md).
+    defined in the methodology (docs/architecture/assessment-model.md, "Strategies").
 
     BLACK_BOX -- Zero credentials. Simulates anonymous external attacker.
     GREY_BOX  -- Valid JWT tokens for at least two distinct roles.

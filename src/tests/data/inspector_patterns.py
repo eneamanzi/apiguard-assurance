@@ -34,7 +34,7 @@ from __future__ import annotations
 
 # Substrings that indicate a server-side exception was included in the response.
 # Methodology reference: Garanzia 6.1 -- Error Handling e Information Disclosure
-# (3_TOP_metodologia.md, Section 6.1).
+# (docs/knowledge/methodology/methodology.it.md, Section 6.1).
 #
 # The oracle for test 6.1 states that response bodies must not contain class
 # names, file paths, or exception messages.  Each string here is a case-
@@ -82,7 +82,7 @@ STACK_TRACE_PATTERNS: tuple[str, ...] = (
 
 # Field names that must never appear in API responses visible to the caller.
 # Methodology reference: Garanzia 2.5 -- Excessive Data Exposure
-# (3_TOP_metodologia.md, Section 2.5, OWASP API3:2023).
+# (docs/knowledge/methodology/methodology.it.md, Section 2.5, OWASP API3:2023).
 #
 # The set uses normalised lowercase names without separators.  The scanner in
 # response_inspector._scan_dict_for_sensitive_fields() strips underscores and

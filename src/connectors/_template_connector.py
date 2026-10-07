@@ -9,7 +9,7 @@ Steps to add a new subprocess-based connector:
     3. Fill in the ClassVar declarations (TOOL_NAME, BINARY_NAME, etc.).
     4. Implement run() following the ConnectorRawOutput contract.
     5. Add a corresponding per-tool config class to
-       src/config/schema/external_tools.py (inherit BaseExternalToolConfig).
+       src/core/models/external_tools.py (inherit BaseExternalToolConfig).
     6. Register the new config class as a field in ExternalToolsConfig.
     7. Write one or more ExternalToolTest subclasses in
        src/external_tests/ext_test_<toolname>_<description>.py.

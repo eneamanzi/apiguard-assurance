@@ -3,7 +3,7 @@ src/tests/domain_4/test_4_3_circuit_breaker_audit.py
 
 Test 4.3 -- Circuit Breaker Configuration Audit: Graceful Degradation.
 
-Guarantee (3_TOP_metodologia.md, Section 4.3):
+Guarantee (docs/knowledge/methodology/methodology.it.md, Section 4.3):
     The Circuit Breaker pattern prevents cascading failure when a downstream
     service degrades. A correctly configured Gateway implements three states:
 
@@ -61,7 +61,7 @@ LEVEL 2 -- Upstream passive healthcheck (Compensating Control)
     are <= the passive_hc_max_* values from config (default 10 each).
 
     Oracle:
-        At least one upstream with valid passive HC -> PASS + informational Finding
+        At least one upstream with valid passive HC -> PASS + InfoNote
         Upstreams exist but none have passive HC    -> proceed to Level 3
         No upstreams registered                     -> proceed to Level 3
 

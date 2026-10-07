@@ -92,10 +92,11 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Resolution:
 
 ### Q-19 - Stale documentation paths in source comments and scripts
-- Status: open
+- Status: implemented (2026-10-07, block 2), awaiting the owner to close
 - Source: 26 references in docstrings/comments of `src/engine.py` `src/discovery/seed_generator.py` `src/external_tests/ext_test_1_5_tls_analysis.py` `src/report/builder.py` `src/tests/domain_0/test_0_1_shadow_api_discovery.py` `src/core/models/enums.py` `src/tests/domain_1/test_1_4_token_revocation.py` `src/tests/domain_2/test_2_1_rbac_enforcement.py` `src/tests/domain_0/test_0_2_deny_by_default.py` `src/external_tests/ext_test_0_1_shadow_api_nuclei.py` `src/tests/domain_6/test_6_4_hardcoded_credentials_audit.py` `src/tests/registry.py` `src/tests/domain_1/test_1_1_authentication_required.py` `src/core/models/runtime.py` `src/tests/domain_0/test_0_3_deprecated_api_enforcement.py` `src/core/dag.py` `src/core/exceptions.py` `src/core/models/results.py` `src/core/evidence.py` - mostly "`4-Implementazione.md` §x", plus `docs/pub/…`, `docs/priv/…`. Also `build_zip.sh:62-64` (exclusion list already pointing to non-existent `docs/*.md` names).
 - Question: Docs moved on 2026-10-05 (see mapping in `docs/project/docs-inventory.md`). Source files were deliberately not touched (no code changes during docs work). Update comments to the new paths once the target pages exist (e.g. `architecture/…`, `tests/<id>.md`).
 - How to verify: `grep -rn -E "4-Implementazione|3-Metodologia|docs/(pub|priv)|ADDING_tests|ARCHITECTURE\.md|PROJECT_status" src build_zip.sh` returns nothing.
+- Implemented (2026-10-07, block 2): 54 references updated in `src/` and 4 in `config.yaml` comments. Methodology references point to `docs/knowledge/methodology/methodology.it.md` (sections verified to exist); implementation-chapter references point to the current page in `docs/architecture/` by topic (the archived chapter's numbering no longer matches the cited sections), except `report/builder.py` §4.10 (Report Layer, still valid in the archive); the four "Why two layers?" comments point to `docs/architecture/data-model.md`. Search command above: 0 results in `src/`, scripts, `config.yaml`. Left untouched: `build_zip.sh:64` (`/docs/ARCHITECTURE.md` in the owner's personal exclusion list; no longer exists, no effect), owner to decide.
 - Resolution:
 
 ### Q-20 - CLI usage errors share exit code 2 with "ERROR"
@@ -127,12 +128,13 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Resolution:
 
 ### Q-24 - Config fields accepted but without effect
-- Status: decided in principle (owner, 2026-10-07); implementation in the code phase
+- Status: sslyze part done (2026-10-07, block 2); `ssrf_request_timeout_ms` pending (7.2 review)
 - Source: `external_tools.sslyze.extra_flags` (never read by `src/connectors/sslyze.py` or `ext_test_1_5_tls_analysis.py`); `tests.domain_7.test_7_2.ssrf_request_timeout_ms` (description: "reserved for future… currently the global execution.read_timeout governs all requests"; only passed through `src/engine.py:496`).
 - Question: Remove, implement, or keep documented as no-op?
 - How to verify: decision with user.
 - Evidence (2026-10-07): `extra_flags` is read by the testssl and nuclei connectors (CLI tools); sslyze is a Python library with no command line, its `extra_flags` exists only because `SslyzeConfig` inherits `BaseExternalToolConfig` (`src/core/models/external_tools.py:212`) and `src/connectors/sslyze.py` never reads it. `ssrf_request_timeout_ms` is validated (`src/config/schema/domain_7.py:386`), copied to the runtime model (`src/engine.py:496`) and never read by test 7.2, which uses `execution.read_timeout` (default 30 s).
 - Decision (owner, 2026-10-07): no configuration option without effect: implement it or remove it (removed keys must then be rejected, see Q-22). `external_tools.sslyze.extra_flags`: remove. `tests.domain_7.test_7_2.ssrf_request_timeout_ms`: decide implement vs remove during the review of test 7.2 (per-test quality review, Q-29/Q-32). Until then `docs/reference/configuration.md` documents both as without effect.
+- Done (2026-10-07, block 2): `extra_flags` removed from `BaseExternalToolConfig`; it remains on `TestsslConfig` and `NucleiConfig` with the same defaults (they already declared it). A `sslyze.extra_flags` key in `config.yaml` is still accepted and ignored, as before, until unknown keys are rejected (Q-22). Docs updated (`reference/configuration.md`, `add-an-external-test.md`).
 - Resolution:
 
 ### Q-25 - Stability policy for the integration interfaces
@@ -146,13 +148,14 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Resolution:
 
 ### Q-26 - Schema descriptions say "SKIP" for disabled external tools; the registry excludes them
-- Status: decided (owner, 2026-10-07); implementation in the code phase
+- Status: descriptions fixed (2026-10-07, block 2); "not run by choice" list pending (contract 1.0 block)
 - Source: `src/core/models/external_tools.py` (`enabled` description: "When False, all tests for this tool return SKIP"), `ToolConfig.external_tools` description in `src/config/schema/tool_config.py`; actual behaviour in `src/external_tests/registry.py:88-104, 405-440` (master switch → `[]`; per-tool disabled → filtered out). Consistent with `outputs/crapi/` (no `external_tools` section → no `ext.*` rows).
 - Question: Fix the descriptions (code comments) or change behaviour so that disabled tools appear as SKIP in the report (visible coverage gap)? Docs describe the actual behaviour.
 - How to verify: decision with user.
 - Evidence (2026-10-07): the descriptions still say SKIP (`src/core/models/external_tools.py:64`, `:257`; `src/config/schema/tool_config.py:863`); the registry excludes the tests; `docs/reference/configuration.md` already describes the real behaviour.
 - Decision (owner, 2026-10-07): keep the rule "absent = not selected (operator's choice: priority, strategy, `test_ids`, tool disabled); SKIP = selected but something is missing (credentials, Admin API, tool not installed)". SKIP must never be used for a deliberate exclusion. Disabled tools stay absent; fix the three descriptions (cleanup block, with Q-19/Q-28).
 - Also agreed (to evaluate in the contract 1.0 block): make deliberate exclusions visible, listing every test not run by choice, native and external, with the reason, separately from the SKIPs, in **every** output (HTML report, `apiguard_report.json`, console summary, and any other artefact), not only in the HTML report.
+- Done (2026-10-07, block 2): the three descriptions now say that disabled tools are not scheduled and do not appear in the report (`src/core/models/external_tools.py`, `src/config/schema/tool_config.py`, which also listed "ffuf" instead of sslyze).
 - Resolution:
 
 ### Q-27 - `<TOOL>_SERVICE_URL` availability channel
@@ -171,7 +174,7 @@ The test pages describe what the code does. Each item below is a divergence or a
 None has been changed in code.
 
 ### Q-28 - Docstrings and field descriptions that contradict the code
-- Status: open
+- Status: implemented (2026-10-07, block 2), awaiting the owner to close
 - Question: Update each comment to match the code, or change the code to match the comment? Item by item:
   - [ ] `src/tests/domain_0/test_0_1_shadow_api_discovery.py:17,107` - announces a "version discovery" sub-check; the code runs only path fuzzing and undeclared-method probing.
   - [ ] `src/external_tests/ext_test_0_1_shadow_api_nuclei.py:11-12` - describes native 0.1 as using `OPTIONS` and a versioning check; it does neither.
@@ -188,6 +191,7 @@ None has been changed in code.
   - [ ] `src/external_tests/base.py:851` - docstring example of `_invoke_connector` uses `target.tests_config.external_testssl_flags` / `external_testssl_timeout`, attributes that do not exist (the real code reads `target.external_tools.testssl.*`, `ext_test_1_5_tls_analysis.py:368`).
   - [ ] 19 references in 15 files cite `3_TOP_metodologia.md` (a file name that never existed in the repo); see also Q-19 for the other stale paths.
 - How to verify: re-read each location after the decision.
+- Implemented (2026-10-07, block 2): every item aligned to the code. Exception, on purpose: 7.2 output texts (skip reason, InfoNote title, two messages) changed from "Sub-test E" to "Sub-test G", because the docstring numbering is consistent (E = `dns_bypass`) and the output was wrong; no status changes. Behaviours a comment promised and the code lacks were not implemented here: 0.1 OPTIONS/Allow comparison and version discovery (Q-32), 6.2 `includeSubDomains` (added to Q-29).
 - Resolution:
 
 ### Q-29 - Lenient or weak oracles
@@ -205,6 +209,7 @@ None has been changed in code.
   - [ ] 3.3 - only the first plugin matching `plugin_names` is audited; if it is disabled the test SKIPs even when another instance is enabled.
   - [ ] 4.1 - one probe endpoint only; budget fixed by `max_requests`, not derived from the documented limit.
   - [ ] 4.3 - Level 2 passes if at least one upstream has a valid passive health check (others may have none); on FAIL the observability InfoNote is converted into a Finding and counted.
+  - [ ] 6.2 - HSTS without `includeSubDomains` is only logged at debug level, no finding (the old docstring said it was required; aligned to the code in block 2).
   - [ ] 6.2 - `X-Frame-Options` accepts any value except `ALLOW-FROM`; `Permissions-Policy` content not evaluated.
   - [ ] 7.2 - only `200`/`201` count as accepted (`_ACCEPTED_STATUS_CODES`); acceptance of the URL is checked, not an actual outbound request.
   - [ ] ext.0.1.nuclei - results on other services of the target host are reported (2026-10-06, lab: `ssh-sha1-hmac-algo` on `localhost:22`, the owner's VM SSH, not the API); severity info, so InfoNote only, but out of scope for an API assessment.
@@ -384,3 +389,11 @@ None has been changed in code.
 - Impact: the integration path (`pip install` into another product) never reads `.env`; the docs said "`.env` from the working directory" (corrected on 2026-10-06 in `reference/cli.md`, `reference/configuration.md`, `architecture/security-model.md` to describe the real behaviour).
 - Question: load `.env` from the working directory (`load_dotenv(find_dotenv(usecwd=True), override=False)`), add an explicit option (e.g. `--env-file`), or rely only on exported variables when installed? Belongs to the integration contract (Q-25 block).
 - Resolution:
+
+### Q-55 - Lab setup misreports a recreated issue
+- Status: verified (bug, lab only)
+- Source: `test-environments/forgejo-kong/docker-compose.yml`, service `forgejo-setup` (issue and comment creation).
+- Evidence (2026-10-07, lab): after `DELETE /repos/user-a/test-repo/issues/1` (204), running the setup again prints `Issue 1 created.` but Forgejo creates issue **2** (issue numbers are never reused); the comment step then posts to issue 1 and fails with `Comment creation failed: HTTP 404`. The deleted issue's comment is gone too. A full reset (`down -v`, start, setup) restores issue 1 and comment 1.
+- Question: make the setup read the number Forgejo returns and, if it is not 1, stop with a clear message ("issue 1 was deleted: reset the lab with down -v")? Lab change only, the tool is not involved. Until then `getting-started/first-assessment.md` (troubleshooting) says to reset from scratch.
+- Resolution:
+

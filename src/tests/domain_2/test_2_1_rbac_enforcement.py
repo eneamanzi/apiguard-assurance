@@ -4,7 +4,7 @@ src/tests/domain_2/test_2_1_rbac_enforcement.py
 Test21RbacEnforcement: verifies that admin-only endpoints reject requests
 from authenticated users who lack the required administrative role.
 
-Guarantee covered (3-Metodologia.md §Garanzia 2.1 — Sub-Test 1):
+Guarantee covered (docs/knowledge/methodology/methodology.it.md §2.1 — Sub-Test 1):
     After authentication, the gateway or application middleware must enforce
     role-based access control (RBAC).  A request authenticated as ROLE_USER_A
     to an admin-only endpoint must return 403 Forbidden.  A 2xx response
@@ -24,9 +24,11 @@ Strategy and priority:
 Sub-test performed:
     For each path in cfg.admin_endpoint_paths:
         1. Send cfg.admin_endpoint_method {path} with ROLE_USER_A token.
-        2. Oracle: 403 → PASS (RBAC enforced).
+        2. Oracle: 403 or 404 → PASS (RBAC enforced; 404 accepted for targets
+                   that hide admin resources, see _RBAC_ENFORCED_CODES).
                    2xx → FAIL (RBAC bypass — finding recorded).
-                   Other (404, 405, 5xx) → logged as INCONCLUSIVE (no finding).
+                   Any other status (e.g. 401, 405, 5xx) → logged as INCONCLUSIVE
+                   (no finding).
 
 EvidenceStore policy:
     FAIL (2xx): store.add_fail_evidence(record) + _log_transaction(is_fail=True).

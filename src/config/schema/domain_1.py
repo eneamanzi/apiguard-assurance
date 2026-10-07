@@ -211,7 +211,7 @@ class Test16Config(BaseModel):
     """
     Tuning parameters for Test 1.6 (Secure Session Management).
 
-    Methodology reference: 3_TOP_metodologia.md Section 1.6.
+    Methodology reference: docs/knowledge/methodology/methodology.it.md Section 1.6.
     Strategy: WHITE_BOX — Configuration Audit (P3).
 
     The test probes the configured paths for Set-Cookie response headers
@@ -228,7 +228,7 @@ class Test16Config(BaseModel):
         in a config-driven tool.  It is therefore not implemented in this
         version.  The test documents this gap via an InfoNote on PASS results.
         Operators should perform the session fixation check manually following
-        the procedure in 3_TOP_metodologia.md Section 1.6.
+        the procedure in docs/knowledge/methodology/methodology.it.md Section 1.6.
     """
 
     model_config = {"frozen": True}

@@ -146,9 +146,9 @@ _REFERENCES: tuple[str, ...] = (
     "NIST-SP-800-204-S3.2.2",
 )
 
-# Timeout sub-test skip message (sub-test E redirect server absent).
+# Redirect sub-test skip message (sub-test G, redirect server absent).
 _REDIRECT_SKIP_REASON: str = (
-    "Sub-test E (SSRF via redirect chain) was not executed: "
+    "Sub-test G (SSRF via redirect chain) was not executed: "
     "cfg.ssrf_redirect_server_url is empty. "
     "To test redirect-following SSRF, configure an operator-controlled public "
     "server that responds with 302 Location pointing to an internal target "
@@ -226,7 +226,7 @@ class Test72SSRFPrevention(BaseTest):
                immediately on creation).
             5. Sub-tests A-D: for each enabled payload category, POST a webhook
                creation request with the SSRF URL in config.url.
-            6. Sub-test E: test open-redirect SSRF if redirect server configured.
+            6. Sub-test G: test open-redirect SSRF if redirect server configured.
             7. Return PASS/FAIL based on accumulated findings.
 
         Returns:
@@ -435,7 +435,7 @@ class Test72SSRFPrevention(BaseTest):
             if not cfg.ssrf_redirect_server_url:
                 # Append redirect gap note only when no redirect test ran.
                 redirect_gap_note = InfoNote(
-                    title="Sub-test E (Redirect Following) Not Executed",
+                    title="Sub-test G (Redirect Following) Not Executed",
                     detail=_REDIRECT_SKIP_REASON,
                     references=list(_REFERENCES),
                 )
@@ -706,7 +706,7 @@ class Test72SSRFPrevention(BaseTest):
                     title="SSRF Redirect Sub-test Timeout",
                     detail=(
                         f"POST {webhook_path} with redirect server URL "
-                        f"'{redirect_server_url}' (sub-test E) did not return "
+                        f"'{redirect_server_url}' (sub-test G) did not return "
                         f"a response within the configured read timeout. "
                         f"Transport error: {exc}"
                     ),
@@ -723,7 +723,7 @@ class Test72SSRFPrevention(BaseTest):
                     title="SSRF via Open-Redirect Chain: Redirect URL Accepted",
                     detail=(
                         f"POST {webhook_path} with redirect server URL "
-                        f"'{redirect_server_url}' (sub-test E) returned "
+                        f"'{redirect_server_url}' (sub-test G) returned "
                         f"HTTP {response.status_code}. "
                         f"The application accepted the webhook URL without "
                         f"re-validating the redirect destination. "
