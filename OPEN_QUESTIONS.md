@@ -28,17 +28,22 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Resolution: Out of scope for now (user, 2026-10-05).
 
 ### Q-10 - External tests ignore `execution.strategies`
-- Status: open
+- Status: decided in principle (owner, 2026-10-06); detailed per-test review and implementation in the code phase
 - Source: `src/engine.py:646-651` (external discovery receives `min_priority` and `allowed_ids`, not `strategies`); `src/external_tests/registry.py:374-417` (filters: allowed_ids, priority, per-tool enabled)
 - Question: With `strategies: [BLACK_BOX]`, `ext.1.5.testssl` and `ext.1.5.sslyze` (WHITE_BOX) still run. Intended (external tests filtered only by `external_tools.*.enabled`) or a bug? The docs must state the real rule.
 - How to verify: decision with user; optional confirmation run with `strategies: [BLACK_BOX]` against the lab target.
+- Evidence (2026-10-06): the native registry already filters by `execution.strategies` (normal mode; ignored when `test_ids` is set); the external registry filters only by priority, `test_ids` and tool enablement (`src/external_tests/registry.py:374-417`). The code defines WHITE_BOX as "read access to gateway configuration via Admin API" (`src/core/models/enums.py:39`), but 1.5, 1.6, 6.2, `ext.1.5.testssl`, `ext.1.5.sslyze` are WHITE_BOX and need only network access; 6.4 needs the Admin API only for sub-test B. GREY_BOX is defined as "tokens for at least two distinct roles", but 1.4 uses only admin and 2.1, 7.2 only `user_a`. With `strategies: [BLACK_BOX]` the native 1.5, 1.6, 6.2 are excluded although they could run, while the external TLS tests run anyway.
+- Decision (owner, 2026-10-06): the strategy states what the tester has. BLACK_BOX = an external user (network only, no credentials); GREY_BOX = a normal user (credentials of an account; how many accounts is not the point); WHITE_BOX = a super user (internal access: gateway configuration, files, internal systems). Labels must state the truth and the filter must apply to every test, external ones included.
+- To do in the code phase, carefully, test by test (owner: not now): review the label of every test against the definitions (first candidates: 1.5, 1.6, 6.2, `ext.1.5.testssl`, `ext.1.5.sslyze` to BLACK_BOX; 6.4 to be decided); update the definitions in `enums.py`; make the external registry respect `execution.strategies`; update the docs together with the code (test catalogue, test pages, `assessment-model.md`, `configure-a-target.md`, `select-tests.md`). The strategy is a report field: part of the "contract 1.0" block. Methodology alignment: Q-33.
 - Resolution:
 
 ### Q-11 - sslyze AGPL licence vs production integration
-- Status: open
+- Status: deferred (owner, 2026-10-07): waiting for information on how the product will be distributed
 - Source: `pyproject.toml` optional dependency `sslyze` (comment: "for SaaS distribution, this extra must be removed or replaced")
 - Question: The tool will be embedded in another product. Is the `[sslyze]` extra acceptable there, or must docs mark `ext.1.5.sslyze` as research-only?
 - How to verify: decision with user (licensing, not code).
+- Evidence (2026-10-07, installed packages): sslyze 6.3.1 and its dependency `nassl` are AGPL v3 and are imported as a library in the tool's process; testssl.sh is GPL v2 and nuclei MIT, both run as separate programs. sslyze is already an optional extra (`[sslyze]`), included by default only in the Hatch environment; without it `ext.1.5.sslyze` is SKIP and guarantee 1.5 stays covered by `ext.1.5.testssl` (on the lab both found TLS issues: sslyze 1 finding, testssl 3). The tool's own licence is undecided (Q-05).
+- Owner (2026-10-07): the distribution model of the product (internal use, distributed to customers, online service) is not known yet; the owner will ask. Interim: sslyze stays an optional extra; the integration guide (step 2.2) must say not to install `[sslyze]` in a product until the licence is checked. Fallback if unclear: leave sslyze out (options otherwise: run sslyze as a separate program, or remove it). Decide together with Q-05.
 - Resolution:
 
 ### Q-13 - Existing `hatch run dev:docs` script
@@ -82,6 +87,7 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - How to verify: code reading per test + a fresh run against a second target (ties into Q-52).
 - Evidence found (2026-10-05, per-test pages): Forgejo-specific code or defaults in 1.4 (token API paths and `token` auth scheme), 2.1 (default `admin_endpoint_paths`), 7.2 (default `injection_mode: forgejo_webhook`); Kong-specific defaults in 0.2 (`gateway_server_identifiers` includes kong) and 6.4 (`gateway_block_body_fragment` is Kong's message); 3.3, 4.2, 4.3 and 6.4 sub-test B need the Kong adapter.
 - Evidence (2026-10-06, fresh isolated cRAPI, `config_crapi.yaml`, no gateway): 1.4 ERROR (`ForgejoResourceError: GET /api/v1/user returned HTTP 404`); 2.1 PASS only because the default Forgejo path does not exist on cRAPI (404 counted as enforced); 7.2 works in `fixed_path` mode (73 payloads rejected); 3.3, 4.2, 4.3 SKIP (no adapter); 0.1, 0.2, 0.3, 1.1, 1.5, 1.6, 4.1, 6.2, 6.4 run normally. No `ext.*` tests (no `external_tools` section). Totals: 4 PASS, 5 FAIL, 5 SKIP, 1 ERROR, exit 1, 3 min 8 s.
+- Owner decision (2026-10-07): this is an analysis, not a decision: moved to group 3.D, agnosticism block, after the second lab (Q-52); feeds Q-43.
 - Resolution:
 
 ### Q-19 - Stale documentation paths in source comments and scripts
@@ -120,10 +126,12 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Resolution:
 
 ### Q-24 - Config fields accepted but without effect
-- Status: open
+- Status: decided in principle (owner, 2026-10-07); implementation in the code phase
 - Source: `external_tools.sslyze.extra_flags` (never read by `src/connectors/sslyze.py` or `ext_test_1_5_tls_analysis.py`); `tests.domain_7.test_7_2.ssrf_request_timeout_ms` (description: "reserved for future… currently the global execution.read_timeout governs all requests"; only passed through `src/engine.py:496`).
 - Question: Remove, implement, or keep documented as no-op?
 - How to verify: decision with user.
+- Evidence (2026-10-07): `extra_flags` is read by the testssl and nuclei connectors (CLI tools); sslyze is a Python library with no command line, its `extra_flags` exists only because `SslyzeConfig` inherits `BaseExternalToolConfig` (`src/core/models/external_tools.py:212`) and `src/connectors/sslyze.py` never reads it. `ssrf_request_timeout_ms` is validated (`src/config/schema/domain_7.py:386`), copied to the runtime model (`src/engine.py:496`) and never read by test 7.2, which uses `execution.read_timeout` (default 30 s).
+- Decision (owner, 2026-10-07): no configuration option without effect: implement it or remove it (removed keys must then be rejected, see Q-22). `external_tools.sslyze.extra_flags`: remove. `tests.domain_7.test_7_2.ssrf_request_timeout_ms`: decide implement vs remove during the review of test 7.2 (per-test quality review, Q-29/Q-32). Until then `docs/reference/configuration.md` documents both as without effect.
 - Resolution:
 
 ### Q-25 - Stability policy for the integration interfaces
@@ -131,16 +139,19 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Source: `docs/reference/compatibility.md` "Interface stability"; only `apiguard_report.json` has a version (`output_schema_version`, policy in `src/report/builder.py:322-327`).
 - Question: The tool will be embedded in another product. Which interfaces are a stable contract (exit codes, report JSON, evidence JSON, config schema, CLI), how are breaking changes signalled (version field, CHANGELOG, major bump)?
 - How to verify: decision with user; feeds `CHANGELOG.md` and `guides/integration/`.
-- Evidence (2026-10-06, first superficial pass): only `apiguard_report.json` has a version (`output_schema_version: "1.0"`, policy in `src/report/builder.py:322-327`); `evidence.json`, exit codes, `config.yaml`, CLI have none. Known defects whose fix changes what an integrator sees: Q-20 (usage errors exit 2), Q-22 (unknown config keys ignored), Q-23 (`generated_at_utc` not UTC), Q-45 (`test_ids` selection), Q-50 (findings without `evidence_ref`); Q-31 and Q-47 may change the report too.
+- Evidence (2026-10-06, first superficial pass): only `apiguard_report.json` has a version (`output_schema_version: "1.0"`, policy in `src/report/builder.py:322-327`); `evidence.json`, exit codes, `config.yaml`, CLI have none. Known defects whose fix changes what an integrator sees: Q-20 (usage errors exit 2), Q-22 (unknown config keys ignored), Q-23 (`generated_at_utc` not UTC), Q-45 (`test_ids` selection), Q-50 (findings without `evidence_ref`); Q-31 may change the report too (Q-47 closed on 2026-10-07 without report change).
 - Draft only, NOT decided (to be reviewed in depth in group 3.D): stable interfaces = exit codes, report JSON, `evidence.json` (add a version field), CLI commands and options, documented `config.yaml` keys; not contract = log events, Python modules, message texts, `oracle_state` values; signalling = per-file format version (major = breaking), "Breaking changes" section in `CHANGELOG.md`, semver from 1.0.0; fix the defects above together, then declare 1.0.0.
-- Owner decision (2026-10-06): not settled now. The question touches code that belongs to the code phase; it was only looked at superficially. Moved to 3.D as the first block of the code phase ("contract 1.0"), to be reviewed in depth there, after the 3.C decisions that may change the report (Q-31, Q-47).
+- Owner decision (2026-10-06): not settled now. The question touches code that belongs to the code phase; it was only looked at superficially. Moved to 3.D as the first block of the code phase ("contract 1.0"), to be reviewed in depth there, after the 3.C decisions that may change the report (Q-31; Q-47 closed without change).
 - Resolution:
 
 ### Q-26 - Schema descriptions say "SKIP" for disabled external tools; the registry excludes them
-- Status: open
+- Status: decided (owner, 2026-10-07); implementation in the code phase
 - Source: `src/core/models/external_tools.py` (`enabled` description: "When False, all tests for this tool return SKIP"), `ToolConfig.external_tools` description in `src/config/schema/tool_config.py`; actual behaviour in `src/external_tests/registry.py:88-104, 405-440` (master switch → `[]`; per-tool disabled → filtered out). Consistent with `outputs/crapi/` (no `external_tools` section → no `ext.*` rows).
 - Question: Fix the descriptions (code comments) or change behaviour so that disabled tools appear as SKIP in the report (visible coverage gap)? Docs describe the actual behaviour.
 - How to verify: decision with user.
+- Evidence (2026-10-07): the descriptions still say SKIP (`src/core/models/external_tools.py:64`, `:257`; `src/config/schema/tool_config.py:863`); the registry excludes the tests; `docs/reference/configuration.md` already describes the real behaviour.
+- Decision (owner, 2026-10-07): keep the rule "absent = not selected (operator's choice: priority, strategy, `test_ids`, tool disabled); SKIP = selected but something is missing (credentials, Admin API, tool not installed)". SKIP must never be used for a deliberate exclusion. Disabled tools stay absent; fix the three descriptions (cleanup block, with Q-19/Q-28).
+- Also agreed (to evaluate in the contract 1.0 block): make deliberate exclusions visible, listing every test not run by choice, native and external, with the reason, separately from the SKIPs, in **every** output (HTML report, `apiguard_report.json`, console summary, and any other artefact), not only in the HTML report.
 - Resolution:
 
 ### Q-27 - `<TOOL>_SERVICE_URL` availability channel
@@ -163,7 +174,7 @@ None has been changed in code.
 - Question: Update each comment to match the code, or change the code to match the comment? Item by item:
   - [ ] `src/tests/domain_0/test_0_1_shadow_api_discovery.py:17,107` - announces a "version discovery" sub-check; the code runs only path fuzzing and undeclared-method probing.
   - [ ] `src/external_tests/ext_test_0_1_shadow_api_nuclei.py:11-12` - describes native 0.1 as using `OPTIONS` and a versioning check; it does neither.
-  - [ ] `src/tests/domain_1/test_1_1_authentication_required.py:45-46` - says parametric `DELETE` uses the placeholder `apiguard-probe`; the code (`:515-520`) uses `path_seed` values first.
+  - [ ] `src/tests/domain_1/test_1_1_authentication_required.py:45-46` - says parametric `DELETE` uses the placeholder `apiguard-probe`; the code (`:515-520`) uses `path_seed` values first. The code is the intended behaviour (Q-30 decision, 2026-10-07): align the docstring.
   - [ ] `src/tests/domain_2/test_2_1_rbac_enforcement.py:29` - says `404` is inconclusive; `:70` counts `403` and `404` as enforced.
   - [ ] `src/tests/domain_4/test_4_3_circuit_breaker_audit.py:64` - "PASS + informational Finding"; the code attaches an InfoNote (a PASS cannot carry findings).
   - [ ] `src/tests/domain_6/test_6_2_security_headers_audit.py:19` - says `includeSubDomains` is required; `:563` only logs it at debug level, no finding.
@@ -173,6 +184,7 @@ None has been changed in code.
   - [ ] `src/config/schema/tool_config.py:178` - `admin_api_url`: "If absent, all WHITE_BOX tests return SKIP"; tests 1.5, 1.6, 6.2 and 6.4 run without it.
   - [ ] `src/connectors/_template_connector.py:12` - points to `src/config/schema/external_tools.py`; the config classes live in `src/core/models/external_tools.py`.
   - [ ] `src/cli.py:500-503` - says third-party logs go through the structlog pipeline; `:537-541` prints them as plain text.
+  - [ ] `src/external_tests/base.py:851` - docstring example of `_invoke_connector` uses `target.tests_config.external_testssl_flags` / `external_testssl_timeout`, attributes that do not exist (the real code reads `target.external_tools.testssl.*`, `ext_test_1_5_tls_analysis.py:368`).
   - [ ] 19 references in 15 files cite `3_TOP_metodologia.md` (a file name that never existed in the repo); see also Q-19 for the other stale paths.
 - How to verify: re-read each location after the decision.
 - Resolution:
@@ -186,6 +198,7 @@ None has been changed in code.
   - [ ] 0.2 - the URL-encoded variant uses `urllib.parse.quote`, unchanged for ASCII segments, so it is almost never sent (`test_0_2_deny_by_default.py`, `_build_path_variants`).
   - [ ] 0.2 - only `200` on a normalization variant is a finding; other `2xx` are "rejected".
   - [ ] 1.1 - only `2xx` is a bypass; "protected" means "declared with `security` in the spec" (undeclared endpoints are not tested).
+  - [ ] 1.1 - idea (owner, 2026-10-07, on the former Q-47): state in the test message how many findings are reads and how many are writes (e.g. "78 findings: 78 GET, 0 writes"); text only, no new severity level.
   - [ ] 1.5 - any exception during the HTTP probe counts as "HTTP not served" (`test_1_5_insecure_credential_transport.py`, `except Exception: return None`).
   - [ ] 0.3 - an unparseable `Sunset` header is treated as compliant.
   - [ ] 3.3 - only the first plugin matching `plugin_names` is audited; if it is disabled the test SKIPs even when another instance is enabled.
@@ -200,7 +213,7 @@ None has been changed in code.
 - Resolution:
 
 ### Q-30 - Side effects on the target
-- Status: open
+- Status: decided (owner, 2026-10-07); code items in the code phase
 - Question: Acceptable for a production assessment tool? Should they be documented in a "safety" page, made opt-in, or changed?
   - [ ] 1.1 sends `POST`/`PUT`/`PATCH` with `{}` and parametric `DELETE` without credentials to every protected endpoint; with real IDs in `target.path_seed` the `DELETE` targets real resources.
   - [ ] 0.1 sends undeclared `POST`/`PUT`/`PATCH`/`DELETE` without credentials to up to 10 documented paths.
@@ -209,13 +222,18 @@ None has been changed in code.
   - [ ] 1.4 creates and deletes an API token on the admin account.
   - [ ] 4.1 sends up to 2 × `max_requests` requests in a burst and exhausts the tool's rate-limit budget for the following tests.
 - How to verify: decision with user.
+- Evidence (2026-10-07): Phase 6 teardown works for what the tool creates (1.4 token, `context.register_resource_for_teardown`, `test_1_4:329`; 7.2 `forgejo_webhook` repository); 7.2 `fixed_path` registers nothing. Test 1.1 docstring (`:45-50`) says parametric `DELETE` uses the placeholder `apiguard-probe`; the code uses `path_seed` first: in the last lab run 76 unauthenticated `DELETE`, none with `apiguard-probe`, including `/admin/users/user-a`, `/orgs/test-org`, `/repos/user-a/test-repo` (all 401). Placeholder vs real resource on the lab: `DELETE /repos/apiguard-probe/apiguard-probe` 404 (inconclusive) vs `/repos/user-a/test-repo` 401 (conclusive); same for `/orgs`, comments. In the Forgejo spec 35 of 44 path parameters appear in writes or `DELETE` (`owner`, `repo` in 49 `DELETE` endpoints each): no useful read-only subset.
+- Decision (owner, 2026-10-07): keep the behaviour. `path_seed` is the operator's declaration of test resources that may receive any request, `DELETE` and unauthenticated writes included: only volatile test resources, never real ones. Say it everywhere `path_seed` appears (done 2026-10-07: `reference/configuration.md`, test 1.1 page, `configure-a-target.md`; code phase: `generate-seed` template, comment above `path_seed` in `config.yaml`, test 1.1 docstring, see Q-28). After a successful unauthenticated `DELETE` the tool does not restore the resource (it cannot recreate what it did not create: creation endpoint unknown, server-assigned identifiers change, content and cascades are lost); restoring is the environment's job (lab: full reset, `down -v` then start and setup; setup alone gives new numbers). Code phase, test 1.1 review: send `DELETE` last; after the test, check that the `path_seed` resources still exist and report any deleted one, marking later results that depend on it. Test 7.2 `fixed_path` (creates objects with valid credentials, no cleanup): test 7.2 review, rule "who creates cleans up, or declares in the report what was left".
 - Resolution:
 
 ### Q-31 - Sensitive data in the outputs
-- Status: open
+- Status: decided in principle (owner, 2026-10-07); implementation in the code phase (contract 1.0 block)
 - Source: `src/core/models/http.py:150-157` (only `authorization` redacted); `src/core/client.py:562-578` (bodies stored as sent/received); test 6.4 quotes matched secrets in finding details.
 - Question: Cookies, custom API-key headers, request and response bodies and secrets found by 6.4 are written to `evidence.json` and `apiguard_report.json`. Redact more (which headers/fields), or document the outputs as sensitive (current state in `docs/reference/evidence-format.md`)?
 - How to verify: decision with user.
+- Evidence (2026-10-07, lab run, `evidence.json` + `apiguard_report.json`): `authorization` is `[REDACTED]` everywhere (but the placeholder does not say which credential was used); no cookies on the lab; in clear: the full API token created by test 1.4 (`"sha1":"..."` in the response of `POST /users/<admin>/tokens`, in both files; harmless on the lab because the test deletes it, a valid admin token if the run stops before deletion), the random webhook secret of 7.2 payloads, response bodies (lab data; personal data on a real target).
+- Decision (owner, 2026-10-07): evidence must stay full of meaning. Redact only secret **values**, never what proves a finding, and keep the meaning with typed placeholders: `Authorization` → `[REDACTED: <role> token]` (today the role is lost); `Cookie`/`Set-Cookie` → value redacted, attributes kept (`Secure`, `HttpOnly`, `SameSite`: what test 1.6 judges); token created by 1.4 → fingerprint kept (last characters or hash) so that the create / delete / reuse requests can be correlated; tool-generated secrets (7.2 webhook secret) → redacted. Response bodies are not redacted (they are often the proof itself, e.g. 6.4); the outputs stay documented as sensitive. No "raw evidence" mode for now (it would be a new config parameter).
+- Requirement (owner): every redaction must be justified and checked one by one: for each field, state why the value is not needed as proof and verify on the lab, before and after, that every finding keeps its evidence and its meaning.
 - Resolution:
 
 ### Q-32 - Methodology sub-tests not implemented
@@ -233,6 +251,7 @@ None has been changed in code.
   - [ ] `docs/knowledge/tools/decisions.it.md` and `tools/catalog.it.md` list 1.4 and 2.1 as P1; methodology and code say P2.
   - [ ] `docs/knowledge/target-selection.it.md` lists requirements and candidates but not why Forgejo was chosen; needed for `knowledge/target-selection` when translating.
   - [ ] `docs/knowledge/methodology/methodology.it.md` (priority/approach table near line 63, and the headings "Grey Box ... P1, P2", "White Box ... P3") presents priority and strategy as linked. Owner decision on the former Q-14 (2026-10-06): they are independent (priority = severity, strategy = what the tester needs). Reword when translating.
+  - [ ] Strategy definitions (owner decision on Q-10, 2026-10-06): BLACK_BOX = external user, GREY_BOX = normal user with credentials, WHITE_BOX = super user with internal access. Align the "Assunzioni e Prerequisiti" approach of **every** guarantee to them, implemented or not; checks the tool performs from outside (TLS, headers, cookies) are not "White Box configuration audit".
 - How to verify: decision with user while translating `knowledge/`.
 - Resolution:
 
@@ -313,13 +332,6 @@ None has been changed in code.
 - Source: `src/engine.py:595-650` splits `test_ids` into native and `ext.` IDs. If the native subset is empty the engine schedules no native test (`test_registry_skipped_all_ids_are_external`); if the external subset is empty it is passed to `ExternalTestRegistry` as "no filter" (`if allowed_ids:` in `src/external_tests/registry.py`). The two cases are handled asymmetrically.
 - Evidence (2026-10-06): `test_ids: ["1.1", "1.4", "2.1", "7.2"]` also ran `ext.0.1.nuclei`, `ext.1.5.sslyze`, `ext.1.5.testssl`. Correction (2026-10-06, verified): a list with only `ext.*` IDs does **not** run native tests (`test_ids: ["ext.1.5.sslyze"]` → only `ext.1.5.sslyze`, log `test_registry_skipped_all_ids_are_external`); the earlier statement was an inference, now removed from the docs. Only the native-only case leaks.
 - Question: Should a non-empty `test_ids` run exactly the listed tests (fix), or is the current behaviour intended? `docs/reference/configuration.md` now documents the current behaviour.
-- Resolution:
-
-### Q-47 - Test 1.1 reports anonymous reads of public data as authentication bypass
-- Status: open
-- Source: test 1.1 (`src/tests/domain_1/test_1_1_authentication_required.py`, oracle in `docs/tests/domain-1/1-1-authentication-required.md`): an endpoint is "protected" if the spec declares a `security` requirement; any `2xx` without credentials is `AUTH_BYPASS` → Finding.
-- Evidence (2026-10-06, fresh lab, test 1.1 only, run by the owner): the Forgejo spec declares security on every operation (`attack_surface_build_completed public_endpoints=0`), but Forgejo serves public data to anonymous users by design. 78 findings, all anonymous `GET` with `200`: e.g. `/version`, `/licenses`, `/settings/ui`, `/users/search`, public repository contents, issue 1, tag, organization. None is a write.
-- Question: keep these as FAIL (the spec promises a protection the server does not apply), or distinguish them in the report (e.g. a separate state or InfoNote for anonymous reads), so that an analyst does not read 78 critical violations where there is a spec inaccuracy?
 - Resolution:
 
 ### Q-48 - `config_coherence_warning` messages confuse priority and strategy

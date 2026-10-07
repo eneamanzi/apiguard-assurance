@@ -57,6 +57,18 @@ Configured in `execution` ([`reference/configuration.md`](../reference/configura
 Without credentials GREY_BOX tests return SKIP; without `admin_api_url` + `gateway_adapter` the Admin API tests
 return SKIP. Phase 1 warns about both situations.
 
+## Oracles and verdicts
+
+Every test judges what it observes against its own **oracle**: the source of truth for that guarantee (for example
+the OpenAPI specification for 1.1, the gateway configuration for 4.2, the TLS requirements for 1.5). Each test page
+states its oracle. The oracles are checked against the methodology and the standards it cites; when an oracle is
+judged reliable, its verdict is trusted.
+
+Anything that differs from the oracle is reported. The tool's job is to **find** the differences; deciding whether
+a difference is intended belongs to the analyst. Example: the Forgejo specification declares every endpoint as
+protected, while Forgejo serves public data without credentials; test 1.1 reports those reads as findings, because
+they differ from the specification. If they are intended, the specification is what needs fixing.
+
 ## Outcomes
 
 | Status | Meaning | Exit code effect |

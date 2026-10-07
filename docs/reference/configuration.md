@@ -56,7 +56,7 @@ Connection to the API under test and to the gateway admin plane.
 | `gateway_adapter` | string \| null | `null` | `kong` only | Adapter used by WHITE_BOX configuration-audit tests. `null` → those tests SKIP even if `admin_api_url` is set. |
 | `admin_connect_timeout_seconds` | float | `5.0` | 1-30 | TCP connect timeout for Admin API calls. |
 | `admin_read_timeout_seconds` | float | `10.0` | 1-60 | Read timeout for Admin API calls. |
-| `path_seed` | map string→string | `{}` | - | Real values for OpenAPI path parameters (`{owner}` → `"alice"`). Unlisted parameters fall back to the test's placeholder (typically `1`). Generate with [`apiguard generate-seed`](cli.md#generate-seed). |
+| `path_seed` | map string→string | `{}` | - | Real values for OpenAPI path parameters (`{owner}` → `"alice"`). Unlisted parameters fall back to the test's placeholder (typically `1`). Generate with [`apiguard generate-seed`](cli.md#generate-seed). **Use only test resources you can lose:** the values are used for every request, including `DELETE` and writes sent without credentials (test 1.1); on an API without protection on those endpoints they are deleted or changed. |
 | `verify_tls` | bool | `true` | - | Verify the TLS certificate of `base_url`. Set `false` only for lab gateways with self-signed certificates. Also applied to the HTTP-redirect probe of test 1.5. |
 
 ## `credentials`

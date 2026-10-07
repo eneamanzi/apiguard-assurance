@@ -145,9 +145,13 @@ plain SSH, connect with `ssh -L 8080:localhost:8080 <host>`.
 ## Read with care
 
 - **PASS is bounded by coverage.** Each test page lists the parts of the methodology it does not implement.
+- **Findings are differences from the test's oracle, to be judged by the analyst**
+  ([oracles and verdicts](../../architecture/assessment-model.md#oracles-and-verdicts)). Example: test 1.1 compares
+  the API with its specification. On the lab, all 78 findings are anonymous `GET` requests answered `200` on
+  endpoints the specification declares as protected, while Forgejo serves that data to everyone on purpose. They are
+  real differences from the specification: check whether they are intended; if so, it is the specification that is
+  wrong.
 - **Known limits that produce misleading findings:**
-  - 1.1 reports anonymous reads of public data as authentication bypass when the specification declares every
-    endpoint as protected (on the lab, all 78 findings are of this kind; Q-47).
   - 1.5 reports a false FAIL if `http_probe_url` is not set on an HTTPS port that is not 443
     ([configure a target](configure-a-target.md#2-tls)).
   - 2.1 on a non-Forgejo target with the default `admin_endpoint_paths` can PASS without testing anything (Q-18).

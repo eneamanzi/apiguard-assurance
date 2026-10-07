@@ -80,9 +80,13 @@ If no non-parametric endpoint answered `401`/`403`, phases B to C are skipped.
 
 - OpenAPI specification with `security` declarations. No credentials.
 - **Write methods are sent without credentials** (`POST`/`PUT`/`PATCH` with `{}`, `DELETE` on parametric paths).
-  On a correctly protected target they are rejected before reaching the business logic. **If `path_seed`
-  contains real identifiers, an unauthenticated `DELETE` is sent to the real resource**: a target without
-  authentication on that endpoint would delete it.
+  On a correctly protected target they are rejected before reaching the business logic. **The `DELETE` uses the
+  resources listed in `path_seed`**: a target without authentication on that endpoint deletes them. This is
+  intended: `path_seed` must list only test resources you can lose (on the lab, the ones the setup creates).
+- After a successful unauthenticated `DELETE` (a finding) the resource is gone: later requests that use it, in this
+  and in the following tests, end inconclusive or in error. The tool does not restore it (it cannot recreate a
+  resource it did not create); restore the environment before the next run (on the lab: reset from scratch,
+  [first assessment](../../getting-started/first-assessment.md) steps 2-3).
 - Number of requests: one per protected endpoint (all of them by default) plus up to 11 for phases B to C.
 
 ## Configuration

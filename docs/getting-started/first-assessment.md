@@ -233,6 +233,7 @@ cd ../..
 
 | Symptom | Cause and fix |
 |---|---|
+| test 1.1 reports a successful `DELETE` without credentials, or many results became inconclusive after a previous run | a test resource of `path_seed` was deleted: reset the lab from scratch (step 2, then step 3). Running only the setup again is not enough, because Forgejo gives recreated resources new numbers (issue 1 would come back as issue 2) |
 | `required variable ... is missing a value` or `... missing in .env` | `--env-file ../../.env` missing from the command, `.env` does not exist (step 1), or the variable is missing from `.env` (compare with `.env.example`) |
 | `... creation failed: HTTP ...` in the setup output | Forgejo rejected the request: check `USER_A_USERNAME`, `USER_A_PASSWORD` and the `LAB_TEST_*` names in `.env`, reset (step 2) and start again |
 | Kong never becomes healthy and `docker logs kong` shows `Permission denied` on `server.key` | the key is not readable by Kong (permissions changed by hand, or created without `gen-certs.sh`): run `chmod 644 test-environments/forgejo-kong/certs/server.key`, then restart Kong as in [If you regenerate the TLS certificate](#if-you-regenerate-the-tls-certificate) |

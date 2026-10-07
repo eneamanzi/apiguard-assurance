@@ -36,11 +36,11 @@ page is written twice.
 | 5 | 3.A Close the questions already settled (Q-01, Q-42, Q-07, Q-08) | done |
 | 6 | 3.B/3.C quick decisions without code: ~~Q-12~~ (closed), ~~Q-03~~ (closed), ~~Q-14~~ (closed), ~~Q-37~~ (decided, moved to 3.D), ~~Q-49~~ (closed), ~~Q-09~~ (closed), ~~Q-32~~ (moved to 3.D with Q-29), Q-33 (with 2.3 translation) (one at a time, discussed in full) | done (Q-33 waits for step 10) |
 | 7 | 3.B remaining: ~~Q-02~~ (closed), ~~Q-15~~ (decided, moved to 3.D), ~~Q-17~~ (light fix done, rewrite moved to 3.D) (Q-25 moved to 3.D) | done |
-| 8 | 3.C questions where Claude leans to a code change: Q-10, Q-24, Q-31, Q-47; then Q-11, Q-18, Q-26, Q-30 | to do |
-| 9 | 3.D Questions that need code: discuss and plan (first the contract 1.0 block Q-25 + Q-20, Q-22, Q-23, Q-45, Q-50, Q-54, then 2.2 `guides/integration/`; small bugs Q-35, Q-21, Q-48; comments Q-19, Q-28; second lab Q-52, then agnosticism Q-43, Q-38, Q-18, Q-34; process) | to do |
+| 8 | 3.C (done 2026-10-07): ~~Q-10~~ (decided, moved to 3.D), ~~Q-24~~ (decided, moved to 3.D), ~~Q-31~~ (decided, moved to 3.D), ~~Q-47~~ (closed); then ~~Q-11~~ (deferred, owner asks), ~~Q-18~~ (moved to 3.D, agnosticism), ~~Q-26~~ (decided, moved to 3.D), ~~Q-30~~ (decided, code items moved to 3.D) | done |
+| 9 | 3.D Code work, block by block (see Phase 4 below): each block is planned in detail with the owner, then implemented one change at a time | in progress (block 1) |
 | 10 | 2.3 `knowledge/` translation (with Q-33) | to do |
 
-Phase 4 (implementation) follows the decisions of 3.C and 3.D; Phase 5 with the process questions of 3.D.
+Phase 4 (implementation) follows the block order below; Phase 5 is block 9.
 
 ## Phase 2 - Finish the documentation
 
@@ -68,15 +68,35 @@ means deleting its entry from `OPEN_QUESTIONS.md` and writing the decision in th
 | 3.1 | Test lab | - | done 2026-10-06 (Q-40, Q-41, Q-46 closed) |
 | 3.A | Already settled | - | done 2026-10-06 (Q-01, Q-07, Q-08, Q-42 closed) |
 | 3.B | Decision + documentation only | Q-33 | with the `knowledge/` translation |
-| 3.C | "Document as is" or "change the code" | Q-10, Q-11, Q-18, Q-24, Q-26, Q-30, Q-31, Q-47 | a question whose decision needs code moves to 3.D |
-| 3.D | Code or process changes | **first block, "contract 1.0": Q-25 with Q-20, Q-22, Q-23, Q-45, Q-50, Q-54 (review in depth, after the 3.C decisions)**; Q-20, Q-21, Q-22, Q-23, Q-35, Q-44, Q-45, Q-48, Q-50 (behaviour); Q-19, Q-28, Q-15 (comments, stale paths, one import: cleanup block); Q-27, Q-34, Q-36, Q-38, Q-43 (features); Q-17 (rewrite `roadmap.md` as a product roadmap, last step of the 3.D planning); Q-04, Q-13, Q-16, Q-39, Q-51 (tooling, CI, E2E suite); Q-29 + Q-32 (per-test quality review: weak oracles and missing sub-tests, test by test); Q-53 then Q-37 (single definition of test parameters, every test has a config model; after Q-51); Q-52 (second lab, cRAPI: before the agnosticism work) | discussed and planned after 3.B and 3.C |
-| - | Deferred | Q-05, Q-06 | licence, security policy |
+| 3.C | "Document as is" or "change the code" | - | a question whose decision needs code moves to 3.D |
+| 3.D | Code or process changes | all remaining questions except Q-33 and the deferred ones | organised in blocks, see Phase 4 |
+| - | Deferred | Q-05, Q-06, Q-11 | licence, security policy, sslyze AGPL (waiting for the product's distribution model) |
 
 ## Phase 4 - Implement the decisions
 
-After each group of Phase 3 is decided, in the same group order. Each change: Claude states the files and the plan, waits for the go,
-changes them, and gives the owner a test to run (usually: reset, steps 0-5 of the first assessment, compare the
-report). The documentation page affected is updated in the same change.
+Block order agreed on 2026-10-07. Every block is first planned in detail with the owner (scope, files, how it is
+verified); then each change follows the usual rule: Claude states the files and the plan, waits for the go, changes
+them, verifies on the lab with only the affected tests, and gives the owner a check to run. The documentation page
+affected is updated in the same change.
+
+| # | Block | Questions | Content | Risk | Status |
+|---|---|---|---|---|---|
+| 1 | Safety net | Q-51, Q-39 | E2E suite on the lab (expected results compared automatically); `ruff format`, automatic layering check (`import-linter`) in `dev:check` | low: adds checks only | to plan |
+| 2 | Cleanup | Q-19, Q-28, Q-15, Q-26 (descriptions), Q-24 (`sslyze.extra_flags`) | stale paths and comments, comments that contradict the code, one import, one no-op field | very low | to do |
+| 3 | Small bugs | Q-35, Q-21, Q-48, Q-36, Q-27, Q-13 | spec fetch hang, `generate-seed` stdout, warning messages, two unwired features (implement or remove), broken `dev:docs` | low-medium | to do |
+| 4 | Configuration structure | Q-53, Q-37 | one definition per parameter (models in `core/`), every test has a config model, check in `dev:check` | medium: after block 1 | to do |
+| 5 | Contract 1.0 | Q-25, Q-20, Q-22, Q-23, Q-45, Q-50, Q-54, Q-10, Q-31, Q-26 ("not run by choice" list), Q-44 | everything an integrator sees; then the stability policy | medium-high | to do |
+| - | Integration guide | (step 2.2) | written on the fixed contract | - | to do |
+| 6 | Test quality review | Q-29, Q-32, Q-30 (code items), Q-24 (7.2 timeout) | test by test: oracles, missing sub-tests, 1.1 `DELETE` last + `path_seed` check, 7.2 cleanup | high: one test at a time | to do |
+| 7 | Second lab | Q-52 | cRAPI behind Kong, pinned, automated setup | low for the tool | to do |
+| 8 | Agnosticism | Q-18, Q-43, Q-38, Q-34 | per-test portability analysis on both labs, then remove Forgejo/Kong ties, protected Admin API | high | to do |
+| 9 | Process | Q-16, Q-04 | CI (`dev:check` + E2E), generated documentation with drift check | low | to do |
+| 10 | Roadmap | Q-17 | rewrite as a product roadmap | none | to do |
+
+Ordering rationale: the safety net first, so every later change is checked in minutes; risk-free work next; the
+configuration structure before the contract and the test review (both touch test parameters); the contract (output
+format) before the test review (output content); the second lab before the agnosticism work. Block 9 may move right
+after block 1; block 7 is independent.
 
 ## Phase 5 - Process
 
@@ -110,3 +130,12 @@ CI (Q-16), E2E test suite (Q-51), documentation generated from code with a drift
 | 2026-10-06 | Closed by the owner: Q-02 (Python range = versions verified on the lab: `>=3.11,<3.15`; 3.11.14, 3.12.3, 3.13.9, 3.14.0 give identical results on the 15 native tests + `ext.1.5.sslyze`). Found during the check: `.env` is not read when the tool is installed with pip (Q-54, contract block); docs corrected to describe the real behaviour |
 | 2026-10-06 | Decided by the owner: Q-15 (no exception to the dependency rule: fix the import in `external_tests/registry.py`, same class object; add an automatic layering check to `dev:check`, noted in Q-39); moved to the 3.D cleanup block |
 | 2026-10-06 | Q-17: the roadmap conflict no longer exists (`roadmap.md` is the only source); light correction done (thesis wording removed, Milestone 2 = candidate tests, pointer to `plan.md`); full rewrite as product roadmap moved to the end of the 3.D planning |
+| 2026-10-06 | Decided in principle by the owner: Q-10 (strategy = what the tester has: BLACK_BOX external user, GREY_BOX normal user, WHITE_BOX super user; labels must be true and the filter must apply to external tests too). Per-test label review and code in the contract 1.0 block, done carefully later; methodology alignment added to Q-33 |
+| 2026-10-07 | Decided in principle by the owner: Q-24 (no config option without effect: remove `sslyze.extra_flags`; `ssrf_request_timeout_ms` decided during the 7.2 review); moved to 3.D. Stale docstring in `external_tests/base.py:851` added to Q-28 |
+| 2026-10-07 | Decided in principle by the owner: Q-31 (redact only secret values with meaningful placeholders: role in `Authorization`, cookie attributes kept, fingerprint of the 1.4 token; bodies not redacted; every redaction justified and verified on the lab before/after); contract 1.0 block |
+| 2026-10-07 | Closed by the owner: Q-47 (each test has its oracle; a reliable oracle's verdict is trusted; differences are reported and judged by the analyst; the 1.1 reads stay findings). Principle written in `assessment-model.md` ("Oracles and verdicts"), `read-the-report.md` reworded; read/write split in the 1.1 message added to Q-29 as an idea |
+| 2026-10-07 | Q-11 deferred: the owner will ask how the product will be distributed; sslyze stays optional, fallback is leaving it out; the integration guide must warn about `[sslyze]`; decide with Q-05 |
+| 2026-10-07 | Decided by the owner: Q-26 (absent = not selected, SKIP = something missing, never mixed; fix the code descriptions; evaluate a "not run by choice" list with reasons in every output, contract 1.0 block) |
+| 2026-10-07 | Decided by the owner: Q-30 (keep behaviour; `path_seed` = volatile test resources that may receive any request, said everywhere; the tool does not restore deleted resources, the environment does: lab = full reset; 1.1 review: `DELETE` last + post-check of `path_seed` resources; 7.2 `fixed_path` cleanup or declaration). Docs updated: `configuration.md`, test 1.1 page, `first-assessment.md` troubleshooting |
+| 2026-10-07 | Q-18 moved to 3.D (agnosticism block, after the cRAPI lab Q-52). Groups 3.B and 3.C done |
+| 2026-10-07 | Phase 4 organised in 10 blocks (owner approved order); block 1 (safety net: E2E suite Q-51, tooling Q-39) starts with its detailed plan |
