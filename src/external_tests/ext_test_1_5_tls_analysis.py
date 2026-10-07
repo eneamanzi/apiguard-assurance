@@ -154,9 +154,7 @@ _NOTE_ANALYST_SUFFIX: str = (
 #   ([^ ,\"'\t\n]+)-- captured group: the filename (last component, kept)
 #
 # Promoted to module level (A6) to avoid recompiling on every _evaluate() call.
-_ABS_PATH_RE: re.Pattern[str] = re.compile(
-    r"(?:^|(?<=\s))[/\\][^ ,\"'\t\n]*[/\\]([^ ,\"'\t\n]+)"
-)
+_ABS_PATH_RE: re.Pattern[str] = re.compile(r"(?:^|(?<=\s))[/\\][^ ,\"'\t\n]*[/\\]([^ ,\"'\t\n]+)")
 
 # Remediation text mapped by testssl.sh finding ID prefix.
 # Keys are substrings matched against the finding ID (lowercase).
@@ -771,9 +769,7 @@ class ExtTest15SslyzeAnalysis(ExternalToolTest):
                     f"[{str(item.get('severity', '')).upper()}] "
                     f"TLS observation: {item.get('id', 'unknown')}"
                 ),
-                detail=(
-                    f"{item.get('finding', '')}  {_SSLYZE_NOTE_ANALYST_SUFFIX}"
-                ),
+                detail=(f"{item.get('finding', '')}  {_SSLYZE_NOTE_ANALYST_SUFFIX}"),
                 references=list(_SSLYZE_REFERENCES),
             )
             for item in note_items
@@ -787,9 +783,9 @@ class ExtTest15SslyzeAnalysis(ExternalToolTest):
                         f"TLS Issue: {item.get('id', 'unknown')}"
                     ),
                     detail=(
-                        f"{item.get('finding', '')}  "
-                        f"CVE: {item.get('cve', '')}." if item.get("cve") else
-                        f"{item.get('finding', '')}"
+                        f"{item.get('finding', '')}  CVE: {item.get('cve', '')}."
+                        if item.get("cve")
+                        else f"{item.get('finding', '')}"
                     ),
                     references=(
                         list(_SSLYZE_REFERENCES) + ([item["cve"]] if item.get("cve") else [])
@@ -799,9 +795,7 @@ class ExtTest15SslyzeAnalysis(ExternalToolTest):
                 for item in fail_items
             ]
             note_count = len(all_notes)
-            message_parts = [
-                f"sslyze found {len(fail_items)} critical/high TLS issue(s)."
-            ]
+            message_parts = [f"sslyze found {len(fail_items)} critical/high TLS issue(s)."]
             if note_count:
                 message_parts.append(
                     f"Additionally, {note_count} MEDIUM observation(s) are listed as notes."

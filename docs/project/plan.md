@@ -81,7 +81,7 @@ affected is updated in the same change.
 
 | # | Block | Questions | Content | Risk | Status |
 |---|---|---|---|---|---|
-| 1 | Safety net | Q-51, Q-39 | E2E suite on the lab (expected results compared automatically); `ruff format`, automatic layering check (`import-linter`) in `dev:check` | low: adds checks only | to plan |
+| 1 | Safety net | Q-39 (+ Q-15) | development helper `scripts/compare_reports.py` (compare two reports, development only, to be removed later); `ruff format` + check in `dev:check` (Markdown excluded); `import-linter` with the dependency rule in `dev:check` (after fixing Q-15); the two rule exceptions written in CLAUDE.md and `coding-rules.md`. Pre-commit hook comes with block 9 | low: adds checks only, no behaviour change | in progress (helper and `ruff format` done) |
 | 2 | Cleanup | Q-19, Q-28, Q-15, Q-26 (descriptions), Q-24 (`sslyze.extra_flags`) | stale paths and comments, comments that contradict the code, one import, one no-op field | very low | to do |
 | 3 | Small bugs | Q-35, Q-21, Q-48, Q-36, Q-27, Q-13 | spec fetch hang, `generate-seed` stdout, warning messages, two unwired features (implement or remove), broken `dev:docs` | low-medium | to do |
 | 4 | Configuration structure | Q-53, Q-37 | one definition per parameter (models in `core/`), every test has a config model, check in `dev:check` | medium: after block 1 | to do |
@@ -90,6 +90,7 @@ affected is updated in the same change.
 | 6 | Test quality review | Q-29, Q-32, Q-30 (code items), Q-24 (7.2 timeout) | test by test: oracles, missing sub-tests, 1.1 `DELETE` last + `path_seed` check, 7.2 cleanup | high: one test at a time | to do |
 | 7 | Second lab | Q-52 | cRAPI behind Kong, pinned, automated setup | low for the tool | to do |
 | 8 | Agnosticism | Q-18, Q-43, Q-38, Q-34 | per-test portability analysis on both labs, then remove Forgejo/Kong ties, protected Admin API | high | to do |
+| 6b | E2E suite | Q-51 | after the test review: expected results with a stated basis (`lab-design` from the lab configuration, or `observed`), ideally each test proven on a secure and a vulnerable lab variant | low | to do |
 | 9 | Process | Q-16, Q-04 | CI (`dev:check` + E2E), generated documentation with drift check | low | to do |
 | 10 | Roadmap | Q-17 | rewrite as a product roadmap | none | to do |
 
@@ -139,3 +140,5 @@ CI (Q-16), E2E test suite (Q-51), documentation generated from code with a drift
 | 2026-10-07 | Decided by the owner: Q-30 (keep behaviour; `path_seed` = volatile test resources that may receive any request, said everywhere; the tool does not restore deleted resources, the environment does: lab = full reset; 1.1 review: `DELETE` last + post-check of `path_seed` resources; 7.2 `fixed_path` cleanup or declaration). Docs updated: `configuration.md`, test 1.1 page, `first-assessment.md` troubleshooting |
 | 2026-10-07 | Q-18 moved to 3.D (agnosticism block, after the cRAPI lab Q-52). Groups 3.B and 3.C done |
 | 2026-10-07 | Phase 4 organised in 10 blocks (owner approved order); block 1 (safety net: E2E suite Q-51, tooling Q-39) starts with its detailed plan |
+| 2026-10-07 | Owner decision: no E2E suite now (expected values would encode results that block 6 will change); Q-51 moved after block 6. Block 1 = development helper `scripts/compare_reports.py` (written and verified) + Q-39 tooling. `ruff format` configuration checked: adequate (line width 100 as the linter, double quotes, preview off); ruff 0.16 also formats Markdown code blocks, to be excluded |
+| 2026-10-07 | Block 1 step 2 done: `ruff format` on 7 files (syntax trees identical to HEAD), `ruff format --check .` in `dev:check`, Markdown excluded; lab: 15 native tests and `ext.1.5.sslyze` unchanged (compare_reports: no differences) |

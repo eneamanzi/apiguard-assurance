@@ -312,6 +312,7 @@ audit = [
 ]
 check = [
     "ruff check .",
+    "ruff format --check .",
     "mypy src/ ",
     "bandit -r src/ -c pyproject.toml --severity-level medium",
     "vulture src/ --min-confidence 80",
@@ -386,6 +387,9 @@ ignore = [
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
+# Code blocks in the Markdown docs are hand-written illustrations (partial
+# snippets, "..."): do not reformat them.
+exclude = ["*.md"]
 
 # ---------------------------------------------------------------------------
 # Mypy: strict type checking configuration.

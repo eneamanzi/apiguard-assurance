@@ -519,4 +519,3 @@ class Test15InsecureCredentialTransport(BaseTest):
             )
 
         return findings
-

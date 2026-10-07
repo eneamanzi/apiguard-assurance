@@ -128,9 +128,7 @@ class TestsslConfig(BaseExternalToolConfig):
 
     enabled: bool = Field(
         default=False,
-        description=(
-            "Enable the testssl.sh connector.  When True, timeout_seconds is mandatory."
-        ),
+        description=("Enable the testssl.sh connector.  When True, timeout_seconds is mandatory."),
     )
     timeout_seconds: int | None = Field(
         default=None,
@@ -155,9 +153,7 @@ class NucleiConfig(BaseExternalToolConfig):
 
     enabled: bool = Field(
         default=False,
-        description=(
-            "Enable the nuclei connector.  When True, timeout_seconds is mandatory."
-        ),
+        description=("Enable the nuclei connector.  When True, timeout_seconds is mandatory."),
     )
     timeout_seconds: int | None = Field(
         default=None,

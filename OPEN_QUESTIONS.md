@@ -302,8 +302,11 @@ None has been changed in code.
   - [ ] `claude-rules.it.md` §5.3 says code must pass `ruff format --check .`; it does not (7 files would be reformatted: `src/config/schema/domain_4.py`, `src/connectors/sslyze.py`, `src/core/models/external_tools.py`, `src/external_tests/ext_test_0_1_shadow_api_nuclei.py`, `src/external_tests/ext_test_1_5_tls_analysis.py`, `src/tests/domain_1/test_1_4_token_revocation.py`, `src/tests/domain_1/test_1_5_insecure_credential_transport.py`) and `hatch run dev:check` does not include the format check.
   - [ ] `claude-rules.it.md` §5.6 refers to an E2E suite in `tests_e2e/` that does not exist (planned: Q-51).
   - [ ] The dependency rule (`core/` ← `connectors/` ← `tests/`, `external_tests/` ← `engine.py`) is not checked automatically; owner decision on Q-15 (2026-10-06): add a check (e.g. `import-linter`) to `dev:check`.
+  - [ ] `pyproject.toml` excludes `scripts/` from ruff (`[tool.ruff] exclude`, line 375) but defines `per-file-ignores` for `scripts/*` (line 384): the ignores never apply. Harmless; decide whether `scripts/` should be linted.
+  - [ ] ruff 0.16 also formats Python code blocks inside Markdown files (`ruff format --check .` reports `add-a-native-test.md`, `add-an-external-test.md`): exclude `*.md` from the formatter (owner decision 2026-10-07, block 1).
   - [ ] `hatch run dev:check` passes (ruff check, mypy strict, bandit medium, vulture 80) as of 2026-10-05.
 - How to verify: decision with user; `hatch run dev:ruff format --check .`.
+- Done (2026-10-07, block 1 step 2): `ruff format` applied to the 7 Python files (syntax trees identical to the previous commit; 15 native tests and `ext.1.5.sslyze` give the same results on the lab); `ruff format --check .` added to `dev:check`; Markdown excluded from the formatter (`[tool.ruff.format] exclude = ["*.md"]`). Remaining items: rule exceptions, `scripts/` lint config, E2E reference (Q-51), layering check (with Q-15).
 - Resolution:
 
 ### Q-43 - The tool is meant to be application- and gateway-agnostic, but several parts are tied to Forgejo and Kong
@@ -353,6 +356,7 @@ None has been changed in code.
 - Source: decision on the former Q-12 (owner, 2026-10-06). The tool has no automated tests (`pyproject.toml` `[tool.pytest.ini_options] testpaths = []`, no test files); `docs/project/claude-rules.it.md` §5.6 planned a `tests_e2e/` suite against the real lab, never built. The dev environment installs `pytest`, `pytest-asyncio` and `pytest-httpx`, all unused; `pytest-httpx` mocks HTTP, which the project rules forbid.
 - Evidence (2026-10-06): the lab created from scratch gives identical results on every run (test 1.1: `AUTH_BYPASS` 78, `INCONCLUSIVE_PARAMETRIC` 63, `ENFORCED` 311 in two independent fresh labs), so expected outcomes can be written down and compared automatically.
 - Question: build the suite as pytest (run the tool on the lab, assert per-test status, finding counts, no ERROR) or as a lighter expected-results file plus a comparison script? Where are the expected values stored, and how are they updated when the lab changes? Remove `pytest-httpx` at the same time. Planned together with CI (Q-16).
+- Owner decision (2026-10-07): not now. Expected values taken from today's output would only freeze current results (regression, not correctness), and block 6 will change them. Build the suite after the test quality review, with each expected result stating its basis: `lab-design` (justified by the lab configuration, e.g. 4.1 FAIL because `rate-limiting` is commented out in `kong.yml:36`; 6.2 PASS because Kong adds the headers and `KONG_HEADERS=off`; 1.5 PASS because port 8000 redirects with 301) or `observed`; ideally prove each test on a secure and a vulnerable lab variant. Meanwhile regressions are checked by comparing two reports with `scripts/compare_reports.py`.
 - Resolution:
 
 ### Q-52 - Second official lab: cRAPI

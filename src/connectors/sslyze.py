@@ -198,17 +198,14 @@ class SslyzeConnector(BaseLibraryConnector):
                 err_trace = str(result.connectivity_error_trace)[:300]
             raise ExternalToolError(
                 message=(
-                    f"sslyze could not connect to {host}:{port}.  "
-                    f"Connectivity error: {err_trace}"
+                    f"sslyze could not connect to {host}:{port}.  Connectivity error: {err_trace}"
                 ),
                 tool_name=self.TOOL_NAME,
                 exit_code=-1,
                 timed_out=False,
             )
 
-        all_findings: list[TlsFinding] = self._normalize_findings(
-            result.scan_result
-        )
+        all_findings: list[TlsFinding] = self._normalize_findings(result.scan_result)
 
         log.info(
             "sslyze_connector_run_complete",
@@ -243,9 +240,7 @@ class SslyzeConnector(BaseLibraryConnector):
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _normalize_findings(
-        self, scan_result: AllScanCommandsAttempts
-    ) -> list[TlsFinding]:
+    def _normalize_findings(self, scan_result: AllScanCommandsAttempts) -> list[TlsFinding]:
         """
         Convert sslyze's structured scan result into a flat list of TlsFinding.
 
@@ -268,162 +263,188 @@ class SslyzeConnector(BaseLibraryConnector):
 
         ssl2 = scan_result.ssl_2_0_cipher_suites
         if ssl2.result and ssl2.result.accepted_cipher_suites:
-            findings.append({
-                "id": "ssl_2_0",
-                "severity": "CRITICAL",
-                "finding": (
-                    f"SSLv2 supported: {len(ssl2.result.accepted_cipher_suites)} "
-                    f"accepted cipher suite(s).  RFC 6176: SSLv2 must be disabled."
-                ),
-                "cve": "",
-            })
+            findings.append(
+                {
+                    "id": "ssl_2_0",
+                    "severity": "CRITICAL",
+                    "finding": (
+                        f"SSLv2 supported: {len(ssl2.result.accepted_cipher_suites)} "
+                        f"accepted cipher suite(s).  RFC 6176: SSLv2 must be disabled."
+                    ),
+                    "cve": "",
+                }
+            )
 
         ssl3 = scan_result.ssl_3_0_cipher_suites
         if ssl3.result and ssl3.result.accepted_cipher_suites:
-            findings.append({
-                "id": "ssl_3_0",
-                "severity": "HIGH",
-                "finding": (
-                    f"SSLv3 supported: {len(ssl3.result.accepted_cipher_suites)} "
-                    f"accepted cipher suite(s).  RFC 7568: SSLv3 must be disabled."
-                ),
-                "cve": "",
-            })
+            findings.append(
+                {
+                    "id": "ssl_3_0",
+                    "severity": "HIGH",
+                    "finding": (
+                        f"SSLv3 supported: {len(ssl3.result.accepted_cipher_suites)} "
+                        f"accepted cipher suite(s).  RFC 7568: SSLv3 must be disabled."
+                    ),
+                    "cve": "",
+                }
+            )
 
         tls10 = scan_result.tls_1_0_cipher_suites
         if tls10.result and tls10.result.accepted_cipher_suites:
-            findings.append({
-                "id": "tls_1_0",
-                "severity": "MEDIUM",
-                "finding": (
-                    f"TLS 1.0 supported: {len(tls10.result.accepted_cipher_suites)} "
-                    f"accepted cipher suite(s).  RFC 8996: TLS 1.0 deprecated."
-                ),
-                "cve": "",
-            })
+            findings.append(
+                {
+                    "id": "tls_1_0",
+                    "severity": "MEDIUM",
+                    "finding": (
+                        f"TLS 1.0 supported: {len(tls10.result.accepted_cipher_suites)} "
+                        f"accepted cipher suite(s).  RFC 8996: TLS 1.0 deprecated."
+                    ),
+                    "cve": "",
+                }
+            )
 
         tls11 = scan_result.tls_1_1_cipher_suites
         if tls11.result and tls11.result.accepted_cipher_suites:
-            findings.append({
-                "id": "tls_1_1",
-                "severity": "MEDIUM",
-                "finding": (
-                    f"TLS 1.1 supported: {len(tls11.result.accepted_cipher_suites)} "
-                    f"accepted cipher suite(s).  RFC 8996: TLS 1.1 deprecated."
-                ),
-                "cve": "",
-            })
+            findings.append(
+                {
+                    "id": "tls_1_1",
+                    "severity": "MEDIUM",
+                    "finding": (
+                        f"TLS 1.1 supported: {len(tls11.result.accepted_cipher_suites)} "
+                        f"accepted cipher suite(s).  RFC 8996: TLS 1.1 deprecated."
+                    ),
+                    "cve": "",
+                }
+            )
 
         # --- Known vulnerabilities ---
 
         hb = scan_result.heartbleed
         if hb.result and hb.result.is_vulnerable_to_heartbleed:
-            findings.append({
-                "id": "heartbleed",
-                "severity": "CRITICAL",
-                "finding": (
-                    "Vulnerable to Heartbleed: attacker can read up to 64 KB of "
-                    "server process memory per request.  Patch OpenSSL immediately."
-                ),
-                "cve": "CVE-2014-0160",
-            })
+            findings.append(
+                {
+                    "id": "heartbleed",
+                    "severity": "CRITICAL",
+                    "finding": (
+                        "Vulnerable to Heartbleed: attacker can read up to 64 KB of "
+                        "server process memory per request.  Patch OpenSSL immediately."
+                    ),
+                    "cve": "CVE-2014-0160",
+                }
+            )
 
         rob = scan_result.robot
         if rob.result:
             rv: str = rob.result.robot_result.value
             if rv == _ROBOT_STRONG_ORACLE:
-                findings.append({
-                    "id": "robot_strong_oracle",
-                    "severity": "CRITICAL",
-                    "finding": (
-                        "Vulnerable to ROBOT attack (strong oracle): RSA PKCS#1 v1.5 "
-                        "padding oracle allows passive MITM decryption of TLS sessions."
-                    ),
-                    "cve": "",
-                })
+                findings.append(
+                    {
+                        "id": "robot_strong_oracle",
+                        "severity": "CRITICAL",
+                        "finding": (
+                            "Vulnerable to ROBOT attack (strong oracle): RSA PKCS#1 v1.5 "
+                            "padding oracle allows passive MITM decryption of TLS sessions."
+                        ),
+                        "cve": "",
+                    }
+                )
             elif rv == _ROBOT_WEAK_ORACLE:
-                findings.append({
-                    "id": "robot_weak_oracle",
-                    "severity": "HIGH",
-                    "finding": (
-                        "Vulnerable to ROBOT attack (weak oracle): may allow RSA PKCS#1 "
-                        "v1.5 padding oracle attacks with sufficient queries."
-                    ),
-                    "cve": "",
-                })
+                findings.append(
+                    {
+                        "id": "robot_weak_oracle",
+                        "severity": "HIGH",
+                        "finding": (
+                            "Vulnerable to ROBOT attack (weak oracle): may allow RSA PKCS#1 "
+                            "v1.5 padding oracle attacks with sufficient queries."
+                        ),
+                        "cve": "",
+                    }
+                )
 
         ccs = scan_result.openssl_ccs_injection
         if ccs.result and ccs.result.is_vulnerable_to_ccs_injection:
-            findings.append({
-                "id": "openssl_ccs_injection",
-                "severity": "HIGH",
-                "finding": (
-                    "Vulnerable to OpenSSL CCS Injection: attacker can force weak "
-                    "keying material via premature ChangeCipherSpec injection."
-                ),
-                "cve": "CVE-2014-0224",
-            })
+            findings.append(
+                {
+                    "id": "openssl_ccs_injection",
+                    "severity": "HIGH",
+                    "finding": (
+                        "Vulnerable to OpenSSL CCS Injection: attacker can force weak "
+                        "keying material via premature ChangeCipherSpec injection."
+                    ),
+                    "cve": "CVE-2014-0224",
+                }
+            )
 
         rn = scan_result.session_renegotiation
         if rn.result:
             if rn.result.is_vulnerable_to_client_renegotiation_dos:
-                findings.append({
-                    "id": "client_renegotiation_dos",
-                    "severity": "HIGH",
-                    "finding": (
-                        "Client-initiated renegotiation DoS: server accepts unrestricted "
-                        "renegotiation requests, enabling CPU exhaustion attacks."
-                    ),
-                    "cve": "",
-                })
+                findings.append(
+                    {
+                        "id": "client_renegotiation_dos",
+                        "severity": "HIGH",
+                        "finding": (
+                            "Client-initiated renegotiation DoS: server accepts unrestricted "
+                            "renegotiation requests, enabling CPU exhaustion attacks."
+                        ),
+                        "cve": "",
+                    }
+                )
             if not rn.result.supports_secure_renegotiation:
-                findings.append({
-                    "id": "insecure_renegotiation",
-                    "severity": "MEDIUM",
-                    "finding": (
-                        "Secure renegotiation not supported (RFC 5746): MITM injection "
-                        "during handshake renegotiation is possible."
-                    ),
-                    "cve": "",
-                })
+                findings.append(
+                    {
+                        "id": "insecure_renegotiation",
+                        "severity": "MEDIUM",
+                        "finding": (
+                            "Secure renegotiation not supported (RFC 5746): MITM injection "
+                            "during handshake renegotiation is possible."
+                        ),
+                        "cve": "",
+                    }
+                )
 
         # --- Protocol features that increase attack surface ---
 
         tc = scan_result.tls_compression
         if tc.result and tc.result.supports_compression:
-            findings.append({
-                "id": "tls_compression",
-                "severity": "MEDIUM",
-                "finding": (
-                    "TLS compression enabled: vulnerable to CRIME side-channel attack "
-                    "(compression ratio leaks plaintext content)."
-                ),
-                "cve": "",
-            })
+            findings.append(
+                {
+                    "id": "tls_compression",
+                    "severity": "MEDIUM",
+                    "finding": (
+                        "TLS compression enabled: vulnerable to CRIME side-channel attack "
+                        "(compression ratio leaks plaintext content)."
+                    ),
+                    "cve": "",
+                }
+            )
 
         ed = scan_result.tls_1_3_early_data
         if ed.result and ed.result.supports_early_data:
-            findings.append({
-                "id": "tls_1_3_early_data",
-                "severity": "MEDIUM",
-                "finding": (
-                    "TLS 1.3 0-RTT early data enabled: non-idempotent requests sent "
-                    "as early data are vulnerable to replay attacks."
-                ),
-                "cve": "",
-            })
+            findings.append(
+                {
+                    "id": "tls_1_3_early_data",
+                    "severity": "MEDIUM",
+                    "finding": (
+                        "TLS 1.3 0-RTT early data enabled: non-idempotent requests sent "
+                        "as early data are vulnerable to replay attacks."
+                    ),
+                    "cve": "",
+                }
+            )
 
         fb = scan_result.tls_fallback_scsv
         if fb.result and not fb.result.supports_fallback_scsv:
-            findings.append({
-                "id": "tls_fallback_scsv_missing",
-                "severity": "MEDIUM",
-                "finding": (
-                    "TLS_FALLBACK_SCSV not supported: protocol downgrade attacks "
-                    "(e.g. POODLE) are not mitigated at the handshake level."
-                ),
-                "cve": "",
-            })
+            findings.append(
+                {
+                    "id": "tls_fallback_scsv_missing",
+                    "severity": "MEDIUM",
+                    "finding": (
+                        "TLS_FALLBACK_SCSV not supported: protocol downgrade attacks "
+                        "(e.g. POODLE) are not mitigated at the handshake level."
+                    ),
+                    "cve": "",
+                }
+            )
 
         # --- Certificate chain ---
 
@@ -433,32 +454,33 @@ class SslyzeConnector(BaseLibraryConnector):
                 path_results = depl.path_validation_results
                 if path_results:
                     all_untrusted = all(
-                        pv.verified_certificate_chain is None
-                        for pv in path_results
+                        pv.verified_certificate_chain is None for pv in path_results
                     )
                     if all_untrusted:
-                        first_err: str = (
-                            path_results[0].validation_error or "validation failed"
+                        first_err: str = path_results[0].validation_error or "validation failed"
+                        findings.append(
+                            {
+                                "id": "cert_chain_not_trusted",
+                                "severity": "HIGH",
+                                "finding": (
+                                    f"Certificate chain not trusted by any OS trust store.  "
+                                    f"First error: {first_err[:200]}"
+                                ),
+                                "cve": "",
+                            }
                         )
-                        findings.append({
-                            "id": "cert_chain_not_trusted",
+                if depl.verified_chain_has_sha1_signature is True:
+                    findings.append(
+                        {
+                            "id": "cert_sha1_signature",
                             "severity": "HIGH",
                             "finding": (
-                                f"Certificate chain not trusted by any OS trust store.  "
-                                f"First error: {first_err[:200]}"
+                                "Certificate chain contains a SHA-1 signature: SHA-1 is "
+                                "cryptographically broken.  Replace with SHA-256 or stronger."
                             ),
                             "cve": "",
-                        })
-                if depl.verified_chain_has_sha1_signature is True:
-                    findings.append({
-                        "id": "cert_sha1_signature",
-                        "severity": "HIGH",
-                        "finding": (
-                            "Certificate chain contains a SHA-1 signature: SHA-1 is "
-                            "cryptographically broken.  Replace with SHA-256 or stronger."
-                        ),
-                        "cve": "",
-                    })
+                        }
+                    )
 
         # --- HTTP security headers ---
 
@@ -466,25 +488,29 @@ class SslyzeConnector(BaseLibraryConnector):
         if hh.result:
             hsts = hh.result.strict_transport_security_header
             if hsts is None:
-                findings.append({
-                    "id": "hsts_missing",
-                    "severity": "MEDIUM",
-                    "finding": (
-                        "Strict-Transport-Security (HSTS) header absent.  "
-                        "NIST SP 800-52 Rev.2 requires HSTS on all HTTPS endpoints."
-                    ),
-                    "cve": "",
-                })
+                findings.append(
+                    {
+                        "id": "hsts_missing",
+                        "severity": "MEDIUM",
+                        "finding": (
+                            "Strict-Transport-Security (HSTS) header absent.  "
+                            "NIST SP 800-52 Rev.2 requires HSTS on all HTTPS endpoints."
+                        ),
+                        "cve": "",
+                    }
+                )
             elif hsts.max_age is not None and hsts.max_age < _HSTS_MIN_MAX_AGE_SECONDS:
-                findings.append({
-                    "id": "hsts_max_age_too_short",
-                    "severity": "MEDIUM",
-                    "finding": (
-                        f"HSTS max-age={hsts.max_age}s is below the recommended "
-                        f"minimum of {_HSTS_MIN_MAX_AGE_SECONDS}s (1 year).  "
-                        f"NIST SP 800-52 Rev.2, OWASP ASVS v5.0.0 V12.1.1."
-                    ),
-                    "cve": "",
-                })
+                findings.append(
+                    {
+                        "id": "hsts_max_age_too_short",
+                        "severity": "MEDIUM",
+                        "finding": (
+                            f"HSTS max-age={hsts.max_age}s is below the recommended "
+                            f"minimum of {_HSTS_MIN_MAX_AGE_SECONDS}s (1 year).  "
+                            f"NIST SP 800-52 Rev.2, OWASP ASVS v5.0.0 V12.1.1."
+                        ),
+                        "cve": "",
+                    }
+                )
 
         return findings

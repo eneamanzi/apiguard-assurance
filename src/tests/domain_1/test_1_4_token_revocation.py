@@ -231,26 +231,20 @@ class Test14TokenRevocation(BaseTest):
             return skip
 
         try:
-            admin_user: dict[str, Any] = get_authenticated_user(
-                target, context, client, ROLE_ADMIN
-            )
+            admin_user: dict[str, Any] = get_authenticated_user(target, context, client, ROLE_ADMIN)
         except ForgejoResourceError as exc:
             return self._make_error(exc)
 
         admin_username: str = admin_user.get("login", "")
         if not admin_username:
             return self._make_error(
-                ValueError(
-                    "Could not determine admin username from Forgejo identity response."
-                )
+                ValueError("Could not determine admin username from Forgejo identity response.")
             )
 
         admin_password: str | None = target.credentials.admin_password
         if not admin_password:
             return self._make_skip(
-                reason=(
-                    "admin_password not configured — required for token creation step."
-                )
+                reason=("admin_password not configured — required for token creation step.")
             )
 
         basic_auth_value: str = base64.b64encode(

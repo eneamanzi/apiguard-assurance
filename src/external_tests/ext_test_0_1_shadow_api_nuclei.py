@@ -114,8 +114,7 @@ _REFERENCES: tuple[str, ...] = (
 # Analyst guidance appended to every InfoNote detail.
 # Defined as a constant to avoid verbatim repetition and make wording easy to tune.
 _NOTE_ANALYST_SUFFIX: str = (
-    "Low/info severity: below the FAIL threshold for Garanzia 0.1. "
-    "Analyst review recommended."
+    "Low/info severity: below the FAIL threshold for Garanzia 0.1. Analyst review recommended."
 )
 
 
@@ -328,9 +327,7 @@ class ExtTest01ShadowApiNuclei(ExternalToolTest):  # noqa: N801
         # Build InfoNote objects for all NOTE bucket items (low/info).
         # Constructed before the FAIL/PASS branch so both paths share the same
         # list without duplicating InfoNote construction logic.
-        all_notes: list[InfoNote] = [
-            self._note_from_nuclei_item(item) for item in note_items
-        ]
+        all_notes: list[InfoNote] = [self._note_from_nuclei_item(item) for item in note_items]
 
         # ------------------------------------------------------------------
         # FAIL path: at least one medium/high/critical finding.
@@ -464,8 +461,7 @@ class ExtTest01ShadowApiNuclei(ExternalToolTest):  # noqa: N801
         return InfoNote(
             title=f"[{severity}] {name}",
             detail=(
-                f"nuclei template '{template_id}' matched at '{matched_at}'. "
-                f"{_NOTE_ANALYST_SUFFIX}"
+                f"nuclei template '{template_id}' matched at '{matched_at}'. {_NOTE_ANALYST_SUFFIX}"
             ),
             references=[*_REFERENCES, *cwe_references],
         )

@@ -39,7 +39,13 @@ about security behaviour. Until then a change is verified by hand against the la
 
 2. Run the affected tests only, not the full assessment: copy `config.yaml`, set `execution.test_ids` and turn off
    the external tools if you do not need them ([select tests](docs/guides/usage/select-tests.md)). Compare the
-   result with the previous run (status, findings, `oracle_state` counts).
+   result with the previous run (status, findings, `oracle_state` counts) with the development helper:
+
+   ```bash
+   hatch run python scripts/compare_reports.py before.json after.json
+   ```
+
+   It prints the differences test by test and exits `0` when there are none.
 
 3. Before a release, check the dependencies for known vulnerabilities:
 

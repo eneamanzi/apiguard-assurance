@@ -338,7 +338,5 @@ class TestDomain4Config(BaseModel):
     )
     test_4_3: Test43AuditConfig = Field(
         default_factory=Test43AuditConfig,
-        description=(
-            "Accepted plugins and parameter ranges for Test 4.3 (Circuit Breaker Audit)."
-        ),
+        description=("Accepted plugins and parameter ranges for Test 4.3 (Circuit Breaker Audit)."),
     )
