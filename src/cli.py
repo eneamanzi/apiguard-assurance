@@ -34,6 +34,8 @@ Dependency rule:
 from __future__ import annotations
 
 import logging
+import os
+import signal
 import sys
 from enum import StrEnum
 from pathlib import Path
@@ -123,6 +125,121 @@ app: typer.Typer = typer.Typer(
     rich_markup_mode="rich",
     no_args_is_help=True,
 )
+
+
+# ---------------------------------------------------------------------------
+# Stop signals (Ctrl+C, SIGTERM)
+# ---------------------------------------------------------------------------
+
+
+class _TerminationRequestedError(BaseException):
+    """
+    Raised in the main thread when the process receives SIGTERM during a run.
+
+    The SIGTERM counterpart of KeyboardInterrupt (raised for Ctrl+C by the
+    same handler, _handle_stop_signal).
+
+    A BaseException, like KeyboardInterrupt (Ctrl+C), so that no
+    ``except Exception`` in the tool or in a test can swallow it: it unwinds
+    through the engine's try/finally, which runs Phase 6 (teardown), and is
+    caught only by run_assessment(). Without it, Python's default SIGTERM
+    action ends the process at once and the resources created on the target
+    are left behind.
+    """
+
+
+# Messages written by the stop-signal handlers. Written with os.write() on
+# stderr, not through logging: a signal can arrive while the logger holds its
+# lock, and logging again from the handler would deadlock.
+_STOP_MESSAGES: dict[int, bytes] = {
+    signal.SIGINT: (
+        b"Ctrl+C received: stopping the assessment and removing the resources "
+        b"created on the target. Please wait.\n"
+    ),
+    signal.SIGTERM: (
+        b"SIGTERM received: stopping the assessment and removing the resources "
+        b"created on the target. Please wait.\n"
+    ),
+}
+_STOP_REPEAT_MESSAGE: bytes = b"Still removing the resources created on the target. Please wait.\n"
+
+# Signals that stop a run: Ctrl+C (SIGINT) and SIGTERM, handled alike.
+_STOP_SIGNALS: tuple[signal.Signals, ...] = (signal.SIGINT, signal.SIGTERM)
+
+
+def _install_stop_handlers() -> None:
+    """
+    Install _handle_stop_signal for Ctrl+C (SIGINT) and SIGTERM.
+
+    Called by run_assessment() only, so the other commands keep Python's
+    default behaviour.
+    """
+    for stop_signal in _STOP_SIGNALS:
+        signal.signal(stop_signal, _handle_stop_signal)
+
+
+def _handle_stop_signal(signum: int, _frame: object) -> None:
+    """
+    Handler for the first Ctrl+C or SIGTERM of a run.
+
+    Says on stderr that the tool is cleaning up, replaces the handlers of
+    both signals with _handle_repeated_stop_signal (so that no further
+    signal, of either kind, interrupts the teardown), then raises in the
+    main thread: KeyboardInterrupt for Ctrl+C, _TerminationRequestedError
+    for SIGTERM. Both unwind through the engine's try/finally, which runs
+    Phase 6 (teardown); run_assessment() then calls _exit_by_signal().
+
+    Args:
+        signum: The signal number (SIGINT or SIGTERM).
+        _frame: The interrupted stack frame (unused).
+
+    Raises:
+        KeyboardInterrupt: For SIGINT.
+        _TerminationRequestedError: For SIGTERM.
+    """
+    for stop_signal in _STOP_SIGNALS:
+        signal.signal(stop_signal, _handle_repeated_stop_signal)
+    os.write(sys.stderr.fileno(), _STOP_MESSAGES[signum])
+    if signum == signal.SIGINT:
+        raise KeyboardInterrupt
+    raise _TerminationRequestedError(signum)
+
+
+def _exit_by_signal(stop_signal: signal.Signals) -> None:
+    """
+    End the process by stop_signal, after teardown.
+
+    Ignores every stop signal from now on, flushes stdout and stderr, then
+    restores the default action of stop_signal and sends it to this process.
+    The exit status therefore depends only on the first signal received, and
+    the caller sees a process ended by SIGINT (130) or SIGTERM (143), as if
+    the signal had not been handled (Python does the same for an uncaught
+    KeyboardInterrupt).
+
+    Args:
+        stop_signal: The first signal received (SIGINT or SIGTERM).
+    """
+    for each_signal in _STOP_SIGNALS:
+        signal.signal(each_signal, signal.SIG_IGN)
+    sys.stdout.flush()
+    sys.stderr.flush()
+    signal.signal(stop_signal, signal.SIG_DFL)
+    os.kill(os.getpid(), stop_signal)
+
+
+def _handle_repeated_stop_signal(_signum: int, _frame: object) -> None:
+    """
+    Handler for any Ctrl+C or SIGTERM after the first: the cleanup goes on.
+
+    Does not raise, so the teardown in progress is not interrupted; only
+    says on stderr that the tool is still working. (SIGKILL cannot be
+    handled and still ends the process at once.)
+
+    Args:
+        _signum: The signal number (unused).
+        _frame:  The interrupted stack frame (unused).
+    """
+    os.write(sys.stderr.fileno(), _STOP_REPEAT_MESSAGE)
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +336,8 @@ def run_assessment(
         2   Invalid invocation (unknown option or command). Nothing ran.
         3   At least one ERROR (no FAIL). A verification was incomplete.
         10  Infrastructure error. Assessment did not start or complete.
+        130 Interrupted by Ctrl+C: teardown ran, no report.
+        143 Terminated by SIGTERM: teardown ran, no report.
 
     Examples:
 
@@ -248,8 +367,21 @@ def run_assessment(
 
     engine = AssessmentEngine(config_path=config)
 
-    # Step 4: run the assessment pipeline.
-    exit_code = engine.run()
+    # Step 4: run the assessment pipeline. Ctrl+C and SIGTERM are handled
+    # alike: the first one unwinds through the engine so that teardown
+    # (Phase 6) runs, later ones only say that cleanup is in progress; then
+    # the process ends by the first signal (exit 130 or 143).
+    _install_stop_handlers()
+    try:
+        exit_code = engine.run()
+    except (KeyboardInterrupt, _TerminationRequestedError) as exc:
+        stop_signal = signal.SIGINT if isinstance(exc, KeyboardInterrupt) else signal.SIGTERM
+        structlog.get_logger("cli.run").warning(
+            "assessment_interrupted",
+            signal=stop_signal.name,
+            detail="Teardown ran; no report was written.",
+        )
+        _exit_by_signal(stop_signal)
 
     # Step 5: display completion summary in console mode.
     if show_banner and log_format == LogFormat.CONSOLE:

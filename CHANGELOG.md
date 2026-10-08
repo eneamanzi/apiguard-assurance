@@ -11,6 +11,8 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
 ### Added
 
+- Progress during a run: each test's start line shows its position (`progress=5/18`) and, for an external test,
+  the tool's `timeout_seconds`; nuclei and testssl.sh log `external_tool_still_running` every 10 seconds.
 - `--env-file PATH` for `run` and `validate-config`: load the environment variables from that file instead of `.env`
   in the working directory.
 - `tests.domain_0.test_0_1.method_probe_sample_size` (1-100, default 10): how many documented endpoints test 0.1
@@ -18,6 +20,11 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
 ### Fixed
 
+- SIGTERM (`kill`, `docker stop`, CI timeouts) is handled like Ctrl+C: teardown runs, so the resources the tests
+  created on the target are removed (before, the process died at once and left them, e.g. a repository and a
+  token); a running external tool is stopped too. For both signals the tool says on stderr that it is cleaning up,
+  a repeated Ctrl+C or SIGTERM no longer interrupts the cleanup (it only says to wait), and the process still ends
+  by the first signal (exit `130` or `143`, as before).
 - `.env` is loaded from the working directory (where the command is run). It was searched from the tool's own
   code folder, so a `pip`-installed tool never found it, and a Hatch run found the repository's `.env` from any
   folder. Only `run` and `validate-config` load it.

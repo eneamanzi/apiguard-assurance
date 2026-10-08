@@ -86,9 +86,10 @@ affected is updated in the same change.
 | 3 | Small bugs | Q-35, Q-21, Q-48, Q-55 (lab setup), Q-36 and Q-27 (remove) | spec fetch hang, `generate-seed` stdout, warning messages, lab setup after deletions, two unwired features removed | low-medium | done 2026-10-07 |
 | 4 | Configuration structure | Q-53, Q-37 | one definition per parameter (`src/test_config/`), every test has a config model, automatic wiring (mismatch stops the run) | medium: after block 1 | done 2026-10-08 |
 | 4b | Immutable list parameters | Q-57 | safety check: list parameters as tuples | low: same files as block 4 | done 2026-10-08 |
-| 5 | Contract 1.0 | Q-25, Q-20, Q-22, Q-23, Q-45, Q-58, Q-50, Q-54, Q-10, Q-31, Q-26 ("not run by choice" list), Q-44 | everything an integrator sees; then the stability policy | medium-high | to do |
+| 5 | Contract 1.0 | Q-25, Q-20, Q-22, Q-23, Q-45, Q-58, Q-50 (rule), Q-54, Q-10, Q-31, Q-26 ("not run by choice" list), Q-44 | everything an integrator sees; then the stability policy | medium-high | to do |
+| 5b | Console output | Q-59 | readability of the `apiguard run` console output, after group 3 of block 5 (Q-26 and Q-10 change what is shown) | low | to do |
 | - | Integration guide | (step 2.2) | written on the fixed contract | - | to do |
-| 6 | Test quality review | Q-29, Q-32, Q-30 (code items), Q-24 (7.2 timeout) | test by test: oracles, missing sub-tests, 1.1 `DELETE` last + `path_seed` check, 7.2 cleanup | high: one test at a time | to do |
+| 6 | Test quality review | Q-29, Q-32, Q-30 (code items), Q-24 (7.2 timeout), Q-50 (evidence per finding) | test by test: oracles, missing sub-tests, 1.1 `DELETE` last + `path_seed` check, 7.2 cleanup, evidence of 7.2, 4.1, 1.5 and config audits | high: one test at a time | to do |
 | 7 | Second lab | Q-52 | cRAPI behind Kong, pinned, automated setup | low for the tool | to do |
 | 8 | Agnosticism | Q-18, Q-43, Q-38, Q-34 | per-test portability analysis on both labs, then remove Forgejo/Kong ties, protected Admin API | high | to do |
 | 6b | E2E suite | Q-51 | after the test review: expected results with a stated basis (`lab-design` from the lab configuration, or `observed`), ideally each test proven on a secure and a vulnerable lab variant | low | to do |
@@ -171,3 +172,9 @@ CI (Q-16), E2E test suite (Q-51), documentation generated from code with a drift
 | 2026-10-08 | Q-54 implemented (owner): `.env` from the working directory plus `--env-file`; exported variables win. `run --help` exit codes fixed (Q-20 follow-up) |
 | 2026-10-08 | Closed by the owner: Q-54 (`.env` from the working directory, `--env-file`). Next: Q-58, last of group 1 |
 | 2026-10-08 | Q-58 implemented (owner): unknown or disabled `test_ids` entries and empty selections stop with exit 10 (one check after Phase 1, also in `validate-config`; empty selection in Phase 4). Exit codes logged as plain ints (Q-20 follow-up) |
+| 2026-10-08 | Closed by the owner: Q-58. Block 5 group 1 done and committed (`0d80502`). Next: group 2 (Q-50, then Q-44) |
+| 2026-10-08 | Q-50: rule decided by the owner (every HTTP finding points to its proof; an absence points to the last request; config audits without `evidence_ref` for now); implementation moved to block 6. 7.2 aggregation found to be a side effect of an earlier notes fix. Next: Q-44 |
+| 2026-10-08 | Q-44 implemented (owner): SIGTERM handled like Ctrl+C (teardown, exit 143), progress `n/N` and tool timeout in test start lines, `external_tool_still_running` every 10 s; partial report on interruption moved to Q-26 (group 3) |
+| 2026-10-08 | Q-44: cleanup messages on SIGTERM (owner). New Q-59 (readability of the `apiguard run` console output), to schedule |
+| 2026-10-08 | Q-44: Ctrl+C and SIGTERM handled alike (owner): messages, repeated signals do not interrupt cleanup, process ends by the first signal (130/143). Q-59 placed after group 3 of block 5 |
+| 2026-10-08 | Closed by the owner: Q-44. Block 5 group 2 done (Q-50 rule decided, implementation in block 6; Q-44 implemented). Next: group 3 (Q-10, Q-31, Q-26) |

@@ -39,7 +39,8 @@ target-specific values live in `config.yaml`. Two exceptions are deliberate and 
 | 7 Reporting | Merge evidence, build report data, render HTML, write JSON | `src/core/evidence.py`, `src/report/` | each step logged, others still run |
 
 Phases 1 to 4 are blocking. Any unexpected exception in the engine also ends the run with exit 10. Phase 6 runs in a
-`finally` block, so it also runs on Ctrl+C; Phase 7 does not run after Ctrl+C (exit 130). Exit codes:
+`finally` block, so it also runs on Ctrl+C (exit 130) and on SIGTERM (handled in `src/cli.py` like Ctrl+C, exit 143);
+Phase 7 does not run after an interruption. Exit codes:
 [`reference/exit-codes.md`](../reference/exit-codes.md).
 
 ### Phase 2 details

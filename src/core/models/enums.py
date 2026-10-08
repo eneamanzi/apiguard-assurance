@@ -53,7 +53,8 @@ class ExitCode(IntEnum):
         INFRASTRUCTURE -- The assessment did not run (Phases 1-4 or an
                           unexpected engine exception).
 
-    130 (interrupted by Ctrl+C) is set by Python, not by the tool.
+    130 (Ctrl+C) and 143 (SIGTERM) are not members: after teardown the tool
+    ends by the signal itself, and the shell reports 128 + signal number.
     """
 
     CLEAN = 0

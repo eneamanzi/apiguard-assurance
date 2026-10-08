@@ -39,6 +39,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, ClassVar, TypedDict
@@ -55,6 +56,11 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # Compiled once at module level and reused in BaseSubprocessConnector.get_version()
 # to strip decoration from binary --version output (e.g. testssl.sh emits bold codes).
 _ANSI_CSI_PATTERN: re.Pattern[str] = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+# While a tool runs, _run_subprocess() logs a progress line at this interval
+# (external_tool_still_running), so that a long scan (nuclei up to minutes)
+# does not look stuck.
+_SUBPROCESS_PROGRESS_INTERVAL_SECONDS: float = 10.0
 
 # ---------------------------------------------------------------------------
 # ConnectorResult — the typed output of one tool execution
@@ -445,6 +451,12 @@ class BaseSubprocessConnector(BaseConnector):
         ExternalToolError(timed_out=True).  Handles OS-level failures
         (FileNotFoundError, PermissionError) by raising ExternalToolError.
 
+        Waits in steps of _SUBPROCESS_PROGRESS_INTERVAL_SECONDS and logs
+        external_tool_still_running after each step (communicate() can be
+        retried after its timeout without losing output). The child is
+        killed whenever this method exits before it has finished: timeout,
+        or an interruption of the run (Ctrl+C, SIGTERM).
+
         This helper centralises subprocess management so that concrete
         connectors can focus on CLI argument construction and output parsing
         rather than process lifecycle boilerplate.
@@ -466,8 +478,9 @@ class BaseSubprocessConnector(BaseConnector):
             timeout_seconds=timeout_seconds,
             cmd=" ".join(cmd[:4]),  # log first 4 tokens only -- avoid logging target URL twice
         )
+        started = time.monotonic()
         try:
-            proc = subprocess.run(  # noqa: S603 -- cmd is fully controlled:
+            with subprocess.Popen(  # noqa: S603 -- cmd is fully controlled:
                 # cmd is constructed by the connector subclass's run() method
                 # from three sources: (1) self.BINARY_NAME -- a ClassVar[str]
                 # defined in source code; (2) static flag literals specific to
@@ -475,10 +488,19 @@ class BaseSubprocessConnector(BaseConnector):
                 # after Pydantic validation.  No field ever originates from raw
                 # user HTTP input.  The S603 warning is a false positive here.
                 cmd,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=timeout_seconds,
-            )
+            ) as proc:
+                try:
+                    stdout = self._wait_with_progress(
+                        proc, cmd, timeout_seconds, tool_name, started
+                    )
+                finally:
+                    # Timeout or interruption: never leave the tool running.
+                    if proc.poll() is None:
+                        proc.kill()
+                        proc.communicate()
         except subprocess.TimeoutExpired as exc:
             log.warning(
                 "connector_subprocess_timeout",
@@ -505,9 +527,51 @@ class BaseSubprocessConnector(BaseConnector):
             "connector_subprocess_complete",
             tool=tool_name,
             exit_code=proc.returncode,
-            stdout_bytes=len(proc.stdout or ""),
+            stdout_bytes=len(stdout),
         )
-        return proc.stdout or "", proc.returncode
+        return stdout, proc.returncode
+
+    @staticmethod
+    def _wait_with_progress(
+        proc: subprocess.Popen[str],
+        cmd: list[str],
+        timeout_seconds: int,
+        tool_name: str,
+        started: float,
+    ) -> str:
+        """
+        Wait for proc to finish, logging progress, and return its stdout.
+
+        Args:
+            proc:            The running tool process.
+            cmd:             Its command line (for TimeoutExpired).
+            timeout_seconds: Wall-clock limit for the whole execution.
+            tool_name:       Binary name for the progress log.
+            started:         time.monotonic() at process start.
+
+        Returns:
+            The process stdout ("" when empty).
+
+        Raises:
+            subprocess.TimeoutExpired: When timeout_seconds is exceeded.
+        """
+        while True:
+            remaining = timeout_seconds - (time.monotonic() - started)
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(cmd, timeout_seconds)
+            try:
+                stdout, _stderr = proc.communicate(
+                    timeout=min(_SUBPROCESS_PROGRESS_INTERVAL_SECONDS, remaining)
+                )
+            except subprocess.TimeoutExpired:
+                log.info(
+                    "external_tool_still_running",
+                    tool=tool_name,
+                    elapsed_seconds=round(time.monotonic() - started),
+                    timeout_seconds=timeout_seconds,
+                )
+                continue
+            return stdout or ""
 
     @staticmethod
     def _parse_json_output(raw_stdout: str, tool_name: str) -> dict[str, Any]:

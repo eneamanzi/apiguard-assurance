@@ -644,6 +644,9 @@ class AssessmentEngine:
             t.__class__.test_id: t for t in active_tests
         }
         fail_fast_triggered = False
+        # Position of the test in the run, logged as "<position>/<total>".
+        position = 0
+        total = len(active_tests)
 
         for batch in scheduled_batches:
             if fail_fast_triggered:
@@ -674,12 +677,15 @@ class AssessmentEngine:
                     )
                     continue
 
+                position += 1
                 result = self._execute_single_test(
                     test=test,
                     target=target,
                     context=context,
                     client=client,
                     store=store,
+                    progress=f"{position}/{total}",
+                    timeout_seconds=self._external_timeout_seconds(test, config),
                 )
                 result_set.add_result(result)
 
@@ -712,6 +718,27 @@ class AssessmentEngine:
             error_count=result_set.error_count,
         )
 
+    @staticmethod
+    def _external_timeout_seconds(
+        test: BaseTest | ExternalToolTest,
+        config: ToolConfig,
+    ) -> int | None:
+        """
+        Return the configured timeout of an external test's tool, else None.
+
+        Args:
+            test:   The test about to run.
+            config: The validated configuration (external_tools.<tool>).
+
+        Returns:
+            external_tools.<tool>.timeout_seconds, or None for a native test.
+        """
+        if not isinstance(test, ExternalToolTest):
+            return None
+        tool_config = getattr(config.external_tools, str(getattr(test, "tool_name", "")), None)
+        timeout: int | None = getattr(tool_config, "timeout_seconds", None)
+        return timeout
+
     def _execute_single_test(
         self,
         test: BaseTest | ExternalToolTest,
@@ -719,9 +746,15 @@ class AssessmentEngine:
         context: TestContext,
         client: SecurityClient,
         store: EvidenceStore,
+        progress: str,
+        timeout_seconds: int | None,
     ) -> TestResult:
         """
         Execute a single test (native or external) and return its TestResult.
+
+        The start log carries progress ("5/18") and, for an external test,
+        the tool's timeout_seconds, so that a long run shows where it is and
+        how long the current test may take.
 
         Dispatch logic:
             - BaseTest:         calls test.execute(target, context, client, store)
@@ -739,13 +772,18 @@ class AssessmentEngine:
         test_name = getattr(cls, "test_name", "")
         source = getattr(cls, "source", "native")
 
+        timeout_field: dict[str, int] = (
+            {"timeout_seconds": timeout_seconds} if timeout_seconds is not None else {}
+        )
         log.info(
             "test_execution_started",
+            progress=progress,
             test_id=test_id,
             test_name=test_name,
             priority=getattr(cls, "priority", 0),
             strategy=getattr(cls, "strategy", "BLACK_BOX"),
             source=source,
+            **timeout_field,
         )
 
         wall_start = time.monotonic()

@@ -140,8 +140,11 @@ hatch run apiguard run
 About 5 minutes; progress is logged to the terminal (add `--log-level debug` to see every HTTP request).
 
 **Do not interrupt it.** Almost all of the 5 minutes are spent in the external-tool tests (nuclei, testssl.sh,
-sslyze; the native tests take about 30 seconds), which print nothing while they run, so it can look stuck. Reports are written only at the very end: if
-you press `Ctrl+C` there are no reports and `outputs/` keeps only `evidence_tmp/` (Q-44).
+sslyze; the native tests take about 30 seconds). Each test starts with a line showing its position (`progress=5/18`)
+and, for an external tool, its time limit (`timeout_seconds=240`); while nuclei and testssl.sh run, a line
+`external_tool_still_running` every 10 seconds shows the elapsed time (sslyze runs inside the tool and prints none).
+Reports are written only at the very end: if you press `Ctrl+C` the tool removes what the tests created on the
+target, but there are no reports and `outputs/` keeps only `evidence_tmp/`.
 
 When it finishes, print its exit code:
 

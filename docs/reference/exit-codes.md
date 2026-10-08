@@ -12,13 +12,33 @@
 | `2` | USAGE | Invalid invocation: the assessment did not start (see [Usage errors](#usage-errors)). |
 | `3` | ERROR | No FAIL, but at least one test returned ERROR: a verification did not complete. |
 | `10` | INFRA | The assessment did not run. Raised on `ConfigurationError` (Phase 1; an `execution.test_ids` entry that does not exist or whose tool is disabled, checked right after Phase 1; no test selected by the filters, Phase 4), `OpenAPILoadError` (Phase 2), `DAGCycleError` (Phase 4), or any unexpected exception inside the engine. A run never ends `0` without running at least one test. |
-| `130` | Interrupted | The process received Ctrl+C (SIGINT). Teardown (Phase 6) runs; **no report files are written** (Phase 7 is skipped). |
+| `130` | Interrupted | The process received Ctrl+C (SIGINT). See [Stopping a run](#stopping-a-run). |
+| `143` | Terminated | The process received SIGTERM (`kill`, `docker stop`, a CI timeout, a calling program). See [Stopping a run](#stopping-a-run). |
 
 **Precedence:** FAIL > ERROR > CLEAN. A single FAIL yields `1` regardless of how many ERRORs occurred.
 SKIP never affects the exit code.
 
 **Exit 10 means no security verdict.** Phases 1-4 are blocking; when one fails, no test has run and the
 output files are not produced. Never treat `10` as "clean".
+
+## Stopping a run
+
+Ctrl+C (SIGINT) and SIGTERM are handled alike during `apiguard run`:
+
+1. the tool writes on stderr `Ctrl+C received: ...` or `SIGTERM received: stopping the assessment and removing the
+   resources created on the target. Please wait.`;
+2. teardown (Phase 6) runs: the tokens, repositories and other resources created by the tests are removed; a
+   running external tool (nuclei, testssl.sh) is stopped;
+3. any further Ctrl+C or SIGTERM does not interrupt the cleanup, it only repeats `Still removing the resources
+   created on the target. Please wait.`;
+4. the process ends by the **first** signal received: exit `130` (SIGINT) or `143` (SIGTERM), 128 + the signal
+   number. A calling program sees a process terminated by that signal (Python `subprocess`: `returncode` `-2` or
+   `-15`). **No report files are written** (Phase 7 does not run; partial report: Q-26).
+
+Do not use SIGKILL (`kill -9`): it cannot be intercepted, so teardown does not run and the resources the tests
+created on the target are left behind. Leave the tool a few seconds to clean up: `docker stop` sends SIGKILL 10
+seconds after SIGTERM by default; teardown took about half a second on the lab. Other commands
+(`validate-config`, `generate-seed`, `version`) keep Python's default behaviour.
 
 **Fail-fast:** with `execution.fail_fast: true`, the run stops after the first P0 test that returns FAIL **or
 ERROR**. Teardown and report generation still run; the exit code follows the precedence rule on the results
@@ -55,7 +75,8 @@ case "$code" in
   2)   echo "USAGE: invalid invocation, nothing ran" ;;
   3)   echo "ERROR: verification incomplete" ;;
   10)  echo "INFRA: assessment did not run" ;;
-  130) echo "Interrupted" ;;
+  130) echo "Interrupted (Ctrl+C)" ;;
+  143) echo "Terminated (SIGTERM)" ;;
 esac
 exit "$code"
 ```
