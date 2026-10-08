@@ -101,10 +101,10 @@ class Test02ProbeConfig(BaseModel):
         the sub-check.
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
-    gateway_server_identifiers: list[str] = Field(
-        default_factory=lambda: list(TEST_02_GATEWAY_SERVER_IDENTIFIERS_DEFAULT),
+    gateway_server_identifiers: tuple[str, ...] = Field(
+        default_factory=lambda: tuple(TEST_02_GATEWAY_SERVER_IDENTIFIERS_DEFAULT),
         min_length=1,
         description=(
             "Substrings matched case-insensitively against the 'Server' response header "
@@ -130,7 +130,7 @@ class Test01Config(BaseModel):
     Path in config.yaml: tests.domain_0.test_0_1
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
     method_probe_sample_size: Annotated[
         int,
@@ -153,7 +153,7 @@ class Test03Config(BaseModel):
     config.yaml: tests.domain_0.test_0_3 (empty).
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
 
 # ---------------------------------------------------------------------------
@@ -175,7 +175,7 @@ class TestDomain0Config(BaseModel):
         4. Adding the key to config.yaml under tests.domain_0.
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
     test_0_1: Test01Config = Field(
         default_factory=Test01Config,

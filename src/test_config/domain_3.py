@@ -80,7 +80,7 @@ class Test33Config(BaseModel):
           minimum 128 bits; weak algorithms prohibited.
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
     # --- Oracle thresholds (security policy) --------------------------------
 
@@ -98,8 +98,8 @@ class Test33Config(BaseModel):
         ),
     )
 
-    forbidden_algorithms: list[str] = Field(
-        default_factory=lambda: list(_TEST_33_FORBIDDEN_ALGORITHMS_DEFAULT),
+    forbidden_algorithms: tuple[str, ...] = Field(
+        default_factory=lambda: tuple(_TEST_33_FORBIDDEN_ALGORITHMS_DEFAULT),
         description=(
             "HMAC algorithms whose presence in the plugin's algorithm list "
             "constitutes a security finding. "
@@ -113,8 +113,8 @@ class Test33Config(BaseModel):
 
     # --- Gateway-specific identifiers (agnosticism layer) -------------------
 
-    plugin_names: list[str] = Field(
-        default_factory=lambda: list(_TEST_33_PLUGIN_NAMES_DEFAULT),
+    plugin_names: tuple[str, ...] = Field(
+        default_factory=lambda: tuple(_TEST_33_PLUGIN_NAMES_DEFAULT),
         description=(
             "Ordered list of gateway plugin names that implement HMAC request "
             "authentication.  The test iterates the Admin API plugin list and "
@@ -182,7 +182,7 @@ class TestDomain3Config(BaseModel):
     makes the entire block optional in config.yaml.
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
     test_3_3: Test33Config = Field(
         default_factory=Test33Config,

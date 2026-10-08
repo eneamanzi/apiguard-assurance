@@ -23,7 +23,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from src.core.models.enums import TestStatus
+from src.core.models.enums import ExitCode, TestStatus
 from src.core.models.http import TransactionSummary
 
 # ---------------------------------------------------------------------------
@@ -377,18 +377,18 @@ class ResultSet(BaseModel):
         """Append a TestResult to the collection."""
         self.results.append(result)
 
-    def compute_exit_code(self) -> int:
+    def compute_exit_code(self) -> ExitCode:
         """
         Compute the process exit code from the current ResultSet state.
 
-        Priority: FAIL (1) > ERROR (2) > CLEAN (0).
+        Priority: FAIL (1) > ERROR (3) > CLEAN (0).
         Exit code 10 (infrastructure error) is handled upstream by the engine.
         """
         if any(r.status == TestStatus.FAIL for r in self.results):
-            return 1
+            return ExitCode.FAIL
         if any(r.status == TestStatus.ERROR for r in self.results):
-            return 2
-        return 0
+            return ExitCode.ERROR
+        return ExitCode.CLEAN
 
     @property
     def total_count(self) -> int:

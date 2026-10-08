@@ -57,25 +57,29 @@ execution:
   test_ids: ["1.1"]
 ```
 
-**If the list contains only native IDs, also set `external_tools.enabled: false`** (as above): otherwise every
-enabled external test runs too (Q-45). Measured on the lab: `test_ids: ["1.1"]` with the external tools off, one
-test, 7 seconds.
+Only the listed tests run, native or external, whatever `external_tools` enables. Measured on the lab:
+`test_ids: ["1.1"]`, one test, 7 seconds; `test_ids: ["0.2"]` with every external tool enabled runs only 0.2.
 
-A list with only external IDs runs exactly those:
+External IDs work the same way:
 
 ```yaml
 execution:
   test_ids: ["ext.1.5.sslyze"]
 ```
 
-A mixed list (`["1.1", "ext.1.5.sslyze"]`) also runs exactly the listed tests.
+A mixed list (`["1.1", "ext.1.5.sslyze"]`) runs exactly the listed tests.
+
+`test_ids` chooses only among the available tests: listing an external test whose tool is disabled in
+`external_tools` is an error (enable the tool, or remove the test from the list).
 
 ID formats: `X.Y` for native tests (`1.1`, `7.2`), `ext.X.Y.tool` for external tests (`ext.0.1.nuclei`,
-`ext.1.5.testssl`, `ext.1.5.sslyze`). A malformed ID stops the tool at startup; a well-formed ID that does not exist
-is ignored with the warning `test_registry_requested_ids_not_found`. The full list is in the
-[test catalogue](../../tests/README.md).
+`ext.1.5.testssl`, `ext.1.5.sslyze`). A malformed ID, an ID that does not exist, or a test of a disabled tool stops
+the tool at startup (exit `10`, also with `validate-config`), listing every wrong entry; for an unknown ID it
+suggests the closest one (`unknown test 'ext.1.5.sslyzee' (did you mean 'ext.1.5.sslyze'?)`). The full list is in
+the [test catalogue](../../tests/README.md).
 
-When `test_ids` is set, `min_priority` and `strategies` are ignored.
+When `test_ids` is set, `min_priority` and `strategies` are ignored. Without `test_ids`, a combination of filters that
+selects no test stops the run with exit `10` (`No test selected: ...`) instead of an empty CLEAN report.
 
 ### By priority
 
@@ -115,8 +119,8 @@ to `false` and keep the master switch on. A tool that is enabled but not install
 - **Stop at the first critical failure.** `execution.fail_fast: true` stops after the first P0 test that returns
   FAIL or ERROR; the tests not yet run are missing from the report
   ([exit codes](../../reference/exit-codes.md)).
-- **Misspelled keys are ignored.** `min_prioriti: 0` passes validation and the default applies (Q-22): if the
-  selection does not change, check the spelling.
+- **Misspelled keys stop the run.** `min_prioriti: 0` is rejected at startup (exit `10`) with the suggestion
+  `did you mean 'min_priority'?`.
 - **Absent tests are not SKIP.** A test filtered out by the selection does not appear in the report at all. A SKIP
   means the test was selected but a precondition was missing.
 

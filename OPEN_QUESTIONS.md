@@ -82,27 +82,6 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Owner decision (2026-10-07): this is an analysis, not a decision: moved to group 3.D, agnosticism block, after the second lab (Q-52); feeds Q-43.
 - Resolution:
 
-### Q-20 - CLI usage errors share exit code 2 with "ERROR"
-- Status: open
-- Source: Typer/Click default; verified 2026-10-05: `apiguard run --bogus`, `--log-format xml`, and `apiguard` without arguments all exit 2. `src/engine.py:131` uses 2 for "at least one test ERROR".
-- Question: A wrapper cannot distinguish "bad invocation" from "assessment completed with ERROR". Map usage errors to a distinct code? Documented as-is in `docs/reference/exit-codes.md`.
-- How to verify: decision with user (code change).
-- Resolution:
-
-### Q-22 - Unknown keys in config.yaml are silently ignored
-- Status: open
-- Source: no Pydantic `extra="forbid"` in `src/config/schema/*`, `src/core/models/external_tools.py`. Verified 2026-10-05: `execution.min_prioriti: 0` (typo) → `validate-config` exits 0 and the default applies.
-- Question: Reject unknown keys (`extra="forbid"`) so typos fail at Phase 1? Documented as a warning in `docs/reference/configuration.md`.
-- How to verify: decision with user (code change).
-- Resolution:
-
-### Q-23 - `generated_at_utc` in apiguard_report.json is not UTC
-- Status: open
-- Source: `src/report/builder.py:394` - `datetime.now(ZoneInfo("Europe/Rome"))`; real output: `"2026-10-05T17:12:00.515745+02:00"`. `evidence.json` uses UTC (`+00:00`).
-- Question: Use UTC as the field name promises (affects the integration contract → `output_schema_version` policy)? Documented as-is in `docs/reference/report-schema.md`.
-- How to verify: decision with user (code change).
-- Resolution:
-
 ### Q-24 - Config fields accepted but without effect
 - Status: sslyze part done (2026-10-07, block 2); `ssrf_request_timeout_ms` pending (7.2 review)
 - Source: `external_tools.sslyze.extra_flags` (never read by `src/connectors/sslyze.py` or `ext_test_1_5_tls_analysis.py`); `tests.domain_7.test_7_2.ssrf_request_timeout_ms` (description: "reserved for future… currently the global execution.read_timeout governs all requests"; only passed through `src/engine.py:496`).
@@ -121,6 +100,7 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Evidence (2026-10-06, first superficial pass): only `apiguard_report.json` has a version (`output_schema_version: "1.0"`, policy in `src/report/builder.py:322-327`); `evidence.json`, exit codes, `config.yaml`, CLI have none. Known defects whose fix changes what an integrator sees: Q-20 (usage errors exit 2), Q-22 (unknown config keys ignored), Q-23 (`generated_at_utc` not UTC), Q-45 (`test_ids` selection), Q-50 (findings without `evidence_ref`); Q-31 may change the report too (Q-47 closed on 2026-10-07 without report change).
 - Draft only, NOT decided (to be reviewed in depth in group 3.D): stable interfaces = exit codes, report JSON, `evidence.json` (add a version field), CLI commands and options, documented `config.yaml` keys; not contract = log events, Python modules, message texts, `oracle_state` values; signalling = per-file format version (major = breaking), "Breaking changes" section in `CHANGELOG.md`, semver from 1.0.0; fix the defects above together, then declare 1.0.0.
 - Owner decision (2026-10-06): not settled now. The question touches code that belongs to the code phase; it was only looked at superficially. Moved to 3.D as the first block of the code phase ("contract 1.0"), to be reviewed in depth there, after the 3.C decisions that may change the report (Q-31; Q-47 closed without change).
+- Note (owner, 2026-10-08): `output_schema_version: "1.0"` was set arbitrarily; the versioning can start from scratch at 1.0. Report format changes collected during block 5, to be versioned once in group 4: `executive_summary.exit_code` ERROR value `2` → `3` (Q-20); `generated_at_utc` now UTC (Q-23).
 - Resolution:
 
 ### Q-26 - Schema descriptions say "SKIP" for disabled external tools; the registry excludes them
@@ -210,18 +190,6 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - How to verify: decision with user (code + config change).
 - Resolution:
 
-### Q-37 - Convention "every test has a config model" vs code
-- Status: implemented (2026-10-07, block 4), awaiting the owner to close
-- Source: previous `ADDING_tests.md` ("When the test has no operator-tunable parameters: create the config model anyway"; git `fd3bd90:docs/guides/extending/add-a-native-test.md:236-241`); code: no `Test01Config`/`Test03Config` and no `RuntimeTest01Config`/`RuntimeTest03Config` (13 runtime configs for 15 native tests). Also the old guide said a missing `src/config/schema/__init__.py` export raises `ImportError`; nothing imports `Test*Config` from that package (`tests_config.py` imports domain modules directly).
-- Question: Keep the convention (add empty models for 0.1, 0.3) or drop it? The new guide documents the code as it is.
-- How to verify: decision with user.
-- Evidence (2026-10-06): test 0.1 does have a tunable written in the code: `list(surface.endpoints)[:10]` (`src/tests/domain_0/test_0_1_shadow_api_discovery.py:172`, the "first 10 endpoints" of the undeclared-method sub-check), a magic number under the project rules; its wordlist (`SHADOW_API_WORDLIST`) is also fixed in code. Test 0.3 has only protocol constants (410, `Sunset`).
-- Decision (owner, 2026-10-06): every native test always has its configuration model, empty if it has no parameters. A missing model is a developer error: it is checked in `hatch run dev:check` (not at runtime, never shown to the end user).
-- To implement: models for 0.1 and 0.3; the check in `dev:check`; update `add-a-native-test.md` (remove the "no parameters" special case). Still to decide: the `10` of test 0.1 becomes a `config.yaml` parameter (needs owner confirmation) or a named constant. Implement together with Q-53, so that the new models already use the single definition.
-- Decision update (owner, 2026-10-07): no check script. Instead the engine wiring becomes automatic: `RuntimeTestsConfig.from_domains(config.tests)` collects every `test_<D>_<N>` from the domain containers by name; `RuntimeTestsConfig` forbids unknown fields and `from_domains` fails if a field has no matching domain model, so a missing or extra piece stops the run at the first start (developer-visible) instead of silently using defaults. The convention "every native test has a model, even empty" is stated in the guide. The `10` of test 0.1 becomes the parameter `tests.domain_0.test_0_1.method_probe_sample_size` (default 10; owner confirmation 2026-10-07); test 0.3 gets an empty model.
-- Implemented (2026-10-07): `RuntimeTestsConfig.from_domains()` (extra fields forbidden, missing domain models rejected) replaces the 13 wiring lines in `engine.py`; `Test01Config` (`method_probe_sample_size`, 1-100, default 10) and empty `Test03Config` added; test 0.1 reads the parameter. Verified: old 48 parameters identical; both mismatch cases stop (simulated, and in a real run before the runtime fields were added: exit 10 naming `test_0_1`, `test_0_3`); test 0.1 identical with the default (16 findings, 49 requests), 41 requests with 1; 0 and 101 rejected by `validate-config`; `dev:check`. Docs: guide (7 steps, no engine step), data-model, configuration reference, 0.1 test page, `config.yaml` block, CHANGELOG.
-- Resolution:
-
 ### Q-38 - Gateway adapter abstraction returns gateway-specific data
 - Status: open
 - Source: `src/core/gateway/base.py` (methods return "gateway-specific" dicts); tests 3.3, 4.2, 4.3 and 6.4 sub-test B parse Kong fields (`config.clock_skew`, `connect_timeout`/`read_timeout`/`write_timeout`, `healthchecks.passive.unhealthy.*`, Kong `/status`); engine Phase 3 instantiates only `KongGatewayAdapter` (`src/engine.py`, `if config.target.gateway_adapter == "kong"`); the schema accepts only `"kong"` (`src/config/schema/tool_config.py`, `gateway_adapter_requires_admin_api_url`). `check_connectivity()` and `get_plugin_by_name()` are never called outside `src/core/gateway/`.
@@ -262,16 +230,10 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 ### Q-44 - A run looks stuck, and interrupting it discards everything
 - Status: open
 - Evidence (2026-10-06): during the author's first run from a fresh clone, the run was stopped by hand with Ctrl+C because it seemed to hang; `outputs/` then contained only `evidence_tmp/` (14 `.jsonl` files, no report). In my own runs the console stayed for minutes on the external-tool tests (nuclei, testssl, sslyze) with no progress indication.
+- Evidence (2026-10-08): a full run started by mistake was killed by Claude's task stop after about 2 minutes (signal not determined; not Ctrl+C), while `ext.0.1.nuclei` was running. Teardown did not run: the 7.2 repository `user-a/apiguard-repo-9ef0c493` and the `user_a` token `apiguard-84f19b9d` stayed on the lab (deleted by hand, 204); `outputs/evidence_tmp/` held the 14 partial `.jsonl` files. So a killed run also leaves test resources on the target. Not verified: whether `SIGTERM` runs teardown.
 - Source: reports are written only in Phase 7 (`src/engine.py`); Ctrl+C ends the run with exit 130 and skips Phase 7 (`docs/reference/exit-codes.md`).
 - Question: Add progress output (current test, elapsed time, expected duration) and/or write partial reports on interruption? Meanwhile `first-assessment.md` tells users to wait and not to interrupt.
 - How to verify: decision with user (code change).
-- Resolution:
-
-### Q-45 - `execution.test_ids` with only native IDs also runs every enabled external test
-- Status: verified
-- Source: `src/engine.py:595-650` splits `test_ids` into native and `ext.` IDs. If the native subset is empty the engine schedules no native test (`test_registry_skipped_all_ids_are_external`); if the external subset is empty it is passed to `ExternalTestRegistry` as "no filter" (`if allowed_ids:` in `src/external_tests/registry.py`). The two cases are handled asymmetrically.
-- Evidence (2026-10-06): `test_ids: ["1.1", "1.4", "2.1", "7.2"]` also ran `ext.0.1.nuclei`, `ext.1.5.sslyze`, `ext.1.5.testssl`. Correction (2026-10-06, verified): a list with only `ext.*` IDs does **not** run native tests (`test_ids: ["ext.1.5.sslyze"]` → only `ext.1.5.sslyze`, log `test_registry_skipped_all_ids_are_external`); the earlier statement was an inference, now removed from the docs. Only the native-only case leaks.
-- Question: Should a non-empty `test_ids` run exactly the listed tests (fix), or is the current behaviour intended? `docs/reference/configuration.md` now documents the current behaviour.
 - Resolution:
 
 ### Q-50 - Some findings have no `evidence_ref`
@@ -297,36 +259,18 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - To decide: behind Kong or without a gateway; ports (the two labs both use 8000/8001/8443: one lab at a time, or separate ports for cRAPI); whether the chatbot service is required and what it needs.
 - Resolution:
 
-### Q-53 - Every test parameter is defined twice (configuration model and runtime model)
-- Status: implemented (2026-10-07, block 4), awaiting the owner to close
-- Source: per parameter, a configuration model in `src/config/schema/domain_X.py` (validates `config.yaml`), a runtime copy in `src/core/models/runtime.py` (1084 lines, `RuntimeTest*Config`, what the test reads through `target.tests_config`), and one copy line in `src/engine.py` Phase 3 (48 `config.tests.domain_...` lines). Reason given in the `runtime.py` header: tests may import only `core/`, not `config/`.
-- Evidence (2026-10-06, `max_endpoints_cap` of test 1.1): the configuration model uses named constants (`TEST_11_MAX_ENDPOINTS_CAP_DEFAULT`, `_MIN`, `domain_1.py:119`), the runtime copy rewrites `default=0, ge=0` by hand (`runtime.py:238`) and its description cites `TestDomain1Config` and `config/schema.py` (the class is `Test11Config`, the file no longer exists). Values agree today; the copies can drift silently.
-- Precedent in the code: external-tool configuration models live in `src/core/models/external_tools.py` and `src/config/schema/external_tools.py` only re-exports them: one definition, dependency rule respected.
-- Proposal: do the same for native tests: move the per-test configuration models to `core/`, let tests read them directly, remove the `RuntimeTest*Config` copies and the copy lines in `engine.py`. Refactoring of the 13 tests with parameters: verify every test on the lab before and after (needs the E2E suite, Q-51). Implement Q-37 at the same time.
-- Evidence (2026-10-07, all 13 pairs compared by script): same field names, types and defaults; constraints differ in 5 tests (1.4 `token_name`, 2.1 `admin_endpoint_paths`, 4.1 `max_requests`/`request_interval_ms`, 7.2 `injection_mode`/`injection_path_template`/`injection_url_field`) and the 4.3 coherence validator exists only in the configuration model; `engine.py` copies values without transformations (only `list(...)`); tests read `target.tests_config.test_X_Y.<param>` (20 places), 3 tests use `RuntimeTest15/16/43Config` in signatures, 2 use `Any` (3.3, 4.2). The `domain_*.py` schema modules import only pydantic and stdlib.
-- Decision (owner, 2026-10-07): option C. Keep one model per test in a dedicated package outside `core/` (e.g. `src/test_config/`): `core/` is the engine of the tool, test parameters belong to the tests. Rejected: models in `core/` (mixes test knowledge into the engine); models declared inside each test with validation after discovery (bigger change, not convincing now). External-tool configuration models to be moved to the same package later. Tests keep reading `target.tests_config.test_X_Y.<param>`.
-- Decision (owner, 2026-10-07): `src/test_config/` is the lowest layer (it depends only on pydantic and imports nothing from the tool); `core/` imports it only to type `TargetContext.tests_config`. Rejected alternative: an untyped field plus a typed accessor in `test_config/` (core would know nothing, but every test access changes and typing goes through a runtime check). Documented in the dependency rule and checked by `import-linter`.
-- Implemented (2026-10-07): `src/config/schema/domain_*.py` moved with `git mv` to `src/test_config/` (new package, lowest layer); `RuntimeTestsConfig` moved to `src/test_config/runtime.py`, its fields are the real models; `engine.py` passes `config.tests.domain_<D>.test_<D>_<N>` (13 lines instead of about 100 lines of copies); the 13 `RuntimeTest*Config` classes removed (`src/core/models/runtime.py` 1084 → 160 lines, only `RuntimeCredentials`); tests 1.5, 1.6, 4.3, 3.3, 4.2 typed with the real models (3.3 and 4.2 were `Any`; mypy finds no error). `import-linter`: `test_config` added as lowest layer plus a contract "imports nothing from the tool" (proved to catch a violation). Verified: the 48 parameters of the 13 tests identical before/after with `config.yaml` and with defaults; reassignment still blocked (`frozen`), list content mutable before and after (Q-57); `dev:check`; lab: 15 native tests and `ext.1.5.sslyze` unchanged; wheel contains `src/test_config/`. Docs updated: `add-a-native-test.md` (8 steps instead of 9), `data-model.md`, `overview.md` (import graph recomputed), `configuration.md`, `coding-rules.md`, `CLAUDE.md`.
-- Resolution:
-
-### Q-54 - `.env` is not found when the tool is installed with pip
-- Status: verified (bug)
-- Source: `src/cli.py:59` `load_dotenv(override=False)` without a path. python-dotenv `find_dotenv()` (`dotenv/main.py:361-370`) starts from the folder of the calling file, not from the current working directory, unless `usecwd=True`.
-- Evidence (2026-10-06): same repository folder, same `.env`, same configuration. Hatch environment (editable install, code inside the repository): `.env` found, run completes. Fresh venvs with `pip install ".[sslyze]"` on Python 3.11, 3.13, 3.14 (code in `site-packages`): `validate-config` and `run` exit 10, `Environment variable(s) not set: ADMIN_PASSWORD, ADMIN_USERNAME, ...`. With the variables exported in the shell, the same venvs work.
-- Impact: the integration path (`pip install` into another product) never reads `.env`; the docs said "`.env` from the working directory" (corrected on 2026-10-06 in `reference/cli.md`, `reference/configuration.md`, `architecture/security-model.md` to describe the real behaviour).
-- Question: load `.env` from the working directory (`load_dotenv(find_dotenv(usecwd=True), override=False)`), add an explicit option (e.g. `--env-file`), or rely only on exported variables when installed? Belongs to the integration contract (Q-25 block).
-- Resolution:
-
 ### Q-56 - How many steps does adding a native test require?
 - Status: open (future, owner 2026-10-07)
 - Source: discussion of Q-53. Even with one model per test (option C), adding a native test touches several places: the test module, its configuration model, the domain container, the `RuntimeTestsConfig` field, the commented block in `config.yaml`, the test page and catalogue row in `docs/tests/`, `reference/configuration.md`, the roadmap.
 - Question: are all these steps necessary? Review them after block 4 and look for refactoring or simplification (e.g. generating the documentation rows from the code, Q-04; a test declaring its own model, option B of Q-53, if tests become plugins in the agnosticism work).
 - Resolution:
 
-### Q-57 - List parameters of the tests can be modified at runtime
-- Status: open (safety check to do separately, owner 2026-10-07; keep as is for now)
-- Source: per-test models in `src/test_config/` are `frozen` (a parameter cannot be reassigned), but list-valued parameters (e.g. `test_2_1.admin_endpoint_paths`, `test_0_2.gateway_server_identifiers`) are Python lists, so a test could append to or change them; the same object is shared by every test of the run.
-- Evidence (2026-10-07, same check on the code before block 1 and after Q-53): reassigning a parameter or replacing a test's parameters is blocked (`ValidationError`) in both; appending to a list parameter is possible in both (before, the runtime copies also had list fields and one shared container). No test modifies a list parameter; nothing reads `config.tests` after Phase 3.
-- Question: make list parameters tuples (fully immutable; `config.yaml` unchanged)? Check type by type and verify on the lab.
+### Q-58 - A selection that runs no test ends with exit 0 (CLEAN)
+- Status: implemented (2026-10-08, block 5 group 1), awaiting the owner to close
+- Source: `src/engine.py` Phase 4 (`pipeline_phase_4_no_active_tests` is only a warning); `ResultSet.compute_exit_code()` returns CLEAN when there is no result; `src/tests/registry.py` (`test_registry_requested_ids_not_found`, warning) and `src/external_tests/registry.py` (an unknown or disabled `ext.` ID is dropped silently).
+- Evidence (2026-10-08, lab, after Q-45): `test_ids: ["ext.1.5.sslyze"]` with `external_tools.sslyze.enabled: false` → no test scheduled, empty report, **exit 0**; the only signal is the warning `pipeline_phase_4_no_active_tests`, whose text blames "the configured priority and strategy filters". A native ID that does not exist (e.g. `"1.7"`) only logs `test_registry_requested_ids_not_found`; an `ext.` ID that does not exist logs nothing.
+- Question: should an ID in `test_ids` that does not exist, or that cannot run because its tool is disabled, stop the run at startup (exit 10, like Q-22), or at least be reported? Should a run that schedules no test at all still return CLEAN (exit 0 = "no violation" although nothing was checked)?
+- How to verify: decision with the owner; then the same cases on the lab.
+- Decision (owner, 2026-10-08): reject, with distinct messages, an unknown ID and a test of a disabled tool; a run that selects no test never ends `0`; no new exit code, `10` (no verdict). Requirement: each check in one place, no duplicates.
+- Implemented (2026-10-08): one check, `check_test_ids()` in `src/engine.py`, called by the engine right after Phase 1 (before any contact with the target) and by `validate-config`; it lists every wrong entry (`unknown test`, with the closest ID at similarity 0.8, or `cannot run: external_tools[.<tool>].enabled is false`). The registries only provide listings (`TestRegistry.list_test_ids()`, `ExternalTestRegistry.list_test_tools()`). The suggestion logic is one function, `closest_match()` in `src/config/loader.py`, shared with Q-22. Phase 4 raises `ConfigurationError` (`No test selected: ...`) instead of the warning `pipeline_phase_4_no_active_tests`; the native registry warning `test_registry_requested_ids_not_found`, now unreachable, removed. ID format stays in the schema (Phase 1). Also: exit codes logged as plain ints (Q-20 follow-up: they showed `<ExitCode.CLEAN: 0>`). Verified: `1.7`, `ext.1.5.sslyzee` (suggests `ext.1.5.sslyze`), `ext.1.5.sslyze` with the tool off, `ext.0.1.nuclei` with the master switch off → each its message, exit 10, with `validate-config`; all together → 3 errors listed; `run` with them stops after Phase 1 (no Phase 2 log, no output folder); filters with no test (externals off, `min_priority: 0`, `strategies: [WHITE_BOX]`) → exit 10, no report; valid selections unchanged (not set 18, `0.2` 1, sslyze 1, both 2); `0.2` run → exit 1; 15 native tests identical to the baseline; `dev:check`. Docs: `exit-codes.md`, `cli.md`, `configuration.md`, `select-tests.md`, CHANGELOG (breaking).
 - Resolution:
-

@@ -6,8 +6,8 @@
 
 `apiguard_report.json` is the machine-readable result of an assessment: the same data that renders
 `assessment_report.html`, serialised with `ReportData.model_dump_json()`. It is written in Phase 7 to
-`output.directory` whenever the pipeline reaches Phase 7 - i.e. for exit codes `0`, `1`, `2`; **not** for
-`10` or an interrupted run ([`exit-codes.md`](exit-codes.md)).
+`output.directory` whenever the pipeline reaches Phase 7 - i.e. for exit codes `0`, `1`, `3`; **not** for
+`2` (invalid invocation), `10` or an interrupted run ([`exit-codes.md`](exit-codes.md)).
 
 ## Versioning
 
@@ -22,7 +22,7 @@ renamed fields, the **minor** for added optional fields. Check the major before 
 | `output_schema_version` | string | Schema version, currently `"1.0"`. |
 | `tool_version` | string | APIGuard version that produced the report. |
 | `run_id` | string | `apiguard-YYYYMMDD-HHMMSS-ffffff`. |
-| `generated_at_utc` | string, ISO 8601 | Generation time. **Despite the name, written in `Europe/Rome` time with offset** (e.g. `2026-10-05T17:12:00.515745+02:00`; Q-23). Parse the offset; do not assume UTC. |
+| `generated_at_utc` | string, ISO 8601 UTC | Generation time, UTC with `+00:00` offset (e.g. `2026-10-08T09:12:57.870747+00:00`), like `generated_at_utc` in `evidence.json`. The HTML report shows it in the reader's local time zone (UTC value in the tooltip). |
 | `target_base_url` | string | `target.base_url`. |
 | `spec_title`, `spec_version` | string | `info.title` and `info.version` of the OpenAPI spec. |
 | `min_priority_label` | string | One of `P0 — Critical`, `P1 — High`, `P2 — Medium`, `P3 — Low`. |
@@ -87,7 +87,7 @@ The same `TestResultRow` objects appear both in `domains[].rows` and in `all_row
 |---|---|---|
 | `PASS` | Guarantee verified. | none |
 | `FAIL` | Guarantee violated; at least one finding. | → `1` |
-| `ERROR` | The verification did not complete (transport failure, rejected credentials, tool failure). Findings may be present. | → `2` if no FAIL |
+| `ERROR` | The verification did not complete (transport failure, rejected credentials, tool failure). Findings may be present. | → `3` if no FAIL |
 | `SKIP` | A precondition is missing (credentials, Admin API, tool disabled, nothing applicable in the spec). `skip_reason` explains which. | none |
 
 ## `Finding`

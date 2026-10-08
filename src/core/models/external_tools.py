@@ -56,7 +56,7 @@ class BaseExternalToolConfig(BaseModel):
         4. Do NOT redeclare ``_timeout_required_when_enabled``.
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
     enabled: bool = Field(
         default=False,
@@ -248,7 +248,7 @@ class ExternalToolsConfig(BaseModel):
         enabled=True   -> per-tool ``enabled`` fields are evaluated individually.
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
     enabled: bool = Field(
         default=True,

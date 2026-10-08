@@ -90,6 +90,7 @@ Kong OSS DB-less expected outcome:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
@@ -1017,7 +1018,7 @@ class Test43CircuitBreakerAudit(BaseTest):
 
     def _build_level3_finding(
         self,
-        accepted_plugin_names: list[str],
+        accepted_plugin_names: Sequence[str],
         upstream_count: int,
     ) -> Finding:
         """

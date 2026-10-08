@@ -33,7 +33,7 @@ The exit code of `apiguard run` is the overall verdict ([exit codes](../../refer
 |---|---|
 | `0` | every executed test passed (SKIPs do not count) |
 | `1` | at least one test FAILED: a security guarantee is violated |
-| `2` | no FAIL, but at least one test could not complete (ERROR) |
+| `3` | no FAIL, but at least one test could not complete (ERROR) |
 | `10` | the assessment did not run (configuration, unreachable specification): **no verdict, not "clean"** |
 
 The executive summary gives the counts:

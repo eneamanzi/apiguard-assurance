@@ -1,7 +1,7 @@
 # CLI Reference
 
 > **Audience:** users, integrators · **Status:** stable · **Source of truth:** `src/cli.py` (Typer app) ·
-> **Verified:** 2026-10-05, v0.1.0 (`--help` output and test invocations)
+> **Verified:** 2026-10-05, v0.1.0 (`--help` output and test invocations); `.env` and `--env-file` 2026-10-08
 
 ```
 apiguard [COMMAND] [OPTIONS]
@@ -13,7 +13,7 @@ The entry point is installed as `apiguard`. From a source checkout without insta
 | Command | Purpose |
 |---|---|
 | [`run`](#run) | Run the assessment against the configured target. |
-| [`validate-config`](#validate-config) | Validate `config.yaml` (Phase 1 only) without contacting the target. |
+| [`validate-config`](#validate-config) | Validate `config.yaml` (Phase 1 and the `test_ids` check) without contacting the target. |
 | [`generate-seed`](#generate-seed) | Generate a `path_seed` template from an OpenAPI specification. |
 | [`version`](#version) | Print the tool version. |
 
@@ -22,18 +22,21 @@ There are no CLI options to select tests: selection is done in `config.yaml` (`e
 
 ## Environment and `.env`
 
-At startup every command loads a `.env` file, if found. Variables already set in the process environment take
-precedence over `.env` (`load_dotenv(override=False)`, `src/cli.py:59`). `${VAR}` placeholders in `config.yaml` are
-resolved from this environment.
+`run` and `validate-config` load a `.env` file before reading `config.yaml` (`_load_env_file`, `src/cli.py`);
+`${VAR}` placeholders in `config.yaml` are resolved from the resulting environment.
 
-**Where `.env` is searched (verified 2026-10-06):** `load_dotenv()` is called without a path, so python-dotenv looks
-for `.env` starting from the folder of the tool's own code (`src/cli.py`) and moving up, **not** from the folder
-where you run the command. In practice:
+- **Without `--env-file`:** `.env` in the **current working directory** (where you run the command), if it exists.
+  No other folder is searched: not the tool's installation folder, not parent folders. No `.env` is not an error;
+  a variable that is still missing stops the tool when `config.yaml` is loaded (exit `10`, naming the variable).
+- **With `--env-file PATH`:** that file instead. A path that is not an existing file is an invalid invocation
+  (exit `2`).
+- **Precedence:** variables already set in the process environment (exported in the shell, set by a CI pipeline,
+  a container or a calling program) are never overwritten by the file (`override=False`). Without any file, the
+  exported variables alone are enough.
 
-- working from the repository with Hatch (the code is installed in editable mode, inside the repository): the
-  repository's `.env` is found;
-- tool installed with `pip install` (code inside the virtual environment): `.env` is **not** found, even when the
-  command is run from the folder that contains it. Export the variables in the environment instead (Q-54).
+The loaded file is logged (`env_file_loaded`, path only, never values). `generate-seed` and `version` load no file.
+Verified on 2026-10-08 with a `pip` install in a fresh virtual environment, run from a folder outside the
+repository (Q-54; before, the file was searched from the tool's code folder and a `pip` install never found it).
 
 ## Output streams
 
@@ -60,6 +63,7 @@ apiguard run [--config PATH] [--log-format console|json] [--log-level LEVEL] [--
 | `--log-format` | `console` | `console`: human-readable, coloured. `json`: one JSON object per line. Case-insensitive. |
 | `--log-level` | `info` | `debug`, `info`, `warning`, `error`. `debug` logs every HTTP transaction and lets third-party loggers (httpx, httpcore, prance, openapi_spec_validator, urllib3, chardet) through; above `debug` they are limited to WARNING. |
 | `--banner` / `--no-banner` | `--banner` | Show the startup banner and completion panel. Only effective with `--log-format console`. |
+| `--env-file` | `.env` in the working directory | Environment file to load ([Environment and `.env`](#environment-and-env)). Must exist. |
 
 Outputs are written to `output.directory` (see [`report-schema.md`](report-schema.md),
 [`evidence-format.md`](evidence-format.md)). Exit codes: [`exit-codes.md`](exit-codes.md).
@@ -76,20 +80,21 @@ apiguard run --log-level debug
 apiguard validate-config [--config PATH] [--log-format console|json]
 ```
 
-Runs Phase 1 only: reads the YAML, resolves `${VAR}` placeholders, validates the schema. It does not fetch the
-OpenAPI specification and does not contact the target or the gateway.
+Runs Phase 1 (reads the YAML, resolves `${VAR}` placeholders, validates the schema) and the `execution.test_ids`
+check (every listed test exists and its tool is enabled). It does not fetch the OpenAPI specification and does not
+contact the target or the gateway. A filter combination that selects no test is detected only by `run` (Phase 4).
 
 | Option | Default | Description |
 |---|---|---|
 | `--config`, `-c` | `config.yaml` | Path to the configuration file. |
 | `--log-format` | `console` | As for `run`. Log level is fixed to `info`. |
+| `--env-file` | `.env` in the working directory | As for `run`. |
 
 On success prints `Configuration valid. Target: <base_url>` and exits `0`. On failure prints
 `Configuration invalid: <reason>` on stderr and exits `10`. Detected failures include: file not found,
-unresolved `${VAR}`, invalid values, violated cross-field rules (see
-[`configuration.md`](configuration.md#validation-rules)).
-
-**Not detected:** misspelled or unknown keys - they are ignored and the default applies (Q-22).
+unresolved `${VAR}`, invalid values, violated cross-field rules, unknown or misspelled keys (see
+[`configuration.md`](configuration.md#validation-rules)). Every schema error is listed, one per line, with its
+dotted path.
 
 ## `generate-seed`
 

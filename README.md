@@ -45,7 +45,7 @@ Full installation steps, including how to clean up a previous setup: [Installati
 | Use another configuration file | `hatch run apiguard run -c my-api.yaml` |
 | List the path parameters of a specification | `hatch run apiguard generate-seed <spec-url-or-file>` |
 
-Exit codes: `0` no violation, `1` at least one violation, `2` a check could not complete, `10` the assessment did not
+Exit codes: `0` no violation, `1` at least one violation, `3` a check could not complete, `10` the assessment did not
 run ([details](docs/reference/exit-codes.md)).
 
 ## Documentation

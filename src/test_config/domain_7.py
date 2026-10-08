@@ -214,12 +214,12 @@ class Test72SSRFConfig(BaseModel):
         prerequisite, not a lower risk classification.
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
     # -- Payload categories --
 
-    payload_categories: list[str] = Field(
-        default_factory=lambda: list(TEST_72_ALL_PAYLOAD_CATEGORIES),
+    payload_categories: tuple[str, ...] = Field(
+        default_factory=lambda: tuple(TEST_72_ALL_PAYLOAD_CATEGORIES),
         description=(
             "Payload categories to include in the SSRF probe. "
             "Valid values: 'cloud_metadata', 'private_ip', 'encoding_bypass', "
@@ -327,8 +327,8 @@ class Test72SSRFConfig(BaseModel):
 
     # -- Oracle classification keywords --
 
-    ssrf_block_response_keywords: list[str] = Field(
-        default_factory=lambda: list(TEST_72_BLOCK_RESPONSE_KEYWORDS_DEFAULT),
+    ssrf_block_response_keywords: tuple[str, ...] = Field(
+        default_factory=lambda: tuple(TEST_72_BLOCK_RESPONSE_KEYWORDS_DEFAULT),
         description=(
             "Case-insensitive substrings checked against the response body of "
             "non-2xx SSRF probe responses. "
@@ -342,8 +342,8 @@ class Test72SSRFConfig(BaseModel):
         ),
     )
 
-    ssrf_malformed_url_keywords: list[str] = Field(
-        default_factory=lambda: list(TEST_72_MALFORMED_URL_KEYWORDS_DEFAULT),
+    ssrf_malformed_url_keywords: tuple[str, ...] = Field(
+        default_factory=lambda: tuple(TEST_72_MALFORMED_URL_KEYWORDS_DEFAULT),
         description=(
             "Case-insensitive substrings that, when found in a non-2xx SSRF "
             "probe response body, indicate the URL was rejected because it is "
@@ -360,8 +360,8 @@ class Test72SSRFConfig(BaseModel):
         ),
     )
 
-    ssrf_unsupported_scheme_keywords: list[str] = Field(
-        default_factory=lambda: list(TEST_72_UNSUPPORTED_SCHEME_KEYWORDS_DEFAULT),
+    ssrf_unsupported_scheme_keywords: tuple[str, ...] = Field(
+        default_factory=lambda: tuple(TEST_72_UNSUPPORTED_SCHEME_KEYWORDS_DEFAULT),
         description=(
             "Case-insensitive substrings that, when found in a non-2xx SSRF "
             "probe response body, indicate the URL was rejected because its "
@@ -417,7 +417,7 @@ class TestDomain7Config(BaseModel):
     config.yaml block optional; defaults are methodology-compliant.
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
     test_7_2: Test72SSRFConfig = Field(
         default_factory=Test72SSRFConfig,

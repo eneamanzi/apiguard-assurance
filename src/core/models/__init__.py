@@ -19,7 +19,7 @@ need to know the internal package layout.
 
 Symbol inventory by source module:
 
-    enums.py           TestStatus, TestStrategy, SpecDialect
+    enums.py           TestStatus, TestStrategy, SpecDialect, ExitCode
 
     http.py            EvidenceRecord, TransactionSummary
 
@@ -36,7 +36,7 @@ Symbol inventory by source module:
 
 from __future__ import annotations
 
-from src.core.models.enums import SpecDialect, TestStatus, TestStrategy
+from src.core.models.enums import ExitCode, SpecDialect, TestStatus, TestStrategy
 from src.core.models.external_tools import (
     BaseExternalToolConfig,
     ExternalToolsConfig,
@@ -53,6 +53,7 @@ __all__ = [
     "TestStatus",
     "TestStrategy",
     "SpecDialect",
+    "ExitCode",
     # http.py
     "EvidenceRecord",
     "TransactionSummary",

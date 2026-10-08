@@ -46,8 +46,8 @@ credentials (7.2 is P0 and GREY_BOX) and a configuration audit can be important 
 
 Configured in `execution` ([`reference/configuration.md`](../reference/configuration.md#execution)):
 
-1. `test_ids` non-empty → only the listed IDs; exception: a list with only native IDs also runs every enabled
-   external test (Q-45). Priority filter ignored; strategy filter ignored for native tests.
+1. `test_ids` non-empty → only the listed IDs, native or external (a listed test of a disabled tool still does not
+   run). Priority filter ignored; strategy filter ignored for native tests.
 2. Otherwise `min_priority` keeps tests with `priority <= min_priority`, and `strategies` keeps native tests whose
    strategy is listed. **External tests are not filtered by strategy** (Q-10).
 3. External tests are scheduled only if their tool is enabled (`external_tools`).
@@ -76,7 +76,7 @@ they differ from the specification. If they are intended, the specification is w
 |---|---|---|
 | `PASS` | The guarantee holds for what was tested. | none |
 | `FAIL` | The guarantee is violated; at least one Finding with evidence. | → 1 |
-| `ERROR` | The check could not be completed (transport failure, rejected credentials, tool failure, unexpected exception). | → 2 if no FAIL |
+| `ERROR` | The check could not be completed (transport failure, rejected credentials, tool failure, unexpected exception). | → 3 if no FAIL |
 | `SKIP` | A precondition is missing; `skip_reason` says which. Not a pass. | none |
 
 A PASS is bounded by what the test covers: each test page lists the methodology sub-tests that are not

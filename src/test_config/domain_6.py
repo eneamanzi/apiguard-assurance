@@ -96,7 +96,7 @@ class Test62AuditConfig(BaseModel):
         is intentionally NOT applied in the execute() method.
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
     hsts_min_max_age_seconds: Annotated[
         int,
@@ -186,10 +186,10 @@ class Test64AuditConfig(BaseModel):
     methodology section 6.4.
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
-    debug_endpoint_paths: list[str] = Field(
-        default_factory=lambda: list(TEST_64_DEBUG_ENDPOINT_PATHS_DEFAULT),
+    debug_endpoint_paths: tuple[str, ...] = Field(
+        default_factory=lambda: tuple(TEST_64_DEBUG_ENDPOINT_PATHS_DEFAULT),
         description=(
             "List of paths to probe for debug / actuator endpoint exposure. "
             "Each path is probed with an unauthenticated GET request. "
@@ -236,7 +236,7 @@ class TestDomain6Config(BaseModel):
     methodology-compliant defaults.
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
     test_6_2: Test62AuditConfig = Field(
         default_factory=Test62AuditConfig,

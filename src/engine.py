@@ -77,7 +77,7 @@ from pathlib import Path
 
 import structlog
 
-from src.config.loader import load_config
+from src.config.loader import closest_match, load_config
 from src.config.schema import ToolConfig
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
@@ -92,6 +92,7 @@ from src.core.exceptions import (
 from src.core.gateway.kong import KongGatewayAdapter
 from src.core.models import (
     AttackSurface,
+    ExitCode,
     ResultSet,
     RuntimeCredentials,
     TestResult,
@@ -109,14 +110,69 @@ from src.tests.registry import TestRegistry
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
+# Prefix of external test IDs (e.g. "ext.1.5.sslyze"): routes an
+# execution.test_ids entry to ExternalTestRegistry instead of TestRegistry.
+_EXTERNAL_TEST_ID_PREFIX: str = "ext."
 
-EXIT_CODE_CLEAN: int = 0
-EXIT_CODE_FAIL: int = 1
-EXIT_CODE_ERROR: int = 2
-EXIT_CODE_INFRASTRUCTURE: int = 10
+# Similarity threshold for suggesting a test ID in place of an unknown one.
+# Higher than for configuration keys (0.6): test IDs are short and close to
+# each other, so 0.6 would suggest "1.6" for "1.7"; 0.8 keeps real typos
+# ("ext.1.5.sslyzee" -> "ext.1.5.sslyze", "ext.0.1.nucle" -> "ext.0.1.nuclei").
+_TEST_ID_SUGGESTION_CUTOFF: float = 0.8
+
+
+def check_test_ids(config: ToolConfig) -> None:
+    """
+    Check that every execution.test_ids entry names a test that can run.
+
+    The single check of test_ids content (their format is checked by the
+    configuration schema). Called by the engine right after Phase 1, before
+    any contact with the target, and by ``apiguard validate-config``.
+
+    An entry is rejected when no test has that ID (with the closest ID as a
+    suggestion), or when it is an external test whose tool is disabled
+    (master switch or per-tool switch): test_ids chooses among available
+    tests and never enables a tool.
+
+    Args:
+        config: The validated configuration.
+
+    Raises:
+        ConfigurationError: Listing every rejected entry.
+    """
+    requested = config.execution.test_ids
+    if not requested:
+        return
+
+    native_ids = TestRegistry().list_test_ids()
+    external_tools = ExternalTestRegistry().list_test_tools()
+    known_ids = sorted(native_ids | set(external_tools))
+
+    problems: list[str] = []
+    for test_id in requested:
+        if test_id in native_ids:
+            continue
+        tool_name = external_tools.get(test_id)
+        if tool_name is None:
+            suggestion = closest_match(test_id, known_ids, _TEST_ID_SUGGESTION_CUTOFF)
+            hint = f" (did you mean '{suggestion}'?)" if suggestion is not None else ""
+            problems.append(f"unknown test '{test_id}'{hint}")
+        elif not config.external_tools.is_tool_enabled(tool_name):
+            switch = (
+                f"external_tools.{tool_name}.enabled is false"
+                if config.external_tools.enabled
+                else "external_tools.enabled is false"
+            )
+            problems.append(f"'{test_id}' cannot run: {switch}")
+
+    if problems:
+        raise ConfigurationError(
+            message=(
+                f"Test selection invalid with {len(problems)} error(s):\n"
+                + "\n".join(f"  - execution.test_ids: {problem}" for problem in problems)
+            ),
+            config_path="execution.test_ids",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -162,7 +218,7 @@ class AssessmentEngine:
         Execute the complete assessment pipeline and return the exit code.
 
         Returns:
-            int: Process exit code. One of: 0, 1, 2, 10.
+            int: Process exit code (an ExitCode member): 0, 1, 3 or 10.
         """
         log.info("assessment_pipeline_started", run_id=self._run_id)
         wall_start = time.monotonic()
@@ -176,7 +232,7 @@ class AssessmentEngine:
                 exc_type=type(exc).__name__,
                 detail=str(exc),
             )
-            exit_code = EXIT_CODE_INFRASTRUCTURE
+            exit_code = ExitCode.INFRASTRUCTURE
         except Exception as exc:  # noqa: BLE001
             log.error(
                 "assessment_pipeline_unexpected_engine_error",
@@ -184,13 +240,13 @@ class AssessmentEngine:
                 exc_type=type(exc).__name__,
                 detail=str(exc),
             )
-            exit_code = EXIT_CODE_INFRASTRUCTURE
+            exit_code = ExitCode.INFRASTRUCTURE
 
         elapsed = time.monotonic() - wall_start
         log.info(
             "assessment_pipeline_completed",
             run_id=self._run_id,
-            exit_code=exit_code,
+            exit_code=int(exit_code),
             elapsed_seconds=round(elapsed, 2),
         )
 
@@ -205,9 +261,10 @@ class AssessmentEngine:
         Execute all seven pipeline phases and return the exit code.
 
         Phases 1-4 are blocking: exceptions propagate to run() which converts
-        them to EXIT_CODE_INFRASTRUCTURE. Phases 5-7 are non-blocking.
+        them to ExitCode.INFRASTRUCTURE. Phases 5-7 are non-blocking.
         """
         config = self._phase_1_initialize()
+        check_test_ids(config)
         attack_surface = self._phase_2_openapi_discovery(config)
         target, context, store = self._phase_3_build_contexts(
             config=config,
@@ -465,17 +522,14 @@ class AssessmentEngine:
         scheduler reads.  Cross-hierarchy dependencies are fully supported:
         an ExternalToolTest may declare depends_on referencing a BaseTest test_id.
 
-        Allowed IDs partitioning:
-            IDs prefixed with "ext." belong exclusively to ExternalTestRegistry.
-            Bare "X.Y" IDs belong exclusively to TestRegistry.  Passing the full
-            set to both registries caused TestRegistry to warn about unknown IDs
-            that are legitimately external, and ExternalTestRegistry to warn about
-            unknown IDs that are legitimately native.  Partitioning by prefix
-            eliminates both spurious warnings without changing any filtering logic.
-
-            When the raw set is empty (no test_ids filter configured), both
-            registries receive an empty set, which they interpret as "no filter"
-            (run everything matching priority and strategy).
+        Selection by execution.test_ids:
+            Not set: each registry receives allowed_ids=None and applies its
+            normal filters (priority, strategy, tool enablement).
+            Set: only the listed tests run.  IDs prefixed with "ext." go to
+            ExternalTestRegistry, the others to TestRegistry; each registry
+            receives its part as a set, possibly empty, and an empty set
+            means "no test of this kind" (not "no filter").  A listed test
+            of a disabled external tool still does not run.
 
         Returns:
             Tuple of (list[ScheduledBatch], combined list BaseTest | ExternalToolTest).
@@ -485,53 +539,25 @@ class AssessmentEngine:
         """
         log.info("pipeline_phase_4_discovery_and_scheduling_started")
 
-        # --- Partition allowed_ids by registry affinity ---
-        # IDs prefixed with "ext." are routed exclusively to ExternalTestRegistry.
-        # Bare "X.Y" IDs are routed exclusively to TestRegistry.
-        # An empty raw set is passed through unchanged to both registries,
-        # preserving the "no filter" semantic.
-        raw_allowed_ids: set[str] = (
-            set(config.execution.test_ids) if config.execution.test_ids else set()
-        )
-
-        if raw_allowed_ids:
-            native_allowed_ids: set[str] = {
-                tid for tid in raw_allowed_ids if not tid.startswith("ext.")
+        # --- Split execution.test_ids by registry ---
+        # None: no test_ids, normal filters. A set (possibly empty): run only
+        # these IDs; an empty part means no test of that kind.
+        native_allowed_ids: set[str] | None = None
+        external_allowed_ids: set[str] | None = None
+        if config.execution.test_ids:
+            requested_ids = set(config.execution.test_ids)
+            external_allowed_ids = {
+                tid for tid in requested_ids if tid.startswith(_EXTERNAL_TEST_ID_PREFIX)
             }
-            external_allowed_ids: set[str] = {
-                tid for tid in raw_allowed_ids if tid.startswith("ext.")
-            }
-        else:
-            # Empty set -> no filter applied by either registry.
-            native_allowed_ids = set()
-            external_allowed_ids = set()
+            native_allowed_ids = requested_ids - external_allowed_ids
 
         # --- Native test discovery ---
-        # Short-circuit: if the operator requested specific IDs and ALL of them
-        # are external (ext. prefix), native_allowed_ids is an empty set.
-        # Passing set() to TestRegistry.discover() would be ambiguous: an empty
-        # set is falsy in Python, so the registry would interpret it as
-        # "no filter" and run every native test -- the opposite of the intent.
-        # The correct semantic is "run zero native tests", achieved by
-        # skipping the registry call entirely.
         registry = TestRegistry()
-        if raw_allowed_ids and not native_allowed_ids:
-            # All requested IDs are external (ext.*). No native tests scheduled.
-            native_tests: list[BaseTest] = []
-            log.info(
-                "test_registry_skipped_all_ids_are_external",
-                raw_allowed_ids=sorted(raw_allowed_ids),
-                detail=(
-                    "All test_ids in config have the 'ext.' prefix. "
-                    "Native TestRegistry discovery skipped -- zero native tests scheduled."
-                ),
-            )
-        else:
-            native_tests = registry.discover(
-                min_priority=config.execution.min_priority,
-                enabled_strategies=set(config.execution.strategies),
-                allowed_ids=native_allowed_ids,
-            )
+        native_tests: list[BaseTest] = registry.discover(
+            min_priority=config.execution.min_priority,
+            enabled_strategies=set(config.execution.strategies),
+            allowed_ids=native_allowed_ids,
+        )
 
         # --- External test discovery ---
         ext_registry = ExternalTestRegistry()
@@ -544,19 +570,20 @@ class AssessmentEngine:
         # --- Merge both lists ---
         all_tests: list[BaseTest | ExternalToolTest] = [*native_tests, *external_tests]
 
+        # A run that checks nothing must not end CLEAN (exit 0): stop with
+        # INFRASTRUCTURE (no verdict). With test_ids every entry was already
+        # checked to be runnable, so this is reached only through the filters.
         if not all_tests:
-            log.warning(
-                "pipeline_phase_4_no_active_tests",
-                min_priority=config.execution.min_priority,
-                strategies=[s.value for s in config.execution.strategies],
-                native_count=len(native_tests),
-                external_count=len(external_tests),
-                detail=(
-                    "No tests matched the configured priority and strategy filters. "
-                    "The assessment will produce an empty report."
+            raise ConfigurationError(
+                message=(
+                    "No test selected: no test matches execution.min_priority="
+                    f"{config.execution.min_priority} and execution.strategies="
+                    f"{[s.value for s in config.execution.strategies]} with the "
+                    "enabled external tools. Widen the filters or list the tests "
+                    "in execution.test_ids."
                 ),
+                config_path="execution",
             )
-            return [], all_tests
 
         # Build dependency map from the union of both lists.
         dependency_map: dict[str, list[str]] = {

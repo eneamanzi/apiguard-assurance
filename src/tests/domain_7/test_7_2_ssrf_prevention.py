@@ -68,6 +68,7 @@ EvidenceStore policy:
 from __future__ import annotations
 
 import secrets
+from collections.abc import Sequence
 from typing import ClassVar, NamedTuple
 from urllib.parse import urlparse
 
@@ -450,7 +451,7 @@ class Test72SSRFPrevention(BaseTest):
     # Private helpers
     # ---------------------------------------------------------------------------
 
-    def _build_active_payloads(self, categories: list[str]) -> list[_SSRFPayloadEntry]:
+    def _build_active_payloads(self, categories: Sequence[str]) -> list[_SSRFPayloadEntry]:
         """
         Filter ALL_SSRF_PAYLOADS to the configured category subset.
 
@@ -475,9 +476,9 @@ class Test72SSRFPrevention(BaseTest):
         payloads: list[_SSRFPayloadEntry],
         webhook_path: str,
         token: str,
-        cfg_keywords: list[str],
-        cfg_malformed_keywords: list[str],
-        cfg_scheme_keywords: list[str],
+        cfg_keywords: Sequence[str],
+        cfg_malformed_keywords: Sequence[str],
+        cfg_scheme_keywords: Sequence[str],
         cfg_body_template: dict[str, object],
         client: SecurityClient,
         store: EvidenceStore,
@@ -637,9 +638,9 @@ class Test72SSRFPrevention(BaseTest):
         redirect_server_url: str,
         webhook_path: str,
         token: str,
-        cfg_keywords: list[str],
-        cfg_malformed_keywords: list[str],
-        cfg_scheme_keywords: list[str],
+        cfg_keywords: Sequence[str],
+        cfg_malformed_keywords: Sequence[str],
+        cfg_scheme_keywords: Sequence[str],
         body_template: dict[str, object],
         client: SecurityClient,
         store: EvidenceStore,
@@ -825,9 +826,9 @@ class Test72SSRFPrevention(BaseTest):
     def _classify_blocked_state(
         response_body: str,
         injected_url: str,
-        malformed_keywords: list[str],
-        scheme_keywords: list[str],
-        block_keywords: list[str],
+        malformed_keywords: Sequence[str],
+        scheme_keywords: Sequence[str],
+        block_keywords: Sequence[str],
     ) -> str:
         """
         Classify a non-2xx response with four-level oracle precedence.

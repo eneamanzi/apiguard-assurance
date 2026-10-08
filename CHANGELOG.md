@@ -11,11 +11,19 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
 ### Added
 
+- `--env-file PATH` for `run` and `validate-config`: load the environment variables from that file instead of `.env`
+  in the working directory.
 - `tests.domain_0.test_0_1.method_probe_sample_size` (1-100, default 10): how many documented endpoints test 0.1
   takes for the undeclared-method sub-check (it was a fixed 10). Every native test now has a configuration model.
 
 ### Fixed
 
+- `.env` is loaded from the working directory (where the command is run). It was searched from the tool's own
+  code folder, so a `pip`-installed tool never found it, and a Hatch run found the repository's `.env` from any
+  folder. Only `run` and `validate-config` load it.
+- `apiguard run --help` listed exit code `2` as ERROR; it lists `2` (invalid invocation) and `3` (ERROR).
+- `execution.test_ids` with only native IDs no longer runs every enabled external test as well: a non-empty
+  `test_ids` now runs exactly the listed tests (a listed test of a disabled tool still does not run).
 - Lab setup: if issue 1 or comment 1 was deleted (they are `path_seed` resources), the setup stops and asks for a
   full reset instead of reporting "Issue 1 created" for a resource Forgejo created under a new number.
 - The `config_coherence_warning` messages no longer link priorities and strategies and no longer quote skip
@@ -33,6 +41,20 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
 ### Changed
 
+- **Breaking:** a run that would check nothing no longer ends with exit `0` (CLEAN). An `execution.test_ids`
+  entry that does not exist (with a suggestion of the closest ID) or that belongs to a disabled tool stops the tool
+  right after loading the configuration, also in `validate-config`; a filter combination that selects no test stops
+  the run at Phase 4. Both exit `10`. Before, the run produced an empty report and exit `0`.
+- **Breaking:** `generated_at_utc` in `apiguard_report.json` is UTC (`+00:00`), as its name says; it was written in
+  `Europe/Rome` time (same instant, different offset). The HTML report shows it in the reader's local time zone,
+  with the UTC value in the tooltip.
+- **Breaking:** unknown keys in `config.yaml` are rejected at startup (exit `10`) instead of being silently
+  ignored, so a misspelled key no longer applies a default unnoticed. The error lists every validation error (it
+  showed only the first), and for an unknown key suggests the closest declared key. Free-form mappings such as
+  `target.path_seed` are not affected. `config.yaml` and `config_crapi.yaml` are unchanged and valid.
+- **Breaking:** exit code `3` now means ERROR (at least one test could not complete, no FAIL); it was `2`. `2`
+  now means only an invalid invocation (unknown option or command), so a wrapper can tell "nothing ran" from "the
+  run completed with errors". The same value is in `executive_summary.exit_code` of `apiguard_report.json`.
 - Test lab (`test-environments/forgejo-kong/`): every credential and secret comes from `.env` (new variables
   `LAB_DB_PASSWORD`, `LAB_FORGEJO_SECRET_KEY`, `LAB_TEST_REPO`, `LAB_TEST_ORG`, `LAB_TEST_TAG` in `.env.example`);
   the setup container creates users that can call the API immediately, plus the repository, organization, tag,
@@ -51,6 +73,8 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
   validates `config.yaml` and reaches the test); the runtime copies and the field-by-field copy in the engine were
   removed; the engine collects them automatically, and a model missing on one side stops the run at
   Phase 3. No change to existing configuration keys, defaults or results.
+- Internal: list-valued test parameters (13) are tuples, so no test can change them during a run (YAML lists in
+  `config.yaml` are unchanged). No change to defaults or results.
 - Development checks: `hatch run dev:check` also runs `ruff format --check` and `lint-imports` (dependency rules
   between packages); code formatted; one import fixed to respect the dependency rule.
 - Documentation rewritten in English and reorganised under `docs/` (getting started, usage guides, reference,

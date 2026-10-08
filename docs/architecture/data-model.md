@@ -37,7 +37,8 @@ Invariants enforced by the model (`src/core/models/results.py`):
 | `SKIP` | `skip_reason` required |
 | `ERROR` | findings optional |
 
-`ResultSet.compute_exit_code()`: any FAIL → 1, else any ERROR → 2, else 0.
+`ResultSet.compute_exit_code()`: any FAIL → 1, else any ERROR → 3, else 0 (`ExitCode` in
+`src/core/models/enums.py`, the single definition of the codes).
 
 ## Dual audit trail
 
@@ -103,7 +104,9 @@ constraints and validators; empty when the test has no parameters). The same mod
 
 `src/test_config/` is the lowest layer of the tool: it imports nothing from `src/`, so both `config/` and the
 tests can use it, and `core/` imports it only to type `TargetContext.tests_config`. All models are frozen: a test
-cannot reassign a parameter. List parameters are plain lists (a test could change their content; none does, Q-57).
+cannot reassign a parameter. List parameters are tuples (`config.yaml` still uses YAML lists), so their content
+cannot change either; test helpers receive them as `Sequence[...]`. The only container left mutable is
+`test_7_2.injection_body_template` (a dict): test 7.2 only ever uses a copy of it.
 
 Until 2026-10 every parameter was defined twice (a configuration model plus a `RuntimeTest<XY>Config` copy in
 `src/core/models/runtime.py`, filled field by field by the engine); the copies were removed.

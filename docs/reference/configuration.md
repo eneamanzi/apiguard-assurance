@@ -18,12 +18,16 @@ Every field, type, default and constraint below comes from the Pydantic models. 
    - `${VAR:-default}` is **not** supported.
    - An unset variable stops the tool with `ConfigurationError` naming the variable (exit `10`). This applies
      to placeholders **inside YAML comments too**, because interpolation happens on the raw text.
-   - `.env` is loaded first (with Hatch: the repository's `.env`; with a `pip` install it is not found, see
-     [where `.env` is searched](cli.md#environment-and-env)); variables already in the environment win.
+   - `.env` is loaded first: the one in the working directory, or the file given with `--env-file`
+     ([details](cli.md#environment-and-env)); variables already in the environment win.
 3. **Relative paths** (`openapi_spec_path`, `output.directory`, `external_tools.nuclei.template_dir`) are
    resolved against the **working directory**, not the location of `config.yaml`.
-4. **Unknown keys are ignored.** A misspelled key (e.g. `min_prioriti`) passes validation and the default
-   applies (Q-22). Check spelling against this page.
+4. **Unknown keys are rejected.** Every section with a schema forbids keys it does not declare: a misspelled key
+   (e.g. `min_prioriti`) stops the tool at Phase 1 with exit `10`. The message lists every error with its
+   dotted path and, when a declared key is similar enough, suggests it:
+   `execution.min_prioriti: unknown key (did you mean 'min_priority'?)`. Free-form mappings such as
+   `target.path_seed` (keys chosen by the user) are not checked. A configuration written for a newer version of
+   the tool, with keys this version does not know, is rejected the same way.
 5. The loaded configuration is immutable for the whole run.
 
 ## Minimal configuration
@@ -82,7 +86,7 @@ Each role's username and password must be set together or not at all.
 |---|---|---|---|---|
 | `min_priority` | int | `3` | 0-3 | **Highest** priority level included (the name is historical): `0` = P0 only, `3` = all. |
 | `strategies` | list | all three | non-empty; `BLACK_BOX`, `GREY_BOX`, `WHITE_BOX` | Native tests whose strategy is not listed are excluded. **External tests are not filtered by strategy** (Q-10). |
-| `test_ids` | list of strings | `[]` | `X.Y` or `ext.X.Y.tool` | Non-empty: run only the listed tests, with one exception: if the list has **only native IDs**, every enabled external test runs as well (Q-45). A list with only `ext.*` IDs, or a mixed list, runs exactly the listed tests. Replaces the `min_priority` filter (and `strategies` for native tests). To run only native tests, also set `external_tools.enabled: false`. |
+| `test_ids` | list of strings | `[]` | `X.Y` or `ext.X.Y.tool` | Non-empty: run **only** the listed tests, native or external. Replaces the `min_priority` filter (and `strategies` for native tests). It chooses only among available tests: an ID that does not exist, or an external test whose tool is disabled (`external_tools`), stops the tool at startup (exit `10`) with the reason and, for an unknown ID, the closest existing ID. |
 | `fail_fast` | bool | `false` | - | Stop after the first P0 test returning FAIL or ERROR ([`exit-codes.md`](exit-codes.md)). |
 | `connect_timeout` | float | `5.0` | 1-30 | TCP connect timeout (s) for requests to the target. |
 | `read_timeout` | float | `30.0` | 5-120 | Read timeout (s) for requests to the target. |
@@ -231,7 +235,8 @@ true (`src/external_tests/registry.py`):
 | Tool enabled but binary/library not found | The tool's tests return **SKIP** with the reason. |
 | Tool enabled and available | The tests run; a tool failure or timeout returns **ERROR**. |
 
-`execution.test_ids` cannot force a disabled tool to run.
+`execution.test_ids` cannot force a disabled tool to run: listing a test of a disabled tool stops the tool at startup
+(exit `10`, e.g. `'ext.1.5.sslyze' cannot run: external_tools.sslyze.enabled is false`).
 
 | Key | Type | Default | Description |
 |---|---|---|---|
@@ -273,6 +278,7 @@ Phase 1 rejects the configuration (exit `10`) when:
 | Username and password set together per role | `credentials.*` |
 | `strategies` not empty | `execution.strategies` |
 | `test_ids` format `X.Y` or `ext.X.Y.tool` | `execution.test_ids` |
+| `test_ids` entries exist and their tool is enabled (checked right after Phase 1, also by `validate-config`) | `execution.test_ids` |
 | Enabled tool has `timeout_seconds` | `external_tools.<tool>.*` |
 | `session_cookie_names` not empty | `tests.domain_1.test_1_6` |
 | min ≤ max ranges | `tests.domain_4.test_4_3` |

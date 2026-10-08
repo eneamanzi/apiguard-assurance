@@ -137,7 +137,7 @@ class TargetConfig(BaseModel):
     canonical string representation without if/else branching on source type.
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
     base_url: AnyHttpUrl = Field(
         description=(
@@ -380,7 +380,7 @@ class CredentialsConfig(BaseModel):
     supported options.
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
     # ------------------------------------------------------------------
     # Auth type discriminator
@@ -633,7 +633,7 @@ def _is_valid_test_id_format(test_id: str) -> bool:
 class ExecutionConfig(BaseModel):
     """Parameters that control the pipeline execution behavior."""
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
     min_priority: Annotated[int, Field(ge=PRIORITY_MIN, le=PRIORITY_MAX)] = Field(
         default=PRIORITY_MAX,
@@ -772,7 +772,7 @@ class ExecutionConfig(BaseModel):
 class OutputConfig(BaseModel):
     """Configuration for output file locations."""
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
     directory: Path = Field(
         default=Path(OUTPUT_DIRECTORY_DEFAULT),
@@ -832,7 +832,7 @@ class ToolConfig(BaseModel):
         engine.py Phase 3 reads from config.tests.domain_4.test_4_1.
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
     target: TargetConfig = Field(
         description="Connection parameters for the target API and its infrastructure."

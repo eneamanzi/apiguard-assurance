@@ -47,7 +47,7 @@ class TestsConfig(BaseModel):
     Test41ProbeConfig) and require no operator override for a standard assessment.
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
     domain_0: TestDomain0Config = Field(
         default_factory=TestDomain0Config,

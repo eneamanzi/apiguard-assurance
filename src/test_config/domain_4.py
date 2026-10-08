@@ -88,7 +88,7 @@ class Test41ProbeConfig(BaseModel):
         (e.g. 1000 req/min) that the default budget would not reach.
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
     max_requests: Annotated[
         int,
@@ -139,7 +139,7 @@ class Test42AuditConfig(BaseModel):
     with different timeouts and the deviation is accepted as a documented risk.
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
     max_connect_timeout_ms: Annotated[int, Field(ge=1)] = Field(
         default=TEST_42_MAX_CONNECT_TIMEOUT_MS_DEFAULT,
@@ -209,14 +209,14 @@ class Test43AuditConfig(BaseModel):
     parameter validation. passive_hc_max_* parameters govern Level 2.
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
     # ------------------------------------------------------------------
     # Level 1 -- native CB plugin
     # ------------------------------------------------------------------
 
-    accepted_cb_plugin_names: list[str] = Field(
-        default_factory=lambda: ["circuit-breaker"],
+    accepted_cb_plugin_names: tuple[str, ...] = Field(
+        default_factory=lambda: ("circuit-breaker",),
         description=(
             "Kong plugin names accepted as native circuit-breaker equivalents. "
             "Evaluated in order; the first enabled match is used for parameter "
@@ -323,7 +323,7 @@ class TestDomain4Config(BaseModel):
            wires it automatically (RuntimeTestsConfig.from_domains).
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
     test_4_1: Test41ProbeConfig = Field(
         default_factory=Test41ProbeConfig,

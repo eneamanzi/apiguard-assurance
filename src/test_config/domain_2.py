@@ -51,13 +51,13 @@ class Test21Config(BaseModel):
     NIST SP 800-53 Rev.5 AC-3.
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
     admin_endpoint_paths: Annotated[
-        list[str],
+        tuple[str, ...],
         Field(min_length=1),
     ] = Field(
-        default_factory=lambda: list(TEST_21_ADMIN_ENDPOINT_PATHS_DEFAULT),
+        default_factory=lambda: tuple(TEST_21_ADMIN_ENDPOINT_PATHS_DEFAULT),
         description=(
             "List of admin-only endpoint paths to probe with a non-privileged token.  "
             "Each path must start with '/'.  "
@@ -91,7 +91,7 @@ class TestDomain2Config(BaseModel):
            wires it automatically (RuntimeTestsConfig.from_domains).
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
     test_2_1: Test21Config = Field(
         default_factory=Test21Config,

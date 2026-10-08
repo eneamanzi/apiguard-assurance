@@ -229,8 +229,7 @@ test page.
 There is no automated test suite yet (planned: Q-51). Verify against the lab target:
 
 1. `apiguard validate-config` - the new parameters load.
-2. Run only the new test: in a copy of `config.yaml` set `execution.test_ids: ["<D>.<N>"]` and
-   `external_tools.enabled: false` (otherwise the external tests run too, Q-45), then
+2. Run only the new test: in a copy of `config.yaml` set `execution.test_ids: ["<D>.<N>"]`, then
    `apiguard run -c <copy> --log-level debug`.
 3. Check in `outputs/apiguard_report.json` that the test appears with the expected status, findings and oracle
    states, and that FAIL evidence is in `evidence.json`.

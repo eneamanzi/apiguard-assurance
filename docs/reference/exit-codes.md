@@ -1,7 +1,7 @@
 # Exit Codes
 
-> **Audience:** users, integrators · **Status:** stable · **Source of truth:** `src/engine.py:129-132`,
-> `src/core/models/results.py` (`ResultSet.compute_exit_code`), `src/cli.py` · **Verified:** 2026-10-05, v0.1.0
+> **Audience:** users, integrators · **Status:** stable · **Source of truth:** `src/core/models/enums.py`
+> (`ExitCode`), `src/core/models/results.py` (`ResultSet.compute_exit_code`), `src/cli.py` · **Verified:** 2026-10-08
 
 ## `apiguard run`
 
@@ -9,8 +9,9 @@
 |---|---|---|
 | `0` | CLEAN | Every executed test returned PASS or SKIP. |
 | `1` | FAIL | At least one test returned FAIL: a security guarantee is violated. |
-| `2` | ERROR | No FAIL, but at least one test returned ERROR: a verification did not complete. |
-| `10` | INFRA | The assessment did not run. Raised on `ConfigurationError` (Phase 1), `OpenAPILoadError` (Phase 2), `DAGCycleError` (Phase 4), or any unexpected exception inside the engine. |
+| `2` | USAGE | Invalid invocation: the assessment did not start (see [Usage errors](#usage-errors)). |
+| `3` | ERROR | No FAIL, but at least one test returned ERROR: a verification did not complete. |
+| `10` | INFRA | The assessment did not run. Raised on `ConfigurationError` (Phase 1; an `execution.test_ids` entry that does not exist or whose tool is disabled, checked right after Phase 1; no test selected by the filters, Phase 4), `OpenAPILoadError` (Phase 2), `DAGCycleError` (Phase 4), or any unexpected exception inside the engine. A run never ends `0` without running at least one test. |
 | `130` | Interrupted | The process received Ctrl+C (SIGINT). Teardown (Phase 6) runs; **no report files are written** (Phase 7 is skipped). |
 
 **Precedence:** FAIL > ERROR > CLEAN. A single FAIL yields `1` regardless of how many ERRORs occurred.
@@ -27,7 +28,7 @@ collected so far. Tests that had not started are absent from the report - they a
 
 | Command | Code | Meaning |
 |---|---|---|
-| `validate-config` | `0` | Configuration valid (Phase 1 only: YAML parsing, `${VAR}` interpolation, schema validation). |
+| `validate-config` | `0` | Configuration valid (Phase 1: YAML parsing, `${VAR}` interpolation, schema validation; plus the `execution.test_ids` check). |
 | `validate-config` | `10` | Configuration invalid or file not found. |
 | `generate-seed` | `0` | Template generated. |
 | `generate-seed` | `1` | Specification could not be fetched or parsed. |
@@ -35,9 +36,10 @@ collected so far. Tests that had not started are absent from the report - they a
 
 ## Usage errors
 
-Invalid invocations (unknown option, invalid choice such as `--log-format xml`, no command) are rejected by the
-CLI framework with exit code **`2`** - the same value as ERROR (Q-20). A wrapper that needs to tell them apart
-must validate its own arguments, or check that `apiguard_report.json` was written.
+Invalid invocations (unknown option, invalid choice such as `--log-format xml`, unknown command, no command) are
+rejected by the CLI framework (Typer/Click) with exit code **`2`**, for every command, before the tool starts:
+no test runs and no output file is written. `2` is reserved for this case (the usual convention of shells,
+`argparse` and Click); a completed run never returns it. Until 2026-10 ERROR was also `2` (Q-20).
 
 ## Handling in scripts
 
@@ -50,7 +52,8 @@ code=$?
 case "$code" in
   0)   echo "CLEAN" ;;
   1)   echo "FAIL: security guarantee violated" ;;
-  2)   echo "ERROR: verification incomplete (or CLI usage error)" ;;
+  2)   echo "USAGE: invalid invocation, nothing ran" ;;
+  3)   echo "ERROR: verification incomplete" ;;
   10)  echo "INFRA: assessment did not run" ;;
   130) echo "Interrupted" ;;
 esac

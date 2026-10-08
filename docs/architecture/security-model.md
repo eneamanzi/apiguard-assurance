@@ -12,7 +12,7 @@ systems you are authorised to test.
 
 | Aspect | Behaviour |
 |---|---|
-| Source | `${VAR}` placeholders in `config.yaml`, resolved from the environment; `.env` is loaded first (repository `.env` with Hatch; not found with a `pip` install, Q-54) and never overrides variables already set ([`reference/configuration.md`](../reference/configuration.md#loading-rules)). |
+| Source | `${VAR}` placeholders in `config.yaml`, resolved from the environment; `.env` is loaded first (the working directory's, or `--env-file`) and never overrides variables already set ([`reference/configuration.md`](../reference/configuration.md#loading-rules)). |
 | Missing variable | Phase 1 stops with exit 10 and names the variable (not its value). |
 | Literal values | Nothing prevents writing a password directly in `config.yaml`; placeholders are a convention. |
 | Logs | Log events carry identifiers, methods, paths and status codes; the HTTP client does not log headers or bodies, even at `debug` level. Credential values are not logged by the tool's code (checked by searching all log calls). |

@@ -126,15 +126,15 @@ class TestRegistry:
             min_priority: Maximum priority level (inclusive) to include.
                           Tests with priority > min_priority are excluded.
                           Range: 0 (P0 only) to 3 (all tests).
-                          Ignored when allowed_ids is non-empty.
+                          Ignored when allowed_ids is not None.
             enabled_strategies: Set of TestStrategy values to include.
                                  Tests whose strategy is not in this set are excluded.
                                  Must not be empty (validated by ToolConfig schema).
-                                 Ignored when allowed_ids is non-empty.
-            allowed_ids: If non-empty, include ONLY tests whose test_id is in
-                         this set. Overrides min_priority and enabled_strategies
-                         entirely. Intended for development and targeted runs.
-                         None or empty set means normal priority+strategy filtering.
+                                 Ignored when allowed_ids is not None.
+            allowed_ids: None means no ID filter (normal priority+strategy
+                         filtering). A set, even empty, includes ONLY the tests
+                         whose test_id is in it (an empty set: no native test)
+                         and overrides min_priority and enabled_strategies.
 
         Returns:
             Sorted list of instantiated BaseTest subclasses that passed all
@@ -144,7 +144,7 @@ class TestRegistry:
             "test_registry_discovery_started",
             min_priority=min_priority,
             enabled_strategies=[s.value for s in enabled_strategies],
-            allowed_ids=sorted(allowed_ids) if allowed_ids else [],
+            allowed_ids=sorted(allowed_ids) if allowed_ids is not None else None,
         )
 
         # Phase R1: scan and import test modules.
@@ -158,7 +158,7 @@ class TestRegistry:
             tests=all_tests,
             min_priority=min_priority,
             enabled_strategies=enabled_strategies,
-            allowed_ids=allowed_ids or set(),
+            allowed_ids=allowed_ids,
         )
 
         # Sort by test_id for deterministic ordering.
@@ -184,6 +184,18 @@ class TestRegistry:
         )
 
         return active_tests
+
+    def list_test_ids(self) -> set[str]:
+        """
+        Return the test_id of every concrete native test, without filtering.
+
+        Used to check execution.test_ids before the run (engine.check_test_ids).
+
+        Returns:
+            The set of native test IDs.
+        """
+        modules = self._scan_and_import_modules()
+        return {t.__class__.test_id for t in self._extract_concrete_subclasses(modules)}
 
     # ------------------------------------------------------------------
     # Phase R1 — Module scan and import
@@ -471,21 +483,21 @@ class TestRegistry:
         tests: list[BaseTest],
         min_priority: int,
         enabled_strategies: set[TestStrategy],
-        allowed_ids: set[str],
+        allowed_ids: set[str] | None,
     ) -> list[BaseTest]:
         """
         Apply filters to the discovered test list.
 
-        Filter mode is determined by whether allowed_ids is non-empty:
+        Filter mode is determined by whether allowed_ids is None:
 
-        ID filter mode (allowed_ids non-empty):
+        ID filter mode (allowed_ids is a set, possibly empty):
             Include ONLY tests whose test_id is in allowed_ids.
             The min_priority and enabled_strategies parameters are ignored
             entirely. This is the intended behaviour: when the operator
             explicitly names specific tests, priority and strategy are not
             relevant constraints.
 
-        Normal filter mode (allowed_ids empty):
+        Normal filter mode (allowed_ids is None):
             1. Priority: exclude tests with priority > min_priority.
             2. Strategy: exclude tests whose strategy is not in enabled_strategies.
             Both filters are applied in a single pass. Each excluded test is
@@ -495,15 +507,15 @@ class TestRegistry:
             tests:             Full list of discovered BaseTest instances.
             min_priority:      Maximum priority value to include (inclusive).
             enabled_strategies: Set of strategies to include.
-            allowed_ids:       If non-empty, the only filter applied is
-                               membership in this set.
+            allowed_ids:       If not None, the only filter applied is
+                               membership in this set (empty: no test).
 
         Returns:
             Filtered list of BaseTest instances.
         """
         active: list[BaseTest] = []
 
-        if allowed_ids:
+        if allowed_ids is not None:
             # ID filter mode: allowed_ids overrides everything else.
             for test in tests:
                 test_id = test.__class__.test_id
@@ -515,19 +527,8 @@ class TestRegistry:
                         test_id=test_id,
                         allowed_ids=sorted(allowed_ids),
                     )
-            # Warn if any requested ID was not found among discovered tests.
-            discovered_ids = {t.__class__.test_id for t in active}
-            missing = allowed_ids - discovered_ids
-            if missing:
-                log.warning(
-                    "test_registry_requested_ids_not_found",
-                    missing_ids=sorted(missing),
-                    detail=(
-                        "One or more test_ids specified in execution.test_ids "
-                        "were not found among discovered tests. Check for "
-                        "typos or missing test files."
-                    ),
-                )
+            # Unknown IDs never reach this point: engine.check_test_ids()
+            # rejects them before Phase 2.
             return active
 
         # Normal filter mode: priority + strategy.

@@ -95,6 +95,7 @@ EvidenceStore policy:
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from typing import Any, ClassVar
 
 import structlog
@@ -431,7 +432,7 @@ class Test64HardcodedCredentialsAudit(BaseTest):
 
     def _probe_debug_endpoints(
         self,
-        paths: list[str],
+        paths: Sequence[str],
         gateway_block_fragment: str,
         target: TargetContext,
         client: SecurityClient,

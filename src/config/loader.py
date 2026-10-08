@@ -35,7 +35,8 @@ Loading pipeline (three sequential, non-overlapping phases):
     Phase C — YAML parsing and Pydantic validation:
         Parse the interpolated string with yaml.safe_load().
         Pass the resulting dict to ToolConfig.model_validate().
-        Convert Pydantic ValidationError to ConfigurationError with
+        Convert Pydantic ValidationError to ConfigurationError listing every
+        error (an unknown key with the closest declared key, if any), with
         config_path extracted from the first error location.
         Emit structured warnings for coherence conditions detected by
         ToolConfig.model_validator (WHITE_BOX without admin_api_url, etc.).
@@ -48,13 +49,16 @@ Dependency rule:
 
 from __future__ import annotations
 
+import difflib
 import os
 import re
+import typing
 from pathlib import Path
 
 import structlog
 import yaml
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
+from pydantic_core import ErrorDetails
 
 from src.config.schema import ToolConfig
 from src.core.exceptions import ConfigurationError
@@ -74,6 +78,20 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # string "${ADMIN_URL:-http://localhost}" in the YAML, which Pydantic
 # then rejects with a confusing validation error rather than a clear one.
 _ENV_VAR_PATTERN: re.Pattern[str] = re.compile(r"\$\{(?P<var_name>[A-Z][A-Z0-9_]*)\}")
+
+# Pydantic error type raised by extra="forbid" for a key the schema does not
+# declare (every configuration model forbids unknown keys, so a typo stops
+# Phase 1 instead of silently applying a default).
+_PYDANTIC_EXTRA_FORBIDDEN: str = "extra_forbidden"
+
+# Similarity threshold (difflib ratio, 0-1) for suggesting a known key in place
+# of an unknown one. 0.6 is difflib's own default: it matches common typos
+# ("min_prioriti" -> "min_priority") without suggesting unrelated keys.
+_KEY_SUGGESTION_CUTOFF: float = 0.6
+
+# Validation errors listed one by one in the error message; beyond this the
+# remaining ones are only counted, to keep the message readable.
+_MAX_LISTED_VALIDATION_ERRORS: int = 20
 
 # Default config file name, resolved relative to the caller's working directory.
 # The CLI passes an explicit Path, but this constant documents the convention.
@@ -327,9 +345,10 @@ def _parse_and_validate(interpolated_content: str, config_path: Path) -> ToolCon
        the line and column of the syntax error.
 
     2. pydantic.ValidationError: The YAML structure is valid but does not
-       conform to ToolConfig's schema. The first validation error's location
-       is extracted and stored in ConfigurationError.config_path to give the
-       user a dotted-path pointer into config.yaml (e.g., 'target.base_url').
+       conform to ToolConfig's schema (wrong type, out of range, missing, or
+       an unknown key). Every error is listed in the message as a dotted path
+       into config.yaml (e.g., 'target.base_url'); the first one is also
+       stored in ConfigurationError.config_path.
 
     Args:
         interpolated_content: YAML string with all ${VAR_NAME} resolved.
@@ -364,22 +383,22 @@ def _parse_and_validate(interpolated_content: str, config_path: Path) -> ToolCon
     try:
         config = ToolConfig.model_validate(raw_dict)
     except ValidationError as exc:
-        # Extract the first error's location as a dotted config path.
         # Pydantic v2 errors() returns a list of TypedDict with 'loc' as a
         # tuple of (str | int) representing the path into the model.
-        first_error = exc.errors(include_url=False)[0]
-        loc_parts = first_error.get("loc", ())
-        dotted_path = ".".join(str(part) for part in loc_parts)
-        pydantic_message = first_error.get("msg", str(exc))
-        error_count = exc.error_count()
+        errors = exc.errors(include_url=False)
+        lines = [_describe_validation_error(error) for error in errors]
+        listed = lines[:_MAX_LISTED_VALIDATION_ERRORS]
+        not_listed = len(lines) - len(listed)
+        if not_listed:
+            listed.append(f"... and {not_listed} more")
+        first_path = ".".join(str(part) for part in errors[0]["loc"])
 
         raise ConfigurationError(
             message=(
-                f"Configuration validation failed with {error_count} error(s). "
-                f"First error at '{dotted_path}': {pydantic_message}. "
-                "Review the config.yaml structure against the expected schema."
+                f"Configuration validation failed with {exc.error_count()} error(s):\n"
+                + "\n".join(f"  - {line}" for line in listed)
             ),
-            config_path=dotted_path if dotted_path else str(config_path),
+            config_path=first_path if first_path else str(config_path),
         ) from exc
 
     log.debug(
@@ -388,6 +407,94 @@ def _parse_and_validate(interpolated_content: str, config_path: Path) -> ToolCon
     )
 
     return config
+
+
+def closest_match(value: str, candidates: list[str], cutoff: float) -> str | None:
+    """
+    Return the candidate most similar to value, if similar enough.
+
+    The single implementation of the "did you mean ...?" suggestion, used for
+    unknown configuration keys and for unknown execution.test_ids entries.
+
+    Args:
+        value:      The unknown value as written by the user.
+        candidates: The valid values.
+        cutoff:     Minimum similarity (difflib ratio, 0-1).
+
+    Returns:
+        The closest candidate, or None when none reaches the cutoff.
+    """
+    matches = difflib.get_close_matches(value, candidates, n=1, cutoff=cutoff)
+    return matches[0] if matches else None
+
+
+def _describe_validation_error(error: ErrorDetails) -> str:
+    """
+    Render one Pydantic validation error as '<dotted.path>: <message>'.
+
+    An unknown key (extra="forbid") is reported as 'unknown key', with the
+    closest key declared at the same level when one is similar enough.
+
+    Args:
+        error: One entry of ValidationError.errors().
+
+    Returns:
+        A single-line description of the error.
+    """
+    loc: tuple[str | int, ...] = tuple(error["loc"])
+    dotted_path = ".".join(str(part) for part in loc)
+    if error["type"] != _PYDANTIC_EXTRA_FORBIDDEN or not loc:
+        return f"{dotted_path}: {error['msg']}"
+
+    suggestion = closest_match(str(loc[-1]), _known_keys_at(loc[:-1]), _KEY_SUGGESTION_CUTOFF)
+    if suggestion is not None:
+        return f"{dotted_path}: unknown key (did you mean '{suggestion}'?)"
+    return f"{dotted_path}: unknown key"
+
+
+def _known_keys_at(loc: tuple[str | int, ...]) -> list[str]:
+    """
+    Return the keys the schema declares at a location of config.yaml.
+
+    Walks ToolConfig field by field along loc. Returns an empty list when the
+    location is not a model (e.g. a free-form mapping such as path_seed).
+
+    Args:
+        loc: Location of the mapping, as in a Pydantic error 'loc'.
+
+    Returns:
+        The declared field names at that location.
+    """
+    model: type[BaseModel] | None = ToolConfig
+    for part in loc:
+        if model is None:
+            return []
+        field = model.model_fields.get(str(part))
+        if field is None:
+            return []
+        model = _model_in_annotation(field.annotation)
+    return list(model.model_fields) if model is not None else []
+
+
+def _model_in_annotation(annotation: object) -> type[BaseModel] | None:
+    """
+    Return the Pydantic model inside a field annotation, if any.
+
+    Handles plain models and wrappers such as Optional[...] and Annotated[...].
+
+    Args:
+        annotation: A field annotation from model_fields.
+
+    Returns:
+        The first BaseModel subclass found, or None.
+    """
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return annotation
+    for argument in typing.get_args(annotation):
+        model = _model_in_annotation(argument)
+        if model is not None:
+            return model
+    return None
 
 
 # ---------------------------------------------------------------------------

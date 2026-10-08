@@ -84,20 +84,21 @@ affected is updated in the same change.
 | 1 | Safety net | Q-39 (+ Q-15) | development helper `scripts/compare_reports.py` (compare two reports, development only, to be removed later); `ruff format` + check in `dev:check` (Markdown excluded); `import-linter` with the dependency rule in `dev:check` (after fixing Q-15); the two rule exceptions written in CLAUDE.md and `coding-rules.md`. Pre-commit hook comes with block 9 | low: adds checks only, no behaviour change | done 2026-10-07 |
 | 2 | Cleanup | Q-19, Q-28, Q-26 (descriptions), Q-24 (`sslyze.extra_flags`) | stale paths and comments, comments that contradict the code, one no-op field (Q-15 done in block 1) | very low | done 2026-10-07 |
 | 3 | Small bugs | Q-35, Q-21, Q-48, Q-55 (lab setup), Q-36 and Q-27 (remove) | spec fetch hang, `generate-seed` stdout, warning messages, lab setup after deletions, two unwired features removed | low-medium | done 2026-10-07 |
-| 4 | Configuration structure | Q-53, Q-37 | one definition per parameter (models in `core/`), every test has a config model, check in `dev:check` | medium: after block 1 | to do |
-| 5 | Contract 1.0 | Q-25, Q-20, Q-22, Q-23, Q-45, Q-50, Q-54, Q-10, Q-31, Q-26 ("not run by choice" list), Q-44 | everything an integrator sees; then the stability policy | medium-high | to do |
+| 4 | Configuration structure | Q-53, Q-37 | one definition per parameter (`src/test_config/`), every test has a config model, automatic wiring (mismatch stops the run) | medium: after block 1 | done 2026-10-08 |
+| 4b | Immutable list parameters | Q-57 | safety check: list parameters as tuples | low: same files as block 4 | done 2026-10-08 |
+| 5 | Contract 1.0 | Q-25, Q-20, Q-22, Q-23, Q-45, Q-58, Q-50, Q-54, Q-10, Q-31, Q-26 ("not run by choice" list), Q-44 | everything an integrator sees; then the stability policy | medium-high | to do |
 | - | Integration guide | (step 2.2) | written on the fixed contract | - | to do |
 | 6 | Test quality review | Q-29, Q-32, Q-30 (code items), Q-24 (7.2 timeout) | test by test: oracles, missing sub-tests, 1.1 `DELETE` last + `path_seed` check, 7.2 cleanup | high: one test at a time | to do |
 | 7 | Second lab | Q-52 | cRAPI behind Kong, pinned, automated setup | low for the tool | to do |
 | 8 | Agnosticism | Q-18, Q-43, Q-38, Q-34 | per-test portability analysis on both labs, then remove Forgejo/Kong ties, protected Admin API | high | to do |
 | 6b | E2E suite | Q-51 | after the test review: expected results with a stated basis (`lab-design` from the lab configuration, or `observed`), ideally each test proven on a secure and a vulnerable lab variant | low | to do |
 | 9 | Process | Q-16, Q-04, Q-13 | CI (`dev:check` + E2E), generated documentation with drift check | low | to do |
-| 10c | Immutable list parameters | Q-57 | safety check: list parameters as tuples | low | to do |
 | 10b | Simplify adding a test | Q-56 | review the steps needed to add a native test (after block 4) | low | to do |
 | 10 | Roadmap | Q-17 | rewrite as a product roadmap | none | to do |
 
 Ordering rationale: the safety net first, so every later change is checked in minutes; risk-free work next; the
-configuration structure before the contract and the test review (both touch test parameters); the contract (output
+configuration structure before the contract and the test review (both touch test parameters); block 4b right after block 4 (same
+models, and parameter types are part of the contract); the contract (output
 format) before the test review (output content); the second lab before the agnosticism work. Block 9 may move right
 after block 1; block 7 is independent.
 
@@ -154,3 +155,19 @@ CI (Q-16), E2E test suite (Q-51), documentation generated from code with a drift
 | 2026-10-07 | Q-53 decided by the owner: option C (one model per test in a dedicated package outside `core/`; external-tool models to follow later). New Q-56: review the steps needed to add a native test |
 | 2026-10-07 | Block 4, Q-53 implemented: `src/test_config/` (lowest layer), one definition per test parameter, runtime copies removed; 48 parameters identical before/after, lab unchanged. Q-57 added (list parameters as tuples, separate safety check). Next: Q-37 |
 | 2026-10-07 | Q-37 implemented: automatic wiring (`from_domains`, mismatches stop the run; owner chose this option B over the dev:check-only check of 2026-10-06), models for 0.1 (new parameter `method_probe_sample_size`, 1-100, default 10) and 0.3; the guide drops from 8 to 7 steps. Q-29 gains the 0.1 sampling limit (only 3 endpoints probed on Forgejo) |
+| 2026-10-08 | Closed by the owner: Q-53 (single definition of test parameters in `src/test_config/`) and Q-37 (every native test has a model, automatic wiring). Block 4 done |
+| 2026-10-08 | Q-57 moved from 10c to 4b, right after block 4: same files, and parameter types are part of the block 5 contract |
+| 2026-10-08 | Block 4b, Q-57 implemented: 13 list parameters are tuples, helpers typed `Sequence`; the 7.2 body template dict kept (used only as a copy). Parameters and lab results unchanged |
+| 2026-10-08 | Closed by the owner: Q-57 (list parameters as tuples). Block 4b done. Next: block 5 (contract 1.0), starting from Q-25 |
+| 2026-10-08 | Block 5 order agreed: group 1 small contract defects (Q-20, Q-22, Q-23, Q-45, Q-54), group 2 design questions (Q-50, Q-44), group 3 decided in principle, implementation test by test (Q-10, Q-31, Q-26 list), group 4 Q-25 (contract list, `evidence.json` version, breaking-change signalling, 1.0.0). One question at a time; one commit per group. Contract split (draft, accepted roughly by the owner, to be confirmed in group 4): exit codes, report JSON, `evidence.json`, CLI, documented `config.yaml` keys; not log events, Python modules, message texts, `oracle_state`, HTML report |
+| 2026-10-08 | Q-20 implemented (option B, owner): usage errors `2`, ERROR `3`; `ExitCode` enum is the single definition of the codes. Q-25 note: report format changes collected for one versioning in group 4; owner: schema versioning may restart from scratch |
+| 2026-10-08 | Closed by the owner: Q-20 (usage errors `2`, ERROR `3`, `ExitCode` enum). Next: Q-22 |
+| 2026-10-08 | Q-22 implemented (option A, owner): unknown `config.yaml` keys rejected at Phase 1 with a suggestion of the closest key; every validation error listed |
+| 2026-10-08 | Closed by the owner: Q-22 (unknown config keys rejected, with suggestion). Next: Q-23 |
+| 2026-10-08 | Q-23 implemented (owner): report JSON timestamp in UTC; HTML report shows it in the reader's time zone |
+| 2026-10-08 | Closed by the owner: Q-23 (UTC in JSON, reader's time zone in HTML; browser rendering checked by the owner: `11:16:50 AM GMT+2`, tooltip `UTC: 2026-10-08T09:16:50...`). Next: Q-45 |
+| 2026-10-08 | Q-45 implemented (owner): `test_ids` runs exactly the listed tests (`None` vs empty set in the registries). New Q-58 (a selection that runs nothing ends with exit 0; unknown or disabled IDs in `test_ids`), group 1 of block 5 |
+| 2026-10-08 | Closed by the owner: Q-45 (`test_ids` runs exactly the listed tests). Q-58 kept for later in group 1. Next: Q-54 |
+| 2026-10-08 | Q-54 implemented (owner): `.env` from the working directory plus `--env-file`; exported variables win. `run --help` exit codes fixed (Q-20 follow-up) |
+| 2026-10-08 | Closed by the owner: Q-54 (`.env` from the working directory, `--env-file`). Next: Q-58, last of group 1 |
+| 2026-10-08 | Q-58 implemented (owner): unknown or disabled `test_ids` entries and empty selections stop with exit 10 (one check after Phase 1, also in `validate-config`; empty selection in Phase 4). Exit codes logged as plain ints (Q-20 follow-up) |

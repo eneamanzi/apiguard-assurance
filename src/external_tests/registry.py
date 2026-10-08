@@ -142,9 +142,12 @@ class ExternalTestRegistry:
             min_priority:          Maximum priority (inclusive) to include.
                                    ExternalToolTests typically run at P1/P2 since
                                    they require tool availability (not pure Black Box).
-            allowed_ids:           If non-empty, include ONLY tests with matching
-                                   test_id. Overrides min_priority and per-tool
-                                   filtering. For development / targeted runs.
+            allowed_ids:           None means no ID filter (normal priority
+                                   filtering). A set, even empty, includes ONLY
+                                   the tests whose test_id is in it (an empty
+                                   set: no external test) and overrides
+                                   min_priority. A test of a disabled tool is
+                                   excluded even when listed.
 
         Returns:
             Sorted list of instantiated ExternalToolTest subclasses that passed
@@ -165,7 +168,7 @@ class ExternalTestRegistry:
         log.info(
             "external_test_registry_discovery_started",
             min_priority=min_priority,
-            allowed_ids=sorted(allowed_ids) if allowed_ids else [],
+            allowed_ids=sorted(allowed_ids) if allowed_ids is not None else None,
         )
 
         # Phase R1: scan and import ext_test_*.py modules.
@@ -179,7 +182,7 @@ class ExternalTestRegistry:
             tests=all_tests,
             external_tools_config=external_tools_config,
             min_priority=min_priority,
-            allowed_ids=allowed_ids or set(),
+            allowed_ids=allowed_ids,
         )
 
         # Sort deterministically by test_id before injection.
@@ -202,6 +205,23 @@ class ExternalTestRegistry:
             excluded_count=len(all_tests) - len(active_tests),
         )
         return active_tests
+
+    def list_test_tools(self) -> dict[str, str]:
+        """
+        Return every concrete external test, without filtering, with its tool.
+
+        Scans the modules even when external tools are disabled, so that an
+        execution.test_ids entry can be told apart as unknown or as belonging
+        to a disabled tool (engine.check_test_ids).
+
+        Returns:
+            Mapping test_id -> tool_name.
+        """
+        modules = self._scan_and_import_modules()
+        return {
+            str(getattr(t.__class__, "test_id", "")): str(getattr(t.__class__, "tool_name", ""))
+            for t in self._extract_concrete_subclasses(modules)
+        }
 
     # ------------------------------------------------------------------
     # Phase R1 -- Module scan and import
@@ -372,18 +392,19 @@ class ExternalTestRegistry:
         tests: list[ExternalToolTest],
         external_tools_config: ExternalToolsConfig,
         min_priority: int,
-        allowed_ids: set[str],
+        allowed_ids: set[str] | None,
     ) -> list[ExternalToolTest]:
         """
         Apply priority, per-tool, and allowed_ids filters to the discovered tests.
 
         Filter cascade (applied in order, first exclusion wins):
-            1. allowed_ids: if non-empty, exclude tests whose test_id is not
-               in the set.  When the set is non-empty it replaces the priority
-               filter (Filter 2), allowing targeted runs of high-priority tests
-               without changing min_priority.
+            1. allowed_ids: if not None, exclude tests whose test_id is not
+               in the set (an empty set excludes every test).  When it is not
+               None it replaces the priority filter (Filter 2), allowing
+               targeted runs of high-priority tests without changing
+               min_priority.
             2. priority: exclude tests with priority > min_priority.
-               Skipped when allowed_ids is non-empty (see above).
+               Skipped when allowed_ids is not None (see above).
             3. per-tool enabled: ALWAYS applied, regardless of allowed_ids.
                A tool with enabled=False in config has not been declared ready
                (binary not installed, timeout not set, etc.).  Forcing execution
@@ -403,7 +424,7 @@ class ExternalTestRegistry:
             tests:                 Full list of discovered ExternalToolTest instances.
             external_tools_config: For per-tool enabled checks.
             min_priority:          Maximum priority to include (inclusive).
-            allowed_ids:           If non-empty, replaces the priority filter only.
+            allowed_ids:           If not None, replaces the priority filter only.
 
         Returns:
             list[ExternalToolTest]: Filtered list of tests to execute.
@@ -414,9 +435,9 @@ class ExternalTestRegistry:
             test_id = getattr(cls, "test_id", "unknown")
 
             # --- Filter 1 / Filter 2 (mutually exclusive) ---
-            # When allowed_ids is set, it replaces the priority filter.
-            # When allowed_ids is empty, the priority filter applies normally.
-            if allowed_ids:
+            # When allowed_ids is not None, it replaces the priority filter.
+            # When allowed_ids is None, the priority filter applies normally.
+            if allowed_ids is not None:
                 if test_id not in allowed_ids:
                     log.debug(
                         "external_test_registry_excluded_not_in_allowed_ids",

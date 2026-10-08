@@ -30,15 +30,21 @@ Dependency rule:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
-from zoneinfo import ZoneInfo
 
 import structlog
 from pydantic import BaseModel, Field
 
 from src.config.schema import ToolConfig
-from src.core.models import Finding, InfoNote, ResultSet, TestStatus, TransactionSummary
+from src.core.models import (
+    ExitCode,
+    Finding,
+    InfoNote,
+    ResultSet,
+    TestStatus,
+    TransactionSummary,
+)
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -282,7 +288,9 @@ class ReportData(BaseModel):
         "(read from package metadata at report-generation time)."
     )
     run_id: str = Field(description="Unique run identifier from the engine.")
-    generated_at_utc: str = Field(description="ISO 8601 timestamp of report generation.")
+    generated_at_utc: str = Field(
+        description="ISO 8601 UTC timestamp of report generation (+00:00 offset)."
+    )
     target_base_url: str = Field(description="Base URL of the assessed API.")
     spec_title: str = Field(description="OpenAPI spec title from the AttackSurface.")
     spec_version: str = Field(description="OpenAPI spec version from the AttackSurface.")
@@ -308,10 +316,10 @@ class ReportData(BaseModel):
 # ---------------------------------------------------------------------------
 
 _EXIT_CODE_LABELS: dict[int, str] = {
-    0: "CLEAN — No violations detected",
-    1: "FAIL — At least one security guarantee violated",
-    2: "ERROR — At least one verification incomplete",
-    10: "INFRASTRUCTURE ERROR — Assessment did not complete",
+    ExitCode.CLEAN: "CLEAN — No violations detected",
+    ExitCode.FAIL: "FAIL — At least one security guarantee violated",
+    ExitCode.ERROR: "ERROR — At least one verification incomplete",
+    ExitCode.INFRASTRUCTURE: "INFRASTRUCTURE ERROR — Assessment did not complete",
 }
 
 # Version of the JSON output schema produced by build_report_data().
@@ -391,7 +399,7 @@ def build_report_data(
         output_schema_version=_OUTPUT_SCHEMA_VERSION,
         tool_version=_tool_version,
         run_id=run_id,
-        generated_at_utc=datetime.now(ZoneInfo("Europe/Rome")).isoformat(),
+        generated_at_utc=datetime.now(UTC).isoformat(),
         target_base_url=str(config.target.base_url),
         spec_title=spec_title,
         spec_version=spec_version,
@@ -409,7 +417,7 @@ def build_report_data(
         skip_count=executive_summary.skip_count,
         error_count=executive_summary.error_count,
         total_findings=executive_summary.total_finding_count,
-        exit_code=exit_code,
+        exit_code=int(exit_code),
     )
 
     return report_data

@@ -90,7 +90,8 @@ assessment instead of generic placeholders.
 
 ### Exit codes
 
-`0` clean, `1` violation, `2` a check did not complete, `10` the assessment did not run, `130` interrupted.
+`0` clean, `1` violation, `2` invalid invocation, `3` a check did not complete, `10` the assessment did not run,
+`130` interrupted.
 Details: [`reference/exit-codes.md`](../reference/exit-codes.md).
 
 

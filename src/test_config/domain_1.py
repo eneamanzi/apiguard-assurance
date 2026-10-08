@@ -87,7 +87,7 @@ class Test14Config(BaseModel):
     NIST SP 800-63B-4 Section 5.1.
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
     token_name: str = Field(
         default=TEST_14_TOKEN_NAME_DEFAULT,
@@ -114,7 +114,7 @@ class Test11Config(BaseModel):
     required.
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
     max_endpoints_cap: Annotated[int, Field(ge=TEST_11_MAX_ENDPOINTS_CAP_MIN)] = Field(
         default=TEST_11_MAX_ENDPOINTS_CAP_DEFAULT,
@@ -151,7 +151,7 @@ class Test15Config(BaseModel):
     via the TestsslConnector.  Enable external_tools.testssl in config.yaml.
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
     hsts_min_max_age_seconds: Annotated[
         int,
@@ -196,8 +196,8 @@ class Test15Config(BaseModel):
             f"Default: {TEST_15_HTTP_PROBE_TIMEOUT_DEFAULT}."
         ),
     )
-    expected_redirect_status_codes: list[int] = Field(
-        default_factory=lambda: [301, 308],
+    expected_redirect_status_codes: tuple[int, ...] = Field(
+        default_factory=lambda: (301, 308),
         description=(
             "HTTP status codes that satisfy the redirect oracle in sub-test 1. "
             "RFC 9110 permanent redirects: 301 (Moved Permanently) and "
@@ -231,10 +231,10 @@ class Test16Config(BaseModel):
         the procedure in docs/knowledge/methodology/methodology.it.md Section 1.6.
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
-    cookie_probe_paths: list[str] = Field(
-        default_factory=lambda: ["/"],
+    cookie_probe_paths: tuple[str, ...] = Field(
+        default_factory=lambda: ("/",),
         description=(
             "Paths to probe with a GET request to discover Set-Cookie headers. "
             "The test sends a GET to each path (unauthenticated) and collects "
@@ -243,8 +243,8 @@ class Test16Config(BaseModel):
             "Default: ['/']."
         ),
     )
-    session_cookie_names: list[str] = Field(
-        default_factory=lambda: list(TEST_16_SESSION_COOKIE_NAMES_DEFAULT),
+    session_cookie_names: tuple[str, ...] = Field(
+        default_factory=lambda: tuple(TEST_16_SESSION_COOKIE_NAMES_DEFAULT),
         description=(
             "Case-insensitive cookie names treated as session identifiers. "
             "Cookies whose name appears in this list are subject to the "
@@ -273,7 +273,7 @@ class Test16Config(BaseModel):
 
     @field_validator("session_cookie_names")
     @classmethod
-    def session_cookie_names_not_empty(cls, v: list[str]) -> list[str]:
+    def session_cookie_names_not_empty(cls, v: tuple[str, ...]) -> tuple[str, ...]:
         """
         Reject an empty session_cookie_names list at configuration load time.
 
@@ -309,7 +309,7 @@ class TestDomain1Config(BaseModel):
            wires it automatically (RuntimeTestsConfig.from_domains).
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
     test_1_1: Test11Config = Field(
         default_factory=Test11Config,

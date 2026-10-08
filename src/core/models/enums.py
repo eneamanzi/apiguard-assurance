@@ -3,8 +3,9 @@ src/core/models/enums.py
 
 Shared enumerations for the APIGuard Assurance tool.
 
-All three enums inherit from StrEnum so their values serialize natively
-to JSON strings without extra configuration.
+TestStatus, TestStrategy and SpecDialect inherit from StrEnum so their
+values serialize natively to JSON strings without extra configuration.
+ExitCode inherits from IntEnum: its values are process exit codes.
 
 Dependency rule: this module imports only from the stdlib.
 It must never import from any other src/ module.
@@ -12,7 +13,7 @@ It must never import from any other src/ module.
 
 from __future__ import annotations
 
-from enum import StrEnum
+from enum import IntEnum, StrEnum
 
 
 class TestStatus(StrEnum):
@@ -34,6 +35,32 @@ class TestStatus(StrEnum):
     FAIL = "FAIL"
     SKIP = "SKIP"
     ERROR = "ERROR"
+
+
+class ExitCode(IntEnum):
+    """
+    Process exit codes of ``apiguard run`` (docs/reference/exit-codes.md).
+
+    The single definition of every code: the ResultSet, the engine, the CLI
+    summary and the report all use these members.
+
+        CLEAN          -- Every executed test returned PASS or SKIP.
+        FAIL           -- At least one test returned FAIL.
+        USAGE          -- Invalid invocation. Emitted by Typer/Click before
+                          the tool starts; listed so that no other outcome
+                          reuses the code.
+        ERROR          -- No FAIL, at least one test returned ERROR.
+        INFRASTRUCTURE -- The assessment did not run (Phases 1-4 or an
+                          unexpected engine exception).
+
+    130 (interrupted by Ctrl+C) is set by Python, not by the tool.
+    """
+
+    CLEAN = 0
+    FAIL = 1
+    USAGE = 2
+    ERROR = 3
+    INFRASTRUCTURE = 10
 
 
 class TestStrategy(StrEnum):

@@ -48,16 +48,6 @@ from rich.text import Text
 
 from src import __version__
 
-# Load .env file from the project root (the working directory where the tool
-# is invoked). This must happen before any other import or operation reads
-# os.environ, including structlog configuration and config/loader.py.
-# load_dotenv() is a no-op if the .env file does not exist, so it is safe
-# to call unconditionally in all environments (CI/CD, production, dev).
-# Variables already set in the environment take precedence: load_dotenv()
-# does NOT overwrite existing env vars, which is the correct behavior for
-# CI/CD pipelines that inject secrets via the orchestrator.
-load_dotenv(override=False)
-
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -67,6 +57,9 @@ load_dotenv(override=False)
 # (single source of truth -- see src/__init__.py).
 TOOL_NAME: str = "APIGuard Assurance"
 TOOL_VERSION: str = __version__
+# File loaded from the current working directory when --env-file is not given.
+DEFAULT_ENV_FILENAME: str = ".env"
+
 TOOL_DESCRIPTION: str = (
     "Automated security assessment tool for REST APIs in Cloud environments. "
     "Executes the APIGuard methodology (8 domains, 29 guarantees) against "
@@ -133,6 +126,29 @@ app: typer.Typer = typer.Typer(
 
 
 # ---------------------------------------------------------------------------
+# Shared options
+# ---------------------------------------------------------------------------
+
+# --env-file, shared by the commands that load config.yaml. exists=True: a
+# path that is not an existing file is an invalid invocation (exit 2).
+EnvFileOption = Annotated[
+    Path | None,
+    typer.Option(
+        "--env-file",
+        help=(
+            "Load environment variables from this file instead of "
+            f"'{DEFAULT_ENV_FILENAME}' in the current working directory. "
+            "Variables already set in the environment take precedence."
+        ),
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        resolve_path=True,
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
 
@@ -186,18 +202,22 @@ def run_assessment(
             help="Show or suppress the startup banner. Default: show.",
         ),
     ] = True,
+    env_file: EnvFileOption = None,
 ) -> None:
     """
     Run the API security assessment against the configured target.
 
     Reads target configuration from CONFIG (default: config.yaml in the
     current working directory). Credentials must be provided via environment
-    variables referenced in config.yaml as ${VAR_NAME} placeholders.
+    variables referenced in config.yaml as ${VAR_NAME} placeholders: exported
+    in the environment, or in a .env file (the one in the current working
+    directory, or the file given with --env-file).
 
     Exit codes:
         0   All tests passed or skipped. No violations detected.
         1   At least one FAIL. A security guarantee was violated.
-        2   At least one ERROR (no FAIL). A verification was incomplete.
+        2   Invalid invocation (unknown option or command). Nothing ran.
+        3   At least one ERROR (no FAIL). A verification was incomplete.
         10  Infrastructure error. Assessment did not start or complete.
 
     Examples:
@@ -216,6 +236,7 @@ def run_assessment(
     """
     # Step 1: configure logging before any other operation.
     _configure_logging(log_format=log_format, log_level=log_level)
+    _load_env_file(env_file)
 
     # Step 2: display startup banner (human-readable mode only).
     if show_banner and log_format == LogFormat.CONSOLE:
@@ -271,11 +292,13 @@ def validate_config(
             case_sensitive=False,
         ),
     ] = LogFormat.CONSOLE,
+    env_file: EnvFileOption = None,
 ) -> None:
     """
     Validate config.yaml without running the assessment.
 
-    Performs Phase 1 (configuration loading and validation) only.
+    Performs Phase 1 (configuration loading and validation) and the
+    execution.test_ids check (every listed test exists and can run).
     Useful for verifying that the configuration file is correct and all
     required environment variables are exported before running a full
     assessment.
@@ -285,14 +308,19 @@ def validate_config(
         10  Configuration is invalid (see error output for details).
     """
     _configure_logging(log_format=log_format, log_level=LogLevel.INFO)
+    _load_env_file(env_file)
 
     from src.config.loader import load_config
     from src.core.exceptions import ConfigurationError
+    from src.core.models.enums import ExitCode
 
     log = structlog.get_logger("cli.validate_config")
 
+    from src.engine import check_test_ids
+
     try:
         tool_config = load_config(config)
+        check_test_ids(tool_config)
         _console_out.print(
             f"[bold green]Configuration valid.[/bold green] Target: {tool_config.target.base_url}"
         )
@@ -305,7 +333,7 @@ def validate_config(
             config_path=exc.config_path,
         )
         _console_err.print(f"[bold red]Configuration invalid:[/bold red] {exc.message}")
-        raise typer.Exit(code=10) from None
+        raise typer.Exit(code=ExitCode.INFRASTRUCTURE) from None
 
 
 @app.command(name="generate-seed")
@@ -486,6 +514,30 @@ def generate_seed(
 # ---------------------------------------------------------------------------
 
 
+def _load_env_file(env_file: Path | None) -> None:
+    """
+    Load environment variables from a .env file into os.environ.
+
+    With env_file, that file is loaded (its existence is checked by Typer).
+    Without it, '.env' in the current working directory is loaded if present;
+    no other location is searched (not the tool's installation folder, not
+    parent folders). Variables already set in the environment are never
+    overwritten (override=False), so values injected by a CI pipeline, a
+    container or a calling program take precedence. Must run before
+    config/loader.py resolves the ${VAR} placeholders.
+
+    Args:
+        env_file: Path given with --env-file, or None.
+    """
+    log = structlog.get_logger("cli.env")
+    path = env_file if env_file is not None else Path.cwd() / DEFAULT_ENV_FILENAME
+    if env_file is None and not path.is_file():
+        log.debug("env_file_not_found", path=str(path))
+        return
+    load_dotenv(dotenv_path=path, override=False)
+    log.info("env_file_loaded", path=str(path))
+
+
 def _configure_logging(
     log_format: LogFormat, log_level: LogLevel, stream: TextIO | None = None
 ) -> None:
@@ -627,11 +679,16 @@ def _display_completion_summary(exit_code: int) -> None:
     Args:
         exit_code: The integer exit code returned by AssessmentEngine.run().
     """
+    from src.core.models.enums import ExitCode
+
     labels: dict[int, tuple[str, str]] = {
-        0: ("green", "CLEAN  — No violations detected. Assessment passed."),
-        1: ("red", "FAIL   — At least one security guarantee was violated."),
-        2: ("purple", "ERROR  — At least one verification was incomplete."),
-        10: ("yellow", "INFRA  — Infrastructure error. Assessment did not complete."),
+        ExitCode.CLEAN: ("green", "CLEAN  — No violations detected. Assessment passed."),
+        ExitCode.FAIL: ("red", "FAIL   — At least one security guarantee was violated."),
+        ExitCode.ERROR: ("purple", "ERROR  — At least one verification was incomplete."),
+        ExitCode.INFRASTRUCTURE: (
+            "yellow",
+            "INFRA  — Infrastructure error. Assessment did not complete.",
+        ),
     }
 
     color, label = labels.get(exit_code, ("white", f"Exit {exit_code}"))
