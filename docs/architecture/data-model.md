@@ -72,7 +72,7 @@ Built in Phase 2 from the specification (`src/discovery/surface.py`):
 | `base_url`, `openapi_spec_url` / `openapi_spec_path`, `admin_api_url`, admin timeouts | from `target.*` |
 | `attack_surface` | from Phase 2 |
 | `credentials` | `RuntimeCredentials` (never to be logged) |
-| `tests_config` | `RuntimeTestsConfig`: one `RuntimeTest<XY>Config` per configurable test |
+| `tests_config` | `RuntimeTestsConfig` (`src/test_config/runtime.py`): one `Test<XY>Config` per configurable test |
 | `path_seed`, `verify_tls` | from `target.*` |
 | `external_tools` | `ExternalToolsConfig` |
 | `gateway` | `BaseGatewayAdapter` instance, or `None` |
@@ -88,19 +88,27 @@ Helpers: `endpoint_base_url()` and `admin_endpoint_base_url()` (string URLs with
 | Teardown | `register_resource_for_teardown(method, path, headers)`, `drain_resources()`, `registered_resource_count` | LIFO; drained in Phase 6 |
 | Shared data | `set_shared(key, value)`, `get_shared`, `has_shared`, `shared_keys` | convention `"{test_id}.{name}"` |
 
-## Configuration: two layers
+## Test parameters: one model per test
 
-Test parameters exist twice on purpose:
+Every native test has **one** model, `Test<XY>Config`, in `src/test_config/domain_<D>.py` (frozen, with its
+constraints and validators; empty when the test has no parameters). The same model:
 
-1. **Schema layer** (`src/config/schema/domain_<D>.py`): `Test<XY>Config` models validate `config.yaml`
-   (`tests.domain_<D>.test_<D>_<N>`).
-2. **Runtime layer** (`src/core/models/runtime.py`): `RuntimeTest<XY>Config`, copied by the engine in Phase 3 into
-   `TargetContext.tests_config` and read by tests as `target.tests_config.test_<D>_<N>`.
+1. validates the `tests.domain_<D>.test_<D>_<N>` section of `config.yaml` (through `TestsConfig` in
+   `src/config/schema/tests_config.py`);
+2. reaches the test unchanged: in Phase 3 `RuntimeTestsConfig.from_domains(config.tests)`
+   (`src/test_config/runtime.py`) collects every `test_<D>_<N>` of every domain by name, with no copy and no
+   hand-written wiring, and the container is stored in `TargetContext.tests_config`; tests read
+   `target.tests_config.test_<D>_<N>.<param>`. A test present in a domain but not in `RuntimeTestsConfig`, or
+   the opposite, stops the run at Phase 3.
 
-Tests depend on `core/` only, so they never import the config schema. The cost is that adding a parameter touches
-both layers and the engine wiring (see [`guides/extending/add-a-native-test.md`](../guides/extending/add-a-native-test.md)).
-External tools have a single layer: `src/core/models/external_tools.py`, re-exported by
-`src/config/schema/external_tools.py`.
+`src/test_config/` is the lowest layer of the tool: it imports nothing from `src/`, so both `config/` and the
+tests can use it, and `core/` imports it only to type `TargetContext.tests_config`. All models are frozen: a test
+cannot reassign a parameter. List parameters are plain lists (a test could change their content; none does, Q-57).
+
+Until 2026-10 every parameter was defined twice (a configuration model plus a `RuntimeTest<XY>Config` copy in
+`src/core/models/runtime.py`, filled field by field by the engine); the copies were removed.
+External-tool models still live in `src/core/models/external_tools.py`, re-exported by
+`src/config/schema/external_tools.py`; they are to be moved to `src/test_config/` later.
 
 ## Report models
 
@@ -113,6 +121,6 @@ External tools have a single layer: `src/core/models/external_tools.py`, re-expo
 
 `src/core/models/__init__.py` exports: `TestStatus`, `TestStrategy`, `SpecDialect`, `EvidenceRecord`,
 `TransactionSummary`, `ParameterInfo`, `EndpointRecord`, `AttackSurface`, `Finding`, `InfoNote`, `TestResult`,
-`ResultSet`, `RuntimeCredentials`, the thirteen `RuntimeTest<XY>Config` classes, `RuntimeTestsConfig`,
+`ResultSet`, `RuntimeCredentials`,
 `BaseExternalToolConfig`, `TestsslConfig`, `NucleiConfig`, `ExternalToolsConfig`. (`SslyzeConfig` exists in
 `external_tools.py` but is not exported from the package.)

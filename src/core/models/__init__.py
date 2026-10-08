@@ -27,17 +27,8 @@ Symbol inventory by source module:
 
     results.py         Finding, InfoNote, TestResult, ResultSet
 
-    runtime.py         RuntimeCredentials,
-                       RuntimeTest02Config,
-                       RuntimeTest11Config,
-                       RuntimeTest14Config,
-                       RuntimeTest15Config, RuntimeTest16Config,
-                       RuntimeTest21Config,
-                       RuntimeTest33Config,
-                       RuntimeTest41Config, RuntimeTest42Config, RuntimeTest43Config,
-                       RuntimeTest62Config, RuntimeTest64Config,
-                       RuntimeTest72Config,
-                       RuntimeTestsConfig
+    runtime.py         RuntimeCredentials
+                       (per-test parameters: src/test_config/)
 
     external_tools.py  BaseExternalToolConfig, TestsslConfig, NucleiConfig,
                        ExternalToolsConfig
@@ -54,23 +45,7 @@ from src.core.models.external_tools import (
 )
 from src.core.models.http import EvidenceRecord, TransactionSummary
 from src.core.models.results import Finding, InfoNote, ResultSet, TestResult
-from src.core.models.runtime import (
-    RuntimeCredentials,
-    RuntimeTest02Config,
-    RuntimeTest11Config,
-    RuntimeTest14Config,
-    RuntimeTest15Config,
-    RuntimeTest16Config,
-    RuntimeTest21Config,
-    RuntimeTest33Config,
-    RuntimeTest41Config,
-    RuntimeTest42Config,
-    RuntimeTest43Config,
-    RuntimeTest62Config,
-    RuntimeTest64Config,
-    RuntimeTest72Config,
-    RuntimeTestsConfig,
-)
+from src.core.models.runtime import RuntimeCredentials
 from src.core.models.surface import AttackSurface, EndpointRecord, ParameterInfo
 
 __all__ = [
@@ -92,20 +67,6 @@ __all__ = [
     "ResultSet",
     # runtime.py
     "RuntimeCredentials",
-    "RuntimeTest02Config",
-    "RuntimeTest11Config",
-    "RuntimeTest14Config",
-    "RuntimeTest15Config",
-    "RuntimeTest16Config",
-    "RuntimeTest21Config",
-    "RuntimeTest33Config",
-    "RuntimeTest41Config",
-    "RuntimeTest42Config",
-    "RuntimeTest43Config",
-    "RuntimeTest62Config",
-    "RuntimeTest64Config",
-    "RuntimeTest72Config",
-    "RuntimeTestsConfig",
     # external_tools.py
     "BaseExternalToolConfig",
     "TestsslConfig",

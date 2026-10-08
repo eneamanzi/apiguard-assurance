@@ -12,7 +12,7 @@
 | Priority / strategy | P0 / BLACK_BOX |
 | CWE / tags | CWE-1059 / `shadow-api`, `inventory`, `OWASP-API9:2023` |
 | Depends on | none |
-| Configuration | none |
+| Configuration | `tests.domain_0.test_0_1.method_probe_sample_size` (default 10, see [configuration](../../reference/configuration.md#testsdomain_0test_0_1---shadow-api-discovery)) |
 | Companion test | [`ext.0.1.nuclei`](../external/domain-0/ext-0-1-nuclei.md) |
 
 ## What it checks
@@ -28,7 +28,8 @@ Two sub-checks, all requests unauthenticated:
    (`src/tests/data/shadow_wordlists.py`: `/api/admin`, `/api/internal`, `/actuator`-style paths,
    `/api/v1/*`, `/api/v2/*`, `/.env`, `/health`, …). Paths declared in the spec are skipped. When the spec is
    loaded from `openapi_spec_url`, the spec's own path (e.g. `/swagger.v1.json`) is also skipped.
-2. **Undeclared methods.** For the first 10 endpoints of the attack surface, skipping paths with `{parameters}`,
+2. **Undeclared methods.** For the first `method_probe_sample_size` endpoints of the attack surface (default 10),
+   skipping paths with `{parameters}`,
    every method in `GET, POST, PUT, PATCH, DELETE` that the spec does not declare for that path is sent.
 
 A response is **active** when its status is one of
@@ -70,7 +71,7 @@ Source: [`methodology.it.md` §0.1](../../knowledge/methodology/methodology.it.m
 | Methodology sub-test | Status |
 |---|---|
 | Path enumeration via fuzzing | Implemented with a fixed 37-path list (the methodology refers to SecLists `API-endpoints.txt`); no case or trailing-slash variants. |
-| HTTP method discovery | Implemented by sending undeclared methods directly (the methodology describes `OPTIONS` + `Allow` comparison); limited to the first 10 non-parametric endpoints. |
+| HTTP method discovery | Implemented by sending undeclared methods directly (the methodology describes `OPTIONS` + `Allow` comparison); limited to the first `method_probe_sample_size` endpoints (default 10), parametric ones skipped: on the Forgejo spec only 3 of the first 10 are probed (Q-29). |
 | Versioning completeness | Partial: only the `/api/v1/*` and `/api/v2/*` entries of the wordlist. |
 | Documentation drift via Admin API | Not implemented. |
 

@@ -9,6 +9,11 @@ follow [Semantic Versioning](https://semver.org/) (0.x: interfaces may still cha
 The test logic is unchanged since 0.1.0. Results on the lab differ only because the lab changed (below): with
 the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
+### Added
+
+- `tests.domain_0.test_0_1.method_probe_sample_size` (1-100, default 10): how many documented endpoints test 0.1
+  takes for the undeclared-method sub-check (it was a fixed 10). Every native test now has a configuration model.
+
 ### Fixed
 
 - Lab setup: if issue 1 or comment 1 was deleted (they are `path_seed` resources), the setup stops and asks for a
@@ -42,6 +47,10 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
   `extra_flags` remains for testssl and nuclei.
 - Test 7.2: the redirect sub-test is called "Sub-test G" in the report texts (was "Sub-test E", which is the DNS
   bypass sub-test).
+- Internal: every test parameter is defined once, in `src/test_config/` (one model per test, the same model
+  validates `config.yaml` and reaches the test); the runtime copies and the field-by-field copy in the engine were
+  removed; the engine collects them automatically, and a model missing on one side stops the run at
+  Phase 3. No change to existing configuration keys, defaults or results.
 - Development checks: `hatch run dev:check` also runs `ruff format --check` and `lint-imports` (dependency rules
   between packages); code formatted; one import fixed to respect the dependency rule.
 - Documentation rewritten in English and reorganised under `docs/` (getting started, usage guides, reference,

@@ -155,6 +155,16 @@ tests:
   # Default values (shown below) produce a complete assessment.
   # Override only when strictly necessary (e.g. rate-limited environments).
   domain_0:
+    # Test 0.1 - Shadow API Discovery (BLACK_BOX, P0)
+    #
+    # The undeclared-method sub-check takes the first N documented endpoints (spec
+    # order), skips the parametric ones, and sends undeclared HTTP methods to the
+    # others (about five requests each). Range 1-100.
+    test_0_1:
+      method_probe_sample_size: 10
+
+    # Test 0.3 - Deprecated API Enforcement: no parameters.
+
     # Test 0.2 — Gateway Deny-by-Default on Unregistered Paths (BLACK_BOX, P0)
     #
     # The backend-header sub-check classifies a 'Server' response header as

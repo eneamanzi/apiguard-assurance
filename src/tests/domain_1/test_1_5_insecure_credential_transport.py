@@ -88,7 +88,7 @@ from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.models import Finding, TestResult, TestStrategy
-from src.core.models.runtime import RuntimeTest15Config
+from src.test_config.domain_1 import Test15Config
 from src.tests.base import BaseTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -291,7 +291,7 @@ class Test15InsecureCredentialTransport(BaseTest):
     def _run_http_redirect_probe(
         self,
         https_base_url: str,
-        cfg: RuntimeTest15Config,
+        cfg: Test15Config,
         verify_tls: bool,
     ) -> Finding | None:
         """
@@ -309,7 +309,7 @@ class Test15InsecureCredentialTransport(BaseTest):
 
         Args:
             https_base_url: HTTPS target base URL from TargetContext.
-            cfg: RuntimeTest15Config instance with probe parameters.
+            cfg: Test15Config instance with probe parameters.
             verify_tls: Mirror of TargetContext.verify_tls — False in lab,
                         True in production.
 
@@ -397,7 +397,7 @@ class Test15InsecureCredentialTransport(BaseTest):
         self,
         client: SecurityClient,
         store: EvidenceStore,
-        cfg: RuntimeTest15Config,
+        cfg: Test15Config,
     ) -> list[Finding]:
         """
         Send a GET to the HTTPS root and validate the HSTS response header.
@@ -405,7 +405,7 @@ class Test15InsecureCredentialTransport(BaseTest):
         Args:
             client: SecurityClient bound to the HTTPS base URL.
             store: EvidenceStore for recording FAIL transactions.
-            cfg: RuntimeTest15Config instance.
+            cfg: Test15Config instance.
 
         Returns:
             List of Finding objects.  Empty if HSTS is compliant.

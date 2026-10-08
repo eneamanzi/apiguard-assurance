@@ -1,5 +1,5 @@
 """
-src/config/schema/domain_7.py
+src/test_config/domain_7.py
 
 Pydantic v2 configuration models for Domain 7 (Business Logic and Sensitive
 Flows) tests.
@@ -14,9 +14,9 @@ Currently implemented tests:
 Adding a new Domain 7 test requires:
     1. Defining a Test7XConfig model in this file.
     2. Adding a field to TestDomain7Config below.
-    3. Adding a RuntimeTest7XConfig mirror in core/models/runtime.py.
-    4. Adding the population line in engine.py Phase 3.
-    5. Adding the tests.domain_7.test_7_x block to config.yaml.
+    3. Adding a field to RuntimeTestsConfig (src/test_config/runtime.py); the engine
+       wires it automatically (RuntimeTestsConfig.from_domains).
+    4. Adding the tests.domain_7.test_7_x block to config.yaml.
 
 Dependency rule: imports only from pydantic and the stdlib.
 """

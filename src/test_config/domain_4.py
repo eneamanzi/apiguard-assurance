@@ -1,5 +1,5 @@
 """
-src/config/schema/domain_4.py
+src/test_config/domain_4.py
 
 Pydantic v2 configuration models for Domain 4 (Availability and Resilience) tests.
 
@@ -319,8 +319,8 @@ class TestDomain4Config(BaseModel):
     Adding a new Domain 4 test requires:
         1. Defining a Test4XAuditConfig/ProbeConfig model above.
         2. Adding a field here.
-        3. Adding the corresponding RuntimeTest4XConfig in core/models/runtime.py.
-        4. Populating it in engine.py Phase 3.
+        3. Adding a field to RuntimeTestsConfig (src/test_config/runtime.py); the engine
+           wires it automatically (RuntimeTestsConfig.from_domains).
     """
 
     model_config = {"frozen": True}

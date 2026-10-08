@@ -37,8 +37,9 @@ Rules every change must follow. Where the current code deviates, the deviation i
 
 ## Architecture
 
-- Dependency direction: `core/` ← `connectors/` ← `tests/`, `external_tests/` ← `engine.py`. Nothing imports
-  `engine.py`; tests never import `config/`, `discovery/`, `report/` or `connectors/`
+- Dependency direction: `test_config/` ← `core/` ← `connectors/` ← `tests/`, `external_tests/` ← `engine.py`.
+  Nothing imports `engine.py`; `test_config/` imports nothing from `src/`; tests never import `config/`,
+  `discovery/`, `report/` or `connectors/`
   ([overview](../../architecture/overview.md#module-structure-and-dependencies)).
 - All requests to the target API go through `SecurityClient.request()`; do not import `httpx` in tests. (Test 1.5
   sub-test 1 is a documented exception: it probes the plain-HTTP port directly.)
@@ -90,8 +91,9 @@ hatch run dev:deps    # pip-audit, before a release
 ```
 
 `lint-imports` enforces the dependency rules written in `pyproject.toml` (`[tool.importlinter]`): the layer
-direction core <- connectors <- tests/external_tests <- engine; core, connectors and tests never import `config`,
-`discovery`, `report`, `cli`; native tests never use connectors. To fix formatting: `hatch run dev:ruff format .`.
+direction test_config <- core <- connectors <- tests/external_tests <- engine; `test_config` imports nothing
+from `src/`; core, connectors and tests never import `config`, `discovery`, `report`, `cli`; native tests never
+use connectors. To fix formatting: `hatch run dev:ruff format .`.
 
 Update the documentation in the same change: the test page in `docs/tests/`, the catalogue row,
 `reference/configuration.md` for new parameters, and `docs/project/roadmap.md`.

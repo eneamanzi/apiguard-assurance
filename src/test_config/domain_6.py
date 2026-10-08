@@ -1,5 +1,5 @@
 """
-src/config/schema/domain_6.py
+src/test_config/domain_6.py
 
 Pydantic v2 configuration models for Domain 6 (Configuration and Hardening) tests.
 
@@ -14,9 +14,9 @@ Currently implemented tests:
 Adding a new Domain 6 test requires:
     1. Defining a Test6XAuditConfig model in this file.
     2. Adding a field to TestDomain6Config below.
-    3. Adding a RuntimeTest6XConfig mirror in core/models/runtime.py.
-    4. Adding the population line in engine.py Phase 3.
-    5. Adding the tests.domain_6.test_6_x block to config.yaml.
+    3. Adding a field to RuntimeTestsConfig (src/test_config/runtime.py); the engine
+       wires it automatically (RuntimeTestsConfig.from_domains).
+    4. Adding the tests.domain_6.test_6_x block to config.yaml.
 
 Dependency rule: imports only from pydantic and the stdlib.
 

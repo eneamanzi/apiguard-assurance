@@ -103,7 +103,8 @@ class Test_0_1_ShadowApiDiscovery(BaseTest):  # noqa: N801
            excluding the spec URL path (when using URL-sourced spec) to
            prevent false positives. Version prefixes are covered only by the
            /api/v1/* and /api/v2/* entries of the wordlist.
-        2. Method discovery: takes the first 10 documented endpoints, skips the
+        2. Method discovery: takes the first method_probe_sample_size documented
+           endpoints (config, default 10), skips the
            parametric ones, and sends undeclared HTTP methods directly to the
            others (no OPTIONS / Allow check).
     """
@@ -169,8 +170,10 @@ class Test_0_1_ShadowApiDiscovery(BaseTest):  # noqa: N801
             )
 
             # Sub-check 2: HTTP method discovery on documented endpoints.
-            # Sample up to 10 documented endpoints to avoid excessive requests.
-            sample_endpoints = list(surface.endpoints)[:10]
+            # Sample a bounded number of documented endpoints to avoid excessive
+            # requests (tests.domain_0.test_0_1.method_probe_sample_size).
+            sample_size = target.tests_config.test_0_1.method_probe_sample_size
+            sample_endpoints = list(surface.endpoints)[:sample_size]
             findings.extend(
                 self._probe_undeclared_methods(
                     endpoints=sample_endpoints,

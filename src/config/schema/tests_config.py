@@ -9,13 +9,12 @@ TestDomain4Config, ...) and exposes them as typed fields.
 
 Scaling convention:
     Adding a new domain requires:
-        1. Creating src/config/schema/domain_N.py with TestDomainNConfig.
+        1. Creating src/test_config/domain_N.py with TestDomainNConfig.
         2. Importing TestDomainNConfig here and adding a field.
         3. Exporting it via __init__.py.
-    No other files in this package need to change.
 
-Dependency rule: imports only from pydantic, the stdlib, and sibling domain
-modules within this package. Must never import from tool_config.py (that
+Dependency rule: imports only from pydantic, the stdlib and the domain
+modules of src/test_config/. Must never import from tool_config.py (that
 would create a circular dependency: tool_config imports tests_config).
 """
 
@@ -23,13 +22,13 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from src.config.schema.domain_0 import TestDomain0Config
-from src.config.schema.domain_1 import TestDomain1Config
-from src.config.schema.domain_2 import TestDomain2Config
-from src.config.schema.domain_3 import TestDomain3Config
-from src.config.schema.domain_4 import TestDomain4Config
-from src.config.schema.domain_6 import TestDomain6Config
-from src.config.schema.domain_7 import TestDomain7Config
+from src.test_config.domain_0 import TestDomain0Config
+from src.test_config.domain_1 import TestDomain1Config
+from src.test_config.domain_2 import TestDomain2Config
+from src.test_config.domain_3 import TestDomain3Config
+from src.test_config.domain_4 import TestDomain4Config
+from src.test_config.domain_6 import TestDomain6Config
+from src.test_config.domain_7 import TestDomain7Config
 
 # ---------------------------------------------------------------------------
 # TestsConfig

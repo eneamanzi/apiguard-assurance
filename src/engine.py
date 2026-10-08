@@ -94,20 +94,6 @@ from src.core.models import (
     AttackSurface,
     ResultSet,
     RuntimeCredentials,
-    RuntimeTest02Config,
-    RuntimeTest11Config,
-    RuntimeTest14Config,
-    RuntimeTest15Config,
-    RuntimeTest16Config,
-    RuntimeTest21Config,
-    RuntimeTest33Config,
-    RuntimeTest41Config,
-    RuntimeTest42Config,
-    RuntimeTest43Config,
-    RuntimeTest62Config,
-    RuntimeTest64Config,
-    RuntimeTest72Config,
-    RuntimeTestsConfig,
     TestResult,
     TestStatus,
 )
@@ -117,6 +103,7 @@ from src.external_tests.base import ExternalToolTest
 from src.external_tests.registry import ExternalTestRegistry
 from src.report.builder import build_report_data
 from src.report.renderer import render_html_report
+from src.test_config.runtime import RuntimeTestsConfig
 from src.tests.base import BaseTest
 from src.tests.registry import TestRegistry
 
@@ -396,106 +383,10 @@ class AssessmentEngine:
         """
         log.info("pipeline_phase_3_context_construction_started")
 
-        tests_config = RuntimeTestsConfig(
-            test_0_2=RuntimeTest02Config(
-                gateway_server_identifiers=list(
-                    config.tests.domain_0.test_0_2.gateway_server_identifiers
-                ),
-            ),
-            test_1_1=RuntimeTest11Config(
-                max_endpoints_cap=config.tests.domain_1.test_1_1.max_endpoints_cap,
-            ),
-            test_1_4=RuntimeTest14Config(
-                token_name=config.tests.domain_1.test_1_4.token_name,
-            ),
-            test_2_1=RuntimeTest21Config(
-                admin_endpoint_paths=list(config.tests.domain_2.test_2_1.admin_endpoint_paths),
-                admin_endpoint_method=config.tests.domain_2.test_2_1.admin_endpoint_method,
-            ),
-            test_1_5=RuntimeTest15Config(
-                hsts_min_max_age_seconds=config.tests.domain_1.test_1_5.hsts_min_max_age_seconds,
-                http_probe_enabled=config.tests.domain_1.test_1_5.http_probe_enabled,
-                http_probe_timeout_seconds=config.tests.domain_1.test_1_5.http_probe_timeout_seconds,
-                expected_redirect_status_codes=list(
-                    config.tests.domain_1.test_1_5.expected_redirect_status_codes
-                ),
-                http_probe_url=config.tests.domain_1.test_1_5.http_probe_url,
-            ),
-            test_1_6=RuntimeTest16Config(
-                cookie_probe_paths=list(config.tests.domain_1.test_1_6.cookie_probe_paths),
-                session_cookie_names=list(config.tests.domain_1.test_1_6.session_cookie_names),
-                check_samesite=config.tests.domain_1.test_1_6.check_samesite,
-                expected_samesite_value=config.tests.domain_1.test_1_6.expected_samesite_value,
-            ),
-            test_3_3=RuntimeTest33Config(
-                max_clock_skew_seconds=config.tests.domain_3.test_3_3.max_clock_skew_seconds,
-                forbidden_algorithms=list(config.tests.domain_3.test_3_3.forbidden_algorithms),
-                plugin_names=list(config.tests.domain_3.test_3_3.plugin_names),
-                field_clock_skew=config.tests.domain_3.test_3_3.field_clock_skew,
-                field_algorithms=config.tests.domain_3.test_3_3.field_algorithms,
-                field_validate_body=config.tests.domain_3.test_3_3.field_validate_body,
-                clock_skew_unconfigured_value=config.tests.domain_3.test_3_3.clock_skew_unconfigured_value,
-            ),
-            test_4_1=RuntimeTest41Config(
-                max_requests=config.tests.domain_4.test_4_1.max_requests,
-                request_interval_ms=config.tests.domain_4.test_4_1.request_interval_ms,
-            ),
-            test_4_2=RuntimeTest42Config(
-                max_connect_timeout_ms=config.tests.domain_4.test_4_2.max_connect_timeout_ms,
-                max_read_timeout_ms=config.tests.domain_4.test_4_2.max_read_timeout_ms,
-                max_write_timeout_ms=config.tests.domain_4.test_4_2.max_write_timeout_ms,
-            ),
-            test_4_3=RuntimeTest43Config(
-                accepted_cb_plugin_names=list(
-                    config.tests.domain_4.test_4_3.accepted_cb_plugin_names
-                ),
-                failure_threshold_min=config.tests.domain_4.test_4_3.failure_threshold_min,
-                failure_threshold_max=config.tests.domain_4.test_4_3.failure_threshold_max,
-                timeout_duration_min_seconds=(
-                    config.tests.domain_4.test_4_3.timeout_duration_min_seconds
-                ),
-                timeout_duration_max_seconds=(
-                    config.tests.domain_4.test_4_3.timeout_duration_max_seconds
-                ),
-                passive_hc_max_http_failures=(
-                    config.tests.domain_4.test_4_3.passive_hc_max_http_failures
-                ),
-                passive_hc_max_tcp_failures=(
-                    config.tests.domain_4.test_4_3.passive_hc_max_tcp_failures
-                ),
-                passive_hc_max_timeouts=(config.tests.domain_4.test_4_3.passive_hc_max_timeouts),
-            ),
-            test_6_2=RuntimeTest62Config(
-                hsts_min_max_age_seconds=(config.tests.domain_6.test_6_2.hsts_min_max_age_seconds),
-                endpoint_sample_size=config.tests.domain_6.test_6_2.endpoint_sample_size,
-            ),
-            test_6_4=RuntimeTest64Config(
-                debug_endpoint_paths=list(config.tests.domain_6.test_6_4.debug_endpoint_paths),
-                gateway_block_body_fragment=(
-                    config.tests.domain_6.test_6_4.gateway_block_body_fragment
-                ),
-            ),
-            test_7_2=RuntimeTest72Config(
-                payload_categories=list(config.tests.domain_7.test_7_2.payload_categories),
-                injection_mode=config.tests.domain_7.test_7_2.injection_mode,
-                injection_path_template=config.tests.domain_7.test_7_2.injection_path_template,
-                injection_url_field=config.tests.domain_7.test_7_2.injection_url_field,
-                injection_body_template=dict(
-                    config.tests.domain_7.test_7_2.injection_body_template
-                ),
-                ssrf_redirect_server_url=config.tests.domain_7.test_7_2.ssrf_redirect_server_url,
-                ssrf_block_response_keywords=list(
-                    config.tests.domain_7.test_7_2.ssrf_block_response_keywords
-                ),
-                ssrf_malformed_url_keywords=list(
-                    config.tests.domain_7.test_7_2.ssrf_malformed_url_keywords
-                ),
-                ssrf_unsupported_scheme_keywords=list(
-                    config.tests.domain_7.test_7_2.ssrf_unsupported_scheme_keywords
-                ),
-                ssrf_request_timeout_ms=config.tests.domain_7.test_7_2.ssrf_request_timeout_ms,
-            ),
-        )
+        # One model per test: the validated models of config.tests are collected
+        # by name (no copy, no hand-written wiring; all models are frozen).
+        # A test declared on one side only stops the run here (see from_domains).
+        tests_config = RuntimeTestsConfig.from_domains(config.tests)
 
         # Instantiate the gateway adapter when configured.
         # Injected into TargetContext so that WHITE_BOX tests access the admin plane

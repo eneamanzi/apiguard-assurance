@@ -1,14 +1,14 @@
 """
-src/config/schema/domain_3.py
+src/test_config/domain_3.py
 
 Pydantic v2 configuration models for Domain 3 (Message Integrity and Cryptographic Controls) tests.
 
 Adding a new Domain 3 test requires:
     1. Defining a Test3XConfig model in this file.
     2. Adding a field to TestDomain3Config below.
-    3. Adding a RuntimeTest3XConfig mirror in core/models/runtime.py.
-    4. Adding the population line in engine.py Phase 3.
-    5. Adding the tests.domain_3.test_3_X block to config.yaml.
+    3. Adding a field to RuntimeTestsConfig (src/test_config/runtime.py); the engine
+       wires it automatically (RuntimeTestsConfig.from_domains).
+    4. Adding the tests.domain_3.test_3_X block to config.yaml.
 
 Dependency rule: imports only from pydantic and the stdlib.
 """

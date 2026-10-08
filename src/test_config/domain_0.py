@@ -1,5 +1,5 @@
 """
-src/config/schema/domain_0.py
+src/test_config/domain_0.py
 
 Pydantic v2 configuration models for Domain 0 (API Discovery and Inventory
 Management) tests.
@@ -13,16 +13,31 @@ Tests in this domain:
     0.2 -- Gateway Deny-by-Default              (P0, BLACK_BOX)
     0.3 -- Deprecated API Enforcement           (P0, BLACK_BOX)
 
-Currently only Test 0.2 has configurable parameters. Tests 0.1 and 0.3 use
-only values derivable from the OpenAPI spec or RFC-mandated constants (e.g.
-HTTP 410 Gone, the Sunset header name) and do not require operator overrides.
+Every test has its model (an empty one when it has no parameters). Test 0.3
+uses only values derivable from the OpenAPI spec or RFC-mandated constants
+(e.g. HTTP 410 Gone, the Sunset header name), so its model is empty.
 
 Dependency rule: imports only from pydantic and the stdlib.
 """
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from pydantic import BaseModel, Field
+
+# ---------------------------------------------------------------------------
+# Constants -- Test 0.1
+# ---------------------------------------------------------------------------
+
+# Number of documented endpoints taken (in spec order) by the undeclared-method
+# sub-check; parametric endpoints among them are skipped. Each sampled endpoint
+# receives up to about five undeclared methods, so 10 means about 50 requests.
+# Bounds are safety rails: below 1 the sub-check would do nothing, above 100 a
+# typo would send a burst of hundreds of requests. 10 is the v0.1.0 behaviour.
+TEST_01_METHOD_PROBE_SAMPLE_SIZE_DEFAULT: int = 10
+TEST_01_METHOD_PROBE_SAMPLE_SIZE_MIN: int = 1
+TEST_01_METHOD_PROBE_SAMPLE_SIZE_MAX: int = 100
 
 # ---------------------------------------------------------------------------
 # Constants -- Test 0.2
@@ -104,6 +119,44 @@ class Test02ProbeConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Test 0.1 and 0.3 models
+# ---------------------------------------------------------------------------
+
+
+class Test01Config(BaseModel):
+    """
+    Configuration for Test 0.1 (Shadow API Discovery).
+
+    Path in config.yaml: tests.domain_0.test_0_1
+    """
+
+    model_config = {"frozen": True}
+
+    method_probe_sample_size: Annotated[
+        int,
+        Field(ge=TEST_01_METHOD_PROBE_SAMPLE_SIZE_MIN, le=TEST_01_METHOD_PROBE_SAMPLE_SIZE_MAX),
+    ] = Field(
+        default=TEST_01_METHOD_PROBE_SAMPLE_SIZE_DEFAULT,
+        description=(
+            "Number of documented endpoints (in spec order) used by the undeclared-method "
+            "sub-check; parametric ones among them are skipped. Each receives up to about "
+            "five undeclared methods. Range 1-100, default 10."
+        ),
+    )
+
+
+class Test03Config(BaseModel):
+    """
+    Configuration for Test 0.3 (Deprecated API Enforcement): no parameters.
+
+    The model exists so that every native test has one (convention). Path in
+    config.yaml: tests.domain_0.test_0_3 (empty).
+    """
+
+    model_config = {"frozen": True}
+
+
+# ---------------------------------------------------------------------------
 # Domain-level aggregator
 # ---------------------------------------------------------------------------
 
@@ -112,20 +165,26 @@ class TestDomain0Config(BaseModel):
     """
     Aggregator for all Domain 0 (API Discovery and Inventory Management) test configs.
 
-    One field per test that has configurable parameters. Currently only test_0_2
-    has tuning parameters; 0.1 and 0.3 are intentionally absent (they have no
-    operator-tunable values beyond what the OpenAPI spec provides).
+    One field per test (every test has a model, possibly empty).
 
-    Adding a new Domain 0 test with parameters requires:
+    Adding a new Domain 0 test requires:
         1. Defining a Test0XProbeConfig/AuditConfig model above.
         2. Adding a field here.
-        3. Adding the corresponding RuntimeTest0XConfig in core/models/runtime.py.
-        4. Populating it in engine.py Phase 3.
-        5. Adding the key to config.yaml under tests.domain_0.
+        3. Adding a field to RuntimeTestsConfig (src/test_config/runtime.py); the engine
+           wires it automatically (RuntimeTestsConfig.from_domains).
+        4. Adding the key to config.yaml under tests.domain_0.
     """
 
     model_config = {"frozen": True}
 
+    test_0_1: Test01Config = Field(
+        default_factory=Test01Config,
+        description="Test 0.1 (Shadow API Discovery) parameters.",
+    )
+    test_0_3: Test03Config = Field(
+        default_factory=Test03Config,
+        description="Test 0.3 (Deprecated API Enforcement): no parameters.",
+    )
     test_0_2: Test02ProbeConfig = Field(
         default_factory=Test02ProbeConfig,
         description=(

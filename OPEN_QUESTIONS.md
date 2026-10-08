@@ -54,16 +54,6 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Evidence (2026-10-07): `hatch run dev:docs` works and writes `docs/API_REFERENCE.md` (about 80 KB, pydoc-markdown output of selected modules); the file is not kept in the repository (removed after the test). Owner: handle with Q-04 in block 9.
 - Resolution:
 
-### Q-15 - Layering: `external_tests` imports `config`
-- Status: implemented (2026-10-07), awaiting the owner to close
-- Source: `src/external_tests/registry.py:61` (`from src.config.schema.external_tools import ExternalToolsConfig`); CLAUDE.md dependency direction does not mention `config/`
-- Question: Is this an accepted exception (the module is a re-export of `core/models/external_tools.py`) or a rule violation? Determines how the dependency rule is written in `architecture/overview.md`.
-- How to verify: decision with user.
-- Evidence (2026-10-06): it is the only import from `config/` in `core/`, `connectors/`, `tests/`, `external_tests/`. `src/config/schema/external_tools.py` is a re-export shim of `src/core/models/external_tools.py`; both imports return the same class object (`A is B` → `True`).
-- Decision (owner, 2026-10-06): no exception to the dependency rule. Change `src/external_tests/registry.py:61` to `from src.core.models.external_tools import ExternalToolsConfig` (no behaviour change); verify with `hatch run dev:check` and a run with the external tools; remove "(registry only, Q-15)" from `docs/architecture/overview.md`. Also add an automatic check of the dependency rule (e.g. `import-linter`) to `dev:check` (see Q-39).
-- Implemented (2026-10-07, block 1 step 3): `src/external_tests/registry.py:61` imports from `src.core.models.external_tools`; `import-linter` (2.15) added to the dev environment with three contracts in `pyproject.toml` (layer direction; core, connectors and tests never import config, discovery, report, cli; native tests never use connectors) and `lint-imports` in `dev:check`. Verified: 3 contracts kept; with the old import put back the second contract is BROKEN at `registry.py:61`; `dev:check` passes; external discovery on `config.yaml` finds the same 3 tests; 15 native tests and `ext.1.5.sslyze` unchanged on the lab. `docs/architecture/overview.md` updated.
-- Resolution:
-
 ### Q-16 - No CI and no pre-commit
 - Status: open
 - Source: no `.github/workflows/`, `.gitlab-ci.yml` or `.pre-commit-config.yaml` in the repo (verified 2026-10-05); quality scripts exist only as `hatch run dev:lint|audit|check` in `pyproject.toml`
@@ -92,28 +82,11 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Owner decision (2026-10-07): this is an analysis, not a decision: moved to group 3.D, agnosticism block, after the second lab (Q-52); feeds Q-43.
 - Resolution:
 
-### Q-19 - Stale documentation paths in source comments and scripts
-- Status: implemented (2026-10-07, block 2), awaiting the owner to close
-- Source: 26 references in docstrings/comments of `src/engine.py` `src/discovery/seed_generator.py` `src/external_tests/ext_test_1_5_tls_analysis.py` `src/report/builder.py` `src/tests/domain_0/test_0_1_shadow_api_discovery.py` `src/core/models/enums.py` `src/tests/domain_1/test_1_4_token_revocation.py` `src/tests/domain_2/test_2_1_rbac_enforcement.py` `src/tests/domain_0/test_0_2_deny_by_default.py` `src/external_tests/ext_test_0_1_shadow_api_nuclei.py` `src/tests/domain_6/test_6_4_hardcoded_credentials_audit.py` `src/tests/registry.py` `src/tests/domain_1/test_1_1_authentication_required.py` `src/core/models/runtime.py` `src/tests/domain_0/test_0_3_deprecated_api_enforcement.py` `src/core/dag.py` `src/core/exceptions.py` `src/core/models/results.py` `src/core/evidence.py` - mostly "`4-Implementazione.md` §x", plus `docs/pub/…`, `docs/priv/…`. Also `build_zip.sh:62-64` (exclusion list already pointing to non-existent `docs/*.md` names).
-- Question: Docs moved on 2026-10-05 (see mapping in `docs/project/docs-inventory.md`). Source files were deliberately not touched (no code changes during docs work). Update comments to the new paths once the target pages exist (e.g. `architecture/…`, `tests/<id>.md`).
-- How to verify: `grep -rn -E "4-Implementazione|3-Metodologia|docs/(pub|priv)|ADDING_tests|ARCHITECTURE\.md|PROJECT_status" src build_zip.sh` returns nothing.
-- Implemented (2026-10-07, block 2): 54 references updated in `src/` and 4 in `config.yaml` comments. Methodology references point to `docs/knowledge/methodology/methodology.it.md` (sections verified to exist); implementation-chapter references point to the current page in `docs/architecture/` by topic (the archived chapter's numbering no longer matches the cited sections), except `report/builder.py` §4.10 (Report Layer, still valid in the archive); the four "Why two layers?" comments point to `docs/architecture/data-model.md`. Search command above: 0 results in `src/`, scripts, `config.yaml`. Left untouched: `build_zip.sh:64` (`/docs/ARCHITECTURE.md` in the owner's personal exclusion list; no longer exists, no effect), owner to decide.
-- Resolution:
-
 ### Q-20 - CLI usage errors share exit code 2 with "ERROR"
 - Status: open
 - Source: Typer/Click default; verified 2026-10-05: `apiguard run --bogus`, `--log-format xml`, and `apiguard` without arguments all exit 2. `src/engine.py:131` uses 2 for "at least one test ERROR".
 - Question: A wrapper cannot distinguish "bad invocation" from "assessment completed with ERROR". Map usage errors to a distinct code? Documented as-is in `docs/reference/exit-codes.md`.
 - How to verify: decision with user (code change).
-- Resolution:
-
-### Q-21 - `generate-seed` stdout output is not valid YAML when redirected
-- Status: fixed (2026-10-07, block 3), awaiting the owner to close
-- Source: `src/cli.py:443-450` prints panel, log lines and template on stdout; Rich wraps long comment lines. Verified 2026-10-05: `apiguard generate-seed ./specs/crapi-openapi.json --log-format json > f` → `yaml.safe_load` fails; with `--output f` the file is valid.
-- Question: Make stdout mode redirect-safe (logs to stderr, no wrapping)? Docs currently tell users to use `--output`.
-- How to verify: decision with user (code change).
-- Decision (owner, 2026-10-07): without `--output`, stdout carries only the template (no Rich wrapping); log lines and the help line go to stderr (standard CLI convention: stdout = result, stderr = messages). Verify: `generate-seed <spec> > f.yaml` is valid YAML and identical to `--output`.
-- Fixed (2026-10-07): `_configure_logging()` takes the log stream (default stdout); `generate-seed` sends logs to stderr, writes the template with `Console.out()` (no wrapping, no markup) and prints the panel and messages on stderr. Verified on the lab spec: redirected stdout is valid YAML (44 parameters) and byte-identical to the `--output` file in console and JSON log modes; `--output` file unchanged; unreachable spec → exit 1 with nothing on stdout; `dev:check` passes. `docs/reference/cli.md` updated.
 - Resolution:
 
 ### Q-22 - Unknown keys in config.yaml are silently ignored
@@ -156,47 +129,9 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Question: Fix the descriptions (code comments) or change behaviour so that disabled tools appear as SKIP in the report (visible coverage gap)? Docs describe the actual behaviour.
 - How to verify: decision with user.
 - Evidence (2026-10-07): the descriptions still say SKIP (`src/core/models/external_tools.py:64`, `:257`; `src/config/schema/tool_config.py:863`); the registry excludes the tests; `docs/reference/configuration.md` already describes the real behaviour.
-- Decision (owner, 2026-10-07): keep the rule "absent = not selected (operator's choice: priority, strategy, `test_ids`, tool disabled); SKIP = selected but something is missing (credentials, Admin API, tool not installed)". SKIP must never be used for a deliberate exclusion. Disabled tools stay absent; fix the three descriptions (cleanup block, with Q-19/Q-28).
+- Decision (owner, 2026-10-07): keep the rule "absent = not selected (operator's choice: priority, strategy, `test_ids`, tool disabled); SKIP = selected but something is missing (credentials, Admin API, tool not installed)". SKIP must never be used for a deliberate exclusion. Disabled tools stay absent; fix the three descriptions (cleanup block).
 - Also agreed (to evaluate in the contract 1.0 block): make deliberate exclusions visible, listing every test not run by choice, native and external, with the reason, separately from the SKIPs, in **every** output (HTML report, `apiguard_report.json`, console summary, and any other artefact), not only in the HTML report.
 - Done (2026-10-07, block 2): the three descriptions now say that disabled tools are not scheduled and do not appear in the report (`src/core/models/external_tools.py`, `src/config/schema/tool_config.py`, which also listed "ffuf" instead of sslyze).
-- Resolution:
-
-### Q-27 - `<TOOL>_SERVICE_URL` availability channel
-- Status: removed (2026-10-07, block 3), awaiting the owner to close
-- Source: `src/connectors/base.py:364-384` (`is_available()` returns True when `os.getenv(SERVICE_ENV_VAR)` is set); `NUCLEI_SERVICE_URL` (`src/connectors/nuclei.py:142`), `TESTSSL_SERVICE_URL` (`src/connectors/testssl.py:138`).
-- Question: When only the service variable is set (no local binary, nothing in PATH), how does `run()` execute the tool? Is this channel functional or a placeholder? Not documented in user docs until clarified.
-- How to verify: code reading of `run()` / `_resolve_binary_path()` with the env var set; test with the variable set and no binary.
-- Evidence (2026-10-06): `is_available()` (`src/connectors/base.py:362-384`) returns True when `<TOOL>_SERVICE_URL` is set, but `NucleiConnector.run()` (`src/connectors/nuclei.py:197-205`) raises `ExternalToolError` "binary not found via any discovery channel" when `_resolve_binary_path()` is None; no code ever calls the URL. So with only the variable set, the test is scheduled and ends in ERROR instead of SKIP. The channel is a non-functional placeholder; docs do not mention it.
-- Decision (owner, 2026-10-07): remove the `<TOOL>_SERVICE_URL` channel (non-functional: it makes a missing tool end in ERROR instead of SKIP); availability = `./tools/` or `PATH` only. Future idea recorded in the roadmap together with Q-36.
-- Done (2026-10-07): `SERVICE_ENV_VAR` and the service-URL branch of `is_available()` removed (`connectors/base.py`, `nuclei.py`, `testssl.py`, `_template_connector.py`); discovery is `./tools/<subdir>/` then `PATH`. The skip message no longer suggests a "discovery environment variable" (it now says how to install binaries and libraries); `config.yaml` comments (testssl section) and docs updated. Verified: nuclei and testssl still available; with `TESTSSL_SERVICE_URL` set and no testssl binary, `ext.1.5.testssl` is SKIP (before: ERROR); `dev:check` passes.
-- Resolution:
-
----
-
-## Findings from writing `docs/tests/` and `docs/reference/` (2026-10-05)
-
-The test pages describe what the code does. Each item below is a divergence or a behaviour worth a decision.
-None has been changed in code.
-
-### Q-28 - Docstrings and field descriptions that contradict the code
-- Status: implemented (2026-10-07, block 2), awaiting the owner to close
-- Question: Update each comment to match the code, or change the code to match the comment? Item by item:
-  - [ ] `src/tests/domain_0/test_0_1_shadow_api_discovery.py:17,107` - announces a "version discovery" sub-check; the code runs only path fuzzing and undeclared-method probing.
-  - [ ] `src/external_tests/ext_test_0_1_shadow_api_nuclei.py:11-12` - describes native 0.1 as using `OPTIONS` and a versioning check; it does neither.
-  - [ ] `src/tests/domain_1/test_1_1_authentication_required.py:45-46` - says parametric `DELETE` uses the placeholder `apiguard-probe`; the code (`:515-520`) uses `path_seed` values first. The code is the intended behaviour (Q-30 decision, 2026-10-07): align the docstring.
-  - [ ] `src/tests/domain_2/test_2_1_rbac_enforcement.py:29` - says `404` is inconclusive; `:70` counts `403` and `404` as enforced.
-  - [ ] `src/tests/domain_4/test_4_3_circuit_breaker_audit.py:64` - "PASS + informational Finding"; the code attaches an InfoNote (a PASS cannot carry findings).
-  - [ ] `src/tests/domain_6/test_6_2_security_headers_audit.py:19` - says `includeSubDomains` is required; `:563` only logs it at debug level, no finding.
-  - [ ] `src/external_tests/ext_test_1_5_tls_analysis.py:22,33-36` - refers to `tests.domain_1.test_1_5.testssl_binary_path` and a "legacy sub-test 3"; neither exists.
-  - [ ] `src/tests/domain_7/test_7_2_ssrf_prevention.py:58` calls the redirect sub-test "G"; `:151` (skip reason shown in the report) and `:229` call it "E".
-  - [ ] `src/core/models/http.py:109` - `request_body` "sanitized of secrets"; `src/core/client.py:562-567` stores the JSON body as sent.
-  - [ ] `src/config/schema/tool_config.py:178` - `admin_api_url`: "If absent, all WHITE_BOX tests return SKIP"; tests 1.5, 1.6, 6.2 and 6.4 run without it.
-  - [ ] `src/connectors/_template_connector.py:12` - points to `src/config/schema/external_tools.py`; the config classes live in `src/core/models/external_tools.py`.
-  - [ ] `src/cli.py:500-503` - says third-party logs go through the structlog pipeline; `:537-541` prints them as plain text.
-  - [ ] `src/external_tests/base.py:851` - docstring example of `_invoke_connector` uses `target.tests_config.external_testssl_flags` / `external_testssl_timeout`, attributes that do not exist (the real code reads `target.external_tools.testssl.*`, `ext_test_1_5_tls_analysis.py:368`).
-  - [ ] 19 references in 15 files cite `3_TOP_metodologia.md` (a file name that never existed in the repo); see also Q-19 for the other stale paths.
-- How to verify: re-read each location after the decision.
-- Implemented (2026-10-07, block 2): every item aligned to the code. Exception, on purpose: 7.2 output texts (skip reason, InfoNote title, two messages) changed from "Sub-test E" to "Sub-test G", because the docstring numbering is consistent (E = `dns_bypass`) and the output was wrong; no status changes. Behaviours a comment promised and the code lacks were not implemented here: 0.1 OPTIONS/Allow comparison and version discovery (Q-32), 6.2 `includeSubDomains` (added to Q-29).
 - Resolution:
 
 ### Q-29 - Lenient or weak oracles
@@ -208,6 +143,7 @@ None has been changed in code.
   - [ ] 0.2 - the URL-encoded variant uses `urllib.parse.quote`, unchanged for ASCII segments, so it is almost never sent (`test_0_2_deny_by_default.py`, `_build_path_variants`).
   - [ ] 0.2 - only `200` on a normalization variant is a finding; other `2xx` are "rejected".
   - [ ] 1.1 - only `2xx` is a bypass; "protected" means "declared with `security` in the spec" (undeclared endpoints are not tested).
+  - [ ] 0.1 - the undeclared-method sub-check samples the first `method_probe_sample_size` endpoints (default 10) and then skips the parametric ones: on the Forgejo spec only 3 of the first 10 are non-parametric, so only 3 endpoints are probed (10 requests). Sampling only non-parametric endpoints would cover more (verified 2026-10-07: sample 1 → 41 requests, 3 and 10 → 49).
   - [ ] 1.1 - idea (owner, 2026-10-07, on the former Q-47): state in the test message how many findings are reads and how many are writes (e.g. "78 findings: 78 GET, 0 writes"); text only, no new severity level.
   - [ ] 1.5 - any exception during the HTTP probe counts as "HTTP not served" (`test_1_5_insecure_credential_transport.py`, `except Exception: return None`).
   - [ ] 0.3 - an unparseable `Sunset` header is treated as compliant.
@@ -234,7 +170,7 @@ None has been changed in code.
   - [ ] 4.1 sends up to 2 × `max_requests` requests in a burst and exhausts the tool's rate-limit budget for the following tests.
 - How to verify: decision with user.
 - Evidence (2026-10-07): Phase 6 teardown works for what the tool creates (1.4 token, `context.register_resource_for_teardown`, `test_1_4:329`; 7.2 `forgejo_webhook` repository); 7.2 `fixed_path` registers nothing. Test 1.1 docstring (`:45-50`) says parametric `DELETE` uses the placeholder `apiguard-probe`; the code uses `path_seed` first: in the last lab run 76 unauthenticated `DELETE`, none with `apiguard-probe`, including `/admin/users/user-a`, `/orgs/test-org`, `/repos/user-a/test-repo` (all 401). Placeholder vs real resource on the lab: `DELETE /repos/apiguard-probe/apiguard-probe` 404 (inconclusive) vs `/repos/user-a/test-repo` 401 (conclusive); same for `/orgs`, comments. In the Forgejo spec 35 of 44 path parameters appear in writes or `DELETE` (`owner`, `repo` in 49 `DELETE` endpoints each): no useful read-only subset.
-- Decision (owner, 2026-10-07): keep the behaviour. `path_seed` is the operator's declaration of test resources that may receive any request, `DELETE` and unauthenticated writes included: only volatile test resources, never real ones. Say it everywhere `path_seed` appears (done 2026-10-07: `reference/configuration.md`, test 1.1 page, `configure-a-target.md`; code phase: `generate-seed` template, comment above `path_seed` in `config.yaml`, test 1.1 docstring, see Q-28). After a successful unauthenticated `DELETE` the tool does not restore the resource (it cannot recreate what it did not create: creation endpoint unknown, server-assigned identifiers change, content and cascades are lost); restoring is the environment's job (lab: full reset, `down -v` then start and setup; setup alone gives new numbers). Code phase, test 1.1 review: send `DELETE` last; after the test, check that the `path_seed` resources still exist and report any deleted one, marking later results that depend on it. Test 7.2 `fixed_path` (creates objects with valid credentials, no cleanup): test 7.2 review, rule "who creates cleans up, or declares in the report what was left".
+- Decision (owner, 2026-10-07): keep the behaviour. `path_seed` is the operator's declaration of test resources that may receive any request, `DELETE` and unauthenticated writes included: only volatile test resources, never real ones. Say it everywhere `path_seed` appears (done 2026-10-07: `reference/configuration.md`, test 1.1 page, `configure-a-target.md`; code phase: `generate-seed` template, comment above `path_seed` in `config.yaml`, test 1.1 docstring, done in block 2). After a successful unauthenticated `DELETE` the tool does not restore the resource (it cannot recreate what it did not create: creation endpoint unknown, server-assigned identifiers change, content and cascades are lost); restoring is the environment's job (lab: full reset, `down -v` then start and setup; setup alone gives new numbers). Code phase, test 1.1 review: send `DELETE` last; after the test, check that the `path_seed` resources still exist and report any deleted one, marking later results that depend on it. Test 7.2 `fixed_path` (creates objects with valid credentials, no cleanup): test 7.2 review, rule "who creates cleans up, or declares in the report what was left".
 - Resolution:
 
 ### Q-31 - Sensitive data in the outputs
@@ -263,6 +199,7 @@ None has been changed in code.
   - [ ] `docs/knowledge/target-selection.it.md` lists requirements and candidates but not why Forgejo was chosen; needed for `knowledge/target-selection` when translating.
   - [ ] `docs/knowledge/methodology/methodology.it.md` (priority/approach table near line 63, and the headings "Grey Box ... P1, P2", "White Box ... P3") presents priority and strategy as linked. Owner decision on the former Q-14 (2026-10-06): they are independent (priority = severity, strategy = what the tester needs). Reword when translating.
   - [ ] Strategy definitions (owner decision on Q-10, 2026-10-06): BLACK_BOX = external user, GREY_BOX = normal user with credentials, WHITE_BOX = super user with internal access. Align the "Assunzioni e Prerequisiti" approach of **every** guarantee to them, implemented or not; checks the tool performs from outside (TLS, headers, cookies) are not "White Box configuration audit".
+  - [ ] `docs/knowledge/design-properties.it.md` D3.P1 and D6.P3 cite `src/core/models/runtime.py` (`RuntimeTest*Config`, "mirror immutabile") and `src/config/schema/domain_N.py`: since block 4 (Q-53) the per-test models live in `src/test_config/` (single definition, all frozen) and `RuntimeTestsConfig` in `src/test_config/runtime.py`. Update when translating.
 - How to verify: decision with user while translating `knowledge/`.
 - Resolution:
 
@@ -273,32 +210,16 @@ None has been changed in code.
 - How to verify: decision with user (code + config change).
 - Resolution:
 
-### Q-35 - `openapi_fetch_timeout_seconds` does not stop a hanging spec server
-- Status: fixed (2026-10-07, block 3), awaiting the owner to close
-- Source: `src/discovery/openapi.py:429-447` - the `TimeoutError` is raised inside `with ThreadPoolExecutor(...)`; leaving the block calls `shutdown(wait=True)`, which waits for the blocked prance/requests thread.
-- Evidence: 2026-10-05, local socket server that accepts and never answers; `_fetch_and_dereference(url, 2.0)` was still blocked after 20 s and the process could not exit (killed by `timeout 60`, exit 124).
-- Question: Fix (e.g. `executor.shutdown(wait=False)` / daemon thread, or a socket timeout on prance's requests session)? Until then the run can hang indefinitely in Phase 2 when `openapi_spec_url` points to an unresponsive server. Documented in `docs/reference/configuration.md`.
-- Decision (owner, 2026-10-07): run the fetch in a daemon thread so that the timeout raises `OpenAPILoadError` (exit 10) and the process can exit; verify with a server that accepts and never answers.
-- Fixed (2026-10-07): `src/discovery/openapi.py` runs `_prance_worker` in a daemon thread that stores its outcome in a `concurrent.futures.Future` (`_run_prance_worker_into`); error handling unchanged. Verified: hanging server → exit 10 after 10 s with "Timed out after 10.0s" (before: still blocked after 40 s, exit 124 from the external limit); refused port → exit 10 after 1 s; local spec file parsed (304 paths); lab URL spec, 15 native tests: no differences; `dev:check` passes. Docs updated (overview, security-model, configuration).
-- Resolution:
-
-### Q-36 - `effective_base_url` / `APIGUARD_TARGET_EFFECTIVE_URL` not wired
-- Status: removed (2026-10-07, block 3), awaiting the owner to close
-- Source: `src/core/context.py:200-227` says the engine reads `APIGUARD_TARGET_EFFECTIVE_URL` in Phase 3 and refers to `docker-compose.external-tools.yml`; `grep` finds no read of that variable in `src/` and the compose file does not exist. `TargetContext` is built in `src/engine.py` Phase 3 without `effective_base_url`, so `effective_endpoint_base_url()` always falls back to `base_url`.
-- Question: Implement the "Docker Compose mode" (external tools in a container addressing the target by service name), or remove the field and comments? Also listed as property D7.P3 in `docs/knowledge/design-properties.it.md`.
-- How to verify: decision with user.
-- Decision (owner, 2026-10-07): remove `effective_base_url` and its comments (never wired); `effective_endpoint_base_url()` usage to be replaced by the plain endpoint base URL. Running external tools from containers or as HTTP services is a good future idea: recorded in `docs/project/roadmap.md` (ideas), to be designed for real if the integration needs it.
-- Done (2026-10-07): `effective_base_url` and `effective_endpoint_base_url()` removed from `src/core/context.py`; external tests call `target.endpoint_base_url()` (same value: the field was always None). Comments and docs updated (`connectors/base.py`, `_template_ext_test.py`, `ext_test_1_5_tls_analysis.py`, `data-model.md`, `add-an-external-test.md`). Verified: `dev:check`; `ext.1.5.sslyze` same command (`sslyze --regular localhost:8443`) and results; 15 native tests unchanged.
-- Resolution:
-
 ### Q-37 - Convention "every test has a config model" vs code
-- Status: decided (owner, 2026-10-06), implementation pending (group 3.D)
+- Status: implemented (2026-10-07, block 4), awaiting the owner to close
 - Source: previous `ADDING_tests.md` ("When the test has no operator-tunable parameters: create the config model anyway"; git `fd3bd90:docs/guides/extending/add-a-native-test.md:236-241`); code: no `Test01Config`/`Test03Config` and no `RuntimeTest01Config`/`RuntimeTest03Config` (13 runtime configs for 15 native tests). Also the old guide said a missing `src/config/schema/__init__.py` export raises `ImportError`; nothing imports `Test*Config` from that package (`tests_config.py` imports domain modules directly).
 - Question: Keep the convention (add empty models for 0.1, 0.3) or drop it? The new guide documents the code as it is.
 - How to verify: decision with user.
 - Evidence (2026-10-06): test 0.1 does have a tunable written in the code: `list(surface.endpoints)[:10]` (`src/tests/domain_0/test_0_1_shadow_api_discovery.py:172`, the "first 10 endpoints" of the undeclared-method sub-check), a magic number under the project rules; its wordlist (`SHADOW_API_WORDLIST`) is also fixed in code. Test 0.3 has only protocol constants (410, `Sunset`).
 - Decision (owner, 2026-10-06): every native test always has its configuration model, empty if it has no parameters. A missing model is a developer error: it is checked in `hatch run dev:check` (not at runtime, never shown to the end user).
 - To implement: models for 0.1 and 0.3; the check in `dev:check`; update `add-a-native-test.md` (remove the "no parameters" special case). Still to decide: the `10` of test 0.1 becomes a `config.yaml` parameter (needs owner confirmation) or a named constant. Implement together with Q-53, so that the new models already use the single definition.
+- Decision update (owner, 2026-10-07): no check script. Instead the engine wiring becomes automatic: `RuntimeTestsConfig.from_domains(config.tests)` collects every `test_<D>_<N>` from the domain containers by name; `RuntimeTestsConfig` forbids unknown fields and `from_domains` fails if a field has no matching domain model, so a missing or extra piece stops the run at the first start (developer-visible) instead of silently using defaults. The convention "every native test has a model, even empty" is stated in the guide. The `10` of test 0.1 becomes the parameter `tests.domain_0.test_0_1.method_probe_sample_size` (default 10; owner confirmation 2026-10-07); test 0.3 gets an empty model.
+- Implemented (2026-10-07): `RuntimeTestsConfig.from_domains()` (extra fields forbidden, missing domain models rejected) replaces the 13 wiring lines in `engine.py`; `Test01Config` (`method_probe_sample_size`, 1-100, default 10) and empty `Test03Config` added; test 0.1 reads the parameter. Verified: old 48 parameters identical; both mismatch cases stop (simulated, and in a real run before the runtime fields were added: exit 10 naming `test_0_1`, `test_0_3`); test 0.1 identical with the default (16 findings, 49 requests), 41 requests with 1; 0 and 101 rejected by `validate-config`; `dev:check`. Docs: guide (7 steps, no engine step), data-model, configuration reference, 0.1 test page, `config.yaml` block, CHANGELOG.
 - Resolution:
 
 ### Q-38 - Gateway adapter abstraction returns gateway-specific data
@@ -316,12 +237,12 @@ None has been changed in code.
   - [ ] "Pydantic v2 only, no TypedDict for data models" vs `TypedDict` in `src/connectors/base.py:865` (`ConnectorRawOutput`), `src/connectors/types/tls_findings.py:37` (`TlsFinding`, external tool output), `src/tests/base.py:105`, `src/external_tests/base.py:133`: clarify where TypedDict is allowed.
   - [ ] `claude-rules.it.md` §5.3 says code must pass `ruff format --check .`; it does not (7 files would be reformatted: `src/config/schema/domain_4.py`, `src/connectors/sslyze.py`, `src/core/models/external_tools.py`, `src/external_tests/ext_test_0_1_shadow_api_nuclei.py`, `src/external_tests/ext_test_1_5_tls_analysis.py`, `src/tests/domain_1/test_1_4_token_revocation.py`, `src/tests/domain_1/test_1_5_insecure_credential_transport.py`) and `hatch run dev:check` does not include the format check.
   - [ ] `claude-rules.it.md` §5.6 refers to an E2E suite in `tests_e2e/` that does not exist (planned: Q-51).
-  - [ ] The dependency rule (`core/` ← `connectors/` ← `tests/`, `external_tests/` ← `engine.py`) is not checked automatically; owner decision on Q-15 (2026-10-06): add a check (e.g. `import-linter`) to `dev:check`.
+  - [ ] The dependency rule (`core/` ← `connectors/` ← `tests/`, `external_tests/` ← `engine.py`) is not checked automatically; owner decision (2026-10-06, layering import question; done in block 1): add a check (e.g. `import-linter`) to `dev:check`.
   - [ ] `pyproject.toml` excludes `scripts/` from ruff (`[tool.ruff] exclude`, line 375) but defines `per-file-ignores` for `scripts/*` (line 384): the ignores never apply. Harmless; decide whether `scripts/` should be linted.
   - [ ] ruff 0.16 also formats Python code blocks inside Markdown files (`ruff format --check .` reports `add-a-native-test.md`, `add-an-external-test.md`): exclude `*.md` from the formatter (owner decision 2026-10-07, block 1).
   - [ ] `hatch run dev:check` passes (ruff check, mypy strict, bandit medium, vulture 80) as of 2026-10-05.
 - How to verify: decision with user; `hatch run dev:ruff format --check .`.
-- Done (2026-10-07, block 1 step 2): `ruff format` applied to the 7 Python files (syntax trees identical to the previous commit; 15 native tests and `ext.1.5.sslyze` give the same results on the lab); `ruff format --check .` added to `dev:check`; Markdown excluded from the formatter (`[tool.ruff.format] exclude = ["*.md"]`). Remaining items: rule exceptions, `scripts/` lint config, E2E reference (Q-51), layering check (with Q-15).
+- Done (2026-10-07, block 1 step 2): `ruff format` applied to the 7 Python files (syntax trees identical to the previous commit; 15 native tests and `ext.1.5.sslyze` give the same results on the lab); `ruff format --check .` added to `dev:check`; Markdown excluded from the formatter (`[tool.ruff.format] exclude = ["*.md"]`). Remaining items: rule exceptions, `scripts/` lint config, E2E reference (Q-51), layering check (done in block 1 step 3).
 - Done (2026-10-07, block 1 step 4): the two exceptions written in `CLAUDE.md` and `coding-rules.md` (numbers in test module names; `TypedDict` only for raw external-tool output shapes and `**kwargs` bundles, the 4 current uses); the full dependency rule written in `CLAUDE.md`. Remaining items: `scripts/` lint configuration; `claude-rules.it.md` §5.6 E2E reference (Q-51).
 - Resolution:
 
@@ -353,15 +274,6 @@ None has been changed in code.
 - Question: Should a non-empty `test_ids` run exactly the listed tests (fix), or is the current behaviour intended? `docs/reference/configuration.md` now documents the current behaviour.
 - Resolution:
 
-### Q-48 - `config_coherence_warning` messages confuse priority and strategy
-- Status: fixed (2026-10-07, block 3), awaiting the owner to close
-- Source: `src/config/loader.py` (warnings `white_box_without_admin_api`, `grey_box_without_credentials`).
-- Evidence (2026-10-06, `apiguard validate-config` on a minimal configuration): the messages say "All P3 (WHITE_BOX) tests will return SKIP with reason 'Admin API not configured'" and "All P1/P2 (GREY_BOX) tests will return SKIP". Priority and strategy are independent (`docs/architecture/assessment-model.md`): 4.2 and 4.3 are P1 WHITE_BOX, 7.2 is P0 GREY_BOX; WHITE_BOX tests 1.5, 1.6, 6.2 and 6.4 (sub-test A) run without the Admin API (verified: same minimal run, 1.5 FAIL, 6.2 and 6.4 PASS). The real skip reason is also different: "Gateway adapter not configured: ...".
-- Question: rewrite the two messages (strategy only, list the affected tests or point to the docs)? Note: priority and strategy are independent (owner decision on the former Q-14, 2026-10-06); the messages must not link them.
-- Decision (owner, 2026-10-07): messages state what is needed (tests that read the gateway configuration / tests that need credentials will return SKIP), no priorities, no hard-coded test list.
-- Fixed (2026-10-07): `src/config/loader.py` messages now say "the tests that read the gateway configuration through the Admin API will return SKIP (or skip that part)" and "the tests that need credentials will return SKIP"; no priorities and no quoted skip reasons (the old ones, 'Admin API not configured' and 'No credentials available', were not the real texts). Verified with `validate-config` on a minimal configuration; `dev:check` passes.
-- Resolution:
-
 ### Q-50 - Some findings have no `evidence_ref`
 - Status: open
 - Source: `src/tests/domain_4/test_4_1_rate_limiting.py` (findings built with `evidence_ref=None`), `src/tests/domain_7/test_7_2_ssrf_prevention.py` (one aggregate finding); `docs/architecture/assessment-model.md` says a Finding of an HTTP test has an `evidence_ref` to the proving transaction.
@@ -386,11 +298,15 @@ None has been changed in code.
 - Resolution:
 
 ### Q-53 - Every test parameter is defined twice (configuration model and runtime model)
-- Status: open (direction agreed with the owner, 2026-10-06; to be done after Q-51)
+- Status: implemented (2026-10-07, block 4), awaiting the owner to close
 - Source: per parameter, a configuration model in `src/config/schema/domain_X.py` (validates `config.yaml`), a runtime copy in `src/core/models/runtime.py` (1084 lines, `RuntimeTest*Config`, what the test reads through `target.tests_config`), and one copy line in `src/engine.py` Phase 3 (48 `config.tests.domain_...` lines). Reason given in the `runtime.py` header: tests may import only `core/`, not `config/`.
 - Evidence (2026-10-06, `max_endpoints_cap` of test 1.1): the configuration model uses named constants (`TEST_11_MAX_ENDPOINTS_CAP_DEFAULT`, `_MIN`, `domain_1.py:119`), the runtime copy rewrites `default=0, ge=0` by hand (`runtime.py:238`) and its description cites `TestDomain1Config` and `config/schema.py` (the class is `Test11Config`, the file no longer exists). Values agree today; the copies can drift silently.
 - Precedent in the code: external-tool configuration models live in `src/core/models/external_tools.py` and `src/config/schema/external_tools.py` only re-exports them: one definition, dependency rule respected.
 - Proposal: do the same for native tests: move the per-test configuration models to `core/`, let tests read them directly, remove the `RuntimeTest*Config` copies and the copy lines in `engine.py`. Refactoring of the 13 tests with parameters: verify every test on the lab before and after (needs the E2E suite, Q-51). Implement Q-37 at the same time.
+- Evidence (2026-10-07, all 13 pairs compared by script): same field names, types and defaults; constraints differ in 5 tests (1.4 `token_name`, 2.1 `admin_endpoint_paths`, 4.1 `max_requests`/`request_interval_ms`, 7.2 `injection_mode`/`injection_path_template`/`injection_url_field`) and the 4.3 coherence validator exists only in the configuration model; `engine.py` copies values without transformations (only `list(...)`); tests read `target.tests_config.test_X_Y.<param>` (20 places), 3 tests use `RuntimeTest15/16/43Config` in signatures, 2 use `Any` (3.3, 4.2). The `domain_*.py` schema modules import only pydantic and stdlib.
+- Decision (owner, 2026-10-07): option C. Keep one model per test in a dedicated package outside `core/` (e.g. `src/test_config/`): `core/` is the engine of the tool, test parameters belong to the tests. Rejected: models in `core/` (mixes test knowledge into the engine); models declared inside each test with validation after discovery (bigger change, not convincing now). External-tool configuration models to be moved to the same package later. Tests keep reading `target.tests_config.test_X_Y.<param>`.
+- Decision (owner, 2026-10-07): `src/test_config/` is the lowest layer (it depends only on pydantic and imports nothing from the tool); `core/` imports it only to type `TargetContext.tests_config`. Rejected alternative: an untyped field plus a typed accessor in `test_config/` (core would know nothing, but every test access changes and typing goes through a runtime check). Documented in the dependency rule and checked by `import-linter`.
+- Implemented (2026-10-07): `src/config/schema/domain_*.py` moved with `git mv` to `src/test_config/` (new package, lowest layer); `RuntimeTestsConfig` moved to `src/test_config/runtime.py`, its fields are the real models; `engine.py` passes `config.tests.domain_<D>.test_<D>_<N>` (13 lines instead of about 100 lines of copies); the 13 `RuntimeTest*Config` classes removed (`src/core/models/runtime.py` 1084 → 160 lines, only `RuntimeCredentials`); tests 1.5, 1.6, 4.3, 3.3, 4.2 typed with the real models (3.3 and 4.2 were `Any`; mypy finds no error). `import-linter`: `test_config` added as lowest layer plus a contract "imports nothing from the tool" (proved to catch a violation). Verified: the 48 parameters of the 13 tests identical before/after with `config.yaml` and with defaults; reassignment still blocked (`frozen`), list content mutable before and after (Q-57); `dev:check`; lab: 15 native tests and `ext.1.5.sslyze` unchanged; wheel contains `src/test_config/`. Docs updated: `add-a-native-test.md` (8 steps instead of 9), `data-model.md`, `overview.md` (import graph recomputed), `configuration.md`, `coding-rules.md`, `CLAUDE.md`.
 - Resolution:
 
 ### Q-54 - `.env` is not found when the tool is installed with pip
@@ -401,12 +317,16 @@ None has been changed in code.
 - Question: load `.env` from the working directory (`load_dotenv(find_dotenv(usecwd=True), override=False)`), add an explicit option (e.g. `--env-file`), or rely only on exported variables when installed? Belongs to the integration contract (Q-25 block).
 - Resolution:
 
-### Q-55 - Lab setup misreports a recreated issue
-- Status: fixed (2026-10-07, block 3), awaiting the owner to close
-- Source: `test-environments/forgejo-kong/docker-compose.yml`, service `forgejo-setup` (issue and comment creation).
-- Evidence (2026-10-07, lab): after `DELETE /repos/user-a/test-repo/issues/1` (204), running the setup again prints `Issue 1 created.` but Forgejo creates issue **2** (issue numbers are never reused); the comment step then posts to issue 1 and fails with `Comment creation failed: HTTP 404`. The deleted issue's comment is gone too. A full reset (`down -v`, start, setup) restores issue 1 and comment 1.
-- Question: make the setup read the number Forgejo returns and, if it is not 1, stop with a clear message ("issue 1 was deleted: reset the lab with down -v")? Lab change only, the tool is not involved. Until then `getting-started/first-assessment.md` (troubleshooting) says to reset from scratch.
-- Decision (owner, 2026-10-07): the setup reads the issue number returned by Forgejo and, if it is not 1, stops with a message asking to reset the lab (`down -v`).
-- Fixed (2026-10-07): the setup reads the number Forgejo returns for the new issue and the id of the new comment; if it is not 1 it stops (exit 1) with "Issue 1 / Comment 1 was deleted earlier: Forgejo created ... instead; reset the lab from scratch ...". Verified: fresh lab (created, exit 0), setup again (already exists, exit 0), comment 1 deleted (stops: created comment 2), issue 1 deleted (stops: created issue 2); after a full reset the 15 native tests show no differences. Troubleshooting row in `first-assessment.md` updated.
+### Q-56 - How many steps does adding a native test require?
+- Status: open (future, owner 2026-10-07)
+- Source: discussion of Q-53. Even with one model per test (option C), adding a native test touches several places: the test module, its configuration model, the domain container, the `RuntimeTestsConfig` field, the commented block in `config.yaml`, the test page and catalogue row in `docs/tests/`, `reference/configuration.md`, the roadmap.
+- Question: are all these steps necessary? Review them after block 4 and look for refactoring or simplification (e.g. generating the documentation rows from the code, Q-04; a test declaring its own model, option B of Q-53, if tests become plugins in the agnosticism work).
+- Resolution:
+
+### Q-57 - List parameters of the tests can be modified at runtime
+- Status: open (safety check to do separately, owner 2026-10-07; keep as is for now)
+- Source: per-test models in `src/test_config/` are `frozen` (a parameter cannot be reassigned), but list-valued parameters (e.g. `test_2_1.admin_endpoint_paths`, `test_0_2.gateway_server_identifiers`) are Python lists, so a test could append to or change them; the same object is shared by every test of the run.
+- Evidence (2026-10-07, same check on the code before block 1 and after Q-53): reassigning a parameter or replacing a test's parameters is blocked (`ValidationError`) in both; appending to a list parameter is possible in both (before, the runtime copies also had list fields and one shared container). No test modifies a list parameter; nothing reads `config.tests` after Phase 3.
+- Question: make list parameters tuples (fully immutable; `config.yaml` unchanged)? Check type by type and verify on the lab.
 - Resolution:
 

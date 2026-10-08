@@ -420,13 +420,14 @@ show_error_codes = true
 root_package = "src"
 
 [[tool.importlinter.contracts]]
-name = "Dependency direction: core <- connectors <- tests/external_tests <- engine"
+name = "Dependency direction: test_config <- core <- connectors <- tests/external_tests <- engine"
 type = "layers"
 layers = [
     "src.engine",
     "src.tests | src.external_tests",
     "src.connectors",
     "src.core",
+    "src.test_config",
 ]
 
 [[tool.importlinter.contracts]]
@@ -434,6 +435,15 @@ name = "core, connectors and tests never import config, discovery, report, cli"
 type = "forbidden"
 source_modules = ["src.core", "src.connectors", "src.tests", "src.external_tests"]
 forbidden_modules = ["src.config", "src.discovery", "src.report", "src.cli"]
+
+[[tool.importlinter.contracts]]
+name = "test_config is the lowest layer: it imports nothing from the tool"
+type = "forbidden"
+source_modules = ["src.test_config"]
+forbidden_modules = [
+    "src.core", "src.connectors", "src.tests", "src.external_tests", "src.engine",
+    "src.config", "src.discovery", "src.report", "src.cli",
+]
 
 [[tool.importlinter.contracts]]
 name = "Native tests never use connectors (no external tools)"

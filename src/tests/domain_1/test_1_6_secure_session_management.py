@@ -70,7 +70,7 @@ from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.models import EvidenceRecord, Finding, InfoNote, TestResult, TestStrategy
-from src.core.models.runtime import RuntimeTest16Config
+from src.test_config.domain_1 import Test16Config
 from src.tests.base import BaseTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -342,7 +342,7 @@ class Test16SecureSessionManagement(BaseTest):
         cookie_name: str,
         attrs: dict[str, str],
         store: EvidenceStore,
-        cfg: RuntimeTest16Config,
+        cfg: Test16Config,
     ) -> list[Finding]:
         """
         Audit a single session cookie's attributes and return Findings for violations.
@@ -358,7 +358,7 @@ class Test16SecureSessionManagement(BaseTest):
             cookie_name: The cookie name (for human-readable Finding titles).
             attrs: Parsed attribute dictionary (lowercase keys) from _parse_set_cookie.
             store: EvidenceStore for recording FAIL evidence.
-            cfg: RuntimeTest16Config carrying the check parameters.
+            cfg: Test16Config carrying the check parameters.
 
         Returns:
             List of Finding objects.  Empty if all attributes are compliant.

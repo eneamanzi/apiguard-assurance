@@ -70,6 +70,7 @@ from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.gateway.base import BaseGatewayAdapter, GatewayAdapterError
 from src.core.models import Finding, TestResult, TestStrategy
+from src.test_config.domain_4 import Test42AuditConfig
 from src.tests.base import BaseTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -270,7 +271,7 @@ class Test42TimeoutConfigAudit(BaseTest):
     def _audit_service_timeouts(
         self,
         services: list[dict[str, Any]],
-        cfg: Any,  # RuntimeTest42Config -- typed as Any to avoid circular import issues  # noqa: ANN401, E501
+        cfg: Test42AuditConfig,
     ) -> list[Finding]:
         """
         Validate timeout fields on every Kong service dict.
@@ -286,7 +287,7 @@ class Test42TimeoutConfigAudit(BaseTest):
 
         Args:
             services: List of Kong service objects from GET /services.
-            cfg:      RuntimeTest42Config carrying the oracle thresholds.
+            cfg:      Test42AuditConfig carrying the oracle thresholds.
 
         Returns:
             Flat list of all findings across all services. Empty if all are

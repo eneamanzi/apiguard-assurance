@@ -48,8 +48,9 @@ import structlog
 from pydantic import AnyHttpUrl, BaseModel, Field, PrivateAttr, computed_field, model_validator
 
 from src.core.gateway.base import BaseGatewayAdapter
-from src.core.models import AttackSurface, RuntimeCredentials, RuntimeTestsConfig
+from src.core.models import AttackSurface, RuntimeCredentials
 from src.core.models.external_tools import ExternalToolsConfig
+from src.test_config.runtime import RuntimeTestsConfig
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 

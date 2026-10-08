@@ -107,6 +107,7 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
+from src.test_config.domain_3 import Test33Config
 from src.tests.base import BaseTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -826,7 +827,7 @@ class Test33HMACConfigAudit(BaseTest):
         self,
         plugin_config: dict[str, Any],
         plugin_id: str,
-        cfg: Any,  # RuntimeTest33Config -- typed as Any to avoid circular import  # noqa: ANN401
+        cfg: Test33Config,
     ) -> Finding | None:
         """
         Validate the clock_skew field against the oracle threshold.
@@ -843,7 +844,7 @@ class Test33HMACConfigAudit(BaseTest):
         Args:
             plugin_config: The 'config' dict from the HMAC plugin object.
             plugin_id:     Plugin id string (for Finding detail context).
-            cfg:           RuntimeTest33Config with the oracle threshold and field names.
+            cfg:           Test33Config with the oracle threshold and field names.
 
         Returns:
             Finding if the clock_skew is non-compliant, None if compliant.
@@ -958,7 +959,7 @@ class Test33HMACConfigAudit(BaseTest):
         self,
         plugin_config: dict[str, Any],
         plugin_id: str,
-        cfg: Any,  # RuntimeTest33Config  # noqa: ANN401
+        cfg: Test33Config,
     ) -> list[Finding]:
         """
         Check the algorithms list for any operator-forbidden algorithm.
@@ -971,7 +972,7 @@ class Test33HMACConfigAudit(BaseTest):
         Args:
             plugin_config: The 'config' dict from the HMAC plugin object.
             plugin_id:     Plugin id string (for Finding detail context).
-            cfg:           RuntimeTest33Config with the forbidden_algorithms list
+            cfg:           Test33Config with the forbidden_algorithms list
                            and the field_algorithms name.
 
         Returns:

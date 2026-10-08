@@ -1,5 +1,5 @@
 """
-src/config/schema/domain_1.py
+src/test_config/domain_1.py
 
 Pydantic v2 configuration models for Domain 1 (Identity and Authentication) tests.
 
@@ -305,8 +305,8 @@ class TestDomain1Config(BaseModel):
     Adding a new Domain 1 test requires:
         1. Defining a Test1XConfig model above.
         2. Adding a field here.
-        3. Adding the corresponding RuntimeTest1XConfig in core/models/runtime.py.
-        4. Populating it in engine.py Phase 3.
+        3. Adding a field to RuntimeTestsConfig (src/test_config/runtime.py); the engine
+           wires it automatically (RuntimeTestsConfig.from_domains).
     """
 
     model_config = {"frozen": True}

@@ -1,5 +1,5 @@
 """
-src/config/schema/domain_2.py
+src/test_config/domain_2.py
 
 Pydantic v2 configuration models for Domain 2 (Authorization) tests.
 
@@ -8,9 +8,9 @@ Tests covered: 2.1.
 Adding a new Domain 2 test requires:
     1. Defining a Test2XConfig model in this file.
     2. Adding a field to TestDomain2Config below.
-    3. Adding a RuntimeTest2XConfig mirror in core/models/runtime.py.
-    4. Populating it in engine.py Phase 3.
-    5. Adding the tests.domain_2.test_2_X block to config.yaml.
+    3. Adding a field to RuntimeTestsConfig (src/test_config/runtime.py); the engine
+       wires it automatically (RuntimeTestsConfig.from_domains).
+    4. Adding the tests.domain_2.test_2_X block to config.yaml.
 
 Dependency rule: imports only from pydantic and the stdlib.
 """
@@ -87,8 +87,8 @@ class TestDomain2Config(BaseModel):
     Adding a new Domain 2 test requires:
         1. Defining a Test2XConfig model above.
         2. Adding a field here.
-        3. Adding the corresponding RuntimeTest2XConfig in core/models/runtime.py.
-        4. Populating it in engine.py Phase 3.
+        3. Adding a field to RuntimeTestsConfig (src/test_config/runtime.py); the engine
+           wires it automatically (RuntimeTestsConfig.from_domains).
     """
 
     model_config = {"frozen": True}

@@ -73,10 +73,10 @@ Phases 1 to 4 are blocking. Any unexpected exception in the engine also ends the
 src/
 ├── cli.py              Typer CLI: run, validate-config, generate-seed, version
 ├── engine.py           AssessmentEngine: orchestrates the seven phases
-├── config/             Phase 1: loader + Pydantic schemas (one module per domain)
+├── config/             Phase 1: loader + Pydantic schema of config.yaml (ToolConfig)
 ├── discovery/          Phase 2: spec loading, AttackSurface builder, path_seed generator
 ├── core/               Shared vocabulary and infrastructure
-│   ├── models/         Pydantic models (results, evidence, surface, runtime config, tool config)
+│   ├── models/         Pydantic models (results, evidence, surface, credentials, tool config)
 │   ├── client.py       SecurityClient: the only HTTP client for the target API
 │   ├── context.py      TargetContext (frozen), TestContext (mutable)
 │   ├── evidence.py     EvidenceStore (streaming JSONL, merged in Phase 7)
@@ -86,24 +86,28 @@ src/
 ├── connectors/         Wrappers around external tools (nuclei, testssl.sh, sslyze)
 ├── tests/              Native tests (domain_0 … domain_7), helpers/, data/ (payloads, wordlists)
 ├── external_tests/     Tests that run an external tool through a connector
-└── report/             Phase 7: ReportData builder, Jinja2 HTML renderer, template
+├── report/             Phase 7: ReportData builder, Jinja2 HTML renderer, template
+└── test_config/        Per-test parameter models (one per test, by domain) + RuntimeTestsConfig
 ```
 
 Actual import graph (computed from the source):
 
 ```
 cli            -> config, core/exceptions, discovery, engine
-engine         -> config, core/*, discovery, external_tests, report, tests
-config         -> core/exceptions, core/models
+engine         -> config, core/*, discovery, external_tests, report, test_config, tests
+config         -> core/exceptions, core/models, test_config
 discovery      -> core/exceptions, core/models
-tests          -> core/client, core/context, core/evidence, core/exceptions, core/gateway, core/models
+tests          -> core/client, core/context, core/evidence, core/exceptions, core/gateway, core/models, test_config
 external_tests -> connectors, core/context, core/evidence, core/exceptions, core/models
 connectors     -> core/exceptions
 report         -> config, core/models
 core/gateway   -> core/exceptions
+core/context   -> test_config (only to type TargetContext.tests_config)
+test_config    -> nothing from src/
 ```
 
-Rules that hold today: nothing imports `engine`; `tests/` never imports `config/`, `discovery/`, `report/`,
+Rules that hold today: nothing imports `engine`; `test_config/` is the lowest layer and imports nothing from
+`src/`; `tests/` never imports `config/`, `discovery/`, `report/`,
 `connectors/` or `external_tests/`; `connectors/` depend only on `core/exceptions`. Native tests must not start
 subprocesses: running external binaries is the job of connectors used by external tests. The main rules are
 checked automatically by `lint-imports` in `hatch run dev:check` (`[tool.importlinter]` in `pyproject.toml`).

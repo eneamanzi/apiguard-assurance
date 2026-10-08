@@ -102,10 +102,10 @@ from src.core.gateway.base import BaseGatewayAdapter, GatewayAdapterError
 from src.core.models import (
     Finding,
     InfoNote,
-    RuntimeTest43Config,
     TestResult,
     TestStrategy,
 )
+from src.test_config.domain_4 import Test43AuditConfig
 from src.tests.base import BaseTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -482,7 +482,7 @@ class Test43CircuitBreakerAudit(BaseTest):
     def _check_level1_plugin(
         self,
         plugins: list[dict[str, Any]],
-        cfg: RuntimeTest43Config,
+        cfg: Test43AuditConfig,
     ) -> _Level1Result:
         """
         Search the plugin list for a native circuit-breaker plugin.
@@ -542,7 +542,7 @@ class Test43CircuitBreakerAudit(BaseTest):
     def _validate_plugin_parameters(
         self,
         plugin: dict[str, Any],
-        cfg: RuntimeTest43Config,
+        cfg: Test43AuditConfig,
     ) -> list[Finding]:
         """
         Validate failure_threshold and timeout_duration of an enabled CB plugin.
@@ -773,7 +773,7 @@ class Test43CircuitBreakerAudit(BaseTest):
     def _check_level2_passive_hc(
         self,
         upstreams: list[dict[str, Any]],
-        cfg: RuntimeTest43Config,
+        cfg: Test43AuditConfig,
     ) -> _Level2Result:
         """
         Inspect all Kong upstreams for a configured passive healthcheck.
@@ -848,7 +848,7 @@ class Test43CircuitBreakerAudit(BaseTest):
     def _evaluate_upstream_passive_hc(
         self,
         upstream: dict[str, Any],
-        cfg: RuntimeTest43Config,
+        cfg: Test43AuditConfig,
     ) -> _PassiveHcSummary:
         """
         Evaluate the passive healthcheck configuration of a single Kong upstream.

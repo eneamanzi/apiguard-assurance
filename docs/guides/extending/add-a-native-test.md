@@ -17,32 +17,32 @@ tool decision in [`decisions.it.md`](../../knowledge/tools/decisions.it.md), and
 
 | # | File | When | What |
 |---|---|---|---|
-| 1 | `src/config/schema/domain_<D>.py` | test has parameters | `Test<DN>Config` model + field in `TestDomain<D>Config` |
-| 2 | `src/config/schema/tests_config.py` | new domain | field `domain_<D>` in `TestsConfig` |
+| 1 | `src/test_config/domain_<D>.py` | always | `Test<DN>Config` model (empty if the test has no parameters) + field in `TestDomain<D>Config` |
+| 2 | `src/config/schema/tests_config.py` | new domain | field `domain_<D>` in `TestsConfig` (imported from `src.test_config.domain_<D>`) |
 | 3 | `src/config/schema/__init__.py` | optional | re-export the new classes (convention; nothing imports them from here) |
-| 4 | `src/core/models/runtime.py` | test has parameters | `RuntimeTest<DN>Config` + field `test_<D>_<N>` in `RuntimeTestsConfig` |
-| 5 | `src/core/models/__init__.py` | test has parameters | export `RuntimeTest<DN>Config` (import + `__all__`): `engine.py` imports it from here |
-| 6 | `src/engine.py` | test has parameters | import + populate `test_<D>_<N>=RuntimeTest<DN>Config(...)` in Phase 3 |
-| 7 | `src/tests/domain_<D>/__init__.py` | new domain | empty file |
-| 8 | `src/tests/domain_<D>/test_<D>_<N>_<name>.py` | always | the test |
-| 9 | `config.yaml` | test has parameters | documented `tests.domain_<D>.test_<D>_<N>` block |
+| 4 | `src/test_config/runtime.py` | always | field `test_<D>_<N>: Test<DN>Config` (with `default_factory`) in `RuntimeTestsConfig` |
+| 5 | `src/tests/domain_<D>/__init__.py` | new domain | empty file |
+| 6 | `src/tests/domain_<D>/test_<D>_<N>_<name>.py` | always | the test |
+| 7 | `config.yaml` | test has parameters | documented `tests.domain_<D>.test_<D>_<N>` block |
+
+The engine wires steps 1 and 4 by itself (`RuntimeTestsConfig.from_domains(config.tests)` in Phase 3): there is
+no line to add in `engine.py`.
 
 Notes from the current code:
 
-- **Step 7 fails silently.** Without `__init__.py`, `pkgutil.walk_packages` skips the directory and the test is
+- **Step 5 fails silently.** Without `__init__.py`, `pkgutil.walk_packages` skips the directory and the test is
   never discovered, with no error (verified 2026-10-05).
-- **Step 5 fails loudly** (`ImportError` at startup) if the class is not exported.
-- A test without parameters needs only step 8 (and 7 for a new domain): tests 0.1 and 0.3 have no config model.
-  Some older guidance says every test should have a (possibly empty) config model; the code does not follow it
-  (Q-37).
+- **Steps 1 and 4 must match.** A model in the domain without the field in `RuntimeTestsConfig`, or the
+  opposite, stops every run at Phase 3 (exit `10`) with a message naming the test (verified 2026-10-07): the
+  mistake cannot pass unnoticed.
+- **Every native test has a model**, empty when it has no parameters (e.g. `Test03Config`).
 
-## 1. Configuration (steps 1 to 6, 9)
+## 1. Configuration (steps 1 to 4, 7)
 
-Why two layers: tests depend only on `core/`, so they read a runtime copy of their parameters
-(`target.tests_config.test_<D>_<N>`) instead of the config schema. See
-[data model](../../architecture/data-model.md#configuration-two-layers).
+One model per test, in `src/test_config/`: the same model validates `config.yaml` and is what the test receives
+(`target.tests_config.test_<D>_<N>`). See [data model](../../architecture/data-model.md#test-parameters-one-model-per-test).
 
-**Schema** (`src/config/schema/domain_2.py`): a frozen model with named constants for defaults and bounds, and a
+**Model** (`src/test_config/domain_2.py`): a frozen model with named constants for defaults and bounds, and a
 field in the domain aggregator.
 
 ```python
@@ -64,21 +64,19 @@ class TestDomain2Config(BaseModel):
 
 Every field needs a `description`: it is the source of [`reference/configuration.md`](../../reference/configuration.md).
 
-**Runtime mirror** (`src/core/models/runtime.py`): `RuntimeTest21Config` with the same fields, frozen, and a field
-`test_2_1` in `RuntimeTestsConfig` with `default_factory`.
+**Container** (`src/test_config/runtime.py`): a field `test_2_1: Test21Config` with `default_factory=Test21Config`
+in `RuntimeTestsConfig`.
 
-**Engine wiring** (`src/engine.py`, `_phase_3_build_contexts`), copying each field explicitly:
+**Engine wiring:** automatic. In Phase 3 `RuntimeTestsConfig.from_domains(config.tests)` collects every
+`test_<D>_<N>` of every domain by name and passes the validated model as it is (no copy).
 
-```python
-test_2_1=RuntimeTest21Config(
-    admin_endpoint_paths=list(config.tests.domain_2.test_2_1.admin_endpoint_paths),
-    admin_endpoint_method=config.tests.domain_2.test_2_1.admin_endpoint_method,
-),
-```
+To type a helper that receives the parameters, import the model: `from src.test_config.domain_2 import
+Test21Config` (tests may import `src/test_config/`, see the dependency rule in
+[overview](../../architecture/overview.md#module-structure-and-dependencies)).
 
 **Naming:** `test_id` uses a dot (`"2.1"`); config keys and fields use underscores (`test_2_1`).
 
-## 2. The test module (step 8)
+## 2. The test module (step 6)
 
 **File name:** `test_<D>_<N>_<description>.py` in `src/tests/domain_<D>/`. Only modules whose name starts with
 `test_` are imported by the registry.
@@ -236,7 +234,7 @@ There is no automated test suite yet (planned: Q-51). Verify against the lab tar
    `apiguard run -c <copy> --log-level debug`.
 3. Check in `outputs/apiguard_report.json` that the test appears with the expected status, findings and oracle
    states, and that FAIL evidence is in `evidence.json`.
-4. `hatch run dev:check` (ruff, mypy, bandit, vulture) - see [`coding-rules.md`](coding-rules.md).
+4. `hatch run dev:check` (ruff, ruff format, mypy, bandit, vulture, lint-imports) - see [`coding-rules.md`](coding-rules.md).
 5. Write the test page in [`docs/tests/`](../../tests/README.md) and add the row to the catalogue.
 
 ## Common errors
@@ -244,8 +242,8 @@ There is no automated test suite yet (planned: Q-51). Verify against the lab tar
 | Symptom | Cause |
 |---|---|
 | Test missing from the report, no error | missing `__init__.py` in a new domain directory; module name not starting with `test_`; a required class attribute missing; or filtered out by `min_priority` / `strategies` / `test_ids` |
-| `ImportError` at startup | `RuntimeTest<DN>Config` not exported from `src/core/models/__init__.py` |
-| `AttributeError` on `target.tests_config.test_<D>_<N>` | field missing in `RuntimeTestsConfig` or not populated in `engine.py` |
+| Every run stops at Phase 3 with `extra_forbidden` on `test_<D>_<N>` | the model is in the domain container but the field is missing in `RuntimeTestsConfig` |
+| Every run stops at Phase 3: "declares tests that no domain container provides" | the field is in `RuntimeTestsConfig` but the model is missing in the domain container |
 | Pydantic error when building the result | FAIL without findings, PASS with findings, or SKIP without reason |
 | FAIL finding without evidence link | `add_fail_evidence()` not called, or `evidence_ref` not set |
 

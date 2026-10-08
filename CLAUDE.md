@@ -37,21 +37,23 @@ Forgejo or Kong are tracked in `OPEN_QUESTIONS.md` (Q-18, Q-38, Q-43).
 src/
 ├── cli.py            # Entry point (Typer): run, validate-config, generate-seed, version
 ├── engine.py         # Orchestrator, the only module with full visibility
-├── config/           # Phase 1: loader (YAML + ${VAR} interpolation) + Pydantic schemas
+├── config/           # Phase 1: loader (YAML + ${VAR} interpolation) + ToolConfig schema
 ├── discovery/        # Phase 2: OpenAPI fetch/dereference, AttackSurface, seed generator
 ├── core/             # Shared infrastructure, zero test logic: client, context, evidence, dag,
 │                     #   gateway/ (BaseGatewayAdapter + Kong), models/, exceptions
 ├── connectors/       # External tool wrappers, zero test logic (nuclei, testssl, sslyze)
 ├── external_tests/   # ExternalToolTest hierarchy, parallel to tests/ (NOT BaseTest subclasses)
 ├── tests/            # BaseTest, registry, helpers/, domain_0 … domain_7
-└── report/           # Phase 7: builder, renderer, templates/report.html
+├── report/           # Phase 7: builder, renderer, templates/report.html
+└── test_config/      # Per-test parameter models (one per test, single definition) + RuntimeTestsConfig
 ```
 
 Module-level detail and the actual import graph: `docs/architecture/overview.md`.
 
 **Dependency direction (absolute):**
-`core/` ← `connectors/` ← `tests/` and `external_tests/` ← `engine.py`
-No lateral, no upward, no circular imports. `core/`, `connectors/`, `tests/` and `external_tests/` never import
+`test_config/` ← `core/` ← `connectors/` ← `tests/` and `external_tests/` ← `engine.py`
+No lateral, no upward, no circular imports. `test_config/` is the lowest layer: it imports nothing from `src/`
+(`core/` uses it only to type `TargetContext.tests_config`; `config/` and tests import it). `core/`, `connectors/`, `tests/` and `external_tests/` never import
 `config/`, `discovery/`, `report/` or `cli`; native tests never import `connectors/`.
 Checked automatically by `lint-imports` in `hatch run dev:check` (`[tool.importlinter]` in `pyproject.toml`).
 
