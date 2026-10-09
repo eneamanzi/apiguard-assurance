@@ -25,7 +25,8 @@ Discovery pipeline:
         For each successfully imported module, inspect.getmembers finds all
         classes that are concrete subclasses of BaseTest (not BaseTest itself,
         not abstract subclasses with unimplemented methods).
-        BaseTest.has_required_metadata() filters out incomplete implementations.
+        An incomplete or invalid declaration (src/core/test_metadata.py) stops
+        the run with TestDefinitionError.
 
     Phase R3 — Filtering:
         Discovered tests are filtered by:
@@ -53,7 +54,9 @@ import types
 
 import structlog
 
+from src.core.exceptions import raise_for_test_definition_problems
 from src.core.models import TestStrategy
+from src.core.test_metadata import PRIVATE_CLASS_PREFIX, metadata_problems
 from src.tests.base import BaseTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -189,7 +192,8 @@ class TestRegistry:
         """
         Return the test_id of every concrete native test, without filtering.
 
-        Used to check execution.test_ids before the run (engine.check_test_ids).
+        Used to check the declarations and execution.test_ids before the run
+        (engine.check_tests).
 
         Returns:
             The set of native test IDs.
@@ -372,7 +376,8 @@ class TestRegistry:
             1. It is a subclass of BaseTest (issubclass check).
             2. It is not BaseTest itself (identity check).
             3. It does not have unimplemented abstract methods (concreteness check).
-            4. It passes BaseTest.has_required_metadata() (metadata completeness).
+            4. Its declaration is complete and valid (metadata_problems(); a
+               problem is collected and raised as TestDefinitionError).
             5. It is defined in the module being inspected (not imported into it).
 
         Condition 5 prevents double-counting: if test_1_2.py imports a helper
@@ -389,6 +394,9 @@ class TestRegistry:
         """
         instances: list[BaseTest] = []
         seen_class_ids: set[int] = set()
+        # Every declaration problem found; raised together at the end.
+        problems: list[str] = []
+        owner_by_test_id: dict[str, str] = {}
 
         for module in modules:
             module_name = module.__name__
@@ -400,6 +408,11 @@ class TestRegistry:
 
                 # Guard 2: must not be BaseTest itself.
                 if cls is BaseTest:
+                    continue
+
+                # Guard 2b: a name starting with "_" marks a helper base class
+                # shared by tests of the module, not a test (no declaration).
+                if class_name.startswith(PRIVATE_CLASS_PREFIX):
                     continue
 
                 # Guard 3: must be defined in this module (not imported into it).
@@ -429,36 +442,29 @@ class TestRegistry:
                     )
                     continue
 
-                # Guard 6: must have all required metadata attributes.
-                if not cls.has_required_metadata():
-                    log.warning(
-                        "test_registry_missing_metadata",
-                        class_name=class_name,
-                        module_name=module_name,
-                        detail=(
-                            "This BaseTest subclass is missing one or more required "
-                            "ClassVar attributes (test_id, priority, strategy, "
-                            "depends_on, test_name, domain, tags, cwe_id). "
-                            "The test will not be included in the discovery results. "
-                            "Declare all required attributes to enable discovery."
-                        ),
+                # Guard 6: the declaration must be complete and valid, and the
+                # test_id unique (src/core/test_metadata.py). A problem is
+                # collected, not skipped: the run stops after the scan.
+                where = f"{class_name} ({module_name})"
+                declaration_problems = metadata_problems(cls, external=False)
+                if declaration_problems:
+                    problems.extend(f"{where}: {problem}" for problem in declaration_problems)
+                    continue
+                if cls.test_id in owner_by_test_id:
+                    problems.append(
+                        f"{where}: test_id {cls.test_id!r} already used by "
+                        f"{owner_by_test_id[cls.test_id]}"
                     )
                     continue
+                owner_by_test_id[cls.test_id] = where
 
                 # All guards passed: instantiate and register.
                 try:
                     instance = cls()
-                except Exception as exc:  # noqa: BLE001
-                    log.warning(
-                        "test_registry_instantiation_failed",
-                        class_name=class_name,
-                        module_name=module_name,
-                        exc_type=type(exc).__name__,
-                        error=str(exc),
-                        detail=(
-                            "BaseTest subclasses must be instantiable with no "
-                            "arguments. Ensure __init__ does not require parameters."
-                        ),
+                except Exception as exc:  # noqa: BLE001 -- any failure is reported
+                    problems.append(
+                        f"{where}: cannot be instantiated without arguments "
+                        f"({type(exc).__name__}: {exc})"
                     )
                     continue
 
@@ -472,6 +478,7 @@ class TestRegistry:
                     strategy=cls.strategy.value,
                 )
 
+        raise_for_test_definition_problems(problems)
         return instances
 
     # ------------------------------------------------------------------
@@ -527,7 +534,7 @@ class TestRegistry:
                         test_id=test_id,
                         allowed_ids=sorted(allowed_ids),
                     )
-            # Unknown IDs never reach this point: engine.check_test_ids()
+            # Unknown IDs never reach this point: engine.check_tests()
             # rejects them before Phase 2.
             return active
 
@@ -592,18 +599,8 @@ class TestRegistry:
             test_id = cls.test_id
             depends_on = list(cls.depends_on)
 
-            if test_id in dependency_map:
-                log.warning(
-                    "test_registry_duplicate_test_id",
-                    test_id=test_id,
-                    detail=(
-                        "Two concrete BaseTest subclasses declare the same test_id. "
-                        "test_id values must be unique across the entire test suite. "
-                        "The second occurrence will overwrite the first in the "
-                        "dependency map, which may cause incorrect DAG scheduling."
-                    ),
-                )
-
+            # Duplicate test_ids never reach this point: discovery raises
+            # TestDefinitionError for them.
             dependency_map[test_id] = depends_on
 
         log.debug(

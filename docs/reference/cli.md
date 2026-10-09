@@ -13,7 +13,7 @@ The entry point is installed as `apiguard`. From a source checkout without insta
 | Command | Purpose |
 |---|---|
 | [`run`](#run) | Run the assessment against the configured target. |
-| [`validate-config`](#validate-config) | Validate `config.yaml` (Phase 1 and the `test_ids` check) without contacting the target. |
+| [`validate-config`](#validate-config) | Validate `config.yaml` (Phase 1 and the test checks) without contacting the target. |
 | [`generate-seed`](#generate-seed) | Generate a `path_seed` template from an OpenAPI specification. |
 | [`version`](#version) | Print the tool version. |
 
@@ -80,8 +80,9 @@ apiguard run --log-level debug
 apiguard validate-config [--config PATH] [--log-format console|json]
 ```
 
-Runs Phase 1 (reads the YAML, resolves `${VAR}` placeholders, validates the schema) and the `execution.test_ids`
-check (every listed test exists and its tool is enabled). It does not fetch the OpenAPI specification and does not
+Runs Phase 1 (reads the YAML, resolves `${VAR}` placeholders, validates the schema) and the test checks: every
+test class is declared correctly (`Test definitions invalid: ...`, listing every problem) and every
+`execution.test_ids` entry exists and its tool is enabled. It does not fetch the OpenAPI specification and does not
 contact the target or the gateway. A filter combination that selects no test is detected only by `run` (Phase 4).
 
 | Option | Default | Description |

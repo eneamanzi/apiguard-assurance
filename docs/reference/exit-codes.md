@@ -11,7 +11,7 @@
 | `1` | FAIL | At least one test returned FAIL: a security guarantee is violated. |
 | `2` | USAGE | Invalid invocation: the assessment did not start (see [Usage errors](#usage-errors)). |
 | `3` | ERROR | No FAIL, but at least one test returned ERROR: a verification did not complete. |
-| `10` | INFRA | The assessment did not run. Raised on `ConfigurationError` (Phase 1; an `execution.test_ids` entry that does not exist or whose tool is disabled, checked right after Phase 1; no test selected by the filters, Phase 4), `OpenAPILoadError` (Phase 2), `DAGCycleError` (Phase 4), or any unexpected exception inside the engine. A run never ends `0` without running at least one test. |
+| `10` | INFRA | The assessment did not run. Raised on `ConfigurationError` (Phase 1; an `execution.test_ids` entry that does not exist or whose tool is disabled, checked right after Phase 1; no test selected by the filters, Phase 4), `TestDefinitionError` (a test class declared incorrectly, checked right after Phase 1), `OpenAPILoadError` (Phase 2), `DAGCycleError` (Phase 4), or any unexpected exception inside the engine. A run never ends `0` without running at least one test. |
 | `130` | Interrupted | The process received Ctrl+C (SIGINT). See [Stopping a run](#stopping-a-run). |
 | `143` | Terminated | The process received SIGTERM (`kill`, `docker stop`, a CI timeout, a calling program). See [Stopping a run](#stopping-a-run). |
 

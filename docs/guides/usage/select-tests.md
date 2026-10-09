@@ -96,7 +96,7 @@ It applies to native and external tests: with `0`, the run includes the P0 nativ
 
 ### By strategy
 
-`execution.strategies` keeps the native tests of the listed strategies:
+`execution.strategies` keeps the tests, native and external, of the listed strategies:
 
 ```yaml
 execution:
@@ -104,7 +104,8 @@ execution:
     - BLACK_BOX
 ```
 
-External tests are **not** filtered by strategy (Q-10): turn them off separately if you do not want them.
+With only `BLACK_BOX` (no credentials, no gateway access) the run has 11 tests: 0.1, 0.2, 0.3, 1.1, 1.5, 1.6, 4.1,
+6.2 and the three external tests, if their tools are enabled.
 Strategies per test: [assessment model](../../architecture/assessment-model.md#strategies-knowledge-and-privilege-of-the-tester).
 
 ### One external tool only

@@ -88,6 +88,8 @@ from src.core.exceptions import (
     DAGCycleError,
     OpenAPILoadError,
     TeardownError,
+    TestDefinitionError,
+    raise_for_test_definition_problems,
 )
 from src.core.gateway.kong import KongGatewayAdapter
 from src.core.models import (
@@ -98,6 +100,7 @@ from src.core.models import (
     TestResult,
     TestStatus,
 )
+from src.core.test_metadata import is_external_test_id
 from src.discovery.openapi import load_openapi_spec
 from src.discovery.surface import build_attack_surface
 from src.external_tests.base import ExternalToolTest
@@ -110,10 +113,6 @@ from src.tests.registry import TestRegistry
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
-# Prefix of external test IDs (e.g. "ext.1.5.sslyze"): routes an
-# execution.test_ids entry to ExternalTestRegistry instead of TestRegistry.
-_EXTERNAL_TEST_ID_PREFIX: str = "ext."
-
 # Similarity threshold for suggesting a test ID in place of an unknown one.
 # Higher than for configuration keys (0.6): test IDs are short and close to
 # each other, so 0.6 would suggest "1.6" for "1.7"; 0.8 keeps real typos
@@ -121,31 +120,45 @@ _EXTERNAL_TEST_ID_PREFIX: str = "ext."
 _TEST_ID_SUGGESTION_CUTOFF: float = 0.8
 
 
-def check_test_ids(config: ToolConfig) -> None:
+def check_tests(config: ToolConfig) -> None:
     """
-    Check that every execution.test_ids entry names a test that can run.
+    Check the test declarations and the execution.test_ids entries.
 
-    The single check of test_ids content (their format is checked by the
-    configuration schema). Called by the engine right after Phase 1, before
-    any contact with the target, and by ``apiguard validate-config``.
+    Called by the engine right after Phase 1, before any contact with the
+    target, and by ``apiguard validate-config``. Two checks, in order:
 
-    An entry is rejected when no test has that ID (with the closest ID as a
-    suggestion), or when it is an external test whose tool is disabled
-    (master switch or per-tool switch): test_ids chooses among available
-    tests and never enables a tool.
+    1. Test declarations (src/core/test_metadata.py): both registries are
+       scanned, native and external (even with external tools disabled), and
+       the problems of both are listed together.
+    2. execution.test_ids content (its format is checked by the
+       configuration schema): an entry is rejected when no test has that ID
+       (with the closest ID as a suggestion), or when it is an external test
+       whose tool is disabled (master switch or per-tool switch): test_ids
+       chooses among available tests and never enables a tool.
 
     Args:
         config: The validated configuration.
 
     Raises:
-        ConfigurationError: Listing every rejected entry.
+        TestDefinitionError: Listing every declaration problem.
+        ConfigurationError: Listing every rejected test_ids entry.
     """
+    definition_problems: list[str] = []
+    native_ids: set[str] = set()
+    external_tools: dict[str, str] = {}
+    try:
+        native_ids = TestRegistry().list_test_ids()
+    except TestDefinitionError as exc:
+        definition_problems.extend(exc.problems)
+    try:
+        external_tools = ExternalTestRegistry().list_test_tools()
+    except TestDefinitionError as exc:
+        definition_problems.extend(exc.problems)
+    raise_for_test_definition_problems(definition_problems)
+
     requested = config.execution.test_ids
     if not requested:
         return
-
-    native_ids = TestRegistry().list_test_ids()
-    external_tools = ExternalTestRegistry().list_test_tools()
     known_ids = sorted(native_ids | set(external_tools))
 
     problems: list[str] = []
@@ -225,7 +238,7 @@ class AssessmentEngine:
 
         try:
             exit_code = self._run_pipeline()
-        except (ConfigurationError, OpenAPILoadError, DAGCycleError) as exc:
+        except (ConfigurationError, OpenAPILoadError, DAGCycleError, TestDefinitionError) as exc:
             log.error(
                 "assessment_pipeline_infrastructure_failure",
                 run_id=self._run_id,
@@ -264,7 +277,7 @@ class AssessmentEngine:
         them to ExitCode.INFRASTRUCTURE. Phases 5-7 are non-blocking.
         """
         config = self._phase_1_initialize()
-        check_test_ids(config)
+        check_tests(config)
         attack_surface = self._phase_2_openapi_discovery(config)
         target, context, store = self._phase_3_build_contexts(
             config=config,
@@ -546,9 +559,7 @@ class AssessmentEngine:
         external_allowed_ids: set[str] | None = None
         if config.execution.test_ids:
             requested_ids = set(config.execution.test_ids)
-            external_allowed_ids = {
-                tid for tid in requested_ids if tid.startswith(_EXTERNAL_TEST_ID_PREFIX)
-            }
+            external_allowed_ids = {tid for tid in requested_ids if is_external_test_id(tid)}
             native_allowed_ids = requested_ids - external_allowed_ids
 
         # --- Native test discovery ---
@@ -564,6 +575,7 @@ class AssessmentEngine:
         external_tests: list[ExternalToolTest] = ext_registry.discover(
             external_tools_config=config.external_tools,
             min_priority=config.execution.min_priority,
+            enabled_strategies=set(config.execution.strategies),
             allowed_ids=external_allowed_ids,
         )
 

@@ -21,13 +21,17 @@ v0.1.0 implements 15 native and 3 external tests covering 15 of the 29 guarantee
 
 ## Strategies (knowledge and privilege of the tester)
 
-| Strategy | Tester has | Examples |
-|---|---|---|
-| `BLACK_BOX` | network access and the OpenAPI specification only | 0.1, 0.2, 0.3, 1.1, 4.1 |
-| `GREY_BOX` | valid credentials for one or more roles | 1.4, 2.1, 7.2 |
-| `WHITE_BOX` | read access to configuration: gateway Admin API, or inspection of configuration-driven behaviour (TLS, headers, cookies) | 3.3, 4.2, 4.3 (Admin API); 1.5, 1.6, 6.2 (no Admin API) |
+The strategy says what the tester has. Each test is labelled with the access it needs to run in full
+(`src/core/models/enums.py`, `TestStrategy`).
 
-`WHITE_BOX` does not always mean "needs the Admin API": each test page states what it needs.
+| Strategy | Tester has | Tests |
+|---|---|---|
+| `BLACK_BOX` | an external user: network access and the OpenAPI specification only, no credentials | 0.1, 0.2, 0.3, 1.1, 1.5, 1.6, 4.1, 6.2, `ext.0.1.nuclei`, `ext.1.5.testssl`, `ext.1.5.sslyze` |
+| `GREY_BOX` | a normal user: credentials of an ordinary account (`user_a`) | 2.1, 7.2 |
+| `WHITE_BOX` | a super user: the API's administrator account (`admin`), or internal access (gateway Admin API, files, internal systems) | 1.4 (admin account); 3.3, 4.2, 4.3, 6.4 (gateway Admin API; 6.4 sub-test A needs only the network) |
+
+The methodology classifies 1.5, 1.6 and 6.2 as WHITE_BOX by their nature (configuration audits); the tool labels
+them by what the tester needs, and anyone outside can read TLS settings, cookies and response headers (Q-33).
 
 ## Priorities
 
@@ -47,15 +51,16 @@ credentials (7.2 is P0 and GREY_BOX) and a configuration audit can be important 
 Configured in `execution` ([`reference/configuration.md`](../reference/configuration.md#execution)):
 
 1. `test_ids` non-empty → only the listed IDs, native or external (a listed test of a disabled tool still does not
-   run). Priority filter ignored; strategy filter ignored for native tests.
-2. Otherwise `min_priority` keeps tests with `priority <= min_priority`, and `strategies` keeps native tests whose
-   strategy is listed. **External tests are not filtered by strategy** (Q-10).
+   run). Priority and strategy filters ignored.
+2. Otherwise `min_priority` keeps tests with `priority <= min_priority`, and `strategies` keeps the tests, native
+   and external, whose strategy is listed.
 3. External tests are scheduled only if their tool is enabled (`external_tools`).
 4. Dependencies (`depends_on`) order the run; a dependency on a test that was filtered out is dropped with a
    warning.
 
-Without credentials GREY_BOX tests return SKIP; without `admin_api_url` + `gateway_adapter` the Admin API tests
-return SKIP. Phase 1 warns about both situations.
+Without the `user_a` credentials GREY_BOX tests return SKIP; without the `admin` credentials 1.4 returns SKIP;
+without `gateway_adapter` + `admin_api_url` the Admin API tests return SKIP (6.4 skips sub-test B). Phase 1 warns
+about each situation when the strategy concerned is selected.
 
 ## Oracles and verdicts
 

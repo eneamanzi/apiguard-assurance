@@ -102,8 +102,12 @@ _REFERENCES: list[str] = ["CWE-285", "OWASP-API5:2023", "OWASP-ASVS-v5.0.0-V8.3.
 Allowed imports: `core/`, `src/tests/base.py`, `src/tests/helpers/`, `src/tests/data/`. Never `config/`,
 `discovery/`, `report/`, `engine.py`, `connectors/`; never start a subprocess.
 
-**Class metadata.** Eight class attributes are required; a class missing any of them is not registered
-(`BaseTest.has_required_metadata()`).
+**Class metadata.** Eight class attributes are required and checked at discovery (`src/core/test_metadata.py`):
+a missing or invalid one (for example `priority` outside 0-3, or a `test_id` whose first number differs from
+`domain`), a `test_id` already used by another class, or a class that cannot be instantiated without arguments
+stops the run with exit `10` (`TestDefinitionError`), listing every problem; `apiguard validate-config` reports the
+same. A helper base class shared by the tests of a module must have a name starting with `_`: it is not a test and
+is not checked.
 
 ```python
 class Test21RbacEnforcement(BaseTest):
@@ -118,8 +122,9 @@ class Test21RbacEnforcement(BaseTest):
 ```
 
 Take the priority from the methodology's severity criteria ([priorities](../../architecture/assessment-model.md#priorities)); set
-the strategy from what the test needs to run (nothing, credentials, or configuration access), independently of the
-priority; `depends_on` lists test IDs whose results or tokens this test
+the strategy from what the tester needs to run it in full, independently of the priority: network only →
+`BLACK_BOX`; an ordinary account → `GREY_BOX`; the API's administrator account or internal access (gateway Admin API,
+files) → `WHITE_BOX` ([strategies](../../architecture/assessment-model.md#strategies-knowledge-and-privilege-of-the-tester)); `depends_on` lists test IDs whose results or tokens this test
 needs (`[]` otherwise).
 
 **`execute()`** must always return a `TestResult` and never raise. Structure: guards, setup, probes in private
@@ -129,7 +134,7 @@ helpers, verdict, and a catch-all:
 def execute(self, target: TargetContext, context: TestContext,
             client: SecurityClient, store: EvidenceStore) -> TestResult:
     try:
-        guard = self._requires_grey_box_credentials(target)
+        guard = self._requires_credentials(target)
         if guard is not None:
             return guard
         try:
@@ -187,7 +192,7 @@ self._log_transaction(record, oracle_state=_STATE_RBAC_ENFORCED)
 | `_make_error(exc)` | unexpected failure; keeps the transactions logged so far |
 
 **Guards** (return a SKIP result or `None`): `_requires_attack_surface(target)`,
-`_requires_grey_box_credentials(target)`, `_requires_token(context, role)`, `_requires_admin_api(target)`.
+`_requires_credentials(target)`, `_requires_token(context, role)`, `_requires_admin_api(target)`.
 
 **Evidence and audit trail:**
 
@@ -240,7 +245,8 @@ There is no automated test suite yet (planned: Q-51). Verify against the lab tar
 
 | Symptom | Cause |
 |---|---|
-| Test missing from the report, no error | missing `__init__.py` in a new domain directory; module name not starting with `test_`; a required class attribute missing; or filtered out by `min_priority` / `strategies` / `test_ids` |
+| Test missing from the report, no error | missing `__init__.py` in a new domain directory; module name not starting with `test_`; class name starting with `_`; or filtered out by `min_priority` / `strategies` / `test_ids` |
+| `Test definitions invalid: ...`, exit 10 | a class attribute missing or invalid, or a duplicate `test_id` (the message names the class and the attribute) |
 | Every run stops at Phase 3 with `extra_forbidden` on `test_<D>_<N>` | the model is in the domain container but the field is missing in `RuntimeTestsConfig` |
 | Every run stops at Phase 3: "declares tests that no domain container provides" | the field is in `RuntimeTestsConfig` but the model is missing in the domain container |
 | Pydantic error when building the result | FAIL without findings, PASS with findings, or SKIP without reason |

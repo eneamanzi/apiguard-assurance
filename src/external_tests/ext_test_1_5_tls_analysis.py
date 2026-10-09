@@ -282,7 +282,7 @@ class ExtTest15TlsAnalysis(ExternalToolTest):
     test_name: ClassVar[str] = "TLS Stack Analysis (testssl.sh)"
     domain: ClassVar[int] = 1
     priority: ClassVar[int] = 2
-    strategy: ClassVar[TestStrategy] = TestStrategy.WHITE_BOX
+    strategy: ClassVar[TestStrategy] = TestStrategy.BLACK_BOX
     depends_on: ClassVar[list[str]] = []
     tags: ClassVar[list[str]] = [
         "transport-security",
@@ -624,7 +624,7 @@ class ExtTest15SslyzeAnalysis(ExternalToolTest):
     test_name: ClassVar[str] = "TLS Stack Analysis (sslyze)"
     domain: ClassVar[int] = 1
     priority: ClassVar[int] = 2
-    strategy: ClassVar[TestStrategy] = TestStrategy.WHITE_BOX
+    strategy: ClassVar[TestStrategy] = TestStrategy.BLACK_BOX
     depends_on: ClassVar[list[str]] = []
     tags: ClassVar[list[str]] = [
         "transport-security",

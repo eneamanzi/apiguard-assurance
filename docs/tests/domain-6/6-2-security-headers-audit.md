@@ -9,7 +9,7 @@
 | Test ID | `6.2` |
 | Name | Security Headers Configured Appropriately |
 | Domain | 6 - Configuration and Hardening |
-| Priority / strategy | P3 / WHITE_BOX (configuration audit; **no Admin API needed**) |
+| Priority / strategy | P3 / BLACK_BOX (network access only; the methodology calls it a configuration audit) |
 | CWE | CWE-16 |
 | Depends on | none |
 | Configuration | [`tests.domain_6.test_6_2`](../../reference/configuration.md#testsdomain_6test_6_2---security-headers-audit) |

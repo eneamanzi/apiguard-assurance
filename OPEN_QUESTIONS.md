@@ -27,16 +27,6 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Question: Vulnerability disclosure policy for the tool itself.
 - Resolution: Out of scope for now (user, 2026-10-05).
 
-### Q-10 - External tests ignore `execution.strategies`
-- Status: decided in principle (owner, 2026-10-06); detailed per-test review and implementation in the code phase
-- Source: `src/engine.py:646-651` (external discovery receives `min_priority` and `allowed_ids`, not `strategies`); `src/external_tests/registry.py:374-417` (filters: allowed_ids, priority, per-tool enabled)
-- Question: With `strategies: [BLACK_BOX]`, `ext.1.5.testssl` and `ext.1.5.sslyze` (WHITE_BOX) still run. Intended (external tests filtered only by `external_tools.*.enabled`) or a bug? The docs must state the real rule.
-- How to verify: decision with user; optional confirmation run with `strategies: [BLACK_BOX]` against the lab target.
-- Evidence (2026-10-06): the native registry already filters by `execution.strategies` (normal mode; ignored when `test_ids` is set); the external registry filters only by priority, `test_ids` and tool enablement (`src/external_tests/registry.py:374-417`). The code defines WHITE_BOX as "read access to gateway configuration via Admin API" (`src/core/models/enums.py:39`), but 1.5, 1.6, 6.2, `ext.1.5.testssl`, `ext.1.5.sslyze` are WHITE_BOX and need only network access; 6.4 needs the Admin API only for sub-test B. GREY_BOX is defined as "tokens for at least two distinct roles", but 1.4 uses only admin and 2.1, 7.2 only `user_a`. With `strategies: [BLACK_BOX]` the native 1.5, 1.6, 6.2 are excluded although they could run, while the external TLS tests run anyway.
-- Decision (owner, 2026-10-06): the strategy states what the tester has. BLACK_BOX = an external user (network only, no credentials); GREY_BOX = a normal user (credentials of an account; how many accounts is not the point); WHITE_BOX = a super user (internal access: gateway configuration, files, internal systems). Labels must state the truth and the filter must apply to every test, external ones included.
-- To do in the code phase, carefully, test by test (owner: not now): review the label of every test against the definitions (first candidates: 1.5, 1.6, 6.2, `ext.1.5.testssl`, `ext.1.5.sslyze` to BLACK_BOX; 6.4 to be decided); update the definitions in `enums.py`; make the external registry respect `execution.strategies`; update the docs together with the code (test catalogue, test pages, `assessment-model.md`, `configure-a-target.md`, `select-tests.md`). The strategy is a report field: part of the "contract 1.0" block. Methodology alignment: Q-33.
-- Resolution:
-
 ### Q-11 - sslyze AGPL licence vs production integration
 - Status: deferred (owner, 2026-10-07): waiting for information on how the product will be distributed
 - Source: `pyproject.toml` optional dependency `sslyze` (comment: "for SaaS distribution, this extra must be removed or replaced")
@@ -100,7 +90,7 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Evidence (2026-10-06, first superficial pass): only `apiguard_report.json` has a version (`output_schema_version: "1.0"`, policy in `src/report/builder.py:322-327`); `evidence.json`, exit codes, `config.yaml`, CLI have none. Known defects whose fix changes what an integrator sees: Q-20 (usage errors exit 2), Q-22 (unknown config keys ignored), Q-23 (`generated_at_utc` not UTC), Q-45 (`test_ids` selection), Q-50 (findings without `evidence_ref`); Q-31 may change the report too (Q-47 closed on 2026-10-07 without report change).
 - Draft only, NOT decided (to be reviewed in depth in group 3.D): stable interfaces = exit codes, report JSON, `evidence.json` (add a version field), CLI commands and options, documented `config.yaml` keys; not contract = log events, Python modules, message texts, `oracle_state` values; signalling = per-file format version (major = breaking), "Breaking changes" section in `CHANGELOG.md`, semver from 1.0.0; fix the defects above together, then declare 1.0.0.
 - Owner decision (2026-10-06): not settled now. The question touches code that belongs to the code phase; it was only looked at superficially. Moved to 3.D as the first block of the code phase ("contract 1.0"), to be reviewed in depth there, after the 3.C decisions that may change the report (Q-31; Q-47 closed without change).
-- Note (owner, 2026-10-08): `output_schema_version: "1.0"` was set arbitrarily; the versioning can start from scratch at 1.0. Report format changes collected during block 5, to be versioned once in group 4: `executive_summary.exit_code` ERROR value `2` → `3` (Q-20); `generated_at_utc` now UTC (Q-23).
+- Note (owner, 2026-10-08): `output_schema_version: "1.0"` was set arbitrarily; the versioning can start from scratch at 1.0. Report format changes collected during block 5, to be versioned once in group 4: `executive_summary.exit_code` ERROR value `2` → `3` (Q-20); `generated_at_utc` now UTC (Q-23); `strategy` of 1.4, 1.5, 1.6, 6.2, `ext.1.5.testssl`, `ext.1.5.sslyze` (Q-10).
 - Resolution:
 
 ### Q-26 - Schema descriptions say "SKIP" for disabled external tools; the registry excludes them
@@ -182,6 +172,7 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
   - [ ] Strategy definitions (owner decision on Q-10, 2026-10-06): BLACK_BOX = external user, GREY_BOX = normal user with credentials, WHITE_BOX = super user with internal access. Align the "Assunzioni e Prerequisiti" approach of **every** guarantee to them, implemented or not; checks the tool performs from outside (TLS, headers, cookies) are not "White Box configuration audit".
   - [ ] `docs/knowledge/design-properties.it.md` D3.P1 and D6.P3 cite `src/core/models/runtime.py` (`RuntimeTest*Config`, "mirror immutabile") and `src/config/schema/domain_N.py`: since block 4 (Q-53) the per-test models live in `src/test_config/` (single definition, all frozen) and `RuntimeTestsConfig` in `src/test_config/runtime.py`. Update when translating.
 - How to verify: decision with user while translating `knowledge/`.
+- Note (2026-10-09, Q-10): the tool now labels tests by what the tester has; the methodology classifies 1.5, 1.6, 6.2 (and the TLS tests) as WHITE_BOX by their nature (configuration audits) and 1.4 as GREY_BOX. Align or explain when translating.
 - Resolution:
 
 ### Q-34 - Gateway Admin API: no authentication, TLS always verified
@@ -266,3 +257,12 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Question: how should the console output of `run` look (what to show by default, what only with `--log-level debug`, layout of the per-test lines and of the summary)? The JSON log format (`--log-format json`) is for machines and is not concerned.
 - How to verify: decision with the owner, then a run on the lab compared before and after.
 - Resolution:
+
+### Q-61 - No policy for a dependency filtered out of the run
+- Status: open (owner, 2026-10-09: to define a rule, not to leave to chance)
+- Source: `src/core/dag.py` (`dag_dependency_removed_not_active`): when a test's `depends_on` names a test that is not in the run (filtered by `min_priority`, `strategies`, `test_ids`, or a disabled tool), the dependency is dropped with a warning and the test runs anyway. Today `depends_on` only orders the run: 1.4 and 2.1 depend on 1.1 and take no data from it.
+- Evidence (2026-10-09, lab, after Q-10): `strategies: [WHITE_BOX]` runs 1.4 without 1.1 (BLACK_BOX), `[GREY_BOX]` runs 2.1 without 1.1: both PASS, as in the baseline; the log shows `dag_dependency_removed_not_active missing_dependency=1.1`. With Q-10 tests that depend on each other can belong to different strategies, so the case is more frequent.
+- Question: what is the rule? Options to evaluate: keep running and state it in the report (the result was obtained without its prerequisite); add the prerequisite to the run automatically; SKIP the dependent test with the reason; distinguish an ordering dependency from a data dependency (a test that needs another's output). Related: Q-26 (tests not run and why).
+- How to verify: decision with the owner; then the cases above on the lab.
+- Resolution:
+

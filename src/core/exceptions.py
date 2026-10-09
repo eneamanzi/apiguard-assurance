@@ -207,6 +207,59 @@ class DAGCycleError(ToolBaseError):
         return f"{self.__class__.__name__}(message={self.message!r}, cycle={self.cycle!r})"
 
 
+class TestDefinitionError(ToolBaseError):
+    """
+    Raised during test discovery when a test class is declared incorrectly.
+
+    A missing or invalid metadata attribute (src/core/test_metadata.py), a
+    test ID used by two classes, or a class that cannot be instantiated
+    without arguments. This is an error in the code of a test, not a runtime
+    condition: like DAGCycleError it stops the run before any test executes
+    [BLOCKS STARTUP], instead of dropping the test or filling in defaults.
+
+    The problems field lists every problem found, one string each, prefixed
+    with the class and its module, so that all of them can be fixed at once.
+    """
+
+    __test__ = False
+
+    def __init__(self, message: str, problems: list[str] | None = None) -> None:
+        """
+        Initialize a test definition error.
+
+        Args:
+            message:  Human-readable summary listing the problems.
+            problems: One entry per problem found.
+        """
+        super().__init__(message)
+        self.problems: list[str] = problems if problems is not None else []
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(message={self.message!r}, problems={self.problems!r})"
+
+
+def raise_for_test_definition_problems(problems: list[str]) -> None:
+    """
+    Raise TestDefinitionError listing problems, if there is any.
+
+    Shared by the native and the external test registries.
+
+    Args:
+        problems: One entry per problem found during discovery.
+
+    Raises:
+        TestDefinitionError: When problems is not empty.
+    """
+    if problems:
+        raise TestDefinitionError(
+            message=(
+                f"Test definitions invalid with {len(problems)} error(s):\n"
+                + "\n".join(f"  - {problem}" for problem in problems)
+            ),
+            problems=problems,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Phase 5 — Test execution
 # ---------------------------------------------------------------------------

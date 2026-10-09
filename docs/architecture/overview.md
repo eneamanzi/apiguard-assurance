@@ -30,7 +30,7 @@ target-specific values live in `config.yaml`. Two exceptions are deliberate and 
 
 | Phase | What happens | Code | On failure |
 |---|---|---|---|
-| 1 Initialization | Read YAML, resolve `${VAR}`, validate with Pydantic → frozen `ToolConfig` | `src/config/loader.py`, `src/config/schema/` | `ConfigurationError` → exit 10 |
+| 1 Initialization | Read YAML, resolve `${VAR}`, validate with Pydantic → frozen `ToolConfig`; then check every test declaration (`src/core/test_metadata.py`) and the `test_ids` entries (`engine.check_tests`) | `src/config/loader.py`, `src/config/schema/`, `src/engine.py` | `ConfigurationError` or `TestDefinitionError` → exit 10 |
 | 2 OpenAPI discovery | Fetch or read the spec, dereference `$ref` (prance, in a worker thread), detect dialect, validate, build `AttackSurface` | `src/discovery/openapi.py`, `surface.py` | `OpenAPILoadError` → exit 10 |
 | 3 Context construction | Build `TargetContext` (config + surface + credentials + per-test config + gateway adapter), `TestContext`, `EvidenceStore` | `src/engine.py`, `src/core/context.py`, `src/core/evidence.py` | exit 10 |
 | 4 Discovery and scheduling | Discover native and external tests, filter, build dependency batches | `src/tests/registry.py`, `src/external_tests/registry.py`, `src/core/dag.py` | `DAGCycleError` → exit 10 |
@@ -61,9 +61,8 @@ Phase 7 does not run after an interruption. Exit codes:
 - **External tests:** `ExternalTestRegistry` discovers `ExternalToolTest` subclasses, drops those whose tool is
   disabled (they are not scheduled at all), and checks tool availability once per tool: available tools get a
   shared connector instance injected, unavailable ones mark their tests to return SKIP.
-- **Filters:** native tests by `min_priority` and `strategies`; external tests by `min_priority` and tool
-  enablement, **not by strategy** (Q-10). `test_ids` replaces the priority filter (and the strategy filter for
-  native tests).
+- **Filters:** native and external tests by `min_priority` and `strategies`; external tests also by tool
+  enablement. `test_ids` replaces the priority and strategy filters (not tool enablement).
 - **Scheduling:** native and external tests are merged into one dependency map; `DAGScheduler` uses
   `graphlib.TopologicalSorter`, sorts test IDs inside each batch lexicographically, removes dependencies on
   filtered-out tests with a warning, and detects stalls.
@@ -154,7 +153,8 @@ All custom exceptions derive from `ToolBaseError` (`src/core/exceptions.py`, plu
 
 | Exception | Fields | Raised in | Handling |
 |---|---|---|---|
-| `ConfigurationError` | `variable_name`, `config_path` | Phase 1 | exit 10 |
+| `ConfigurationError` | `variable_name`, `config_path` | Phase 1; `test_ids` check right after it | exit 10 |
+| `TestDefinitionError` | `problems` | test check right after Phase 1 (`engine.check_tests`, both registries) | exit 10 |
 | `OpenAPILoadError` | `source_url`, `underlying_error` | Phase 2 | exit 10 |
 | `DAGCycleError` | `cycle` | Phase 4 | exit 10 |
 | `SecurityClientError` | `method`, `url`, `status_code`, `attempt_count` | `SecurityClient` | caught in the test → `ERROR` (some tests skip the single probe) |

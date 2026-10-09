@@ -11,7 +11,7 @@ Two independent tests in the same module, same oracle, different tools. Both app
 |---|---|---|
 | Name | TLS Stack Analysis (testssl.sh) | TLS Stack Analysis (sslyze) |
 | Domain | 1 - Identity and Authentication | same |
-| Priority / strategy | P2 / WHITE_BOX (no Admin API needed) | same |
+| Priority / strategy | P2 / BLACK_BOX (network access only) | same |
 | CWE | CWE-326 | same |
 | Tool | testssl.sh 3.2.3 (subprocess, `./tools/testssl/` or `PATH`) | sslyze `>=6.3,<7` (Python library, extra `[sslyze]`, AGPL v3) |
 | Configuration | [`external_tools.testssl`](../../../reference/configuration.md#external_tools) | [`external_tools.sslyze`](../../../reference/configuration.md#external_tools) |

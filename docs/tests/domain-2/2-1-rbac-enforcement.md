@@ -38,7 +38,7 @@ function-level authorization, OWASP API5:2023).
 |---|---|
 | PASS | No configured admin endpoint returned `2xx`. |
 | FAIL | At least one bypass. |
-| SKIP | No GREY_BOX credentials or no `user_a` token. |
+| SKIP | No API credentials or no `user_a` token. |
 | ERROR | Token acquisition failed, or unexpected exception. |
 
 References: CWE-285, OWASP-API5:2023, OWASP-ASVS-v5.0.0-V8.3.1, OWASP-ASVS-v5.0.0-V8.2.2, NIST-SP-800-53-Rev5-AC-3.

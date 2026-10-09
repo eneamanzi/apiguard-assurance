@@ -9,7 +9,7 @@
 | Test ID | `1.5` |
 | Name | Credentials Not Transmitted via Insecure Channels |
 | Domain | 1 - Identity and Authentication |
-| Priority / strategy | P2 / WHITE_BOX (configuration audit; **no Admin API needed**) |
+| Priority / strategy | P2 / BLACK_BOX (network access only; the methodology calls it a configuration audit) |
 | CWE | CWE-319 |
 | Depends on | none |
 | Configuration | [`tests.domain_1.test_1_5`](../../reference/configuration.md#testsdomain_1test_1_5---credentials-over-insecure-channels), `target.verify_tls` |

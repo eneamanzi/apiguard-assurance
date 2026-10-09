@@ -58,7 +58,10 @@ from collections import defaultdict
 import structlog
 
 import src.external_tests as _ext_tests_pkg
+from src.core.exceptions import raise_for_test_definition_problems
+from src.core.models import TestStrategy
 from src.core.models.external_tools import ExternalToolsConfig
+from src.core.test_metadata import PRIVATE_CLASS_PREFIX, metadata_problems
 from src.external_tests.base import ExternalToolTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -115,6 +118,7 @@ class ExternalTestRegistry:
         ext_tests = ext_registry.discover(
             external_tools_config=config.external_tools,
             min_priority=config.execution.min_priority,
+            enabled_strategies=set(config.execution.strategies),
         )
         # Merge with native_tests before passing to DAGScheduler
     """
@@ -123,6 +127,7 @@ class ExternalTestRegistry:
         self,
         external_tools_config: ExternalToolsConfig,
         min_priority: int,
+        enabled_strategies: set[TestStrategy],
         allowed_ids: set[str] | None = None,
     ) -> list[ExternalToolTest]:
         """
@@ -131,7 +136,7 @@ class ExternalTestRegistry:
         Four-phase pipeline:
             R1: Scan src/external_tests and import all ext_test_*.py modules.
             R2: Extract concrete ExternalToolTest subclasses from imported modules.
-            R3: Apply priority, per-tool, and allowed_ids filters.
+            R3: Apply priority, strategy, per-tool, and allowed_ids filters.
             R4: Group surviving tests by tool_name; inject shared connectors or
                 set _skip_reason_from_registry (DA-2).
 
@@ -140,14 +145,16 @@ class ExternalTestRegistry:
                                    Used for master-switch check and per-tool
                                    enabled state.
             min_priority:          Maximum priority (inclusive) to include.
-                                   ExternalToolTests typically run at P1/P2 since
-                                   they require tool availability (not pure Black Box).
-            allowed_ids:           None means no ID filter (normal priority
-                                   filtering). A set, even empty, includes ONLY
-                                   the tests whose test_id is in it (an empty
-                                   set: no external test) and overrides
-                                   min_priority. A test of a disabled tool is
-                                   excluded even when listed.
+                                   (ext.0.1.nuclei is P0, the TLS tests P2.)
+            enabled_strategies:    Strategies to include (execution.strategies),
+                                   as for native tests.
+            allowed_ids:           None means no ID filter (normal priority and
+                                   strategy filtering). A set, even empty,
+                                   includes ONLY the tests whose test_id is in
+                                   it (an empty set: no external test) and
+                                   overrides min_priority and
+                                   enabled_strategies. A test of a disabled
+                                   tool is excluded even when listed.
 
         Returns:
             Sorted list of instantiated ExternalToolTest subclasses that passed
@@ -182,6 +189,7 @@ class ExternalTestRegistry:
             tests=all_tests,
             external_tools_config=external_tools_config,
             min_priority=min_priority,
+            enabled_strategies=enabled_strategies,
             allowed_ids=allowed_ids,
         )
 
@@ -212,7 +220,7 @@ class ExternalTestRegistry:
 
         Scans the modules even when external tools are disabled, so that an
         execution.test_ids entry can be told apart as unknown or as belonging
-        to a disabled tool (engine.check_test_ids).
+        to a disabled tool (engine.check_tests).
 
         Returns:
             Mapping test_id -> tool_name.
@@ -314,7 +322,9 @@ class ExternalTestRegistry:
             list[ExternalToolTest]: Instantiated concrete subclass instances.
         """
         instances: list[ExternalToolTest] = []
-        seen_class_ids: set[str] = set()
+        # Every declaration problem found; raised together at the end.
+        problems: list[str] = []
+        owner_by_test_id: dict[str, str] = {}
 
         for module in modules:
             for _name, obj in inspect.getmembers(module, inspect.isclass):
@@ -324,63 +334,43 @@ class ExternalTestRegistry:
                     and not inspect.isabstract(obj)
                 ):
                     continue
-
-                test_id = getattr(obj, "test_id", None)
-                if test_id is None:
-                    log.warning(
-                        "external_test_registry_missing_test_id",
-                        class_name=obj.__name__,
-                        module=obj.__module__,
-                    )
+                # A name starting with "_" marks a helper base class shared by
+                # tests of the module, not a test (no declaration).
+                if obj.__name__.startswith(PRIVATE_CLASS_PREFIX):
                     continue
 
-                if test_id in seen_class_ids:
-                    log.warning(
-                        "external_test_registry_duplicate_test_id",
-                        test_id=test_id,
-                        class_name=obj.__name__,
-                        detail=(
-                            "Duplicate test_id detected. Only the first occurrence "
-                            "will be included. Fix the test_id to ensure uniqueness."
-                        ),
+                # The declaration must be complete and valid, and the test_id
+                # unique (src/core/test_metadata.py). A problem is collected,
+                # not skipped: the run stops after the scan.
+                where = f"{obj.__name__} ({obj.__module__})"
+                declaration_problems = metadata_problems(obj, external=True)
+                if declaration_problems:
+                    problems.extend(f"{where}: {problem}" for problem in declaration_problems)
+                    continue
+                test_id: str = obj.test_id
+                if test_id in owner_by_test_id:
+                    problems.append(
+                        f"{where}: test_id {test_id!r} already used by {owner_by_test_id[test_id]}"
                     )
                     continue
-
-                # Warn on missing optional ClassVars (non-blocking).
-                for attr in (
-                    "test_name",
-                    "domain",
-                    "priority",
-                    "strategy",
-                    "tags",
-                    "cwe_id",
-                    "tool_name",
-                ):
-                    if not hasattr(obj, attr):
-                        log.warning(
-                            "external_test_registry_missing_classvar",
-                            test_id=test_id,
-                            class_name=obj.__name__,
-                            missing_attr=attr,
-                        )
+                owner_by_test_id[test_id] = where
 
                 try:
                     instance = obj()
-                    instances.append(instance)
-                    seen_class_ids.add(test_id)
-                    log.debug(
-                        "external_test_registry_test_instantiated",
-                        test_id=test_id,
-                        class_name=obj.__name__,
+                except Exception as exc:  # noqa: BLE001 -- any failure is reported
+                    problems.append(
+                        f"{where}: cannot be instantiated without arguments "
+                        f"({type(exc).__name__}: {exc})"
                     )
-                except Exception as exc:  # noqa: BLE001
-                    log.warning(
-                        "external_test_registry_instantiation_failed",
-                        test_id=test_id,
-                        class_name=obj.__name__,
-                        error=str(exc),
-                    )
+                    continue
+                instances.append(instance)
+                log.debug(
+                    "external_test_registry_test_instantiated",
+                    test_id=test_id,
+                    class_name=obj.__name__,
+                )
 
+        raise_for_test_definition_problems(problems)
         return instances
 
     # ------------------------------------------------------------------
@@ -392,10 +382,11 @@ class ExternalTestRegistry:
         tests: list[ExternalToolTest],
         external_tools_config: ExternalToolsConfig,
         min_priority: int,
+        enabled_strategies: set[TestStrategy],
         allowed_ids: set[str] | None,
     ) -> list[ExternalToolTest]:
         """
-        Apply priority, per-tool, and allowed_ids filters to the discovered tests.
+        Apply priority, strategy, per-tool, and allowed_ids filters to the discovered tests.
 
         Filter cascade (applied in order, first exclusion wins):
             1. allowed_ids: if not None, exclude tests whose test_id is not
@@ -403,8 +394,10 @@ class ExternalTestRegistry:
                None it replaces the priority filter (Filter 2), allowing
                targeted runs of high-priority tests without changing
                min_priority.
-            2. priority: exclude tests with priority > min_priority.
-               Skipped when allowed_ids is not None (see above).
+            2. priority and strategy: exclude tests with priority >
+               min_priority or whose strategy is not in enabled_strategies
+               (same rule as native tests). Skipped when allowed_ids is not
+               None (see above).
             3. per-tool enabled: ALWAYS applied, regardless of allowed_ids.
                A tool with enabled=False in config has not been declared ready
                (binary not installed, timeout not set, etc.).  Forcing execution
@@ -424,7 +417,9 @@ class ExternalTestRegistry:
             tests:                 Full list of discovered ExternalToolTest instances.
             external_tools_config: For per-tool enabled checks.
             min_priority:          Maximum priority to include (inclusive).
-            allowed_ids:           If not None, replaces the priority filter only.
+            enabled_strategies:    Strategies to include.
+            allowed_ids:           If not None, replaces the priority and
+                                   strategy filters (not the per-tool check).
 
         Returns:
             list[ExternalToolTest]: Filtered list of tests to execute.
@@ -452,6 +447,15 @@ class ExternalTestRegistry:
                         test_id=test_id,
                         test_priority=priority,
                         min_priority=min_priority,
+                    )
+                    continue
+                strategy = cls.strategy
+                if strategy not in enabled_strategies:
+                    log.debug(
+                        "external_test_registry_excluded_strategy",
+                        test_id=test_id,
+                        strategy=str(strategy),
+                        enabled_strategies=sorted(s.value for s in enabled_strategies),
                     )
                     continue
 

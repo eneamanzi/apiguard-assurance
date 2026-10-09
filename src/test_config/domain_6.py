@@ -8,7 +8,7 @@ It follows the same structural convention as domain_4.py: one *Config class
 per test, aggregated by a TestDomain6Config class at the bottom.
 
 Currently implemented tests:
-    Test 6.2 -- Security Header Configuration Audit (WHITE_BOX, P3)
+    Test 6.2 -- Security Header Configuration Audit (BLACK_BOX, P3)
     Test 6.4 -- Hardcoded Credentials Audit (WHITE_BOX, P2)
 
 Adding a new Domain 6 test requires:
@@ -90,10 +90,10 @@ class Test62AuditConfig(BaseModel):
     Design note -- no Admin API required:
         Unlike tests 4.2 and 4.3, this test does NOT require Admin API
         access.  It performs regular GET requests to the target's public
-        endpoints and inspects the response headers.  The WHITE_BOX label
-        reflects the configuration-audit nature of the check, not a
-        dependency on internal API access.  The _requires_admin_api guard
-        is intentionally NOT applied in the execute() method.
+        endpoints and inspects the response headers, which anyone outside
+        can read: BLACK_BOX (the methodology calls it a configuration audit,
+        WHITE_BOX).  The _requires_admin_api guard is intentionally NOT
+        applied in the execute() method.
     """
 
     model_config = {"frozen": True, "extra": "forbid"}

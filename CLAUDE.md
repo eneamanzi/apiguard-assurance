@@ -124,6 +124,8 @@ Use clean placeholders (`nuclei_result.json`, `testssl_result.json`).
 ```
 ToolBaseError
  ├── ConfigurationError       # Phase 1 - invalid config or missing env var [BLOCKS STARTUP]
+ ├── TestDefinitionError      # after Phase 1 - a test declared incorrectly (missing or invalid
+ │                            #   class attribute, duplicate test_id) [BLOCKS STARTUP]
  ├── OpenAPILoadError         # Phase 2 - spec unreachable or malformed [BLOCKS STARTUP]
  ├── DAGCycleError            # Phase 4 - circular dependency [BLOCKS STARTUP]
  ├── SecurityClientError      # Phase 5, native tests → caught in execute() → TestResult(ERROR)

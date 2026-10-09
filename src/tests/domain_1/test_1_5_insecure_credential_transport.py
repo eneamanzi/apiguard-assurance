@@ -17,7 +17,8 @@ Guarantee (docs/knowledge/methodology/methodology.it.md, Section 1.5):
         OWASP ASVS v5.0.0 V12.1.1 (HSTS requirement)
         OWASP ASVS v5.0.0 V14.2.1 (TLS version requirement)
 
-Strategy: WHITE_BOX -- Configuration Audit (methodology section 1.5).
+Strategy: BLACK_BOX -- network access only (the methodology classifies it as a
+    configuration audit, WHITE_BOX; the tool labels by what the tester has).
     Like test 6.2, this test does NOT require gateway Admin API access.
     Sub-test 1 uses httpx directly (not SecurityClient) to probe the HTTP
     transport layer -- this is an intentional, documented exception to the
@@ -135,7 +136,7 @@ class Test15InsecureCredentialTransport(BaseTest):
     test_name: ClassVar[str] = "Credentials Not Transmitted via Insecure Channels"
     priority: ClassVar[int] = 2
     domain: ClassVar[int] = 1
-    strategy: ClassVar[TestStrategy] = TestStrategy.WHITE_BOX
+    strategy: ClassVar[TestStrategy] = TestStrategy.BLACK_BOX
     depends_on: ClassVar[list[str]] = []
     tags: ClassVar[list[str]] = [
         "transport-security",

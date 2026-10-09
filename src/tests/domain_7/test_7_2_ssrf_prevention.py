@@ -240,7 +240,7 @@ class Test72SSRFPrevention(BaseTest):
             TestResult(ERROR) on unexpected infrastructure failure.
         """
         try:
-            guard = self._requires_grey_box_credentials(target)
+            guard = self._requires_credentials(target)
             if guard is not None:
                 return guard
 

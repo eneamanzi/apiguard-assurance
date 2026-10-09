@@ -48,6 +48,19 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
 ### Changed
 
+- A test class declared incorrectly stops the tool right after loading the configuration (exit `10`, also in
+  `validate-config`), listing every problem with class and module: a missing or invalid class attribute (e.g.
+  `priority` outside 0-3, `strategy` not a `TestStrategy`, a `test_id` not matching `domain`), a duplicate `test_id`,
+  a class that cannot be instantiated. Before, a native test was dropped and an external one ran with defaults,
+  with only a warning. The same rules for native and external tests (`src/core/test_metadata.py`); classes whose
+  name starts with `_` are helpers, not tests.
+- **Breaking:** strategies say what the tester has (BLACK_BOX: network only; GREY_BOX: an ordinary account;
+  WHITE_BOX: the API's administrator account or internal access) and `execution.strategies` filters external tests
+  too. Relabelled: 1.5, 1.6, 6.2, `ext.1.5.testssl`, `ext.1.5.sslyze` WHITE_BOX → BLACK_BOX (network access only);
+  1.4 GREY_BOX → WHITE_BOX (administrator account). With all three strategies (the default) the same tests run; the
+  `strategy` field of these tests changes in the report. Phase 1 warnings follow the exact SKIP conditions: WHITE_BOX
+  without `gateway_adapter` (was: without `admin_api_url`, which missed an URL without adapter), WHITE_BOX without
+  the `admin` credentials (new), GREY_BOX without the `user_a` credentials (was: without any credentials).
 - **Breaking:** a run that would check nothing no longer ends with exit `0` (CLEAN). An `execution.test_ids`
   entry that does not exist (with a suggestion of the closest ID) or that belongs to a disabled tool stops the tool
   right after loading the configuration, also in `validate-config`; a filter combination that selects no test stops

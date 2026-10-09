@@ -429,8 +429,9 @@ def validate_config(
     """
     Validate config.yaml without running the assessment.
 
-    Performs Phase 1 (configuration loading and validation) and the
-    execution.test_ids check (every listed test exists and can run).
+    Performs Phase 1 (configuration loading and validation) and the test
+    checks: every test is declared correctly, and every execution.test_ids
+    entry exists and can run.
     Useful for verifying that the configuration file is correct and all
     required environment variables are exported before running a full
     assessment.
@@ -443,16 +444,16 @@ def validate_config(
     _load_env_file(env_file)
 
     from src.config.loader import load_config
-    from src.core.exceptions import ConfigurationError
+    from src.core.exceptions import ConfigurationError, TestDefinitionError
     from src.core.models.enums import ExitCode
 
     log = structlog.get_logger("cli.validate_config")
 
-    from src.engine import check_test_ids
+    from src.engine import check_tests
 
     try:
         tool_config = load_config(config)
-        check_test_ids(tool_config)
+        check_tests(tool_config)
         _console_out.print(
             f"[bold green]Configuration valid.[/bold green] Target: {tool_config.target.base_url}"
         )
@@ -465,6 +466,12 @@ def validate_config(
             config_path=exc.config_path,
         )
         _console_err.print(f"[bold red]Configuration invalid:[/bold red] {exc.message}")
+        raise typer.Exit(code=ExitCode.INFRASTRUCTURE) from None
+    except TestDefinitionError as exc:
+        # Raised by check_tests() when it scans the test modules: an error
+        # in the code of a test, reported like the engine does (exit 10).
+        log.error("test_definitions_invalid", detail=exc.message)
+        _console_err.print(f"[bold red]Test definitions invalid:[/bold red] {exc.message}")
         raise typer.Exit(code=ExitCode.INFRASTRUCTURE) from None
 
 

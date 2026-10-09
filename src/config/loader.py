@@ -39,7 +39,7 @@ Loading pipeline (three sequential, non-overlapping phases):
         error (an unknown key with the closest declared key, if any), with
         config_path extracted from the first error location.
         Emit structured warnings for coherence conditions detected by
-        ToolConfig.model_validator (WHITE_BOX without admin_api_url, etc.).
+        ToolConfig.model_validator (a selected strategy whose tests will SKIP).
 
 Dependency rule:
     This module imports from stdlib, PyYAML, structlog, pydantic,
@@ -520,30 +520,45 @@ def _emit_coherence_warnings(config: ToolConfig) -> None:
     Args:
         config: The fully validated ToolConfig instance.
     """
-    if config.white_box_without_admin_api:
+    warned = False
+    if config.white_box_without_gateway:
+        warned = True
         log.warning(
             "config_coherence_warning",
-            condition="white_box_without_admin_api",
+            condition="white_box_without_gateway",
             detail=(
-                "execution.strategies includes WHITE_BOX but target.admin_api_url "
+                "execution.strategies includes WHITE_BOX but target.gateway_adapter "
                 "is not configured. The tests that read the gateway configuration "
                 "through the Admin API will return SKIP (or skip that part). "
-                "Set target.admin_api_url and target.gateway_adapter to run them."
+                "Set target.gateway_adapter and target.admin_api_url to run them."
             ),
         )
 
-    if config.grey_box_without_credentials:
+    if config.white_box_without_admin_credentials:
+        warned = True
         log.warning(
             "config_coherence_warning",
-            condition="grey_box_without_credentials",
+            condition="white_box_without_admin_credentials",
             detail=(
-                "execution.strategies includes GREY_BOX but no credentials are "
-                "configured (admin, user_a, and user_b are all absent). "
-                "The tests that need credentials will return SKIP. "
-                "Set the credentials in config.yaml (through environment variables) "
-                "to run them."
+                "execution.strategies includes WHITE_BOX but the admin credentials "
+                "are not configured. The tests that use the API's administrator "
+                "account will return SKIP. Set credentials.admin_username and "
+                "credentials.admin_password (through environment variables) to run them."
             ),
         )
 
-    if not config.white_box_without_admin_api and not config.grey_box_without_credentials:
+    if config.grey_box_without_user_credentials:
+        warned = True
+        log.warning(
+            "config_coherence_warning",
+            condition="grey_box_without_user_credentials",
+            detail=(
+                "execution.strategies includes GREY_BOX but the user_a credentials "
+                "are not configured. The tests that use a normal user account will "
+                "return SKIP. Set credentials.user_a_username and "
+                "credentials.user_a_password (through environment variables) to run them."
+            ),
+        )
+
+    if not warned:
         log.debug("config_coherence_check_passed")

@@ -63,7 +63,7 @@ Oracle per response:
 |---|---|
 | PASS | Every payload rejected. InfoNotes for timeouts and for the skipped redirect sub-test. |
 | FAIL | At least one payload accepted. The result carries **one consolidated finding** stating how many payloads were accepted; per-payload detail is in the transaction log and `evidence.json`. |
-| SKIP | No GREY_BOX credentials or no `user_a` token; no payload category enabled; or `forgejo_webhook` mode on a target where the repository cannot be created (message suggests `fixed_path`). |
+| SKIP | No API credentials or no `user_a` token; no payload category enabled; or `forgejo_webhook` mode on a target where the repository cannot be created (message suggests `fixed_path`). |
 | ERROR | Token acquisition failed, or unexpected exception. |
 
 References: OWASP-API7:2023, CWE-918, OWASP-ASVS-v5.0.0-V1.3.6, NIST-SP-800-204-S3.2.2.

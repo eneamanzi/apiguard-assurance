@@ -40,7 +40,7 @@ target:
   openapi_spec_path: "./specs/openapi.json"
 ```
 
-With this configuration GREY_BOX tests return SKIP (no `credentials`), tests that read the gateway
+With this configuration the tests that log in to the API return SKIP (no `credentials`), tests that read the gateway
 configuration return SKIP or skip that part (no `admin_api_url` / `gateway_adapter`), and external tools are
 not scheduled (disabled by default). Which tests are affected is stated on each test page ([`tests/`](../tests/README.md)). Phase 1 logs a
 `config_coherence_warning` for the missing credentials and Admin API; they are warnings, not errors.
@@ -65,7 +65,8 @@ Connection to the API under test and to the gateway admin plane.
 
 ## `credentials`
 
-Accounts used by GREY_BOX tests. Always provide values through `${VAR}` placeholders.
+Accounts used by the tests that log in to the API: `user_a` (a normal user) by the GREY_BOX tests, `admin` (the
+API's administrator account) by the WHITE_BOX test 1.4. Always provide values through `${VAR}` placeholders.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
@@ -85,7 +86,7 @@ Each role's username and password must be set together or not at all.
 | Key | Type | Default | Constraints | Description |
 |---|---|---|---|---|
 | `min_priority` | int | `3` | 0-3 | **Highest** priority level included (the name is historical): `0` = P0 only, `3` = all. |
-| `strategies` | list | all three | non-empty; `BLACK_BOX`, `GREY_BOX`, `WHITE_BOX` | Native tests whose strategy is not listed are excluded. **External tests are not filtered by strategy** (Q-10). |
+| `strategies` | list | all three | non-empty; `BLACK_BOX`, `GREY_BOX`, `WHITE_BOX` | Tests, native and external, whose strategy is not listed are excluded (ignored when `test_ids` is set). |
 | `test_ids` | list of strings | `[]` | `X.Y` or `ext.X.Y.tool` | Non-empty: run **only** the listed tests, native or external. Replaces the `min_priority` filter (and `strategies` for native tests). It chooses only among available tests: an ID that does not exist, or an external test whose tool is disabled (`external_tools`), stops the tool at startup (exit `10`) with the reason and, for an unknown ID, the closest existing ID. |
 | `fail_fast` | bool | `false` | - | Stop after the first P0 test returning FAIL or ERROR ([`exit-codes.md`](exit-codes.md)). |
 | `connect_timeout` | float | `5.0` | 1-30 | TCP connect timeout (s) for requests to the target. |
@@ -284,8 +285,9 @@ Phase 1 rejects the configuration (exit `10`) when:
 | min ≤ max ranges | `tests.domain_4.test_4_3` |
 | Numeric ranges and types in the tables above | all |
 
-Phase 1 **warns** (does not fail) when WHITE_BOX is selected without `admin_api_url`, or GREY_BOX without any
-credential pair.
+Phase 1 **warns** (does not fail) when a selected strategy has tests that will SKIP for lack of access: WHITE_BOX
+without `gateway_adapter` (gateway configuration audits), WHITE_BOX without the `admin` credentials (1.4), GREY_BOX
+without the `user_a` credentials (2.1, 7.2). Log event `config_coherence_warning`, field `condition`.
 
 ## See also
 

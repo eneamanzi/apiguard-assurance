@@ -48,14 +48,16 @@ Guarantee (docs/knowledge/methodology/methodology.it.md, Section 6.2):
         documenting the inconsistency, because selective application of
         security headers is itself a misconfiguration.
 
-Strategy: WHITE_BOX -- Configuration Audit (methodology section 6.2).
+Strategy: BLACK_BOX -- network access only.
     Unlike tests 4.2 and 4.3, this test does NOT require Admin API access.
     The methodology labels 6.2 as WHITE_BOX to reflect its configuration-
-    audit nature: we verify Gateway-injected response headers rather than
-    testing empirical security behaviour.  The actual mechanism is a regular
-    GET request to each sampled endpoint, with no authentication header, so
-    that the Gateway returns a 401 or public response whose headers are
-    inspectable.  The _requires_admin_api guard is intentionally NOT applied.
+    audit nature (we verify Gateway-injected response headers rather than
+    testing empirical security behaviour); the tool labels tests by what the
+    tester has, and any external observer can read response headers.
+    The actual mechanism is a regular GET request to each sampled endpoint,
+    with no authentication header, so that the Gateway returns a 401 or
+    public response whose headers are inspectable.  The _requires_admin_api
+    guard is intentionally NOT applied.
 
 Priority: P3 -- compliance and static best-practice (methodology matrix).
     A missing security header is a defence-in-depth gap, not an immediately
@@ -190,7 +192,7 @@ _REFERENCES_CONSISTENCY: list[str] = [
 
 class Test62SecurityHeadersAudit(BaseTest):
     """
-    Test 6.2 -- Security Header Configuration Audit (WHITE_BOX, P3).
+    Test 6.2 -- Security Header Configuration Audit (BLACK_BOX, P3).
 
     Verifies that the Gateway injects the required HTTP security headers
     on every outbound response, and that no leaky server-identification
@@ -208,7 +210,7 @@ class Test62SecurityHeadersAudit(BaseTest):
     test_name: ClassVar[str] = "Security Headers Configured Appropriately"
     priority: ClassVar[int] = 3
     domain: ClassVar[int] = 6
-    strategy: ClassVar[TestStrategy] = TestStrategy.WHITE_BOX
+    strategy: ClassVar[TestStrategy] = TestStrategy.BLACK_BOX
     depends_on: ClassVar[list[str]] = []
     tags: ClassVar[list[str]] = [
         "hardening",

@@ -13,8 +13,9 @@ Design notes preserved from the original schema.py:
 
     PrivateAttr for computed coherence flags
     -----------------------------------------
-    ToolConfig uses two PrivateAttr fields (_white_box_without_admin_api and
-    _grey_box_without_credentials) to store boolean flags computed by the
+    ToolConfig uses three PrivateAttr fields (_white_box_without_gateway,
+    _white_box_without_admin_credentials, _grey_box_without_user_credentials)
+    to store boolean flags computed by the
     model_validator. Declaring them as PrivateAttr with default=False makes
     them first-class Pydantic citizens that survive model_copy() calls without
     loss and are excluded from model_dump() output. The assignment in
@@ -52,13 +53,7 @@ from pydantic import (
 from src.config.schema.external_tools import ExternalToolsConfig
 from src.config.schema.tests_config import TestsConfig
 from src.core.models import TestStrategy
-
-# ---------------------------------------------------------------------------
-# Constants -- priority
-# ---------------------------------------------------------------------------
-
-PRIORITY_MIN: int = 0
-PRIORITY_MAX: int = 3
+from src.core.test_metadata import PRIORITY_MAX, PRIORITY_MIN, is_valid_test_id
 
 # ---------------------------------------------------------------------------
 # Constants -- HTTP client timeouts and retries
@@ -353,14 +348,16 @@ class TargetConfig(BaseModel):
 
 class CredentialsConfig(BaseModel):
     """
-    Authentication credentials for Grey Box (P1/P2) and White Box (P3) tests.
+    Authentication credentials for the tests that log in to the API: user_a
+    (an ordinary account) for GREY_BOX tests, admin (the API's administrator
+    account) for the WHITE_BOX test that needs it (1.4).
 
     All credential fields are populated via ${VAR_NAME} environment variable
     interpolation in loader.py. They must NEVER appear in plain text in
     config.yaml.
 
     auth_type selects the token-acquisition strategy used by the auth dispatcher
-    (src/tests/helpers/auth.py) at the start of every GREY_BOX test:
+    (src/tests/helpers/auth.py) at the start of every test that logs in:
 
         "forgejo_token"  (default) -- Forgejo/Gitea Token API.
             POST /api/v1/users/{username}/tokens with HTTP Basic Auth.
@@ -389,7 +386,7 @@ class CredentialsConfig(BaseModel):
     auth_type: str = Field(
         default="forgejo_token",
         description=(
-            "Token-acquisition strategy for GREY_BOX tests. "
+            "Token-acquisition method for the tests that log in to the API. "
             "Supported values: 'forgejo_token' (default), 'jwt_login'. "
             "See class docstring for details."
         ),
@@ -573,59 +570,6 @@ class CredentialsConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# _is_valid_test_id_format -- module-level helper
-# ---------------------------------------------------------------------------
-
-
-def _is_valid_test_id_format(test_id: str) -> bool:
-    """
-    Return True if *test_id* matches one of the two accepted formats.
-
-    Accepted formats
-    ----------------
-    Native test  --  'X.Y'
-        Two dot-separated tokens, both of which are non-negative integer
-        strings.  Examples: '0.1', '4.1', '7.2'.
-
-    External test -- 'ext.X.Y.toolname'
-        Four dot-separated tokens: the literal prefix 'ext', two non-negative
-        integer strings (domain and sequence), and a non-empty lowercase tool
-        identifier.  Examples: 'ext.0.1.nuclei', 'ext.1.5.testssl',
-        'ext.1.5.sslyze'.  The 'ext.' prefix avoids collision with native test
-        IDs in the engine's test_lookup dict; the tool suffix makes the ID
-        self-documenting and unique when multiple tools cover the same guarantee.
-
-    Any other form (wrong number of tokens, non-integer parts, wrong prefix,
-    empty tool name) returns False and the caller is expected to raise
-    ValueError with an operator-facing message.
-
-    Args:
-        test_id: The candidate test ID string to validate.
-
-    Returns:
-        bool: True if the format is valid, False otherwise.
-    """
-    parts = test_id.split(".")
-
-    # Native format: exactly two parts, both digits.
-    if len(parts) == 2:  # noqa: PLR2004
-        return all(p.isdigit() for p in parts)
-
-    # External format: exactly four parts — 'ext', digit, digit, toolname.
-    if len(parts) == 4:  # noqa: PLR2004
-        prefix, domain_part, seq_part, tool_part = parts
-        return (
-            prefix == "ext"
-            and domain_part.isdigit()
-            and seq_part.isdigit()
-            and len(tool_part) > 0
-            and tool_part.replace("-", "").replace("_", "").isalnum()
-        )
-
-    return False
-
-
-# ---------------------------------------------------------------------------
 # ExecutionConfig
 # ---------------------------------------------------------------------------
 
@@ -749,7 +693,7 @@ class ExecutionConfig(BaseModel):
         for item in value:
             if not isinstance(item, str):
                 raise ValueError(f"Each test_id must be a string. Got: {item!r}")
-            if not _is_valid_test_id_format(item):
+            if not is_valid_test_id(item):
                 raise ValueError(
                     f"Invalid test_id format: {item!r}. "
                     "Accepted formats: 'X.Y' for native tests (e.g. '4.1', '0.2') "
@@ -867,41 +811,52 @@ class ToolConfig(BaseModel):
         ),
     )
 
-    _white_box_without_admin_api: bool = PrivateAttr(default=False)
-    _grey_box_without_credentials: bool = PrivateAttr(default=False)
+    _white_box_without_gateway: bool = PrivateAttr(default=False)
+    _white_box_without_admin_credentials: bool = PrivateAttr(default=False)
+    _grey_box_without_user_credentials: bool = PrivateAttr(default=False)
 
     @model_validator(mode="after")
     def validate_cross_submodel_coherence(self) -> ToolConfig:
         """
-        Enforce consistency rules spanning multiple sub-models.
+        Detect selected strategies whose tests will SKIP for lack of access.
 
-        Rule 1: WHITE_BOX requires admin_api_url.
-        Rule 2: GREY_BOX requires at least one credential set.
+        Each rule mirrors the exact SKIP condition of the tests concerned:
+            Rule 1: WHITE_BOX without target.gateway_adapter: no gateway
+                    adapter is created (it needs gateway_adapter and
+                    admin_api_url), so the gateway configuration audits SKIP.
+            Rule 2: WHITE_BOX without admin credentials: the tests that use
+                    the API's administrator account SKIP.
+            Rule 3: GREY_BOX without user_a credentials: the tests that use a
+                    normal user account (role user_a) SKIP.
 
-        Both produce loader.py WARNINGs, not validation errors, because
-        scoped Black-Box-only assessments are legitimate use cases.
+        They produce loader.py WARNINGs, not validation errors, because
+        scoped assessments without some kinds of access are legitimate.
         """
-        if (
-            TestStrategy.WHITE_BOX in self.execution.strategies
-            and self.target.admin_api_url is None
-        ):
-            self._white_box_without_admin_api = True
+        if TestStrategy.WHITE_BOX in self.execution.strategies:
+            if self.target.gateway_adapter is None:
+                self._white_box_without_gateway = True
+            if not self.credentials.has_admin_credentials():
+                self._white_box_without_admin_credentials = True
 
-        if TestStrategy.GREY_BOX in self.execution.strategies and not (
-            self.credentials.has_admin_credentials()
-            or self.credentials.has_user_a_credentials()
-            or self.credentials.has_user_b_credentials()
+        if (
+            TestStrategy.GREY_BOX in self.execution.strategies
+            and not self.credentials.has_user_a_credentials()
         ):
-            self._grey_box_without_credentials = True
+            self._grey_box_without_user_credentials = True
 
         return self
 
     @property
-    def white_box_without_admin_api(self) -> bool:
-        """True if WHITE_BOX strategy requested but admin_api_url is absent."""
-        return self._white_box_without_admin_api
+    def white_box_without_gateway(self) -> bool:
+        """True if WHITE_BOX is selected but no gateway adapter is configured."""
+        return self._white_box_without_gateway
 
     @property
-    def grey_box_without_credentials(self) -> bool:
-        """True if GREY_BOX strategy requested but no credentials configured."""
-        return self._grey_box_without_credentials
+    def white_box_without_admin_credentials(self) -> bool:
+        """True if WHITE_BOX is selected but the admin credentials are absent."""
+        return self._white_box_without_admin_credentials
+
+    @property
+    def grey_box_without_user_credentials(self) -> bool:
+        """True if GREY_BOX is selected but the user_a credentials are absent."""
+        return self._grey_box_without_user_credentials

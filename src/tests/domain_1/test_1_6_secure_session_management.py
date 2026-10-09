@@ -17,7 +17,9 @@ Guarantee (docs/knowledge/methodology/methodology.it.md, Section 1.6):
         NIST SP 800-63B-4 Section 4.2 (session management)
         NIST SP 800-204A Section 4.3 (distributed session consistency)
 
-Strategy: WHITE_BOX -- Configuration Audit (methodology section 1.6, P3).
+Strategy: BLACK_BOX -- network access only (the methodology classifies it as a
+    configuration audit, WHITE_BOX, section 1.6, P3; the tool labels by what
+    the tester has).
     Sends unauthenticated GET requests to the configured probe paths and
     inspects Set-Cookie response headers.  No Kong Admin API access is
     required.  The _requires_admin_api guard is intentionally NOT applied.
@@ -108,7 +110,7 @@ class Test16SecureSessionManagement(BaseTest):
     test_name: ClassVar[str] = "Secure Session Management in Distributed Architectures"
     priority: ClassVar[int] = 3
     domain: ClassVar[int] = 1
-    strategy: ClassVar[TestStrategy] = TestStrategy.WHITE_BOX
+    strategy: ClassVar[TestStrategy] = TestStrategy.BLACK_BOX
     depends_on: ClassVar[list[str]] = []
     tags: ClassVar[list[str]] = [
         "session-management",

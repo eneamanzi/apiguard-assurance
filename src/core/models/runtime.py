@@ -139,7 +139,7 @@ class RuntimeCredentials(BaseModel):
             and self.user_b_password.strip()
         )
 
-    def has_any_grey_box_credentials(self) -> bool:
+    def has_any_credentials(self) -> bool:
         """True if at least one role has complete credentials configured."""
         return self.has_admin() or self.has_user_a() or self.has_user_b()
 

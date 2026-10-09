@@ -66,12 +66,16 @@ class ExitCode(IntEnum):
 
 class TestStrategy(StrEnum):
     """
-    Execution privilege level mapping to the Black/Grey/White Box gradient
-    defined in the methodology (docs/architecture/assessment-model.md, "Strategies").
+    What the tester has, to run a test (docs/architecture/assessment-model.md,
+    "Strategies"). A test is labelled with the access it needs to run in full.
 
-    BLACK_BOX -- Zero credentials. Simulates anonymous external attacker.
-    GREY_BOX  -- Valid JWT tokens for at least two distinct roles.
-    WHITE_BOX -- Read access to Gateway configuration via Admin API.
+    BLACK_BOX -- An external user: network access and the OpenAPI
+                 specification only, no credentials.
+    GREY_BOX  -- A normal user: credentials of an ordinary account of the API
+                 (how many accounts is not the point).
+    WHITE_BOX -- A super user: the API's administrator account, or internal
+                 access (gateway configuration through the Admin API, files,
+                 internal systems).
     """
 
     __test__ = False

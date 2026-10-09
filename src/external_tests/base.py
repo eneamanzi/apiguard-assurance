@@ -176,7 +176,8 @@ class ExternalToolTest(ABC):
         test_name : str        -- human-readable name for the HTML report.
         domain    : int        -- domain number (0-7) matching the methodology.
         priority  : int        -- 0-3 (P0-P3), used by ExternalTestRegistry filter.
-        strategy  : TestStrategy -- always BLACK_BOX for external scanners.
+        strategy  : TestStrategy -- what the tester needs (BLACK_BOX for the
+                                    current scanners: network access only).
         depends_on: list[str]    -- test_ids this test must run after.
         tags      : list[str]    -- free-form tags for report classification.
         cwe_id    : str          -- primary CWE reference for the vulnerability.

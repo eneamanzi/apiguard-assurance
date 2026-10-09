@@ -203,7 +203,7 @@ tests:
 
     # Test 1.4 — Revoked Token Rejected After Deletion
     # Methodology: docs/knowledge/methodology/methodology.it.md Section 1.4 (Sub-Test 1: token revocation)
-    # Strategy: GREY_BOX
+    # Strategy: WHITE_BOX (uses the API's administrator account)
     # Priority: P2
     test_1_4:
       # Name of the temporary API token created and immediately revoked during
@@ -214,7 +214,7 @@ tests:
 
     # Test 1.5 — Credentials Not Transmitted via Insecure Channels
     # Methodology: docs/knowledge/methodology/methodology.it.md Section 1.5
-    # Strategy: WHITE_BOX (Configuration Audit + single empirical HTTP probe)
+    # Strategy: BLACK_BOX (network access only: HTTP probe and response headers)
     # Priority: P2
     test_1_5:
       # Minimum acceptable max-age in the Strict-Transport-Security header (seconds).
@@ -247,7 +247,7 @@ tests:
 
     # Test 1.6 — Secure Session Management in Distributed Architectures
     # Methodology: docs/knowledge/methodology/methodology.it.md Section 1.6
-    # Strategy: WHITE_BOX (Configuration Audit via response header inspection)
+    # Strategy: BLACK_BOX (network access only: response header inspection)
     # Priority: P3
     test_1_6:
       # Paths to probe with unauthenticated GET to discover Set-Cookie headers.
@@ -417,7 +417,7 @@ tests:
       passive_hc_max_timeouts: 10        # unhealthy.timeouts: acceptable range [1, 10]
 
   domain_6:
-    # Test 6.2 — Security Header Configuration Audit (WHITE_BOX, P3)
+    # Test 6.2 — Security Header Configuration Audit (BLACK_BOX, P3)
     # Verifies presence and correctness of HTTP security headers on the target.
     # No Admin API access required: checks are performed via regular GET requests.
     # Checked headers: Strict-Transport-Security, X-Content-Type-Options,

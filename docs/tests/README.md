@@ -17,11 +17,11 @@ target, and how it relates to the methodology.
 | `0.3` | Deprecated APIs Are Disabled or Under Enhanced Monitoring | P0 | BLACK_BOX | CWE-1059 | spec with `deprecated` | [0.3](domain-0/0-3-deprecated-api-enforcement.md) |
 | **Domain 1 - Identity and Authentication** | | | | | | |
 | `1.1` | Only Authenticated Requests Access Protected Resources | P0 | BLACK_BOX | CWE-306 | spec with `security` | [1.1](domain-1/1-1-authentication-required.md) |
-| `1.4` | Revoked Token Rejected After Deletion | P2 | GREY_BOX | CWE-613 | admin credentials, **Forgejo** | [1.4](domain-1/1-4-token-revocation.md) |
-| `1.5` | Credentials Not Transmitted via Insecure Channels | P2 | WHITE_BOX | CWE-319 | - | [1.5](domain-1/1-5-insecure-credential-transport.md) |
-| `ext.1.5.testssl` | TLS Stack Analysis (testssl.sh) | P2 | WHITE_BOX | CWE-326 | testssl.sh | [ext.1.5](external/domain-1/ext-1-5-tls-analysis.md) |
-| `ext.1.5.sslyze` | TLS Stack Analysis (sslyze) | P2 | WHITE_BOX | CWE-326 | sslyze | [ext.1.5](external/domain-1/ext-1-5-tls-analysis.md) |
-| `1.6` | Secure Session Management in Distributed Architectures | P3 | WHITE_BOX | CWE-614 | - | [1.6](domain-1/1-6-secure-session-management.md) |
+| `1.4` | Revoked Token Rejected After Deletion | P2 | WHITE_BOX | CWE-613 | admin credentials, **Forgejo** | [1.4](domain-1/1-4-token-revocation.md) |
+| `1.5` | Credentials Not Transmitted via Insecure Channels | P2 | BLACK_BOX | CWE-319 | - | [1.5](domain-1/1-5-insecure-credential-transport.md) |
+| `ext.1.5.testssl` | TLS Stack Analysis (testssl.sh) | P2 | BLACK_BOX | CWE-326 | testssl.sh | [ext.1.5](external/domain-1/ext-1-5-tls-analysis.md) |
+| `ext.1.5.sslyze` | TLS Stack Analysis (sslyze) | P2 | BLACK_BOX | CWE-326 | sslyze | [ext.1.5](external/domain-1/ext-1-5-tls-analysis.md) |
+| `1.6` | Secure Session Management in Distributed Architectures | P3 | BLACK_BOX | CWE-614 | - | [1.6](domain-1/1-6-secure-session-management.md) |
 | **Domain 2 - Authorization and Access Control** | | | | | | |
 | `2.1` | Only Authorized Users Access Privileged Endpoints | P2 | GREY_BOX | CWE-285 | user_a credentials | [2.1](domain-2/2-1-rbac-enforcement.md) |
 | **Domain 3 - Data Integrity** | | | | | | |
@@ -33,7 +33,7 @@ target, and how it relates to the methodology.
 | **Domain 5 - Visibility and Auditing** | | | | | | |
 | - | no test implemented | | | | | [roadmap](../project/roadmap.md) |
 | **Domain 6 - Configuration and Hardening** | | | | | | |
-| `6.2` | Security Headers Configured Appropriately | P3 | WHITE_BOX | CWE-16 | - | [6.2](domain-6/6-2-security-headers-audit.md) |
+| `6.2` | Security Headers Configured Appropriately | P3 | BLACK_BOX | CWE-16 | - | [6.2](domain-6/6-2-security-headers-audit.md) |
 | `6.4` | Service Credentials Not Hardcoded or Exposed | P2 | WHITE_BOX | CWE-798 | Admin API optional | [6.4](domain-6/6-4-hardcoded-credentials-audit.md) |
 | **Domain 7 - Business Logic and Sensitive Flows** | | | | | | |
 | `7.2` | Server-Side Request Forgery (SSRF) Prevention | P0 | GREY_BOX | CWE-918 | user_a credentials | [7.2](domain-7/7-2-ssrf-prevention.md) |

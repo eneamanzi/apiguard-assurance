@@ -12,7 +12,8 @@ Guarantee covered (docs/knowledge/methodology/methodology.it.md §1.4 — Sub-Te
     credential abuse after compromise.
 
 Strategy and priority:
-    GREY_BOX / P2.  Requires a valid ADMIN credential to create and delete
+    WHITE_BOX / P2.  Requires a valid ADMIN credential (the API's
+    administrator account: full access, hence WHITE_BOX) to create and delete
     a temporary test token.  The test does not access the token store
     directly; it verifies the externally observable behaviour only.
 
@@ -114,7 +115,7 @@ class Test14TokenRevocation(BaseTest):
     test_name: ClassVar[str] = "Revoked Token Rejected After Deletion"
     domain: ClassVar[int] = 1
     priority: ClassVar[int] = 2
-    strategy: ClassVar[TestStrategy] = TestStrategy.GREY_BOX
+    strategy: ClassVar[TestStrategy] = TestStrategy.WHITE_BOX
     depends_on: ClassVar[list[str]] = ["1.1"]
     tags: ClassVar[list[str]] = [
         "authentication",
@@ -146,7 +147,7 @@ class Test14TokenRevocation(BaseTest):
             SKIP if credentials are missing; ERROR on unexpected exception.
         """
         try:
-            guard = self._requires_grey_box_credentials(target)
+            guard = self._requires_credentials(target)
             if guard is not None:
                 return guard
 

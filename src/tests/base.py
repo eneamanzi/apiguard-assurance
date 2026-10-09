@@ -725,13 +725,14 @@ class BaseTest(ABC):
             )
         )
 
-    def _requires_grey_box_credentials(self, target: TargetContext) -> TestResult | None:
+    def _requires_credentials(self, target: TargetContext) -> TestResult | None:
         """
-        Guard clause: return a SKIP result if no Grey Box credentials are configured.
+        Guard clause: return a SKIP result if no API credentials are configured.
 
         Distinguishes 'no credentials configured' (SKIP) from 'credentials present
-        but login failed' (ERROR). Called at the top of GREY_BOX execute() methods
-        before any token acquisition attempt.
+        but login failed' (ERROR). Called at the top of the execute() methods of
+        tests that log in to the API, before any token acquisition attempt; the
+        role-specific check follows with _requires_token().
 
         Args:
             target: The current TargetContext.
@@ -740,17 +741,17 @@ class BaseTest(ABC):
             None if at least one role has complete credentials.
             TestResult(status=SKIP) if no credentials are configured.
         """
-        if target.credentials.has_any_grey_box_credentials():
+        if target.credentials.has_any_credentials():
             return None
 
         return self._make_skip(
             reason=(
-                "No Grey Box credentials configured: config.yaml credentials section "
+                "No API credentials configured: config.yaml credentials section "
                 "is empty or all credential pairs are missing. "
-                "GREY_BOX tests require at least one role with complete "
+                "Tests that log in to the API require at least one role with complete "
                 "username + password to acquire tokens via the Forgejo API. "
                 "Set ADMIN_USERNAME/ADMIN_PASSWORD or USER_A_USERNAME/USER_A_PASSWORD "
-                "environment variables and re-run to enable Grey Box testing."
+                "environment variables and re-run to enable these tests."
             )
         )
 
@@ -782,43 +783,6 @@ class BaseTest(ABC):
                 "If the gateway does not expose an admin API, this SKIP is expected."
             )
         )
-
-    # ------------------------------------------------------------------
-    # Discovery metadata validation
-    # ------------------------------------------------------------------
-
-    @classmethod
-    def has_required_metadata(cls) -> bool:
-        """
-        Check whether all required ClassVar metadata attributes are declared.
-
-        Called by TestRegistry on each discovered subclass before adding it
-        to the active test set.
-
-        Returns:
-            True if all required attributes are present with non-empty values.
-            False otherwise.
-        """
-        required_attrs = (
-            "test_id",
-            "priority",
-            "strategy",
-            "depends_on",
-            "test_name",
-            "domain",
-            "tags",
-            "cwe_id",
-        )
-        for attr in required_attrs:
-            if not hasattr(cls, attr):
-                return False
-        test_id_val = getattr(cls, "test_id", "")
-        test_name_val = getattr(cls, "test_name", "")
-        if not isinstance(test_id_val, str) or not test_id_val.strip():
-            return False
-        if not isinstance(test_name_val, str) or not test_name_val.strip():
-            return False
-        return True
 
     def __repr__(self) -> str:
         test_id = getattr(self.__class__, "test_id", "unknown")

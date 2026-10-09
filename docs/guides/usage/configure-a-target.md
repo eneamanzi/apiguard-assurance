@@ -19,7 +19,7 @@ without it those tests return SKIP (a missing precondition, not a pass).
 | Information | Enables | Without it |
 |---|---|---|
 | Base URL of the API + its OpenAPI specification | 0.1, 0.2, 0.3, 1.1, 1.5, 1.6, 4.1, 6.2, 6.4 (sub-test A) | nothing runs |
-| Accounts: an admin and an ordinary user (`user_a`) | GREY_BOX tests: 1.4 (admin), 2.1 and 7.2 (`user_a`) | SKIP |
+| Accounts: an admin and an ordinary user (`user_a`) | 1.4 (admin, WHITE_BOX), 2.1 and 7.2 (`user_a`, GREY_BOX) | SKIP |
 | Real identifiers of existing resources (`path_seed`) | meaningful results on endpoints with `{parameters}` (mainly 1.1) | those probes end `INCONCLUSIVE_PARAMETRIC` |
 | Gateway Admin API (Kong only) | 3.3, 4.2, 4.3, 6.4 sub-test B | SKIP |
 
@@ -69,7 +69,8 @@ e.g. `http://api.example.com:8000/`.
 
 ## 3. Credentials
 
-GREY_BOX tests log in as `admin` (test 1.4) or `user_a` (tests 2.1 and 7.2). The configuration also accepts a third
+Tests log in as `admin` (test 1.4, WHITE_BOX: the administrator account is full access) or `user_a` (tests 2.1
+and 7.2, GREY_BOX). The configuration also accepts a third
 role, `user_b`, but no v0.1.0 test uses it: it is reserved for tests that compare two users of the same level, such
 as object-level authorization (BOLA, guarantee 2.2, planned). You can leave it out. Create the accounts on the target first, then
 put the values in `.env` (repository folder, ignored by git) and refer to them with `${VAR}`. Never write a
@@ -110,7 +111,7 @@ Rules:
 
 - Username and password of a role go together, or the role is left out entirely.
 - A `${VAR}` without a value stops the tool with `Environment variable(s) not set`, **even inside a YAML comment**.
-- Credentials rejected by the target (`401`/`403` at login) make the GREY_BOX tests return ERROR.
+- Credentials rejected by the target (`401`/`403` at login) make the tests that log in return ERROR.
 
 ## 4. Real identifiers (`path_seed`)
 

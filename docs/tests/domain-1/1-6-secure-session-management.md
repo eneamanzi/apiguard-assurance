@@ -9,7 +9,7 @@
 | Test ID | `1.6` |
 | Name | Secure Session Management in Distributed Architectures |
 | Domain | 1 - Identity and Authentication |
-| Priority / strategy | P3 / WHITE_BOX (configuration audit; **no Admin API needed**) |
+| Priority / strategy | P3 / BLACK_BOX (network access only; the methodology calls it a configuration audit) |
 | CWE | CWE-614 |
 | Depends on | none |
 | Configuration | [`tests.domain_1.test_1_6`](../../reference/configuration.md#testsdomain_1test_1_6---session-management) |

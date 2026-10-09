@@ -9,7 +9,7 @@
 | Test ID | `1.4` |
 | Name | Revoked Token Rejected After Deletion |
 | Domain | 1 - Identity and Authentication |
-| Priority / strategy | P2 / GREY_BOX |
+| Priority / strategy | P2 / WHITE_BOX (the API's administrator account) |
 | CWE | CWE-613 |
 | Depends on | `1.1` |
 | Configuration | [`tests.domain_1.test_1_4`](../../reference/configuration.md#testsdomain_1test_1_4---token-revocation), admin credentials |
@@ -36,7 +36,7 @@ All paths and the `token` authorization scheme are the Forgejo/Gitea API (consta
 |---|---|
 | PASS | The revoked token was not accepted (step 5 returned a non-`2xx` status). |
 | FAIL | The revoked token was accepted (`2xx`). |
-| SKIP | No GREY_BOX credentials configured, admin token not available, or `admin_password` missing. |
+| SKIP | No API credentials configured, admin token not available, or `admin_password` missing. |
 | ERROR | Token acquisition failed, admin username not found, token creation or deletion failed, or an unexpected exception. On a target without the Forgejo token API the test ends here. |
 
 References: CWE-613, OWASP-API2:2023, RFC-7009, OWASP-ASVS-v5.0.0-V7.4, NIST-SP-800-63B-4-S5.1.

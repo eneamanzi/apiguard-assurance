@@ -103,14 +103,15 @@ Optionally re-export the class in `src/config/schema/external_tools.py` and `src
 
 Copy `_template_ext_test.py`. The registry imports only modules whose name starts with `ext_test_`.
 
-**Class attributes:** the eight of native tests plus `tool_name`:
+**Class attributes:** the eight of native tests plus `tool_name`, checked at discovery like native ones (a missing
+or invalid one stops the run, `TestDefinitionError`):
 
 ```python
 test_id: ClassVar[str] = "ext.1.5.testssl"     # ext.<domain>.<guarantee>.<tool>
 test_name: ClassVar[str] = "TLS Stack Analysis (testssl.sh)"
 domain: ClassVar[int] = 1
 priority: ClassVar[int] = 2
-strategy: ClassVar[TestStrategy] = TestStrategy.WHITE_BOX
+strategy: ClassVar[TestStrategy] = TestStrategy.BLACK_BOX
 depends_on: ClassVar[list[str]] = []
 tags: ClassVar[list[str]] = [...]
 cwe_id: ClassVar[str] = "CWE-326"
