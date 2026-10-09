@@ -99,7 +99,7 @@ each test page.
 ## Fail-fast
 
 `execution.fail_fast: true` stops Phase 5 after the first **P0** test that returns FAIL or ERROR. Teardown and
-reporting still run; tests not yet started are absent from the report.
+reporting still run; tests not yet started are listed in the report's `not_run` with reason `fail_fast`.
 
 ## Native, hybrid and external tools
 

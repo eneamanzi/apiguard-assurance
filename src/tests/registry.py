@@ -55,7 +55,7 @@ import types
 import structlog
 
 from src.core.exceptions import raise_for_test_definition_problems
-from src.core.models import TestStrategy
+from src.core.models import NotRunEntry, NotRunReason, TestStrategy
 from src.core.test_metadata import PRIVATE_CLASS_PREFIX, metadata_problems
 from src.tests.base import BaseTest
 
@@ -108,6 +108,11 @@ class TestRegistry:
         # Pass active_tests to DAGScheduler.build_schedule()
     """
 
+    def __init__(self) -> None:
+        """Start with an empty list of excluded tests (filled by discover())."""
+        # Tests excluded by the filters of the last discover(), with the reason.
+        self.not_run: list[NotRunEntry] = []
+
     def discover(
         self,
         min_priority: int,
@@ -156,7 +161,8 @@ class TestRegistry:
         # Phase R2: extract concrete BaseTest subclasses.
         all_tests = self._extract_concrete_subclasses(imported_modules)
 
-        # Phase R3: apply filters.
+        # Phase R3: apply filters (excluded tests go to self.not_run).
+        self.not_run = []
         active_tests = self._apply_filters(
             tests=all_tests,
             min_priority=min_priority,
@@ -529,10 +535,8 @@ class TestRegistry:
                 if test_id in allowed_ids:
                     active.append(test)
                 else:
-                    log.debug(
-                        "test_registry_excluded_by_id_filter",
-                        test_id=test_id,
-                        allowed_ids=sorted(allowed_ids),
+                    self._exclude(
+                        test, NotRunReason.NOT_IN_TEST_IDS, "execution.test_ids does not list it"
                     )
             # Unknown IDs never reach this point: engine.check_tests()
             # rejects them before Phase 2.
@@ -546,26 +550,46 @@ class TestRegistry:
             strategy = cls.strategy
 
             if priority > min_priority:
-                log.debug(
-                    "test_registry_excluded_by_priority",
-                    test_id=test_id,
-                    test_priority=priority,
-                    min_priority=min_priority,
+                self._exclude(
+                    test,
+                    NotRunReason.PRIORITY,
+                    f"priority P{priority} is above execution.min_priority (P{min_priority})",
                 )
                 continue
 
             if strategy not in enabled_strategies:
-                log.debug(
-                    "test_registry_excluded_by_strategy",
-                    test_id=test_id,
-                    test_strategy=strategy.value,
-                    enabled_strategies=[s.value for s in enabled_strategies],
+                self._exclude(
+                    test,
+                    NotRunReason.STRATEGY,
+                    f"strategy {strategy.value} is not in execution.strategies "
+                    f"({', '.join(sorted(s.value for s in enabled_strategies))})",
                 )
                 continue
 
             active.append(test)
 
         return active
+
+    def _exclude(self, test: BaseTest, reason: NotRunReason, detail: str) -> None:
+        """
+        Record a test excluded by a filter in self.not_run.
+
+        Args:
+            test:   The excluded test.
+            reason: The filter that excluded it.
+            detail: The values that excluded it.
+        """
+        cls = test.__class__
+        self.not_run.append(
+            NotRunEntry(
+                test_id=cls.test_id,
+                test_name=cls.test_name,
+                source=cls.source,
+                reason=reason,
+                detail=detail,
+            )
+        )
+        log.debug("test_registry_excluded", test_id=cls.test_id, reason=reason.value, detail=detail)
 
     # ------------------------------------------------------------------
     # DAGScheduler input builder

@@ -40,7 +40,8 @@ src/
 ├── config/           # Phase 1: loader (YAML + ${VAR} interpolation) + ToolConfig schema
 ├── discovery/        # Phase 2: OpenAPI fetch/dereference, AttackSurface, seed generator
 ├── core/             # Shared infrastructure, zero test logic: client, context, evidence, dag,
-│                     #   gateway/ (BaseGatewayAdapter + Kong), models/, exceptions
+│                     #   gateway/ (BaseGatewayAdapter + Kong), models/, exceptions,
+│                     #   test_metadata (rules every test declaration must satisfy)
 ├── connectors/       # External tool wrappers, zero test logic (nuclei, testssl, sslyze)
 ├── external_tests/   # ExternalToolTest hierarchy, parallel to tests/ (NOT BaseTest subclasses)
 ├── tests/            # BaseTest, registry, helpers/, domain_0 … domain_7

@@ -232,7 +232,7 @@ true (`src/external_tests/registry.py`):
 
 | Situation | Result |
 |---|---|
-| Section absent, master switch `false`, or tool `enabled: false` | The tool's tests are **not scheduled**: they do not appear in the report at all (not even as SKIP). |
+| Section absent, master switch `false`, or tool `enabled: false` | The tool's tests are **not scheduled** (not a SKIP): they are listed in the report's `not_run` with reason `tool_disabled`. |
 | Tool enabled but binary/library not found | The tool's tests return **SKIP** with the reason. |
 | Tool enabled and available | The tests run; a tool failure or timeout returns **ERROR**. |
 

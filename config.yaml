@@ -661,7 +661,7 @@ external_tools:
   # Test: ext.1.5.testssl (ExtTest15TlsAnalysis in external_tests/ext_test_1_5_tls_analysis.py)
   # Oracle: CRITICAL/HIGH -> FAIL; MEDIUM/WARN -> PASS with note; empty -> PASS
   testssl:
-    # When false, ext.1.5.testssl is not scheduled and does not appear in the report.
+    # When false, ext.1.5.testssl is not scheduled: the report lists it in not_run (tool_disabled).
     enabled: true
 
     # Wall-clock timeout for a single testssl.sh execution (seconds).

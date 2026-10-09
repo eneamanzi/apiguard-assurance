@@ -11,6 +11,12 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
 ### Added
 
+- Every test of the tool is accounted for: `apiguard_report.json` has a `not_run` section (and
+  `executive_summary.not_run_count`) listing each test not executed, with a `reason` (`priority`, `strategy`,
+  `not_in_test_ids`, `tool_disabled`, `fail_fast`) and a `detail`; the HTML report a "Not Run" section and card; the
+  log `pipeline_tests_not_run` the counts. Before, a test excluded by the selection or stopped by fail-fast was
+  absent without trace. With the external tools master switch off, their tests are now scanned and listed as
+  `tool_disabled`.
 - Progress during a run: each test's start line shows its position (`progress=5/18`) and, for an external test,
   the tool's `timeout_seconds`; nuclei and testssl.sh log `external_tool_still_running` every 10 seconds.
 - `--env-file PATH` for `run` and `validate-config`: load the environment variables from that file instead of `.env`

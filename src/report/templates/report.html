@@ -1610,6 +1610,11 @@
           <div class="stat-label">Skipped</div>
           <div class="stat-sublabel">Not executed (precondition unmet)</div>
         </div>
+        <div class="stat-card stat-neutral">
+          <div class="stat-value">{{ report.executive_summary.not_run_count }}</div>
+          <div class="stat-label">Not Run</div>
+          <div class="stat-sublabel">Not selected or stopped (not a SKIP)</div>
+        </div>
       </div>
     </section>
 
@@ -2012,6 +2017,44 @@
       </p>
     </section>
     {% endfor %}
+
+    <!-- NOT RUN: tests of the tool not executed in this run, with the reason -->
+    <section class="section" id="not-run-section">
+      <div class="section-header">
+        <h2>Not Run ({{ report.not_run | length }})</h2>
+      </div>
+      {% if report.not_run %}
+      <p style="color:var(--color-muted);padding:0 0 0.75rem;">
+        Tests of the tool that this run did not execute: excluded by the selection
+        (priority, strategy, test_ids, disabled tool) or stopped by fail-fast.
+        They are not SKIPs: a SKIP was selected but missed a precondition.
+      </p>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Test</th>
+              <th>Reason</th>
+              <th>Detail</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for entry in report.not_run %}
+            <tr>
+              <td><code>{{ entry.test_id }}</code></td>
+              <td>{{ entry.test_name }}</td>
+              <td><code>{{ entry.reason.value }}</code></td>
+              <td>{{ entry.detail }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p style="color:var(--color-muted);padding:1rem 0;">Every test of the tool was run.</p>
+      {% endif %}
+    </section>
 
     <!-- FOOTER -->
     <footer class="page-footer">

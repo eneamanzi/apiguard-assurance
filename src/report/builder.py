@@ -41,6 +41,7 @@ from src.core.models import (
     ExitCode,
     Finding,
     InfoNote,
+    NotRunEntry,
     ResultSet,
     TestStatus,
     TransactionSummary,
@@ -250,6 +251,10 @@ class ExecutiveSummary(BaseModel):
     fail_count: Annotated[int, Field(ge=0)] = Field(default=0)
     skip_count: Annotated[int, Field(ge=0)] = Field(default=0)
     error_count: Annotated[int, Field(ge=0)] = Field(default=0)
+    not_run_count: Annotated[int, Field(ge=0)] = Field(
+        default=0,
+        description="Number of tests of the tool not executed in this run (see not_run).",
+    )
     total_finding_count: Annotated[int, Field(ge=0)] = Field(
         description="Total number of Finding objects across all FAIL results.",
         default=0,
@@ -308,6 +313,12 @@ class ReportData(BaseModel):
     all_rows: list[TestResultRow] = Field(
         description="Flat list of all TestResultRow objects, ordered by test_id. "
         "Used for the full results table in the report appendix."
+    )
+    not_run: list[NotRunEntry] = Field(
+        default_factory=list,
+        description="Tests of the tool not executed in this run, with the reason "
+        "(priority, strategy, not_in_test_ids, tool_disabled, fail_fast), ordered by "
+        "test_id. all_rows + not_run = every test of the tool.",
     )
 
 
@@ -408,6 +419,7 @@ def build_report_data(
         executive_summary=executive_summary,
         domains=domains,
         all_rows=all_rows,
+        not_run=list(result_set.not_run),
     )
 
     log.info(
@@ -574,6 +586,7 @@ def _build_executive_summary(
         fail_count=result_set.fail_count,
         skip_count=result_set.skip_count,
         error_count=result_set.error_count,
+        not_run_count=len(result_set.not_run),
         total_finding_count=total_findings,
         exit_code=exit_code,
         exit_code_label=_EXIT_CODE_LABELS.get(exit_code, f"Exit code {exit_code}"),

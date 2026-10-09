@@ -19,13 +19,13 @@ need to know the internal package layout.
 
 Symbol inventory by source module:
 
-    enums.py           TestStatus, TestStrategy, SpecDialect, ExitCode
+    enums.py           TestStatus, TestStrategy, SpecDialect, ExitCode, NotRunReason
 
     http.py            EvidenceRecord, TransactionSummary
 
     surface.py         ParameterInfo, EndpointRecord, AttackSurface
 
-    results.py         Finding, InfoNote, TestResult, ResultSet
+    results.py         Finding, InfoNote, TestResult, ResultSet, NotRunEntry
 
     runtime.py         RuntimeCredentials
                        (per-test parameters: src/test_config/)
@@ -36,7 +36,7 @@ Symbol inventory by source module:
 
 from __future__ import annotations
 
-from src.core.models.enums import ExitCode, SpecDialect, TestStatus, TestStrategy
+from src.core.models.enums import ExitCode, NotRunReason, SpecDialect, TestStatus, TestStrategy
 from src.core.models.external_tools import (
     BaseExternalToolConfig,
     ExternalToolsConfig,
@@ -44,7 +44,7 @@ from src.core.models.external_tools import (
     TestsslConfig,
 )
 from src.core.models.http import EvidenceRecord, TransactionSummary
-from src.core.models.results import Finding, InfoNote, ResultSet, TestResult
+from src.core.models.results import Finding, InfoNote, NotRunEntry, ResultSet, TestResult
 from src.core.models.runtime import RuntimeCredentials
 from src.core.models.surface import AttackSurface, EndpointRecord, ParameterInfo
 
@@ -54,6 +54,7 @@ __all__ = [
     "TestStrategy",
     "SpecDialect",
     "ExitCode",
+    "NotRunReason",
     # http.py
     "EvidenceRecord",
     "TransactionSummary",
@@ -66,6 +67,7 @@ __all__ = [
     "InfoNote",
     "TestResult",
     "ResultSet",
+    "NotRunEntry",
     # runtime.py
     "RuntimeCredentials",
     # external_tools.py

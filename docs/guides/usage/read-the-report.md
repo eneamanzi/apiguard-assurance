@@ -57,7 +57,8 @@ jq -r '.all_rows[] | "\(.test_id)\t\(.status)\t\(.finding_count)\t\(.message)"' 
 | `SKIP` | a precondition was missing; `skip_reason` says which | not a pass: provide the precondition or accept the gap |
 | `ERROR` | the check did not complete; the message says why | fix the cause (URL, credentials, tool) and run again |
 
-A test filtered out by the [selection](select-tests.md) does not appear at all.
+A test excluded by the [selection](select-tests.md) or stopped by fail-fast is not a result: it is listed in
+`not_run` (HTML: "Not Run" section) with the reason.
 
 Each test can also carry **InfoNotes** (`notes`): context that is not a violation, such as a sub-check that could
 not run or something to verify by hand. Read them for PASS results too.

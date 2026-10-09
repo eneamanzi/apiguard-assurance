@@ -23,7 +23,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from src.core.models.enums import ExitCode, TestStatus
+from src.core.models.enums import ExitCode, NotRunReason, TestStatus
 from src.core.models.http import TransactionSummary
 
 # ---------------------------------------------------------------------------
@@ -348,6 +348,31 @@ class TestResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# NotRunEntry — a test of the tool that the run did not execute
+# ---------------------------------------------------------------------------
+
+
+class NotRunEntry(BaseModel):
+    """
+    A test of the tool that was not executed in this run, and why.
+
+    Built by the registries (filters) and by the engine (fail-fast). With the
+    TestResults of the run, it accounts for every test of the tool: executed
+    + not run = all tests.
+    """
+
+    model_config = {"frozen": True}
+
+    test_id: str = Field(description="ID of the test not executed.")
+    test_name: str = Field(description="Human-readable name of the test.")
+    source: Literal["native", "external"] = Field(description="Origin of the test.")
+    reason: NotRunReason = Field(description="Why it was not executed (closed list).")
+    detail: str = Field(
+        description="The values that excluded it, e.g. the priority and min_priority."
+    )
+
+
+# ---------------------------------------------------------------------------
 # ResultSet — ordered collection of all TestResult for one pipeline run
 # ---------------------------------------------------------------------------
 
@@ -371,6 +396,13 @@ class ResultSet(BaseModel):
     completed_at: datetime | None = Field(
         default=None,
         description="UTC timestamp when Phase 5 finished; None while still in progress.",
+    )
+    not_run: list[NotRunEntry] = Field(
+        default_factory=list,
+        description=(
+            "Tests of the tool not executed in this run, with the reason "
+            "(filters from Phase 4, fail-fast from Phase 5), sorted by test_id."
+        ),
     )
 
     def add_result(self, result: TestResult) -> None:

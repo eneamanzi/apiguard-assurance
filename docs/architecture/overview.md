@@ -82,6 +82,7 @@ src/
 │   ├── evidence.py     EvidenceStore (streaming JSONL, merged in Phase 7)
 │   ├── dag.py          DAGScheduler
 │   ├── gateway/        BaseGatewayAdapter + KongGatewayAdapter
+│   ├── test_metadata.py Rules of a test declaration (ID formats, priority and domain ranges)
 │   └── exceptions.py   Exception hierarchy
 ├── connectors/         Wrappers around external tools (nuclei, testssl.sh, sslyze)
 ├── tests/              Native tests (domain_0 … domain_7), helpers/, data/ (payloads, wordlists)
@@ -93,17 +94,19 @@ src/
 Actual import graph (computed from the source):
 
 ```
-cli            -> config, core/exceptions, discovery, engine
-engine         -> config, core/*, discovery, external_tests, report, test_config, tests
-config         -> core/exceptions, core/models, test_config
-discovery      -> core/exceptions, core/models
-tests          -> core/client, core/context, core/evidence, core/exceptions, core/gateway, core/models, test_config
-external_tests -> connectors, core/context, core/evidence, core/exceptions, core/models
-connectors     -> core/exceptions
-report         -> config, core/models
-core/gateway   -> core/exceptions
-core/context   -> test_config (only to type TargetContext.tests_config)
-test_config    -> nothing from src/
+cli                -> config, core/exceptions, core/models, discovery, engine
+engine             -> config, core/*, discovery, external_tests, report, test_config, tests
+config             -> core/exceptions, core/models, core/test_metadata, test_config
+discovery          -> core/exceptions, core/models
+tests              -> core/client, core/context, core/evidence, core/exceptions, core/gateway, core/models,
+                      core/test_metadata, test_config
+external_tests     -> connectors, core/context, core/evidence, core/exceptions, core/models, core/test_metadata
+connectors         -> core/exceptions
+report             -> config, core/models
+core/gateway       -> core/exceptions
+core/context       -> core/gateway, core/models, test_config (only to type TargetContext.tests_config)
+core/test_metadata -> core/models
+test_config        -> nothing from src/
 ```
 
 Rules that hold today: nothing imports `engine`; `test_config/` is the lowest layer and imports nothing from

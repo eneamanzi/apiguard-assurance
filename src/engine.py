@@ -95,6 +95,8 @@ from src.core.gateway.kong import KongGatewayAdapter
 from src.core.models import (
     AttackSurface,
     ExitCode,
+    NotRunEntry,
+    NotRunReason,
     ResultSet,
     RuntimeCredentials,
     TestResult,
@@ -283,9 +285,9 @@ class AssessmentEngine:
             config=config,
             attack_surface=attack_surface,
         )
-        scheduled_batches, active_tests = self._phase_4_discover_and_schedule(config)
+        scheduled_batches, active_tests, not_run = self._phase_4_discover_and_schedule(config)
 
-        result_set = ResultSet()
+        result_set = ResultSet(not_run=not_run)
 
         with SecurityClient(
             base_url=target.endpoint_base_url(),
@@ -325,6 +327,14 @@ class AssessmentEngine:
                 )
 
         result_set.completed_at = datetime.now(UTC)
+        not_run_by_reason: dict[str, int] = {}
+        for entry in result_set.not_run:
+            not_run_by_reason[entry.reason.value] = not_run_by_reason.get(entry.reason.value, 0) + 1
+        log.info(
+            "pipeline_tests_not_run",
+            not_run_count=len(result_set.not_run),
+            by_reason=not_run_by_reason,
+        )
 
         self._phase_7_report(
             result_set=result_set,
@@ -522,9 +532,12 @@ class AssessmentEngine:
     def _phase_4_discover_and_schedule(
         self,
         config: ToolConfig,
-    ) -> tuple[list[ScheduledBatch], list[BaseTest | ExternalToolTest]]:
+    ) -> tuple[list[ScheduledBatch], list[BaseTest | ExternalToolTest], list[NotRunEntry]]:
         """
         Discover active tests (native + external) and build the topological schedule.
+
+        Also returns the tests excluded by the filters, with the reason
+        (NotRunEntry, from both registries), for the report section not_run.
 
         Merges two independent discovery passes:
             1. TestRegistry         -> list[BaseTest]          (native Python tests)
@@ -545,7 +558,8 @@ class AssessmentEngine:
             of a disabled external tool still does not run.
 
         Returns:
-            Tuple of (list[ScheduledBatch], combined list BaseTest | ExternalToolTest).
+            Tuple of (list[ScheduledBatch], combined list BaseTest | ExternalToolTest,
+            tests excluded by the filters sorted by test_id).
 
         Raises:
             DAGCycleError: If a circular dependency is detected.
@@ -581,6 +595,7 @@ class AssessmentEngine:
 
         # --- Merge both lists ---
         all_tests: list[BaseTest | ExternalToolTest] = [*native_tests, *external_tests]
+        not_run = sorted([*registry.not_run, *ext_registry.not_run], key=lambda e: e.test_id)
 
         # A run that checks nothing must not end CLEAN (exit 0): stop with
         # INFRASTRUCTURE (no verdict). With test_ids every entry was already
@@ -619,7 +634,7 @@ class AssessmentEngine:
             total_scheduled=total_scheduled,
         )
 
-        return scheduled_batches, all_tests
+        return scheduled_batches, all_tests, not_run
 
     # ------------------------------------------------------------------
     # Phase 5 -- Execution
@@ -656,6 +671,7 @@ class AssessmentEngine:
             t.__class__.test_id: t for t in active_tests
         }
         fail_fast_triggered = False
+        fail_fast_result: TestResult | None = None
         # Position of the test in the run, logged as "<position>/<total>".
         position = 0
         total = len(active_tests)
@@ -706,13 +722,21 @@ class AssessmentEngine:
                         result=result,
                         test=test,
                     )
+                    if fail_fast_triggered:
+                        fail_fast_result = result
 
             log.debug(
                 "pipeline_phase_5_batch_completed",
                 batch_index=batch.batch_index,
             )
 
-        if fail_fast_triggered:
+        if fail_fast_result is not None:
+            self._record_fail_fast_not_run(
+                scheduled_batches=scheduled_batches,
+                test_lookup=test_lookup,
+                result_set=result_set,
+                trigger=fail_fast_result,
+            )
             log.warning(
                 "pipeline_phase_5_fail_fast_triggered",
                 results_recorded=result_set.total_count,
@@ -750,6 +774,44 @@ class AssessmentEngine:
         tool_config = getattr(config.external_tools, str(getattr(test, "tool_name", "")), None)
         timeout: int | None = getattr(tool_config, "timeout_seconds", None)
         return timeout
+
+    @staticmethod
+    def _record_fail_fast_not_run(
+        scheduled_batches: list[ScheduledBatch],
+        test_lookup: dict[str, BaseTest | ExternalToolTest],
+        result_set: ResultSet,
+        trigger: TestResult,
+    ) -> None:
+        """
+        Add the scheduled tests that fail-fast prevented from running to not_run.
+
+        Args:
+            scheduled_batches: The Phase 4 schedule.
+            test_lookup:       test_id -> test instance.
+            result_set:        The run's results (not_run is extended and re-sorted).
+            trigger:           The result that triggered fail-fast.
+        """
+        executed = {r.test_id for r in result_set.results}
+        detail = (
+            f"execution.fail_fast: the run stopped after {trigger.test_id} "
+            f"returned {trigger.status.value}"
+        )
+        for batch in scheduled_batches:
+            for test_id in batch.test_ids:
+                test = test_lookup.get(test_id)
+                if test is None or test_id in executed:
+                    continue
+                cls = test.__class__
+                result_set.not_run.append(
+                    NotRunEntry(
+                        test_id=test_id,
+                        test_name=cls.test_name,
+                        source=cls.source,
+                        reason=NotRunReason.FAIL_FAST,
+                        detail=detail,
+                    )
+                )
+        result_set.not_run.sort(key=lambda e: e.test_id)
 
     def _execute_single_test(
         self,

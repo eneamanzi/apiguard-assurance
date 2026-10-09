@@ -3,7 +3,7 @@ src/core/models/enums.py
 
 Shared enumerations for the APIGuard Assurance tool.
 
-TestStatus, TestStrategy and SpecDialect inherit from StrEnum so their
+TestStatus, TestStrategy, SpecDialect and NotRunReason inherit from StrEnum so their
 values serialize natively to JSON strings without extra configuration.
 ExitCode inherits from IntEnum: its values are process exit codes.
 
@@ -62,6 +62,29 @@ class ExitCode(IntEnum):
     USAGE = 2
     ERROR = 3
     INFRASTRUCTURE = 10
+
+
+class NotRunReason(StrEnum):
+    """
+    Why a test of the tool was not executed in a run (report section not_run).
+
+    A test that is not run is not a SKIP: SKIP means selected but something
+    was missing; these are deliberate exclusions or a stop of the run.
+
+        PRIORITY        -- its priority is above execution.min_priority.
+        STRATEGY        -- its strategy is not in execution.strategies.
+        NOT_IN_TEST_IDS -- execution.test_ids is set and does not list it.
+        TOOL_DISABLED   -- an external test whose tool is disabled
+                           (external_tools.enabled or the per-tool switch).
+        FAIL_FAST       -- selected, but the run stopped earlier because of
+                           execution.fail_fast.
+    """
+
+    PRIORITY = "priority"
+    STRATEGY = "strategy"
+    NOT_IN_TEST_IDS = "not_in_test_ids"
+    TOOL_DISABLED = "tool_disabled"
+    FAIL_FAST = "fail_fast"
 
 
 class TestStrategy(StrEnum):

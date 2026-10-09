@@ -63,7 +63,7 @@ class BaseExternalToolConfig(BaseModel):
         description=(
             "Enable this tool connector.  When True, timeout_seconds is "
             "mandatory.  When False, the tests for this tool are not scheduled "
-            "and do not appear in the report (no binary discovery)."
+            "(no binary discovery); the report lists them in not_run (tool_disabled)."
         ),
     )
     timeout_seconds: int | None = Field(
@@ -244,7 +244,8 @@ class ExternalToolsConfig(BaseModel):
     If the section is absent, all fields use their defaults (all disabled).
 
     Master switch semantics:
-        enabled=False  -> no external test is scheduled (absent from the report).
+        enabled=False  -> no external test is scheduled (listed in the report's
+                          not_run as tool_disabled).
         enabled=True   -> per-tool ``enabled`` fields are evaluated individually.
     """
 

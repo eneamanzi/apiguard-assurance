@@ -42,7 +42,8 @@ seconds after SIGTERM by default; teardown took about half a second on the lab. 
 
 **Fail-fast:** with `execution.fail_fast: true`, the run stops after the first P0 test that returns FAIL **or
 ERROR**. Teardown and report generation still run; the exit code follows the precedence rule on the results
-collected so far. Tests that had not started are absent from the report - they are not recorded as SKIP.
+collected so far. Tests that had not started are listed in the report's `not_run` with reason `fail_fast` - they
+are not recorded as SKIP.
 
 ## Other commands
 

@@ -90,19 +90,7 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Evidence (2026-10-06, first superficial pass): only `apiguard_report.json` has a version (`output_schema_version: "1.0"`, policy in `src/report/builder.py:322-327`); `evidence.json`, exit codes, `config.yaml`, CLI have none. Known defects whose fix changes what an integrator sees: Q-20 (usage errors exit 2), Q-22 (unknown config keys ignored), Q-23 (`generated_at_utc` not UTC), Q-45 (`test_ids` selection), Q-50 (findings without `evidence_ref`); Q-31 may change the report too (Q-47 closed on 2026-10-07 without report change).
 - Draft only, NOT decided (to be reviewed in depth in group 3.D): stable interfaces = exit codes, report JSON, `evidence.json` (add a version field), CLI commands and options, documented `config.yaml` keys; not contract = log events, Python modules, message texts, `oracle_state` values; signalling = per-file format version (major = breaking), "Breaking changes" section in `CHANGELOG.md`, semver from 1.0.0; fix the defects above together, then declare 1.0.0.
 - Owner decision (2026-10-06): not settled now. The question touches code that belongs to the code phase; it was only looked at superficially. Moved to 3.D as the first block of the code phase ("contract 1.0"), to be reviewed in depth there, after the 3.C decisions that may change the report (Q-31; Q-47 closed without change).
-- Note (owner, 2026-10-08): `output_schema_version: "1.0"` was set arbitrarily; the versioning can start from scratch at 1.0. Report format changes collected during block 5, to be versioned once in group 4: `executive_summary.exit_code` ERROR value `2` → `3` (Q-20); `generated_at_utc` now UTC (Q-23); `strategy` of 1.4, 1.5, 1.6, 6.2, `ext.1.5.testssl`, `ext.1.5.sslyze` (Q-10).
-- Resolution:
-
-### Q-26 - Schema descriptions say "SKIP" for disabled external tools; the registry excludes them
-- Status: descriptions fixed (2026-10-07, block 2); "not run by choice" list pending (contract 1.0 block)
-- Source: `src/core/models/external_tools.py` (`enabled` description: "When False, all tests for this tool return SKIP"), `ToolConfig.external_tools` description in `src/config/schema/tool_config.py`; actual behaviour in `src/external_tests/registry.py:88-104, 405-440` (master switch → `[]`; per-tool disabled → filtered out). Consistent with `outputs/crapi/` (no `external_tools` section → no `ext.*` rows).
-- Question: Fix the descriptions (code comments) or change behaviour so that disabled tools appear as SKIP in the report (visible coverage gap)? Docs describe the actual behaviour.
-- How to verify: decision with user.
-- Evidence (2026-10-07): the descriptions still say SKIP (`src/core/models/external_tools.py:64`, `:257`; `src/config/schema/tool_config.py:863`); the registry excludes the tests; `docs/reference/configuration.md` already describes the real behaviour.
-- Decision (owner, 2026-10-07): keep the rule "absent = not selected (operator's choice: priority, strategy, `test_ids`, tool disabled); SKIP = selected but something is missing (credentials, Admin API, tool not installed)". SKIP must never be used for a deliberate exclusion. Disabled tools stay absent; fix the three descriptions (cleanup block).
-- Also agreed (to evaluate in the contract 1.0 block): make deliberate exclusions visible, listing every test not run by choice, native and external, with the reason, separately from the SKIPs, in **every** output (HTML report, `apiguard_report.json`, console summary, and any other artefact), not only in the HTML report.
-- Done (2026-10-07, block 2): the three descriptions now say that disabled tools are not scheduled and do not appear in the report (`src/core/models/external_tools.py`, `src/config/schema/tool_config.py`, which also listed "ffuf" instead of sslyze).
-- Also agreed (owner, 2026-10-08, from Q-44): on an interruption (Ctrl+C, SIGTERM, or an unplanned crash) write a partial report with the tests completed so far, marked as interrupted, and list the tests not run with the reason "interrupted"; design it together with the "not run by choice" list.
+- Note (owner, 2026-10-08): `output_schema_version: "1.0"` was set arbitrarily; the versioning can start from scratch at 1.0. Report format changes collected during block 5, to be versioned once in group 4: `executive_summary.exit_code` ERROR value `2` → `3` (Q-20); `generated_at_utc` now UTC (Q-23); `strategy` of 1.4, 1.5, 1.6, 6.2, `ext.1.5.testssl`, `ext.1.5.sslyze` (Q-10); new `not_run` section and `executive_summary.not_run_count` (Q-26).
 - Resolution:
 
 ### Q-29 - Lenient or weak oracles
@@ -264,5 +252,12 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Evidence (2026-10-09, lab, after Q-10): `strategies: [WHITE_BOX]` runs 1.4 without 1.1 (BLACK_BOX), `[GREY_BOX]` runs 2.1 without 1.1: both PASS, as in the baseline; the log shows `dag_dependency_removed_not_active missing_dependency=1.1`. With Q-10 tests that depend on each other can belong to different strategies, so the case is more frequent.
 - Question: what is the rule? Options to evaluate: keep running and state it in the report (the result was obtained without its prerequisite); add the prerequisite to the run automatically; SKIP the dependent test with the reason; distinguish an ordering dependency from a data dependency (a test that needs another's output). Related: Q-26 (tests not run and why).
 - How to verify: decision with the owner; then the cases above on the lab.
+- Resolution:
+
+### Q-62 - Partial report when a run is interrupted (future improvement)
+- Status: deferred (owner, 2026-10-09): useful, not essential for 1.0; adding it later breaks no integrator (new optional field, new behaviour in a case that today writes no report)
+- Source: Q-44 and Q-26 discussions. Today an interruption during Phase 5 (Ctrl+C, SIGTERM, an unexpected engine error) runs teardown and writes no report: the results of the tests already finished are lost.
+- Design sketched (2026-10-08/09): after teardown, write the reports with the finished tests, list the remaining ones in `not_run` with `reason: "interrupted"`, add `interruption: {cause: SIGINT|SIGTERM|error, detail}` (null on a complete run), `exit_code` in the report = the process exit code (130, 143, 10), a visible banner in the HTML report. Not when the interruption comes before Phase 5 or during Phase 7. Timing on the lab: teardown about 1.2 s, report writing about 0.15 s, within the 10 s that `docker stop` leaves before SIGKILL.
+- Value: FAIL findings already found stay valid and actionable; an integrator that stops the tool on a timeout would receive what was verified.
 - Resolution:
 

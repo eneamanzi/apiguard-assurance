@@ -30,6 +30,7 @@ renamed fields, the **minor** for added optional fields. Check the major before 
 | `executive_summary` | object | [`ExecutiveSummary`](#executivesummary). |
 | `domains` | array | [`DomainSummary`](#domainsummary), ordered by domain; domains without active tests are omitted. |
 | `all_rows` | array | Every [`TestResultRow`](#testresultrow), ordered by `test_id`. |
+| `not_run` | array | Every [`NotRunEntry`](#notrunentry): the tests of the tool not executed in this run, ordered by `test_id`. `all_rows` + `not_run` = every test of the tool. |
 
 The same `TestResultRow` objects appear both in `domains[].rows` and in `all_rows`; read one or the other.
 
@@ -40,11 +41,24 @@ The same `TestResultRow` objects appear both in `domains[].rows` and in `all_row
 | `scheduled_tests` | int | PASS + FAIL + ERROR + SKIP. |
 | `executed_tests` | int | PASS + FAIL + ERROR (SKIP excluded). |
 | `pass_count`, `fail_count`, `skip_count`, `error_count` | int | Counts per status. |
+| `not_run_count` | int | Number of entries in `not_run`. |
 | `total_finding_count` | int | Findings across all FAIL results. |
 | `exit_code` | int | Same value as the process exit code. |
 | `exit_code_label` | string | `CLEAN — No violations detected`, `FAIL — At least one security guarantee violated`, `ERROR — At least one verification incomplete`. |
 | `pass_rate_pct` | float | `pass_count / executed_tests × 100`, one decimal; `0.0` when nothing executed. |
 | `assessment_duration_seconds` | float \| null | Wall-clock duration. |
+
+## `NotRunEntry`
+
+A test of the tool that the run did not execute. It is not a result: a SKIP was selected and missed a
+precondition, a not-run test was not selected or was stopped (`src/core/models/results.py`).
+
+| Field | Type | Description |
+|---|---|---|
+| `test_id`, `test_name` | string | The test. |
+| `source` | string | `native` or `external`. |
+| `reason` | string | `priority` (above `min_priority`), `strategy` (not in `strategies`), `not_in_test_ids` (`test_ids` set and not listing it), `tool_disabled` (external tool or master switch off), `fail_fast` (the run stopped earlier). |
+| `detail` | string | The values that excluded it, e.g. `priority P2 is above execution.min_priority (P1)`, `external_tools.enabled is false`, `execution.fail_fast: the run stopped after 0.1 returned FAIL`. |
 
 ## `DomainSummary`
 

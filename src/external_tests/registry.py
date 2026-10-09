@@ -9,11 +9,11 @@ the differences are:
 
     1. Scanned package: src.external_tests (not src.tests).
     2. Base class: ExternalToolTest (not BaseTest).
-    3. File naming convention: ext_test_<tool>_<description>.py
-       Example: ext_test_tls_enforcement.py, ext_test_shadow_api_ffuf.py.
-    4. Master-switch integration: ExternalToolsConfig.enabled is checked
-       BEFORE scanning.  If the master switch is off, discover() returns []
-       immediately without touching the filesystem.
+    3. File naming convention: ext_test_<D>_<N>_<description>.py
+       Example: ext_test_1_5_tls_analysis.py, ext_test_0_1_shadow_api_nuclei.py.
+    4. Master-switch integration: with ExternalToolsConfig.enabled False the
+       modules are still scanned (no tool is invoked), so that every external
+       test is listed in not_run as tool_disabled; none is scheduled.
 
 Naming convention (non-optional, enables discovery):
     src/external_tests/ext_test_<tool>_<description>.py
@@ -59,7 +59,7 @@ import structlog
 
 import src.external_tests as _ext_tests_pkg
 from src.core.exceptions import raise_for_test_definition_problems
-from src.core.models import TestStrategy
+from src.core.models import NotRunEntry, NotRunReason, TestStrategy
 from src.core.models.external_tools import ExternalToolsConfig
 from src.core.test_metadata import PRIVATE_CLASS_PREFIX, metadata_problems
 from src.external_tests.base import ExternalToolTest
@@ -94,10 +94,11 @@ class ExternalTestRegistry:
     combined list (native tests + external tests) to DAGScheduler for ordering.
 
     Master switch semantics:
-        If ExternalToolsConfig.enabled is False, discover() returns [] without
-        scanning the filesystem.  This is the intended behaviour for CI
-        environments where no external binaries are available: the engine sees
-        an empty list, no DAG nodes are added, no SKIPs are generated.
+        If ExternalToolsConfig.enabled is False, discover() returns [] and lists
+        every external test in self.not_run (tool_disabled). The modules are
+        imported but no tool is invoked (availability is checked only for the
+        scheduled tests, Phase R4), so this works where no external binary is
+        installed: no DAG nodes are added, no SKIPs are generated.
 
     Per-tool filtering:
         Even when the master switch is on, tests for a specific tool are
@@ -122,6 +123,11 @@ class ExternalTestRegistry:
         )
         # Merge with native_tests before passing to DAGScheduler
     """
+
+    def __init__(self) -> None:
+        """Start with an empty list of excluded tests (filled by discover())."""
+        # Tests excluded by the filters of the last discover(), with the reason.
+        self.not_run: list[NotRunEntry] = []
 
     def discover(
         self,
@@ -160,17 +166,16 @@ class ExternalTestRegistry:
             Sorted list of instantiated ExternalToolTest subclasses that passed
             all filters.  Empty list if master switch is off or no tests match.
         """
-        # --- Master switch: bail out immediately without scanning ---
+        # Master switch off: the tests are still scanned, so that they are
+        # listed in not_run (tool_disabled); none is scheduled (Filter 3).
         if not external_tools_config.enabled:
             log.info(
                 "external_test_registry_master_switch_off",
                 detail=(
                     "external_tools.enabled=false in config.yaml. "
-                    "All ExternalToolTest subclasses are excluded from this run. "
-                    "No filesystem scan will be performed."
+                    "All ExternalToolTest subclasses are excluded from this run."
                 ),
             )
-            return []
 
         log.info(
             "external_test_registry_discovery_started",
@@ -184,7 +189,8 @@ class ExternalTestRegistry:
         # Phase R2: extract concrete ExternalToolTest subclasses.
         all_tests = self._extract_concrete_subclasses(imported_modules)
 
-        # Phase R3: apply filters.
+        # Phase R3: apply filters (excluded tests go to self.not_run).
+        self.not_run = []
         active_tests = self._apply_filters(
             tests=all_tests,
             external_tools_config=external_tools_config,
@@ -434,46 +440,71 @@ class ExternalTestRegistry:
             # When allowed_ids is None, the priority filter applies normally.
             if allowed_ids is not None:
                 if test_id not in allowed_ids:
-                    log.debug(
-                        "external_test_registry_excluded_not_in_allowed_ids",
-                        test_id=test_id,
+                    self._exclude(
+                        test, NotRunReason.NOT_IN_TEST_IDS, "execution.test_ids does not list it"
                     )
                     continue
             else:
-                priority = int(getattr(cls, "priority", 0))
+                priority = cls.priority
                 if priority > min_priority:
-                    log.debug(
-                        "external_test_registry_excluded_priority",
-                        test_id=test_id,
-                        test_priority=priority,
-                        min_priority=min_priority,
+                    self._exclude(
+                        test,
+                        NotRunReason.PRIORITY,
+                        f"priority P{priority} is above execution.min_priority (P{min_priority})",
                     )
                     continue
                 strategy = cls.strategy
                 if strategy not in enabled_strategies:
-                    log.debug(
-                        "external_test_registry_excluded_strategy",
-                        test_id=test_id,
-                        strategy=str(strategy),
-                        enabled_strategies=sorted(s.value for s in enabled_strategies),
+                    self._exclude(
+                        test,
+                        NotRunReason.STRATEGY,
+                        f"strategy {strategy.value} is not in execution.strategies "
+                        f"({', '.join(sorted(s.value for s in enabled_strategies))})",
                     )
                     continue
 
             # --- Filter 3: per-tool enabled (ALWAYS applied) ---
             # This check is intentionally not bypassable via allowed_ids.
             # See docstring rationale above.
-            tool_name: str = str(getattr(cls, "tool_name", ""))
-            if tool_name and not external_tools_config.is_tool_enabled(tool_name):
-                log.debug(
-                    "external_test_registry_excluded_tool_disabled",
-                    test_id=test_id,
-                    tool_name=tool_name,
+            tool_name = cls.tool_name
+            if not external_tools_config.is_tool_enabled(tool_name):
+                switch = (
+                    f"external_tools.{tool_name}.enabled is false"
+                    if external_tools_config.enabled
+                    else "external_tools.enabled is false"
                 )
+                self._exclude(test, NotRunReason.TOOL_DISABLED, switch)
                 continue
 
             active.append(test)
 
         return active
+
+    def _exclude(self, test: ExternalToolTest, reason: NotRunReason, detail: str) -> None:
+        """
+        Record a test excluded by a filter in self.not_run.
+
+        Args:
+            test:   The excluded test.
+            reason: The filter that excluded it.
+            detail: The values that excluded it.
+        """
+        cls = test.__class__
+        self.not_run.append(
+            NotRunEntry(
+                test_id=cls.test_id,
+                test_name=cls.test_name,
+                source=cls.source,
+                reason=reason,
+                detail=detail,
+            )
+        )
+        log.debug(
+            "external_test_registry_excluded",
+            test_id=cls.test_id,
+            reason=reason.value,
+            detail=detail,
+        )
 
     # ------------------------------------------------------------------
     # Phase R4 -- Connector dependency injection (DA-2)

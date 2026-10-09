@@ -118,12 +118,15 @@ to `false` and keep the master switch on. A tool that is enabled but not install
 - **Dependencies.** 1.4 and 2.1 are declared to run after 1.1. If you select 1.4 or 2.1 without 1.1, the dependency
   is dropped with a warning and the test runs anyway.
 - **Stop at the first critical failure.** `execution.fail_fast: true` stops after the first P0 test that returns
-  FAIL or ERROR; the tests not yet run are missing from the report
+  FAIL or ERROR; the tests not yet run are listed in `not_run` with reason `fail_fast`
   ([exit codes](../../reference/exit-codes.md)).
 - **Misspelled keys stop the run.** `min_prioriti: 0` is rejected at startup (exit `10`) with the suggestion
   `did you mean 'min_priority'?`.
-- **Absent tests are not SKIP.** A test filtered out by the selection does not appear in the report at all. A SKIP
-  means the test was selected but a precondition was missing.
+- **Not run is not SKIP.** A test excluded by the selection is not executed and is listed in the report's
+  `not_run` section with the reason (`priority`, `strategy`, `not_in_test_ids`, `tool_disabled`, `fail_fast`) and
+  the values that excluded it; the HTML report shows it in the "Not Run" section and the console log in
+  `pipeline_tests_not_run`. A SKIP means the test was selected but a precondition was missing. Executed tests plus
+  not-run tests are always every test of the tool.
 
 ## See also
 

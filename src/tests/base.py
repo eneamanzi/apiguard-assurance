@@ -195,6 +195,9 @@ class BaseTest(ABC):
     tags: ClassVar[list[str]]
     cwe_id: ClassVar[str]
 
+    # --- Result origin -- fixed, must not be overridden (external: "external") ---
+    source: ClassVar[Literal["native", "external"]] = "native"
+
     def __init__(self) -> None:
         """
         Initialise the per-instance transaction log.
