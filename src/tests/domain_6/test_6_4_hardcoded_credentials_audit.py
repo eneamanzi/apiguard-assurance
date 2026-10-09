@@ -527,7 +527,7 @@ class Test64HardcodedCredentialsAudit(BaseTest):
                     is_fail=True,
                 )
                 for pattern_name, snippet in matched:
-                    log.warning(
+                    log.info(
                         "test_6_4_credential_pattern_matched",
                         path=path,
                         status_code=status,
@@ -641,7 +641,7 @@ class Test64HardcodedCredentialsAudit(BaseTest):
                 if url_value and isinstance(url_value, str):
                     matched = self._scan_text_for_credentials(url_value)
                     for pattern_name, snippet in matched:
-                        log.warning(
+                        log.info(
                             "test_6_4_credential_in_service_url",
                             service_name=svc_name,
                             pattern=pattern_name,
@@ -772,7 +772,7 @@ class Test64HardcodedCredentialsAudit(BaseTest):
                 # Strategy 1: known credential patterns (key-agnostic).
                 matched_patterns = self._scan_text_for_credentials(value)
                 for pattern_name, snippet in matched_patterns:
-                    log.warning(
+                    log.info(
                         "test_6_4_credential_pattern_in_plugin_config",
                         context_label=context_label,
                         key=key,
@@ -810,7 +810,7 @@ class Test64HardcodedCredentialsAudit(BaseTest):
                     and not is_placeholder
                     and not matched_patterns  # avoid duplicate finding for same value
                 ):
-                    log.warning(
+                    log.info(
                         "test_6_4_semantic_credential_key_in_plugin_config",
                         context_label=context_label,
                         key=key,

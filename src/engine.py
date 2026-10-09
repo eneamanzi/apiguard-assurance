@@ -74,9 +74,12 @@ from __future__ import annotations
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Protocol
 
 import structlog
+from pydantic import BaseModel, Field
 
+from src import __version__
 from src.config.loader import closest_match, load_config
 from src.config.schema import ToolConfig
 from src.core.client import SecurityClient
@@ -102,12 +105,13 @@ from src.core.models import (
     TestResult,
     TestStatus,
 )
+from src.core.redaction import SecretRegistry
 from src.core.test_metadata import is_external_test_id
 from src.discovery.openapi import load_openapi_spec
 from src.discovery.surface import build_attack_surface
 from src.external_tests.base import ExternalToolTest
 from src.external_tests.registry import ExternalTestRegistry
-from src.report.builder import build_report_data
+from src.report.builder import ReportData, build_report_data
 from src.report.renderer import render_html_report
 from src.test_config.runtime import RuntimeTestsConfig
 from src.tests.base import BaseTest
@@ -191,6 +195,55 @@ def check_tests(config: ToolConfig) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Run observer (progress for an interface such as the console)
+# ---------------------------------------------------------------------------
+
+
+class RunPlan(BaseModel):
+    """What a run is about to do: emitted once, after Phase 4."""
+
+    model_config = {"frozen": True}
+
+    target_url: str = Field(description="Base URL of the assessed API.")
+    spec_title: str = Field(description="Title of the OpenAPI specification.")
+    spec_version: str = Field(description="Version of the OpenAPI specification.")
+    endpoint_count: int = Field(description="Endpoints in the attack surface.")
+    selected_ids: list[str] = Field(description="IDs of the tests scheduled for execution.")
+    not_run: list[NotRunEntry] = Field(description="Tests not run, with the reason.")
+    min_priority: int = Field(description="execution.min_priority.")
+    strategies: list[str] = Field(description="execution.strategies.")
+    test_ids: list[str] = Field(description="execution.test_ids (empty: not set).")
+
+
+class RunObserver(Protocol):
+    """
+    Receives the progress of a run, for an interface (the console of the CLI).
+
+    The engine calls it at fixed points; it never changes what the run does.
+    """
+
+    def run_planned(self, plan: RunPlan) -> None:
+        """Phase 4 done: what will run and what will not."""
+
+    def test_started(
+        self, position: int, total: int, test_id: str, test_name: str, timeout_seconds: int | None
+    ) -> None:
+        """A test is about to execute (timeout_seconds: external tool limit, if any)."""
+
+    def test_finished(self, position: int, total: int, result: TestResult) -> None:
+        """A test has returned its result."""
+
+    def cleanup_started(self) -> None:
+        """Phase 6 starts (after the last test, or on an interruption)."""
+
+    def cleanup_finished(self, removed: int, failed: int) -> None:
+        """Phase 6 done: resources removed from the target, and failures."""
+
+    def run_finished(self, result_set: ResultSet, exit_code: int, report_paths: list[Path]) -> None:
+        """Phase 7 done: final results, exit code and the reports written."""
+
+
+# ---------------------------------------------------------------------------
 # AssessmentEngine
 # ---------------------------------------------------------------------------
 
@@ -209,7 +262,7 @@ class AssessmentEngine:
     risk contaminating results from a previous run.
     """
 
-    def __init__(self, config_path: Path) -> None:
+    def __init__(self, config_path: Path, observer: RunObserver | None = None) -> None:
         """
         Initialize the engine with the path to the configuration file.
 
@@ -218,9 +271,12 @@ class AssessmentEngine:
 
         Args:
             config_path: Path to the config.yaml file.
+            observer:    Receives the progress of the run (the console of the
+                         CLI), or None.
         """
         self._config_path: Path = config_path
         self._run_id: str = _generate_run_id()
+        self._observer: RunObserver | None = observer
 
         log.info(
             "assessment_engine_initialized",
@@ -286,6 +342,20 @@ class AssessmentEngine:
             attack_surface=attack_surface,
         )
         scheduled_batches, active_tests, not_run = self._phase_4_discover_and_schedule(config)
+        if self._observer is not None:
+            self._observer.run_planned(
+                RunPlan(
+                    target_url=str(config.target.base_url),
+                    spec_title=attack_surface.spec_title,
+                    spec_version=attack_surface.spec_version,
+                    endpoint_count=attack_surface.total_endpoint_count,
+                    selected_ids=sorted(t.__class__.test_id for t in active_tests),
+                    not_run=not_run,
+                    min_priority=config.execution.min_priority,
+                    strategies=[s.value for s in config.execution.strategies],
+                    test_ids=list(config.execution.test_ids),
+                )
+            )
 
         result_set = ResultSet(not_run=not_run)
 
@@ -295,6 +365,7 @@ class AssessmentEngine:
             read_timeout=config.execution.read_timeout,
             max_retry_attempts=config.execution.max_retry_attempts,
             verify_tls=config.target.verify_tls,
+            secrets=context.secrets,
         ) as client:
             # Phase 6 (teardown) MUST run even if Phase 5 is interrupted by
             # KeyboardInterrupt (Ctrl+C) or terminated by an unexpected
@@ -320,11 +391,15 @@ class AssessmentEngine:
                     config=config,
                 )
             finally:
-                self._phase_6_teardown(
+                if self._observer is not None:
+                    self._observer.cleanup_started()
+                removed, failed = self._phase_6_teardown(
                     context=context,
                     client=client,
                     target=target,
                 )
+                if self._observer is not None:
+                    self._observer.cleanup_finished(removed=removed, failed=failed)
 
         result_set.completed_at = datetime.now(UTC)
         not_run_by_reason: dict[str, int] = {}
@@ -341,9 +416,22 @@ class AssessmentEngine:
             store=store,
             config=config,
             attack_surface=attack_surface,
+            secrets=context.secrets,
         )
 
-        return result_set.compute_exit_code()
+        exit_code = result_set.compute_exit_code()
+        if self._observer is not None:
+            written = [
+                path
+                for path in (
+                    config.output.report_path,
+                    config.output.json_report_path,
+                    config.output.evidence_path,
+                )
+                if path.is_file()
+            ]
+            self._observer.run_finished(result_set, int(exit_code), written)
+        return exit_code
 
     # ------------------------------------------------------------------
     # Phase 1 -- Initialization
@@ -706,6 +794,15 @@ class AssessmentEngine:
                     continue
 
                 position += 1
+                timeout_seconds = self._external_timeout_seconds(test, config)
+                if self._observer is not None:
+                    self._observer.test_started(
+                        position,
+                        total,
+                        test_id,
+                        str(getattr(test, "test_name", "")),
+                        timeout_seconds,
+                    )
                 result = self._execute_single_test(
                     test=test,
                     target=target,
@@ -713,9 +810,11 @@ class AssessmentEngine:
                     client=client,
                     store=store,
                     progress=f"{position}/{total}",
-                    timeout_seconds=self._external_timeout_seconds(test, config),
+                    timeout_seconds=timeout_seconds,
                 )
                 result_set.add_result(result)
+                if self._observer is not None:
+                    self._observer.test_finished(position, total, result)
 
                 if config.execution.fail_fast:
                     fail_fast_triggered = self._check_fail_fast(
@@ -918,13 +1017,16 @@ class AssessmentEngine:
         context: TestContext,
         client: SecurityClient,
         target: TargetContext,
-    ) -> None:
+    ) -> tuple[int, int]:
         """
         Delete all resources registered during Phase 5 in LIFO order.
 
         Each DELETE request is attempted via SecurityClient. Failures are
         caught, logged as WARNING, and execution continues. A teardown failure
         does not affect the ResultSet or the exit code.
+
+        Returns:
+            (resources removed, resources whose removal failed).
         """
         log.info(
             "pipeline_phase_6_teardown_started",
@@ -935,7 +1037,7 @@ class AssessmentEngine:
 
         if not resources:
             log.info("pipeline_phase_6_teardown_completed_no_resources")
-            return
+            return 0, 0
 
         success_count = 0
         failure_count = 0
@@ -996,6 +1098,7 @@ class AssessmentEngine:
             success_count=success_count,
             failure_count=failure_count,
         )
+        return success_count, failure_count
 
     # ------------------------------------------------------------------
     # Phase 7 -- Report Generation
@@ -1007,9 +1110,14 @@ class AssessmentEngine:
         store: EvidenceStore,
         config: ToolConfig,
         attack_surface: AttackSurface,
+        secrets: SecretRegistry,
     ) -> None:
         """
         Serialize evidence and generate the HTML assessment report.
+
+        Every output is redacted with secrets (src/core/redaction.py): the
+        evidence file as it is written, the report data once, before both
+        the HTML and the JSON report are produced from it.
 
         Errors during report generation are logged as ERROR but do not
         change the exit code: assessment results are correct regardless of
@@ -1028,7 +1136,9 @@ class AssessmentEngine:
         )
 
         try:
-            records_written = store.merge_and_finalize(evidence_path)
+            records_written = store.merge_and_finalize(
+                evidence_path, tool_version=__version__, redact=secrets.redact
+            )
             log.info(
                 "pipeline_phase_7_evidence_serialized",
                 output_path=str(evidence_path),
@@ -1048,6 +1158,11 @@ class AssessmentEngine:
                 config=config,
                 spec_title=attack_surface.spec_title,
                 spec_version=attack_surface.spec_version,
+            )
+            # Secrets learned after their capture (e.g. a token in the
+            # response that creates it) are replaced in the whole report.
+            report_data = ReportData.model_validate_json(
+                secrets.redact(report_data.model_dump_json())
             )
         except Exception as exc:  # noqa: BLE001
             log.error(

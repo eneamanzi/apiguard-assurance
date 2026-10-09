@@ -174,6 +174,10 @@ _READ_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
 # Sending json={} ensures the auth layer fires before body validation.
 _WRITE_METHODS: frozenset[str] = frozenset({"POST", "PUT", "PATCH"})
 
+# Authorization value of the header-case sub-check: a fixed probe, not a
+# credential, kept in clear in the evidence (declared public, Q-31).
+_HEADER_CASE_PROBE_VALUE: str = "Bearer apiguard-case-probe"
+
 # ---------------------------------------------------------------------------
 # Path normalization variant acceptable codes for sub-check C.
 # ---------------------------------------------------------------------------
@@ -352,6 +356,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
                     seed=seed,
                     client=client,
                     store=store,
+                    context=context,
                 )
                 findings.extend(malformed_findings)
                 subcheck_bypass_count += len(malformed_findings)
@@ -375,6 +380,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
                     seed=seed,
                     client=client,
                     store=store,
+                    context=context,
                 )
                 findings.extend(header_case_findings)
                 subcheck_bypass_count += len(header_case_findings)
@@ -586,7 +592,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
 
         if probe_result is None:
             # Non-parametric DELETE: skip this probe entirely for safety.
-            log.warning(
+            log.info(
                 "test_1_1_probe_skipped_non_parametric_delete",
                 path=endpoint.path,
                 method=method,
@@ -634,7 +640,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
 
         # --- BYPASS: server returned data without requiring auth ---
         if status in _BYPASS_STATUS_CODES:
-            log.warning(
+            log.info(
                 "test_1_1_probe_bypass_detected",
                 path=resolved_path,
                 method=method,
@@ -691,7 +697,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
                 self._log_transaction(record, oracle_state="INCONCLUSIVE_PARAMETRIC")
                 return _OUTCOME_INCONCLUSIVE_PARAMETRIC, None
             else:
-                log.warning(
+                log.info(
                     "test_1_1_probe_tier_a_not_found",
                     path=resolved_path,
                     method=method,
@@ -750,6 +756,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
         seed: dict[str, str],
         client: SecurityClient,
         store: EvidenceStore,
+        context: TestContext,
     ) -> list[Finding]:
         """
         Send structurally invalid Authorization header values to the anchor endpoint.
@@ -789,6 +796,9 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
         base_kwargs: dict[str, Any] = {"json": {}} if method in _WRITE_METHODS else {}
 
         for token_value, token_label in MALFORMED_TOKENS:
+            # A fixed probe from the test data, not a secret: kept in clear in
+            # the evidence so that it shows which variant was sent (Q-31).
+            context.declare_public_value(token_value)
             try:
                 response, record = client.request(
                     method=method,
@@ -809,7 +819,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
                 continue
 
             if response.status_code in _BYPASS_STATUS_CODES:
-                log.warning(
+                log.info(
                     "test_1_1_malformed_token_bypass",
                     path=path,
                     method=method,
@@ -858,6 +868,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
         seed: dict[str, str],
         client: SecurityClient,
         store: EvidenceStore,
+        context: TestContext,
     ) -> list[Finding]:
         """
         Send the anchor endpoint requests with non-canonical Authorization header casing.
@@ -888,13 +899,14 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
             ("AuThOrIzAtIoN", "mixed-case header name"),
         )
 
+        context.declare_public_value(_HEADER_CASE_PROBE_VALUE)
         for header_name, variant_label in header_variants:
             try:
                 response, record = client.request(
                     method=method,
                     path=path,
                     test_id=self.test_id,
-                    headers={header_name: "Bearer apiguard-case-probe"},
+                    headers={header_name: _HEADER_CASE_PROBE_VALUE},
                     **base_kwargs,
                 )
             except Exception as exc:  # noqa: BLE001
@@ -909,7 +921,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
                 continue
 
             if response.status_code in _BYPASS_STATUS_CODES:
-                log.warning(
+                log.info(
                     "test_1_1_header_case_bypass",
                     path=path,
                     method=method,
@@ -927,7 +939,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
                         title="Auth enforcement bypassed via non-canonical header casing",
                         detail=(
                             f"{method} {path} with header "
-                            f"'{header_name}: Bearer apiguard-case-probe' "
+                            f"'{header_name}: {_HEADER_CASE_PROBE_VALUE}' "
                             f"({variant_label}) returned HTTP {response.status_code}. "
                             f"RFC 9110 requires HTTP header names to be treated as "
                             f"case-insensitive. The Gateway appears to perform auth "
@@ -1039,7 +1051,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
                 continue
 
             if status in _BYPASS_STATUS_CODES:
-                log.warning(
+                log.info(
                     "test_1_1_normalization_bypass",
                     base_path=base_path,
                     variant_path=variant_path,

@@ -44,10 +44,20 @@ zip -r apiguard-assurance.zip . -x "*.git/*" -x "*__pycache__*" -x "*.pyc" -x "*
 
 Start a local web server to view the HTML report via Port Forwarding:
 ```bash
-cd outputs
-python3 -m http.server 8080
+cd outputs && python3 -m http.server 8080    # Ctrl+C to stop, then: cd ..
 ```
-Open `http://localhost:8080` in your browser and click `assessment_report.html`. Press `Ctrl+C` to stop.
+Open `http://localhost:8080` in your browser and click `assessment_report.html`.
+
+If the page does not load:
+- look at the server terminal while reloading: a `"GET /... 200"` line means the request arrives (reload with
+  `Ctrl+Shift+R`); no line means the port forwarding is broken;
+- VS Code **PORTS** tab: right-click 8080 → **Stop Forwarding**, then **Forward a Port** → `8080`; check that the
+  "Forwarded Address" column says `localhost:8080` (if 8080 is busy on your computer VS Code picks another port);
+- or use another port: `python3 -m http.server 8090`;
+- "Address already in use": a server is still running in another terminal, stop it first.
+
+Without any server: Explorer → `outputs/assessment_report.html` → right-click → **Download...**, then open the
+file on your computer (the report is a single self-contained file).
 
 
 ## Environment Management (Hatch)
@@ -72,11 +82,47 @@ hatch run apiguard run -c config_crapi.yaml   # another configuration file
 
 Inside `hatch shell` drop the `hatch run` prefix.
 
+**How much to see** (the progress interface is always shown; `--log-level` adds the technical log below it; the
+value goes without dashes: `--log-level info`, not `--log-level --info`):
+```bash
+apiguard run                       # default (warning): one line per test, problems only, summary
+apiguard run --log-level info      # + steps of the run and every single test result
+apiguard run --log-level debug     # + every HTTP request, third-party logs, library warnings
+apiguard run --log-level error     # technical log: only failures of the tool
+apiguard run --no-banner           # without header and final summary
+apiguard run --log-format json --log-level info   # machine format: one JSON event per line, no interface
+```
+
+**Run only some tests** (fast checks, no full run): in a copy of `config.yaml` set
+```yaml
+execution:
+  test_ids: ["1.1", "7.2"]            # only these (native or ext.X.Y.tool)
+external_tools:
+  enabled: false                      # or keep true and list the ext.* IDs you want
+```
+then `apiguard run -c config.test.yaml`. Only native tests: `external_tools.enabled: false` with no `test_ids`.
+
+**Stopping a run:** `Ctrl+C` (or `kill <pid>`) removes what the tests created on the target, then exits; a second
+`Ctrl+C` only says to wait. Never `kill -9`: it leaves tokens and repositories on the target.
+
+**Check that the lab is clean** (after an interrupted run; only `user-a/test-repo` must remain):
+```bash
+set -a; . ./.env; set +a
+curl -s -u "$USER_A_USERNAME:$USER_A_PASSWORD" http://localhost:8000/api/v1/users/$USER_A_USERNAME/tokens
+curl -s -u "$USER_A_USERNAME:$USER_A_PASSWORD" http://localhost:8000/api/v1/user/repos | python3 -c "import json,sys; print([r['full_name'] for r in json.load(sys.stdin)])"
+```
+
+**Compare two runs** (development helper; tests, statuses, findings, oracle states, exit code):
+```bash
+cp outputs/apiguard_report.json /tmp/before.json      # before a change
+hatch run python scripts/compare_reports.py /tmp/before.json outputs/apiguard_report.json   # after
+```
+
 ### Other CLI commands
 
 ```bash
 apiguard version                              # Print the tool version and exit
-apiguard validate-config                      # Run only Phase 1 (config load + validation), exit 0 if OK / 10 if invalid
+apiguard validate-config                      # Phase 1 + test checks (config, test declarations, test_ids), exit 0 if OK / 10 if invalid
 apiguard validate-config -c config_crapi.yaml # Validate a non-default config
 
 apiguard generate-seed <openapi-spec-url>     # Generate a path_seed YAML template from an OpenAPI spec
@@ -91,7 +137,7 @@ assessment instead of generic placeholders.
 ### Exit codes
 
 `0` clean, `1` violation, `2` invalid invocation, `3` a check did not complete, `10` the assessment did not run,
-`130` interrupted.
+`130` interrupted (Ctrl+C), `143` terminated (SIGTERM).
 Details: [`reference/exit-codes.md`](../reference/exit-codes.md).
 
 

@@ -315,7 +315,7 @@ class Test42TimeoutConfigAudit(BaseTest):
                 )
                 if finding is not None:
                     findings.append(finding)
-                    log.warning(
+                    log.info(
                         "test_4_2_timeout_violation",
                         service_name=service_name,
                         field=field_name,

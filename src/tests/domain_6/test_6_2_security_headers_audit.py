@@ -411,7 +411,7 @@ class Test62SecurityHeadersAudit(BaseTest):
                     evidence_ref=record.record_id,
                 )
             )
-            log.warning(
+            log.info(
                 "test_6_2_missing_headers",
                 endpoint=endpoint.path,
                 missing=missing,
@@ -436,7 +436,7 @@ class Test62SecurityHeadersAudit(BaseTest):
                     evidence_ref=record.record_id,
                 )
             )
-            log.warning(
+            log.info(
                 "test_6_2_invalid_headers",
                 endpoint=endpoint.path,
                 invalid=invalid,
@@ -463,7 +463,7 @@ class Test62SecurityHeadersAudit(BaseTest):
                     evidence_ref=record.record_id,
                 )
             )
-            log.warning(
+            log.info(
                 "test_6_2_leaky_headers",
                 endpoint=endpoint.path,
                 leaky=leaky,
@@ -543,7 +543,7 @@ class Test62SecurityHeadersAudit(BaseTest):
                 if include_subdomains_present
                 else " The 'includeSubDomains' directive is also absent (best practice)."
             )
-            log.warning(
+            log.info(
                 "test_6_2_hsts_max_age_below_minimum",
                 endpoint=endpoint.path,
                 actual_max_age=actual_max_age,
@@ -645,7 +645,7 @@ class Test62SecurityHeadersAudit(BaseTest):
             "security header set regardless of authentication state or path."
         )
 
-        log.warning(
+        log.info(
             "test_6_2_consistency_mismatch",
             endpoint=endpoint.path,
             missing_vs_reference=missing_vs_reference,

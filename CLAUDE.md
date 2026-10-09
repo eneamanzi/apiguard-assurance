@@ -36,6 +36,7 @@ Forgejo or Kong are tracked in `OPEN_QUESTIONS.md` (Q-18, Q-38, Q-43).
 ```
 src/
 ├── cli.py            # Entry point (Typer): run, validate-config, generate-seed, version
+├── cli_console.py    # Console interface of `run` (engine RunObserver): test lines, summary
 ├── engine.py         # Orchestrator, the only module with full visibility
 ├── config/           # Phase 1: loader (YAML + ${VAR} interpolation) + ToolConfig schema
 ├── discovery/        # Phase 2: OpenAPI fetch/dereference, AttackSurface, seed generator

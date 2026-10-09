@@ -95,6 +95,9 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # Module-level constants
 # ---------------------------------------------------------------------------
 
+# Label of the generated webhook secret in the redacted evidence (Q-31).
+_WEBHOOK_SECRET_LABEL: str = "7.2 webhook secret"  # noqa: S105 -- a label, not a credential
+
 # Sentinel strings used in injection_body_template substitution.
 # The test substitutes these strings at runtime in the body template.
 _BODY_SENTINEL_SSRF_URL: str = "$SSRF_URL$"
@@ -377,6 +380,7 @@ class Test72SSRFPrevention(BaseTest):
                 cfg_body_template=dict(cfg.injection_body_template),
                 client=client,
                 store=store,
+                context=context,
             )
 
             # Sub-test G: open-redirect SSRF.
@@ -390,12 +394,13 @@ class Test72SSRFPrevention(BaseTest):
                 body_template=dict(cfg.injection_body_template),
                 client=client,
                 store=store,
+                context=context,
                 findings=findings,
                 timeout_notes=timeout_notes,
             )
             if findings:
                 finding_count = len(findings)
-                log.warning(
+                log.info(
                     "test_7_2_ssrf_vulnerabilities_found",
                     finding_count=finding_count,
                     timeout_note_count=len(timeout_notes),
@@ -482,6 +487,7 @@ class Test72SSRFPrevention(BaseTest):
         cfg_body_template: dict[str, object],
         client: SecurityClient,
         store: EvidenceStore,
+        context: TestContext,
     ) -> tuple[list[Finding], list[InfoNote]]:
         """
         Execute sub-tests A-F: inject each payload URL into the configured body template.
@@ -527,6 +533,7 @@ class Test72SSRFPrevention(BaseTest):
             webhook_body = self._build_webhook_body(
                 ssrf_url=entry.url,
                 body_template=cfg_body_template,
+                context=context,
             )
 
             try:
@@ -598,7 +605,7 @@ class Test72SSRFPrevention(BaseTest):
                         evidence_ref=record.record_id,
                     )
                 )
-                log.warning(
+                log.info(
                     "test_7_2_ssrf_url_accepted",
                     category=entry.category,
                     description=entry.description,
@@ -644,6 +651,7 @@ class Test72SSRFPrevention(BaseTest):
         body_template: dict[str, object],
         client: SecurityClient,
         store: EvidenceStore,
+        context: TestContext,
         findings: list[Finding],
         timeout_notes: list[InfoNote],
     ) -> bool | None:
@@ -686,6 +694,7 @@ class Test72SSRFPrevention(BaseTest):
         webhook_body = self._build_webhook_body(
             ssrf_url=redirect_server_url,
             body_template=body_template,
+            context=context,
         )
 
         try:
@@ -760,6 +769,7 @@ class Test72SSRFPrevention(BaseTest):
     def _build_webhook_body(
         ssrf_url: str,
         body_template: dict[str, object],
+        context: TestContext,
     ) -> dict[str, object]:
         """
         Construct the injection request body from the operator-configured template.
@@ -777,11 +787,14 @@ class Test72SSRFPrevention(BaseTest):
             body_template: Operator-configured body template from
                            cfg.injection_body_template.  Must contain
                            '$SSRF_URL$' at least once.
+            context:       The run's TestContext: the generated secret is
+                           registered there, so it is redacted in the evidence.
 
         Returns:
             Dict suitable for passing as the json= argument to client.request().
         """
         random_secret: str = secrets.token_hex(16)
+        context.register_secret(random_secret, _WEBHOOK_SECRET_LABEL)
         return Test72SSRFPrevention._substitute_sentinels(body_template, ssrf_url, random_secret)
 
     @staticmethod

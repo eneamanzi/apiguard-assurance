@@ -283,14 +283,11 @@ class ReportData(BaseModel):
 
     model_config = {"frozen": True}
 
-    output_schema_version: str = Field(
-        description="Version of the JSON output schema produced by this report builder. "
-        "Independent of the tool version and the OpenAPI spec version. "
-        "Bumped on any structural change to the JSON output."
-    )
     tool_version: str = Field(
-        description="Version of the APIGuard binary that produced this report "
-        "(read from package metadata at report-generation time)."
+        description="Version of the APIGuard binary that produced this report. The only "
+        "version of the output formats (docs/reference/compatibility.md): a breaking change "
+        "to this file raises its major (its minor before 1.0.0). Read from the package "
+        "metadata at report-generation time."
     )
     run_id: str = Field(description="Unique run identifier from the engine.")
     generated_at_utc: str = Field(
@@ -332,19 +329,6 @@ _EXIT_CODE_LABELS: dict[int, str] = {
     ExitCode.ERROR: "ERROR — At least one verification incomplete",
     ExitCode.INFRASTRUCTURE: "INFRASTRUCTURE ERROR — Assessment did not complete",
 }
-
-# Version of the JSON output schema produced by build_report_data().
-# This is INDEPENDENT of the tool version (src.__version__, read from
-# pyproject.toml) and the OpenAPI spec version (ReportData.spec_version):
-#   - tool_version          -- which APIGuard binary produced the report
-#   - spec_version          -- which version of the target API was assessed
-#   - output_schema_version -- which version of THIS JSON structure
-# Bump this when any field is added, removed, or has its semantics changed,
-# so downstream consumers (CI integrations, dashboards) can detect the
-# difference and adapt their parsing. Follows semver: major for breaking
-# changes (field removal/rename), minor for additive changes (new optional
-# field).
-_OUTPUT_SCHEMA_VERSION: str = "1.0"
 
 
 # ---------------------------------------------------------------------------
@@ -407,7 +391,6 @@ def build_report_data(
     from src import __version__ as _tool_version
 
     report_data = ReportData(
-        output_schema_version=_OUTPUT_SCHEMA_VERSION,
         tool_version=_tool_version,
         run_id=run_id,
         generated_at_utc=datetime.now(UTC).isoformat(),

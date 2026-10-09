@@ -570,7 +570,7 @@ class Test02DenyByDefault(BaseTest):
                         evidence_ref=record.record_id,
                     )
                 )
-                log.warning(
+                log.info(
                     "normalization_bypass_detected",
                     variant=variant_label,
                     path=variant_path,

@@ -184,7 +184,7 @@ class Test15InsecureCredentialTransport(BaseTest):
             # Sub-test 2 requires a TLS handshake to inspect and is skipped.
             # ----------------------------------------------------------------
             if not base_url.startswith("https://"):
-                log.warning(
+                log.info(
                     "test_1_5_target_is_plain_http",
                     base_url=base_url,
                     oracle=_STATE_HTTP_PORT_OPEN,
@@ -373,7 +373,7 @@ class Test15InsecureCredentialTransport(BaseTest):
             return None
 
         # Any other response means HTTP is accessible and not properly enforced.
-        log.warning(
+        log.info(
             "test_1_5_http_probe_port_open",
             oracle=_STATE_HTTP_PORT_OPEN,
             status_code=status_code,

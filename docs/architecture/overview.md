@@ -72,6 +72,7 @@ Phase 7 does not run after an interruption. Exit codes:
 ```
 src/
 ├── cli.py              Typer CLI: run, validate-config, generate-seed, version
+├── cli_console.py      Console interface of `run`: implements engine.RunObserver (test lines, summary)
 ├── engine.py           AssessmentEngine: orchestrates the seven phases
 ├── config/             Phase 1: loader + Pydantic schema of config.yaml (ToolConfig)
 ├── discovery/          Phase 2: spec loading, AttackSurface builder, path_seed generator
@@ -94,7 +95,8 @@ src/
 Actual import graph (computed from the source):
 
 ```
-cli                -> config, core/exceptions, core/models, discovery, engine
+cli                -> cli_console, config, connectors, core/exceptions, core/models, discovery, engine
+cli_console        -> connectors, core/models (engine for types only)
 engine             -> config, core/*, discovery, external_tests, report, test_config, tests
 config             -> core/exceptions, core/models, core/test_metadata, test_config
 discovery          -> core/exceptions, core/models

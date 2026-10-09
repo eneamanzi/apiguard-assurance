@@ -368,7 +368,9 @@ skips = ["B101", "B105", "B106"]
 [tool.vulture]
 min_confidence = 80
 paths = ["src"]
-ignore_names = ["execute", "model_*", "validator_*"]
+# "plan", "report_paths": parameters of RunObserver (src/engine.py), a Protocol whose
+# methods only declare the interface, so vulture sees them as unused.
+ignore_names = ["execute", "model_*", "validator_*", "plan", "report_paths"]
 
 # ---------------------------------------------------------------------------
 # Ruff: linting and formatting configuration.

@@ -492,7 +492,7 @@ class Test16SecureSessionManagement(BaseTest):
             else:
                 final_oracle = _STATE_COOKIE_SAMESITE_FAIL
             self._log_transaction(record, oracle_state=final_oracle, is_fail=True)
-            log.warning(
+            log.info(
                 "test_1_6_cookie_violations_found",
                 cookie_name=cookie_name,
                 finding_count=len(findings),

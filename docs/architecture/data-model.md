@@ -50,7 +50,8 @@ Invariants enforced by the model (`src/core/models/results.py`):
 | Response body | preview, 1,000 chars | up to 10,000 chars |
 | Extra | `oracle_state`, `is_fail_evidence` | full response headers |
 
-Both redact the `authorization` header (validator on `EvidenceRecord`; the summary is built from the record).
+Both carry the redacted values (`src/core/redaction.py`: at capture in `SecurityClient`, again in Phase 7; the
+`EvidenceRecord` validator replaces any raw `authorization`; the summary is built from the record).
 `record_id` links them. Field-level formats: [`reference/evidence-format.md`](../reference/evidence-format.md),
 [`reference/report-schema.md`](../reference/report-schema.md).
 
@@ -117,7 +118,7 @@ External-tool models still live in `src/core/models/external_tools.py`, re-expor
 
 `src/report/builder.py`: `ReportData` → `ExecutiveSummary`, `DomainSummary` (rows split into native and external),
 `TestResultRow` (a flattened `TestResult` plus `domain_name`, `priority_label`, external-tool artefact fields).
-`output_schema_version` versions this structure. Field reference:
+`tool_version` is the version of this structure (no separate format version, [compatibility](../reference/compatibility.md#interface-stability)). Field reference:
 [`reference/report-schema.md`](../reference/report-schema.md).
 
 ## Exported models

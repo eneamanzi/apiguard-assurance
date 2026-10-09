@@ -205,6 +205,14 @@ self._log_transaction(record, oracle_state=_STATE_RBAC_ENFORCED)
 Oracle-state labels are free strings in `SCREAMING_SNAKE_CASE`, defined as module constants and documented on the
 test page.
 
+**Secrets in the evidence** ([evidence format](../../reference/evidence-format.md#sensitive-data)): tokens stored with
+`context.set_token()` are redacted automatically. A secret the test creates or receives (a token it creates, a
+generated webhook secret, a Basic `Authorization` value) must be registered right away with
+`context.register_secret(value, label)`, before the request that sends it, with a label saying what it is (e.g.
+`"7.2 webhook secret"`); it is then replaced with `[REDACTED: <label>]` everywhere. A fixed probe value the test
+sends on purpose as `Authorization` (e.g. a malformed token) is not a secret: declare it with
+`context.declare_public_value(value)` and it stays readable as `[public probe] <value>`.
+
 **Attack surface** (`target.attack_surface`, check `_requires_attack_surface` first):
 `get_authenticated_endpoints()`, `get_public_endpoints()`, `get_deprecated_endpoints()`,
 `get_endpoints_by_method(method)`; each `EndpointRecord` has `path`, `method`, `requires_auth`, `is_deprecated`,

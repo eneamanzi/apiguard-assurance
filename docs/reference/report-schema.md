@@ -1,6 +1,6 @@
 # Report Schema (`apiguard_report.json`)
 
-> **Audience:** integrators · **Status:** stable (`output_schema_version` 1.0) · **Source of truth:**
+> **Audience:** integrators · **Status:** stable (contract: [compatibility](compatibility.md#interface-stability)) · **Source of truth:**
 > `src/report/builder.py` (`ReportData` and nested models), `src/core/models/results.py`,
 > `src/core/models/http.py` · **Verified:** 2026-10-05, v0.1.0 (models + real output of a Forgejo + Kong run)
 
@@ -11,16 +11,15 @@
 
 ## Versioning
 
-`output_schema_version` identifies the structure of this file, independently of `tool_version` and of the
-assessed API's version. Policy declared in `src/report/builder.py:322-327`: bump the **major** for removed or
-renamed fields, the **minor** for added optional fields. Check the major before parsing.
+The file has no format version of its own: `tool_version` is the version of the output formats, with the policy in
+[compatibility](compatibility.md#interface-stability) (a breaking change raises the major, the minor before
+1.0.0). Until 2026-10 the file also had `output_schema_version` (`"1.0"`, set arbitrarily); it was removed (Q-25).
 
 ## Top level - `ReportData`
 
 | Field | Type | Description |
 |---|---|---|
-| `output_schema_version` | string | Schema version, currently `"1.0"`. |
-| `tool_version` | string | APIGuard version that produced the report. |
+| `tool_version` | string | APIGuard version that produced the report: the version of this format ([versioning](#versioning)). |
 | `run_id` | string | `apiguard-YYYYMMDD-HHMMSS-ffffff`. |
 | `generated_at_utc` | string, ISO 8601 UTC | Generation time, UTC with `+00:00` offset (e.g. `2026-10-08T09:12:57.870747+00:00`), like `generated_at_utc` in `evidence.json`. The HTML report shows it in the reader's local time zone (UTC value in the tooltip). |
 | `target_base_url` | string | `target.base_url`. |
@@ -127,7 +126,7 @@ precondition, a not-run test was not selected or was stopped (`src/core/models/r
 | `record_id` | string | `{test_id}_{NNN}`; matches a record in `evidence.json` when `is_fail_evidence` is `true`. |
 | `timestamp_utc` | string, ISO 8601 UTC | Dispatch time. |
 | `request_method`, `request_url` | string | Request line. |
-| `request_headers` | object | Lowercase names; `authorization` is `[REDACTED]`. |
+| `request_headers` | object | Lowercase names; `authorization` and cookie values redacted with typed placeholders ([evidence format](evidence-format.md#sensitive-data)). |
 | `request_body` | string \| null | Truncated to 2,000 characters. |
 | `response_status_code` | int | HTTP status. |
 | `response_body_preview` | string \| null | Truncated to 1,000 characters. |
@@ -152,7 +151,6 @@ precondition, a not-run test was not selected or was stopped (`src/core/models/r
 
 ```json
 {
-  "output_schema_version": "1.0",
   "tool_version": "0.1.0",
   "run_id": "apiguard-20261005-150711-021280",
   "executive_summary": {

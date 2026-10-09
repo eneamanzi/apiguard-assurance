@@ -57,6 +57,13 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
+from src.core.redaction import (
+    AUTHORIZATION_HEADER,
+    PUBLIC_VALUE_PREFIX,
+    REDACTED_MARKER_PREFIX,
+    REDACTED_PLACEHOLDER,
+)
+
 # ---------------------------------------------------------------------------
 # EvidenceRecord — formal proof of security violations
 # ---------------------------------------------------------------------------
@@ -102,7 +109,10 @@ class EvidenceRecord(BaseModel):
     request_url: str = Field(description="Full URL. Must not embed credentials.")
     request_headers: dict[str, str] = Field(
         default_factory=dict,
-        description="Request headers (lowercase keys). Authorization always '[REDACTED]'.",
+        description=(
+            "Request headers (lowercase keys). Authorization, Cookie and secret values "
+            "replaced with typed placeholders (src/core/redaction.py)."
+        ),
     )
     request_body: str | None = Field(
         default=None,
@@ -147,14 +157,24 @@ class EvidenceRecord(BaseModel):
     def headers_must_be_lowercase(cls, value: Any) -> dict[str, str]:  # noqa: ANN401
         """
         Normalize header keys to lowercase per RFC 9110.
-        Redact the Authorization header value to '[REDACTED]'.
+
+        Safety net for the Authorization header: SecurityClient already stores
+        a typed placeholder ("[REDACTED: user_a token]", src/core/redaction.py)
+        or a declared public probe ("[public probe] Bearer null"); any other
+        value is replaced with the bare placeholder, so a credential can never
+        be stored even by a caller that bypasses the client.
         """
         if not isinstance(value, dict):
             return {}
         normalized: dict[str, str] = {}
         for key, val in value.items():
             lower_key = key.lower()
-            normalized[lower_key] = "[REDACTED]" if lower_key == "authorization" else str(val)
+            text = str(val)
+            if lower_key == AUTHORIZATION_HEADER and not text.startswith(
+                (REDACTED_MARKER_PREFIX, PUBLIC_VALUE_PREFIX)
+            ):
+                text = REDACTED_PLACEHOLDER
+            normalized[lower_key] = text
         return normalized
 
     @field_validator("response_body", mode="before")

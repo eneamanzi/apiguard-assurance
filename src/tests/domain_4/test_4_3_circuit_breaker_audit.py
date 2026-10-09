@@ -689,7 +689,7 @@ class Test43CircuitBreakerAudit(BaseTest):
                 "longer than the methodology tolerates."
             )
 
-        log.warning(
+        log.info(
             "test_4_3_param_out_of_range",
             plugin_name=plugin_name,
             field=resolved,

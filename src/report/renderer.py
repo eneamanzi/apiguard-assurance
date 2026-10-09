@@ -35,6 +35,7 @@ from typing import Any
 import structlog
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 
+from src.core.redaction import PUBLIC_VALUE_PREFIX
 from src.report.builder import ReportData
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -114,6 +115,10 @@ def render_html_report(
     # Also expose the original ReportData object for template code that
     # benefits from Pydantic's property methods (e.g., domain.has_failures).
     context["report"] = report_data
+
+    # Prefix of public probe values in request headers (src/core/redaction.py):
+    # the "copy as cURL" helper strips it to rebuild the exact request.
+    context["public_value_prefix_json"] = json.dumps(PUBLIC_VALUE_PREFIX)
 
     # Pre-serialise a JSON-safe string for JavaScript embedding.
     # The template embeds this inside a <script type="application/json"> block

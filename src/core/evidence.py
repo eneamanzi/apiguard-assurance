@@ -77,7 +77,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import IO, Any, cast
@@ -378,9 +378,18 @@ class EvidenceStore:
         self._current_test_id = None
         self._current_buffer = []
 
-    def merge_and_finalize(self, output_path: Path) -> int:
+    def merge_and_finalize(
+        self,
+        output_path: Path,
+        tool_version: str,
+        redact: Callable[[str], str] | None = None,
+    ) -> int:
         """
         Merge all per-test JSONL files into a single evidence.json and clean up.
+
+        redact, when given, is applied to the serialized document before it is
+        written (SecretRegistry.redact: secrets learned after their capture,
+        e.g. a token in the response that creates it).
 
         Called once by engine.py at the start of Phase 7, after the last
         end_test() and before any report rendering.
@@ -401,6 +410,10 @@ class EvidenceStore:
         Args:
             output_path: Destination path for evidence.json.
                          Typically config.output.evidence_path.
+            tool_version: Version of the tool, written in the file: the only
+                         version of the output formats (as in the JSON report).
+            redact:      Function applied to the serialized document before
+                         writing, or None (no redaction at this point).
 
         Returns:
             int: Total number of records written to evidence.json.
@@ -444,13 +457,16 @@ class EvidenceStore:
         serializable = [r.model_dump(mode="json") for r in all_records]
 
         output_payload: dict[str, object] = {
+            "tool_version": tool_version,
             "generated_at_utc": datetime.now(UTC).isoformat(),
             "record_count": len(all_records),
             "records": serializable,
         }
 
-        with output_path.open("w", encoding="utf-8") as fh:
-            json.dump(output_payload, fh, indent=2, ensure_ascii=False)
+        document = json.dumps(output_payload, indent=2, ensure_ascii=False)
+        if redact is not None:
+            document = redact(document)
+        output_path.write_text(document, encoding="utf-8")
 
         log.info(
             "evidence_store_merge_completed",

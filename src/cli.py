@@ -49,6 +49,8 @@ from rich.panel import Panel
 from rich.text import Text
 
 from src import __version__
+from src.cli_console import make_console
+from src.connectors.base import BaseSubprocessConnector
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -70,7 +72,12 @@ TOOL_DESCRIPTION: str = (
 
 # Default paths, relative to the working directory.
 DEFAULT_CONFIG_PATH: Path = Path("config.yaml")
-DEFAULT_LOG_LEVEL: str = "info"
+DEFAULT_LOG_LEVEL: str = "warning"
+
+# Console format of the technical log of `run`: short local time, and values
+# cut to this length so that each event stays on one line (JSON keeps all).
+CONSOLE_LOG_TIME_FORMAT: str = "%H:%M:%S"
+CONSOLE_LOG_MAX_VALUE_LENGTH: int = 160
 
 # Rich console instances: stdout for normal output, stderr for errors.
 # Using stderr for errors ensures that structured log output piped to a
@@ -153,11 +160,11 @@ class _TerminationRequestedError(BaseException):
 # lock, and logging again from the handler would deadlock.
 _STOP_MESSAGES: dict[int, bytes] = {
     signal.SIGINT: (
-        b"Ctrl+C received: stopping the assessment and removing the resources "
+        b"\nCtrl+C received: stopping the assessment and removing the resources "
         b"created on the target. Please wait.\n"
     ),
     signal.SIGTERM: (
-        b"SIGTERM received: stopping the assessment and removing the resources "
+        b"\nSIGTERM received: stopping the assessment and removing the resources "
         b"created on the target. Please wait.\n"
     ),
 }
@@ -305,18 +312,21 @@ def run_assessment(
         typer.Option(
             "--log-level",
             help=(
-                "Logging verbosity level. "
-                "'info' is the recommended level for normal use. "
-                "'debug' produces verbose output including every HTTP transaction."
+                "Level of the technical log shown below the progress output. "
+                "'warning' (default): only problems. 'info': also the steps of the run "
+                "and each test result. 'debug': also every HTTP transaction. "
+                "'error': only failures of the tool."
             ),
             case_sensitive=False,
         ),
-    ] = LogLevel.INFO,
+    ] = LogLevel.WARNING,
     show_banner: Annotated[
         bool,
         typer.Option(
             "--banner/--no-banner",
-            help="Show or suppress the startup banner. Default: show.",
+            help=(
+                "Show or suppress the header and the final summary (console format). Default: show."
+            ),
         ),
     ] = True,
     env_file: EnvFileOption = None,
@@ -353,19 +363,28 @@ def run_assessment(
         # Suppress startup banner (useful in scripts)
         apiguard run --no-banner --log-format json
     """
-    # Step 1: configure logging before any other operation.
-    _configure_logging(log_format=log_format, log_level=log_level)
+    # Step 1: configure logging before any other operation. In console format
+    # the interface and the technical log share one rich Console.
+    console = make_console()
+    _configure_logging(
+        log_format=log_format,
+        log_level=log_level,
+        console=console if log_format == LogFormat.CONSOLE else None,
+    )
     _load_env_file(env_file)
 
-    # Step 2: display startup banner (human-readable mode only).
-    if show_banner and log_format == LogFormat.CONSOLE:
-        _display_startup_banner(config_path=config)
-
-    # Step 3: import engine here (after logging is configured) so that
+    # Step 2: import engine here (after logging is configured) so that
     # any module-level structlog calls in engine.py use the configured pipeline.
+    from src.cli_console import ConsoleObserver
     from src.engine import AssessmentEngine
 
-    engine = AssessmentEngine(config_path=config)
+    # Step 3: the console interface (header, one line per test, summary).
+    observer = (
+        ConsoleObserver(console, show_header=show_banner, tool_version=TOOL_VERSION)
+        if log_format == LogFormat.CONSOLE
+        else None
+    )
+    engine = AssessmentEngine(config_path=config, observer=observer)
 
     # Step 4: run the assessment pipeline. Ctrl+C and SIGTERM are handled
     # alike: the first one unwinds through the engine so that teardown
@@ -375,6 +394,8 @@ def run_assessment(
     try:
         exit_code = engine.run()
     except (KeyboardInterrupt, _TerminationRequestedError) as exc:
+        if observer is not None:
+            observer.stop_live()
         stop_signal = signal.SIGINT if isinstance(exc, KeyboardInterrupt) else signal.SIGTERM
         structlog.get_logger("cli.run").warning(
             "assessment_interrupted",
@@ -383,9 +404,9 @@ def run_assessment(
         )
         _exit_by_signal(stop_signal)
 
-    # Step 5: display completion summary in console mode.
-    if show_banner and log_format == LogFormat.CONSOLE:
-        _display_completion_summary(exit_code=exit_code)
+    # Step 5: a run that did not start (exit 10) has no summary: show the code.
+    if observer is not None and not observer.finished and show_banner:
+        observer.print_exit(exit_code)
 
     # Step 6: exit with the engine's exit code.
     # raise typer.Exit(code=exit_code) is the Typer-idiomatic way to set
@@ -440,7 +461,7 @@ def validate_config(
         0   Configuration is valid.
         10  Configuration is invalid (see error output for details).
     """
-    _configure_logging(log_format=log_format, log_level=LogLevel.INFO)
+    _configure_logging(log_format=log_format, log_level=LogLevel.WARNING)
     _load_env_file(env_file)
 
     from src.config.loader import load_config
@@ -677,8 +698,52 @@ def _load_env_file(env_file: Path | None) -> None:
     log.info("env_file_loaded", path=str(path))
 
 
+class _ConsoleLineLogger:
+    """
+    structlog logger that prints each rendered line through a rich Console.
+
+    Used in console format so that technical log lines and the interface
+    (src/cli_console.py) share one Console: a log line printed while a test
+    is in progress appears above its live line instead of breaking it.
+    """
+
+    def __init__(self, console: Console) -> None:
+        """Remember the Console to print on."""
+        self._console = console
+
+    def msg(self, message: str) -> None:
+        """Print one rendered log line (ANSI colours kept on a terminal)."""
+        self._console.print(Text.from_ansi(message))
+
+    log = debug = info = warning = warn = error = err = critical = exception = msg
+
+
+def _relativize_paths(
+    _logger: object, _method_name: str, event_dict: structlog.types.EventDict
+) -> structlog.types.EventDict:
+    """Console processor: show paths inside the working directory as relative."""
+    for key, value in event_dict.items():
+        if isinstance(value, str) and value.startswith(os.sep):
+            event_dict[key] = BaseSubprocessConnector._relativize_display_path(value)  # noqa: SLF001
+    return event_dict
+
+
+def _cut_long_values(
+    _logger: object, _method_name: str, event_dict: structlog.types.EventDict
+) -> structlog.types.EventDict:
+    """Console processor: cut long values (text, or the text of a list or dict)."""
+    for key, value in event_dict.items():
+        text = value if isinstance(value, str) else repr(value)
+        if len(text) > CONSOLE_LOG_MAX_VALUE_LENGTH:
+            event_dict[key] = text[: CONSOLE_LOG_MAX_VALUE_LENGTH - 1] + "…"
+    return event_dict
+
+
 def _configure_logging(
-    log_format: LogFormat, log_level: LogLevel, stream: TextIO | None = None
+    log_format: LogFormat,
+    log_level: LogLevel,
+    stream: TextIO | None = None,
+    console: Console | None = None,
 ) -> None:
     """
     Configure the structlog logging pipeline for this process run.
@@ -705,6 +770,10 @@ def _configure_logging(
         log_level: Minimum log level to emit.
         stream: Destination of every log entry. Default stdout; commands whose
                 stdout is data (generate-seed) pass stderr.
+        console: In console format, the rich Console shared with the
+                 interface (apiguard run): lines are printed through it, with
+                 a short local time, paths relative to the working directory
+                 and long values cut. None: plain lines on stream.
     """
     log_stream: TextIO = sys.stdout if stream is None else stream
     level_int = getattr(logging, log_level.value.upper(), logging.INFO)
@@ -725,11 +794,22 @@ def _configure_logging(
             exception_formatter=structlog.dev.plain_traceback,
         )
 
+    logger_factory: structlog.types.WrappedLogger = structlog.PrintLoggerFactory(file=log_stream)
+    if console is not None:
+        # Console format of `run`: the full ISO timestamp is replaced with a
+        # short local time; JSON lines keep every value complete.
+        shared_processors[1] = structlog.processors.TimeStamper(fmt=CONSOLE_LOG_TIME_FORMAT)
+        shared_processors += [_relativize_paths, _cut_long_values]
+        shared_console = console
+
+        def logger_factory(*_args: object) -> _ConsoleLineLogger:
+            return _ConsoleLineLogger(shared_console)
+
     structlog.configure(
         processors=shared_processors + [renderer],
         wrapper_class=structlog.make_filtering_bound_logger(level_int),
         context_class=dict,
-        logger_factory=structlog.PrintLoggerFactory(file=log_stream),
+        logger_factory=logger_factory,
         cache_logger_on_first_use=True,
     )
 
@@ -747,6 +827,10 @@ def _configure_logging(
     _silence_noisy_loggers(level_int)
 
 
+# Logger of the Python warnings captured by logging.captureWarnings().
+_PY_WARNINGS_LOGGER: str = "py.warnings"
+
+
 def _silence_noisy_loggers(base_level: int) -> None:
     """
     Set minimum log levels for third-party libraries that are overly verbose.
@@ -759,6 +843,15 @@ def _silence_noisy_loggers(base_level: int) -> None:
     Args:
         base_level: The base log level configured for the tool.
     """
+    # Python warnings raised inside libraries (e.g. a deprecation notice of
+    # cryptography during an sslyze scan) are addressed to the developers of
+    # those libraries: they go through the logging system, under the
+    # "py.warnings" logger, and are shown only at DEBUG.
+    logging.captureWarnings(True)
+    logging.getLogger(_PY_WARNINGS_LOGGER).setLevel(
+        logging.DEBUG if base_level <= logging.DEBUG else logging.CRITICAL
+    )
+
     if base_level <= logging.DEBUG:
         return
 
@@ -778,78 +871,6 @@ def _silence_noisy_loggers(base_level: int) -> None:
 # ---------------------------------------------------------------------------
 # Display helpers (console mode only)
 # ---------------------------------------------------------------------------
-
-
-def _display_startup_banner(config_path: Path) -> None:
-    """
-    Display a formatted startup banner in the terminal.
-
-    Called only in CONSOLE log format mode. In JSON mode, the banner
-    would corrupt the JSON stream consumed by log aggregators.
-
-    Args:
-        config_path: Resolved path to the config file being used.
-    """
-    banner_text = Text()
-    banner_text.append(f"{TOOL_NAME} ", style="bold white")
-    banner_text.append(f"v{TOOL_VERSION}", style="cyan")
-    banner_text.append("\n")
-    banner_text.append("Automated API Security Assessment", style="dim white")
-    banner_text.append("\n\n")
-    banner_text.append("Config:  ", style="dim")
-    banner_text.append(str(config_path), style="white")
-
-    _console_out.print(
-        Panel(
-            banner_text,
-            border_style="bright_blue",
-            padding=(0, 2),
-            expand=False,
-        )
-    )
-
-
-def _display_completion_summary(exit_code: int) -> None:
-    """
-    Display a formatted completion summary with the exit code and its meaning.
-
-    Called only in CONSOLE log format mode after the engine returns.
-
-    Args:
-        exit_code: The integer exit code returned by AssessmentEngine.run().
-    """
-    from src.core.models.enums import ExitCode
-
-    labels: dict[int, tuple[str, str]] = {
-        ExitCode.CLEAN: ("green", "CLEAN  — No violations detected. Assessment passed."),
-        ExitCode.FAIL: ("red", "FAIL   — At least one security guarantee was violated."),
-        ExitCode.ERROR: ("purple", "ERROR  — At least one verification was incomplete."),
-        ExitCode.INFRASTRUCTURE: (
-            "yellow",
-            "INFRA  — Infrastructure error. Assessment did not complete.",
-        ),
-    }
-
-    color, label = labels.get(exit_code, ("white", f"Exit {exit_code}"))
-
-    _console_out.print()
-    _console_out.print(
-        Panel(
-            Text(f"Exit {exit_code}  —  {label}", style=f"bold {color}"),
-            border_style=color,
-            padding=(0, 2),
-            expand=False,
-            title="Assessment Complete",
-            title_align="left",
-        )
-    )
-    _console_out.print(
-        "[dim]Outputs: "
-        "[white]assessment_report.html[/white]  "
-        "[white]evidence.json[/white]  "
-        "[white]apiguard_report.json[/white]"
-        "[/dim]"
-    )
 
 
 # ---------------------------------------------------------------------------

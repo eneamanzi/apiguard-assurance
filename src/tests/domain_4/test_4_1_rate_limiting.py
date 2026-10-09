@@ -347,7 +347,7 @@ class Test41RateLimiting(BaseTest):
                 time.sleep(cfg.request_interval_seconds)
 
         # No 429 arrived despite max_requests with random X-Forwarded-For values.
-        log.warning(
+        log.info(
             "test_4_1_spoofing_resistance_fail",
             max_requests=cfg.max_requests,
         )
@@ -439,7 +439,7 @@ class Test41RateLimiting(BaseTest):
             if request_index < cfg.max_requests:
                 time.sleep(cfg.request_interval_seconds)
 
-        log.warning(
+        log.info(
             "test_4_1_enforcement_fail",
             max_requests=cfg.max_requests,
         )
@@ -500,7 +500,7 @@ class Test41RateLimiting(BaseTest):
             log.info("test_4_1_retry_after_present", matched_headers=list(matched))
             return None
 
-        log.warning(
+        log.info(
             "test_4_1_retry_after_missing",
             present_headers=list(lowercase_headers),
         )

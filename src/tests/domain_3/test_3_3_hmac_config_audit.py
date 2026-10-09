@@ -854,7 +854,7 @@ class Test33HMACConfigAudit(BaseTest):
 
         # Condition 1: field absent (unexpected but guard defensively).
         if raw_value is None:
-            log.warning(
+            log.info(
                 "test_3_3_clock_skew_absent",
                 plugin_id=plugin_id,
                 field_name=field_name,
@@ -882,7 +882,7 @@ class Test33HMACConfigAudit(BaseTest):
 
         # Condition 2: field equals the unconfigured sentinel (unlimited replay window).
         if value_s == cfg.clock_skew_unconfigured_value:
-            log.warning(
+            log.info(
                 "test_3_3_clock_skew_unconfigured",
                 plugin_id=plugin_id,
                 field_name=field_name,
@@ -913,7 +913,7 @@ class Test33HMACConfigAudit(BaseTest):
 
         # Condition 3: clock_skew exceeds oracle threshold.
         if value_s > cfg.max_clock_skew_seconds:
-            log.warning(
+            log.info(
                 "test_3_3_clock_skew_too_wide",
                 plugin_id=plugin_id,
                 field_name=field_name,
@@ -984,7 +984,7 @@ class Test33HMACConfigAudit(BaseTest):
         if raw_algorithms is None:
             # Field absent: gateway uses its own default algorithm set.
             # We cannot determine what algorithms are active without the field.
-            log.warning(
+            log.info(
                 "test_3_3_algorithms_field_absent",
                 plugin_id=plugin_id,
                 field_name=field_name,
@@ -1018,7 +1018,7 @@ class Test33HMACConfigAudit(BaseTest):
                 severity_note = _ALGORITHM_SEVERITY_NOTES.get(
                     forbidden_alg, _ALGORITHM_SEVERITY_NOTE_DEFAULT
                 )
-                log.warning(
+                log.info(
                     "test_3_3_forbidden_algorithm_found",
                     plugin_id=plugin_id,
                     algorithm=forbidden_alg,

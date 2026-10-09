@@ -2191,6 +2191,9 @@
       document.getElementById("report-data-json").textContent
     );
 
+    // Prefix of public probe values in request headers (src/core/redaction.py).
+    var PUBLIC_VALUE_PREFIX = {{ public_value_prefix_json | safe }};
+
     // ---------------------------------------------------------------------------
     // Filter state
     // ---------------------------------------------------------------------------
@@ -2647,8 +2650,8 @@
     // _buildCurlCommand(tx) -> string
     //
     // Constructs a copy-pasteable cURL command from a TransactionSummary object.
-    // Authorization header value is already '[REDACTED]' by the Python backend;
-    // this function never sees raw credentials.
+    // Authorization header value is already a '[REDACTED: ...]' placeholder from the
+    // Python backend (src/core/redaction.py); this function never sees raw credentials.
     //
     // The produced command uses:
     //   -s            silent mode (no progress bar)
@@ -2663,9 +2666,15 @@
       parts.push("-X " + method);
 
       // Add headers. The dict keys are already lowercase (normalized by Python).
+      // A public probe value ("[public probe] Bearer null") is sent without
+      // its prefix, so the command reproduces the exact request.
       var headers = tx.request_headers || {};
       Object.keys(headers).forEach(function (k) {
-        parts.push("-H " + JSON.stringify(k + ": " + headers[k]));
+        var value = String(headers[k]);
+        if (value.indexOf(PUBLIC_VALUE_PREFIX) === 0) {
+          value = value.slice(PUBLIC_VALUE_PREFIX.length);
+        }
+        parts.push("-H " + JSON.stringify(k + ": " + value));
       });
 
       // Add body when present.

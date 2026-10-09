@@ -42,11 +42,20 @@ repository (Q-54; before, the file was searched from the tool's code folder and 
 
 | Command | stdout | stderr |
 |---|---|---|
-| `run`, `validate-config`, `version` | structured logs (console or JSON lines), startup banner, completion panel, result messages | human-readable error summary of `validate-config` |
+| `run`, `validate-config`, `version` | console format of `run`: the progress interface and the technical log; JSON format: the log lines; result messages | human-readable error summary of `validate-config` |
 | `generate-seed` | **only the YAML template** (when `--output` is not given), so that `generate-seed SPEC > seed.yaml` writes a valid file | the panel, logs, messages and errors |
 
-With `--log-format json`, the tool's own log events are one JSON object per line and the banner and completion
-panel are not printed. Messages emitted by third-party libraries through Python's standard `logging`
+**Console format of `run`.** The interface is always shown: a header (target, specification, selection), one line
+per test with its status, findings grouped by kind (up to 5 kinds; the full list is in the reports), the reason of
+a SKIP or ERROR, then the cleanup, the result counts, the exit code and the paths of the reports. On a terminal the
+test in progress is shown on a line that updates in place with the elapsed time; with the output redirected, a
+test with a time limit (an external tool) prints a "running (limit Ns)" line first. `--log-level` only decides how
+much technical log appears below the interface (short local time, paths relative to the working directory, values
+cut to 160 characters). Python warnings raised inside libraries are shown only at `debug`.
+
+With `--log-format json`, the tool's own log events are one JSON object per line, complete, and there is no
+interface. At the default level (`warning`) only problems are logged: use `--log-level info` for the full event
+stream. Messages emitted by third-party libraries through Python's standard `logging`
 (httpx, prance, …) are printed as plain text on the same stream as the logs (`logging.basicConfig`, `src/cli.py`);
 above `debug` level only their WARNING and higher messages appear. A consumer parsing the logs should skip lines
 that are not valid JSON. `validate-config` also prints its result message as plain text in JSON mode.
@@ -61,8 +70,8 @@ apiguard run [--config PATH] [--log-format console|json] [--log-level LEVEL] [--
 |---|---|---|
 | `--config`, `-c` | `config.yaml` | Path to the configuration file. Resolved to an absolute path. |
 | `--log-format` | `console` | `console`: human-readable, coloured. `json`: one JSON object per line. Case-insensitive. |
-| `--log-level` | `info` | `debug`, `info`, `warning`, `error`. `debug` logs every HTTP transaction and lets third-party loggers (httpx, httpcore, prance, openapi_spec_validator, urllib3, chardet) through; above `debug` they are limited to WARNING. |
-| `--banner` / `--no-banner` | `--banner` | Show the startup banner and completion panel. Only effective with `--log-format console`. |
+| `--log-level` | `warning` | Level of the technical log shown below the interface: `error` only failures of the tool; `warning` also problems the user should know (configuration, cleanup, network, external tools); `info` also the steps of the run and each test result; `debug` also every HTTP transaction, third-party loggers (httpx, httpcore, prance, openapi_spec_validator, urllib3, chardet) and library warnings. |
+| `--banner` / `--no-banner` | `--banner` | Show the header and the final summary of the interface (console format only; the test lines are always shown). |
 | `--env-file` | `.env` in the working directory | Environment file to load ([Environment and `.env`](#environment-and-env)). Must exist. |
 
 Outputs are written to `output.directory` (see [`report-schema.md`](report-schema.md),
@@ -88,7 +97,7 @@ contact the target or the gateway. A filter combination that selects no test is 
 | Option | Default | Description |
 |---|---|---|
 | `--config`, `-c` | `config.yaml` | Path to the configuration file. |
-| `--log-format` | `console` | As for `run`. Log level is fixed to `info`. |
+| `--log-format` | `console` | As for `run`. Log level is fixed to `warning`. |
 | `--env-file` | `.env` in the working directory | As for `run`. |
 
 On success prints `Configuration valid. Target: <base_url>` and exits `0`. On failure prints

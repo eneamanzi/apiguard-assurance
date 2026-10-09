@@ -22,13 +22,16 @@ systems you are authorised to test.
 
 `evidence.json` and `apiguard_report.json` (and the HTML report) contain request and response data:
 
-- the `authorization` request header is always replaced with `[REDACTED]`, enforced by the `EvidenceRecord` model;
-- **no other header is redacted** (`cookie`, custom API-key headers) and bodies are stored as sent and received;
+- **secret values are replaced with typed placeholders** (`src/core/redaction.py`): only the value is hidden,
+  never what proves a finding, and the placeholder keeps the meaning (`[REDACTED: user_a token]`). Details in
+  [evidence format](../reference/evidence-format.md#sensitive-data);
+- custom API-key headers and response bodies are kept as received (a body is often the proof itself), apart from
+  the secrets registered by the tool;
 - token-acquisition requests of the authentication helpers are not recorded;
 - external-tool artefacts are sanitised for credentials before storage;
-- test 6.4 quotes any secret it finds in the finding detail.
+- test 6.4 masks the secrets it finds in the finding detail (first and last characters kept).
 
-Treat all output files as sensitive (Q-31). The HTML report is rendered with Jinja2 autoescaping on HTML and
+Treat all output files as sensitive: response bodies can carry the target's data. The HTML report is rendered with Jinja2 autoescaping on HTML and
 `StrictUndefined`, so target-controlled strings (e.g. response bodies) are escaped.
 
 ## Traffic towards the target
@@ -63,7 +66,6 @@ Treat all output files as sensitive (Q-31). The HTML report is rendered with Jin
 | Gap | Question |
 |---|---|
 | Admin API authentication and custom TLS not supported | Q-34 |
-| Only `authorization` is redacted in outputs | Q-31 |
 | Unauthenticated write requests and leftover objects on the target | Q-30 |
 | sslyze dependency is AGPL v3 | Q-11 |
 

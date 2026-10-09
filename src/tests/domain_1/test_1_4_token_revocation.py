@@ -75,6 +75,12 @@ _TOKEN_DELETE_PATH_TEMPLATE: str = "/api/v1/users/{username}/tokens/{name}"  # n
 # /api/v1/user returns the authenticated user's profile; it is always
 # protected and reachable without path parameters.
 _REPROBE_PATH: str = "/api/v1/user"
+
+# Labels of the secrets of this test in the redacted evidence (Q-31). The
+# temporary token keeps its last characters, as Forgejo's token_last_eight.
+_TEMP_TOKEN_LABEL: str = "1.4 temporary token"  # noqa: S105 -- a label, not a credential
+_TOKEN_FINGERPRINT_LENGTH: int = 8
+_BASIC_AUTH_LABEL: str = "admin Basic credentials"
 _REPROBE_METHOD: str = "GET"
 
 # HTTP status code sets for oracle evaluation.
@@ -251,6 +257,7 @@ class Test14TokenRevocation(BaseTest):
         basic_auth_value: str = base64.b64encode(
             f"{admin_username}:{admin_password}".encode()
         ).decode()
+        context.register_secret(basic_auth_value, _BASIC_AUTH_LABEL)
         return admin_username, basic_auth_value
 
     def _create_temp_token(
@@ -310,6 +317,15 @@ class Test14TokenRevocation(BaseTest):
 
         create_body: dict[str, Any] = create_response.json()
         temp_token_value: str = create_body.get("sha1", "")
+        if temp_token_value:
+            # Redacted in every output; the last characters are kept so that the
+            # create, revoke and reuse requests can be correlated (Forgejo shows
+            # the same ones as token_last_eight).
+            context.register_secret(
+                temp_token_value,
+                f"{_TEMP_TOKEN_LABEL}, last {_TOKEN_FINGERPRINT_LENGTH}: "
+                f"{temp_token_value[-_TOKEN_FINGERPRINT_LENGTH:]}",
+            )
         if not temp_token_value:
             self._log_transaction(create_record, oracle_state="TOKEN_CREATE_NO_VALUE")
             return self._make_error(

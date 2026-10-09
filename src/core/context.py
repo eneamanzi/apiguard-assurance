@@ -50,6 +50,7 @@ from pydantic import AnyHttpUrl, BaseModel, Field, PrivateAttr, computed_field, 
 from src.core.gateway.base import BaseGatewayAdapter
 from src.core.models import AttackSurface, RuntimeCredentials
 from src.core.models.external_tools import ExternalToolsConfig
+from src.core.redaction import SecretRegistry
 from src.test_config.runtime import RuntimeTestsConfig
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -401,6 +402,43 @@ class TestContext(BaseModel):
     _tokens: dict[str, str] = PrivateAttr(default_factory=dict)
     _resources: list[tuple[str, str, dict[str, str]]] = PrivateAttr(default_factory=list)
     _shared_data: dict[str, object] = PrivateAttr(default_factory=dict)
+    _secrets: SecretRegistry = PrivateAttr(default_factory=SecretRegistry)
+
+    # ------------------------------------------------------------------
+    # Secret interface (redaction in evidence and reports, Q-31)
+    # ------------------------------------------------------------------
+
+    @property
+    def secrets(self) -> SecretRegistry:
+        """The secrets known during this run (shared with SecurityClient)."""
+        return self._secrets
+
+    def register_secret(self, value: str, label: str) -> None:
+        """
+        Register a secret created or received by a test, so that it is redacted.
+
+        Tokens stored with set_token() are registered automatically. Register
+        here any other secret: a token created by the test, a generated
+        webhook secret, a Basic Authorization value.
+
+        Args:
+            value: The secret as it appears in requests and responses.
+            label: What it is, shown in its place, e.g. "7.2 webhook secret".
+        """
+        self._secrets.register(value, label)
+
+    def declare_public_value(self, value: str) -> None:
+        """
+        Declare an Authorization value the test sends on purpose and that is not a secret.
+
+        It is kept in clear in the evidence (prefixed "[public probe] ") instead
+        of being redacted, so the evidence shows which probe was sent. Only for
+        fixed probe values written in the test code (e.g. a malformed token).
+
+        Args:
+            value: The exact header value.
+        """
+        self._secrets.declare_public(value)
 
     # ------------------------------------------------------------------
     # Token interface
@@ -438,6 +476,7 @@ class TestContext(BaseModel):
             )
 
         self._tokens[role_stripped] = token_stripped
+        self._secrets.register(token_stripped, f"{role_stripped} token")
         log.debug("token_stored", role=role_stripped, token_preview="[REDACTED]")  # noqa: S106
 
     def get_token(self, role: str) -> str | None:
