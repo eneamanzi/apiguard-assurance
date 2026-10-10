@@ -13,6 +13,8 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
 ### Added
 
+- Integration guide: `docs/guides/integration/integrate-apiguard.md` (install with pip, credentials, one output
+  directory per run, exit-code handling, reading the reports with `jq`, stopping a run, versions).
 - Every test of the tool is accounted for: `apiguard_report.json` has a `not_run` section (and
   `executive_summary.not_run_count`) listing each test not executed, with a `reason` (`priority`, `strategy`,
   `not_in_test_ids`, `tool_disabled`, `fail_fast`) and a `detail`; the HTML report a "Not Run" section and card; the
@@ -28,6 +30,8 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
 ### Fixed
 
+- `--log-format json`: the sslyze library wrote plain-text INFO lines into the JSON log stream (5 per run);
+  they now appear only at `--log-level debug`.
 - SIGTERM (`kill`, `docker stop`, CI timeouts) is handled like Ctrl+C: teardown runs, so the resources the tests
   created on the target are removed (before, the process died at once and left them, e.g. a repository and a
   token); a running external tool is stopped too. For both signals the tool says on stderr that it is cleaning up,
@@ -81,6 +85,13 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
   a class that cannot be instantiated. Before, a native test was dropped and an external one ran with defaults,
   with only a warning. The same rules for native and external tests (`src/core/test_metadata.py`); classes whose
   name starts with `_` are helpers, not tests.
+- Prerequisites between tests are applied, not only used for ordering. A test declares `depends_on` (it uses data
+  that another test produces: it runs if that test ended PASS or FAIL) and `requires_pass` (it is meaningful only if
+  another test passes: it runs if that test ended PASS); otherwise it returns SKIP with a reason naming the
+  prerequisite, also when the selection left the prerequisite out (before, the dependency was dropped with a warning
+  and the test ran anyway). A prerequisite that names no test, or the test itself, stops the tool at startup (exit
+  `10`). Tests 1.4 and 2.1 no longer depend on 1.1: they take no data from it, and a FAIL of 1.1 does not make them
+  meaningless; same results on the lab.
 - **Breaking:** strategies say what the tester has (BLACK_BOX: network only; GREY_BOX: an ordinary account;
   WHITE_BOX: the API's administrator account or internal access) and `execution.strategies` filters external tests
   too. Relabelled: 1.5, 1.6, 6.2, `ext.1.5.testssl`, `ext.1.5.sslyze` WHITE_BOX → BLACK_BOX (network access only);

@@ -287,6 +287,7 @@ class Test64HardcodedCredentialsAudit(BaseTest):
     domain: ClassVar[int] = 6
     strategy: ClassVar[TestStrategy] = TestStrategy.WHITE_BOX
     depends_on: ClassVar[list[str]] = []
+    requires_pass: ClassVar[list[str]] = []
     tags: ClassVar[list[str]] = [
         "hardcoded-credentials",
         "secret-management",

@@ -56,7 +56,7 @@ Connection to the API under test and to the gateway admin plane.
 | `base_url` | URL | **required** | - | Base URL of the API as exposed through the gateway proxy. |
 | `openapi_spec_url` | URL \| null | `null` | exactly one of `openapi_spec_url` / `openapi_spec_path` | URL fetched at runtime (Phase 2). |
 | `openapi_spec_path` | path \| null | `null` | see above | Local spec file (JSON or YAML). Existence is checked in Phase 2, not by `validate-config`. |
-| `admin_api_url` | URL \| null | `null` | required if `gateway_adapter` is set | Gateway Admin API. Without it, WHITE_BOX tests that read gateway configuration return SKIP. |
+| `admin_api_url` | URL \| null | `null` | required if `gateway_adapter` is set | Gateway Admin API. Without it, WHITE_BOX tests that read gateway configuration return SKIP. Called without credentials and with certificate verification on: an Admin API that requires a token or uses a certificate not publicly trusted makes those tests return ERROR ([security model](../architecture/security-model.md)). |
 | `gateway_adapter` | string \| null | `null` | `kong` only | Adapter used by WHITE_BOX configuration-audit tests. `null` → those tests SKIP even if `admin_api_url` is set. |
 | `admin_connect_timeout_seconds` | float | `5.0` | 1-30 | TCP connect timeout for Admin API calls. |
 | `admin_read_timeout_seconds` | float | `10.0` | 1-60 | Read timeout for Admin API calls. |

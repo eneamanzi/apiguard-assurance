@@ -204,6 +204,7 @@ class Test72SSRFPrevention(BaseTest):
     domain: ClassVar[int] = 7
     strategy: ClassVar[TestStrategy] = TestStrategy.GREY_BOX
     depends_on: ClassVar[list[str]] = []
+    requires_pass: ClassVar[list[str]] = []
     tags: ClassVar[list[str]] = [
         "ssrf",
         "business-logic",

@@ -171,7 +171,14 @@ class BaseTest(ABC):
             Execution privilege level (BLACK_BOX, GREY_BOX, WHITE_BOX).
 
         depends_on: list[str]
-            List of test_id values that must execute before this test.
+            Tests whose data this test uses (TestContext shared data). They
+            run first; if one is not in the run or returns SKIP or ERROR,
+            the engine records this test as SKIP without running it.
+
+        requires_pass: list[str]
+            Tests that must hold for this test to be meaningful. They run
+            first; unless each returns PASS, the engine records this test as
+            SKIP without running it. Rules: src/core/dag.py.
 
         test_name: str
             Human-readable name of the security guarantee being verified.
@@ -190,6 +197,7 @@ class BaseTest(ABC):
     priority: ClassVar[int]
     strategy: ClassVar[TestStrategy]
     depends_on: ClassVar[list[str]]
+    requires_pass: ClassVar[list[str]]
     test_name: ClassVar[str]
     domain: ClassVar[int]
     tags: ClassVar[list[str]]
@@ -696,11 +704,9 @@ class BaseTest(ABC):
         role_display = _ROLE_DISPLAY_NAMES.get(role, role)
         return self._make_skip(
             reason=(
-                f"No JWT token available for role '{role_display}' in TestContext. "
-                f"The prerequisite authentication test that acquires this token "
-                f"did not run, returned SKIP, or returned ERROR. "
-                f"Ensure Domain 1 authentication tests are included in the "
-                f"execution scope (min_priority >= 0) and completed successfully."
+                f"No token available for role '{role_display}' in TestContext "
+                f"after acquire_tokens(): the credentials of this role are not "
+                f"configured."
             )
         )
 

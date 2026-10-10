@@ -151,6 +151,7 @@ class ExtTest01ShadowApiNuclei(ExternalToolTest):  # noqa: N801
     domain: ClassVar[int] = 0
     strategy: ClassVar[TestStrategy] = TestStrategy.BLACK_BOX
     depends_on: ClassVar[list[str]] = []
+    requires_pass: ClassVar[list[str]] = []
     tags: ClassVar[list[str]] = [
         "shadow-api",
         "discovery",

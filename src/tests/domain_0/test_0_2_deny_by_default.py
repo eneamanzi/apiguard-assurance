@@ -188,6 +188,7 @@ class Test02DenyByDefault(BaseTest):
     priority: ClassVar[int] = 0
     strategy: ClassVar[TestStrategy] = TestStrategy.BLACK_BOX
     depends_on: ClassVar[list[str]] = []
+    requires_pass: ClassVar[list[str]] = []
     test_name: ClassVar[str] = "Gateway Deny-by-Default on Unregistered Paths"
     domain: ClassVar[int] = 0
     tags: ClassVar[list[str]] = [

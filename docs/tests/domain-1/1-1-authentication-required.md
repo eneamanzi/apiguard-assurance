@@ -11,7 +11,7 @@
 | Domain | 1 - Identity and Authentication |
 | Priority / strategy | P0 / BLACK_BOX |
 | CWE | CWE-306 |
-| Depends on | none. Tests 1.4 and 2.1 depend on it. |
+| Depends on | none |
 | Configuration | [`tests.domain_1.test_1_1`](../../reference/configuration.md#testsdomain_1test_1_1---authentication-required), [`target.path_seed`](../../reference/configuration.md#target) |
 
 ## What it checks

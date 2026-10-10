@@ -11,7 +11,7 @@
 | Domain | 2 - Authorization and Access Control |
 | Priority / strategy | P2 / GREY_BOX |
 | CWE | CWE-285 |
-| Depends on | `1.1` |
+| Depends on | none |
 | Configuration | [`tests.domain_2.test_2_1`](../../reference/configuration.md#testsdomain_2test_2_1---rbac), `user_a` credentials |
 
 ## What it checks

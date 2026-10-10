@@ -7,9 +7,6 @@ Lives in core/models/ so that TargetContext (also in core/) can hold an
 ExternalToolsConfig field without violating the unidirectional dependency
 rule (core/ must not import from config/).
 
-src/config/schema/external_tools.py re-exports all public symbols from this
-module to preserve backward compatibility for any existing import paths.
-
 Design rules:
     1. Master switch: ExternalToolsConfig.enabled = false disables ALL external
        tests, overriding per-tool settings.

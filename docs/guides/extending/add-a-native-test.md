@@ -116,7 +116,8 @@ class Test21RbacEnforcement(BaseTest):
     domain: ClassVar[int] = 2
     priority: ClassVar[int] = 2
     strategy: ClassVar[TestStrategy] = TestStrategy.GREY_BOX
-    depends_on: ClassVar[list[str]] = ["1.1"]
+    depends_on: ClassVar[list[str]] = []
+    requires_pass: ClassVar[list[str]] = []
     tags: ClassVar[list[str]] = ["authorization", "rbac", "OWASP-API5:2023", ...]
     cwe_id: ClassVar[str] = "CWE-285"
 ```
@@ -124,8 +125,9 @@ class Test21RbacEnforcement(BaseTest):
 Take the priority from the methodology's severity criteria ([priorities](../../architecture/assessment-model.md#priorities)); set
 the strategy from what the tester needs to run it in full, independently of the priority: network only →
 `BLACK_BOX`; an ordinary account → `GREY_BOX`; the API's administrator account or internal access (gateway Admin API,
-files) → `WHITE_BOX` ([strategies](../../architecture/assessment-model.md#strategies-knowledge-and-privilege-of-the-tester)); `depends_on` lists test IDs whose results or tokens this test
-needs (`[]` otherwise).
+files) → `WHITE_BOX` ([strategies](../../architecture/assessment-model.md#strategies-knowledge-and-privilege-of-the-tester)); `depends_on` lists the tests whose data this test
+uses, `requires_pass` the tests that must pass for this test to be meaningful; both `[]` otherwise, and not for
+tokens, which `acquire_tokens()` shares ([dependencies between tests](../../architecture/assessment-model.md#dependencies-between-tests)).
 
 **`execute()`** must always return a `TestResult` and never raise. Structure: guards, setup, probes in private
 helpers, verdict, and a catch-all:

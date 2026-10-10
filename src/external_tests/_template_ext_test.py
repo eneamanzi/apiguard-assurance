@@ -82,9 +82,11 @@ class TemplateExtTest(ExternalToolTest):
         <Describe the PASS/FAIL criteria here.>
 
     DAG placement:
-        depends_on = [] -- no prerequisites; runs in Phase A.
-        OR
-        depends_on = ["1.1"] -- requires native Test 1.1 to have run first.
+        depends_on = [], requires_pass = [] -- no prerequisites (the usual case).
+        depends_on = ["X.Y"] -- uses data that test X.Y produces (TestContext
+            shared data); SKIP unless X.Y ends PASS or FAIL.
+        requires_pass = ["X.Y"] -- meaningful only if test X.Y holds; SKIP
+            unless X.Y ends PASS. Rules: src/core/dag.py.
     """
 
     # --- Mandatory ClassVar declarations ---
@@ -98,6 +100,7 @@ class TemplateExtTest(ExternalToolTest):
     domain: ClassVar[int] = 0  # methodology domain number
     strategy: ClassVar[TestStrategy] = TestStrategy.GREY_BOX
     depends_on: ClassVar[list[str]] = []
+    requires_pass: ClassVar[list[str]] = []
     tags: ClassVar[list[str]] = ["template", "external"]
     cwe_id: ClassVar[str] = "CWE-000"
 

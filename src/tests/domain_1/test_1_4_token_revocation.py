@@ -31,8 +31,9 @@ EvidenceStore policy:
     PASS:  _log_transaction(re-probe record, oracle_state=_STATE_REVOKED_REJECTED).
 
 DAG placement:
-    depends_on = ["1.1"]  → Phase B (runs after authentication check confirms
-    token creation is possible).
+    No prerequisite (depends_on = [], requires_pass = []): the test acquires
+    its own tokens through acquire_tokens(), which reuses a token already in
+    TestContext; a rejected login gives ERROR with the reason.
 
 Dependency rule:
     Imports from: stdlib, structlog, src.core, src.tests.base,
@@ -122,7 +123,8 @@ class Test14TokenRevocation(BaseTest):
     domain: ClassVar[int] = 1
     priority: ClassVar[int] = 2
     strategy: ClassVar[TestStrategy] = TestStrategy.WHITE_BOX
-    depends_on: ClassVar[list[str]] = ["1.1"]
+    depends_on: ClassVar[list[str]] = []
+    requires_pass: ClassVar[list[str]] = []
     tags: ClassVar[list[str]] = [
         "authentication",
         "token-revocation",

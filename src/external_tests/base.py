@@ -178,7 +178,11 @@ class ExternalToolTest(ABC):
         priority  : int        -- 0-3 (P0-P3), used by ExternalTestRegistry filter.
         strategy  : TestStrategy -- what the tester needs (BLACK_BOX for the
                                     current scanners: network access only).
-        depends_on: list[str]    -- test_ids this test must run after.
+        depends_on: list[str]    -- tests whose data this test uses.
+        requires_pass: list[str] -- tests that must PASS for this test to be
+                                    meaningful. For both kinds, an unmet
+                                    prerequisite makes the engine record SKIP
+                                    without running the test (src/core/dag.py).
         tags      : list[str]    -- free-form tags for report classification.
         cwe_id    : str          -- primary CWE reference for the vulnerability.
         tool_name : str          -- name of the external binary this test uses
@@ -199,6 +203,7 @@ class ExternalToolTest(ABC):
     priority: ClassVar[int]
     strategy: ClassVar[TestStrategy]
     depends_on: ClassVar[list[str]]
+    requires_pass: ClassVar[list[str]]
     tags: ClassVar[list[str]]
     cwe_id: ClassVar[str]
 
@@ -951,9 +956,9 @@ class ExternalToolTest(ABC):
         Mirrors BaseTest._metadata_kwargs() exactly, including the source field
         which is always "external" for ExternalToolTest subclasses.
 
-        The getattr() calls with fallback defaults guard against concrete
-        subclasses that omit a ClassVar declaration.  The TestRegistry logs a
-        WARNING for missing ClassVar attributes before execute() is ever called.
+        The getattr() fallbacks are never used by a registered test: a
+        missing or invalid ClassVar stops the run at discovery
+        (TestDefinitionError), before execute() is ever called.
 
         Returns:
             _ExternalTestMetadataKwargs: Keyword arguments for TestResult constructor.

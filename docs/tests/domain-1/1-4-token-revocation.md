@@ -11,7 +11,7 @@
 | Domain | 1 - Identity and Authentication |
 | Priority / strategy | P2 / WHITE_BOX (the API's administrator account) |
 | CWE | CWE-613 |
-| Depends on | `1.1` |
+| Depends on | none |
 | Configuration | [`tests.domain_1.test_1_4`](../../reference/configuration.md#testsdomain_1test_1_4---token-revocation), admin credentials |
 
 ## What it checks

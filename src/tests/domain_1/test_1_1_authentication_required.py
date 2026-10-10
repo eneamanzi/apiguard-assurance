@@ -215,6 +215,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
     priority: ClassVar[int] = 0
     strategy: ClassVar[TestStrategy] = TestStrategy.BLACK_BOX
     depends_on: ClassVar[list[str]] = []
+    requires_pass: ClassVar[list[str]] = []
     test_name: ClassVar[str] = "Only Authenticated Requests Access Protected Resources"
     domain: ClassVar[int] = 1
     tags: ClassVar[list[str]] = [

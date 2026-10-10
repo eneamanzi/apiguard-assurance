@@ -3,6 +3,22 @@
 > **Audience:** project owner, Claude Code · **Status:** active (created 2026-10-06) · Single source for "what do we
 > do next". Update the status column as steps are completed.
 
+## Where we are (updated 2026-10-10)
+
+- **Done:** documentation restructured (phase 2, pages 2.1 and 2.4 written); open questions decided (phase 3);
+  code blocks 1, 2, 3, 4, 4b, 5, 5b, 5c and 5d (configuration structure, interface contract and versioning, secret
+  redaction, console interface, prerequisites between tests); integration guide written. The tool behaves as before
+  on the lab: results identical to the baseline.
+- **Next step:** block 7 cRAPI lab together with the infrastructure part of block 8 agnosticism (plan it with the
+  owner first).
+- **Then, in order** (revised 2026-10-09, owner: everything around the tests first, the test review last): block 7
+  cRAPI lab together with the infrastructure part of block 8 agnosticism (neutral gateway data, "not applicable"
+  result, Forgejo defaults to configuration; the per-test parts go into the test review) → block 9 CI and generated
+  docs, 10b, 10 roadmap, 2.3 knowledge translation (with Q-33) → block 6 test review → block 6b E2E on both labs →
+  missing methodology sub-tests and new tests (Q-32, Milestone 2). To decide before the test review: where release
+  **1.0.0** goes (before it, then splitting 6.4 changes test IDs and would be breaking; or after it).
+- **Deferred:** Q-05 licence, Q-06 security policy, Q-11 sslyze licence (product distribution unknown).
+
 ## Ground rules
 
 1. **One step at a time, in order.** A step starts only when the previous one is done.
@@ -37,7 +53,7 @@ page is written twice.
 | 6 | 3.B/3.C quick decisions without code: ~~Q-12~~ (closed), ~~Q-03~~ (closed), ~~Q-14~~ (closed), ~~Q-37~~ (decided, moved to 3.D), ~~Q-49~~ (closed), ~~Q-09~~ (closed), ~~Q-32~~ (moved to 3.D with Q-29), Q-33 (with 2.3 translation) (one at a time, discussed in full) | done (Q-33 waits for step 10) |
 | 7 | 3.B remaining: ~~Q-02~~ (closed), ~~Q-15~~ (decided, moved to 3.D), ~~Q-17~~ (light fix done, rewrite moved to 3.D) (Q-25 moved to 3.D) | done |
 | 8 | 3.C (done 2026-10-07): ~~Q-10~~ (decided, moved to 3.D), ~~Q-24~~ (decided, moved to 3.D), ~~Q-31~~ (decided, moved to 3.D), ~~Q-47~~ (closed); then ~~Q-11~~ (deferred, owner asks), ~~Q-18~~ (moved to 3.D, agnosticism), ~~Q-26~~ (decided, moved to 3.D), ~~Q-30~~ (decided, code items moved to 3.D) | done |
-| 9 | 3.D Code work, block by block (see Phase 4 below): each block is planned in detail with the owner, then implemented one change at a time | in progress (block 1) |
+| 9 | 3.D Code work, block by block (see Phase 4 below): each block is planned in detail with the owner, then implemented one change at a time | in progress (blocks 1-5 done) |
 | 10 | 2.3 `knowledge/` translation (with Q-33) | to do |
 
 Phase 4 (implementation) follows the block order below; Phase 5 is block 9.
@@ -49,10 +65,10 @@ it), Claude fixes, owner commits.
 
 | # | Step | Content | Status |
 |---|---|---|---|
-| 2.1 | `guides/usage/` | configure a target, select tests, read the report | to do |
-| 2.2 | `guides/integration/` | run in CI, consume the JSON report, secrets and deployment, install the package with pip. The old CI/CD script is in `git show b8cdd9e:README.en.md` (section "CI/CD pipeline integration", lines 335-354; it has a known defect, see `docs-inventory.md`) | to do |
+| 2.1 | `guides/usage/` | configure a target, select tests, read the report | written 2026-10-06, updated with blocks 1-5; owner review pending |
+| 2.2 | `guides/integration/` | one page, `integrate-apiguard.md`: install with pip, configuration and credentials, run, exit codes (script fixing the old `set -e` defect), reading the results with `jq`, stopping, effects on the target, versions; no CI-specific example | written 2026-10-09; owner review pending |
 | 2.3 | `knowledge/` translation | methodology, tool decisions, design properties in English; background as a summary | to do |
-| 2.4 | Entry points | new README (English only, Hatch, Linux), CONTRIBUTING, CHANGELOG, `docs/index.md`, CLAUDE.md as a thin router, clean `maintainer-commands.md`, remove `README.en.md` duplicate | to do |
+| 2.4 | Entry points | new README (English only, Hatch, Linux), CONTRIBUTING, CHANGELOG, `docs/index.md`, CLAUDE.md as a thin router, clean `maintainer-commands.md`, remove `README.en.md` duplicate | written 2026-10-06; owner review pending |
 
 ## Phase 3 - Decide the open questions
 
@@ -86,27 +102,32 @@ affected is updated in the same change.
 | 3 | Small bugs | Q-35, Q-21, Q-48, Q-55 (lab setup), Q-36 and Q-27 (remove) | spec fetch hang, `generate-seed` stdout, warning messages, lab setup after deletions, two unwired features removed | low-medium | done 2026-10-07 |
 | 4 | Configuration structure | Q-53, Q-37 | one definition per parameter (`src/test_config/`), every test has a config model, automatic wiring (mismatch stops the run) | medium: after block 1 | done 2026-10-08 |
 | 4b | Immutable list parameters | Q-57 | safety check: list parameters as tuples | low: same files as block 4 | done 2026-10-08 |
-| 5 | Contract 1.0 | Q-25, Q-20, Q-22, Q-23, Q-45, Q-58, Q-50 (rule), Q-54, Q-10, Q-60, Q-31, Q-26 ("not run by choice" list), Q-44 | everything an integrator sees; then the stability policy | medium-high | to do |
+| 5 | Contract 1.0 | Q-25, Q-20, Q-22, Q-23, Q-45, Q-58, Q-50 (rule), Q-54, Q-10, Q-60, Q-31, Q-26 ("not run by choice" list), Q-44 | everything an integrator sees; then the stability policy | medium-high | done 2026-10-09 |
 | 5b | Console output | Q-59 | readability of the `apiguard run` console output, after group 3 of block 5 (Q-26 and Q-10 change what is shown) | low | done 2026-10-09 |
-| - | Integration guide | (step 2.2) | written on the fixed contract | - | to do |
-| 6 | Test quality review | Q-29, Q-32, Q-30 (code items), Q-24 (7.2 timeout), Q-50 (evidence per finding) | test by test: oracles, missing sub-tests, 1.1 `DELETE` last + `path_seed` check, 7.2 cleanup, evidence of 7.2, 4.1, 1.5 and config audits | high: one test at a time | to do |
+| 5c | Cleanup | Q-63 | dead `src/tests/strategy.py`, empty validator, `build_zip.sh` excludes, `scripts/` lint, external-tool models location | very low | done 2026-10-09 |
+| 5d | Engine and infrastructure leftovers | Q-61, Q-64, Q-62 | prerequisites between tests, parallel runs (not a goal), partial report (dropped); Q-34 moved to block 8 | low-medium | done 2026-10-10 |
+| - | Integration guide | (step 2.2) | written on the fixed contract, short; tests the contract from the integrator's side; updated in block 8 | - | written 2026-10-09; owner review pending |
+| 6 | Test quality review | Q-29, Q-32, Q-30 (code items), Q-24 (7.2 timeout), Q-50 (evidence per finding) | test by test: oracles, missing sub-tests, 1.1 `DELETE` last + `path_seed` check, 7.2 cleanup, evidence of 7.2, 4.1, 1.5 and config audits; notes from block 5: 1.4 may be GREY_BOX with an ordinary account, 6.4 split in two (changes test IDs: before 1.0.0), all `Set-Cookie` headers in the evidence of 1.6, 7.2 one finding per payload; map what each test produces and uses (tokens, created resources, repeated reads of the specification or gateway configuration) and share repeated work through `depends_on` (owner, Q-61) | high: one test at a time | to do |
 | 7 | Second lab | Q-52 | cRAPI behind Kong, pinned, automated setup | low for the tool | to do |
-| 8 | Agnosticism | Q-18, Q-43, Q-38, Q-34 | per-test portability analysis on both labs, then remove Forgejo/Kong ties, protected Admin API; then release **1.0.0** (Q-25) | high | to do |
-| 6b | E2E suite | Q-51 | after the test review: expected results with a stated basis (`lab-design` from the lab configuration, or `observed`), ideally each test proven on a secure and a vulnerable lab variant | low | to do |
+| 6b | E2E suite | Q-51 | after the test review and the second lab: expected results with a stated basis (`lab-design` from the lab configuration, or `observed`) on both labs, ideally each test proven on a secure and a vulnerable variant | low | to do |
+| 8 | Agnosticism | Q-18, Q-43, Q-38, Q-34 | per-test portability analysis on both labs, then remove Forgejo/Kong ties, protected Admin API | high | to do |
+| - | Release 1.0.0 | (2.1, 2.2, 2.4) | owner review of the usage guides, integration guide and entry points, now stable; then release **1.0.0** (Q-25) | - | to do |
 | 9 | Process | Q-16, Q-04, Q-13 | CI (`dev:check` + E2E), generated documentation with drift check | low | to do |
-| 10b | Simplify adding a test | Q-56 | review the steps needed to add a native test (after block 4) | low | to do |
+| 10b | Simplify adding a test | Q-56 | review the steps needed to add a native test | low | to do |
 | 10 | Roadmap | Q-17 | rewrite as a product roadmap | none | to do |
+| - | Knowledge translation | Q-33 (step 2.3) | methodology, tool decisions, design properties in English | none | to do |
 
 Ordering rationale: the safety net first, so every later change is checked in minutes; risk-free work next; the
-configuration structure before the contract and the test review (both touch test parameters); block 4b right after block 4 (same
-models, and parameter types are part of the contract); the contract (output
-format) before the test review (output content); the second lab before the agnosticism work. Block 9 may move right
-after block 1; block 7 is independent.
+configuration structure before the contract and the test review (both touch test parameters); the contract (output
+format) before the test review (output content). Revised 2026-10-09: a short cleanup (5c) first; the integration
+guide right after the contract, to test it from the integrator's side before the test review; the second lab before
+the E2E suite (expected results written once, for both labs) and before the agnosticism work; the owner review of
+the guides last, when they are stable, just before 1.0.0; process and documentation work after the release.
 
 ## Phase 5 - Process
 
 CI (Q-16), E2E test suite (Q-51), documentation generated from code with a drift check
-(Q-04). Planned after the first decisions of Phase 3.6.
+(Q-04): blocks 6b and 9 of Phase 4.
 
 ## Log
 
@@ -195,3 +216,16 @@ CI (Q-16), E2E test suite (Q-51), documentation generated from code with a drift
 | 2026-10-09 | Q-59 implemented (owner): console interface of `run` (header, one line per test with grouped findings, summary with report paths) through an engine `RunObserver`; default `--log-level warning`; levels reviewed (31 result events to `info`); technical log cleaned. 272 lines → 35 on the 15 native tests |
 | 2026-10-09 | Q-59 follow-up: double Ctrl+C on a terminal tidied (live line stopped at cleanup start); `maintainer-commands.md` extended with the owner's testing commands |
 | 2026-10-09 | Owner checked the console output and a double Ctrl+C on a real terminal (live line stops, message on its own line, cleanup done). Closed by the owner: Q-59. Block 5b done |
+| 2026-10-09 | Closed by the owner: Q-25. Block 5 complete. Housekeeping: plan statuses updated (working order, block 5, phase 2 pages); Q-39 reduced to two items moved to new Q-63 (small leftovers not recorded elsewhere: dead `src/tests/strategy.py`, empty validator in `ExecutionConfig`, stale `build_zip.sh` excludes, external-tool models location); stale paths in Q-24 refreshed |
+| 2026-10-09 | Closed by the owner: Q-39 (its two last items are in Q-63). Order of the next steps revised and agreed: 5c cleanup → integration guide → 6 (+ Q-61) → 7 → 6b → 8 → guides review and 1.0.0 → 9, 10b, 10, 2.3. "Where we are" section added at the top of the plan |
+| 2026-10-09 | Block 5c implemented (Q-63): dead module, empty validator and re-export shim removed; `build_zip.sh` updated and its `-d` filter fixed; `scripts/` under ruff and mypy; external-tool models stay in `core` (documented). Incident: the owner's untracked `apiguard-assurance.zip` was overwritten and removed while testing the script |
+| 2026-10-09 | Closed by the owner: Q-63. Block 5c done (owner: the lost zip is not needed). Next: integration guide (2.2) |
+| 2026-10-09 | Integration guide planned with the owner (one page; no CI-specific example; every command verified in a pip install outside the repository). New Q-64 (two parallel runs: 1.4 ERROR, fixed token name), for block 6 |
+| 2026-10-09 | Integration guide written (`docs/guides/integration/integrate-apiguard.md`), every command run as written in a wheel installed by pip in a fresh venv, from a working directory outside the repository: install, `validate-config` with `--env-file`, per-run output directory via `${APIGUARD_OUTPUT_DIR}`, JSON log run, the exit-code script (codes 1, 0, 3, 10, 143), the `jq` examples, `timeout` (124, or 143 with `--preserve-status`), external tools found on the PATH. Found and fixed: sslyze INFO lines broke the JSON log stream (5 plain-text lines; `sslyze` added to the noisy loggers, now 0). Linked from `docs/index.md` and README. Incident: the owner's existing `dist/` was removed while verifying `hatch build` |
+| 2026-10-09 | Integration guide: section 2 rewritten for clarity (what the wheel does not contain, where `nuclei` and `testssl.sh` are looked for, `template_dir` example), after the owner's questions; owner agreed to proceed. Native tests identical to the baseline after the sslyze logger change. Next: block 6 |
+| 2026-10-09 | Order revised by the owner: everything around the tests first (block 5d: Q-61, Q-64, Q-34, Q-62 to re-evaluate; then cRAPI lab with the infrastructure part of agnosticism; then process and documentation), the test review last, followed by the E2E suite and the missing sub-tests. Position of 1.0.0 to decide before the test review |
+| 2026-10-09 | Q-61 implemented (owner): `depends_on` (data) and `requires_pass` (logic) applied by the engine, unmet prerequisite → SKIP with reason, unknown or self prerequisite → exit 10; the 1.4 and 2.1 dependency on 1.1 was not real and is removed; lab results identical. Owner's note for the test review: map what each test produces and uses |
+| 2026-10-09 | Q-61 completeness check: no other reader of the dependency attributes (report, HTML, configuration); external test template updated (`requires_pass`, the two kinds explained); `dev:check`. Closed by the owner: Q-61. Next: Q-64 |
+| 2026-10-09 | Closed by the owner: Q-64. Concurrent runs on the same target are not a goal (other tests, such as 4.1, would interfere anyway): no code change, the fixed token name and its pre-flight cleanup stay; the integration guide states one run at a time per target. Next: Q-34 |
+| 2026-10-09 | Q-34 decided by the owner: moved to block 8 with Q-38 (Admin API protection depends on the gateway); implemented only against real protected Admin APIs in a lab. Limitation added to `reference/configuration.md` (`admin_api_url`). Next: re-evaluate Q-62 |
+| 2026-10-10 | Closed by the owner: Q-62 (partial report on interruption), dropped: an interrupted assessment is incomplete and must be run again anyway; small gain against about a day of work on the signal path stabilised with Q-44 and new contract fields. Block 5d done. Next: plan block 7 (cRAPI lab) with the infrastructure part of block 8 |

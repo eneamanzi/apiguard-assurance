@@ -50,9 +50,9 @@ from pydantic import (
     model_validator,
 )
 
-from src.config.schema.external_tools import ExternalToolsConfig
 from src.config.schema.tests_config import TestsConfig
 from src.core.models import TestStrategy
+from src.core.models.external_tools import ExternalToolsConfig
 from src.core.test_metadata import PRIORITY_MAX, PRIORITY_MIN, is_valid_test_id
 
 # ---------------------------------------------------------------------------
@@ -701,11 +701,6 @@ class ExecutionConfig(BaseModel):
                     "(e.g. 'ext.1.5.testssl', 'ext.0.1.nuclei')."
                 )
         return value
-
-    @model_validator(mode="after")
-    def validate_strategy_credential_coherence(self) -> ExecutionConfig:
-        """Placeholder -- cross-sub-model check deferred to ToolConfig validator."""
-        return self
 
 
 # ---------------------------------------------------------------------------

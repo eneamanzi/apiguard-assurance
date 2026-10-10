@@ -58,17 +58,14 @@ EXCLUDES=(
     "*specs/*"
     "*.zip"
     ".env"
-    "tests_integration/*"
-    "/docs/tool_catalog.md"
-    "/docs/test_tool_decisions.md"
-    "/docs/ARCHITECTURE.md"
+    "dist/*"
     "tools/*"
 )
 
 if [ -n "$TARGET_DOMAIN_STR" ]; then
     echo "[INFO] Building domain-filtered package for Domain(s): $TARGET_DOMAIN_STR..."
     
-    # Converte la stringa separata da virgole in un array
+    # Split the comma-separated list into an array.
     IFS=',' read -r -a TARGET_DOMAINS <<< "$TARGET_DOMAIN_STR"
     
     for DIR in src/tests/domain_*; do
@@ -76,7 +73,7 @@ if [ -n "$TARGET_DOMAIN_STR" ]; then
             DOMAIN_NUM=$(echo "$DIR" | grep -oE '[0-9]+$')
             KEEP=false
             for TD in "${TARGET_DOMAINS[@]}"; do
-                # Rimuove eventuali spazi extra
+                # Strip surrounding spaces.
                 TD=$(echo "$TD" | xargs)
                 if [ "$DOMAIN_NUM" == "$TD" ]; then
                     KEEP=true
@@ -89,7 +86,8 @@ if [ -n "$TARGET_DOMAIN_STR" ]; then
         fi
     done
 
-    for FILE in src/config/schema/domain_*.py; do
+    # Per-test parameter models of the excluded domains (src/test_config/, block 4).
+    for FILE in src/test_config/domain_*.py; do
         if [ -f "$FILE" ]; then
             DOMAIN_NUM=$(echo "$FILE" | grep -oE '[0-9]+' | tail -n 1)
             KEEP=false
@@ -108,9 +106,6 @@ if [ -n "$TARGET_DOMAIN_STR" ]; then
 else
     echo "[WARNING] No specific domain requested (-d). Zipping all source code."
 fi
-
-#echo "[INFO] Aggiornamento API Reference tramite Hatch (ambiente dev)..."
-#hatch run dev:docs
 
 zip -r "$OUTPUT" . -x "${EXCLUDES[@]}" > /dev/null
 

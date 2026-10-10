@@ -64,8 +64,9 @@ Phase 7 does not run after an interruption. Exit codes:
 - **Filters:** native and external tests by `min_priority` and `strategies`; external tests also by tool
   enablement. `test_ids` replaces the priority and strategy filters (not tool enablement).
 - **Scheduling:** native and external tests are merged into one dependency map; `DAGScheduler` uses
-  `graphlib.TopologicalSorter`, sorts test IDs inside each batch lexicographically, removes dependencies on
-  filtered-out tests with a warning, and detects stalls.
+  `graphlib.TopologicalSorter`, sorts test IDs inside each batch lexicographically, drops the edges to tests
+  not in the run, and detects stalls. In Phase 5 the engine skips a test whose prerequisite is not met
+  ([dependencies between tests](assessment-model.md#dependencies-between-tests)).
 
 ## Module structure and dependencies
 

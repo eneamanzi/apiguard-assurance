@@ -56,6 +56,7 @@ Start at the [documentation map](docs/index.md). The main entry points:
 |---|---|
 | Try the tool | [Installation](docs/getting-started/installation.md), [First assessment](docs/getting-started/first-assessment.md) |
 | Run it on my API | [Configure a target](docs/guides/usage/configure-a-target.md), [Select tests](docs/guides/usage/select-tests.md), [Read the report](docs/guides/usage/read-the-report.md) |
+| Integrate it into another product or a pipeline | [Integrate APIGuard Assurance](docs/guides/integration/integrate-apiguard.md) |
 | Know what each test checks | [Test catalogue](docs/tests/README.md) |
 | Look up a parameter, command or file format | [Configuration](docs/reference/configuration.md), [CLI](docs/reference/cli.md), [Report schema](docs/reference/report-schema.md), [Exit codes](docs/reference/exit-codes.md) |
 | Understand how it works | [Architecture](docs/architecture/overview.md) |

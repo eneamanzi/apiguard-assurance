@@ -55,12 +55,31 @@ Configured in `execution` ([`reference/configuration.md`](../reference/configura
 2. Otherwise `min_priority` keeps tests with `priority <= min_priority`, and `strategies` keeps the tests, native
    and external, whose strategy is listed.
 3. External tests are scheduled only if their tool is enabled (`external_tools`).
-4. Dependencies (`depends_on`) order the run; a dependency on a test that was filtered out is dropped with a
-   warning.
+4. Prerequisites (`depends_on`, `requires_pass`) order the run; a test whose prerequisite is not met, including
+   one left out by the selection, returns SKIP ([dependencies between tests](#dependencies-between-tests)).
 
 Without the `user_a` credentials GREY_BOX tests return SKIP; without the `admin` credentials 1.4 returns SKIP;
 without `gateway_adapter` + `admin_api_url` the Admin API tests return SKIP (6.4 skips sub-test B). Phase 1 warns
 about each situation when the strategy concerned is selected.
+
+## Dependencies between tests
+
+A test declares two lists of prerequisites (`src/core/dag.py`). Both make the prerequisites run first.
+
+| Attribute | Use it when | The test runs if each prerequisite | Otherwise |
+|---|---|---|---|
+| `depends_on` | the test **uses data** that only the prerequisite produces (`TestContext` shared data) | completed: `PASS` or `FAIL` | `SKIP` |
+| `requires_pass` | the test is **meaningful only if** the prerequisite holds (checking details of a mechanism that does not work proves nothing) | returned `PASS` | `SKIP` |
+
+A prerequisite not in the run (left out by `test_ids`, `min_priority`, `strategies`, or a disabled tool) counts as
+not met: the prerequisite is never added to the run automatically. The `SKIP` reason names it, for example
+`Prerequisite not met: it is meaningful only if 1.1 passes; 1.1 returned FAIL.`, and a skip propagates to the tests
+that depend on the skipped one. The test is not executed.
+
+Declare a prerequisite only when one of the two cases is true. Tokens are not a reason: every test that needs one
+calls `acquire_tokens()` (`src/tests/helpers/auth.py`), which logs in once per role and reuses the token stored in
+`TestContext`, in any order. No test declares a prerequisite today. A prerequisite that names no existing test, or
+the test itself, stops the tool at startup (exit `10`).
 
 ## Oracles and verdicts
 

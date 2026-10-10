@@ -11,7 +11,7 @@
 |---|---|
 | Install and try the tool | [`getting-started/installation.md`](getting-started/installation.md), [`getting-started/first-assessment.md`](getting-started/first-assessment.md) |
 | Configure and run it on a target | [`guides/usage/configure-a-target.md`](guides/usage/configure-a-target.md), [`guides/usage/select-tests.md`](guides/usage/select-tests.md), [`guides/usage/read-the-report.md`](guides/usage/read-the-report.md) |
-| Integrate it in a pipeline or another system | [`reference/exit-codes.md`](reference/exit-codes.md), [`reference/report-schema.md`](reference/report-schema.md) - *planned:* `guides/integration/` |
+| Integrate it in a pipeline or another system | [`guides/integration/integrate-apiguard.md`](guides/integration/integrate-apiguard.md), then [`reference/exit-codes.md`](reference/exit-codes.md), [`reference/report-schema.md`](reference/report-schema.md) |
 | Add a native test | [`guides/extending/add-a-native-test.md`](guides/extending/add-a-native-test.md) |
 | Add an external test or connector | [`guides/extending/add-an-external-test.md`](guides/extending/add-an-external-test.md) |
 | Support another API gateway | [`guides/extending/add-a-gateway-adapter.md`](guides/extending/add-a-gateway-adapter.md) |

@@ -40,8 +40,7 @@ DA-2 -- Phase R4 (_inject_connectors):
     redundant syscalls for tools used by multiple tests.
 
 Dependency rule:
-    Imports from: stdlib, structlog, src.external_tests.base,
-                  src.config.schema.external_tools, src.core.models.
+    Imports from: stdlib, structlog, src.external_tests.base, src.core.
     Must never import from: tests/, connectors/ (indirectly via ExternalToolTest),
                             engine.py, discovery/, report/.
 """
@@ -220,22 +219,20 @@ class ExternalTestRegistry:
         )
         return active_tests
 
-    def list_test_tools(self) -> dict[str, str]:
+    def list_tests(self) -> list[ExternalToolTest]:
         """
-        Return every concrete external test, without filtering, with its tool.
+        Return every concrete external test, without filtering.
 
-        Scans the modules even when external tools are disabled, so that an
-        execution.test_ids entry can be told apart as unknown or as belonging
-        to a disabled tool (engine.check_tests).
+        Scans the modules even when external tools are disabled, so that the
+        prerequisites can be checked and an execution.test_ids entry can be
+        told apart as unknown or as belonging to a disabled tool
+        (engine.check_tests).
 
         Returns:
-            Mapping test_id -> tool_name.
+            One instance per external test.
         """
         modules = self._scan_and_import_modules()
-        return {
-            str(getattr(t.__class__, "test_id", "")): str(getattr(t.__class__, "tool_name", ""))
-            for t in self._extract_concrete_subclasses(modules)
-        }
+        return self._extract_concrete_subclasses(modules)
 
     # ------------------------------------------------------------------
     # Phase R1 -- Module scan and import
@@ -316,10 +313,9 @@ class ExternalTestRegistry:
             2. It is NOT ExternalToolTest itself (the ABC must be excluded).
             3. It does not have abstractmethods remaining (inspect.isabstract == False).
 
-        Classes missing required ClassVar attributes (test_id, test_name, domain,
-        priority, strategy, depends_on, tags, cwe_id, tool_name) generate a WARNING
-        log entry but are not excluded -- the registry is permissive at discovery time
-        to maintain parity with TestRegistry's "warn but don't block" policy.
+        A class whose declaration is missing or invalid (metadata_problems(),
+        src/core/test_metadata.py) is collected as a problem, and discovery
+        raises TestDefinitionError listing every problem, as TestRegistry does.
 
         Args:
             modules: Imported modules from _scan_and_import_modules().

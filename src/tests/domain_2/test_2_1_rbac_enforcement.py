@@ -35,8 +35,9 @@ EvidenceStore policy:
     PASS/INCONCLUSIVE: _log_transaction(record, oracle_state=...).
 
 DAG placement:
-    depends_on = ["1.1"]  → Phase B.  Runs after the authentication test
-    confirms that ROLE_USER_A credentials produce valid tokens.
+    No prerequisite (depends_on = [], requires_pass = []): the test acquires
+    its own tokens through acquire_tokens(), which reuses a token already in
+    TestContext; a rejected login gives ERROR with the reason.
 
 Dependency rule:
     Imports from: stdlib, structlog, src.core, src.tests.base,
@@ -107,7 +108,8 @@ class Test21RbacEnforcement(BaseTest):
     domain: ClassVar[int] = 2
     priority: ClassVar[int] = 2
     strategy: ClassVar[TestStrategy] = TestStrategy.GREY_BOX
-    depends_on: ClassVar[list[str]] = ["1.1"]
+    depends_on: ClassVar[list[str]] = []
+    requires_pass: ClassVar[list[str]] = []
     tags: ClassVar[list[str]] = [
         "authorization",
         "rbac",

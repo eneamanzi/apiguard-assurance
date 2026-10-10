@@ -89,8 +89,8 @@ class ExternalToolsConfig(BaseModel):
 `getattr(external_tools, tool_name)`; an unknown name excludes the test with the warning
 `external_tools_unknown_tool_name`.
 
-Optionally re-export the class in `src/config/schema/external_tools.py` and `src/core/models/__init__.py`
-(today `SslyzeConfig` is not re-exported and nothing breaks).
+Optionally re-export the class in `src/core/models/__init__.py` (today `SslyzeConfig` is not re-exported and
+nothing breaks).
 
 ## 4. Installation and dependencies
 
@@ -112,7 +112,8 @@ test_name: ClassVar[str] = "TLS Stack Analysis (testssl.sh)"
 domain: ClassVar[int] = 1
 priority: ClassVar[int] = 2
 strategy: ClassVar[TestStrategy] = TestStrategy.BLACK_BOX
-depends_on: ClassVar[list[str]] = []
+depends_on: ClassVar[list[str]] = []            # tests whose data this test uses
+requires_pass: ClassVar[list[str]] = []         # tests that must PASS first
 tags: ClassVar[list[str]] = [...]
 cwe_id: ClassVar[str] = "CWE-326"
 tool_name: ClassVar[str] = "testssl"            # = field name in ExternalToolsConfig

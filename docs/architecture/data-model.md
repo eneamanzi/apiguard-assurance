@@ -111,8 +111,9 @@ cannot change either; test helpers receive them as `Sequence[...]`. The only con
 
 Until 2026-10 every parameter was defined twice (a configuration model plus a `RuntimeTest<XY>Config` copy in
 `src/core/models/runtime.py`, filled field by field by the engine); the copies were removed.
-External-tool models still live in `src/core/models/external_tools.py`, re-exported by
-`src/config/schema/external_tools.py`; they are to be moved to `src/test_config/` later.
+External-tool models live in `src/core/models/external_tools.py`, on purpose: they configure the tools (the
+`external_tools` section: switches, timeouts, binary flags), not the parameters of a single test, and they are used
+by `core` (`TargetContext`), the connectors and the external registry (owner decision 2026-10-09, Q-63).
 
 ## Report models
 

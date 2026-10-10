@@ -121,6 +121,7 @@ class Test42TimeoutConfigAudit(BaseTest):
     priority: ClassVar[int] = 1
     strategy: ClassVar[TestStrategy] = TestStrategy.WHITE_BOX
     depends_on: ClassVar[list[str]] = []
+    requires_pass: ClassVar[list[str]] = []
     tags: ClassVar[list[str]] = [
         "availability",
         "timeout",

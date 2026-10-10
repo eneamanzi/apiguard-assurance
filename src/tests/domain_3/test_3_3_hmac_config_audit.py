@@ -184,6 +184,7 @@ class Test33HMACConfigAudit(BaseTest):
     priority: ClassVar[int] = 3
     strategy: ClassVar[TestStrategy] = TestStrategy.WHITE_BOX
     depends_on: ClassVar[list[str]] = []
+    requires_pass: ClassVar[list[str]] = []
     tags: ClassVar[list[str]] = [
         "authentication",
         "cryptography",

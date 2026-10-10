@@ -862,6 +862,9 @@ def _silence_noisy_loggers(base_level: int) -> None:
         "openapi_spec_validator",
         "urllib3",
         "chardet",
+        # sslyze logs each HTTP probe at INFO in plain text, which would break
+        # the one-JSON-object-per-line stream of --log-format json.
+        "sslyze",
     ]
 
     for logger_name in noisy_loggers:

@@ -115,8 +115,9 @@ to `false` and keep the master switch on. A tool that is enabled but not install
 
 ## Things to know
 
-- **Dependencies.** 1.4 and 2.1 are declared to run after 1.1. If you select 1.4 or 2.1 without 1.1, the dependency
-  is dropped with a warning and the test runs anyway.
+- **Prerequisites.** A test can require another one (no current test does). If the selection leaves the
+  prerequisite out, or it does not end as required, the test returns SKIP and the reason names the prerequisite to
+  add ([dependencies between tests](../../architecture/assessment-model.md#dependencies-between-tests)).
 - **Stop at the first critical failure.** `execution.fail_fast: true` stops after the first P0 test that returns
   FAIL or ERROR; the tests not yet run are listed in `not_run` with reason `fail_fast`
   ([exit codes](../../reference/exit-codes.md)).

@@ -16,19 +16,33 @@ and the tests within each batch strictly sequentially (no ThreadPoolExecutor).
 The batch abstraction preserves the option for future parallelism without
 implementing it now (docs/architecture/overview.md, "Pipeline").
 
-Dependency rule: this module imports from stdlib and src.core.exceptions only.
-It operates on plain strings (test_id values) and does not import BaseTest or
-any test-specific type to avoid circular dependencies with tests/.
+Two kinds of prerequisite (docs/architecture/assessment-model.md,
+"Dependencies between tests"), both of which also order the run:
+    depends_on     data: the test uses something only the prerequisite
+                   produces (TestContext shared data). It runs if the
+                   prerequisite completed (PASS or FAIL).
+    requires_pass  logic: the test is meaningful only if the prerequisite
+                   holds. It runs if the prerequisite returned PASS.
+Otherwise the engine records the test as SKIP with the reason returned by
+prerequisite_skip_reason(); a prerequisite that is not in the run counts as
+not completed.
+
+Dependency rule: this module imports from stdlib, src.core.exceptions and
+src.core.models only. It operates on plain strings (test_id values) and does
+not import BaseTest or any test-specific type to avoid circular dependencies
+with tests/.
 """
 
 from __future__ import annotations
 
 import graphlib
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 import structlog
 
 from src.core.exceptions import DAGCycleError
+from src.core.models import TestStatus
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -113,8 +127,7 @@ class DAGScheduler:
         sequential operations:
 
             1. Sanitize the dependency graph: remove references to test IDs
-               that are not in active_test_ids (filtered out by TestRegistry).
-               Log a WARNING for each removed dependency.
+               that are not in active_test_ids (left out by the selection).
 
             2. Feed the sanitized graph to graphlib.TopologicalSorter and
                detect cycles. A CycleError from graphlib is converted to
@@ -129,9 +142,9 @@ class DAGScheduler:
                           dependency list is empty. Example:
                               {"1.1": [], "1.2": ["1.1"], "2.2": ["1.1", "1.2"]}
 
-            active_test_ids: Set of test_id values that survived the TestRegistry
-                             filter (priority + strategy). Dependencies referencing
-                             IDs outside this set are silently dropped with a WARNING.
+            active_test_ids: Set of test_id values selected for the run.
+                             Edges to IDs outside this set are dropped (the
+                             engine skips the dependent test).
 
         Returns:
             Ordered list of ScheduledBatch. Index 0 contains tests with no
@@ -183,17 +196,13 @@ class DAGScheduler:
         """
         Remove dependency references to test IDs not in active_test_ids.
 
-        When TestRegistry filters out a test (e.g., a P0 prerequisite excluded
-        because min_priority=1), tests that declared depends_on that test would
-        cause graphlib to reference an unknown node. Rather than treating this
-        as a fatal error, we drop the reference and log a WARNING, as documented
-        in docs/architecture/assessment-model.md ("Selecting tests"): a dependency
-        on a test that is not in the active set (because it was filtered out) is
-        ignored with a WARNING, without error.
-
-        This is semantically safe because the filtered test either passed
-        (and its postconditions are assumed satisfied) or was not needed for
-        the current execution scope.
+        When the selection leaves out a prerequisite (e.g. excluded by
+        min_priority, strategies or test_ids), its edge would make graphlib
+        reference an unknown node. The edge is only an ordering constraint, so
+        it is dropped here; the dependent test is still scheduled, and the
+        engine records it as SKIP before executing it
+        (prerequisite_skip_reason(): a prerequisite not in the run counts as
+        not completed).
 
         Args:
             dependencies: Raw dependency map from TestRegistry.
@@ -210,15 +219,10 @@ class DAGScheduler:
                 if dep in active_test_ids:
                     active_deps.append(dep)
                 else:
-                    log.warning(
-                        "dag_dependency_removed_not_active",
+                    log.debug(
+                        "dag_dependency_not_in_run",
                         test_id=test_id,
                         missing_dependency=dep,
-                        reason=(
-                            "The declared dependency is not in the active test set. "
-                            "It was likely filtered out by priority or strategy. "
-                            "The dependency edge is dropped; execution continues."
-                        ),
                     )
             sanitized[test_id] = active_deps
 
@@ -386,3 +390,55 @@ class DAGScheduler:
             batch_index += 1
 
         return batches
+
+
+# ---------------------------------------------------------------------------
+# Prerequisite check (Phase 5)
+# ---------------------------------------------------------------------------
+
+# Statuses with which a prerequisite has completed: it ran and reached a
+# verdict, so whatever it produces for its dependents exists.
+_COMPLETED_STATUSES: frozenset[TestStatus] = frozenset({TestStatus.PASS, TestStatus.FAIL})
+
+
+def prerequisite_skip_reason(
+    depends_on: Sequence[str],
+    requires_pass: Sequence[str],
+    statuses: Mapping[str, TestStatus],
+) -> str | None:
+    """
+    Return why a test must be skipped because of its prerequisites, or None.
+
+    Called by the engine right before a test runs. The schedule guarantees
+    that every prerequisite in the run has already finished, so a
+    prerequisite missing from statuses is not in the run.
+
+    Rules (one reason per unmet prerequisite, depends_on first):
+        depends_on X:    X must have completed (PASS or FAIL).
+        requires_pass X: X must have returned PASS.
+
+    Args:
+        depends_on:    Test IDs whose data the test uses.
+        requires_pass: Test IDs that must hold for the test to be meaningful.
+        statuses:      Status of every test already finished in this run.
+
+    Returns:
+        The SKIP reason, naming each unmet prerequisite, or None when the
+        test can run.
+    """
+    unmet: list[str] = []
+    for dep in depends_on:
+        status = statuses.get(dep)
+        if status is None:
+            unmet.append(f"it needs data from {dep}, which is not in this run")
+        elif status not in _COMPLETED_STATUSES:
+            unmet.append(f"it needs data from {dep}, which returned {status.value}")
+    for dep in requires_pass:
+        status = statuses.get(dep)
+        if status is None:
+            unmet.append(f"it is meaningful only if {dep} passes; {dep} is not in this run")
+        elif status != TestStatus.PASS:
+            unmet.append(f"it is meaningful only if {dep} passes; {dep} returned {status.value}")
+    if not unmet:
+        return None
+    return "Prerequisite not met: " + "; ".join(unmet) + "."

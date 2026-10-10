@@ -84,7 +84,7 @@ from src.config.loader import closest_match, load_config
 from src.config.schema import ToolConfig
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
-from src.core.dag import DAGScheduler, ScheduledBatch
+from src.core.dag import DAGScheduler, ScheduledBatch, prerequisite_skip_reason
 from src.core.evidence import EvidenceStore
 from src.core.exceptions import (
     ConfigurationError,
@@ -106,7 +106,7 @@ from src.core.models import (
     TestStatus,
 )
 from src.core.redaction import SecretRegistry
-from src.core.test_metadata import is_external_test_id
+from src.core.test_metadata import PREREQUISITE_ATTRIBUTES, is_external_test_id
 from src.discovery.openapi import load_openapi_spec
 from src.discovery.surface import build_attack_surface
 from src.external_tests.base import ExternalToolTest
@@ -135,7 +135,8 @@ def check_tests(config: ToolConfig) -> None:
 
     1. Test declarations (src/core/test_metadata.py): both registries are
        scanned, native and external (even with external tools disabled), and
-       the problems of both are listed together.
+       the problems of both are listed together, including a prerequisite
+       (depends_on, requires_pass) that names no existing test.
     2. execution.test_ids content (its format is checked by the
        configuration schema): an entry is rejected when no test has that ID
        (with the closest ID as a suggestion), or when it is an external test
@@ -150,16 +151,28 @@ def check_tests(config: ToolConfig) -> None:
         ConfigurationError: Listing every rejected test_ids entry.
     """
     definition_problems: list[str] = []
-    native_ids: set[str] = set()
-    external_tools: dict[str, str] = {}
+    native_tests: list[BaseTest] = []
+    external_tests: list[ExternalToolTest] = []
     try:
-        native_ids = TestRegistry().list_test_ids()
+        native_tests = TestRegistry().list_tests()
     except TestDefinitionError as exc:
         definition_problems.extend(exc.problems)
     try:
-        external_tools = ExternalTestRegistry().list_test_tools()
+        external_tests = ExternalTestRegistry().list_tests()
     except TestDefinitionError as exc:
         definition_problems.extend(exc.problems)
+    native_ids = {t.__class__.test_id for t in native_tests}
+    external_tools = {t.__class__.test_id: t.__class__.tool_name for t in external_tests}
+    all_ids = native_ids | set(external_tools)
+    for test in [*native_tests, *external_tests]:
+        cls = test.__class__
+        for attribute in PREREQUISITE_ATTRIBUTES:
+            for prerequisite in getattr(cls, attribute):
+                if prerequisite not in all_ids:
+                    definition_problems.append(
+                        f"{cls.__name__} ({cls.__module__}): {attribute!r} names "
+                        f"{prerequisite!r}, which is not a test"
+                    )
     raise_for_test_definition_problems(definition_problems)
 
     requested = config.execution.test_ids
@@ -632,9 +645,10 @@ class AssessmentEngine:
             2. ExternalTestRegistry -> list[ExternalToolTest]  (binary-wrapper tests)
 
         The two lists are merged before being passed to DAGScheduler.  Both
-        hierarchies declare test_id and depends_on ClassVars, which is all the
-        scheduler reads.  Cross-hierarchy dependencies are fully supported:
-        an ExternalToolTest may declare depends_on referencing a BaseTest test_id.
+        hierarchies declare test_id, depends_on and requires_pass ClassVars;
+        both kinds of prerequisite order the run.  Cross-hierarchy
+        prerequisites are supported: an ExternalToolTest may name a BaseTest
+        test_id.
 
         Selection by execution.test_ids:
             Not set: each registry receives allowed_ids=None and applies its
@@ -700,9 +714,11 @@ class AssessmentEngine:
                 config_path="execution",
             )
 
-        # Build dependency map from the union of both lists.
+        # Both kinds of prerequisite order the run; whether a prerequisite is
+        # met is decided in Phase 5 (prerequisite_skip_reason).
         dependency_map: dict[str, list[str]] = {
-            t.__class__.test_id: list(getattr(t.__class__, "depends_on", [])) for t in all_tests
+            t.__class__.test_id: [*t.__class__.depends_on, *t.__class__.requires_pass]
+            for t in all_tests
         }
 
         scheduler = DAGScheduler()
@@ -745,6 +761,11 @@ class AssessmentEngine:
         For each ScheduledBatch, iterates over test_ids sequentially.
         Each test is located by test_id in the active_tests list, then
         executed via test.execute(). The TestResult is added to result_set.
+
+        Prerequisites (docs/architecture/assessment-model.md, "Dependencies
+        between tests"): before a test runs, its depends_on and requires_pass
+        are checked against the results so far; an unmet prerequisite gives a
+        SKIP result with the reason, and the test is not executed.
 
         Fail-fast condition (docs/architecture/assessment-model.md, "Fail-fast"):
             If config.execution.fail_fast is True and a P0 test returns
@@ -794,24 +815,38 @@ class AssessmentEngine:
                     continue
 
                 position += 1
-                timeout_seconds = self._external_timeout_seconds(test, config)
-                if self._observer is not None:
-                    self._observer.test_started(
-                        position,
-                        total,
-                        test_id,
-                        str(getattr(test, "test_name", "")),
-                        timeout_seconds,
-                    )
-                result = self._execute_single_test(
-                    test=test,
-                    target=target,
-                    context=context,
-                    client=client,
-                    store=store,
-                    progress=f"{position}/{total}",
-                    timeout_seconds=timeout_seconds,
+                skip_reason = prerequisite_skip_reason(
+                    depends_on=test.__class__.depends_on,
+                    requires_pass=test.__class__.requires_pass,
+                    statuses={r.test_id: r.status for r in result_set.results},
                 )
+                if skip_reason is not None:
+                    result = test._make_skip(skip_reason)  # noqa: SLF001
+                    log.info(
+                        "test_skipped_prerequisite_not_met",
+                        progress=f"{position}/{total}",
+                        test_id=test_id,
+                        reason=skip_reason,
+                    )
+                else:
+                    timeout_seconds = self._external_timeout_seconds(test, config)
+                    if self._observer is not None:
+                        self._observer.test_started(
+                            position,
+                            total,
+                            test_id,
+                            str(getattr(test, "test_name", "")),
+                            timeout_seconds,
+                        )
+                    result = self._execute_single_test(
+                        test=test,
+                        target=target,
+                        context=context,
+                        client=client,
+                        store=store,
+                        progress=f"{position}/{total}",
+                        timeout_seconds=timeout_seconds,
+                    )
                 result_set.add_result(result)
                 if self._observer is not None:
                     self._observer.test_finished(position, total, result)

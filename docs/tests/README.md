@@ -1,7 +1,7 @@
 # Test Catalogue
 
 > **Audience:** analysts, integrators, contributors · **Status:** v0.1.0 · **Source of truth:** test class
-> metadata (`test_id`, `test_name`, `domain`, `priority`, `strategy`, `cwe_id`, `depends_on`) in `src/tests/` and
+> metadata (`test_id`, `test_name`, `domain`, `priority`, `strategy`, `cwe_id`, `depends_on`, `requires_pass`) in `src/tests/` and
 > `src/external_tests/`; table extracted from the code on 2026-10-05.
 
 18 tests: 15 native, 3 external. Layout mirrors the code: native tests in `domain-N/` (`src/tests/domain_N/`),
@@ -44,7 +44,8 @@ plus `target.gateway_adapter: kong`.
 
 ## Dependencies and execution order
 
-Only two declared dependencies: `1.4` and `2.1` depend on `1.1`. All other tests have none. Tests are scheduled
+No test declares a prerequisite (`depends_on`, `requires_pass`: [dependencies between
+tests](../architecture/assessment-model.md#dependencies-between-tests)). Tests are scheduled
 with a topological sort over native and external tests together; within a batch the order is lexicographic by
 test ID. Execution is sequential.
 

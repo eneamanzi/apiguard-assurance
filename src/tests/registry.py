@@ -194,18 +194,18 @@ class TestRegistry:
 
         return active_tests
 
-    def list_test_ids(self) -> set[str]:
+    def list_tests(self) -> list[BaseTest]:
         """
-        Return the test_id of every concrete native test, without filtering.
+        Return every concrete native test, without filtering.
 
-        Used to check the declarations and execution.test_ids before the run
-        (engine.check_tests).
+        Used to check the declarations, their prerequisites and
+        execution.test_ids before the run (engine.check_tests).
 
         Returns:
-            The set of native test IDs.
+            One instance per native test.
         """
         modules = self._scan_and_import_modules()
-        return {t.__class__.test_id for t in self._extract_concrete_subclasses(modules)}
+        return self._extract_concrete_subclasses(modules)
 
     # ------------------------------------------------------------------
     # Phase R1 — Module scan and import
@@ -590,47 +590,3 @@ class TestRegistry:
             )
         )
         log.debug("test_registry_excluded", test_id=cls.test_id, reason=reason.value, detail=detail)
-
-    # ------------------------------------------------------------------
-    # DAGScheduler input builder
-    # ------------------------------------------------------------------
-
-    def build_dependency_map(
-        self,
-        tests: list[BaseTest],
-    ) -> dict[str, list[str]]:
-        """
-        Build the dependency map required by DAGScheduler.build_schedule().
-
-        Extracts the test_id and depends_on ClassVar from each test instance
-        and returns a dict mapping test_id to its dependency list.
-
-        This method is called by engine.py immediately after discover() returns,
-        to prepare the input for DAGScheduler without requiring the engine to
-        know the internal structure of BaseTest.
-
-        Args:
-            tests: List of active BaseTest instances from discover().
-
-        Returns:
-            Dict mapping test_id -> list[str] of prerequisite test_ids.
-            Example: {"1.1": [], "1.2": ["1.1"], "2.2": ["1.1", "1.2"]}
-        """
-        dependency_map: dict[str, list[str]] = {}
-
-        for test in tests:
-            cls = test.__class__
-            test_id = cls.test_id
-            depends_on = list(cls.depends_on)
-
-            # Duplicate test_ids never reach this point: discovery raises
-            # TestDefinitionError for them.
-            dependency_map[test_id] = depends_on
-
-        log.debug(
-            "test_registry_dependency_map_built",
-            test_count=len(dependency_map),
-            test_ids=sorted(dependency_map.keys()),
-        )
-
-        return dependency_map

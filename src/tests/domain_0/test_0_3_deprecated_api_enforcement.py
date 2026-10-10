@@ -173,6 +173,7 @@ class Test03DeprecatedApiEnforcement(BaseTest):
     priority: ClassVar[int] = 0
     strategy: ClassVar[TestStrategy] = TestStrategy.BLACK_BOX
     depends_on: ClassVar[list[str]] = []
+    requires_pass: ClassVar[list[str]] = []
     test_name: ClassVar[str] = "Deprecated APIs Are Disabled or Under Enhanced Monitoring"
     domain: ClassVar[int] = 0
     tags: ClassVar[list[str]] = [

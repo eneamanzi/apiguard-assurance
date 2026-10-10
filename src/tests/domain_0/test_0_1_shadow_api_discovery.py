@@ -113,6 +113,7 @@ class Test_0_1_ShadowApiDiscovery(BaseTest):  # noqa: N801
     priority: ClassVar[int] = 0
     strategy: ClassVar[TestStrategy] = TestStrategy.BLACK_BOX
     depends_on: ClassVar[list[str]] = []
+    requires_pass: ClassVar[list[str]] = []
     test_name: ClassVar[str] = "All Exposed Endpoints Are Documented and Authorized"
     domain: ClassVar[int] = 0
     tags: ClassVar[list[str]] = ["shadow-api", "inventory", "OWASP-API9:2023"]

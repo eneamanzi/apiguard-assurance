@@ -284,6 +284,7 @@ class ExtTest15TlsAnalysis(ExternalToolTest):
     priority: ClassVar[int] = 2
     strategy: ClassVar[TestStrategy] = TestStrategy.BLACK_BOX
     depends_on: ClassVar[list[str]] = []
+    requires_pass: ClassVar[list[str]] = []
     tags: ClassVar[list[str]] = [
         "transport-security",
         "tls",
@@ -626,6 +627,7 @@ class ExtTest15SslyzeAnalysis(ExternalToolTest):
     priority: ClassVar[int] = 2
     strategy: ClassVar[TestStrategy] = TestStrategy.BLACK_BOX
     depends_on: ClassVar[list[str]] = []
+    requires_pass: ClassVar[list[str]] = []
     tags: ClassVar[list[str]] = [
         "transport-security",
         "tls",

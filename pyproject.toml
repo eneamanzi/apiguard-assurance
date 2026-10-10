@@ -308,7 +308,7 @@ dependencies = [
 [tool.hatch.envs.dev.scripts]
 lint = [
     "ruff check .",
-    "mypy src/",
+    "mypy src/ scripts/",
 ]
 audit = [
     "bandit -r src/ -c pyproject.toml --severity-level medium",
@@ -317,7 +317,7 @@ audit = [
 check = [
     "ruff check .",
     "ruff format --check .",
-    "mypy src/ ",
+    "mypy src/ scripts/",
     "bandit -r src/ -c pyproject.toml --severity-level medium",
     "vulture src/ --min-confidence 80",
     "lint-imports",
@@ -380,7 +380,6 @@ ignore_names = ["execute", "model_*", "validator_*", "plan", "report_paths"]
 target-version = "py311"
 line-length = 100
 src = ["src"]
-exclude = ["scripts"]
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "N", "UP", "B", "S", "ANN"]
@@ -403,7 +402,6 @@ exclude = ["*.md"]
 # ---------------------------------------------------------------------------
 [tool.mypy]
 python_version = "3.11"
-exclude = ["^scripts/"]
 plugins = ["pydantic.mypy"]
 strict = true
 warn_return_any = true

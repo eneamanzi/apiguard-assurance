@@ -4,8 +4,8 @@ src/core/test_metadata.py
 The rules every test declaration must satisfy, native and external alike.
 
 A test class declares its metadata as class attributes (test_id, test_name,
-domain, priority, strategy, depends_on, tags, cwe_id; external tests also
-tool_name). Python cannot force a subclass to declare a class attribute, so
+domain, priority, strategy, depends_on, requires_pass, tags, cwe_id; external
+tests also tool_name). Python cannot force a subclass to declare a class attribute, so
 the registries call metadata_problems() at discovery and stop the run with
 TestDefinitionError when a declaration is missing or invalid, instead of
 dropping the test or filling in defaults.
@@ -61,10 +61,16 @@ REQUIRED_ATTRIBUTES: tuple[str, ...] = (
     "priority",
     "strategy",
     "depends_on",
+    "requires_pass",
     "tags",
     "cwe_id",
 )
 EXTERNAL_REQUIRED_ATTRIBUTES: tuple[str, ...] = ("tool_name",)
+
+# The two kinds of prerequisite (src/core/dag.py, prerequisite_skip_reason):
+# depends_on (the test uses data the prerequisite produces) and requires_pass
+# (the test is meaningful only if the prerequisite passes).
+PREREQUISITE_ATTRIBUTES: tuple[str, ...] = ("depends_on", "requires_pass")
 
 
 # ---------------------------------------------------------------------------
@@ -110,8 +116,10 @@ def metadata_problems(test_class: type, *, external: bool) -> list[str]:
     Checks presence and value of each required class attribute: test_id in
     the format of its kind, with the domain part equal to domain; non-empty
     test_name, cwe_id and (external) tool_name; domain and priority integers
-    in range; strategy a TestStrategy; depends_on a list of valid test IDs;
-    tags a list of strings.
+    in range; strategy a TestStrategy; depends_on and requires_pass lists of
+    valid test IDs, not the test's own; tags a list of strings. Whether a
+    listed prerequisite exists is checked by engine.check_tests, which sees
+    every test.
 
     Args:
         test_class: The concrete test class to check.
@@ -155,9 +163,14 @@ def metadata_problems(test_class: type, *, external: bool) -> list[str]:
         if not isinstance(value, str) or not value.strip():
             problems.append(f"{name!r} must be a non-empty string, got {value!r}")
 
-    depends_on = test_class.depends_on  # type: ignore[attr-defined]
-    if not _is_list_of_str(depends_on) or not all(is_valid_test_id(d) for d in depends_on):
-        problems.append(f"'depends_on' must be a list of test IDs, got {depends_on!r}")
+    for name in PREREQUISITE_ATTRIBUTES:
+        prerequisites = getattr(test_class, name)
+        if not _is_list_of_str(prerequisites) or not all(
+            is_valid_test_id(d) for d in prerequisites
+        ):
+            problems.append(f"{name!r} must be a list of test IDs, got {prerequisites!r}")
+        elif test_id in prerequisites:
+            problems.append(f"{name!r} lists the test itself ({test_id!r})")
 
     tags = test_class.tags  # type: ignore[attr-defined]
     if not _is_list_of_str(tags):

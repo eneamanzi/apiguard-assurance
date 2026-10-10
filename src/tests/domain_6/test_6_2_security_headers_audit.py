@@ -212,6 +212,7 @@ class Test62SecurityHeadersAudit(BaseTest):
     domain: ClassVar[int] = 6
     strategy: ClassVar[TestStrategy] = TestStrategy.BLACK_BOX
     depends_on: ClassVar[list[str]] = []
+    requires_pass: ClassVar[list[str]] = []
     tags: ClassVar[list[str]] = [
         "hardening",
         "headers",
