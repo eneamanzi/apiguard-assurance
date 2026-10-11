@@ -145,8 +145,8 @@ then in `PATH`. That is why commands are run from the repository folder.
 
 | Task | Command |
 |---|---|
-| Validate the configuration | `hatch run apiguard validate-config` |
-| Run an assessment | `hatch run apiguard run` |
+| Validate the configuration | `hatch run apiguard validate-config -c test-environments/forgejo-kong/config.yaml` |
+| Run an assessment | `hatch run apiguard run -c test-environments/forgejo-kong/config.yaml` |
 | Use another configuration file | `hatch run apiguard run -c other.yaml` |
 | Open a shell inside the environment | `hatch shell` |
 | Code quality checks (contributors) | `hatch run dev:check` |

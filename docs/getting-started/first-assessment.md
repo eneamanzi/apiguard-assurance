@@ -125,16 +125,17 @@ opens the contributors' environment (linters, type checker), not needed here.
 Validate the configuration:
 
 ```bash
-hatch run apiguard validate-config
+hatch run apiguard validate-config -c test-environments/forgejo-kong/config.yaml
 ```
 
-Expected: `Configuration valid. Target: https://localhost:8443/`. The committed `config.yaml` is already set up for
-this lab ([how loading works](../reference/configuration.md#loading-rules)).
+Expected: `Configuration valid. Target: https://localhost:8443/`. The lab's configuration, `test-environments/forgejo-kong/config.yaml`, is
+already set up for this lab ([how loading works](../reference/configuration.md#loading-rules)); run the commands
+from the repository folder, because the paths in the file are relative to the folder the command runs from.
 
 Run the assessment:
 
 ```bash
-hatch run apiguard run
+hatch run apiguard run -c test-environments/forgejo-kong/config.yaml
 ```
 
 About 5 minutes. The terminal shows one line per test with its result and, at the end, a summary with the paths
@@ -145,7 +146,7 @@ sslyze; the native tests take about 30 seconds). The test in progress is shown w
 on a terminal, the time elapsed against its limit (`0:01:40 (limit 240s)`); with the output redirected to a file,
 an external tool prints a `running (limit 240s)` line when it starts.
 Reports are written only at the very end: if you press `Ctrl+C` the tool removes what the tests created on the
-target, but there are no reports and `outputs/` keeps only `evidence_tmp/`.
+target, but there are no reports and `outputs/forgejo/` keeps only `evidence_tmp/`.
 
 When it finishes, print its exit code:
 
@@ -162,7 +163,7 @@ Measured on this lab with the full run: exit code `1`, 18 tests scheduled, no `E
 deprecated endpoint declared) and 1.6 (no session cookie), the rest PASS or FAIL. The exact number of findings
 varies with the lab data.
 
-Results are written to `outputs/` (a previous run's files are replaced):
+Results are written to `outputs/forgejo/` (a previous run's files are replaced):
 
 | File | Content |
 |---|---|
@@ -173,15 +174,15 @@ Results are written to `outputs/` (a previous run's files are replaced):
 Open the HTML report:
 
 ```bash
-cd outputs && python3 -m http.server 8080
+cd outputs/forgejo && python3 -m http.server 8080
 ```
 
-then browse to `http://localhost:8080/assessment_report.html`. Stop the server with `Ctrl+C`, then `cd ..`.
+then browse to `http://localhost:8080/assessment_report.html`. Stop the server with `Ctrl+C`, then `cd ../..`.
 
 Quick verdict list without a browser:
 
 ```bash
-python3 -c "import json;r=json.load(open('outputs/apiguard_report.json'));[print(x['test_id'],x['status'],x['finding_count']) for x in r['all_rows']]"
+python3 -c "import json;r=json.load(open('outputs/forgejo/apiguard_report.json'));[print(x['test_id'],x['status'],x['finding_count']) for x in r['all_rows']]"
 ```
 
 What each test does and what its status means: [test catalogue](../tests/README.md).

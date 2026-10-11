@@ -246,7 +246,7 @@ There is no automated test suite yet (planned: Q-51). Verify against the lab tar
 1. `apiguard validate-config` - the new parameters load.
 2. Run only the new test: in a copy of `config.yaml` set `execution.test_ids: ["<D>.<N>"]`, then
    `apiguard run -c <copy> --log-level debug`.
-3. Check in `outputs/apiguard_report.json` that the test appears with the expected status, findings and oracle
+3. Check in the run's `apiguard_report.json` (`outputs/forgejo/` with the lab configuration) that the test appears with the expected status, findings and oracle
    states, and that FAIL evidence is in `evidence.json`.
 4. `hatch run dev:check` (ruff, ruff format, mypy, bandit, vulture, lint-imports) - see [`coding-rules.md`](coding-rules.md).
 5. Write the test page in [`docs/tests/`](../../tests/README.md) and add the row to the catalogue.

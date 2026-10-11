@@ -11,7 +11,8 @@ Previous page: [Select tests](select-tests.md).
 
 ## What a run produces
 
-In `outputs/` (or `output.directory`), replacing the files of the previous run:
+In `output.directory` (`outputs/forgejo/` with the Forgejo lab's configuration, used in the examples below),
+replacing the files of the previous run:
 
 | File | For | Content |
 |---|---|---|
@@ -39,7 +40,7 @@ The exit code of `apiguard run` is the overall verdict ([exit codes](../../refer
 The executive summary gives the counts:
 
 ```bash
-jq '.executive_summary' outputs/apiguard_report.json
+jq '.executive_summary' outputs/forgejo/apiguard_report.json
 ```
 
 `executed_tests` excludes the SKIPs, and `pass_rate_pct` is `pass_count / executed_tests`.
@@ -47,7 +48,7 @@ jq '.executive_summary' outputs/apiguard_report.json
 ## 2. The outcome of each test
 
 ```bash
-jq -r '.all_rows[] | "\(.test_id)\t\(.status)\t\(.finding_count)\t\(.message)"' outputs/apiguard_report.json
+jq -r '.all_rows[] | "\(.test_id)\t\(.status)\t\(.finding_count)\t\(.message)"' outputs/forgejo/apiguard_report.json
 ```
 
 | Status | What it tells you | What to do |
@@ -69,7 +70,7 @@ Each finding has a title, a detail and, for most tests, an `evidence_ref`: the I
 stored in `evidence.json`. Example on the lab, test 1.1:
 
 ```bash
-jq -r '.all_rows[] | select(.test_id=="1.1") | .findings[] | "\(.evidence_ref)  \(.title)"' outputs/apiguard_report.json
+jq -r '.all_rows[] | select(.test_id=="1.1") | .findings[] | "\(.evidence_ref)  \(.title)"' outputs/forgejo/apiguard_report.json
 ```
 
 ```
@@ -81,7 +82,7 @@ jq -r '.all_rows[] | select(.test_id=="1.1") | .findings[] | "\(.evidence_ref)  
 Then look the ID up:
 
 ```bash
-jq '.records[] | select(.record_id=="1.1_054")' outputs/evidence.json
+jq '.records[] | select(.record_id=="1.1_054")' outputs/forgejo/evidence.json
 ```
 
 The record holds the request as sent (method, URL, headers, body) and the response (status, headers, body up to
@@ -92,7 +93,7 @@ answered `200`.
 transactions are marked in the test's transaction log:
 
 ```bash
-jq -r '.all_rows[] | select(.test_id=="7.2") | .transaction_log[] | select(.is_fail_evidence) | .record_id' outputs/apiguard_report.json
+jq -r '.all_rows[] | select(.test_id=="7.2") | .transaction_log[] | select(.is_fail_evidence) | .record_id' outputs/forgejo/apiguard_report.json
 ```
 
 and each ID is in `evidence.json` as above. For 4.1 the finding's detail describes the probe (endpoint, number of
@@ -105,7 +106,7 @@ classification of that response (e.g. `ENFORCED`, `AUTH_BYPASS`, `INCONCLUSIVE_P
 defined per test, on each [test page](../../tests/README.md). To count them:
 
 ```bash
-jq '[.all_rows[] | select(.test_id=="1.1") | .transaction_log[].oracle_state] | group_by(.) | map({(.[0]): length}) | add' outputs/apiguard_report.json
+jq '[.all_rows[] | select(.test_id=="1.1") | .transaction_log[].oracle_state] | group_by(.) | map({(.[0]): length}) | add' outputs/forgejo/apiguard_report.json
 ```
 
 Many `INCONCLUSIVE_*` states mean the test could not reach a conclusion on those requests: in 1.1 they usually mean
@@ -121,7 +122,7 @@ it by hand), and all the tool's results (`results`, `all_count`), unfiltered. Th
 it judged as violations.
 
 ```bash
-jq '.all_rows[] | select(.test_id=="ext.1.5.sslyze") | .tool_artifact.command' outputs/apiguard_report.json
+jq '.all_rows[] | select(.test_id=="ext.1.5.sslyze") | .tool_artifact.command' outputs/forgejo/apiguard_report.json
 ```
 
 The same output is in `tools/<test>_output.json` and, as one record, in `evidence.json` (`tool_artifact_record_id`).

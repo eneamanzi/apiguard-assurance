@@ -9,8 +9,13 @@
   code blocks 1, 2, 3, 4, 4b, 5, 5b, 5c and 5d (configuration structure, interface contract and versioning, secret
   redaction, console interface, prerequisites between tests); integration guide written. The tool behaves as before
   on the lab: results identical to the baseline.
-- **Next step:** block 7 cRAPI lab together with the infrastructure part of block 8 agnosticism (plan it with the
-  owner first).
+- **Next step:** block 7+8, agnosticism with the cRAPI lab, step 1 (analysis, no code). Agreed approach (owner,
+  2026-10-10): analysis first, labs as proof, no patches to make a target pass. Steps: (1) inventory of every tie to
+  Forgejo or Kong, tests included, in `docs/project/agnosticism-analysis.md`; (2) design decided with the owner one
+  point at a time (incl. Q-38 neutral adapter data, Q-34 Admin API protection); (3) cRAPI behind Kong (only the API
+  changes); (4) implementation, verified on both labs; (5) a known API behind a second gateway (only the gateway
+  changes), gateway chosen after the analysis. Per-test changes go into the test review unless a lab needs them to
+  prove the structure: decided case by case.
 - **Then, in order** (revised 2026-10-09, owner: everything around the tests first, the test review last): block 7
   cRAPI lab together with the infrastructure part of block 8 agnosticism (neutral gateway data, "not applicable"
   result, Forgejo defaults to configuration; the per-test parts go into the test review) → block 9 CI and generated
@@ -229,3 +234,6 @@ CI (Q-16), E2E test suite (Q-51), documentation generated from code with a drift
 | 2026-10-09 | Closed by the owner: Q-64. Concurrent runs on the same target are not a goal (other tests, such as 4.1, would interfere anyway): no code change, the fixed token name and its pre-flight cleanup stay; the integration guide states one run at a time per target. Next: Q-34 |
 | 2026-10-09 | Q-34 decided by the owner: moved to block 8 with Q-38 (Admin API protection depends on the gateway); implemented only against real protected Admin APIs in a lab. Limitation added to `reference/configuration.md` (`admin_api_url`). Next: re-evaluate Q-62 |
 | 2026-10-10 | Closed by the owner: Q-62 (partial report on interruption), dropped: an interrupted assessment is incomplete and must be run again anyway; small gain against about a day of work on the signal path stabilised with Q-44 and new contract fields. Block 5d done. Next: plan block 7 (cRAPI lab) with the infrastructure part of block 8 |
+| 2026-10-10 | Block 7+8 approach agreed (owner): analysis of every Forgejo/Kong tie first (tests included), then design, then cRAPI behind Kong (API changes only), implementation, then a second gateway (gateway changes only); one variable per lab. Step 1 started |
+| 2026-10-10 | Analysis written (`docs/project/agnosticism-analysis.md`); scope set by the owner: this block makes the tool run and be configurable on another API and gateway; verdict correctness (calibration, positive controls, thresholds) moved to the test review. cRAPI lab built (`test-environments/crapi-kong/`): crAPI 1.1.6 (pinned by digest: the v1.1.6 publish failed, the complete build is `main` at the release commit) behind Kong 3.9.3 with the Forgejo lab's gateway configuration, ports 9000/9443/9001, users from `.env`; reproducible (two runs on a reset lab identical); Forgejo baseline unchanged with both labs running. Observed results recorded in the analysis; new Q-65 (lab redirect route answers HTTPS unknown paths) |
+| 2026-10-10 | Lab configurations moved into their labs (owner): `test-environments/forgejo-kong/config.yaml` (reports in `outputs/forgejo/`), `test-environments/crapi-kong/config.yaml` (`outputs/crapi/`); path rule unchanged (relative to the working directory) after comparing CLI conventions (Docker Compose, kubectl, MkDocs, Jest relative to the file; ESLint with `--config` relative to the working directory) and the cascade on our tool (output default, `./tools/` lookup, variables): relative-to-file needed exceptions. References updated; Forgejo native run with the moved file identical to the baseline; cRAPI identical to its first run after a reset. Found Q-66: each cRAPI run leaves Kong's workshop upstream disabled (passive health checks), so the cRAPI lab is reset before each run. Config template for integrators (`config.example.yaml`, complete, with a key-alignment check in `dev:check`) planned at the end of the block |

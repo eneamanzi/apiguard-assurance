@@ -1,4 +1,10 @@
-# config.yaml — APIGuard Assurance configuration template
+# test-environments/forgejo-kong/config.yaml
+#
+# Configuration for the Forgejo lab (Forgejo behind Kong). It lists every configuration key, with its
+# description. Run the tool from the repository root:
+#   hatch run apiguard run -c test-environments/forgejo-kong/config.yaml
+# Relative paths in this file are resolved against the directory the command is run from (the
+# repository root), not against this file's directory.
 # Credentials must NEVER be written in plain text here.
 # All ${...} placeholders are resolved from environment variables by loader.py.
 
@@ -148,7 +154,7 @@ execution:
 # Accepts relative paths (from the working directory) or absolute paths.
 # The directory is created automatically if it does not exist.
 output:
-  directory: "outputs"
+  directory: "outputs/forgejo"
 
 tests:
   # Per-domain test tuning parameters.

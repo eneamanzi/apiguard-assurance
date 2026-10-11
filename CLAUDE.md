@@ -160,6 +160,6 @@ Missing external tool → `TestResult(SKIP)` via `_skip_reason_from_registry`. N
    - touching infrastructure: `docs/architecture/overview.md`.
 3. State the file you are about to write. Wait for confirmation.
 4. Write one file. Explain internal logic and rationale.
-5. Verify against the lab with only the affected tests (`execution.test_ids` in a copy of `config.yaml`), not the
+5. Verify against the lab with only the affected tests (`execution.test_ids` in a copy of `test-environments/forgejo-kong/config.yaml`), not the
    full assessment.
 6. After completing a test, update `docs/project/roadmap.md`, the test page in `docs/tests/` and `CHANGELOG.md`.

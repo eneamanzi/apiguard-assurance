@@ -181,6 +181,7 @@ and `404` are accepted (404 = already gone). Failures are logged and never stop 
 ## Packaging
 
 `hatch build` produces a wheel (`py3-none-any`, contains `src/` only) and an sdist (sources, `docs/` except
-`docs/knowledge/` and `docs/project/`, READMEs, `config.yaml`, `.env.example`, `install_tools.sh`). sslyze is an
+`docs/knowledge/` and `docs/project/`, READMEs, `.env.example`, `install_tools.sh`; not `test-environments/`, so no
+configuration file). sslyze is an
 optional extra: `pip install "apiguard-assurance[sslyze]"` (AGPL v3, Q-11). External binaries are not packaged:
 `install_tools.sh` downloads pinned versions into `tools/`.

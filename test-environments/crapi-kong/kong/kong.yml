@@ -1,0 +1,147 @@
+_format_version: "3.0"
+
+# Kong declarative configuration of the cRAPI lab.
+#
+# Same gateway configuration as the Forgejo lab (test-environments/forgejo-kong/kong/kong.yml):
+# passive health checks, timeouts, security headers, the HTTP-to-HTTPS redirect service and the
+# hmac-auth audit service. Only the backend changes, so that a different result between the two
+# labs comes from the API, not from the gateway.
+#
+# Routing follows Kong's pattern for microservices (one service per backend, one route per path
+# prefix, strip_path: false): cRAPI's services serve their full paths (/identity/api/...,
+# /community/api/..., /workshop/api/...), as crAPI's own web front end (crapi-web, not used here)
+# forwards them unchanged. https://developer.konghq.com/gateway/entities/route/
+
+upstreams:
+  - name: identity-upstream
+    targets:
+      - target: crapi-identity:8080
+        weight: 100
+    healthchecks: &passive-healthchecks
+      passive:
+        type: http
+        healthy:
+          successes: 2
+        unhealthy:
+          http_failures: 5
+          timeouts: 3
+          http_statuses:
+            - 500
+            - 502
+            - 503
+            - 504
+  - name: community-upstream
+    targets:
+      - target: crapi-community:8087
+        weight: 100
+    healthchecks: *passive-healthchecks
+  - name: workshop-upstream
+    targets:
+      - target: crapi-workshop:8000
+        weight: 100
+    healthchecks: *passive-healthchecks
+
+services:
+  - name: identity-service
+    url: http://identity-upstream
+    connect_timeout: 5000
+    read_timeout: 30000
+    write_timeout: 30000
+    routes:
+      - name: identity-route
+        paths:
+          - /identity
+        strip_path: false
+        preserve_host: false
+    plugins: &security-headers
+      - name: response-transformer
+        config:
+          add:
+            headers:
+              - "Strict-Transport-Security: max-age=31536000; includeSubDomains"
+              - "Content-Security-Policy: default-src 'self'"
+              - "Permissions-Policy: geolocation=(), camera=(), microphone=()"
+          replace:
+            headers:
+              - "X-Content-Type-Options: nosniff"
+              - "X-Frame-Options: DENY"
+          remove:
+            headers:
+              - "X-Powered-By"
+
+  - name: community-service
+    url: http://community-upstream
+    connect_timeout: 5000
+    read_timeout: 30000
+    write_timeout: 30000
+    routes:
+      - name: community-route
+        paths:
+          - /community
+        strip_path: false
+        preserve_host: false
+    plugins: *security-headers
+
+  - name: workshop-service
+    url: http://workshop-upstream
+    connect_timeout: 5000
+    read_timeout: 30000
+    write_timeout: 30000
+    routes:
+      - name: workshop-route
+        paths:
+          - /workshop
+        strip_path: false
+        preserve_host: false
+    plugins: *security-headers
+
+  # HTTP-to-HTTPS redirect (test 1.5): any request on the HTTP listener (host port 9000) gets a
+  # 301 to the HTTPS listener (host port 9443), terminated at the gateway. Test 1.5 probes it
+  # through http_probe_url in this lab's config.yaml.
+  - name: http-redirect-service
+    # Unused target: request-termination answers before any upstream is contacted.
+    url: http://identity-upstream
+    connect_timeout: 5000
+    read_timeout: 30000
+    write_timeout: 30000
+    routes:
+      - name: http-redirect-catch-all
+        paths:
+          - /
+        strip_path: false
+        preserve_host: false
+        protocols:
+          - http
+    plugins:
+      - name: request-termination
+        config:
+          status_code: 301
+          message: "Moved Permanently"
+      - name: response-transformer
+        config:
+          add:
+            headers:
+              - "Location: https://localhost:9443/"
+              - "Strict-Transport-Security: max-age=31536000; includeSubDomains"
+
+  # Service that only carries an hmac-auth plugin for the test 3.3 audit, on a path no client uses
+  # (attaching hmac-auth to an API service would make every Bearer request fail).
+  - name: hmac-audit-dummy
+    url: http://identity-upstream
+    connect_timeout: 5000
+    read_timeout: 30000
+    write_timeout: 30000
+    routes:
+      - name: hmac-audit-route
+        paths:
+          - /hmac-audit-probe-not-a-real-path
+        strip_path: false
+    plugins:
+      - name: hmac-auth
+        config:
+          clock_skew: 300
+          algorithms:
+            - hmac-sha256
+            - hmac-sha384
+            - hmac-sha512
+          validate_request_body: true

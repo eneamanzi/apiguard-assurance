@@ -81,7 +81,7 @@ References: OWASP-API7:2023, CWE-918, OWASP-ASVS-v5.0.0-V1.3.6, NIST-SP-800-204-
 
 For a non-Forgejo target set `injection_mode: fixed_path`, `injection_path_template`, `injection_url_field` and
 `injection_body_template` for the target's URL-accepting endpoint (example for cRAPI in
-[`config_crapi.yaml`](../../../config_crapi.yaml)). Adjust the keyword lists to the target's error messages so
+[`test-environments/crapi-kong/config.yaml`](../../../test-environments/crapi-kong/config.yaml)). Adjust the keyword lists to the target's error messages so
 that rejections are classified precisely. `ssrf_request_timeout_ms` has no effect (Q-24).
 
 ## Coverage against the methodology

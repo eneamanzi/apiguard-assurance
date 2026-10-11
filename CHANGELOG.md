@@ -13,6 +13,11 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
 ### Added
 
+- Second test lab, `test-environments/crapi-kong/`: OWASP crAPI 1.1.6 behind Kong 3.9.3, with the same gateway
+  configuration as the Forgejo lab, on ports 9000/9443/9001 (both labs can run together); users created by a setup
+  container from `.env`; the crAPI specification is stored in the lab. Its configuration is
+  `test-environments/crapi-kong/config.yaml` (it was `config_crapi.yaml`, which pointed to a crAPI without gateway and to a
+  specification not in the repository).
 - Integration guide: `docs/guides/integration/integrate-apiguard.md` (install with pip, credentials, one output
   directory per run, exit-code handling, reading the reports with `jq`, stopping a run, versions).
 - Every test of the tool is accounted for: `apiguard_report.json` has a `not_run` section (and
@@ -60,6 +65,11 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
 ### Changed
 
+- The lab configurations moved into their labs: `config.yaml` → `test-environments/forgejo-kong/config.yaml` (reports in
+  `outputs/forgejo/`), `config_crapi.yaml` → `test-environments/crapi-kong/config.yaml` (reports in `outputs/crapi/`). Run the tool
+  from the repository root with `-c <file>`; without `-c` it still reads `config.yaml` in the working directory,
+  which the repository no longer has. The source archive (sdist) no longer contains a configuration file. Path
+  rule unchanged: relative paths in a configuration file are resolved against the working directory.
 - **Breaking:** the console output of `apiguard run` is an interface for people: a header (target, specification,
   selection), one line per test with its status, findings grouped by kind, the reason of a SKIP or ERROR, and a
   summary (cleanup, counts, exit code, paths of the reports); on a terminal the test in progress updates in place
@@ -109,7 +119,7 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 - **Breaking:** unknown keys in `config.yaml` are rejected at startup (exit `10`) instead of being silently
   ignored, so a misspelled key no longer applies a default unnoticed. The error lists every validation error (it
   showed only the first), and for an unknown key suggests the closest declared key. Free-form mappings such as
-  `target.path_seed` are not affected. `config.yaml` and `config_crapi.yaml` are unchanged and valid.
+  `target.path_seed` are not affected. The lab configurations are unchanged and valid.
 - **Breaking:** exit code `3` now means ERROR (at least one test could not complete, no FAIL); it was `2`. `2`
   now means only an invalid invocation (unknown option or command), so a wrapper can tell "nothing ran" from "the
   run completed with errors". The same value is in `executive_summary.exit_code` of `apiguard_report.json`.

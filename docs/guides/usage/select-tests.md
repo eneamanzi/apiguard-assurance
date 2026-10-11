@@ -22,7 +22,7 @@ The selection lives in the configuration file. To change it for one run without 
 and edit the copy:
 
 ```bash
-cp config.yaml /tmp/config-partial.yaml
+cp test-environments/forgejo-kong/config.yaml /tmp/config-partial.yaml
 ```
 
 Open `/tmp/config-partial.yaml` in an editor, change the keys described below, save, and run:
@@ -31,7 +31,8 @@ Open `/tmp/config-partial.yaml` in an editor, change the keys described below, s
 hatch run apiguard run -c /tmp/config-partial.yaml
 ```
 
-The reports go to `outputs/` as usual and replace the previous ones.
+The reports go to the copy's `output.directory` as usual (`outputs/forgejo/` for the lab) and replace the previous
+ones. Run the command from the repository folder: paths in the file are relative to it.
 
 ## Common cases
 

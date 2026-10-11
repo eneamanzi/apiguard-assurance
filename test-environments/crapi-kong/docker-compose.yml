@@ -1,0 +1,318 @@
+# test-environments/crapi-kong/docker-compose.yml
+#
+# Second test lab: OWASP crAPI 1.1.6 behind Kong 3.9.3 (DB-less), with the same gateway
+# configuration as the Forgejo lab (kong/kong.yml), so that only the API changes.
+#
+# Based on crAPI's official compose file (deploy/docker/docker-compose.yml at tag v1.1.6,
+# https://github.com/OWASP/crAPI, Apache License 2.0), reduced to the API services:
+#   - kept: identity, community, workshop, PostgreSQL, MongoDB, mailhog (identity needs it to
+#     start) and api.mypremiumdealership.com (crAPI's mock third-party service, used by some of
+#     its vulnerabilities);
+#   - left out: crapi-web (crAPI's web front end; Kong replaces it as the entry point), the
+#     chatbot and chromadb (the chatbot needs an OpenAI key and is reached only through crapi-web).
+#   - TLS_ENABLED=false inside the lab network: HTTPS is terminated by Kong, as in the Forgejo lab.
+# No crAPI service publishes a port: the API is reachable only through Kong.
+#
+# Images: the release workflow of tag v1.1.6 failed after publishing only crapi-identity:1.1.6;
+# the complete 1.1.6 build is the "Publish Images" run on main for the release commit 700f03d
+# (2025-09-22). The "main" tag moves, so crAPI images are pinned by digest of that build.
+#
+# Ports (one fixed set per lab, so that labs can run together):
+#   9000  Kong HTTP proxy (redirects to HTTPS)
+#   9443  Kong HTTPS proxy (the tool's target)
+#   9001  Kong Admin API
+#
+# Usage (from this directory; credentials and passwords come from .env in the repository root),
+# the same steps as the Forgejo lab (docs/project/maintainer-commands.md, "Test Labs"):
+#   docker compose --env-file ../../.env up -d --wait kong    # start, wait until Kong is healthy
+#   docker compose --env-file ../../.env up crapi-setup       # create the users, check the logins
+#   docker compose --env-file ../../.env down -v              # full reset (deletes the data volumes)
+
+name: crapi-kong
+
+networks:
+  crapi-lab-net:
+    driver: bridge
+
+volumes:
+  postgresql-data:
+  mongodb-data:
+
+x-db-password: &db-password ${LAB_CRAPI_DB_PASSWORD:?LAB_CRAPI_DB_PASSWORD is not set - create .env in the repository root (cp .env.example .env) and run docker compose with --env-file ../../.env}
+
+services:
+
+  crapi-identity:
+    container_name: crapi-lab-identity
+    image: crapi/crapi-identity@sha256:5d1db5b3ba8e02bc68711ec6fc4e35ed7cd8b87e63785ece9e7ff5b5e36c5260
+    volumes:
+      - ./keys:/app/keys:ro
+    environment:
+      - LOG_LEVEL=INFO
+      - DB_NAME=crapi
+      - DB_USER=admin
+      - DB_PASSWORD=${LAB_CRAPI_DB_PASSWORD:?LAB_CRAPI_DB_PASSWORD is not set}
+      - DB_HOST=postgresdb
+      - DB_PORT=5432
+      - SERVER_PORT=8080
+      - ENABLE_SHELL_INJECTION=false
+      # crAPI's own JWT secret and the settings below are part of the application as published
+      # (some of its documented vulnerabilities depend on them): kept as upstream.
+      - JWT_SECRET=crapi
+      - MAILHOG_HOST=mailhog
+      - MAILHOG_PORT=1025
+      - MAILHOG_DOMAIN=example.com
+      - SMTP_HOST=smtp.example.com
+      - SMTP_PORT=587
+      - SMTP_EMAIL=user@example.com
+      - SMTP_PASS=xxxxxxxxxxxxxx
+      - SMTP_FROM=no-reply@example.com
+      - SMTP_AUTH=true
+      - SMTP_STARTTLS=true
+      - JWT_EXPIRATION=604800000
+      - ENABLE_LOG4J=false
+      - API_GATEWAY_URL=https://api.mypremiumdealership.com
+      - TLS_ENABLED=false
+      - TLS_KEYSTORE_TYPE=PKCS12
+      - TLS_KEYSTORE=classpath:certs/server.p12
+      - TLS_KEYSTORE_PASSWORD=passw0rd
+      - TLS_KEY_PASSWORD=passw0rd
+      - TLS_KEY_ALIAS=identity
+    networks:
+      - crapi-lab-net
+    depends_on:
+      postgresdb:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      mailhog:
+        condition: service_healthy
+    healthcheck:
+      test: /app/health.sh
+      interval: 15s
+      timeout: 15s
+      retries: 15
+
+  crapi-community:
+    container_name: crapi-lab-community
+    image: crapi/crapi-community@sha256:8ba0c7eda86ae065a673f1fa554d0109a24f25c5a8d65097ae024e5ee715c54e
+    environment:
+      - LOG_LEVEL=INFO
+      - IDENTITY_SERVICE=crapi-identity:8080
+      - DB_NAME=crapi
+      - DB_USER=admin
+      - DB_PASSWORD=${LAB_CRAPI_DB_PASSWORD:?LAB_CRAPI_DB_PASSWORD is not set}
+      - DB_HOST=postgresdb
+      - DB_PORT=5432
+      - SERVER_PORT=8087
+      - MONGO_DB_HOST=mongodb
+      - MONGO_DB_PORT=27017
+      - MONGO_DB_USER=admin
+      - MONGO_DB_PASSWORD=${LAB_CRAPI_DB_PASSWORD:?LAB_CRAPI_DB_PASSWORD is not set}
+      - MONGO_DB_NAME=crapi
+      - TLS_ENABLED=false
+      - TLS_CERTIFICATE=certs/server.crt
+      - TLS_KEY=certs/server.key
+    networks:
+      - crapi-lab-net
+    depends_on:
+      postgresdb:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      crapi-identity:
+        condition: service_healthy
+    healthcheck:
+      test: /app/health.sh
+      interval: 15s
+      timeout: 15s
+      retries: 15
+
+  crapi-workshop:
+    container_name: crapi-lab-workshop
+    image: crapi/crapi-workshop@sha256:d4d2d94d35a31e211b04d5a771881f5ae13e358e8fa0804463ae3bace05dd815
+    environment:
+      - LOG_LEVEL=INFO
+      - IDENTITY_SERVICE=crapi-identity:8080
+      - DB_NAME=crapi
+      - DB_USER=admin
+      - DB_PASSWORD=${LAB_CRAPI_DB_PASSWORD:?LAB_CRAPI_DB_PASSWORD is not set}
+      - DB_HOST=postgresdb
+      - DB_PORT=5432
+      - SERVER_PORT=8000
+      - MONGO_DB_HOST=mongodb
+      - MONGO_DB_PORT=27017
+      - MONGO_DB_USER=admin
+      - MONGO_DB_PASSWORD=${LAB_CRAPI_DB_PASSWORD:?LAB_CRAPI_DB_PASSWORD is not set}
+      - MONGO_DB_NAME=crapi
+      - SECRET_KEY=crapi
+      - API_GATEWAY_URL=https://api.mypremiumdealership.com
+      - TLS_ENABLED=false
+      - TLS_CERTIFICATE=certs/server.crt
+      - TLS_KEY=certs/server.key
+      - FILES_LIMIT=1000
+    networks:
+      - crapi-lab-net
+    depends_on:
+      postgresdb:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      crapi-identity:
+        condition: service_healthy
+      crapi-community:
+        condition: service_healthy
+    healthcheck:
+      test: /app/health.sh
+      interval: 15s
+      timeout: 15s
+      retries: 15
+
+  postgresdb:
+    container_name: crapi-lab-postgres
+    image: postgres:14.24
+    command: ["postgres", "-c", "max_connections=500"]
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: *db-password
+      POSTGRES_DB: crapi
+    volumes:
+      - postgresql-data:/var/lib/postgresql/data/
+    networks:
+      - crapi-lab-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d crapi"]
+      interval: 15s
+      timeout: 15s
+      retries: 15
+
+  mongodb:
+    container_name: crapi-lab-mongo
+    image: mongo:4.4.30
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: *db-password
+    volumes:
+      - mongodb-data:/data/db
+    networks:
+      - crapi-lab-net
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongo localhost:27017/test --quiet
+      interval: 15s
+      timeout: 15s
+      retries: 15
+      start_period: 20s
+
+  mailhog:
+    user: root
+    container_name: crapi-lab-mailhog
+    image: crapi/mailhog@sha256:015c23f79d40c9dc1800cd0a458503b89aeda3b585a12c37d53829d6c7d61fdd
+    environment:
+      MH_MONGO_URI: admin:${LAB_CRAPI_DB_PASSWORD:?LAB_CRAPI_DB_PASSWORD is not set}@mongodb:27017
+      MH_STORAGE: mongodb
+    networks:
+      - crapi-lab-net
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "8025"]
+      interval: 15s
+      timeout: 15s
+      retries: 15
+
+  api.mypremiumdealership.com:
+    container_name: crapi-lab-dealership
+    image: crapi/gateway-service@sha256:97dade9daf0e758547b1686e2d3303c8c9b79838167f728a9211f0ee1f4622b0
+    networks:
+      - crapi-lab-net
+    healthcheck:
+      test: bash -c 'echo -n "GET / HTTP/1.1\n\n" > /dev/tcp/127.0.0.1/443'
+      interval: 15s
+      timeout: 15s
+      retries: 15
+      start_period: 15s
+
+  kong:
+    image: kong:3.9.3
+    container_name: crapi-lab-kong
+    restart: unless-stopped
+    environment:
+      - KONG_DATABASE=off
+      - KONG_DECLARATIVE_CONFIG=/kong/kong.yml
+      - KONG_PROXY_LISTEN=0.0.0.0:8000, 0.0.0.0:8443 ssl
+      - KONG_SSL_CERT=/etc/kong/certs/server.crt
+      - KONG_SSL_CERT_KEY=/etc/kong/certs/server.key
+      - KONG_ADMIN_LISTEN=0.0.0.0:8001
+      - KONG_PROXY_ACCESS_LOG=/dev/stdout
+      - KONG_ADMIN_ACCESS_LOG=/dev/stdout
+      - KONG_PROXY_ERROR_LOG=/dev/stderr
+      - KONG_ADMIN_ERROR_LOG=/dev/stderr
+      # No "Server: kong/<version>" header, as in the Forgejo lab.
+      - KONG_HEADERS=off
+    volumes:
+      - ./kong:/kong:ro
+      # The localhost example certificate of the Forgejo lab (same host, lab use only).
+      - ../forgejo-kong/certs:/etc/kong/certs:ro
+    ports:
+      - "9000:8000"    # HTTP proxy
+      - "9443:8443"    # HTTPS proxy (the tool's target)
+      - "9001:8001"    # Admin API
+    networks:
+      - crapi-lab-net
+    depends_on:
+      crapi-identity:
+        condition: service_healthy
+      crapi-community:
+        condition: service_healthy
+      crapi-workshop:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Creates user_a and user_b through the gateway (crAPI's signup endpoint) and checks that the
+  # three accounts of this lab's config.yaml can log in. The admin account is one of the users crAPI
+  # creates at startup (it cannot be created through the API). Safe to run again: signup answers
+  # 403 for an email already registered.
+  crapi-setup:
+    image: curlimages/curl:8.22.0
+    container_name: crapi-lab-setup
+    depends_on:
+      kong:
+        condition: service_healthy
+    networks:
+      - crapi-lab-net
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        # Through the gateway, over HTTPS (lab certificate: -k).
+        base="https://kong:8443"
+        signup() {
+          code=$$(curl -sk -o /tmp/signup.json -w '%{http_code}' -H 'Content-Type: application/json' \
+            -d "{\"name\":\"$$1\",\"email\":\"$$2\",\"number\":\"$$3\",\"password\":\"$$4\"}" \
+            "$$base/identity/api/auth/signup")
+          case "$$code" in
+            200) echo "User $$2 created." ;;
+            403) echo "User $$2 already exists." ;;
+            *)   echo "Signup of $$2 failed: HTTP $$code $$(cat /tmp/signup.json)"; exit 1 ;;
+          esac
+        }
+        login() {
+          code=$$(curl -sk -o /tmp/login.json -w '%{http_code}' -H 'Content-Type: application/json' \
+            -d "{\"email\":\"$$1\",\"password\":\"$$2\"}" \
+            "$$base/identity/api/auth/login")
+          if [ "$$code" = "200" ] && grep -q '"token"' /tmp/login.json; then
+            echo "Login of $$1: OK."
+          else
+            echo "Login of $$1 failed: HTTP $$code"; exit 1
+          fi
+        }
+        signup "APIGuard User A" "${CRAPI_USER_A_EMAIL:?missing in .env}" "9000000001" "${CRAPI_USER_A_PASSWORD:?missing in .env}"
+        signup "APIGuard User B" "${CRAPI_USER_B_EMAIL:?missing in .env}" "9000000002" "${CRAPI_USER_B_PASSWORD:?missing in .env}"
+        login "${CRAPI_ADMIN_EMAIL:?missing in .env}" "${CRAPI_ADMIN_PASSWORD:?missing in .env}"
+        login "${CRAPI_USER_A_EMAIL}" "${CRAPI_USER_A_PASSWORD}"
+        login "${CRAPI_USER_B_EMAIL}" "${CRAPI_USER_B_PASSWORD}"
+        echo "crAPI lab ready: https://localhost:9443 (Admin API http://localhost:9001)."

@@ -190,11 +190,13 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Resolution:
 
 ### Q-52 - Second official lab: cRAPI
-- Status: open (decided in principle by the owner, 2026-10-06; to be planned)
+- Status: lab built 2026-10-10 (step 3 of block 7+8); open until the owner checks it
 - Source: former Q-03. The reference lab is Forgejo + Kong; a second target is needed to show that the tool works on another API (Q-43, Q-18) and later for the E2E suite (Q-51).
 - Evidence (2026-10-06): upstream `VERSION` file in the owner's clone: `1.1.5`. `config_crapi.yaml` is tracked but points to `./specs/crapi-openapi.json`, and `specs/` is ignored by git (`.gitignore:16`): a fresh clone has the configuration without the specification (the run stops with exit 10). cRAPI itself is not in the repository (owner's local clone `../crAPI-main`); its licence is Apache 2.0 (`LICENSE.md`), its services are published images (`crapi/crapi-identity`, `crapi-community`, `crapi-workshop`, `crapi-web`, `crapi-chatbot`, `gateway-service`, `mailhog`) tagged `${VERSION:-latest}` in the upstream `deploy/docker/docker-compose.yml`, plus `postgres:14`, `mongo:4.4`, `chromadb/chroma:latest`. The run recorded in Q-18 used cRAPI without a gateway; the web service also needed `crapi-chatbot`.
 - Proposal: `test-environments/crapi-kong/` with its own compose using the upstream images pinned to exact versions, cRAPI behind Kong (so the gateway-audit tests also run on the second target), the specification committed in the lab folder with attribution, a setup container that registers the users from the `CRAPI_*` variables in `.env`, `config_crapi.yaml` updated, a documentation section for the second lab.
 - To decide: behind Kong or without a gateway; ports (the two labs both use 8000/8001/8443: one lab at a time, or separate ports for cRAPI); whether the chatbot service is required and what it needs.
+- Decided (owner, 2026-10-10): cRAPI behind Kong (block 7+8 approach: only the API changes with respect to the Forgejo lab). Built from scratch in `test-environments/` from the official release (not from the owner's old local clone), images pinned to exact versions. Each lab has its own fixed ports so that labs can run together: Forgejo lab unchanged (Kong 8000/8443/8001, Forgejo 3000); cRAPI lab Kong proxy 9000 (HTTP), 9443 (HTTPS), Admin API 9001, no other port exposed; a later second-gateway lab 10000/10443/10001. For the test review: cRAPI documents 18 known vulnerabilities (`docs/challenges.md` upstream), useful to check what the tool finds.
+- Done (2026-10-10): `test-environments/crapi-kong/` as decided above (crAPI 1.1.6 images pinned by digest, see `docs/reference/compatibility.md`), `config_crapi.yaml` updated, results in `docs/project/agnosticism-analysis.md` section 5.
 - Resolution:
 
 ### Q-56 - How many steps does adding a native test require?
@@ -202,3 +204,20 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Source: discussion of Q-53. Even with one model per test (option C), adding a native test touches several places: the test module, its configuration model, the domain container, the `RuntimeTestsConfig` field, the commented block in `config.yaml`, the test page and catalogue row in `docs/tests/`, `reference/configuration.md`, the roadmap.
 - Question: are all these steps necessary? Review them after block 4 and look for refactoring or simplification (e.g. generating the documentation rows from the code, Q-04; a test declaring its own model, option B of Q-53, if tests become plugins in the agnosticism work).
 - Resolution:
+
+### Q-65 - Lab gateways answer 301 on HTTPS for every unrouted path
+- Status: open (found 2026-10-10 while building the cRAPI lab)
+- Source: `test-environments/forgejo-kong/kong/kong.yml` and `test-environments/crapi-kong/kong/kong.yml`, service `http-redirect-service`, route `http-redirect-catch-all` (`paths: ["/"]`, `protocols: ["http"]`); its comment says HTTPS traffic must not match it.
+- Evidence (2026-10-10, both labs): `curl -sk https://localhost:8443/zz-nonexistent-path` and the same on 9443 answer `301 Moved Permanently`, `Location: https://localhost:<port>/`, body `{"message":"Moved Permanently"}` (the request-termination plugin of that route), not Kong's 404. Kong's Admin API lists the route with `protocols: ["http"]`, yet HTTPS requests match it. Paths are matched by prefix: `/apiguard-...` matches the Forgejo route `/api` and reaches Forgejo (its `i_like_gitea` cookie in the answer).
+- Effect: on both labs, 0.1 counts every unknown wordlist path as active (301 is in its active list) and 0.2 reports deny-by-default violations; on cRAPI 37 of the 49 0.1 findings and the 4 0.2 findings come from it. The current baseline of the Forgejo lab includes this behaviour.
+- Question: is the lab meant to answer 301 on HTTPS for unknown paths? If not, restrict the redirect to the HTTP listener (e.g. a route matched on the HTTP port or a different setup) and re-baseline both labs; the change alters 0.1 and 0.2 results on the Forgejo lab. Check Kong's documented behaviour of `protocols` first.
+- Resolution:
+
+### Q-66 - On the cRAPI lab, every run leaves Kong's workshop upstream disabled
+- Status: open (found 2026-10-10)
+- Source: `test-environments/crapi-kong/kong/kong.yml` (passive health checks only, `unhealthy.http_failures: 5` on 500/502/503/504, the same configuration as the Forgejo lab); test 7.2 sends 73 payloads to `POST /workshop/api/merchant/contact_mechanic`, which answers 503/504.
+- Evidence (2026-10-10): after a run, `GET http://localhost:9001/upstreams/workshop-upstream/health` reports `crapi-workshop:8000 UNHEALTHY` while the container is healthy; every `/workshop/...` request then gets Kong's `503 {"message":"failure to get a peer from the ring-balancer"}`. The next run differs: 1.1 FAIL 2 findings -> PASS (14 `INCONCLUSIVE_SERVER_ERROR`), 7.2 in 0.1 s instead of 90 s. After a full reset the results are again identical to the first run. Kong's documentation: passive checks "can only disable unhealthy Targets, they never re-enable Targets automatically" (https://developer.konghq.com/gateway/traffic-control/health-checks-circuit-breakers/); recovery needs a manual `PUT .../healthy` on the Admin API, active health checks, or a Kong restart. The Forgejo lab is not affected (Forgejo does not answer 5xx to the tests).
+- Interim: the cRAPI lab is reset before each run (`docs/project/maintainer-commands.md`, "Test Labs").
+- Question: keep "reset before each run", or make the lab recover (active health checks, which test 4.3 would also read, or a re-enable step), and on which labs (the gateway configuration is meant to be the same on both)? Also for the test review: the tool's own probes can make a gateway eject a backend, an effect on the target (Q-30) worth stating on the 7.2 page.
+- Resolution:
+

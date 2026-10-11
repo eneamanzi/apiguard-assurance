@@ -212,8 +212,8 @@ include = [
     # Build + dependency declaration
     "pyproject.toml",
 
-    # Configuration template + env example
-    "config.yaml",
+    # Env example (the lab configurations live in test-environments/, excluded below; a
+    # configuration template for integrators is planned, see docs/project/plan.md)
     ".env.example",
 
     # External-tool installer (helper for first-time setup)
@@ -228,7 +228,6 @@ exclude = [
     "CLAUDE.md",
     # Personal build helpers and target-specific configs
     "build_zip.sh",
-    "config_crapi.yaml",
     "apiguard-assurance.zip",
     # IDE / local environment
     ".vscode/",

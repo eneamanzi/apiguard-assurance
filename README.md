@@ -40,8 +40,8 @@ Full installation steps, including how to clean up a previous setup: [Installati
 
 | Task | Command |
 |---|---|
-| Check the configuration | `hatch run apiguard validate-config` |
-| Run an assessment | `hatch run apiguard run` |
+| Check the configuration | `hatch run apiguard validate-config -c test-environments/forgejo-kong/config.yaml` |
+| Run an assessment | `hatch run apiguard run -c test-environments/forgejo-kong/config.yaml` |
 | Use another configuration file | `hatch run apiguard run -c my-api.yaml` |
 | List the path parameters of a specification | `hatch run apiguard generate-seed <spec-url-or-file>` |
 

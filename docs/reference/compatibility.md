@@ -2,7 +2,8 @@
 
 > **Audience:** users, integrators · **Status:** draft - several points are open (see `OPEN_QUESTIONS.md`) ·
 > **Source of truth:** `pyproject.toml`, `install_tools.sh`, `src/core/gateway/`, `src/discovery/openapi.py`,
-> `test-environments/forgejo-kong/docker-compose.yml` · **Verified:** 2026-10-05, v0.1.0; interface stability 2026-10-09
+> `test-environments/*/docker-compose.yml` · **Verified:** 2026-10-05, v0.1.0; interface stability 2026-10-09; crAPI lab
+> 2026-10-10
 
 This page separates what the code **declares**, what has been **tested**, and what is **unknown**.
 Nothing in the "unknown" column should be assumed to work.
@@ -18,15 +19,23 @@ Nothing in the "unknown" column should be assumed to work.
 
 | Item | Declared | Tested | Notes |
 |---|---|---|---|
-| Specification formats | Swagger 2.0; OpenAPI 3.0.x and 3.1.x (validator chosen by minor version) | Swagger 2.0 (Forgejo), OpenAPI 3.0.1 (`specs/crapi-openapi.json`) | OpenAPI 3.1 not exercised on a real target. Swagger 2.0 skips structural validation (`src/discovery/openapi.py`). A major version other than `swagger: 2` / `openapi: 3` → `OpenAPILoadError` (exit `10`). |
+| Specification formats | Swagger 2.0; OpenAPI 3.0.x and 3.1.x (validator chosen by minor version) | Swagger 2.0 (Forgejo), OpenAPI 3.0.1 (crAPI, `test-environments/crapi-kong/crapi-openapi-spec.json`) | OpenAPI 3.1 not exercised on a real target. Swagger 2.0 skips structural validation (`src/discovery/openapi.py`). A major version other than `swagger: 2` / `openapi: 3` → `OpenAPILoadError` (exit `10`). |
 | Gateway adapter (WHITE_BOX audits) | `kong` only (`target.gateway_adapter`) | Kong 3.9.3 in DB-less mode (see [Test lab](#test-lab)) | Other gateways: configuration-audit tests SKIP. |
-| Target application | any REST API with an OpenAPI spec | Forgejo 14.0.5 behind Kong (see [Test lab](#test-lab)); 14.0.3 in the v0.1.0 release audit | Some tests or defaults are Forgejo-specific (test 1.4 token API paths; test 7.2 default `injection_mode`; test 2.1 default admin path). Per-test portability is not yet established (Q-18). |
-| Token acquisition (`credentials.auth_type`) | `forgejo_token`, `jwt_login` | `forgejo_token` on Forgejo; `jwt_login` on cRAPI (`config_crapi.yaml`, run of 2026-10-06 recorded in Q-18) | cRAPI ran without a gateway; per-test results in Q-18. |
+| Target application | any REST API with an OpenAPI spec | Forgejo 14.0.5 and OWASP crAPI 1.1.6, each behind Kong (see [Test lab](#test-lab)); Forgejo 14.0.3 in the v0.1.0 release audit | Some tests or defaults are Forgejo-specific (test 1.4 token API paths; test 7.2 default `injection_mode`; test 2.1 default admin path). Per-test portability is not yet established (Q-18). |
+| Token acquisition (`credentials.auth_type`) | `forgejo_token`, `jwt_login` | `forgejo_token` on Forgejo; `jwt_login` on crAPI (cRAPI lab) | |
 
 ## Test lab
 
-The lab in `test-environments/forgejo-kong/` pins every image to an exact version, so that an assessment on it can
-be repeated with the same target. These are the versions the documentation and the measured results refer to.
+Two labs, each pinning every image to an exact version, so that an assessment on them can be repeated with the same
+target. These are the versions the documentation and the measured results refer to. Each lab has its own ports, so
+both can run at the same time.
+
+| Lab | Folder | Configuration | Ports (proxy HTTP, proxy HTTPS, Admin API) |
+|---|---|---|---|
+| Forgejo + Kong | `test-environments/forgejo-kong/` | `test-environments/forgejo-kong/config.yaml` | 8000, 8443, 8001 (Forgejo directly: 3000) |
+| crAPI + Kong | `test-environments/crapi-kong/` | `test-environments/crapi-kong/config.yaml` | 9000, 9443, 9001 (nothing else exposed) |
+
+### Forgejo + Kong
 
 | Component | Image | Version |
 |---|---|---|
@@ -41,6 +50,40 @@ were floating: the v0.1.0 release audit (2026-05-18) ran on Forgejo 14.0.3.
 To change a version: edit the `image:` lines in `docker-compose.yml` and this table together, rebuild the lab from
 scratch ([first assessment](../getting-started/first-assessment.md), steps 2-4) and compare the results with the
 previous run.
+
+### crAPI + Kong
+
+[OWASP crAPI](https://github.com/OWASP/crAPI), an API vulnerable by design (Apache License 2.0), behind Kong with
+the **same gateway configuration** as the Forgejo lab (`kong/kong.yml`: timeouts, passive health checks, security
+headers, HTTP-to-HTTPS redirect, hmac-auth audit service): only the API changes between the two labs. Added on
+2026-10-10.
+
+| Component | Image | Version |
+|---|---|---|
+| crAPI identity, community, workshop, mailhog, mock dealership | `crapi/crapi-identity`, `crapi-community`, `crapi-workshop`, `mailhog`, `gateway-service`, pinned by digest | 1.1.6 (release commit `700f03d`) |
+| Kong (gateway, DB-less) | `kong:3.9.3` | 3.9.3 |
+| PostgreSQL, MongoDB (crAPI databases) | `postgres:14.24`, `mongo:4.4.30` | 14.24, 4.4.30 (crAPI declares `postgres:14`, `mongo:4.4`) |
+| Setup container | `curlimages/curl:8.22.0` | 8.22.0 |
+
+How it was built, and why:
+
+- **No published guide puts crAPI behind an API gateway** (searched 2026-10-10); crAPI's own entry point is its web
+  front end, `crapi-web`, an nginx that forwards `/identity`, `/community` and `/workshop` to the services and
+  answers every other path with the web page. The lab follows Kong's documented pattern for microservices instead:
+  one service per backend, one route per path prefix, `strip_path: false`
+  ([Kong routes](https://developer.konghq.com/gateway/entities/route/)). `crapi-web` and the chatbot (it needs an
+  OpenAI key and is reached only through `crapi-web`) are left out; without `crapi-web`, URLs inside some responses
+  keep the services' internal host names.
+- **Images by digest**: the release workflow of tag `v1.1.6` failed after publishing only `crapi-identity:1.1.6`;
+  the complete 1.1.6 build is the successful "Publish Images" run on `main` for the release commit `700f03d`
+  (2025-09-22, GitHub Actions of OWASP/crAPI). The `main` tag moves, hence the digests.
+- **Accounts**: the setup creates user A and user B through crAPI's signup endpoint, through the gateway; the admin
+  is `admin@example.com`, created by crAPI at startup (its password is public in crAPI's source); all from `.env`.
+- **Specification**: crAPI's own `openapi-spec/crapi-openapi-spec.json` at the same tag, stored in the lab
+  (`NOTICE.md` lists the copied files).
+
+Start, reset and run: [maintainer commands](../project/maintainer-commands.md#test-labs). Repeatability: two runs
+of the native tests on a lab reset in between gave identical results (2026-10-10).
 
 ## External tools
 

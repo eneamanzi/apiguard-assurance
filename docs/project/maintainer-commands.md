@@ -44,7 +44,7 @@ zip -r apiguard-assurance.zip . -x "*.git/*" -x "*__pycache__*" -x "*.pyc" -x "*
 
 Start a local web server to view the HTML report via Port Forwarding:
 ```bash
-cd outputs && python3 -m http.server 8080    # Ctrl+C to stop, then: cd ..
+cd outputs/forgejo && python3 -m http.server 8080    # Ctrl+C to stop, then: cd ../..   (crAPI lab: outputs/crapi)
 ```
 Open `http://localhost:8080` in your browser and click `assessment_report.html`.
 
@@ -56,7 +56,7 @@ If the page does not load:
 - or use another port: `python3 -m http.server 8090`;
 - "Address already in use": a server is still running in another terminal, stop it first.
 
-Without any server: Explorer → `outputs/assessment_report.html` → right-click → **Download...**, then open the
+Without any server: Explorer → `outputs/forgejo/assessment_report.html` → right-click → **Download...**, then open the
 file on your computer (the report is a single self-contained file).
 
 
@@ -73,11 +73,17 @@ Or prefix single commands: `hatch run apiguard ...`, `hatch run dev:<script>`.
 
 ## Running the Tool (CLI)
 
-> `.env` is read from the working directory: run from the repository root.
+> Run from the repository root: `.env` and the relative paths in the configuration files are read from the
+> working directory. The lab configurations: [Test Labs](#test-labs).
 
 ```bash
-hatch run apiguard run                        # config.yaml in the working directory
-hatch run apiguard run -c config_crapi.yaml   # another configuration file
+hatch run apiguard run -c test-environments/forgejo-kong/config.yaml   # Forgejo lab
+hatch run apiguard run -c test-environments/crapi-kong/config.yaml     # crAPI lab
+```
+
+The examples below use the Forgejo lab configuration, set once in the shell:
+```bash
+CFG=test-environments/forgejo-kong/config.yaml
 ```
 
 Inside `hatch shell` drop the `hatch run` prefix.
@@ -85,15 +91,15 @@ Inside `hatch shell` drop the `hatch run` prefix.
 **How much to see** (the progress interface is always shown; `--log-level` adds the technical log below it; the
 value goes without dashes: `--log-level info`, not `--log-level --info`):
 ```bash
-apiguard run                       # default (warning): one line per test, problems only, summary
-apiguard run --log-level info      # + steps of the run and every single test result
-apiguard run --log-level debug     # + every HTTP request, third-party logs, library warnings
-apiguard run --log-level error     # technical log: only failures of the tool
-apiguard run --no-banner           # without header and final summary
-apiguard run --log-format json --log-level info   # machine format: one JSON event per line, no interface
+apiguard run -c $CFG                       # default (warning): one line per test, problems only, summary
+apiguard run -c $CFG --log-level info      # + steps of the run and every single test result
+apiguard run -c $CFG --log-level debug     # + every HTTP request, third-party logs, library warnings
+apiguard run -c $CFG --log-level error     # technical log: only failures of the tool
+apiguard run -c $CFG --no-banner           # without header and final summary
+apiguard run -c $CFG --log-format json --log-level info   # machine format: one JSON event per line, no interface
 ```
 
-**Run only some tests** (fast checks, no full run): in a copy of `config.yaml` set
+**Run only some tests** (fast checks, no full run): in a copy of the lab configuration (`cp $CFG config.test.yaml`) set
 ```yaml
 execution:
   test_ids: ["1.1", "7.2"]            # only these (native or ext.X.Y.tool)
@@ -114,16 +120,16 @@ curl -s -u "$USER_A_USERNAME:$USER_A_PASSWORD" http://localhost:8000/api/v1/user
 
 **Compare two runs** (development helper; tests, statuses, findings, oracle states, exit code):
 ```bash
-cp outputs/apiguard_report.json /tmp/before.json      # before a change
-hatch run python scripts/compare_reports.py /tmp/before.json outputs/apiguard_report.json   # after
+cp outputs/forgejo/apiguard_report.json /tmp/before.json      # before a change
+hatch run python scripts/compare_reports.py /tmp/before.json outputs/forgejo/apiguard_report.json   # after
 ```
 
 ### Other CLI commands
 
 ```bash
 apiguard version                              # Print the tool version and exit
-apiguard validate-config                      # Phase 1 + test checks (config, test declarations, test_ids), exit 0 if OK / 10 if invalid
-apiguard validate-config -c config_crapi.yaml # Validate a non-default config
+apiguard validate-config -c $CFG              # Phase 1 + test checks (config, test declarations, test_ids), exit 0 if OK / 10 if invalid
+apiguard validate-config -c test-environments/crapi-kong/config.yaml   # the crAPI lab configuration
 
 apiguard generate-seed <openapi-spec-url>     # Generate a path_seed YAML template from an OpenAPI spec
 apiguard generate-seed <spec> -o seed.yaml    # Write the template to seed.yaml instead of stdout
@@ -158,8 +164,8 @@ hatch build --target wheel   # wheel only (faster: use for install testing)
 | `dist/apiguard_assurance-X.Y.Z.tar.gz` | Source distribution: contains only the public surface (see below) |
 
 **What the sdist includes** (whitelist in `pyproject.toml`, checked with `hatch build -t sdist` on 2026-10-06):
-`src/`, `docs/` except `docs/knowledge/` and `docs/project/`, `README.md`, `pyproject.toml`, `config.yaml`,
-`.env.example`, `.gitignore`, `install_tools.sh`.
+`src/`, `docs/` except `docs/knowledge/` and `docs/project/`, `README.md`, `pyproject.toml`, `.env.example`,
+`.gitignore`, `install_tools.sh`. No configuration file: the lab configurations are in `test-environments/`.
 
 **What the sdist excludes**: `docs/knowledge/`, `docs/project/`, `CLAUDE.md`, `CONTRIBUTING.md`, `CHANGELOG.md`,
 `OPEN_QUESTIONS.md`, `test-environments/`, `outputs/`, `tools/`, `.claude/`, `.env`.
@@ -170,7 +176,7 @@ python -m venv /tmp/cold-test
 source /tmp/cold-test/bin/activate
 pip install dist/apiguard_assurance-*.whl
 apiguard --help
-apiguard validate-config --config config.yaml
+apiguard validate-config -c test-environments/forgejo-kong/config.yaml   # from the repository root
 deactivate && rm -rf /tmp/cold-test
 ```
 
@@ -197,9 +203,88 @@ mypy src/
 
 Reload Kong and pick up a new declarative configuration:
 ```bash
-docker compose --env-file ../../.env up -d --force-recreate kong   # from test-environments/forgejo-kong
+docker compose --env-file ../../.env up -d --force-recreate kong   # from the lab folder (forgejo-kong or crapi-kong)
 ```
 
+Check a declarative configuration before loading it (from the lab folder):
+```bash
+docker run --rm -e KONG_DATABASE=off -v "$PWD/kong:/kong:ro" kong:3.9.3 kong config parse /kong/kong.yml
+```
+
+
+## Test Labs
+
+Two labs, same steps. Each has its own ports, so both can run at the same time. Versions and design:
+[compatibility](../reference/compatibility.md#test-lab). Every `docker compose` command runs from the lab folder
+with `--env-file ../../.env`: compose looks for `.env` only in the folder it runs from, and the credentials are in
+the `.env` of the repository root.
+
+| | Forgejo + Kong | crAPI + Kong |
+|---|---|---|
+| Folder | `test-environments/forgejo-kong` | `test-environments/crapi-kong` |
+| Tool configuration | `test-environments/forgejo-kong/config.yaml` | `test-environments/crapi-kong/config.yaml` |
+| Ports (proxy HTTP, HTTPS, Admin API) | 8000, 8443, 8001 (+ Forgejo 3000) | 9000, 9443, 9001 |
+| Setup service | `forgejo-setup` | `crapi-setup` |
+
+**Start** (the first time it downloads the images). The first command starts the lab and waits until Kong is healthy;
+the second runs the setup once, in the foreground, so its output is shown. Running the setup again is harmless.
+
+```bash
+# Forgejo lab
+cd test-environments/forgejo-kong
+docker compose --env-file ../../.env up -d --wait kong
+docker compose --env-file ../../.env up forgejo-setup     # ends with "Provisioning completed."
+cd ../..
+
+# crAPI lab
+cd test-environments/crapi-kong
+docker compose --env-file ../../.env up -d --wait kong
+docker compose --env-file ../../.env up crapi-setup       # ends with three "Login ... OK" and "crAPI lab ready"
+cd ../..
+```
+
+**crAPI lab: reset before each run.** A run leaves Kong's workshop backend disabled (test 7.2 makes it answer
+503/504 and Kong's passive health check excludes it until Kong restarts, Q-66), so a second run on the same lab gives
+different results. Reset, then start, as below, before every run on the crAPI lab.
+
+**Check that a lab is ready** (each line must print `200`):
+
+```bash
+# Forgejo lab
+curl -s  -o /dev/null -w "forgejo     %{http_code}\n" http://localhost:3000/swagger.v1.json
+curl -sk -o /dev/null -w "kong https  %{http_code}\n" https://localhost:8443/api/v1/version
+curl -s  -o /dev/null -w "kong admin  %{http_code}\n" http://localhost:8001/status
+
+# crAPI lab (a public endpoint of crAPI's identity service, through Kong)
+curl -sk -o /dev/null -w "kong https  %{http_code}\n" https://localhost:9443/identity/api/auth/jwks.json
+curl -s  -o /dev/null -w "kong admin  %{http_code}\n" http://localhost:9001/status
+curl -s http://localhost:9001/upstreams/workshop-upstream/health | grep -o '"health":"[A-Z]*"' | head -1   # "HEALTHY"
+```
+
+**Full reset** (deletes the data; then start again as above). From the lab folder:
+
+```bash
+docker compose --env-file ../../.env down -v
+```
+
+**Stop without deleting the data** / **see what is running**:
+
+```bash
+docker compose --env-file ../../.env stop       # from the lab folder; start again with the commands above
+docker ps --format '{{.Names}}\t{{.Status}}'    # Forgejo lab: kong, forgejo, forgejo-db; crAPI lab: crapi-lab-*
+```
+
+**Run the tool on a lab**, from the repository root:
+
+```bash
+hatch run apiguard validate-config -c test-environments/forgejo-kong/config.yaml     # or -c test-environments/crapi-kong/config.yaml
+hatch run apiguard run -c test-environments/forgejo-kong/config.yaml                 # reports in outputs/forgejo/ (crAPI: outputs/crapi/)
+```
+
+The Forgejo lab configuration enables the external tools (nuclei, testssl.sh, sslyze: about 5 minutes); for the
+native tests only, set `external_tools: {enabled: false}` in a copy (see [Running the Tool](#running-the-tool-cli)).
+The crAPI lab configuration has no `external_tools` section: every tool is off by default, so it runs the native
+tests only (about 2 minutes).
 
 ## Git - Clean Up Commit History
 

@@ -56,7 +56,10 @@ system"); the other tests run normally. A disabled tool (`enabled: false`) is li
 
 ## 3. Prepare a configuration and the credentials
 
-Start from the repository's `config.yaml` (every key: [configuration](../../reference/configuration.md)). Secrets
+Start from the annotated configuration of the repository's Forgejo lab, `test-environments/forgejo-kong/config.yaml`, which lists every key
+(reference: [configuration](../../reference/configuration.md)), and replace the lab values with yours. Relative paths
+in the file (specification, output directory, nuclei templates) are resolved against the directory the command
+runs from: start the tool from the directory that holds the file, or write absolute paths. Secrets
 never go in the file: write `${VAR}` and provide the variables at run time, either exported in the environment of
 the process or in a file passed with `--env-file` (variables already in the environment win):
 

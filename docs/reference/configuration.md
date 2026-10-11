@@ -6,8 +6,8 @@
 > `apiguard validate-config`)
 
 Every field, type, default and constraint below comes from the Pydantic models. For a guided setup see
-[`guides/usage/configure-a-target.md`](../guides/usage/configure-a-target.md); the annotated example in the repository is
-[`config.yaml`](../../config.yaml).
+[`guides/usage/configure-a-target.md`](../guides/usage/configure-a-target.md); the annotated example in the repository, with every key, is the Forgejo lab's configuration,
+[`test-environments/forgejo-kong/config.yaml`](../../test-environments/forgejo-kong/config.yaml).
 
 ## Loading rules
 
@@ -293,4 +293,5 @@ without the `user_a` credentials (2.1, 7.2). Log event `config_coherence_warning
 
 - [`cli.md`](cli.md) - `validate-config`, `generate-seed`
 - [`exit-codes.md`](exit-codes.md)
-- [`../../config.yaml`](../../config.yaml) - annotated example used for the Forgejo + Kong lab
+- [`test-environments/forgejo-kong/config.yaml`](../../test-environments/forgejo-kong/config.yaml) - annotated example used for the Forgejo + Kong lab
+- [`test-environments/crapi-kong/config.yaml`](../../test-environments/crapi-kong/config.yaml) - configuration of the crAPI + Kong lab

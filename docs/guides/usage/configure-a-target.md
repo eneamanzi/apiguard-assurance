@@ -25,8 +25,8 @@ without it those tests return SKIP (a missing precondition, not a pass).
 
 ## 1. Create a configuration file
 
-Keep the committed `config.yaml` for the lab and create a separate file for your API, in the repository folder (the
-name is free, here `my-api.yaml`):
+Keep the lab's configuration (`test-environments/forgejo-kong/config.yaml`, every key with its description) as a reference and create a
+separate file for your API, in the repository folder (the name is free, here `my-api.yaml`):
 
 ```yaml
 target:
@@ -90,7 +90,7 @@ The tool supports two ways of obtaining a token (`credentials.auth_type`):
 | `forgejo_token` (default) | Forgejo and Gitea | `POST /users/{username}/tokens` with Basic Auth |
 | `jwt_login` | an API with a JSON login endpoint | posts username and password to `login_endpoint`, reads the token from the response |
 
-Example for `jwt_login` (from `config_crapi.yaml`, where the login takes an email and returns `{"token": "..."}`):
+Example for `jwt_login` (from `test-environments/crapi-kong/config.yaml`, where the login takes an email and returns `{"token": "..."}`):
 
 ```yaml
 credentials:
@@ -184,7 +184,7 @@ The tool is not read-only. Before the first run on a system that matters, know w
 
 Start without the external tools (nuclei, testssl.sh, sslyze): the run takes seconds instead of minutes and shows
 whether the configuration works. The external tools are off unless your file enables them; if you copied a section
-from the lab's `config.yaml`, set:
+from the lab's configuration (`test-environments/forgejo-kong/config.yaml`), set:
 
 ```yaml
 external_tools:
@@ -197,9 +197,9 @@ Run:
 hatch run apiguard run -c my-api.yaml
 ```
 
-The reports go to `outputs/` and replace those of the previous run, the lab's included. To keep them apart, set a
-different folder in your file ([`output.directory`](../../reference/configuration.md#output)), e.g.
-`outputs-my-api`.
+Without `output.directory` the reports go to `outputs/` and replace those of the previous run (the labs write to
+`outputs/forgejo/` and `outputs/crapi/`). To keep them apart, set a folder in your file
+([`output.directory`](../../reference/configuration.md#output)), e.g. `outputs/my-api`.
 
 Then check, in this order:
 
