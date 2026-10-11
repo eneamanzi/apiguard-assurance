@@ -3,9 +3,13 @@ _format_version: "3.0"
 # Kong declarative configuration of the cRAPI lab.
 #
 # Same gateway configuration as the Forgejo lab (test-environments/forgejo-kong/kong/kong.yml):
-# passive health checks, timeouts, security headers, the HTTP-to-HTTPS redirect service and the
-# hmac-auth audit service. Only the backend changes, so that a different result between the two
+# passive health checks, timeouts, security headers, the HTTP-to-HTTPS redirect and the hmac-auth
+# audit service. Only the backend changes, so that a different result between the two
 # labs comes from the API, not from the gateway.
+#
+# API routes accept HTTPS only: an HTTP request gets a 301 to the same path over HTTPS (test 1.5), and a
+# path that no route matches gets Kong's 404 on both listeners (test 0.2), as in the Forgejo lab
+# (https://developer.konghq.com/support/how-configure-kong-to-redirect-http-traffic-to-https/).
 #
 # Routing follows Kong's pattern for microservices (one service per backend, one route per path
 # prefix, strip_path: false): cRAPI's services serve their full paths (/identity/api/...,
@@ -17,7 +21,18 @@ upstreams:
     targets:
       - target: crapi-identity:8080
         weight: 100
-    healthchecks: &passive-healthchecks
+    healthchecks:
+      # Active checks only probe a target that is already unhealthy (healthy.interval: 0), every 5 s, and
+      # re-enable it after one successful probe: passive checks alone never re-enable a target (Q-66,
+      # https://developer.konghq.com/gateway/traffic-control/health-checks-circuit-breakers/).
+      active:
+        type: http
+        http_path: /identity/health_check
+        healthy:
+          interval: 0
+          successes: 1
+        unhealthy:
+          interval: 5
       passive:
         type: http
         healthy:
@@ -34,12 +49,58 @@ upstreams:
     targets:
       - target: crapi-community:8087
         weight: 100
-    healthchecks: *passive-healthchecks
+    healthchecks:
+      # Active checks only probe a target that is already unhealthy (healthy.interval: 0), every 5 s, and
+      # re-enable it after one successful probe: passive checks alone never re-enable a target (Q-66,
+      # https://developer.konghq.com/gateway/traffic-control/health-checks-circuit-breakers/).
+      active:
+        type: http
+        http_path: /community/home
+        healthy:
+          interval: 0
+          successes: 1
+        unhealthy:
+          interval: 5
+      passive:
+        type: http
+        healthy:
+          successes: 2
+        unhealthy:
+          http_failures: 5
+          timeouts: 3
+          http_statuses:
+            - 500
+            - 502
+            - 503
+            - 504
   - name: workshop-upstream
     targets:
       - target: crapi-workshop:8000
         weight: 100
-    healthchecks: *passive-healthchecks
+    healthchecks:
+      # Active checks only probe a target that is already unhealthy (healthy.interval: 0), every 5 s, and
+      # re-enable it after one successful probe: passive checks alone never re-enable a target (Q-66,
+      # https://developer.konghq.com/gateway/traffic-control/health-checks-circuit-breakers/).
+      active:
+        type: http
+        http_path: /workshop/health_check/
+        healthy:
+          interval: 0
+          successes: 1
+        unhealthy:
+          interval: 5
+      passive:
+        type: http
+        healthy:
+          successes: 2
+        unhealthy:
+          http_failures: 5
+          timeouts: 3
+          http_statuses:
+            - 500
+            - 502
+            - 503
+            - 504
 
 services:
   - name: identity-service
@@ -53,6 +114,9 @@ services:
           - /identity
         strip_path: false
         preserve_host: false
+        protocols:
+          - https
+        https_redirect_status_code: 301
     plugins: &security-headers
       - name: response-transformer
         config:
@@ -80,6 +144,9 @@ services:
           - /community
         strip_path: false
         preserve_host: false
+        protocols:
+          - https
+        https_redirect_status_code: 301
     plugins: *security-headers
 
   - name: workshop-service
@@ -93,36 +160,10 @@ services:
           - /workshop
         strip_path: false
         preserve_host: false
-    plugins: *security-headers
-
-  # HTTP-to-HTTPS redirect (test 1.5): any request on the HTTP listener (host port 9000) gets a
-  # 301 to the HTTPS listener (host port 9443), terminated at the gateway. Test 1.5 probes it
-  # through http_probe_url in this lab's config.yaml.
-  - name: http-redirect-service
-    # Unused target: request-termination answers before any upstream is contacted.
-    url: http://identity-upstream
-    connect_timeout: 5000
-    read_timeout: 30000
-    write_timeout: 30000
-    routes:
-      - name: http-redirect-catch-all
-        paths:
-          - /
-        strip_path: false
-        preserve_host: false
         protocols:
-          - http
-    plugins:
-      - name: request-termination
-        config:
-          status_code: 301
-          message: "Moved Permanently"
-      - name: response-transformer
-        config:
-          add:
-            headers:
-              - "Location: https://localhost:9443/"
-              - "Strict-Transport-Security: max-age=31536000; includeSubDomains"
+          - https
+        https_redirect_status_code: 301
+    plugins: *security-headers
 
   # Service that only carries an hmac-auth plugin for the test 3.3 audit, on a path no client uses
   # (attaching hmac-auth to an API service would make every Bearer request fail).

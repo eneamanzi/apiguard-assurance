@@ -71,7 +71,7 @@ Two read-only requests, no credentials, no Admin API.
 
 | Key | Effect |
 |---|---|
-| `http_probe_url` | Needed when HTTPS runs on a non-standard port: e.g. `https://localhost:8443` derives `http://localhost:8443/`, which hits the TLS listener and returns `400` (reported as a finding). Set the real HTTP listener, e.g. `http://localhost:8000/`. |
+| `http_probe_url` | Needed when HTTPS runs on a non-standard port: e.g. `https://localhost:8443` derives `http://localhost:8443/`, which hits the TLS listener and returns `400` (reported as a finding). Set the real HTTP listener, on a path the gateway routes, e.g. `http://localhost:8000/api/v1/version` (the labs redirect HTTP to HTTPS on API paths only, as Kong's `https_redirect_status_code` does). |
 | `http_probe_enabled` | `false` skips sub-test 1. |
 | `expected_redirect_status_codes`, `http_probe_timeout_seconds`, `hsts_min_max_age_seconds` | Oracle tuning. |
 

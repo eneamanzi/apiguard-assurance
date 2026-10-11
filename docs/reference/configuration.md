@@ -136,7 +136,7 @@ Schema per domain: `src/test_config/domain_<D>.py`.
 |---|---|---|---|
 | `hsts_min_max_age_seconds` | int ≥86400 | `31536000` | Minimum acceptable `Strict-Transport-Security` max-age. |
 | `http_probe_enabled` | bool | `true` | Probe the HTTP URL for HTTP→HTTPS redirect. |
-| `http_probe_url` | string | `""` | Explicit HTTP URL to probe. Empty → derived from `base_url`. Needed when HTTPS uses a non-standard port (e.g. `https://localhost:8443` → set `http://localhost:8000/`). |
+| `http_probe_url` | string | `""` | Explicit HTTP URL to probe. Empty → derived from `base_url`. Needed when HTTPS uses a non-standard port (e.g. `https://localhost:8443` → set `http://localhost:8000/api/v1/version`, a path the gateway routes). |
 | `http_probe_timeout_seconds` | float ≥1 | `5.0` | Timeout for the redirect probe. |
 | `expected_redirect_status_codes` | list of int | `301, 308` | Status codes accepted as a valid redirect. |
 

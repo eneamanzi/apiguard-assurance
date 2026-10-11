@@ -54,8 +54,9 @@ previous run.
 ### crAPI + Kong
 
 [OWASP crAPI](https://github.com/OWASP/crAPI), an API vulnerable by design (Apache License 2.0), behind Kong with
-the **same gateway configuration** as the Forgejo lab (`kong/kong.yml`: timeouts, passive health checks, security
-headers, HTTP-to-HTTPS redirect, hmac-auth audit service): only the API changes between the two labs. Added on
+the **same gateway configuration** as the Forgejo lab (`kong/kong.yml`: timeouts, passive health checks with an
+active check that re-enables an excluded backend, security headers, Kong's HTTP-to-HTTPS redirect, hmac-auth audit
+service): only the API changes between the two labs. Added on
 2026-10-10.
 
 | Component | Image | Version |

@@ -237,10 +237,11 @@ tests:
       # counterpart yields http://localhost:8443/, which hits Kong's TLS
       # listener and returns 400 (nginx rejects plaintext on a TLS port) -- a
       # correct FAIL but for the wrong reason in a lab context.
-      # Pointing to http://localhost:8000/ probes Kong's real HTTP listener,
-      # where the http-redirect-service returns 301 -> PASS.
+      # Pointing to an API path on http://localhost:8000 probes Kong's real HTTP
+      # listener, where the HTTPS-only API route answers 301 (Kong's
+      # https_redirect_status_code, kong/kong.yml) -> PASS.
       # Set to "" to fall back to the derived URL (produces FAIL in this lab).
-      http_probe_url: "http://localhost:8000/"
+      http_probe_url: "http://localhost:8000/api/v1/version"
 
       # Connect + read timeout (seconds) for the HTTP redirect probe.
       # Keep short: TCP RST is returned immediately for refused connections.

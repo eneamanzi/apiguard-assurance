@@ -65,6 +65,15 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
 ### Changed
 
+- Test labs: Kong active health checks re-enable a backend excluded by the passive checks (Q-66): on the crAPI lab a
+  run no longer leaves the workshop service excluded, so consecutive runs give the same results without a reset.
+  Results unchanged.
+- Test labs: HTTP-to-HTTPS redirect done with Kong's own mechanism (API routes HTTPS-only with
+  `https_redirect_status_code: 301`) instead of a catch-all redirect route, which also answered 301 over HTTPS to
+  every unknown path (Q-65); `http_probe_url` of the lab configurations points to an API path. **Changed results**
+  on the labs (tool unchanged): Forgejo 0.1 16 -> 2 findings, 0.2 FAIL -> PASS, 1.5 PASS -> FAIL (Kong's own 404
+  carries no HSTS; the earlier PASS came from the removed route); crAPI 0.1 49 -> 12, 0.2 FAIL -> PASS, 1.5 PASS ->
+  FAIL.
 - The lab configurations moved into their labs: `config.yaml` → `test-environments/forgejo-kong/config.yaml` (reports in
   `outputs/forgejo/`), `config_crapi.yaml` → `test-environments/crapi-kong/config.yaml` (reports in `outputs/crapi/`). Run the tool
   from the repository root with `-c <file>`; without `-c` it still reads `config.yaml` in the working directory,

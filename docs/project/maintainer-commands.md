@@ -114,8 +114,8 @@ then `apiguard run -c config.test.yaml`. Only native tests: `external_tools.enab
 **Check that the lab is clean** (after an interrupted run; only `user-a/test-repo` must remain):
 ```bash
 set -a; . ./.env; set +a
-curl -s -u "$USER_A_USERNAME:$USER_A_PASSWORD" http://localhost:8000/api/v1/users/$USER_A_USERNAME/tokens
-curl -s -u "$USER_A_USERNAME:$USER_A_PASSWORD" http://localhost:8000/api/v1/user/repos | python3 -c "import json,sys; print([r['full_name'] for r in json.load(sys.stdin)])"
+curl -sk -u "$USER_A_USERNAME:$USER_A_PASSWORD" https://localhost:8443/api/v1/users/$USER_A_USERNAME/tokens
+curl -sk -u "$USER_A_USERNAME:$USER_A_PASSWORD" https://localhost:8443/api/v1/user/repos | python3 -c "import json,sys; print([r['full_name'] for r in json.load(sys.stdin)])"
 ```
 
 **Compare two runs** (development helper; tests, statuses, findings, oracle states, exit code):
@@ -243,9 +243,9 @@ docker compose --env-file ../../.env up crapi-setup       # ends with three "Log
 cd ../..
 ```
 
-**crAPI lab: reset before each run.** A run leaves Kong's workshop backend disabled (test 7.2 makes it answer
-503/504 and Kong's passive health check excludes it until Kong restarts, Q-66), so a second run on the same lab gives
-different results. Reset, then start, as below, before every run on the crAPI lab.
+**Runs one after the other need no reset.** On the crAPI lab test 7.2 makes the workshop service answer 503/504 and
+Kong's passive health check excludes it; the active health check re-enables it about 5 seconds later (Q-66). The last
+command of the crAPI check below must print `"health":"HEALTHY"`.
 
 **Check that a lab is ready** (each line must print `200`):
 

@@ -121,6 +121,16 @@ PASS); A-3 `path_seed` per parameter name; A-5 4.1 threshold; A-6 specification 
 6. 2.1 default admin path: no default (SKIP "not configured") or kept?
 7. Credential scheme (A-2) and other login types (I-5): only when a lab requires them?
 
+**Decisions on these questions** (owner, 2026-10-11): question 1 in `gateway-concepts.md`; question 2 (reported as
+SKIP with the reason, InfoNote for a partial test) in `gateway-concepts.md`; question 3 (Q-34, `admin_api_headers`)
+in `gateway-concepts.md` and Q-34; questions 4 and 7 in `auth-survey.md` section 5; question 6: test 2.1 has **no
+default admin path**, without `admin_endpoint_paths` it returns SKIP ("no admin endpoint configured"); the
+specification cannot say which endpoints are for administrators (OpenAPI has no such marker) and guessing from names
+is unreliable. The Forgejo lab configuration already lists the path (result unchanged); on cRAPI 2.1 goes from a
+false PASS to SKIP until its admin endpoints are chosen in the test review. Question 5, test 7.2: **no default injection endpoint**:
+without an injection configuration 7.2 returns SKIP ("no SSRF injection endpoint configured"); `forgejo_webhook`
+stays as a mode chosen explicitly; both lab configurations already set 7.2 explicitly (results unchanged).
+
 ## 5. What the labs will show
 
 - **cRAPI behind Kong** (only the API changes): expected from this analysis, before any change: 1.4 ERROR, 2.1 false
@@ -149,6 +159,9 @@ Two runs on a lab reset in between gave identical results: 7 PASS, 5 FAIL, 2 SKI
 | 6.2 | FAIL, 1 finding | header inconsistency: the community service sends neither `X-Content-Type-Options` nor `X-Frame-Options`, and the lab's Kong configuration only *replaces* them (Forgejo sends them itself); the workshop service also leaks `Server: gunicorn` |
 | 6.4 | PASS | |
 | 7.2 | PASS, 90.8 s | **probably a false PASS**: all 73 payloads answer 503 or 504, counted as "blocked"; on crAPI that endpoint is a documented SSRF (its challenge 11), so 503/504 more likely mean the server tried to fetch the URL. The message also says "webhook" (Forgejo wording) |
+
+After Q-65 (2026-10-11, Kong's own HTTP-to-HTTPS redirect): 0.1 FAIL 12 findings (the 12 undeclared methods), 0.2
+PASS, 1.5 FAIL (Kong's 404 carries no HSTS), 2.1 PASS with the default path answering 404; the rest unchanged.
 
 For the test review: 1.1 finding a real vulnerability is the kind of check cRAPI's documented vulnerabilities allow
 (`docs/challenges.md` upstream: 18 challenges).
