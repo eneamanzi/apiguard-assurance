@@ -13,7 +13,7 @@ Related pages: [data model](data-model.md) · [assessment model](assessment-mode
 paths or payloads of a specific application: the attack surface is built at runtime from the spec, and
 target-specific values live in `config.yaml`. Two exceptions are deliberate and isolated:
 
-- **gateway adapters** (`src/core/gateway/`, Kong only) read the gateway configuration for WHITE_BOX audits;
+- **gateway adapters** (`src/core/gateway/`, Kong and APISIX) read the gateway configuration for WHITE_BOX audits;
 - **application helpers** (`src/tests/helpers/auth_forgejo.py`, `forgejo_resources.py`) and some test defaults
   are Forgejo-specific. Which tests depend on them is stated on each [test page](../tests/README.md) (Q-18).
 
@@ -83,7 +83,7 @@ src/
 │   ├── context.py      TargetContext (frozen), TestContext (mutable)
 │   ├── evidence.py     EvidenceStore (streaming JSONL, merged in Phase 7)
 │   ├── dag.py          DAGScheduler
-│   ├── gateway/        BaseGatewayAdapter + KongGatewayAdapter
+│   ├── gateway/        BaseGatewayAdapter + KongGatewayAdapter, ApisixGatewayAdapter
 │   ├── test_metadata.py Rules of a test declaration (ID formats, priority and domain ranges)
 │   └── exceptions.py   Exception hierarchy
 ├── connectors/         Wrappers around external tools (nuclei, testssl.sh, sslyze)
@@ -138,9 +138,12 @@ external tool, sanitised, also copied to `outputs/tools/`). Records are streamed
 **Gateway adapters** (`src/core/gateway/`). `BaseGatewayAdapter` exposes one reader per neutral concept
 (`backend_timeouts`, `circuit_breakers`, `health_checks`, `target_health`, `signing_policies`, `routes`,
 `config_values`), each answering with a `ConceptRead` (`src/core/gateway/concepts.py`: read, not supported, or not
-accessible), read once per run; a `GatewayAdapterError` becomes "not accessible". `KongGatewayAdapter` translates
-`/services`, `/upstreams`, `/upstreams/{name}/health`, `/routes`, `/plugins` of the Admin API (plain `GET`s,
-pagination, the headers of `target.admin_api_headers`, TLS always verified). The adapter is chosen from
+accessible), read once per run; a `GatewayAdapterError` becomes "not accessible". The base also holds the
+constructor shared by every adapter and the HTTP reads (plain `GET`s, the headers of `target.admin_api_headers` to the
+Admin API only, TLS always verified). `KongGatewayAdapter` translates `/services`, `/upstreams`,
+`/upstreams/{name}/health`, `/routes`, `/plugins` of the Kong Admin API (with pagination);
+`ApisixGatewayAdapter` translates the APISIX Admin API collections, completed with the defaults of the running
+APISIX's schemas, and the Control API `/v1/healthcheck` at `target.health_api_url`. The adapter is chosen from
 `GATEWAY_ADAPTERS` (`src/core/gateway/__init__.py`) in Phase 3 when `target.gateway_adapter` and
 `target.admin_api_url` are set; tests access it as `target.gateway` ([add a gateway
 adapter](../guides/extending/add-a-gateway-adapter.md)).
@@ -169,7 +172,7 @@ All custom exceptions derive from `ToolBaseError` (`src/core/exceptions.py`, plu
 | `SecurityClientError` | `method`, `url`, `status_code`, `attempt_count` | `SecurityClient` | caught in the test → `ERROR` (some tests skip the single probe) |
 | `AuthenticationSetupError` | `role`, `status_code` | `tests/helpers/auth*.py` | caught in the test → `ERROR` |
 | `ExternalToolError` | `tool_name`, `exit_code`, `timed_out`, `raw_stderr` | connectors | caught in the external test → `ERROR` |
-| `GatewayAdapterError` (`src/core/gateway/base.py`) | `path`, `status_code` | gateway adapter | caught in the test → `ERROR` |
+| `GatewayAdapterError` (`src/core/gateway/base.py`) | `path`, `status_code` | gateway adapter | caught by the concept reader → "not accessible", the test SKIPs or adds a note |
 | `TeardownError` | `resource_method`, `resource_path`, `failed_status_code` | Phase 6 | warning with `manual_cleanup_required=True`, not propagated |
 | `SeedGeneratorFetchError`, `SeedGeneratorParseError` (`src/discovery/seed_generator.py`) | `spec_source`, `reason` | `generate-seed` only | exit 1 |
 

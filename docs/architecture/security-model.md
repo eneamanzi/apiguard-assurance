@@ -50,7 +50,9 @@ Treat all output files as sensitive: response bodies can carry the target's data
 - `target.verify_tls` (default `true`) controls certificate verification towards `base_url` and the HTTP-redirect
   probe of test 1.5. Set it to `false` only for lab gateways with self-signed certificates.
 - The gateway Admin API is called with the headers of `target.admin_api_headers` (values registered as secrets,
-  masked in every output) and always with certificate verification on (Q-34).
+  masked in every output) and always with certificate verification on (Q-34). The health interface
+  (`target.health_api_url`, the APISIX Control API) is read without those headers: it has no authentication of its
+  own, and the key is not sent where it is not needed.
 
 ## External tools
 
@@ -66,7 +68,7 @@ Treat all output files as sensitive: response bodies can carry the target's data
 
 | Gap | Question |
 |---|---|
-| Admin API authentication and custom TLS not supported | Q-34 |
+| Admin API over TLS with a private certificate (custom CA) not supported; authentication by header is (`admin_api_headers`) | Q-34 |
 | Unauthenticated write requests and leftover objects on the target | Q-30 |
 | sslyze dependency is AGPL v3 | Q-11 |
 

@@ -62,8 +62,9 @@ Checked automatically by `lint-imports` in `hatch run dev:check` (`[tool.importl
 **Gateway adapter pattern:**
 WHITE_BOX tests access the gateway admin plane via `target.gateway` (a `BaseGatewayAdapter`
 injected by engine.py Phase 3). Tests guard with `if target.gateway is None: return SKIP`.
-The ABC and all concrete implementations live in `src/core/gateway/` (currently: `KongGatewayAdapter`).
-The adapter type is configured via `target.gateway_adapter: kong` in `config.yaml`.
+The ABC and all concrete implementations live in `src/core/gateway/` (currently: `KongGatewayAdapter`,
+`ApisixGatewayAdapter`).
+The adapter type is configured via `target.gateway_adapter` (`kong` or `apisix`) in `config.yaml`.
 
 ---
 
@@ -140,7 +141,7 @@ ToolBaseError
 
 `GatewayAdapterError` (in `src/core/gateway/base.py`) extends `ToolBaseError` and is raised
 by gateway adapters on transport failure or unexpected HTTP status from the admin endpoint.
-WHITE_BOX tests catch it and return `TestResult(ERROR)`.
+The concept readers of `BaseGatewayAdapter` catch it and answer "not accessible"; the tests then SKIP or add a note.
 
 `SeedGeneratorFetchError` and `SeedGeneratorParseError` (in `src/discovery/seed_generator.py`)
 extend `ToolBaseError` and are raised exclusively by the `apiguard generate-seed` CLI helper

@@ -35,6 +35,16 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 - `target.admin_api_headers`: headers sent on every read of the gateway's Admin API (e.g. an APISIX key or a Kong
   Enterprise RBAC token), for a gateway that protects it; the values are registered as secrets and masked in logs
   and reports (Q-34).
+- Apache APISIX gateway adapter, `target.gateway_adapter: apisix` (tested with APISIX 3.19.0 and etcd): the
+  configuration audits (3.3, 4.2, 4.3, 6.4 sub-test B) read the APISIX Admin API (a key of role `viewer`, GET only,
+  is enough) and fill the fields left out with the defaults of the running APISIX (its plugin and upstream schemas),
+  so that, for example, `hmac-auth` without `allowed_algorithms` is seen to allow `hmac-sha1`.
+- `target.health_api_url`: address of the interface reporting the live health of the backends when the gateway keeps
+  it outside the Admin API (APISIX Control API), read by test 4.3 without the Admin API headers; not used by Kong.
+- Third test lab, `test-environments/forgejo-apisix/`: the Forgejo lab's API behind Apache APISIX 3.19.0 (etcd 3.5.34),
+  with a gateway configuration of the same intent as the Kong labs, on ports 10000/10443/10001 (Control API 10002,
+  Forgejo 10003); Admin API keys from `.env` (`APISIX_ADMIN_KEY` for the setup, `APISIX_VIEWER_KEY` for the tool).
+  Native results identical to the Forgejo + Kong lab.
 
 ### Fixed
 
@@ -164,6 +174,9 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 - Internal: the gateway adapter interface is made of neutral concepts (`src/core/gateway/concepts.py`, one
   reader per concept, read once per run); the Kong-shaped methods (`get_services`, `get_plugins`, ...) are gone;
   adapters are registered in `GATEWAY_ADAPTERS`. Guide: `docs/guides/extending/add-a-gateway-adapter.md`.
+  The constructor, the HTTP reads and the collection of configuration text values are shared by every adapter
+  (`BaseGatewayAdapter`); an interface answering with a body that is not JSON is reported as not accessible (it was
+  an unhandled error); error messages name the interface and its configuration key.
 - Internal: every test parameter is defined once, in `src/test_config/` (one model per test, the same model
   validates `config.yaml` and reaches the test); the runtime copies and the field-by-field copy in the engine were
   removed; the engine collects them automatically, and a model missing on one side stops the run at

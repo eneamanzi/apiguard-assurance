@@ -40,17 +40,32 @@ GatewayAdapterError becomes "not accessible" with its message. A concrete
 adapter overrides the _read_<concept>() methods it can serve; the others answer
 "not supported by this adapter". Design: docs/project/gateway-concepts.md.
 
-Dependency rule: this module imports only from stdlib, structlog,
-src.core.exceptions and src.core.gateway.concepts. It must never import from
-config/, tests/, external_tests/, connectors/, or report/.
+Construction and transport
+--------------------------
+Every adapter is built by engine.py Phase 3 with the same keyword arguments
+(the constructor below): the Admin API address, timeouts and headers, the
+address of a separate health interface, and the configuration of tests 3.3
+and 4.3. Each adapter uses the ones its gateway needs. _get_json_object() and
+_get_json_array() perform one read-only GET with those timeouts.
+
+Design decision: direct httpx, not SecurityClient. Reads of the gateway's
+interfaces are configuration audits, not security test traffic against the
+target API: they must not appear in the EvidenceStore nor follow the retry
+policy of target API calls. The interfaces are a separate trust boundary from
+the proxy, and a dedicated short-lived httpx client keeps the two explicit.
+
+Dependency rule: this module imports only from stdlib, httpx, structlog,
+src.core.exceptions, src.core.gateway.concepts and src.test_config. It must
+never import from config/, tests/, external_tests/, connectors/, or report/.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, TypeVar, cast
 
+import httpx
 import structlog
 
 from src.core.exceptions import ToolBaseError
@@ -59,11 +74,14 @@ from src.core.gateway.concepts import (
     CircuitBreaker,
     ConceptRead,
     ConfigValue,
+    ConfigValueKind,
     GatewayRoute,
     HealthCheck,
     SigningPolicy,
     TargetHealth,
 )
+from src.test_config.domain_3 import Test33Config
+from src.test_config.domain_4 import Test43AuditConfig
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -76,8 +94,16 @@ CONCEPT_ROUTES: str = "routes"
 CONCEPT_CONFIG_VALUES: str = "configuration values"
 CONCEPT_TARGET_HEALTH: str = "live target health"
 
-# Instance attribute holding the answers already read in this run.
-_CONCEPT_MEMORY_ATTRIBUTE: str = "_concept_memory"
+# Interfaces of a gateway, for error messages: name and the setting holding its address.
+ADMIN_API_INTERFACE: tuple[str, str] = ("Admin API", "target.admin_api_url")
+HEALTH_API_INTERFACE: tuple[str, str] = ("health API", "target.health_api_url")
+
+_OK_STATUS: int = 200
+# Characters of an unexpected answer quoted in an error message.
+_ERROR_BODY_PREVIEW_CHARS: int = 200
+# Depth limit when collecting the text values of a configuration (the same
+# limit test 6.4 applied to the raw configuration).
+_CONFIG_VALUES_MAX_DEPTH: int = 10
 
 ItemT = TypeVar(
     "ItemT",
@@ -149,18 +175,59 @@ class BaseGatewayAdapter(ABC):
 
     Lifecycle
     ---------
-    Instantiated once by engine.py Phase 3 with the admin endpoint URL and
-    timeouts read from TargetConfig.  The instance is stored on TargetContext
-    as ``target.gateway`` and shared across all tests for the entire run.
-    No connection is established at construction; each method call creates
-    a short-lived HTTP connection.
+    Instantiated once by engine.py Phase 3 with the settings read from
+    TargetConfig.  The instance is stored on TargetContext as
+    ``target.gateway`` and shared across all tests for the entire run.
+    No connection is established at construction; each read creates a
+    short-lived HTTP connection.
 
     Error contract
     --------------
-    All methods raise GatewayAdapterError on transport failures or unexpected
-    HTTP status codes from the admin endpoint.  Tests are expected to catch
-    GatewayAdapterError and return TestResult(ERROR) with the exception message.
+    The _read_<concept>() methods raise GatewayAdapterError on transport
+    failures or unexpected answers; the public readers turn it into a
+    "not accessible" answer, so tests never see the exception.
     """
+
+    def __init__(
+        self,
+        admin_base_url: str,
+        connect_timeout: float,
+        read_timeout: float,
+        admin_headers: Mapping[str, str] | None = None,
+        health_api_url: str | None = None,
+        signing_config: Test33Config | None = None,
+        breaker_config: Test43AuditConfig | None = None,
+    ) -> None:
+        """
+        Store the gateway settings.  No I/O at construction time.
+
+        Args:
+            admin_base_url:  Admin API base URL (trailing slash removed).
+            connect_timeout: TCP connection timeout in seconds, for every read.
+            read_timeout:    HTTP read timeout in seconds, for every read.
+            admin_headers:   Headers sent on every Admin API request (e.g. an
+                             API key); none by default.
+            health_api_url:  Base URL of the interface reporting the live
+                             health of the backends, for a gateway that keeps
+                             it outside the Admin API; None when not set.
+            signing_config:  Test 3.3 configuration: which plugin names are a
+                             request signing policy and the names of their
+                             fields; the defaults when None.
+            breaker_config:  Test 4.3 configuration: which plugin names are a
+                             circuit breaker, in priority order; the defaults
+                             when None.
+        """
+        self._admin_base_url: str = admin_base_url.rstrip("/")
+        self._connect_timeout: float = connect_timeout
+        self._read_timeout: float = read_timeout
+        self._admin_headers: dict[str, str] = dict(admin_headers or {})
+        self._health_api_url: str | None = (
+            health_api_url.rstrip("/") if health_api_url is not None else None
+        )
+        self._signing: Test33Config = signing_config or Test33Config()
+        self._breaker: Test43AuditConfig = breaker_config or Test43AuditConfig()
+        # Answers already read in this run, by concept name.
+        self._concept_memory: dict[str, Any] = {}
 
     @property
     @abstractmethod
@@ -269,7 +336,7 @@ class BaseGatewayAdapter(ABC):
         Returns:
             The answer for the concept.
         """
-        memory: dict[str, Any] = self.__dict__.setdefault(_CONCEPT_MEMORY_ATTRIBUTE, {})
+        memory = self._concept_memory
         if concept not in memory:
             try:
                 answer = reader()
@@ -287,3 +354,175 @@ class BaseGatewayAdapter(ABC):
                 reason=answer.reason,
             )
         return cast("ConceptRead[ItemT]", memory[concept])
+
+    # ------------------------------------------------------------------
+    # Transport
+    # ------------------------------------------------------------------
+
+    def _get_json_object(
+        self,
+        url: str,
+        path: str,
+        interface: tuple[str, str] = ADMIN_API_INTERFACE,
+    ) -> dict[str, Any]:
+        """
+        GET a URL of the gateway's interfaces and return its JSON object body.
+
+        Args:
+            url:       Full URL to request.
+            path:      Path, for error messages and logs.
+            interface: ADMIN_API_INTERFACE (sends the Admin API headers) or
+                       HEALTH_API_INTERFACE (sends none).
+
+        Returns:
+            The parsed body.
+
+        Raises:
+            GatewayAdapterError: On transport failure, a status other than 200,
+                                 or a body that is not a JSON object.
+        """
+        body = self._get_json(url, path, interface)
+        if not isinstance(body, dict):
+            raise GatewayAdapterError(
+                message=f"{self._interface_label(interface)} answered GET {path} "
+                "with JSON that is not an object.",
+                path=path,
+                status_code=_OK_STATUS,
+            )
+        return body
+
+    def _get_json_array(
+        self,
+        url: str,
+        path: str,
+        interface: tuple[str, str] = ADMIN_API_INTERFACE,
+    ) -> list[Any]:
+        """
+        GET a URL of the gateway's interfaces and return its JSON array body.
+
+        Args:
+            url:       Full URL to request.
+            path:      Path, for error messages and logs.
+            interface: ADMIN_API_INTERFACE or HEALTH_API_INTERFACE.
+
+        Returns:
+            The parsed body.
+
+        Raises:
+            GatewayAdapterError: On transport failure, a status other than 200,
+                                 or a body that is not a JSON array.
+        """
+        body = self._get_json(url, path, interface)
+        if not isinstance(body, list):
+            raise GatewayAdapterError(
+                message=f"{self._interface_label(interface)} answered GET {path} "
+                "with JSON that is not an array.",
+                path=path,
+                status_code=_OK_STATUS,
+            )
+        return body
+
+    def _get_json(self, url: str, path: str, interface: tuple[str, str]) -> object:
+        """
+        Perform one GET, no redirects, and return the parsed JSON body.
+
+        The Admin API headers are sent only to the Admin API.
+
+        Raises:
+            GatewayAdapterError: On transport failure, a status other than 200,
+                                 or a body that is not JSON.
+        """
+        label = self._interface_label(interface)
+        setting = interface[1]
+        headers = self._admin_headers if interface == ADMIN_API_INTERFACE else {}
+        timeout = httpx.Timeout(
+            connect=self._connect_timeout,
+            read=self._read_timeout,
+            write=self._connect_timeout,
+            pool=self._connect_timeout,
+        )
+        try:
+            with httpx.Client(timeout=timeout, follow_redirects=False) as http:
+                response = http.get(url, headers=headers)
+        except httpx.TransportError as exc:
+            raise GatewayAdapterError(
+                message=(
+                    f"{label} transport error on GET {path}: {exc}. "
+                    f"Verify that {setting} is correct and the interface is reachable."
+                ),
+                path=path,
+                status_code=None,
+            ) from exc
+
+        if response.status_code != _OK_STATUS:
+            raise GatewayAdapterError(
+                message=(
+                    f"{label} returned HTTP {response.status_code} on GET {path}. "
+                    f"Expected {_OK_STATUS}. "
+                    f"Response: {response.text[:_ERROR_BODY_PREVIEW_CHARS]}"
+                ),
+                path=path,
+                status_code=response.status_code,
+            )
+        try:
+            body: object = response.json()
+        except ValueError as exc:
+            raise GatewayAdapterError(
+                message=f"{label} answered GET {path} with a body that is not JSON.",
+                path=path,
+                status_code=response.status_code,
+            ) from exc
+        return body
+
+    def _interface_label(self, interface: tuple[str, str]) -> str:
+        """Return e.g. 'kong Admin API', for error messages."""
+        return f"{self.adapter_name} {interface[0]}"
+
+
+# ---------------------------------------------------------------------------
+# Helpers for the adapters
+# ---------------------------------------------------------------------------
+
+
+def collect_text_values(
+    data: dict[str, Any],
+    kind: ConfigValueKind,
+    location: str,
+    prefix: str,
+    depth: int = 0,
+) -> list[ConfigValue]:
+    """
+    Collect the text values of a gateway configuration, with their dotted keys.
+
+    Descends into objects and into objects inside arrays, up to
+    _CONFIG_VALUES_MAX_DEPTH levels; only strings are collected (the rules
+    test 6.4 applied to the raw configuration). Used by the adapters for the
+    configuration values concept.
+
+    Args:
+        data:     The configuration object (e.g. a plugin configuration).
+        kind:     Type of object holding the values.
+        location: Which object, e.g. 'route 5, plugin http-logger'.
+        prefix:   Dotted key of data itself, e.g. 'config'.
+        depth:    Current depth (0 for the caller).
+
+    Returns:
+        One ConfigValue per string found.
+    """
+    if depth > _CONFIG_VALUES_MAX_DEPTH:
+        log.warning("gateway_config_values_max_depth", location=location, key=prefix)
+        return []
+    values: list[ConfigValue] = []
+    for key, value in data.items():
+        path = f"{prefix}.{key}"
+        if isinstance(value, dict):
+            values.extend(collect_text_values(value, kind, location, path, depth + 1))
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                if isinstance(item, dict):
+                    values.extend(
+                        collect_text_values(item, kind, location, f"{path}[{index}]", depth + 1)
+                    )
+        elif isinstance(value, str):
+            values.append(ConfigValue(kind=kind, location=location, key=path, value=value))
+    return values

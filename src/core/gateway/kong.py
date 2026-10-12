@@ -7,16 +7,9 @@ Implements BaseGatewayAdapter against the Kong DB-less Admin API (v3.x).
 Provides read-only access to routes, services, plugins, and upstreams via
 paginated GET requests to the Kong Admin API.
 
-Design decision: direct httpx, not SecurityClient
--------------------------------------------------
-This adapter uses httpx directly rather than SecurityClient for a deliberate
-architectural reason: calls to the Kong Admin API are configuration audits,
-not security test traffic against the target API.  They must NOT appear in
-the EvidenceStore, must NOT be retried with the same policy as target API
-calls, and must NOT be coupled to the test's EvidenceRecord chain.
-
-The Admin API is a separate trust boundary from the proxy.  Using a dedicated
-lightweight httpx client with its own timeout keeps the two boundaries explicit.
+Construction and HTTP reads (direct httpx, not SecurityClient) come from
+BaseGatewayAdapter; target.health_api_url is not used: Kong's Admin API
+reports the live health of the targets.
 
 Paginated responses
 -------------------
@@ -26,19 +19,18 @@ Kong returns paginated responses in the format:
 _fetch_paginated() follows the 'next' cursor until exhausted.  In DB-less
 mode, all objects are returned in a single page and 'next' is null.
 
-Dependency rule: imports from stdlib, httpx, structlog, and src.core.gateway.base.
-Must never import from src.tests, src.engine, src.config, or src.discovery.
+Dependency rule: imports from stdlib, structlog, src.core.gateway.base and
+src.core.gateway.concepts. Must never import from src.tests, src.engine,
+src.config, or src.discovery.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any
 
-import httpx
 import structlog
 
-from src.core.gateway.base import BaseGatewayAdapter, GatewayAdapterError
+from src.core.gateway.base import BaseGatewayAdapter, collect_text_values
 from src.core.gateway.concepts import (
     ActiveCheck,
     BackendTimeout,
@@ -54,8 +46,6 @@ from src.core.gateway.concepts import (
     TargetHealth,
     TargetState,
 )
-from src.test_config.domain_3 import Test33Config
-from src.test_config.domain_4 import Test43AuditConfig
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -89,12 +79,7 @@ _BREAKER_OPEN_FIELDS: tuple[str, ...] = (
     "recovery_time",
     "timeout_duration",
 )
-# Depth limit when collecting the text values of a plugin configuration
-# (the same limit test 6.4 applied to the raw configuration).
-_CONFIG_VALUES_MAX_DEPTH: int = 10
 _GLOBAL_SCOPE_NAME: str = "global"
-
-_OK_STATUS: int = 200
 
 
 # ---------------------------------------------------------------------------
@@ -113,46 +98,9 @@ class KongGatewayAdapter(BaseGatewayAdapter):
     is set in config.yaml.  The instance is stored on TargetContext.gateway
     and shared across all WHITE_BOX tests for the assessment run.
 
-    Args:
-        admin_base_url:  Base URL of the Kong Admin API, without trailing slash.
-                         Example: 'http://localhost:8001'
-        connect_timeout: TCP connection timeout in seconds.
-                         Read from target.admin_connect_timeout_seconds.
-        read_timeout:    HTTP read timeout in seconds.
-                         Read from target.admin_read_timeout_seconds.
+    Built with the arguments of BaseGatewayAdapter; the Admin API base URL
+    is e.g. 'http://localhost:8001'.
     """
-
-    def __init__(
-        self,
-        admin_base_url: str,
-        connect_timeout: float,
-        read_timeout: float,
-        admin_headers: Mapping[str, str] | None = None,
-        signing_config: Test33Config | None = None,
-        breaker_config: Test43AuditConfig | None = None,
-    ) -> None:
-        """
-        Store admin API coordinates.  No I/O at construction time.
-
-        Args:
-            admin_base_url:  Kong Admin API base URL (no trailing slash).
-            connect_timeout: TCP connection timeout in seconds.
-            read_timeout:    HTTP read timeout in seconds.
-            admin_headers:   Headers sent on every Admin API request (e.g. an
-                             RBAC token); none by default.
-            signing_config:  Test 3.3 configuration: which plugin names are a
-                             request signing policy and the names of their
-                             fields; the defaults when None.
-            breaker_config:  Test 4.3 configuration: which plugin names are a
-                             circuit breaker, in priority order; the defaults
-                             when None.
-        """
-        self._admin_base_url: str = admin_base_url.rstrip("/")
-        self._connect_timeout: float = connect_timeout
-        self._read_timeout: float = read_timeout
-        self._admin_headers: dict[str, str] = dict(admin_headers or {})
-        self._signing: Test33Config = signing_config or Test33Config()
-        self._breaker: Test43AuditConfig = breaker_config or Test43AuditConfig()
 
     @property
     def adapter_name(self) -> str:
@@ -329,7 +277,9 @@ class KongGatewayAdapter(BaseGatewayAdapter):
                 location = (
                     f"plugin {plugin.get('name', '<unnamed>')} (id: {plugin.get('id', '<no-id>')})"
                 )
-                items.extend(_text_values(config, location, "config", depth=0))
+                items.extend(
+                    collect_text_values(config, ConfigValueKind.PLUGIN, location, "config")
+                )
         return ConceptRead[ConfigValue].read(tuple(items))
 
     def _plugin_scope(self, plugin: dict[str, Any]) -> tuple[ConceptScope, str]:
@@ -392,7 +342,7 @@ class KongGatewayAdapter(BaseGatewayAdapter):
         next_url: str | None = f"{self._admin_base_url}{path}"
 
         while next_url is not None:
-            response_data = self._get_json(next_url, path)
+            response_data = self._get_json_object(next_url, path)
             page_items: list[dict[str, Any]] = response_data.get("data", [])
             items.extend(page_items)
 
@@ -426,54 +376,7 @@ class KongGatewayAdapter(BaseGatewayAdapter):
             GatewayAdapterError: On transport failure or non-200 response.
         """
         url = f"{self._admin_base_url}{path}"
-        return self._get_json(url, path)
-
-    def _get_json(self, url: str, path: str) -> dict[str, Any]:
-        """
-        Perform a GET request and return the parsed JSON body.
-
-        Args:
-            url:  Full URL to request.
-            path: Original path (used in error messages and logging).
-
-        Returns:
-            Parsed JSON response body as a dict.
-
-        Raises:
-            GatewayAdapterError: On connection error, timeout, or non-200 status.
-        """
-        timeout = httpx.Timeout(
-            connect=self._connect_timeout,
-            read=self._read_timeout,
-            write=self._connect_timeout,
-            pool=self._connect_timeout,
-        )
-
-        try:
-            with httpx.Client(timeout=timeout, follow_redirects=False) as http:
-                response = http.get(url, headers=self._admin_headers)
-        except httpx.TransportError as exc:
-            raise GatewayAdapterError(
-                message=(
-                    f"Kong Admin API transport error on GET {path}: {exc}. "
-                    "Verify that admin_api_url is correct and the Admin API is reachable."
-                ),
-                path=path,
-                status_code=None,
-            ) from exc
-
-        if response.status_code != _OK_STATUS:
-            raise GatewayAdapterError(
-                message=(
-                    f"Kong Admin API returned HTTP {response.status_code} on GET {path}. "
-                    f"Expected {_OK_STATUS}. Response: {response.text[:200]}"
-                ),
-                path=path,
-                status_code=response.status_code,
-            )
-
-        result: dict[str, Any] = response.json()
-        return result
+        return self._get_json_object(url, path)
 
 
 # ---------------------------------------------------------------------------
@@ -500,30 +403,3 @@ def _first_number(config: dict[str, Any], fields: tuple[str, ...]) -> int | None
         return int(float(str(config[field])))
     except (ValueError, TypeError):
         return None
-
-
-def _text_values(data: dict[str, Any], location: str, prefix: str, depth: int) -> list[ConfigValue]:
-    """
-    Collect the text values of a configuration, with their dotted keys.
-
-    Descends into dictionaries and into dictionaries inside lists, up to
-    _CONFIG_VALUES_MAX_DEPTH levels; only strings are collected (the rules test
-    6.4 applied to the raw plugin configuration).
-    """
-    if depth > _CONFIG_VALUES_MAX_DEPTH:
-        log.warning("kong_gateway_config_values_max_depth", location=location, key=prefix)
-        return []
-    values: list[ConfigValue] = []
-    for key, value in data.items():
-        path = f"{prefix}.{key}"
-        if isinstance(value, dict):
-            values.extend(_text_values(value, location, path, depth + 1))
-        elif isinstance(value, list):
-            for index, item in enumerate(value):
-                if isinstance(item, dict):
-                    values.extend(_text_values(item, location, f"{path}[{index}]", depth + 1))
-        elif isinstance(value, str):
-            values.append(
-                ConfigValue(kind=ConfigValueKind.PLUGIN, location=location, key=path, value=value)
-            )
-    return values

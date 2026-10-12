@@ -3,7 +3,7 @@
 > **Audience:** project owner, Claude Code · **Status:** active (created 2026-10-06) · Single source for "what do we
 > do next". Update the status column as steps are completed.
 
-## Where we are (updated 2026-10-10)
+## Where we are (updated 2026-10-12)
 
 - **Done:** documentation restructured (phase 2, pages 2.1 and 2.4 written); open questions decided (phase 3);
   code blocks 1, 2, 3, 4, 4b, 5, 5b, 5c and 5d (configuration structure, interface contract and versioning, secret
@@ -22,8 +22,9 @@
     read / not supported / not accessible outcome), one memoised reader per concept in `base.py`, Kong mapping in
     `kong.py`, concepts stored as masked evidence (`pin_artifact`), `target.admin_api_headers`, adapter registry in
     the engine, tests 4.2, 4.3, 3.3, 6.4 B migrated one at a time (oracles unchanged);
-  - Phase B, `test-environments/forgejo-apisix/` (Forgejo behind APISIX, ports 10000/10443/10001) and
-    `src/core/gateway/apisix.py` (Control API key presented before writing);
+  - Phase B, **done 2026-10-12**: `test-environments/forgejo-apisix/` (Forgejo behind APISIX 3.19.0 with etcd,
+    ports 10000/10443/10001, Control API 10002) and `src/core/gateway/apisix.py` (defaults from APISIX's schemas),
+    `target.health_api_url`, constructor and HTTP reads shared in `base.py`;
   - Phase C, authentication methods (obtain, apply from the spec's security schemes, optional revoke): `basic`,
     `static_token`, `json_login`, `forgejo_token`; `auth_type` required; tests 2.1, 7.2, 1.4 migrated;
   - Phase D, 2.1 and 7.2 without Forgejo defaults, `config.example.yaml` with a key-alignment check in `dev:check`,
@@ -266,3 +267,4 @@ CI (Q-16), E2E test suite (Q-51), documentation generated from code with a drift
 | 2026-10-12 | Phase A step 6, test 3.3 migrated (signing policies, routes; coverage by name): Forgejo and cRAPI identical; forced findings (hmac-sha256 forbidden, window 100 s) point to the stored policies; Admin API down gives SKIP. Next: 6.4 sub-test B |
 | 2026-10-12 | Phase A step 6, test 6.4 sub-test B migrated (configuration values; client credentials not scanned): both labs identical; a temporary fake Stripe-format key in a Kong http-log plugin was found (finding pointing to the stored concept, key 0 times in the outputs, evidence shows location and key with the value masked), `kong.yml` restored byte-identical; Admin API down gives a note, sub-test A stands. All four audits migrated. Next: remove the Kong-shaped methods from the adapter interface |
 | 2026-10-12 | Phase A done: Kong-shaped methods removed from the adapter interface and the Kong adapter; guide `add-a-gateway-adapter.md` rewritten for the concepts; overview and native-test guide updated. Both labs identical to their baselines; all seven concepts read on both labs. Next: Phase B, APISIX lab |
+| 2026-10-12 | Phase B done. Lab `test-environments/forgejo-apisix/`: APISIX 3.19.0 in traditional mode with etcd 3.5.34 (official images; standalone modes left out: no or reduced Admin API), configuration written through the Admin API by `apisix/setup.sh`, readiness from the Status API, Admin and Control API on 127.0.0.1, keys `admin` (setup) and `viewer` (tool) from `.env`, `fallback_sni`; verified from scratch (`down -v`), setup idempotent. Owner decisions: `target.health_api_url` (neutral name, optional, no Admin API headers); missing fields filled with the defaults of the running APISIX (its schemas, not constants in the code); constructor and HTTP reads moved to `BaseGatewayAdapter`. Adapter `apisix.py` verified on the lab: seven concepts read, no key → not accessible (401), no `health_api_url` → only live health not accessible, `hmac-auth {}` → hmac-sha1 allowed by default. Native run: identical to Forgejo + Kong (statuses, findings, oracle states; notes differ only in the 3.3 policy name); no secret in the outputs; Forgejo + Kong and cRAPI + Kong identical to their baselines after each step. Docs: configuration, compatibility, security model, maintainer commands, adapter guide, gateway concepts and survey, changelog. Next: Phase C, authentication methods |

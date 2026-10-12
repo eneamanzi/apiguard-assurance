@@ -16,7 +16,7 @@ run, when a test first asks for it; every concept read is stored as evidence.
 | Gateway | How | Protection of the read interface | Notes |
 |---|---|---|---|
 | **Kong** (OSS, DB-less) | Admin API, `GET /routes`, `/services`, `/upstreams`, `/plugins`, `/status` | none by default (RBAC in Kong Enterprise) | what the tool uses today |
-| **Apache APISIX** | Admin API under `/apisix/admin`: `GET /routes`, `/services`, `/upstreams`, `/consumers`, `/global_rules`, `/plugin_configs`, `/plugins/list`, `/ssls`, ... [1] | **`X-API-KEY` header required** (`deployment.admin.admin_key`), plus an IP allow list; no read-only role described [1] | in file-driven standalone mode the Admin API is off [2]; with etcd it is on |
+| **Apache APISIX** | Admin API under `/apisix/admin`: `GET /routes`, `/services`, `/upstreams`, `/consumers`, `/global_rules`, `/plugin_configs`, `/plugins/list`, `/ssls`, ... [1] | **`X-API-KEY` header required** (`deployment.admin.admin_key`), plus an IP allow list; a key of role `viewer` allows GET only (APISIX source, `apisix/admin/init.lua` [13], used by the lab 2026-10-12) | in file-driven standalone mode the Admin API is off [2]; with etcd it is on |
 | **Traefik** (OSS) | API, `GET /api/http/routers`, `/api/http/services`, `/api/http/middlewares`, `/api/entrypoints`, `/api/rawdata` [3] | none built in: protected by putting a router with basicAuth, forwardAuth or IP allow list in front of `api@internal` [3] | all endpoints are `GET`; read-only not stated explicitly [3] |
 | **Envoy** | admin interface, `GET /config_dump` (the loaded configuration as JSON), `/clusters` (circuit breakers, outlier detection) [4] | none: "limit access to a secure network" [4]; tries to redact `private_key` and `password` [4] | output format marked not stable (v2alpha) [4] |
 | **Tyk** (OSS Gateway) | Gateway API (API definitions and policies) when the Dashboard is not used [5] | shared secret in `x-tyk-authorization`; "no granular permissions system" [5] | endpoint paths in its Swagger file, not on the page read |
@@ -27,6 +27,13 @@ run, when a test first asks for it; every concept read is stored as evidence.
 
 Three ways to read, then: an **admin API** (Kong, APISIX, Traefik, Envoy, Tyk, NGINX Plus), a **configuration file**
 (KrakenD, NGINX OSS, APISIX standalone) and a **cloud API** (AWS, Azure). An adapter may need any of them.
+
+A case to keep in mind (2026-10-12): **APISIX in standalone mode** cannot be audited by the current APISIX adapter.
+File-driven standalone turns the Admin API off (the configuration lives in `apisix.yaml`); API-driven standalone keeps
+the configuration in memory and serves only `GET/PUT /apisix/admin/configs`, the whole configuration in one block,
+and its documentation warns against using it without understanding it [2][13]. On such a gateway the audits SKIP as
+"not accessible"; reading `apisix.yaml` or `/configs` would be a further adapter mode, not needed now. The APISIX
+lab uses the traditional mode with etcd.
 
 ## 2. Concepts of the methodology, gateway by gateway
 
@@ -100,3 +107,4 @@ examples, the exact versions, the etcd setup.
 11. APISIX `hmac-auth` and plugin list: https://apisix.apache.org/docs/apisix/plugins/hmac-auth/ ; `api-breaker`:
     https://apisix.apache.org/docs/apisix/2.13/plugins/api-breaker
 12. Traefik HTTP middlewares: https://doc.traefik.io/traefik/reference/routing-configuration/http/middlewares/overview/
+13. APISIX 3.19.0 source, Admin API routes and roles: https://github.com/apache/apisix/blob/3.19.0/apisix/admin/init.lua

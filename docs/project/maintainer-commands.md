@@ -44,7 +44,7 @@ zip -r apiguard-assurance.zip . -x "*.git/*" -x "*__pycache__*" -x "*.pyc" -x "*
 
 Start a local web server to view the HTML report via Port Forwarding:
 ```bash
-cd outputs/forgejo && python3 -m http.server 8080    # Ctrl+C to stop, then: cd ../..   (crAPI lab: outputs/crapi)
+cd outputs/forgejo && python3 -m http.server 8080    # Ctrl+C to stop, then: cd ../..   (crAPI lab: outputs/crapi, APISIX lab: outputs/forgejo-apisix)
 ```
 Open `http://localhost:8080` in your browser and click `assessment_report.html`.
 
@@ -79,6 +79,7 @@ Or prefix single commands: `hatch run apiguard ...`, `hatch run dev:<script>`.
 ```bash
 hatch run apiguard run -c test-environments/forgejo-kong/config.yaml   # Forgejo lab
 hatch run apiguard run -c test-environments/crapi-kong/config.yaml     # crAPI lab
+hatch run apiguard run -c test-environments/forgejo-apisix/config.yaml # Forgejo + APISIX lab
 ```
 
 The examples below use the Forgejo lab configuration, set once in the shell:
@@ -211,23 +212,34 @@ Check a declarative configuration before loading it (from the lab folder):
 docker run --rm -e KONG_DATABASE=off -v "$PWD/kong:/kong:ro" kong:3.9.3 kong config parse /kong/kong.yml
 ```
 
+## APISIX Configuration Changes
+
+From `test-environments/forgejo-apisix`. Routes, upstream and plugins (`apisix/setup.sh`) are written through the
+Admin API: run the setup again after changing them. The startup configuration (`apisix/config.yaml`) is read when
+APISIX starts: restart it, the routes stay in etcd.
+```bash
+docker compose --env-file ../../.env up apisix-setup                                         # after editing apisix/setup.sh
+docker compose --env-file ../../.env restart apisix && docker compose --env-file ../../.env up -d --wait apisix   # after editing apisix/config.yaml
+```
+
 
 ## Test Labs
 
-Two labs, same steps. Each has its own ports, so both can run at the same time. Versions and design:
+Three labs, same steps. Each has its own ports, so they can run at the same time. Versions and design:
 [compatibility](../reference/compatibility.md#test-lab). Every `docker compose` command runs from the lab folder
 with `--env-file ../../.env`: compose looks for `.env` only in the folder it runs from, and the credentials are in
 the `.env` of the repository root.
 
-| | Forgejo + Kong | crAPI + Kong |
-|---|---|---|
-| Folder | `test-environments/forgejo-kong` | `test-environments/crapi-kong` |
-| Tool configuration | `test-environments/forgejo-kong/config.yaml` | `test-environments/crapi-kong/config.yaml` |
-| Ports (proxy HTTP, HTTPS, Admin API) | 8000, 8443, 8001 (+ Forgejo 3000) | 9000, 9443, 9001 |
-| Setup service | `forgejo-setup` | `crapi-setup` |
+| | Forgejo + Kong | crAPI + Kong | Forgejo + APISIX |
+|---|---|---|---|
+| Folder | `test-environments/forgejo-kong` | `test-environments/crapi-kong` | `test-environments/forgejo-apisix` |
+| Tool configuration | `test-environments/forgejo-kong/config.yaml` | `test-environments/crapi-kong/config.yaml` | `test-environments/forgejo-apisix/config.yaml` |
+| Ports (proxy HTTP, HTTPS, Admin API) | 8000, 8443, 8001 (+ Forgejo 3000) | 9000, 9443, 9001 | 10000, 10443, 10001 (+ Control API 10002, Forgejo 10003) |
+| Setup services | `forgejo-setup` | `crapi-setup` | `forgejo-setup`, `apisix-setup` |
 
-**Start** (the first time it downloads the images). The first command starts the lab and waits until Kong is healthy;
-the second runs the setup once, in the foreground, so its output is shown. Running the setup again is harmless.
+**Start** (the first time it downloads the images). The first command starts the lab and waits until the gateway is
+healthy; the second runs the setup once, in the foreground, so its output is shown. Running the setup again is
+harmless.
 
 ```bash
 # Forgejo lab
@@ -240,6 +252,12 @@ cd ../..
 cd test-environments/crapi-kong
 docker compose --env-file ../../.env up -d --wait kong
 docker compose --env-file ../../.env up crapi-setup       # ends with three "Login ... OK" and "crAPI lab ready"
+cd ../..
+
+# Forgejo + APISIX lab (APISIX starts without routes: apisix-setup writes them)
+cd test-environments/forgejo-apisix
+docker compose --env-file ../../.env up -d --wait apisix
+docker compose --env-file ../../.env up forgejo-setup apisix-setup   # "Provisioning completed." and "APISIX configuration completed."
 cd ../..
 ```
 
@@ -259,6 +277,12 @@ curl -s  -o /dev/null -w "kong admin  %{http_code}\n" http://localhost:8001/stat
 curl -sk -o /dev/null -w "kong https  %{http_code}\n" https://localhost:9443/identity/api/auth/jwks.json
 curl -s  -o /dev/null -w "kong admin  %{http_code}\n" http://localhost:9001/status
 curl -s http://localhost:9001/upstreams/workshop-upstream/health | grep -o '"health":"[A-Z]*"' | head -1   # "HEALTHY"
+
+# Forgejo + APISIX lab (from the repository root: the Admin API needs the viewer key of .env)
+curl -s  -o /dev/null -w "forgejo       %{http_code}\n" http://localhost:10003/swagger.v1.json
+curl -sk -o /dev/null -w "apisix https  %{http_code}\n" https://localhost:10443/api/v1/version
+curl -s  -o /dev/null -w "apisix admin  %{http_code}\n" -H "X-API-KEY: $(sed -n 's/^APISIX_VIEWER_KEY=//p' .env)" http://127.0.0.1:10001/apisix/admin/routes
+curl -s http://127.0.0.1:10002/v1/healthcheck | grep -o '"status":"[a-z_]*"' | head -1   # "healthy" (empty until the first request through APISIX)
 ```
 
 **Full reset** (deletes the data; then start again as above). From the lab folder:
@@ -271,17 +295,17 @@ docker compose --env-file ../../.env down -v
 
 ```bash
 docker compose --env-file ../../.env stop       # from the lab folder; start again with the commands above
-docker ps --format '{{.Names}}\t{{.Status}}'    # Forgejo lab: kong, forgejo, forgejo-db; crAPI lab: crapi-lab-*
+docker ps --format '{{.Names}}\t{{.Status}}'    # Forgejo lab: kong, forgejo, forgejo-db; crAPI lab: crapi-lab-*; APISIX lab: forgejo-apisix-*
 ```
 
 **Run the tool on a lab**, from the repository root:
 
 ```bash
-hatch run apiguard validate-config -c test-environments/forgejo-kong/config.yaml     # or -c test-environments/crapi-kong/config.yaml
-hatch run apiguard run -c test-environments/forgejo-kong/config.yaml                 # reports in outputs/forgejo/ (crAPI: outputs/crapi/)
+hatch run apiguard validate-config -c test-environments/forgejo-kong/config.yaml     # or crapi-kong, forgejo-apisix
+hatch run apiguard run -c test-environments/forgejo-kong/config.yaml                 # reports in outputs/forgejo/ (crAPI: outputs/crapi/, APISIX: outputs/forgejo-apisix/)
 ```
 
-The Forgejo lab configuration enables the external tools (nuclei, testssl.sh, sslyze: about 5 minutes); for the
+The Forgejo lab configurations (Kong and APISIX) enable the external tools (nuclei, testssl.sh, sslyze: about 5 minutes); for the
 native tests only, set `external_tools: {enabled: false}` in a copy (see [Running the Tool](#running-the-tool-cli)).
 The crAPI lab configuration has no `external_tools` section: every tool is off by default, so it runs the native
 tests only (about 2 minutes).

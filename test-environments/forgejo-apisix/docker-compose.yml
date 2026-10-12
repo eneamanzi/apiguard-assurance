@@ -1,0 +1,248 @@
+# test-environments/forgejo-apisix/docker-compose.yml
+#
+# Third test lab: Forgejo 14.0.5 behind Apache APISIX 3.19.0, with the same API, users and test
+# resources as the Forgejo + Kong lab and a gateway configuration with the same intent
+# (apisix/setup.sh), so that only the gateway changes.
+#
+# APISIX runs in its default (traditional) mode: its configuration lives in etcd and is written
+# through the Admin API, which the tool reads with a key of role viewer (GET only). Based on the
+# official example of apache/apisix-docker (example/docker-compose.yml, Apache License 2.0),
+# with the official etcd image (quay.io/coreos/etcd) instead of the example's bitnamilegacy/etcd,
+# which is no longer maintained.
+#
+# Ports (one fixed set per lab, so that labs can run together):
+#   10000  APISIX HTTP proxy (redirects to HTTPS)
+#   10443  APISIX HTTPS proxy (the tool's target)
+#   10001  APISIX Admin API      (127.0.0.1 only, as APISIX recommends)
+#   10002  APISIX Control API    (127.0.0.1 only; live health of the upstream nodes)
+#   10003  Forgejo, direct       (OpenAPI specification download, as port 3000 in the Kong lab)
+#
+# TLS: the example certificate of the Forgejo + Kong lab (../forgejo-kong/certs), read only.
+#
+# Usage (from this directory; credentials, passwords and Admin API keys come from .env in the
+# repository root), the same steps as the other labs (docs/project/maintainer-commands.md,
+# "Test Labs"):
+#   docker compose --env-file ../../.env up -d --wait apisix                  # start, wait until APISIX is ready
+#   docker compose --env-file ../../.env up forgejo-setup apisix-setup        # users, resources, gateway configuration
+#   docker compose --env-file ../../.env down -v                              # full reset (deletes the data volumes)
+#
+# Versions: every image is pinned to an exact version; the pinned versions are listed in
+# docs/reference/compatibility.md ("Test lab"); update both places together.
+
+name: forgejo-apisix
+
+networks:
+  apisix-lab-net:
+    driver: bridge
+
+volumes:
+  forgejo-data:
+  forgejo-db-data:
+  etcd-data:
+
+services:
+
+  # PostgreSQL: Forgejo's database, as in the Forgejo + Kong lab.
+  forgejo-db:
+    image: postgres:15.19-alpine
+    container_name: forgejo-apisix-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=forgejo
+      - POSTGRES_PASSWORD=${LAB_DB_PASSWORD:?LAB_DB_PASSWORD is not set}
+      - POSTGRES_DB=forgejo
+    volumes:
+      - forgejo-db-data:/var/lib/postgresql/data
+    networks:
+      - apisix-lab-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forgejo"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Forgejo: the target REST API, configured as in the Forgejo + Kong lab.
+  forgejo:
+    image: codeberg.org/forgejo/forgejo:14.0.5
+    container_name: forgejo-apisix-forgejo
+    restart: unless-stopped
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+      - FORGEJO__database__DB_TYPE=postgres
+      - FORGEJO__database__HOST=forgejo-db:5432
+      - FORGEJO__database__NAME=forgejo
+      - FORGEJO__database__USER=forgejo
+      - FORGEJO__database__PASSWD=${LAB_DB_PASSWORD:?LAB_DB_PASSWORD is not set}
+      - FORGEJO__server__HTTP_PORT=3000
+      - FORGEJO__server__ROOT_URL=http://localhost:10003/
+      - FORGEJO__security__INSTALL_LOCK=true
+      - FORGEJO__security__SECRET_KEY=${LAB_FORGEJO_SECRET_KEY:?LAB_FORGEJO_SECRET_KEY is not set}
+      - FORGEJO__api__ENABLE_SWAGGER=true
+      - FORGEJO__log__LEVEL=Info
+    volumes:
+      - forgejo-data:/data
+      - /etc/localtime:/etc/localtime:ro
+    networks:
+      - apisix-lab-net
+    ports:
+      - "10003:3000"
+    depends_on:
+      forgejo-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/healthz"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # etcd: APISIX's configuration store. Reachable only from the lab network.
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.34
+    container_name: forgejo-apisix-etcd
+    restart: unless-stopped
+    command: ["/usr/local/bin/etcd"]
+    environment:
+      - ETCD_NAME=etcd
+      - ETCD_DATA_DIR=/etcd-data
+      - ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
+      - ETCD_ADVERTISE_CLIENT_URLS=http://etcd:2379
+    volumes:
+      - etcd-data:/etcd-data
+    networks:
+      - apisix-lab-net
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/etcdctl", "endpoint", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # APISIX: the gateway. Startup configuration in ./apisix/config.yaml; routes, upstreams and
+  # plugins written by apisix-setup.
+  apisix:
+    image: apache/apisix:3.19.0-debian
+    container_name: forgejo-apisix-apisix
+    restart: unless-stopped
+    environment:
+      - APISIX_ADMIN_KEY=${APISIX_ADMIN_KEY:?APISIX_ADMIN_KEY is not set - see .env.example}
+      - APISIX_VIEWER_KEY=${APISIX_VIEWER_KEY:?APISIX_VIEWER_KEY is not set - see .env.example}
+    volumes:
+      - ./apisix/config.yaml:/usr/local/apisix/conf/config.yaml:ro
+    ports:
+      - "10000:10000"                 # HTTP proxy
+      - "10443:10443"                 # HTTPS proxy (the tool's target)
+      - "127.0.0.1:10001:10001"       # Admin API
+      - "127.0.0.1:10002:10002"       # Control API
+    networks:
+      - apisix-lab-net
+    depends_on:
+      etcd:
+        condition: service_healthy
+      forgejo:
+        condition: service_healthy
+    healthcheck:
+      # Status API (apisix/config.yaml): 200 only when every worker has loaded the configuration.
+      # The image has no curl or wget: a minimal HTTP request with bash.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/7085 && printf 'GET /status/ready HTTP/1.0\\r\\n\\r\\n' >&3 && head -n 1 <&3 | grep -q ' 200 '"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Users and test resources in Forgejo: the same steps as forgejo-setup in the Forgejo + Kong
+  # lab (see its comments there).
+  forgejo-setup:
+    image: codeberg.org/forgejo/forgejo:14.0.5
+    container_name: forgejo-apisix-forgejo-setup
+    depends_on:
+      forgejo:
+        condition: service_healthy
+    volumes:
+      - forgejo-data:/data
+    networks:
+      - apisix-lab-net
+    environment:
+      - FORGEJO__database__DB_TYPE=postgres
+      - FORGEJO__database__HOST=forgejo-db:5432
+      - FORGEJO__database__NAME=forgejo
+      - FORGEJO__database__USER=forgejo
+      - FORGEJO__database__PASSWD=${LAB_DB_PASSWORD:?LAB_DB_PASSWORD is not set}
+    entrypoint: [ "/bin/sh", "-c" ]
+    command:
+      - |
+        su git -c "forgejo admin user create --admin --username ${ADMIN_USERNAME:?missing in .env} --password ${ADMIN_PASSWORD:?missing in .env} --email admin@tesi.local --must-change-password=false" || true
+        su git -c "forgejo admin user create --username ${USER_A_USERNAME:?missing in .env} --password ${USER_A_PASSWORD:?missing in .env} --email usera@tesi.local --must-change-password=false" || true
+        su git -c "forgejo admin user create --username ${USER_B_USERNAME:?missing in .env} --password ${USER_B_PASSWORD:?missing in .env} --email userb@tesi.local --must-change-password=false" || true
+
+        code=$$(curl -s -o /dev/null -w '%{http_code}' \
+          -u "${USER_A_USERNAME}:${USER_A_PASSWORD}" -H 'Content-Type: application/json' \
+          -d '{"name":"${LAB_TEST_REPO:?missing in .env}","auto_init":true}' \
+          http://forgejo:3000/api/v1/user/repos)
+        case "$$code" in
+          201) echo "Repository ${USER_A_USERNAME}/${LAB_TEST_REPO} created." ;;
+          409) echo "Repository ${USER_A_USERNAME}/${LAB_TEST_REPO} already exists." ;;
+          *)   echo "Repository creation failed: HTTP $$code"; exit 1 ;;
+        esac
+
+        auth="${USER_A_USERNAME}:${USER_A_PASSWORD}"
+        repo_api="http://forgejo:3000/api/v1/repos/${USER_A_USERNAME}/${LAB_TEST_REPO}"
+
+        code=$$(curl -s -o /dev/null -w '%{http_code}' -u "$$auth" -H 'Content-Type: application/json' \
+          -d '{"username":"${LAB_TEST_ORG:?missing in .env}"}' \
+          http://forgejo:3000/api/v1/orgs)
+        case "$$code" in
+          201) echo "Organization ${LAB_TEST_ORG} created." ;;
+          422) echo "Organization ${LAB_TEST_ORG} already exists." ;;
+          *)   echo "Organization creation failed: HTTP $$code"; exit 1 ;;
+        esac
+
+        code=$$(curl -s -o /dev/null -w '%{http_code}' -u "$$auth" -H 'Content-Type: application/json' \
+          -d '{"tag_name":"${LAB_TEST_TAG:?missing in .env}","target":"main"}' \
+          "$$repo_api/tags")
+        case "$$code" in
+          201) echo "Tag ${LAB_TEST_TAG} created." ;;
+          409) echo "Tag ${LAB_TEST_TAG} already exists." ;;
+          *)   echo "Tag creation failed: HTTP $$code"; exit 1 ;;
+        esac
+
+        reset_hint="reset the lab from scratch: docker compose --env-file ../../.env down -v, then start it again"
+        if [ "$$(curl -s -o /dev/null -w '%{http_code}' -u "$$auth" "$$repo_api/issues/1")" = 200 ]; then
+          echo "Issue 1 already exists."
+        else
+          resp=$$(curl -s -w '\n%{http_code}' -u "$$auth" -H 'Content-Type: application/json' \
+            -d '{"title":"APIGuard lab issue"}' "$$repo_api/issues")
+          code=$$(echo "$$resp" | tail -n 1)
+          [ "$$code" = 201 ] || { echo "Issue creation failed: HTTP $$code"; exit 1; }
+          number=$$(echo "$$resp" | grep -o '"number":[0-9]*' | head -n 1 | cut -d: -f2)
+          [ "$$number" = 1 ] || { echo "Issue 1 was deleted earlier: Forgejo created issue $$number instead; $$reset_hint"; exit 1; }
+          echo "Issue 1 created."
+        fi
+        if [ "$$(curl -s -o /dev/null -w '%{http_code}' -u "$$auth" "$$repo_api/issues/comments/1")" = 200 ]; then
+          echo "Comment 1 already exists."
+        else
+          resp=$$(curl -s -w '\n%{http_code}' -u "$$auth" -H 'Content-Type: application/json' \
+            -d '{"body":"APIGuard lab comment"}' "$$repo_api/issues/1/comments")
+          code=$$(echo "$$resp" | tail -n 1)
+          [ "$$code" = 201 ] || { echo "Comment creation failed: HTTP $$code; $$reset_hint"; exit 1; }
+          comment_id=$$(echo "$$resp" | grep -o '"id":[0-9]*' | head -n 1 | cut -d: -f2)
+          [ "$$comment_id" = 1 ] || { echo "Comment 1 was deleted earlier: Forgejo created comment $$comment_id instead; $$reset_hint"; exit 1; }
+          echo "Comment 1 created."
+        fi
+
+        echo "Provisioning completed."
+
+  # Gateway configuration (apisix/setup.sh) written through the Admin API with the admin key,
+  # once APISIX is ready.
+  apisix-setup:
+    image: curlimages/curl:8.22.0
+    container_name: forgejo-apisix-apisix-setup
+    depends_on:
+      apisix:
+        condition: service_healthy
+    environment:
+      - APISIX_ADMIN_KEY=${APISIX_ADMIN_KEY:?APISIX_ADMIN_KEY is not set - see .env.example}
+    volumes:
+      - ./apisix/setup.sh:/setup/setup.sh:ro
+      - ../forgejo-kong/certs:/certs:ro
+    networks:
+      - apisix-lab-net
+    entrypoint: ["sh", "/setup/setup.sh"]

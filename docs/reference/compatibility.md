@@ -3,7 +3,7 @@
 > **Audience:** users, integrators · **Status:** draft - several points are open (see `OPEN_QUESTIONS.md`) ·
 > **Source of truth:** `pyproject.toml`, `install_tools.sh`, `src/core/gateway/`, `src/discovery/openapi.py`,
 > `test-environments/*/docker-compose.yml` · **Verified:** 2026-10-05, v0.1.0; interface stability 2026-10-09; crAPI lab
-> 2026-10-10
+> 2026-10-10; APISIX lab and adapter 2026-10-12
 
 This page separates what the code **declares**, what has been **tested**, and what is **unknown**.
 Nothing in the "unknown" column should be assumed to work.
@@ -20,20 +20,21 @@ Nothing in the "unknown" column should be assumed to work.
 | Item | Declared | Tested | Notes |
 |---|---|---|---|
 | Specification formats | Swagger 2.0; OpenAPI 3.0.x and 3.1.x (validator chosen by minor version) | Swagger 2.0 (Forgejo), OpenAPI 3.0.1 (crAPI, `test-environments/crapi-kong/crapi-openapi-spec.json`) | OpenAPI 3.1 not exercised on a real target. Swagger 2.0 skips structural validation (`src/discovery/openapi.py`). A major version other than `swagger: 2` / `openapi: 3` → `OpenAPILoadError` (exit `10`). |
-| Gateway adapter (WHITE_BOX audits) | `kong` only (`target.gateway_adapter`) | Kong 3.9.3 in DB-less mode (see [Test lab](#test-lab)) | Other gateways: configuration-audit tests SKIP. |
+| Gateway adapter (WHITE_BOX audits) | `kong`, `apisix` (`target.gateway_adapter`) | Kong 3.9.3 in DB-less mode; Apache APISIX 3.19.0, traditional deployment with etcd, Admin API key of role `viewer`, Control API for live health (see [Test lab](#test-lab)) | Kong with a database, other APISIX versions, APISIX standalone (no Admin API: its configuration cannot be read). Other gateways: configuration-audit tests SKIP. |
 | Target application | any REST API with an OpenAPI spec | Forgejo 14.0.5 and OWASP crAPI 1.1.6, each behind Kong (see [Test lab](#test-lab)); Forgejo 14.0.3 in the v0.1.0 release audit | Some tests or defaults are Forgejo-specific (test 1.4 token API paths; test 7.2 default `injection_mode`; test 2.1 default admin path). Per-test portability is not yet established (Q-18). |
 | Token acquisition (`credentials.auth_type`) | `forgejo_token`, `jwt_login` | `forgejo_token` on Forgejo; `jwt_login` on crAPI (cRAPI lab) | |
 
 ## Test lab
 
-Two labs, each pinning every image to an exact version, so that an assessment on them can be repeated with the same
+Three labs, each pinning every image to an exact version, so that an assessment on them can be repeated with the same
 target. These are the versions the documentation and the measured results refer to. Each lab has its own ports, so
-both can run at the same time.
+they can run at the same time.
 
 | Lab | Folder | Configuration | Ports (proxy HTTP, proxy HTTPS, Admin API) |
 |---|---|---|---|
 | Forgejo + Kong | `test-environments/forgejo-kong/` | `test-environments/forgejo-kong/config.yaml` | 8000, 8443, 8001 (Forgejo directly: 3000) |
 | crAPI + Kong | `test-environments/crapi-kong/` | `test-environments/crapi-kong/config.yaml` | 9000, 9443, 9001 (nothing else exposed) |
+| Forgejo + APISIX | `test-environments/forgejo-apisix/` | `test-environments/forgejo-apisix/config.yaml` | 10000, 10443, 10001 (Control API: 10002; Forgejo directly: 10003; Admin and Control API on 127.0.0.1 only) |
 
 ### Forgejo + Kong
 
@@ -85,6 +86,49 @@ How it was built, and why:
 
 Start, reset and run: [maintainer commands](../project/maintainer-commands.md#test-labs). Repeatability: two runs
 of the native tests on a lab reset in between gave identical results (2026-10-10).
+
+### Forgejo + APISIX
+
+The Forgejo lab's API, users and test resources behind [Apache APISIX](https://apisix.apache.org/), with a gateway
+configuration of the same intent as `kong/kong.yml` (`apisix/setup.sh`): only the gateway changes. Added on
+2026-10-12.
+
+| Component | Image | Version |
+|---|---|---|
+| Forgejo (API under test, and the setup container) | `codeberg.org/forgejo/forgejo:14.0.5` | 14.0.5 |
+| APISIX (gateway) | `apache/apisix:3.19.0-debian` | 3.19.0 |
+| etcd (APISIX configuration store) | `quay.io/coreos/etcd:v3.5.34` | 3.5.34 |
+| PostgreSQL (Forgejo database) | `postgres:15.19-alpine` | 15.19 |
+| APISIX setup container | `curlimages/curl:8.22.0` | 8.22.0 |
+
+How it was built, and why:
+
+- **Deployment**: APISIX's default (traditional) mode, with etcd, from the official
+  [apisix-docker example](https://github.com/apache/apisix-docker/tree/master/example). The standalone modes were
+  left out: file-driven standalone has no Admin API, and API-driven standalone keeps the configuration in memory
+  only and serves it as one block ([deployment modes](https://github.com/apache/apisix/blob/3.19.0/docs/en/latest/deployment-modes.md)).
+- **etcd**: the official image of the etcd project, instead of the example's `bitnamilegacy/etcd`, which is no
+  longer maintained.
+- **Admin API keys** from `.env` (`${{VAR}}` in `apisix/config.yaml`): `admin` for the setup only, `viewer` (GET
+  only, `apisix/admin/init.lua`) for the tool, through `target.admin_api_headers`.
+- **Configuration through the Admin API**: APISIX with etcd starts without routes; `apisix-setup` writes the
+  certificate, the upstream (timeouts 5/30/30 s, passive checks as in the Kong labs, active check), the `/api`
+  route (`redirect` `http_to_https`, `response-rewrite` security headers) and an `hmac-auth` route (`hmac-sha256`,
+  `hmac-sha512`, 300 s, body signed), each with `PUT` and a fixed id.
+- **Readiness**: the container health check asks the Status API (`/status/ready`, 200 once every worker has the
+  configuration from etcd); the image has no curl or wget, so the request is made with bash.
+- **Ports**: APISIX listens inside the container on the published ports, because the `redirect` plugin sends HTTP
+  requests to the HTTPS port APISIX listens on. The Admin API and the Control API are published on `127.0.0.1` only,
+  as the APISIX documentation recommends.
+- **`fallback_sni: localhost`**: without it APISIX closes the TLS handshake of a client that sends no server name
+  (e.g. `https://127.0.0.1:10443`); Kong answers with its default certificate.
+
+Unavoidable differences from the Kong labs: APISIX's `hmac-auth` has no `hmac-sha384`; APISIX probes healthy nodes
+too (interval at least 1 s, here 60 s), where the Kong labs probe only unhealthy targets; an HTTP request other than
+GET or HEAD gets a 308 redirect, where Kong answers 301.
+
+Results (2026-10-12, native tests): the same tests, statuses, findings and oracle states as the Forgejo + Kong lab;
+every audit read APISIX (concept artifacts with `"adapter": "apisix"`).
 
 ## External tools
 

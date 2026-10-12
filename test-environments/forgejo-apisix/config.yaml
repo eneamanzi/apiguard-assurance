@@ -1,0 +1,147 @@
+# test-environments/forgejo-apisix/config.yaml
+#
+# Configuration for the Forgejo + APISIX lab: Forgejo 14.0.5 behind Apache APISIX 3.19.0. Start the lab
+# first (docs/project/maintainer-commands.md, "Test Labs"), then run the tool from the repository root:
+#   hatch run apiguard run -c test-environments/forgejo-apisix/config.yaml
+# Relative paths in this file are resolved against the directory the command is run from (the
+# repository root). Credentials and the Admin API key come from .env.
+#
+# The API, its users and test resources are those of the Forgejo + Kong lab, and so are the settings
+# below that are not about the gateway (test-environments/forgejo-kong/config.yaml), so that the
+# results of the two labs can be compared. Every other key keeps its default (all keys:
+# docs/reference/configuration.md).
+
+target:
+  base_url: "https://localhost:10443"
+  openapi_spec_url: "http://localhost:10003/swagger.v1.json"   # fetched from Forgejo, not through APISIX
+  admin_api_url: "http://127.0.0.1:10001"
+  # APISIX Admin API key of role viewer (GET only).
+  admin_api_headers:
+    X-API-KEY: "${APISIX_VIEWER_KEY}"
+  # APISIX Control API: live health of the upstream nodes (test 4.3).
+  health_api_url: "http://127.0.0.1:10002"
+  gateway_adapter: "apisix"
+  verify_tls: false     # lab certificate is self-signed
+
+  # Same resources as the Forgejo + Kong lab (created by forgejo-setup).
+  path_seed: {
+    owner: "${USER_A_USERNAME}",
+    username: "${USER_A_USERNAME}",
+    user: "${USER_A_USERNAME}",
+    repo: "${LAB_TEST_REPO}",
+    repo_name: "${LAB_TEST_REPO}",
+    "user-id": "2",
+    "repository-id": "1",
+    id: "1",
+    org: "${LAB_TEST_ORG}",   # {org} != {owner}
+    branch: "main",
+    ref: "main",
+    sha: "main",       # Forgejo accepts a branch name where a commit SHA is expected
+    filepath: "README.md",
+    archive: "main.tar.gz",
+    name: "MIT",
+    index: "1",        # issue 1, created by the lab setup
+    tag: "${LAB_TEST_TAG}",
+    comment: "1",      # comment 1, created by the lab setup
+    team: "1",         # "Owners" team of the organization, created with it
+    "activity-id": "1",
+    "attachment_id": "1",
+    "run_id": "1",
+    task: "1",
+    secretname: "MY_SECRET",
+    variablename: "MY_VAR",
+    workflowfilename: "main.yml",
+    quotagroup: "default",
+    quotarule: "default",
+    token: "1",
+    version: "1.0.0",
+    pageName: "Home",
+    basehead: "main...main",
+    base: "main",
+    head: "main",
+    diffType: "diff",
+    flag: "fork",
+    collaborator: "user-b",
+    target: "user-b",
+    identifier: "1",
+    position: "1",
+    type: "gitea",
+    template_owner: "user-a",
+    template_repo: "test-repo",
+    topic: "forgejo",
+  }
+
+credentials:
+  admin_username: "${ADMIN_USERNAME}"
+  admin_password: "${ADMIN_PASSWORD}"
+  user_a_username: "${USER_A_USERNAME}"
+  user_a_password: "${USER_A_PASSWORD}"
+  user_b_username: "${USER_B_USERNAME}"
+  user_b_password: "${USER_B_PASSWORD}"
+
+execution:
+  min_priority: 3
+  strategies:
+    - BLACK_BOX
+    - GREY_BOX
+    - WHITE_BOX
+  test_ids: []
+  fail_fast: false
+  connect_timeout: 5.0
+  read_timeout: 30.0
+  max_retry_attempts: 3
+  openapi_fetch_timeout_seconds: 60.0
+
+output:
+  directory: "outputs/forgejo-apisix"
+
+tests:
+  domain_0:
+    test_0_2:
+      # The defaults plus APISIX, which answers with "Server: APISIX".
+      gateway_server_identifiers:
+        - "kong"
+        - "nginx"
+        - "openresty"
+        - "apache"
+        - "caddy"
+        - "traefik"
+        - "envoy"
+        - "apisix"
+  domain_1:
+    test_1_5:
+      # The lab's HTTP listener (APISIX, host port 10000) redirects to HTTPS.
+      http_probe_url: "http://localhost:10000/api/v1/version"
+  domain_6:
+    test_6_4:
+      # Body of APISIX's own 404 (no route matched): {"error_msg":"404 Route Not Found"}.
+      gateway_block_body_fragment: "404 Route Not Found"
+      # Same paths as the Forgejo + Kong lab.
+      debug_endpoint_paths:
+        - /api/v1/settings/api
+        - /api/debug/config
+        - /api/debug/users
+        - /actuator/env
+        - /actuator/configprops
+        - /actuator/health
+        - /debug/vars
+        - /debug/pprof
+        - /api/config
+        - /admin/config
+        - /_debug
+
+# Same external tool settings as the Forgejo + Kong lab.
+external_tools:
+  enabled: true
+  testssl:
+    enabled: true
+    timeout_seconds: 180
+    extra_flags: "--quiet --color 0 --connect-timeout 10"
+    expected_version: "3.2.3"
+  nuclei:
+    enabled: true
+    timeout_seconds: 240
+    expected_version: "3.8.0"
+  sslyze:
+    enabled: true
+    timeout_seconds: 60

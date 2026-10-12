@@ -1,7 +1,8 @@
 # Gateway Concepts
 
-> **Audience:** project owner, Claude Code · **Status:** design in progress (step 2 of block 7+8, Q-38); each concept
-> is decided with the owner before any code · **Sources:** `docs/project/gateway-survey.md` and the documentation
+> **Audience:** project owner, Claude Code · **Status:** the six concepts used by the tests are decided and
+> implemented in the Kong and APISIX adapters (2026-10-12, block 7+8, Q-38); each concept is decided with the owner
+> before any code · **Sources:** `docs/project/gateway-survey.md` and the documentation
 > linked below.
 
 The neutral concepts the gateway adapters expose to the tests. Design rules (owner, 2026-10-11):
@@ -14,22 +15,28 @@ The neutral concepts the gateway adapters expose to the tests. Design rules (own
   a concept is not supported or not accessible returns SKIP, with a reason that says which ("not applicable to this
   gateway: <concept>" / "not verifiable: no access to <concept>: <why>"); a test that can judge only part adds an
   InfoNote for the rest; no new report status (a machine-readable SKIP category can be added later without breaking);
-- what is stored as evidence goes through the tool's redaction (Q-31): values under secret-like keys and credentials
-  found are masked as test 6.4 already does (first and last 4 characters); the evidence shows that a secret is there
-  and where, never the secret (both Kong and APISIX return plugin secrets in clear through their Admin API);
+- what is stored as evidence goes through the tool's redaction (Q-31): configuration values are `SecretStr` and are
+  stored fully masked (`**********`, as implemented 2026-10-12); the evidence shows that a value is there and where,
+  never the value (both Kong and APISIX return plugin secrets in clear through their Admin API);
 - the full map of concepts is listed below; only the concepts used by a test are implemented, the others when a test
-  needs them.
+  needs them;
+- an adapter answers with the **effective** configuration (owner, 2026-10-12): where the gateway's interface returns
+  only what was written, the adapter fills in the defaults the gateway applies, preferably asking the running
+  gateway for them, so that a test sees, for example, an algorithm allowed by default. The APISIX adapter reads them
+  from the schemas APISIX serves (`GET /apisix/admin/plugins/{name}`, documented; `GET /apisix/admin/schema/upstream`,
+  served by 3.19.0 but not documented); a schema that cannot be read leaves the fields empty ("not stated"). Kong
+  returns its defaults in every answer.
 
 ## Map
 
 | Concept | Tests | Status |
 |---|---|---|
-| Backend timeouts | 4.2 | **decided** 2026-10-11 |
-| Health checks and circuit breaking | 4.3 | **decided** 2026-10-11 |
-| Request signing (HMAC) | 3.3 | **decided** 2026-10-11 |
-| Configuration text values (secret scan) | 6.4 sub-test B | **decided** 2026-10-11 |
-| Backend live health state | 4.3 (observability) | **decided** 2026-10-11 |
-| Routes (minimal: name, paths, backend) | 3.3 (coverage), later 0.1 (documentation drift) | **decided** 2026-10-11 |
+| Backend timeouts | 4.2 | **decided** 2026-10-11, implemented (Kong, APISIX) |
+| Health checks and circuit breaking | 4.3 | **decided** 2026-10-11, implemented (Kong, APISIX) |
+| Request signing (HMAC) | 3.3 | **decided** 2026-10-11, implemented (Kong, APISIX) |
+| Configuration text values (secret scan) | 6.4 sub-test B | **decided** 2026-10-11, implemented (Kong, APISIX) |
+| Backend live health state | 4.3 (observability) | **decided** 2026-10-11, implemented (Kong, APISIX) |
+| Routes (minimal: name, paths, backend) | 3.3 (coverage), later 0.1 (documentation drift) | **decided** 2026-10-11, implemented (Kong, APISIX) |
 | Authentication per route | 1.1, 2.x | future |
 | Rate limiting | 4.1, 0.3 | future |
 | CORS, client-side timeouts | 6.3 | future |
@@ -160,8 +167,10 @@ Answers "can an excluded backend be seen in real time?". One item per target of 
 | `counters` | observed successes and failures, when given | not in that response | `counter`: `success`, `http_failure`, `tcp_failure`, `timeout_failure` |
 
 The APISIX Control API is a separate interface from the Admin API (default `127.0.0.1:9090`, no protection of its
-own, "never configure the control API server to listen to public traffic"): the APISIX adapter needs its address (a
-new configuration key, presented when the code is written), and without it the concept answers "not accessible".
+own, "never configure the control API server to listen to public traffic"): its address is `target.health_api_url`
+(decided 2026-10-12, a neutral name for any gateway that keeps live health outside its Admin API; read without the
+Admin API headers); without it the concept answers "not accessible". APISIX starts checking an upstream only after
+its first request, so before that the Control API returns no item.
 Test 4.3 today looks for circuit-breaker keys in Kong's `/status`, which never has them, so it always reports an
 observability gap although Kong exposes the backend health state; changing that verdict belongs to the test review.
 Source: [APISIX Control API](https://apisix.apache.org/docs/apisix/control-api/).
@@ -171,6 +180,6 @@ Source: [APISIX Control API](https://apisix.apache.org/docs/apisix/control-api/)
 `target.admin_api_headers` (new configuration key): header name -> value, values from `${VAR}`, registered as secrets
 (masked in logs and reports), sent on every read of the gateway. One mechanism covers the gateways surveyed (APISIX
 `X-API-KEY`, Kong Enterprise `Kong-Admin-Token`, Tyk `x-tyk-authorization`, Traefik `Authorization`). The APISIX
-Control API address will be a further key of the APISIX adapter, presented with its code. Admin API over TLS with a
+Control API address is `target.health_api_url` (decided 2026-10-12). Admin API over TLS with a
 private certificate: open in Q-34 until a lab provides a real case.
 

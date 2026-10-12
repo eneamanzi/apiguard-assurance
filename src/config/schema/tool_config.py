@@ -185,6 +185,17 @@ class TargetConfig(BaseModel):
             "registered as secrets and masked in logs and reports. Default: none."
         ),
     )
+    health_api_url: AnyHttpUrl | None = Field(
+        default=None,
+        description=(
+            "URL of the gateway interface that reports the live health of the backends, "
+            "for a gateway that keeps it outside the Admin API (APISIX: Control API). "
+            "Read by test 4.3 (observability); admin_api_headers are not sent to it. "
+            "Not used by Kong, whose Admin API reports it. If absent on such a gateway, "
+            "the live health is reported as not accessible. "
+            "Example: http://127.0.0.1:10002"
+        ),
+    )
     admin_connect_timeout_seconds: Annotated[
         float,
         Field(ge=ADMIN_CONNECT_TIMEOUT_MIN, le=ADMIN_CONNECT_TIMEOUT_MAX),
@@ -358,7 +369,9 @@ class TargetConfig(BaseModel):
             )
         return self
 
-    @field_validator("base_url", "openapi_spec_url", "admin_api_url", mode="before")
+    @field_validator(
+        "base_url", "openapi_spec_url", "admin_api_url", "health_api_url", mode="before"
+    )
     @classmethod
     def url_passthrough(cls, value: object) -> object:
         """Passthrough -- trailing slash normalisation happens in TargetContext."""

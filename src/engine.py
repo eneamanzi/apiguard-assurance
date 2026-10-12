@@ -573,9 +573,11 @@ class AssessmentEngine:
         # Injected into TargetContext so that WHITE_BOX tests access the admin plane
         # via the neutral concept readers (target.gateway.backend_timeouts() etc.).
         # The adapter is chosen by target.gateway_adapter in GATEWAY_ADAPTERS
-        # (src/core/gateway/__init__.py). It receives the Admin API headers and
-        # the configuration of tests 3.3 and 4.3 (which plugin and field names
-        # are a signing policy or a circuit breaker on gateways that need it).
+        # (src/core/gateway/__init__.py). It receives the Admin API headers, the
+        # address of a separate health interface (target.health_api_url, for a
+        # gateway that keeps live backend health outside the Admin API) and the
+        # configuration of tests 3.3 and 4.3 (which plugin and field names are a
+        # signing policy or a circuit breaker on gateways that need it).
         gateway = None
         adapter_class = GATEWAY_ADAPTERS.get(config.target.gateway_adapter or "")
         if adapter_class is not None and config.target.admin_api_url is not None:
@@ -584,6 +586,11 @@ class AssessmentEngine:
                 connect_timeout=config.target.admin_connect_timeout_seconds,
                 read_timeout=config.target.admin_read_timeout_seconds,
                 admin_headers=config.target.admin_api_headers,
+                health_api_url=(
+                    str(config.target.health_api_url)
+                    if config.target.health_api_url is not None
+                    else None
+                ),
                 signing_config=config.tests.domain_3.test_3_3,
                 breaker_config=config.tests.domain_4.test_4_3,
             )

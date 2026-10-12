@@ -1,0 +1,75 @@
+# test-environments/forgejo-apisix/apisix/config.yaml
+#
+# Startup configuration of Apache APISIX 3.19.0 for the Forgejo + APISIX lab. Routes, upstreams
+# and plugins are not here: APISIX keeps them in etcd, and the lab setup writes them through the
+# Admin API (setup.sh).
+#
+# Based on the official example of apache/apisix-docker (example/apisix_conf/config.yaml,
+# https://github.com/apache/apisix-docker, Apache License 2.0); keys checked against
+# conf/config.yaml.example of APISIX 3.19.0. Changes from the example:
+#   - APISIX listens inside the container on the same ports the lab publishes on the host
+#     (10000, 10443, 10001, 10002): the redirect plugin sends HTTP requests to the port APISIX
+#     listens on for HTTPS, so the two must match;
+#   - Admin API keys read from the environment (${{VAR}}, values from .env in the repository root);
+#   - Status API enabled, for the container health check;
+#   - fallback_sni, so that clients without SNI get the lab certificate (as on Kong);
+#   - no version in the Server response header;
+#   - Prometheus left out (not used by the lab).
+
+apisix:
+  node_listen:
+    - 10000                   # HTTP proxy (redirects to HTTPS)
+  enable_ipv6: false
+  enable_server_tokens: false # Server header without the APISIX version (as KONG_HEADERS=off in the Kong lab)
+
+  ssl:
+    enable: true
+    listen:
+      - port: 10443           # HTTPS proxy (the tool's target); certificate loaded by setup.sh
+    # Certificate for a client that sends no server name (SNI), e.g. https://127.0.0.1:10443:
+    # without it APISIX closes the handshake, where Kong answers with its default certificate.
+    fallback_sni: "localhost"
+
+  # Status API: GET /status/ready answers 200 only when every worker has loaded the configuration
+  # from etcd (503 otherwise). Used by the container health check in docker-compose.yml; it listens
+  # inside the container only and is not published.
+  status:
+    ip: "127.0.0.1"
+    port: 7085
+
+  # Control API: live health of the upstream nodes (GET /v1/healthcheck), read by the tool.
+  # It has no authentication: APISIX documents it as never to be exposed publicly. It listens on
+  # all interfaces inside the container; docker-compose.yml publishes it on 127.0.0.1 only.
+  enable_control: true
+  control:
+    ip: "0.0.0.0"
+    port: 10002
+
+deployment:
+  role: traditional
+  role_traditional:
+    config_provider: etcd
+
+  admin:
+    admin_key_required: true
+    admin_key:
+      - name: "admin"             # full access: used only by the lab setup
+        key: ${{APISIX_ADMIN_KEY}}
+        role: admin
+      - name: "viewer"            # GET only: the key the tool uses
+        key: ${{APISIX_VIEWER_KEY}}
+        role: viewer
+    admin_listen:
+      ip: "0.0.0.0"
+      port: 10001
+    # Requests from the host arrive from the Docker bridge address, which changes between
+    # machines: every source is allowed here, and docker-compose.yml publishes the Admin API on
+    # 127.0.0.1 only, so it is reachable from this machine and from the lab network alone.
+    allow_admin:
+      - 0.0.0.0/0
+
+  etcd:
+    host:
+      - "http://etcd:2379"
+    prefix: "/apisix"
+    timeout: 30
