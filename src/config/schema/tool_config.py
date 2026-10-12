@@ -51,6 +51,7 @@ from pydantic import (
 )
 
 from src.config.schema.tests_config import TestsConfig
+from src.core.gateway import GATEWAY_ADAPTERS
 from src.core.models import TestStrategy
 from src.core.models.external_tools import ExternalToolsConfig
 from src.core.test_metadata import PRIORITY_MAX, PRIORITY_MIN, is_valid_test_id
@@ -175,6 +176,15 @@ class TargetConfig(BaseModel):
             "Example: http://localhost:8001"
         ),
     )
+    admin_api_headers: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Headers sent on every read of the gateway's interfaces (Admin API), for a "
+            "gateway that protects them: e.g. APISIX 'X-API-KEY', Kong Enterprise "
+            "'Kong-Admin-Token'. Write the values as ${VAR} placeholders: they are "
+            "registered as secrets and masked in logs and reports. Default: none."
+        ),
+    )
     admin_connect_timeout_seconds: Annotated[
         float,
         Field(ge=ADMIN_CONNECT_TIMEOUT_MIN, le=ADMIN_CONNECT_TIMEOUT_MAX),
@@ -238,13 +248,28 @@ class TargetConfig(BaseModel):
             "Gateway adapter type to use for WHITE_BOX configuration audit tests. "
             "When set, engine.py Phase 3 instantiates the corresponding adapter and "
             "exposes it as target.gateway in TargetContext. "
-            "Currently supported: 'kong' (Kong DB-less Admin API v3.x). "
+            "Supported: the keys of GATEWAY_ADAPTERS (src/core/gateway/__init__.py); "
+            "today 'kong' (Kong DB-less Admin API v3.x). "
             "Leave unset (None) to skip all gateway-specific WHITE_BOX tests: "
             "those tests will return SKIP with the reason "
             "'Gateway adapter not configured: ...' (BaseTest._requires_admin_api). "
             "Requires admin_api_url to also be set when non-None."
         ),
     )
+
+    @field_validator("admin_api_headers")
+    @classmethod
+    def admin_api_headers_not_empty(cls, value: dict[str, str]) -> dict[str, str]:
+        """Reject an empty header name or an empty value (e.g. a variable set to nothing)."""
+        for name, header_value in value.items():
+            if not name.strip():
+                raise ValueError("admin_api_headers: a header name is empty")
+            if not header_value.strip():
+                raise ValueError(
+                    f"admin_api_headers: the value of '{name}' is empty "
+                    "(is its environment variable set?)"
+                )
+        return value
 
     @model_validator(mode="after")
     def enforce_exactly_one_openapi_source(self) -> TargetConfig:
@@ -326,11 +351,10 @@ class TargetConfig(BaseModel):
                 "The gateway adapter uses the admin API URL to contact the "
                 "gateway admin plane."
             )
-        _supported = ("kong",)
-        if self.gateway_adapter is not None and self.gateway_adapter not in _supported:
+        if self.gateway_adapter is not None and self.gateway_adapter not in GATEWAY_ADAPTERS:
             raise ValueError(
                 f"Unsupported target.gateway_adapter: '{self.gateway_adapter}'. "
-                f"Supported values: {sorted(_supported)}."
+                f"Supported values: {sorted(GATEWAY_ADAPTERS)}."
             )
         return self
 

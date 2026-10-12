@@ -70,14 +70,24 @@ LEVEL 3 -- No protection (Vulnerable)
     Oracle: FAIL with a gap-documenting Finding.
 
 FINDING SEPARATO -- Observability (always runs, independent of levels)
-    Verifies whether the Kong /status endpoint exposes circuit-breaker metrics.
-    Kong OSS /status does NOT expose these fields: this produces an
-    informational Finding documenting the observability gap. This finding
-    does not affect the test status.
+    Verifies that the live health of the backend targets can be read (gateway
+    concept "live target health"; Kong /upstreams/{name}/health). When it
+    cannot, an InfoNote says why (a Finding on FAIL paths); it never changes
+    the test status on its own.
+
+Gateway access:
+    The levels read the gateway concepts circuit breakers, health checks and
+    live target health (src/core/gateway/concepts.py) through the adapter;
+    which Kong plugin names count as circuit breakers comes from
+    accepted_cb_plugin_names, passed to the Kong adapter. A health checks
+    concept not supported or not accessible gives SKIP; circuit breakers not
+    accessible give SKIP when the verdict would be Level 3 (absence not
+    proven), a note when Level 2 holds.
 
 EvidenceStore policy:
-    WHITE_BOX configuration audit -- no requests to the target proxy.
-    No _log_transaction() calls, evidence_ref=None on all Findings.
+    No request to the target proxy. Each concept read is stored as an artifact
+    (BaseTest._record_gateway_concept); findings point to the concept they
+    are based on (evidence_ref).
 ---------------------------------------------------------------------------
 
 Kong OSS DB-less expected outcome:
@@ -85,21 +95,32 @@ Kong OSS DB-less expected outcome:
     Level 2: depends on upstream configuration:
         - Upstreams with passive HC configured -> PASS (compensating)
         - No passive HC configured             -> FAIL (Level 3)
-    Observability: /status has no CB fields -> informational Finding appended.
+    Observability: the upstream health is readable -> no note.
 """  # noqa: N999
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, ClassVar
+from typing import ClassVar
 
 import structlog
 
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
-from src.core.gateway.base import BaseGatewayAdapter, GatewayAdapterError
+from src.core.gateway.base import (
+    CONCEPT_CIRCUIT_BREAKERS,
+    CONCEPT_HEALTH_CHECKS,
+    CONCEPT_TARGET_HEALTH,
+)
+from src.core.gateway.concepts import (
+    CircuitBreaker,
+    ConceptRead,
+    ConceptStatus,
+    HealthCheck,
+    TargetHealth,
+)
 from src.core.models import (
     Finding,
     InfoNote,
@@ -114,22 +135,6 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # ---------------------------------------------------------------------------
 # Module-level constants
 # ---------------------------------------------------------------------------
-
-# Field name aliases for failure_threshold across known Kong CB plugin variants.
-# Evaluated in order; the first key found in the plugin config dict wins.
-_FAILURE_THRESHOLD_ALIASES: tuple[str, ...] = (
-    "failure_threshold",
-    "consecutive_errors",
-    "error_threshold_percentage",
-)
-
-# Field name aliases for Open-state hold duration (seconds).
-_TIMEOUT_DURATION_ALIASES: tuple[str, ...] = (
-    "timeout",
-    "sleep_time",
-    "recovery_time",
-    "timeout_duration",
-)
 
 # OWASP/NIST references for Level 1 and Level 3 Findings.
 _REFERENCES_CB: list[str] = [
@@ -151,17 +156,6 @@ _REFERENCES_OBS: list[str] = [
     "OWASP-ASVS-v5.0.0-V16.5.2",
     "NIST-SP-800-204-Section-4.5.1",
 ]
-
-# Kong /status top-level fields that would indicate CB observability.
-# None of these exist in Kong OSS -- the check is intentionally defensive.
-_CB_STATUS_INDICATORS: frozenset[str] = frozenset(
-    {
-        "circuit_breaker",
-        "circuit_breakers",
-        "cb_state",
-    }
-)
-
 
 # ---------------------------------------------------------------------------
 # Internal data structures
@@ -272,24 +266,19 @@ class Test43CircuitBreakerAudit(BaseTest):
         store: EvidenceStore,
     ) -> TestResult:
         """
-        Audit circuit-breaker protection via Dual-Check a 3 Livelli.
+        Audit circuit breaking and health checks through the gateway adapter.
 
-        Execution flow:
-            1. Guard: skip if Admin API not configured.
-            2. Level 1: detect native CB plugin.
-               - Plugin found (enabled / disabled) -> PASS or FAIL (no Level 2).
-               - Plugin not found -> Level 2.
-            3. Level 2: inspect upstream passive healthchecks.
-               - Valid passive HC found -> PASS with informational Finding.
-               - None found -> Level 3.
-            4. Level 3: FAIL (no protection).
-            5. Observability check: append /status Finding (always, independent).
-
-        Args:
-            target:  Frozen TargetContext with URL and config references.
-            context: Mutable TestContext (not used by this WHITE_BOX test).
-            client:  SecurityClient (not used; Admin API calls use httpx directly).
-            store:   EvidenceStore (not used; no proxy requests are made).
+        Reads three gateway concepts (circuit breakers, health checks, live
+        target health), stores each as evidence, and applies the three levels:
+            Level 1: a circuit breaker (the first one, in the configured
+                     priority order) enabled and with parameters in range.
+            Level 2: otherwise, at least one backend with a passive health
+                     check within thresholds (compensating control).
+            Level 3: otherwise, FAIL.
+        Observability: the live health of the targets must be readable; when
+        it is not, a note (a finding on FAIL) says why.
+        A concept the gateway does not support or that cannot be read: SKIP
+        when the verdict depends on it, a note otherwise.
 
         Returns:
             TestResult with status PASS, FAIL, SKIP, or ERROR.
@@ -303,108 +292,72 @@ class Test43CircuitBreakerAudit(BaseTest):
             assert gateway is not None  # noqa: S101
 
             cfg = target.tests_config.test_4_3
-
             log.info(
                 "test_4_3_starting",
                 gateway_adapter=gateway.adapter_name,
                 accepted_cb_plugin_names=cfg.accepted_cb_plugin_names,
             )
 
-            # ----------------------------------------------------------
-            # Level 1: native CB plugin detection
-            # ----------------------------------------------------------
-            plugins = self._fetch_plugins(gateway)
-            if plugins is None:
-                return self._make_error(
-                    RuntimeError(
-                        "Kong Admin API GET /plugins failed. See structured log for details."
-                    )
-                )
+            breakers = gateway.circuit_breakers()
+            breakers_ref = self._record_gateway_concept(
+                target, store, CONCEPT_CIRCUIT_BREAKERS, breakers
+            )
+            health = gateway.target_health()
+            health_ref = self._record_gateway_concept(target, store, CONCEPT_TARGET_HEALTH, health)
+            observability_note = self._check_observability(health, health_ref)
 
-            level1 = self._check_level1_plugin(plugins=plugins, cfg=cfg)
-
+            level1 = self._check_level1_plugin(breakers.items, cfg, breakers_ref)
             if level1.plugin_found:
-                # A recognised CB plugin was found (enabled or disabled).
-                # Do NOT fall through to Level 2 regardless of the outcome.
-
-                # The observability check always runs independently and always
-                # produces an InfoNote (never a security Finding).
-                observability_note = self._check_observability(gateway)
-
                 if not level1.findings:
-                    # Plugin found, enabled, params in range -> Full Guarantee.
-                    # Both branches are PASS: InfoNotes go into notes=, not findings=.
                     notes: list[InfoNote] = []
                     if observability_note is not None:
                         notes.append(observability_note)
                     return self._make_pass(
                         message=(
-                            f"Level 1 (Full Guarantee): circuit-breaker plugin "
+                            f"Level 1 (Full Guarantee): circuit breaker "
                             f"'{level1.plugin_name}' is enabled and configured "
                             "within methodology parameter ranges. The gateway is "
                             "protected against cascading failure."
                         ),
                         notes=notes,
                     )
-
-                # Plugin found but disabled or out-of-range -> FAIL.
-                # On FAIL the observability InfoNote is converted to a Finding so
-                # that a single status type governs the findings list.
                 fail_findings: list[Finding] = list(level1.findings)
                 if observability_note is not None:
-                    fail_findings.append(
-                        Finding(
-                            title=observability_note.title,
-                            detail=observability_note.detail,
-                            references=observability_note.references,
-                            evidence_ref=None,
-                        )
-                    )
+                    fail_findings.append(self._note_as_finding(observability_note, health_ref))
                 return self._make_fail_multi(
                     message=(
-                        f"Level 1: plugin '{level1.plugin_name}' found but "
+                        f"Level 1: circuit breaker '{level1.plugin_name}' found but "
                         f"has {len(level1.findings)} configuration issue(s). "
                         "See findings for details."
                     ),
                     findings=fail_findings,
                 )
 
-            # Level 1 miss: log and continue.
             log.info(
                 "test_4_3_level1_no_match_proceeding_to_level2",
                 accepted_names=cfg.accepted_cb_plugin_names,
-                total_plugins=len(plugins),
+                breakers_status=breakers.status.value,
             )
 
-            # ----------------------------------------------------------
-            # Level 2: upstream passive healthchecks (compensating control)
-            # ----------------------------------------------------------
-            upstreams = self._fetch_upstreams(gateway)
-            if upstreams is None:
-                return self._make_error(
-                    RuntimeError(
-                        "Kong Admin API GET /upstreams failed. See structured log for details."
-                    )
-                )
+            checks = gateway.health_checks()
+            checks_ref = self._record_gateway_concept(target, store, CONCEPT_HEALTH_CHECKS, checks)
+            if checks.status != ConceptStatus.READ:
+                return self._skip_for_concept(CONCEPT_HEALTH_CHECKS, checks, checks_ref)
 
-            level2 = self._check_level2_passive_hc(upstreams=upstreams, cfg=cfg)
-
-            # Observability check is independent of level outcome.
-            observability_note = self._check_observability(gateway)
-
+            level2 = self._check_level2_passive_hc(checks.items, cfg)
             if level2.has_valid_compensating_control:
-                # Level 2 PASS: attach compensating control and observability
-                # as InfoNotes, NOT as Findings. This preserves the model_validator
-                # invariant (PASS -> empty findings list).
                 assert level2.compensating_note is not None  # noqa: S101
                 level2_notes: list[InfoNote] = [level2.compensating_note]
+                breakers_note = self._unread_breakers_note(breakers, breakers_ref)
+                if breakers_note is not None:
+                    level2_notes.append(breakers_note)
                 if observability_note is not None:
                     level2_notes.append(observability_note)
                 return self._make_pass(
                     message=(
                         "Level 2 (Compensating Control): no native circuit-breaker "
                         "plugin found, but "
-                        f"{level2.valid_upstream_count} of {len(upstreams)} "
+                        f"{level2.valid_upstream_count} of {len(checks.items)} "
                         "upstream(s) have a passive healthcheck configured within "
                         "safe thresholds. Partial cascading-failure protection via "
                         "upstream health management. "
@@ -413,32 +366,25 @@ class Test43CircuitBreakerAudit(BaseTest):
                     notes=level2_notes,
                 )
 
-            # ----------------------------------------------------------
-            # Level 3: no protection at all -> FAIL
-            # ----------------------------------------------------------
-            # On FAIL, the observability InfoNote is converted to a Finding so
-            # that all diagnostic information is co-located in findings.
+            # Level 3 needs to know that no circuit breaker exists: if the
+            # breakers could not be read, the absence is not proven.
+            if breakers.status == ConceptStatus.NOT_ACCESSIBLE:
+                return self._skip_for_concept(CONCEPT_CIRCUIT_BREAKERS, breakers, breakers_ref)
+
             level3_findings: list[Finding] = [
                 self._build_level3_finding(
                     accepted_plugin_names=cfg.accepted_cb_plugin_names,
-                    upstream_count=len(upstreams),
+                    upstream_count=len(checks.items),
+                    evidence_ref=checks_ref,
                 )
             ]
             if observability_note is not None:
-                level3_findings.append(
-                    Finding(
-                        title=observability_note.title,
-                        detail=observability_note.detail,
-                        references=observability_note.references,
-                        evidence_ref=None,
-                    )
-                )
-
+                level3_findings.append(self._note_as_finding(observability_note, health_ref))
             return self._make_fail_multi(
                 message=(
-                    "Level 3 (Vulnerable): no native circuit-breaker plugin and no "
-                    "upstream passive healthcheck detected on this Kong gateway. "
-                    f"Checked {len(plugins)} plugin(s) and {len(upstreams)} upstream(s). "
+                    "Level 3 (Vulnerable): no circuit breaker and no backend passive "
+                    "healthcheck detected on this gateway. "
+                    f"Checked {len(checks.items)} upstream(s). "
                     "See findings for remediation guidance."
                 ),
                 findings=level3_findings,
@@ -448,231 +394,167 @@ class Test43CircuitBreakerAudit(BaseTest):
             log.exception("test_4_3_unexpected_error", error=str(exc))
             return self._make_error(exc)
 
+    @staticmethod
+    def _note_as_finding(note: InfoNote, evidence_ref: str) -> Finding:
+        """Turn an InfoNote into a Finding (FAIL paths keep diagnostics with the findings)."""
+        return Finding(
+            title=note.title,
+            detail=note.detail,
+            references=note.references,
+            evidence_ref=evidence_ref,
+        )
+
+    @staticmethod
+    def _unread_breakers_note(
+        breakers: ConceptRead[CircuitBreaker], evidence_ref: str
+    ) -> InfoNote | None:
+        """Return a note when the circuit breakers could not be read (Level 1 unknown)."""
+        if breakers.status == ConceptStatus.READ:
+            return None
+        return InfoNote(
+            title="Level 1 Not Verified: Circuit Breakers Not Read",
+            detail=(
+                f"The gateway's circuit breakers could not be read ({breakers.status.value}: "
+                f"{breakers.reason}). The verdict rests on Level 2 only. Evidence: {evidence_ref}."
+            ),
+            references=_REFERENCES_CB,
+        )
+
     # ------------------------------------------------------------------
     # Level 1 helpers
     # ------------------------------------------------------------------
 
-    def _fetch_plugins(
-        self,
-        gateway: BaseGatewayAdapter,
-    ) -> list[dict[str, Any]] | None:
-        """
-        Retrieve all plugins via the gateway adapter.
-
-        Returns None on error so the caller can produce ERROR without
-        re-catching the exception.
-
-        Args:
-            gateway: Instantiated gateway adapter from target.gateway.
-
-        Returns:
-            List of plugin dicts (possibly empty), or None on failure.
-        """
-        try:
-            plugins = gateway.get_plugins()
-            log.debug("test_4_3_plugins_fetched", count=len(plugins))
-            return plugins
-        except GatewayAdapterError as exc:
-            log.error(
-                "test_4_3_admin_api_error",
-                path="/plugins",
-                status_code=exc.status_code,
-                error=str(exc),
-            )
-            return None
-
     def _check_level1_plugin(
         self,
-        plugins: list[dict[str, Any]],
+        breakers: tuple[CircuitBreaker, ...],
         cfg: Test43AuditConfig,
+        evidence_ref: str,
     ) -> _Level1Result:
         """
-        Search the plugin list for a native circuit-breaker plugin.
+        Take the first circuit breaker read and validate it.
 
-        Iterates accepted_cb_plugin_names in priority order and returns the
-        first match. 'response-ratelimiting' is NOT in accepted_cb_plugin_names
-        by design: it controls request volume, not downstream failure detection.
+        The adapter returns the breakers in the configured priority order
+        (accepted_cb_plugin_names on Kong), first instance of each, so the
+        first item is the one the test judges.
 
         Args:
-            plugins: Full plugin list from Kong GET /plugins.
-            cfg:     Test43AuditConfig with accepted names and oracle ranges.
+            breakers:     Circuit breakers read from the gateway.
+            cfg:          Test43AuditConfig with the oracle ranges.
+            evidence_ref: Evidence record of the concept read.
 
         Returns:
-            _Level1Result with plugin_found=False if nothing matched.
+            _Level1Result with plugin_found=False if there is none.
         """
-        by_name: dict[str, dict[str, Any]] = {}
-        for plugin in plugins:
-            name: str = plugin.get("name", "")
-            if name and name not in by_name:
-                by_name[name] = plugin
-
-        for candidate in cfg.accepted_cb_plugin_names:
-            if candidate not in by_name:
-                continue
-
-            plugin = by_name[candidate]
-            plugin_name: str = plugin.get("name", "<unknown>")
-            is_enabled: bool = bool(plugin.get("enabled", False))
-
-            log.info(
-                "test_4_3_level1_plugin_matched",
-                plugin_name=plugin_name,
-                enabled=is_enabled,
-            )
-
-            if not is_enabled:
-                return _Level1Result(
-                    plugin_found=True,
-                    plugin_name=plugin_name,
-                    findings=[self._build_plugin_disabled_finding(plugin_name)],
-                )
-
-            param_findings = self._validate_plugin_parameters(plugin=plugin, cfg=cfg)
+        if not breakers:
+            log.debug("test_4_3_level1_no_match", searched=cfg.accepted_cb_plugin_names)
+            return _Level1Result(plugin_found=False, plugin_name="", findings=[])
+        breaker = breakers[0]
+        log.info("test_4_3_level1_plugin_matched", plugin=breaker.source, enabled=breaker.enabled)
+        if not breaker.enabled:
             return _Level1Result(
                 plugin_found=True,
-                plugin_name=plugin_name,
-                findings=param_findings,
+                plugin_name=breaker.source,
+                findings=[self._build_plugin_disabled_finding(breaker.source, evidence_ref)],
             )
-
-        log.debug(
-            "test_4_3_level1_no_match",
-            searched=cfg.accepted_cb_plugin_names,
-            present_plugins=list(by_name.keys()),
+        return _Level1Result(
+            plugin_found=True,
+            plugin_name=breaker.source,
+            findings=self._validate_plugin_parameters(breaker, cfg, evidence_ref),
         )
-        return _Level1Result(plugin_found=False, plugin_name="", findings=[])
 
     def _validate_plugin_parameters(
         self,
-        plugin: dict[str, Any],
+        breaker: CircuitBreaker,
         cfg: Test43AuditConfig,
+        evidence_ref: str,
     ) -> list[Finding]:
         """
-        Validate failure_threshold and timeout_duration of an enabled CB plugin.
-
-        Uses the module-level alias tuples to handle naming differences across
-        Kong versions and Enterprise vs. OSS plugin configs.
+        Validate the failure threshold and the open duration of an enabled breaker.
 
         Args:
-            plugin: Enabled Kong plugin dict (must have 'name' and 'config' keys).
-            cfg:    Test43AuditConfig with Level 1 oracle ranges.
+            breaker:      The circuit breaker read from the gateway.
+            cfg:          Test43AuditConfig with Level 1 oracle ranges.
+            evidence_ref: Evidence record of the concept read.
 
         Returns:
             List of Findings (empty when both parameters are compliant).
         """
         findings: list[Finding] = []
-        plugin_name: str = plugin.get("name", "<unknown>")
-        plugin_cfg: dict[str, Any] = plugin.get("config") or {}
-
-        log.debug(
-            "test_4_3_level1_validating_params",
-            plugin_name=plugin_name,
-            config_keys=list(plugin_cfg.keys()),
-        )
-
-        threshold_finding = self._validate_one_param(
-            plugin_name=plugin_name,
-            config=plugin_cfg,
-            aliases=_FAILURE_THRESHOLD_ALIASES,
-            label="failure_threshold",
-            min_val=cfg.failure_threshold_min,
-            max_val=cfg.failure_threshold_max,
-            unit="consecutive failures",
-        )
-        if threshold_finding is not None:
-            findings.append(threshold_finding)
-
-        timeout_finding = self._validate_one_param(
-            plugin_name=plugin_name,
-            config=plugin_cfg,
-            aliases=_TIMEOUT_DURATION_ALIASES,
-            label="timeout_duration",
-            min_val=cfg.timeout_duration_min_seconds,
-            max_val=cfg.timeout_duration_max_seconds,
-            unit="seconds",
-        )
-        if timeout_finding is not None:
-            findings.append(timeout_finding)
-
+        open_seconds = None if breaker.open_seconds is None else int(breaker.open_seconds)
+        for value, label, min_val, max_val, unit in (
+            (
+                breaker.failure_threshold,
+                "failure_threshold",
+                cfg.failure_threshold_min,
+                cfg.failure_threshold_max,
+                "consecutive failures",
+            ),
+            (
+                open_seconds,
+                "timeout_duration",
+                cfg.timeout_duration_min_seconds,
+                cfg.timeout_duration_max_seconds,
+                "seconds",
+            ),
+        ):
+            finding = self._validate_one_param(
+                plugin_name=breaker.source,
+                value=value,
+                label=label,
+                min_val=min_val,
+                max_val=max_val,
+                unit=unit,
+                evidence_ref=evidence_ref,
+            )
+            if finding is not None:
+                findings.append(finding)
         return findings
 
     def _validate_one_param(
         self,
         plugin_name: str,
-        config: dict[str, Any],
-        aliases: tuple[str, ...],
+        value: int | None,
         label: str,
         min_val: int,
         max_val: int,
         unit: str,
+        evidence_ref: str,
     ) -> Finding | None:
         """
-        Validate one numeric parameter of a Kong plugin config dict.
+        Validate one numeric parameter of a circuit breaker.
 
-        Resolves the field name by iterating aliases in order; uses the first
-        key found in the config dict.
-
-        Three outcomes:
-            Field not found under any alias  -> informational Finding.
+        Two outcomes produce a Finding:
+            Value not stated by the gateway  -> informational Finding.
             Value outside [min_val, max_val] -> FAIL Finding.
-            Value within bounds              -> None (compliant, no Finding).
 
         Args:
-            plugin_name: Plugin name for the Finding title.
-            config:      Plugin config sub-dict from Admin API.
-            aliases:     Field-name aliases to try, in priority order.
-            label:       Human-readable parameter name for the Finding.
-            min_val:     Inclusive minimum acceptable value.
-            max_val:     Inclusive maximum acceptable value.
-            unit:        Unit label (e.g. 'seconds', 'consecutive failures').
+            plugin_name:  The breaker's source, for the Finding title.
+            value:        The parameter's value, or None if not stated.
+            label:        Parameter name for the Finding.
+            min_val:      Inclusive minimum acceptable value.
+            max_val:      Inclusive maximum acceptable value.
+            unit:         Unit label (e.g. 'seconds', 'consecutive failures').
+            evidence_ref: Evidence record of the concept read.
 
         Returns:
             Finding if the parameter is absent or out of range; else None.
         """
-        resolved: str | None = next((a for a in aliases if a in config), None)
-
-        if resolved is None:
-            alias_list = ", ".join(f"'{a}'" for a in aliases)
-            log.debug(
-                "test_4_3_param_not_found",
-                plugin_name=plugin_name,
-                label=label,
-                aliases=list(aliases),
-            )
+        if value is None:
+            log.debug("test_4_3_param_not_found", plugin_name=plugin_name, label=label)
             return Finding(
                 title=f"CB Parameter '{label}' Not Found in Plugin '{plugin_name}'",
                 detail=(
-                    f"The parameter '{label}' (searched under aliases: {alias_list}) "
-                    f"is absent from plugin '{plugin_name}' config. "
-                    "This may indicate a volume-rate controller rather than a true "
-                    "circuit breaker, or an undocumented proprietary parameter name. "
-                    f"Expected range: [{min_val}, {max_val}] {unit}."
+                    f"The gateway does not state the parameter '{label}' of '{plugin_name}' "
+                    "(absent, or not a number). This may indicate a volume-rate controller "
+                    "rather than a true circuit breaker, or an undocumented proprietary "
+                    f"parameter name. Expected range: [{min_val}, {max_val}] {unit}."
                 ),
                 references=_REFERENCES_CB,
-                evidence_ref=None,
-            )
-
-        raw_value = config[resolved]
-        try:
-            value = int(float(str(raw_value)))
-        except (ValueError, TypeError):
-            return Finding(
-                title=f"CB Parameter '{label}' Non-Numeric in Plugin '{plugin_name}'",
-                detail=(
-                    f"Field '{resolved}' has value {raw_value!r}, which cannot be "
-                    f"interpreted as a numeric threshold. "
-                    f"Expected integer in [{min_val}, {max_val}] {unit}."
-                ),
-                references=_REFERENCES_CB,
-                evidence_ref=None,
+                evidence_ref=evidence_ref,
             )
 
         if min_val <= value <= max_val:
-            log.debug(
-                "test_4_3_param_compliant",
-                plugin_name=plugin_name,
-                field=resolved,
-                value=value,
-            )
+            log.debug("test_4_3_param_compliant", plugin_name=plugin_name, label=label, value=value)
             return None
 
         if value < min_val:
@@ -693,7 +575,7 @@ class Test43CircuitBreakerAudit(BaseTest):
         log.info(
             "test_4_3_param_out_of_range",
             plugin_name=plugin_name,
-            field=resolved,
+            label=label,
             value=value,
             expected_min=min_val,
             expected_max=max_val,
@@ -703,18 +585,17 @@ class Test43CircuitBreakerAudit(BaseTest):
                 f"CB Parameter '{label}' Out of Range ({value} {unit}) in Plugin '{plugin_name}'"
             ),
             detail=(
-                f"Plugin '{plugin_name}' field '{resolved}' = {value} {unit}, "
+                f"'{plugin_name}' {label} = {value} {unit}, "
                 f"which is {direction} of [{min_val}, {max_val}] {unit} "
                 "(methodology section 4.3, Martin Fowler Circuit Breaker Pattern). "
                 f"{impact} "
-                f"Recommended: adjust '{resolved}' to a value in "
-                f"[{min_val}, {max_val}] {unit}."
+                f"Recommended: adjust {label} to a value in [{min_val}, {max_val}] {unit}."
             ),
             references=_REFERENCES_CB,
-            evidence_ref=None,
+            evidence_ref=evidence_ref,
         )
 
-    def _build_plugin_disabled_finding(self, plugin_name: str) -> Finding:
+    def _build_plugin_disabled_finding(self, plugin_name: str, evidence_ref: str) -> Finding:
         """
         Build a Finding for a recognised CB plugin that is registered but disabled.
 
@@ -723,7 +604,8 @@ class Test43CircuitBreakerAudit(BaseTest):
         state machine is inactive.
 
         Args:
-            plugin_name: Kong plugin name string.
+            plugin_name:  The breaker's source (plugin name and id on Kong).
+            evidence_ref: Evidence record of the concept read.
 
         Returns:
             FAIL Finding documenting the disabled-plugin gap.
@@ -739,42 +621,16 @@ class Test43CircuitBreakerAudit(BaseTest):
                 "Remediation: set 'enabled: true' in the plugin configuration."
             ),
             references=_REFERENCES_CB,
-            evidence_ref=None,
+            evidence_ref=evidence_ref,
         )
 
     # ------------------------------------------------------------------
     # Level 2 helpers
     # ------------------------------------------------------------------
 
-    def _fetch_upstreams(
-        self,
-        gateway: BaseGatewayAdapter,
-    ) -> list[dict[str, Any]] | None:
-        """
-        Retrieve all upstreams via the gateway adapter.
-
-        Args:
-            gateway: Instantiated gateway adapter from target.gateway.
-
-        Returns:
-            List of upstream dicts (possibly empty), or None on failure.
-        """
-        try:
-            upstreams = gateway.get_upstreams()
-            log.debug("test_4_3_upstreams_fetched", count=len(upstreams))
-            return upstreams
-        except GatewayAdapterError as exc:
-            log.error(
-                "test_4_3_admin_api_error",
-                path="/upstreams",
-                status_code=exc.status_code,
-                error=str(exc),
-            )
-            return None
-
     def _check_level2_passive_hc(
         self,
-        upstreams: list[dict[str, Any]],
+        upstreams: tuple[HealthCheck, ...],
         cfg: Test43AuditConfig,
     ) -> _Level2Result:
         """
@@ -786,7 +642,7 @@ class Test43CircuitBreakerAudit(BaseTest):
         non-zero counters are <= the respective passive_hc_max_* config value.
 
         Args:
-            upstreams: Full upstream list from Kong GET /upstreams.
+            upstreams: Health checks of each backend, read from the gateway.
             cfg:       Test43AuditConfig with Level 2 oracle thresholds.
 
         Returns:
@@ -849,7 +705,7 @@ class Test43CircuitBreakerAudit(BaseTest):
 
     def _evaluate_upstream_passive_hc(
         self,
-        upstream: dict[str, Any],
+        upstream: HealthCheck,
         cfg: Test43AuditConfig,
     ) -> _PassiveHcSummary:
         """
@@ -860,21 +716,17 @@ class Test43CircuitBreakerAudit(BaseTest):
         default for all counters is 0 (passive healthcheck disabled).
 
         Args:
-            upstream: Kong upstream dict from GET /upstreams.
+            upstream: Health checks of one backend.
             cfg:      Test43AuditConfig with passive_hc_max_* thresholds.
 
         Returns:
             _PassiveHcSummary describing the upstream's passive HC state.
         """
-        upstream_name: str = upstream.get("name") or upstream.get("id") or "<unnamed>"
-
-        healthchecks: dict[str, Any] = upstream.get("healthchecks") or {}
-        passive: dict[str, Any] = healthchecks.get("passive") or {}
-        unhealthy: dict[str, Any] = passive.get("unhealthy") or {}
-
-        http_failures = int(unhealthy.get("http_failures") or 0)
-        tcp_failures = int(unhealthy.get("tcp_failures") or 0)
-        timeouts = int(unhealthy.get("timeouts") or 0)
+        upstream_name: str = upstream.name
+        passive = upstream.passive
+        http_failures = (passive.http_failures or 0) if passive is not None else 0
+        tcp_failures = (passive.tcp_failures or 0) if passive is not None else 0
+        timeouts = (passive.timeouts or 0) if passive is not None else 0
 
         is_active = http_failures > 0 or tcp_failures > 0 or timeouts > 0
 
@@ -1021,6 +873,7 @@ class Test43CircuitBreakerAudit(BaseTest):
         self,
         accepted_plugin_names: Sequence[str],
         upstream_count: int,
+        evidence_ref: str,
     ) -> Finding:
         """
         Build a FAIL Finding documenting the complete absence of CB protection.
@@ -1030,6 +883,7 @@ class Test43CircuitBreakerAudit(BaseTest):
         Args:
             accepted_plugin_names: CB plugin names that were searched for.
             upstream_count:        Number of upstreams inspected at Level 2.
+            evidence_ref:          Evidence record of the health checks read.
 
         Returns:
             FAIL Finding with remediation options.
@@ -1063,7 +917,7 @@ class Test43CircuitBreakerAudit(BaseTest):
                 "name to accepted_cb_plugin_names in config.yaml."
             ),
             references=_REFERENCES_CB,
-            evidence_ref=None,
+            evidence_ref=evidence_ref,
         )
 
     # ------------------------------------------------------------------
@@ -1072,77 +926,42 @@ class Test43CircuitBreakerAudit(BaseTest):
 
     def _check_observability(
         self,
-        gateway: BaseGatewayAdapter,
+        health: ConceptRead[TargetHealth],
+        evidence_ref: str,
     ) -> InfoNote | None:
         """
-        Check whether the gateway /status endpoint exposes circuit-breaker metrics.
+        Check that the live health of the backend targets can be read.
 
-        Kong OSS /status reports only database connectivity and worker memory
-        statistics. It does not expose CB state (OPEN/CLOSED/HALF-OPEN),
-        failure counters, or rejection counts. This is expected on Kong OSS
-        and produces an informational InfoNote documenting the observability gap.
-
-        The InfoNote is attached to PASS results via TestResult.notes. On FAIL
-        paths, execute() converts the InfoNote to a Finding so that all diagnostic
-        information is co-located in the findings list for FAIL results.
-
-        This check is independent of the Level 1/2/3 outcome and never changes
-        the test status on its own.
+        A tripped circuit or an excluded backend must be visible in real time
+        (the gateway concept "live target health": Kong /upstreams/{name}/health,
+        APISIX Control API). When it can be read there is no gap; when the
+        gateway does not support it or it cannot be read, an InfoNote says why
+        (execute() turns it into a Finding on FAIL paths). This check never
+        changes the test status on its own.
 
         Args:
-            gateway: Instantiated gateway adapter from target.gateway.
+            health:       The adapter's answer for the live target health.
+            evidence_ref: Evidence record of that answer.
 
         Returns:
-            Informational InfoNote if CB metrics are absent from /status.
-            Returns None on GatewayAdapterError (avoids masking the primary finding).
+            None when the live health is readable, else an InfoNote.
         """
-        try:
-            status_data = gateway.get_status()
-        except GatewayAdapterError as exc:
-            log.warning(
-                "test_4_3_status_endpoint_unreachable",
-                error=str(exc),
-                status_code=exc.status_code,
-            )
+        if health.status == ConceptStatus.READ:
+            log.info("test_4_3_live_health_readable", targets=len(health.items))
             return None
-
-        status_keys: frozenset[str] = frozenset(status_data.keys())
-        present_cb_keys = status_keys & _CB_STATUS_INDICATORS
-
-        if present_cb_keys:
-            log.info(
-                "test_4_3_status_cb_fields_present",
-                fields=list(present_cb_keys),
-            )
-            return None
-
-        log.info(
-            "test_4_3_status_no_cb_fields",
-            present_keys=sorted(status_keys),
-        )
-
+        log.info("test_4_3_live_health_not_readable", status=health.status.value)
         return InfoNote(
-            title="Observability Gap: CB Metrics Absent from Kong /status",
+            title="Observability Gap: Backend Health State Not Readable",
             detail=(
-                "The Kong Admin API GET /status response does not contain any "
-                "circuit-breaker state fields "
-                f"(checked: {', '.join(sorted(_CB_STATUS_INDICATORS))}). "
-                f"Present fields: {', '.join(sorted(status_keys)) or '(none)'}.\n\n"
-                "Kong OSS /status reports only database connectivity and worker "
-                "memory statistics. It does not expose circuit-breaker or passive "
-                "healthcheck state (OPEN/CLOSED/HALF-OPEN), failure counters, or "
-                "backend ejection events. This is true regardless of whether a CB "
-                "plugin or upstream passive healthcheck is configured.\n\n"
+                f"The live health of the backend targets could not be read "
+                f"({health.status.value}: {health.reason}). Evidence: {evidence_ref}.\n\n"
                 "Impact: operators cannot detect a tripped circuit or an ejected "
                 "backend in real time, cannot correlate client 503 errors with "
                 "upstream failure events, and cannot verify that the compensating "
-                "control is functioning correctly. The protection mechanism "
-                "(whatever level it operates at) is operationally unmanageable "
-                "during incidents without external observability.\n\n"
-                "Remediation: deploy a Prometheus exporter or Datadog Kong "
-                "integration to scrape upstream health metrics (targets with "
-                "health: UNHEALTHY status), or upgrade to Kong Gateway Enterprise "
-                "which exposes /status/circuit-breakers."
+                "control is functioning correctly.\n\n"
+                "Remediation: expose the gateway's backend health state to the "
+                "monitoring (e.g. a Prometheus exporter), and give the assessment "
+                "read access to it."
             ),
             references=_REFERENCES_OBS,
         )

@@ -135,12 +135,15 @@ external tool, sanitised, also copied to `outputs/tools/`). Records are streamed
 
 **TargetContext / TestContext** (`src/core/context.py`). See [data model](data-model.md#runtime-contexts).
 
-**Gateway adapters** (`src/core/gateway/`). `BaseGatewayAdapter` exposes read-only methods: `check_connectivity`,
-`get_routes`, `get_plugins`, `get_services`, `get_upstreams`, `get_plugin_by_name`, `get_status`.
-`KongGatewayAdapter` calls `/routes`, `/plugins`, `/services`, `/upstreams`, `/status` on the Admin API with plain
-`GET`s, follows pagination, raises `GatewayAdapterError` on transport errors or non-200 status. It sends no
-credentials and always verifies TLS (Q-34). It is created in Phase 3 only when `target.gateway_adapter: kong` and
-`target.admin_api_url` are set; tests access it as `target.gateway`.
+**Gateway adapters** (`src/core/gateway/`). `BaseGatewayAdapter` exposes one reader per neutral concept
+(`backend_timeouts`, `circuit_breakers`, `health_checks`, `target_health`, `signing_policies`, `routes`,
+`config_values`), each answering with a `ConceptRead` (`src/core/gateway/concepts.py`: read, not supported, or not
+accessible), read once per run; a `GatewayAdapterError` becomes "not accessible". `KongGatewayAdapter` translates
+`/services`, `/upstreams`, `/upstreams/{name}/health`, `/routes`, `/plugins` of the Admin API (plain `GET`s,
+pagination, the headers of `target.admin_api_headers`, TLS always verified). The adapter is chosen from
+`GATEWAY_ADAPTERS` (`src/core/gateway/__init__.py`) in Phase 3 when `target.gateway_adapter` and
+`target.admin_api_url` are set; tests access it as `target.gateway` ([add a gateway
+adapter](../guides/extending/add-a-gateway-adapter.md)).
 
 **Connectors** (`src/connectors/`). `BaseConnector` with two tiers: `BaseSubprocessConnector` (nuclei,
 testssl.sh; `subprocess.run` with an argument list, no shell) and `BaseLibraryConnector` (sslyze). Binaries are

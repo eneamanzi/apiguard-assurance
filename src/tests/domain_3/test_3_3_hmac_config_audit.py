@@ -83,24 +83,38 @@ Sub-test D -- Body Validation Observability
     since the correct value is context-dependent (POST/PUT-heavy APIs should
     enable it; GET-only APIs may leave it disabled by design).
 
+Gateway access:
+    The sub-tests read the gateway concepts "request signing policies" and
+    "routes" (src/core/gateway/concepts.py) through the adapter; on Kong, the
+    plugins named in plugin_names and the field names of this test's
+    configuration are passed to the Kong adapter. Policies not supported or
+    not accessible give SKIP; routes not readable give a degraded coverage
+    note. The descriptions above use Kong's terms for the original design.
+
 EvidenceStore policy:
-    WHITE_BOX configuration audit. No HTTP requests are issued to the target
-    API, therefore no EvidenceRecord is produced and _log_transaction() is
-    never called. Findings carry evidence_ref=None. The plugin configuration
-    values are included verbatim in the Finding.detail field.
+    No HTTP request is made to the target API. The concepts read are stored
+    as artifacts (BaseTest._record_gateway_concept); findings point to the
+    signing policies read (evidence_ref), the coverage note to the routes.
 --------------------------------------------------------------------------
 """
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import ClassVar
 
 import structlog
 
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
-from src.core.gateway.base import BaseGatewayAdapter, GatewayAdapterError
+from src.core.gateway.base import CONCEPT_ROUTES, CONCEPT_SIGNING_POLICIES
+from src.core.gateway.concepts import (
+    ConceptRead,
+    ConceptScope,
+    ConceptStatus,
+    GatewayRoute,
+    SigningPolicy,
+)
 from src.core.models import (
     Finding,
     InfoNote,
@@ -208,21 +222,19 @@ class Test33HMACConfigAudit(BaseTest):
         store: EvidenceStore,
     ) -> TestResult:
         """
-        Audit Kong hmac-auth plugin configuration via the Admin API.
+        Audit the request signing (HMAC) policy through the gateway adapter.
 
         Execution flow:
-            1. Guard: requires Admin API to be configured (_requires_admin_api).
-            2. Fetch all Kong plugins via get_plugins().
-            3. Filter for the 'hmac-auth' plugin.
-            4. If plugin absent or disabled: return SKIP with InfoNote.
-            5. If plugin present and enabled:
-               a. Audit clock_skew (Sub-test B).
-               b. Audit algorithms list (Sub-test C).
-               c. Build body validation InfoNote (Sub-test D).
-            6. Return PASS with notes, or FAIL with findings.
-
-        No HTTP requests are made to the target API. No _log_transaction()
-        calls are needed because there are no EvidenceRecords.
+            1. Guard: requires a gateway adapter (_requires_admin_api).
+            2. Read the concept "request signing policies" (on Kong: the
+               plugins named in plugin_names) and store it as evidence; not
+               supported or not accessible: SKIP with the reason.
+            3. No policy, or the first one disabled: SKIP with an InfoNote.
+            4. Audit the first policy: replay window (Sub-test B), algorithms
+               (Sub-test C), body coverage note (Sub-test D), coverage scope
+               note from the routes concept (Sub-test E).
+            5. PASS with notes, or FAIL with findings pointing to the stored
+               concept.
 
         Returns:
             TestResult with status PASS, FAIL, SKIP, or ERROR.
@@ -244,12 +256,9 @@ class Test33HMACConfigAudit(BaseTest):
                 plugin_names=plugin_names,
                 max_clock_skew_seconds=cfg.max_clock_skew_seconds,
                 forbidden_algorithms=cfg.forbidden_algorithms,
-                field_clock_skew=cfg.field_clock_skew,
-                field_algorithms=cfg.field_algorithms,
             )
 
             if not plugin_names:
-                # Operator configured an empty list: no plugin names to search for.
                 log.warning("test_3_3_plugin_names_empty")
                 return self._make_skip(
                     reason=(
@@ -259,85 +268,51 @@ class Test33HMACConfigAudit(BaseTest):
                     )
                 )
 
-            # Sub-test A: fetch all plugins and find the first matching name.
-            plugins = self._fetch_plugins(gateway)
-            if plugins is None:
-                return self._make_error(
-                    RuntimeError(
-                        "Kong Admin API call failed -- see structured log for details. "
-                        "Verify that admin_api_url is correct and the Kong Admin API "
-                        "is reachable from this host."
-                    )
-                )
+            policies = gateway.signing_policies()
+            evidence_ref = self._record_gateway_concept(
+                target, store, CONCEPT_SIGNING_POLICIES, policies
+            )
+            if policies.status != ConceptStatus.READ:
+                return self._skip_for_concept(CONCEPT_SIGNING_POLICIES, policies, evidence_ref)
 
-            hmac_plugin = self._find_hmac_plugin(plugins, plugin_names)
-
-            if hmac_plugin is None:
+            if not policies.items:
                 log.info("test_3_3_plugin_not_found", searched_names=plugin_names)
                 return self._make_skip_with_note(plugin_names=plugin_names)
 
-            if not hmac_plugin.get("enabled", False):
-                plugin_id = hmac_plugin.get("id", "<unknown>")
-                plugin_found_name = hmac_plugin.get("name", "<unknown>")
-                log.info(
-                    "test_3_3_plugin_disabled",
-                    plugin_name=plugin_found_name,
-                    plugin_id=plugin_id,
-                )
+            policy = policies.items[0]
+            if not policy.enabled:
+                log.info("test_3_3_plugin_disabled", policy=policy.source)
                 return self._make_skip_with_note(
                     plugin_names=plugin_names,
-                    plugin_id=plugin_id,
+                    plugin_id=policy.source,
                     disabled=True,
                 )
 
-            plugin_id = hmac_plugin.get("id", "<unknown>")
-            plugin_found_name = hmac_plugin.get("name", "<unknown>")
-            plugin_config: dict[str, Any] = hmac_plugin.get("config", {})
-
             log.info(
                 "test_3_3_plugin_found",
-                plugin_name=plugin_found_name,
-                plugin_id=plugin_id,
-                clock_skew=plugin_config.get(cfg.field_clock_skew),
-                algorithms=plugin_config.get(cfg.field_algorithms),
-                validate_request_body=plugin_config.get(cfg.field_validate_body),
+                policy=policy.source,
+                replay_window_seconds=policy.replay_window_seconds,
+                algorithms=policy.algorithms,
+                body_signed=policy.body_signed,
             )
 
             findings: list[Finding] = []
-
-            # Sub-test B: clock_skew validation.
-            clock_finding = self._audit_clock_skew(plugin_config, plugin_id, cfg)
+            clock_finding = self._audit_clock_skew(policy, cfg, evidence_ref)
             if clock_finding is not None:
                 findings.append(clock_finding)
+            findings.extend(self._audit_algorithms(policy, cfg, evidence_ref))
 
-            # Sub-test C: algorithm audit.
-            algo_findings = self._audit_algorithms(plugin_config, plugin_id, cfg)
-            findings.extend(algo_findings)
-
-            # Sub-test D: body validation observability note (always emitted on PASS/FAIL).
-            body_note = self._build_body_validation_note(
-                plugin_config, plugin_id, cfg.field_validate_body
-            )
-
-            # Sub-test E: coverage scope analysis (always emitted, never a Finding).
-            # Passes the full plugin list so the analysis can find ALL enabled hmac
-            # instances, not just the primary one audited by B/C/D.
-            coverage_note = self._audit_coverage_scope(
-                all_plugins=plugins,
-                plugin_names=plugin_names,
-                gateway=gateway,
-            )
-
+            body_note = self._build_body_validation_note(policy, cfg.field_validate_body)
+            routes = gateway.routes()
+            routes_ref = self._record_gateway_concept(target, store, CONCEPT_ROUTES, routes)
+            coverage_note = self._audit_coverage_scope(policies.items, routes, routes_ref)
             notes: list[InfoNote] = [coverage_note, body_note]
 
             if findings:
-                # Both notes are attached even on FAIL: coverage gaps and body validation
-                # posture are orthogonal to the replay/algorithm violations and provide
-                # independent architectural context for the analyst reading the report.
                 return self._make_fail_multi(
                     message=(
-                        f"hmac-auth plugin audit found {len(findings)} violation(s) "
-                        f"(plugin id: {plugin_id}). "
+                        f"HMAC policy audit found {len(findings)} violation(s) "
+                        f"({policy.source}). "
                         "Misconfigured HMAC authentication exposes the Gateway to "
                         "replay attacks or signature forgery."
                     ),
@@ -347,7 +322,7 @@ class Test33HMACConfigAudit(BaseTest):
 
             return self._make_pass(
                 message=(
-                    f"hmac-auth plugin (id: {plugin_id}) configuration is compliant: "
+                    f"HMAC policy ({policy.source}) configuration is compliant: "
                     f"clock_skew <= {cfg.max_clock_skew_seconds} s and no forbidden "
                     "algorithms are configured."
                 ),
@@ -357,68 +332,6 @@ class Test33HMACConfigAudit(BaseTest):
         except Exception as exc:  # noqa: BLE001
             log.exception("test_3_3_unexpected_error", error=str(exc))
             return self._make_error(exc)
-
-    # ------------------------------------------------------------------
-    # Sub-test A helpers: plugin discovery
-    # ------------------------------------------------------------------
-
-    def _fetch_plugins(
-        self,
-        gateway: BaseGatewayAdapter,
-    ) -> list[dict[str, Any]] | None:
-        """
-        Retrieve all plugins via the gateway adapter.
-
-        Returns None on error so the caller can produce ERROR without
-        re-catching the exception.
-
-        Args:
-            gateway: Instantiated gateway adapter from target.gateway.
-
-        Returns:
-            List of plugin dicts (may be empty), or None on Admin API error.
-        """
-        try:
-            plugins = gateway.get_plugins()
-            log.debug("test_3_3_plugins_fetched", total=len(plugins))
-            return plugins
-        except GatewayAdapterError as exc:
-            log.error(
-                "test_3_3_admin_api_error",
-                path="/plugins",
-                status_code=exc.status_code,
-                error=str(exc),
-            )
-            return None
-
-    @staticmethod
-    def _find_hmac_plugin(
-        plugins: list[dict[str, Any]],
-        plugin_names: list[str],
-    ) -> dict[str, Any] | None:
-        """
-        Return the first plugin whose name appears in the plugin_names list, or None.
-
-        Iterates the full plugin list from the Admin API and returns both enabled
-        and disabled instances so the caller can distinguish "not installed" (None)
-        from "installed but disabled" (dict with enabled=False).
-
-        The check is case-insensitive to tolerate minor naming variations
-        across gateway versions.
-
-        Args:
-            plugins:      Full plugin list from the Admin API.
-            plugin_names: Ordered list of names to search for (from cfg.plugin_names).
-
-        Returns:
-            First plugin dict whose name matches any entry in plugin_names,
-            or None if no matching plugin is installed.
-        """
-        normalised_names: set[str] = {n.lower() for n in plugin_names}
-        for plugin in plugins:
-            if plugin.get("name", "").lower() in normalised_names:
-                return plugin
-        return None
 
     def _make_skip_with_note(
         self,
@@ -525,378 +438,205 @@ class Test33HMACConfigAudit(BaseTest):
 
     def _audit_coverage_scope(
         self,
-        all_plugins: list[dict[str, Any]],
-        plugin_names: list[str],
-        gateway: BaseGatewayAdapter,
+        policies: tuple[SigningPolicy, ...],
+        routes: ConceptRead[GatewayRoute],
+        routes_ref: str,
     ) -> InfoNote:
         """
-        Determine which services and routes are actually protected by HMAC.
+        Determine which backends and routes are protected by request signing.
 
-        Kong allows a plugin to be scoped at three levels:
-          - Global:  service=null AND route=null  →  applies to ALL traffic.
-          - Service: service={"id": "..."}        →  applies to all routes of
-                     that service only.
-          - Route:   route={"id": "..."}          →  applies to that route only.
+        A policy applies globally, to a backend (all its routes), or to one
+        route. A correctly configured policy scoped to a single non-critical
+        path still leaves the rest of the API unprotected: this sub-test
+        surfaces that gap. Backends and routes are named as in the routes
+        concept, so a policy on a backend covers the routes that send to it.
 
-        A plugin that is correctly configured (compliant clock_skew and algorithms)
-        but scoped to a single non-critical path still leaves the rest of the API
-        traffic unprotected by HMAC.  This sub-test surfaces that gap.
-
-        Algorithm:
-          1. Filter all_plugins for enabled instances whose name matches plugin_names.
-          2. If any instance is global (service=null AND route=null): emit a
-             reassuring InfoNote — all traffic is covered, no gap analysis needed.
-          3. Otherwise: fetch /services and /routes from the Admin API to build
-             a complete inventory.  Map each plugin instance to its covered
-             service or route.  Compute uncovered services (no direct plugin and
-             no route-scope plugin covering any of their routes) and uncovered
-             routes (not under a covered service and no direct route plugin).
-          4. Emit a detailed InfoNote distinguishing covered vs uncovered entities.
-
-        This method never raises.  Admin API errors during gap analysis produce a
-        degraded InfoNote describing the limitation rather than a hard ERROR.
+        This method never raises: routes that cannot be read give a degraded
+        note listing only the policy scopes.
 
         Args:
-            all_plugins:  Full plugin list from the Admin API (unfiltered).
-            plugin_names: Names to match when filtering HMAC plugins.
-            gateway:      Instantiated gateway adapter from target.gateway.
+            policies:   Signing policies read from the gateway.
+            routes:     The routes concept answer.
+            routes_ref: Evidence record of the routes answer.
 
         Returns:
-            InfoNote documenting the HMAC coverage scope.  Never a Finding.
+            InfoNote documenting the coverage scope.  Never a Finding.
         """
-        normalised_names: set[str] = {n.lower() for n in plugin_names}
-        enabled_hmac_plugins: list[dict[str, Any]] = [
-            p
-            for p in all_plugins
-            if p.get("name", "").lower() in normalised_names and p.get("enabled", False)
-        ]
-
-        if not enabled_hmac_plugins:
-            # Defensive guard: should not happen since caller already found a plugin.
+        enabled = [p for p in policies if p.enabled]
+        if not enabled:
             return InfoNote(
                 title="HMAC Coverage Scope: No Enabled Instances Found",
                 detail=(
-                    "No enabled HMAC plugin instances were found during coverage "
-                    "scope analysis.  This is unexpected because the primary plugin "
-                    "lookup in Sub-test A already identified an active instance.  "
-                    "This may indicate a race condition between the two Admin API calls.  "
-                    "Re-run the assessment to confirm."
+                    "No enabled HMAC policy was found during coverage scope analysis, "
+                    "although the policy audited above is enabled. Re-run the "
+                    "assessment to confirm."
                 ),
                 references=list(_SCOPE_REFERENCES),
             )
 
-        # Check for any global instance (service=null AND route=null).
-        global_instances: list[dict[str, Any]] = [
-            p for p in enabled_hmac_plugins if p.get("service") is None and p.get("route") is None
-        ]
-
-        if global_instances:
-            global_ids: list[str] = [p.get("id", "<unknown>") for p in global_instances]
-            instance_word: str = "instance" if len(global_ids) == 1 else "instances"
-            log.debug(
-                "test_3_3_coverage_scope_global",
-                global_instance_ids=global_ids,
-            )
+        global_policies = [p for p in enabled if p.scope == ConceptScope.GLOBAL]
+        if global_policies:
+            sources = [p.source for p in global_policies]
+            log.debug("test_3_3_coverage_scope_global", policies=sources)
             return InfoNote(
                 title="HMAC Coverage: Global — All Traffic Protected",
                 detail=(
-                    f"The HMAC plugin {instance_word} "
-                    f"{', '.join(repr(i) for i in global_ids)} "
-                    f"{'is' if len(global_ids) == 1 else 'are'} applied globally "
-                    "(service = null, route = null).  Every request reaching the "
-                    "Gateway — regardless of path, method, or upstream service — "
-                    "is subject to HMAC authentication.  No coverage gaps exist."
-                    "\n\nA global plugin is the most protective scope.  If future "
-                    "routes or services are added to this Gateway instance they will "
-                    "automatically be covered without any plugin reconfiguration."
+                    f"The HMAC policy {', '.join(repr(src) for src in sources)} "
+                    f"{'is' if len(sources) == 1 else 'are'} applied globally. Every "
+                    "request reaching the Gateway, regardless of path, method or backend, "
+                    "is subject to HMAC authentication. No coverage gaps exist."
+                    "\n\nA global policy is the most protective scope: future routes and "
+                    "backends are covered without any reconfiguration."
                 ),
                 references=list(_SCOPE_REFERENCES),
             )
 
-        # All instances are scoped.  Perform gap analysis using /services and /routes.
-        log.info(
-            "test_3_3_coverage_scope_partial",
-            enabled_instance_count=len(enabled_hmac_plugins),
-        )
+        scope_lines = [f"{p.source}: {p.scope.value} '{p.name}'" for p in enabled]
+        log.info("test_3_3_coverage_scope_partial", enabled_policy_count=len(enabled))
 
-        try:
-            services: list[dict[str, Any]] = gateway.get_services()
-            routes: list[dict[str, Any]] = gateway.get_routes()
-        except GatewayAdapterError as exc:
-            log.warning(
-                "test_3_3_coverage_scope_fetch_error",
-                error=str(exc),
-            )
-            # Degraded note: report what we know about the plugin scopes without
-            # the full gap analysis, which requires the service/route inventories.
-            scoped_summary: list[str] = self._summarise_plugin_scopes(enabled_hmac_plugins)
+        if routes.status != ConceptStatus.READ:
             return InfoNote(
                 title="HMAC Coverage: Scoped — Gap Analysis Unavailable",
                 detail=(
-                    "The HMAC plugin is NOT applied globally.  All active instances "
-                    "are scoped to specific services or routes, meaning traffic "
-                    "outside those scopes is NOT protected by HMAC authentication.\n\n"
-                    "Active plugin instances and their declared scopes:\n"
-                    + "\n".join(f"  - {s}" for s in scoped_summary)
-                    + "\n\n"
-                    "A full gap analysis (listing uncovered services and routes) "
-                    "was attempted but could not be completed because the Admin API "
-                    f"returned an error when fetching the service/route inventory: "
-                    f"{exc}\n\n"
-                    "Verify manually that all intended traffic paths are covered by "
-                    "an HMAC plugin instance."
+                    "The HMAC policy is NOT applied globally: traffic outside the "
+                    "covered scopes is NOT protected by HMAC authentication.\n\n"
+                    "Active policies and their scopes:\n"
+                    + "\n".join(f"  - {line}" for line in scope_lines)
+                    + "\n\nThe gap analysis (uncovered backends and routes) needs the "
+                    f"gateway's routes, which could not be read ({routes.status.value}: "
+                    f"{routes.reason}). Evidence: {routes_ref}. Verify manually that all "
+                    "intended traffic paths are covered."
                 ),
                 references=list(_SCOPE_REFERENCES),
             )
 
-        # Build lookup maps: id → human-readable label.
-        service_name_map: dict[str, str] = {
-            s["id"]: (s.get("name") or s["id"]) for s in services if "id" in s
-        }
-        # For routes, use the paths list as the label (more informative than the UUID).
-        route_label_map: dict[str, str] = {
-            r["id"]: (", ".join(r.get("paths") or []) or r.get("name") or r["id"])
-            for r in routes
-            if "id" in r
-        }
-        # Map route id → parent service id (may be None for service-less routes).
-        route_service_map: dict[str, str | None] = {
-            r["id"]: (r.get("service") or {}).get("id") for r in routes if "id" in r
-        }
-
-        # Determine covered service IDs and covered route IDs from plugin scopes.
-        covered_service_ids: set[str] = set()
-        covered_route_ids: set[str] = set()
-
-        for plugin in enabled_hmac_plugins:
-            svc_scope = plugin.get("service")
-            rte_scope = plugin.get("route")
-            if svc_scope and svc_scope.get("id"):
-                covered_service_ids.add(svc_scope["id"])
-            if rte_scope and rte_scope.get("id"):
-                covered_route_ids.add(rte_scope["id"])
-
-        # A route is implicitly covered if its parent service has a service-scoped plugin.
-        implicitly_covered_route_ids: set[str] = {
-            rid for rid, sid in route_service_map.items() if sid in covered_service_ids
-        }
-        all_effectively_covered_route_ids: set[str] = (
-            covered_route_ids | implicitly_covered_route_ids
-        )
-
-        all_service_ids: set[str] = set(service_name_map.keys())
-        all_route_ids: set[str] = set(route_label_map.keys())
-
-        uncovered_service_ids: set[str] = all_service_ids - covered_service_ids
-        uncovered_route_ids: set[str] = all_route_ids - all_effectively_covered_route_ids
+        covered_backends = {p.name for p in enabled if p.scope == ConceptScope.BACKEND}
+        covered_routes = {p.name for p in enabled if p.scope == ConceptScope.ROUTE}
+        all_backends = {r.backend for r in routes.items if r.backend} | covered_backends
+        route_label = {r.name: (", ".join(r.paths) or r.name) for r in routes.items}
+        via_backend = {r.name for r in routes.items if r.backend in covered_backends}
+        effectively_covered = covered_routes | via_backend
+        uncovered_backends = all_backends - covered_backends
+        uncovered_routes = set(route_label) - effectively_covered
 
         log.info(
             "test_3_3_coverage_gap_summary",
-            total_services=len(all_service_ids),
-            covered_services=len(covered_service_ids),
-            uncovered_services=len(uncovered_service_ids),
-            total_routes=len(all_route_ids),
-            covered_routes=len(all_effectively_covered_route_ids),
-            uncovered_routes=len(uncovered_route_ids),
+            total_backends=len(all_backends),
+            covered_backends=len(covered_backends),
+            uncovered_backends=len(uncovered_backends),
+            total_routes=len(route_label),
+            covered_routes=len(effectively_covered),
+            uncovered_routes=len(uncovered_routes),
         )
 
-        # Build human-readable detail sections.
-        plugin_scope_lines: list[str] = self._summarise_plugin_scopes(
-            enabled_hmac_plugins,
-            service_name_map=service_name_map,
-            route_label_map=route_label_map,
-        )
-
-        covered_svc_lines: list[str] = sorted(
-            f"'{service_name_map.get(sid, sid)}' (id: {sid})" for sid in covered_service_ids
-        )
-        uncovered_svc_lines: list[str] = sorted(
-            f"'{service_name_map.get(sid, sid)}' (id: {sid})" for sid in uncovered_service_ids
-        )
-        covered_rte_lines: list[str] = sorted(
-            f"'{route_label_map.get(rid, rid)}' (id: {rid})"
-            + (" [via parent service]" if rid in implicitly_covered_route_ids else "")
-            for rid in all_effectively_covered_route_ids
-        )
-        uncovered_rte_lines: list[str] = sorted(
-            f"'{route_label_map.get(rid, rid)}' (id: {rid})" for rid in uncovered_route_ids
-        )
-
-        has_gaps: bool = bool(uncovered_service_ids or uncovered_route_ids)
-        title_suffix: str = (
+        has_gaps = bool(uncovered_backends or uncovered_routes)
+        title_suffix = (
             "Partial Coverage — Gaps Detected" if has_gaps else "Partial Scope — Full Coverage"
         )
-
         detail_parts: list[str] = [
-            "The HMAC plugin is NOT applied globally.  All active instances are "
-            "scoped to specific services or routes.  Traffic outside the covered "
+            "The HMAC policy is NOT applied globally.  All active policies are "
+            "scoped to specific backends or routes.  Traffic outside the covered "
             "scopes is NOT protected by HMAC authentication.\n",
-            "Active plugin instances and their declared scopes:",
-            *[f"  - {line}" for line in plugin_scope_lines],
+            "Active policies and their scopes:",
+            *[f"  - {line}" for line in scope_lines],
         ]
-
-        if covered_svc_lines:
-            detail_parts += [
-                "\nServices WITH HMAC coverage (direct service-scope plugin):",
-                *[f"  + {line}" for line in covered_svc_lines],
-            ]
-        if uncovered_svc_lines:
-            detail_parts += [
-                "\nServices WITHOUT HMAC coverage:",
-                *[f"  - {line}" for line in uncovered_svc_lines],
-            ]
-        if covered_rte_lines:
-            detail_parts += [
-                "\nRoutes WITH HMAC coverage (direct route-scope or via parent service):",
-                *[f"  + {line}" for line in covered_rte_lines],
-            ]
-        if uncovered_rte_lines:
-            detail_parts += [
-                "\nRoutes WITHOUT HMAC coverage:",
-                *[f"  - {line}" for line in uncovered_rte_lines],
-            ]
-
+        sections = (
+            ("Backends WITH HMAC coverage (backend-scope policy):", "+", sorted(covered_backends)),
+            ("Backends WITHOUT HMAC coverage:", "-", sorted(uncovered_backends)),
+            (
+                "Routes WITH HMAC coverage (route-scope policy or via their backend):",
+                "+",
+                sorted(
+                    f"{route_label.get(r, r)}"
+                    + (" [via backend]" if r in via_backend and r not in covered_routes else "")
+                    for r in effectively_covered
+                    if r in route_label
+                ),
+            ),
+            (
+                "Routes WITHOUT HMAC coverage:",
+                "-",
+                sorted(route_label.get(r, r) for r in uncovered_routes),
+            ),
+        )
+        for heading, sign, names in sections:
+            if names:
+                detail_parts += [f"\n{heading}", *[f"  {sign} '{n}'" for n in names]]
         if has_gaps:
             detail_parts.append(
-                "\nRecommended action: evaluate whether the uncovered services and "
-                "routes require HMAC authentication.  If so, either add plugin "
-                "instances scoped to each uncovered resource, or replace all "
-                "scoped instances with a single global plugin instance "
-                "(service = null, route = null)."
+                "\nRecommended action: evaluate whether the uncovered backends and "
+                "routes require HMAC authentication.  If so, either add policies "
+                "scoped to each uncovered resource, or replace the scoped policies "
+                "with a single global one."
             )
         else:
             detail_parts.append(
-                "\nAll registered services and routes are covered by at least one "
-                "HMAC plugin instance (directly or via their parent service).  "
-                "No traffic gaps were detected in the current Gateway configuration."
+                "\nAll backends and routes are covered by at least one HMAC policy "
+                "(directly or via their backend).  No traffic gaps were detected."
             )
-
+        detail_parts.append(f"\nEvidence: {routes_ref}.")
         return InfoNote(
             title=f"HMAC Coverage Scope: {title_suffix}",
             detail="\n".join(detail_parts),
             references=list(_SCOPE_REFERENCES),
         )
 
-    @staticmethod
-    def _summarise_plugin_scopes(
-        plugins: list[dict[str, Any]],
-        service_name_map: dict[str, str] | None = None,
-        route_label_map: dict[str, str] | None = None,
-    ) -> list[str]:
-        """
-        Build a list of human-readable scope description strings, one per plugin instance.
-
-        Used both in the full gap-analysis path (with name maps) and in the
-        degraded path where the service/route inventories could not be fetched
-        (maps are None, raw IDs are used as fallback labels).
-
-        Args:
-            plugins:          List of enabled HMAC plugin dicts.
-            service_name_map: Map from service id to service name.  None in degraded mode.
-            route_label_map:  Map from route id to route path label.  None in degraded mode.
-
-        Returns:
-            List of strings like
-            "id: <uuid>, scope: service '<name>' (id: <uuid>)"
-            "id: <uuid>, scope: route '<paths>' (id: <uuid>)"
-            "id: <uuid>, scope: global"  ← should not appear here, but kept for safety.
-        """
-        lines: list[str] = []
-        for plugin in plugins:
-            pid: str = plugin.get("id", "<unknown>")
-            svc_scope = plugin.get("service")
-            rte_scope = plugin.get("route")
-
-            if svc_scope and svc_scope.get("id"):
-                sid: str = svc_scope["id"]
-                label: str = (service_name_map or {}).get(sid, sid)
-                lines.append(f"id: {pid!r}, scope: service '{label}' (id: {sid})")
-            elif rte_scope and rte_scope.get("id"):
-                rid: str = rte_scope["id"]
-                label = (route_label_map or {}).get(rid, rid)
-                lines.append(f"id: {pid!r}, scope: route '{label}' (id: {rid})")
-            else:
-                lines.append(f"id: {pid!r}, scope: global")
-
-        return lines
-
     # ------------------------------------------------------------------
-    # Sub-test B: clock_skew audit
+    # Sub-test B: replay window audit
     # ------------------------------------------------------------------
 
     def _audit_clock_skew(
         self,
-        plugin_config: dict[str, Any],
-        plugin_id: str,
+        policy: SigningPolicy,
         cfg: Test33Config,
+        evidence_ref: str,
     ) -> Finding | None:
         """
-        Validate the clock_skew field against the oracle threshold.
-
-        The field name is read from cfg.field_clock_skew so the audit is
-        agnostic to the gateway's JSON schema.  The sentinel value that
-        represents "no limit configured" is read from cfg.clock_skew_unconfigured_value.
+        Validate the replay window against the oracle threshold.
 
         Three conditions produce a Finding:
-            1. The configured field name is absent from the plugin config object.
-            2. The field value equals cfg.clock_skew_unconfigured_value (unlimited window).
-            3. The field value exceeds cfg.max_clock_skew_seconds (window too wide).
+            1. The gateway does not state the replay window.
+            2. It equals cfg.clock_skew_unconfigured_value (unlimited window).
+            3. It exceeds cfg.max_clock_skew_seconds (window too wide).
 
         Args:
-            plugin_config: The 'config' dict from the HMAC plugin object.
-            plugin_id:     Plugin id string (for Finding detail context).
-            cfg:           Test33Config with the oracle threshold and field names.
+            policy:       The signing policy audited.
+            cfg:          Test33Config with the oracle threshold.
+            evidence_ref: Evidence record of the concept read.
 
         Returns:
-            Finding if the clock_skew is non-compliant, None if compliant.
+            Finding if the replay window is non-compliant, None if compliant.
         """
         field_name: str = cfg.field_clock_skew
-        raw_value = plugin_config.get(field_name)
+        ident = policy.source
 
-        # Condition 1: field absent (unexpected but guard defensively).
-        if raw_value is None:
-            log.info(
-                "test_3_3_clock_skew_absent",
-                plugin_id=plugin_id,
-                field_name=field_name,
-            )
+        if policy.replay_window_seconds is None:
+            log.info("test_3_3_clock_skew_absent", policy=ident)
             return Finding(
-                title=(f"HMAC '{field_name}' Field Absent on Plugin '{plugin_id}'"),
+                title=f"HMAC '{field_name}' Field Absent on '{ident}'",
                 detail=(
-                    f"The '{field_name}' field is absent from the HMAC plugin "
-                    f"(id: {plugin_id}) configuration returned by the Admin API. "
-                    "Expected an integer value in seconds controlling the replay-attack "
-                    "window. This may indicate a gateway version incompatibility or "
-                    "corrupted plugin configuration. Without this field, replay-attack "
-                    "protection posture for HMAC authentication cannot be audited. "
+                    f"The gateway does not state the replay window ('{field_name}') of the "
+                    f"HMAC policy {ident}. Without it, replay-attack protection posture for "
+                    "HMAC authentication cannot be audited. "
                     f"Oracle: '{field_name}' must be > {cfg.clock_skew_unconfigured_value} "
                     f"and <= {cfg.max_clock_skew_seconds} s "
-                    "(NIST SP 800-107 Rev. 1 Section 5.3.2). "
-                    f"If the gateway uses a different field name, update "
-                    "config.tests.domain_3.test_3_3.field_clock_skew accordingly."
+                    "(NIST SP 800-107 Rev. 1 Section 5.3.2)."
                 ),
                 references=list(_REFERENCES),
-                evidence_ref=None,
+                evidence_ref=evidence_ref,
             )
 
-        value_s = int(raw_value)
+        value_s = int(policy.replay_window_seconds)
 
-        # Condition 2: field equals the unconfigured sentinel (unlimited replay window).
         if value_s == cfg.clock_skew_unconfigured_value:
-            log.info(
-                "test_3_3_clock_skew_unconfigured",
-                plugin_id=plugin_id,
-                field_name=field_name,
-                value=value_s,
-                sentinel=cfg.clock_skew_unconfigured_value,
-            )
+            log.info("test_3_3_clock_skew_unconfigured", policy=ident, value=value_s)
             return Finding(
                 title=(
                     f"HMAC Replay Window Unlimited: '{field_name}' = "
-                    f"{cfg.clock_skew_unconfigured_value} on Plugin '{plugin_id}'"
+                    f"{cfg.clock_skew_unconfigured_value} on '{ident}'"
                 ),
                 detail=(
-                    f"The HMAC plugin (id: {plugin_id}) has '{field_name}' = "
+                    f"The HMAC policy {ident} has '{field_name}' = "
                     f"{cfg.clock_skew_unconfigured_value}, which disables "
                     "timestamp-based replay protection. An attacker who captures a valid "
                     "HMAC-signed request can replay it indefinitely — the gateway will "
@@ -906,50 +646,37 @@ class Test33HMACConfigAudit(BaseTest):
                     f"and <= {cfg.max_clock_skew_seconds} s "
                     "(NIST SP 800-107 Rev. 1 Section 5.3.2, 5-minute window). "
                     "Recommended action: set the field to a value between 60 and "
-                    f"{cfg.max_clock_skew_seconds} seconds in the plugin configuration."
+                    f"{cfg.max_clock_skew_seconds} seconds in the gateway configuration."
                 ),
                 references=list(_REFERENCES),
-                evidence_ref=None,
+                evidence_ref=evidence_ref,
             )
 
-        # Condition 3: clock_skew exceeds oracle threshold.
         if value_s > cfg.max_clock_skew_seconds:
             log.info(
                 "test_3_3_clock_skew_too_wide",
-                plugin_id=plugin_id,
-                field_name=field_name,
+                policy=ident,
                 value=value_s,
                 oracle_max_seconds=cfg.max_clock_skew_seconds,
             )
             return Finding(
-                title=(
-                    f"HMAC Replay Window Too Wide: '{field_name}' = {value_s} s "
-                    f"on Plugin '{plugin_id}'"
-                ),
+                title=f"HMAC Replay Window Too Wide: '{field_name}' = {value_s} s on '{ident}'",
                 detail=(
-                    f"The HMAC plugin (id: {plugin_id}) has '{field_name}' = {value_s} s "
+                    f"The HMAC policy {ident} has '{field_name}' = {value_s} s "
                     f"({value_s / 60:.1f} min), which exceeds the oracle threshold of "
                     f"{cfg.max_clock_skew_seconds} s ({cfg.max_clock_skew_seconds / 60:.0f} min) "
                     "from NIST SP 800-107 Rev. 1 Section 5.3.2. "
                     f"A {value_s}-second window means an attacker who captures a signed "
                     f"request can replay it for up to {value_s / 60:.1f} minutes before the "
-                    "gateway rejects it. Under targeted attack conditions (capture + immediate "
-                    "replay), this window is sufficient to perform authenticated actions as "
-                    "the legitimate caller. "
+                    "gateway rejects it. "
                     f"Recommended action: reduce '{field_name}' to "
-                    f"<= {cfg.max_clock_skew_seconds} s in the plugin configuration."
+                    f"<= {cfg.max_clock_skew_seconds} s in the gateway configuration."
                 ),
                 references=list(_REFERENCES),
-                evidence_ref=None,
+                evidence_ref=evidence_ref,
             )
 
-        log.debug(
-            "test_3_3_clock_skew_compliant",
-            plugin_id=plugin_id,
-            field_name=field_name,
-            value=value_s,
-            oracle_max_seconds=cfg.max_clock_skew_seconds,
-        )
+        log.debug("test_3_3_clock_skew_compliant", policy=ident, value=value_s)
         return None
 
     # ------------------------------------------------------------------
@@ -958,99 +685,69 @@ class Test33HMACConfigAudit(BaseTest):
 
     def _audit_algorithms(
         self,
-        plugin_config: dict[str, Any],
-        plugin_id: str,
+        policy: SigningPolicy,
         cfg: Test33Config,
+        evidence_ref: str,
     ) -> list[Finding]:
         """
-        Check the algorithms list for any operator-forbidden algorithm.
+        Check the allowed algorithms for any operator-forbidden algorithm.
 
-        The field name is read from cfg.field_algorithms so the audit is agnostic
-        to the gateway's JSON schema.  Produces one Finding per forbidden algorithm
-        found. The Finding detail includes an algorithm-specific severity note
-        (broken vs deprecated).
+        Produces one Finding per forbidden algorithm found, or one Finding
+        when the gateway does not state the allowed algorithms (an empty list
+        states that none is allowed and gives no finding).
 
         Args:
-            plugin_config: The 'config' dict from the HMAC plugin object.
-            plugin_id:     Plugin id string (for Finding detail context).
-            cfg:           Test33Config with the forbidden_algorithms list
-                           and the field_algorithms name.
+            policy:       The signing policy audited.
+            cfg:          Test33Config with the forbidden_algorithms list.
+            evidence_ref: Evidence record of the concept read.
 
         Returns:
-            List of Findings (one per forbidden algorithm detected). Empty if clean.
+            List of Findings. Empty if clean.
         """
         field_name: str = cfg.field_algorithms
-        raw_algorithms = plugin_config.get(field_name)
+        ident = policy.source
 
-        if raw_algorithms is None:
-            # Field absent: gateway uses its own default algorithm set.
-            # We cannot determine what algorithms are active without the field.
-            log.info(
-                "test_3_3_algorithms_field_absent",
-                plugin_id=plugin_id,
-                field_name=field_name,
-            )
+        if policy.algorithms is None:
+            log.info("test_3_3_algorithms_field_absent", policy=ident)
             return [
                 Finding(
-                    title=(f"HMAC '{field_name}' Field Absent on Plugin '{plugin_id}'"),
+                    title=f"HMAC '{field_name}' Field Absent on '{ident}'",
                     detail=(
-                        f"The '{field_name}' field is absent from the HMAC plugin "
-                        f"(id: {plugin_id}) configuration. Without this field the active "
-                        "algorithm set defaults to the gateway's built-in list, which "
-                        "historically includes 'hmac-sha1' and 'hmac-md5'. The actual "
-                        "allowed algorithms cannot be audited. Configure the field explicitly "
-                        "to restrict the allowed set to hmac-sha256, hmac-sha384, or "
-                        "hmac-sha512. "
-                        f"If the gateway uses a different field name, update "
-                        "config.tests.domain_3.test_3_3.field_algorithms accordingly."
+                        f"The gateway does not state the allowed algorithms ('{field_name}') "
+                        f"of the HMAC policy {ident}. The active set then defaults to the "
+                        "gateway's built-in list, which historically includes 'hmac-sha1' "
+                        "and 'hmac-md5'. Configure the list explicitly to restrict it to "
+                        "hmac-sha256, hmac-sha384, or hmac-sha512."
                     ),
                     references=list(_REFERENCES),
-                    evidence_ref=None,
+                    evidence_ref=evidence_ref,
                 )
             ]
 
-        configured_algorithms: list[str] = [a.lower() for a in raw_algorithms]
-        forbidden_set: list[str] = [a.lower() for a in cfg.forbidden_algorithms]
-
+        configured_algorithms: list[str] = [a.lower() for a in policy.algorithms]
         findings: list[Finding] = []
-
-        for forbidden_alg in forbidden_set:
-            if forbidden_alg in configured_algorithms:
-                severity_note = _ALGORITHM_SEVERITY_NOTES.get(
-                    forbidden_alg, _ALGORITHM_SEVERITY_NOTE_DEFAULT
+        for forbidden_alg in (a.lower() for a in cfg.forbidden_algorithms):
+            if forbidden_alg not in configured_algorithms:
+                log.debug("test_3_3_algorithm_not_found", policy=ident, algorithm=forbidden_alg)
+                continue
+            severity_note = _ALGORITHM_SEVERITY_NOTES.get(
+                forbidden_alg, _ALGORITHM_SEVERITY_NOTE_DEFAULT
+            )
+            log.info("test_3_3_forbidden_algorithm_found", policy=ident, algorithm=forbidden_alg)
+            findings.append(
+                Finding(
+                    title=f"Forbidden HMAC Algorithm '{forbidden_alg}' Allowed on '{ident}'",
+                    detail=(
+                        f"The HMAC policy {ident} allows the algorithm '{forbidden_alg}' "
+                        f"in its allowed list ({configured_algorithms}). {severity_note} "
+                        "Recommended action: remove this algorithm from the allowed list "
+                        "and ensure all consumers are migrated to hmac-sha256 or stronger "
+                        "before the next key rotation."
+                    ),
+                    references=list(_REFERENCES),
+                    evidence_ref=evidence_ref,
                 )
-                log.info(
-                    "test_3_3_forbidden_algorithm_found",
-                    plugin_id=plugin_id,
-                    algorithm=forbidden_alg,
-                )
-                findings.append(
-                    Finding(
-                        title=(
-                            f"Forbidden HMAC Algorithm '{forbidden_alg}' Allowed "
-                            f"on Plugin '{plugin_id}'"
-                        ),
-                        detail=(
-                            f"The HMAC plugin (id: {plugin_id}) allows the algorithm "
-                            f"'{forbidden_alg}' in its configured '{field_name}' list "
-                            f"({configured_algorithms}). "
-                            f"{severity_note} "
-                            "Recommended action: remove this algorithm from the plugin's "
-                            f"'{field_name}' list and ensure all consumers are migrated to "
-                            "hmac-sha256 or stronger before the next key rotation."
-                        ),
-                        references=list(_REFERENCES),
-                        evidence_ref=None,
-                    )
-                )
-            else:
-                log.debug(
-                    "test_3_3_algorithm_not_found",
-                    plugin_id=plugin_id,
-                    algorithm=forbidden_alg,
-                    configured=configured_algorithms,
-                )
-
+            )
         return findings
 
     # ------------------------------------------------------------------
@@ -1058,37 +755,25 @@ class Test33HMACConfigAudit(BaseTest):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _build_body_validation_note(
-        plugin_config: dict[str, Any],
-        plugin_id: str,
-        field_validate_body: str,
-    ) -> InfoNote:
+    def _build_body_validation_note(policy: SigningPolicy, field_validate_body: str) -> InfoNote:
         """
-        Build an InfoNote describing the body validation posture of the plugin.
+        Build an InfoNote describing whether the body is covered by the signature.
 
-        This sub-test never fails. Its purpose is to surface whether the plugin
-        is configured to include the request body in the HMAC signature. This
-        is an architectural observation: the correct value is context-dependent
-        and cannot be determined by the tool alone.
-
-        The field name is passed explicitly via field_validate_body so the note
-        reflects the gateway-specific configuration key.
+        This sub-test never fails: the correct value depends on the API's usage.
 
         Args:
-            plugin_config:       The 'config' dict from the HMAC plugin object.
-            plugin_id:           Plugin id string (for note context).
-            field_validate_body: JSON field name to read from plugin_config
-                                 (from cfg.field_validate_body).
+            policy:              The signing policy audited.
+            field_validate_body: The gateway's field name, for the note (from
+                                 cfg.field_validate_body).
 
         Returns:
             InfoNote documenting the body validation posture.
         """
-        raw_validate = plugin_config.get(field_validate_body)
-        validate_body: bool = bool(raw_validate) if raw_validate is not None else False
-
+        validate_body: bool = bool(policy.body_signed)
+        ident = policy.source
         if validate_body:
             detail = (
-                f"The HMAC plugin (id: {plugin_id}) has '{field_validate_body}' = true. "
+                f"The HMAC policy {ident} has '{field_validate_body}' = true. "
                 "The HMAC signature covers the full request body in addition to the headers, "
                 "preventing body-swap attacks where an attacker intercepts a signed request "
                 "and replaces the body with a malicious payload. This is the recommended "
@@ -1097,12 +782,12 @@ class Test33HMACConfigAudit(BaseTest):
             )
         else:
             body_field_note = (
-                f"(field '{field_validate_body}' absent from config -- gateway defaults to false)"
-                if raw_validate is None
+                f"(field '{field_validate_body}' not stated -- gateway defaults to false)"
+                if policy.body_signed is None
                 else f"'{field_validate_body}' = false"
             )
             detail = (
-                f"The HMAC plugin (id: {plugin_id}) has {body_field_note}. "
+                f"The HMAC policy {ident} has {body_field_note}. "
                 "The HMAC signature covers only the request headers (method, path, date, "
                 "Authorization), not the body. An attacker who intercepts a signed request "
                 "could replace the body with a malicious payload and the gateway would "
@@ -1111,15 +796,11 @@ class Test33HMACConfigAudit(BaseTest):
                 "  - GET-only APIs: body validation is irrelevant (no body to protect).\n"
                 "  - POST/PUT/PATCH APIs handling sensitive operations: enabling "
                 f"'{field_validate_body}' is strongly recommended.\n"
-                "This note is informational. Enable body validation in the plugin "
+                "This note is informational. Enable body validation in the gateway "
                 "configuration if body integrity is a requirement of your security policy."
             )
-
         return InfoNote(
-            title=(
-                f"HMAC Body Validation: '{field_validate_body}' = {validate_body} "
-                f"on Plugin '{plugin_id}'"
-            ),
+            title=f"HMAC Body Validation: '{field_validate_body}' = {validate_body} on '{ident}'",
             detail=detail,
             references=[
                 "RFC-2104",

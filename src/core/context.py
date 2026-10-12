@@ -239,7 +239,7 @@ class TargetContext(BaseModel):
             "None when target.gateway_adapter is not set in config.yaml. "
             "Populated by engine.py Phase 3 from target.gateway_adapter + admin_api_url. "
             "WHITE_BOX tests guard with 'if target.gateway is None: return SKIP'. "
-            "Tests call target.gateway.get_services(), .get_plugins(), etc. "
+            "Tests read neutral concepts through it, e.g. target.gateway.backend_timeouts(). "
             "Excluded from model serialisation (not JSON-serialisable)."
         ),
     )

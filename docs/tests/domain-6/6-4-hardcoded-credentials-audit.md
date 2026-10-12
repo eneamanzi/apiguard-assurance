@@ -34,16 +34,22 @@ in plain text in the gateway configuration.
 Credential patterns: URL-embedded `user:password@host`, AWS access key id (`AKIA…`), Stripe `sk_live_` / `sk_test_`,
 GitHub `ghp_` token, PEM private key.
 
-**Sub-test B, gateway configuration (only with Admin API and adapter).**
+**Sub-test B, gateway configuration (only with a gateway adapter).** The test reads the gateway concept
+"configuration values" ([gateway concepts](../../project/gateway-concepts.md)): backend URLs and the text values of
+the plugin configurations, each with its location and dotted key. Client credentials (values the gateway keeps for
+its clients) are not scanned. On Kong DB-less no backend URL is returned and strings inside lists are not collected,
+so sub-test B finds nothing on the labs (Q-29).
 
 | Check | Finding |
 |---|---|
-| Service URL contains `user:password@` | `Credential Hardcoded in Kong Service URL: <service>` |
-| Plugin config value matches a credential pattern | `Credential Pattern in Kong Config: <location>` |
-| Plugin config key looks sensitive (`password`, `secret`, `api_key`, `client_secret`, `private_key`, … 27 fragments; `token` alone is excluded) and the value has ≥ 8 characters and is not one of 30 known placeholders (`changeme`, `example`, …) | `Probable Plaintext Credential in Kong Config: <location>` |
+| Backend URL contains a credential pattern (e.g. `user:password@`) | `Credential Hardcoded in Gateway Backend URL: <location>` |
+| Plugin config value matches a credential pattern | `Credential Pattern in Gateway Config: <location>` |
+| Plugin config key looks sensitive (`password`, `secret`, `api_key`, `client_secret`, `private_key`, … 27 fragments; `token` alone is excluded) and the value has ≥ 8 characters and is not one of 30 known placeholders (`changeme`, `example`, …) | `Probable Plaintext Credential in Gateway Config: <location>` |
 
-Without Admin API, sub-test B is replaced by the InfoNote `Admin API Audit Gap: Kong Configuration Not Scanned`.
-With it, an InfoNote reminds that filesystem and container-image checks must be done manually.
+Without a gateway adapter, sub-test B is replaced by the InfoNote `Admin API Audit Gap: Kong Configuration Not
+Scanned`. When the configuration values are not supported or cannot be read, sub-test A still stands and the InfoNote
+`Sub-test B Not Verified: Gateway Configuration Not Readable` gives the reason. With an adapter, an InfoNote reminds
+that filesystem and container-image checks must be done manually.
 
 ## Outcomes
 
@@ -55,7 +61,9 @@ With it, an InfoNote reminds that filesystem and container-image checks must be 
 | ERROR | Unexpected exception. |
 
 References: CWE-798, OWASP-API8:2023, OWASP-ASVS-V13.3.1, V13.3.4, V13.4.1, NIST-SP-800-53-Rev5-IA-5(1),
-NIST-SP-800-204-S5.4. Sub-test B findings have no `evidence_ref` (Admin API calls are not recorded).
+NIST-SP-800-204-S5.4. Sub-test B stores the configuration values read in `evidence.json`
+(`artifact-6.4-gateway_configuration_values-...`, every value masked as `**********`, location and key visible) and
+its findings point to it (`evidence_ref`).
 
 ## Oracle states
 

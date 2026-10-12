@@ -49,7 +49,8 @@ Treat all output files as sensitive: response bodies can carry the target's data
 
 - `target.verify_tls` (default `true`) controls certificate verification towards `base_url` and the HTTP-redirect
   probe of test 1.5. Set it to `false` only for lab gateways with self-signed certificates.
-- The gateway Admin API is always called with certificate verification on and without credentials (Q-34).
+- The gateway Admin API is called with the headers of `target.admin_api_headers` (values registered as secrets,
+  masked in every output) and always with certificate verification on (Q-34).
 
 ## External tools
 

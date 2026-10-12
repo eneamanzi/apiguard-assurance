@@ -232,9 +232,11 @@ sends on purpose as `Authorization` (e.g. a malformed token) is not a secret: de
 **Payload data** (`src/tests/data/`): `auth_payloads.py`, `inspector_patterns.py`, `shadow_wordlists.py`,
 `ssrf_payloads.py`. Put reusable payload lists there, not in the test.
 
-**Gateway configuration** (WHITE_BOX audits): guard with `_requires_admin_api(target)`, then call
-`target.gateway.get_services()`, `get_plugins()`, `get_routes()`, `get_upstreams()`, `get_status()`; catch
-`GatewayAdapterError` and return `_make_error`.
+**Gateway configuration** (WHITE_BOX audits): guard with `_requires_admin_api(target)`, then read the neutral
+concepts you need (`target.gateway.backend_timeouts()`, `health_checks()`, `signing_policies()`, ...; [add a gateway
+adapter](add-a-gateway-adapter.md)). Store each answer with `self._record_gateway_concept(target, store, CONCEPT_...,
+answer)` and use the returned id as the findings' `evidence_ref`; when the answer is not READ, return
+`self._skip_for_concept(...)`, or add an InfoNote if the test can still judge another part.
 
 **Resources created on the target** must be registered immediately after creation:
 `context.register_resource_for_teardown(method, path, headers=None)`. Phase 6 deletes them in reverse order.

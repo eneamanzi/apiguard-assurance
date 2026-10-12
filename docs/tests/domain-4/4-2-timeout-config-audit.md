@@ -1,8 +1,8 @@
 # 4.2 Timeout Configuration Audit
 
-> **Audience:** analysts, contributors · **Status:** implemented (v0.1.0), Kong only · **Source of truth:**
+> **Audience:** analysts, contributors · **Status:** implemented (v0.1.0); any gateway with an adapter (today Kong) · **Source of truth:**
 > [`src/tests/domain_4/test_4_2_timeout_config_audit.py`](../../../src/tests/domain_4/test_4_2_timeout_config_audit.py) ·
-> **Verified:** 2026-10-05
+> **Verified:** 2026-10-12
 
 | | |
 |---|---|
@@ -21,12 +21,14 @@ that a slow backend cannot hold gateway workers indefinitely.
 
 ## How it works
 
-No request is sent to the target API. Through the gateway adapter the test lists all services and, for each one,
-checks `connect_timeout`, `read_timeout`, `write_timeout`:
+No request is sent to the target API. The test reads the gateway concept "backend timeouts" through the gateway
+adapter ([gateway concepts](../../project/gateway-concepts.md)): one item per backend (a Kong service), or per route
+that overrides its backend's timeouts (APISIX), in seconds. For each item it checks the connect, read and write
+timeouts (`write_timeout` is the time between two writes to the backend):
 
 | Value | Finding |
 |---|---|
-| field absent | `Timeout Field Absent: <field> on service '<name>'` |
+| not stated by the gateway | `Timeout Field Absent: <field> on service '<name>'` (`route '<name>'` for a route) |
 | `0` | `Timeout Not Configured: <field> == 0 on service '<name>'` |
 | above the threshold | `Timeout Exceeds Oracle Threshold: <field> = <value> ms on service '<name>'` |
 
@@ -38,15 +40,17 @@ Thresholds (ms): `max_connect_timeout_ms` 5000, `max_read_timeout_ms` 30000, `ma
 |---|---|
 | PASS | Every service has all three timeouts within bounds. |
 | FAIL | At least one finding. |
-| SKIP | No Admin API / adapter configured, or no service registered on the gateway. |
-| ERROR | Admin API call failed, or unexpected exception. |
+| SKIP | No gateway adapter configured; the gateway has no such concept ("Not applicable to this gateway: backend timeouts: ..."); the Admin API cannot be read ("Not verifiable: no access to backend timeouts: ..."); or no backend registered. |
+| ERROR | Unexpected exception. |
 
-References: OWASP-API4:2023, CWE-400, NIST-SP-800-204A-Section-4.3, OWASP-ASVS-v5.0.0-V16.5.2. Findings have no
-`evidence_ref`; values are quoted in the detail.
+References: OWASP-API4:2023, CWE-400, NIST-SP-800-204A-Section-4.3, OWASP-ASVS-v5.0.0-V16.5.2. The concept read is
+stored in `evidence.json` as an artifact (`artifact-4.2-gateway_backend_timeouts-...`, also in `tools/`) and every
+finding points to it (`evidence_ref`); the SKIP reasons name it too.
 
 ## Prerequisites and effects on the target
 
-`target.admin_api_url` and `target.gateway_adapter: kong`. Read-only Admin API calls.
+`target.admin_api_url` and `target.gateway_adapter` (plus `target.admin_api_headers` for a protected Admin API).
+Read-only Admin API calls.
 
 ## Coverage against the methodology
 

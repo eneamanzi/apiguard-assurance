@@ -1,6 +1,6 @@
 # 4.3 Circuit Breaker Audit
 
-> **Audience:** analysts, contributors · **Status:** implemented (v0.1.0), Kong only · **Source of truth:**
+> **Audience:** analysts, contributors · **Status:** implemented (v0.1.0); any gateway with an adapter (today Kong) · **Source of truth:**
 > [`src/tests/domain_4/test_4_3_circuit_breaker_audit.py`](../../../src/tests/domain_4/test_4_3_circuit_breaker_audit.py) ·
 > **Verified:** 2026-10-05
 
@@ -43,9 +43,16 @@ At least one valid upstream → PASS with InfoNote
 **Level 3, no protection.** Neither of the above → finding
 `Level 3 (Vulnerable): No Circuit-Breaker Protection Detected`.
 
-**Observability.** The gateway `/status` response is checked for circuit-breaker fields (`circuit_breaker`,
-`circuit_breakers`, `cb_state`). If absent: `Observability Gap: CB Metrics Absent from Kong /status`, attached as
-an InfoNote on PASS and as an additional **Finding** on FAIL (it then counts in the finding total).
+**Observability.** The live health of the backend targets must be readable (gateway concept "live target health":
+Kong `GET /upstreams/<name>/health`). If it is not: `Observability Gap: Backend Health State Not Readable`, with the
+reason, attached as an InfoNote on PASS and as an additional **Finding** on FAIL (it then counts in the finding
+total). Until 2026-10 the check looked for circuit-breaker fields in Kong's `/status`, which never has them, and
+always reported a gap although Kong exposes the upstream health.
+
+**Gateway access.** The levels read the gateway concepts circuit breakers, health checks and live target health
+([gateway concepts](../../project/gateway-concepts.md)). Health checks not supported or not accessible: SKIP.
+Circuit breakers not accessible: SKIP when the verdict would be Level 3 (their absence is not proven), a note when
+Level 2 holds.
 
 ## Outcomes
 
@@ -53,11 +60,12 @@ an InfoNote on PASS and as an additional **Finding** on FAIL (it then counts in 
 |---|---|
 | PASS | Level 1 plugin compliant, or Level 2 compensating control found. |
 | FAIL | Level 1 plugin with issues, or Level 3. |
-| SKIP | No Admin API / adapter configured. |
-| ERROR | Admin API call failed, or unexpected exception. |
+| SKIP | No gateway adapter configured, or a concept the verdict needs is not supported or cannot be read (reason "Not applicable to this gateway: ..." / "Not verifiable: no access to ..."). |
+| ERROR | Unexpected exception. |
 
-References: OWASP-API4:2023, OWASP-ASVS-v5.0.0-V16.5.2, NIST-SP-800-204-Section-4.5.1, CWE-400. No
-`evidence_ref`: configuration values are quoted in the detail.
+References: OWASP-API4:2023, OWASP-ASVS-v5.0.0-V16.5.2, NIST-SP-800-204-Section-4.5.1, CWE-400. Each concept read is
+stored in `evidence.json` (`artifact-4.3-gateway_...`); findings point to the concept they are based on
+(`evidence_ref`).
 
 ## Prerequisites and effects on the target
 
@@ -71,7 +79,7 @@ Source: [`methodology.it.md` §4.3](../../knowledge/methodology/methodology.it.m
 |---|---|
 | Circuit-breaker directive present | Implemented (Kong plugin, or passive health checks as compensating control). |
 | Parameters: threshold 3-10, open duration 30-120 s | Implemented for the plugin. Trigger codes (5xx and timeouts) not checked. |
-| Health endpoint exposing breaker state | Implemented as the `/status` observability check. |
+| Health endpoint exposing breaker state | Implemented as the observability check (live health of the backend targets). |
 | 30-day metrics analysis | Not implemented. |
 | Behavioural test with a disabled dependency | Not implemented (staging only). |
 

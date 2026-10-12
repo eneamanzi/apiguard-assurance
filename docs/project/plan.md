@@ -16,6 +16,18 @@
   changes); (4) implementation, verified on both labs; (5) a known API behind a second gateway (only the gateway
   changes), gateway chosen after the analysis. Per-test changes go into the test review unless a lab needs them to
   prove the structure: decided case by case.
+- **Step 4 of block 7+8, implementation plan** (approved by the owner 2026-10-12; one file per change, each approved
+  before writing, verified on the labs):
+  - Phase A, neutral gateway concepts on Kong, no behaviour change: `src/core/gateway/concepts.py` (models and the
+    read / not supported / not accessible outcome), one memoised reader per concept in `base.py`, Kong mapping in
+    `kong.py`, concepts stored as masked evidence (`pin_artifact`), `target.admin_api_headers`, adapter registry in
+    the engine, tests 4.2, 4.3, 3.3, 6.4 B migrated one at a time (oracles unchanged);
+  - Phase B, `test-environments/forgejo-apisix/` (Forgejo behind APISIX, ports 10000/10443/10001) and
+    `src/core/gateway/apisix.py` (Control API key presented before writing);
+  - Phase C, authentication methods (obtain, apply from the spec's security schemes, optional revoke): `basic`,
+    `static_token`, `json_login`, `forgejo_token`; `auth_type` required; tests 2.1, 7.2, 1.4 migrated;
+  - Phase D, 2.1 and 7.2 without Forgejo defaults, `config.example.yaml` with a key-alignment check in `dev:check`,
+    documentation, open questions brought to the owner.
 - **Then, in order** (revised 2026-10-09, owner: everything around the tests first, the test review last): block 7
   cRAPI lab together with the infrastructure part of block 8 agnosticism (neutral gateway data, "not applicable"
   result, Forgejo defaults to configuration; the per-test parts go into the test review) → block 9 CI and generated
@@ -247,3 +259,10 @@ CI (Q-16), E2E test suite (Q-51), documentation generated from code with a drift
 | 2026-10-11 | Q-34 header part decided by the owner (`target.admin_api_headers`). How tests report unsupported or inaccessible concepts decided (SKIP with reason, InfoNote for partial). Login default (`forgejo_token`) found to be a structural question: authentication survey written (`docs/project/auth-survey.md`: today's flow and its problems, OpenAPI security schemes, the lab specifications, ways to obtain credentials) |
 | 2026-10-11 | Authentication design decided by the owner (`auth-survey.md` section 5): apply side from the specification's security schemes (`security_scheme`, `send_as`); obtain side `auth_type` required, values `basic`, `static_token`, `json_login` (renamed), `forgejo_token`. Next design questions: 2.1 default admin path, 1.4 and 7.2 target-specific operations |
 | 2026-10-11 | Design questions of the block answered by the owner: 2.1 and 7.2 without Forgejo defaults (SKIP when not configured); 1.4 revocation as an optional capability of the authentication method (only `forgejo_token` now; verified that crAPI cannot revoke tokens). Step 2 of block 7+8 complete; next: implementation plan (step 4) |
+| 2026-10-12 | Implementation plan of block 7+8 step 4 approved by the owner (phases A-D, summarised in "Where we are"). Next: Phase A step 1, `src/core/gateway/concepts.py` |
+| 2026-10-12 | Phase A steps 1-5 done: `src/core/gateway/concepts.py` (models, read / not supported / not accessible), readers memoised per run in `base.py` (adapter errors become not accessible), Kong mapping of the seven concepts (faithful to what tests 3.3, 4.2, 4.3, 6.4 read today; 6.4 B scans nothing on the Kong labs, noted in Q-29), concept evidence helper in `BaseTest` (secrets fully masked), `target.admin_api_headers` (sent on every request, registered as secrets: 0 occurrences of the value in debug log and reports), adapter registry `GATEWAY_ADAPTERS`. Native baseline identical after each step. Next: step 6, migrate tests 4.2, 4.3, 3.3, 6.4 B |
+| 2026-10-12 | Phase A step 6, test 4.2 migrated to the backend timeouts concept (common `BaseTest._skip_for_concept`): Forgejo and cRAPI identical to their baselines; forced findings point to the stored concept; unreachable Admin API gives SKIP (was ERROR). Test page and changelog updated. Next: 4.3 |
+| 2026-10-12 | Phase A step 6, test 4.3 migrated (circuit breakers, health checks, live target health; owner chose to replace the Kong `/status` observability check now): Forgejo and cRAPI identical (statuses, findings, oracle states; the false observability note gone); forced Level 3 FAIL points to the stored health checks; Admin API down gives SKIP. Non-numeric breaker parameter noted in Q-29. Next: 3.3 |
+| 2026-10-12 | Phase A step 6, test 3.3 migrated (signing policies, routes; coverage by name): Forgejo and cRAPI identical; forced findings (hmac-sha256 forbidden, window 100 s) point to the stored policies; Admin API down gives SKIP. Next: 6.4 sub-test B |
+| 2026-10-12 | Phase A step 6, test 6.4 sub-test B migrated (configuration values; client credentials not scanned): both labs identical; a temporary fake Stripe-format key in a Kong http-log plugin was found (finding pointing to the stored concept, key 0 times in the outputs, evidence shows location and key with the value masked), `kong.yml` restored byte-identical; Admin API down gives a note, sub-test A stands. All four audits migrated. Next: remove the Kong-shaped methods from the adapter interface |
+| 2026-10-12 | Phase A done: Kong-shaped methods removed from the adapter interface and the Kong adapter; guide `add-a-gateway-adapter.md` rewritten for the concepts; overview and native-test guide updated. Both labs identical to their baselines; all seven concepts read on both labs. Next: Phase B, APISIX lab |

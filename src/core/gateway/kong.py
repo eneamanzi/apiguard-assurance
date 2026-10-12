@@ -32,12 +32,30 @@ Must never import from src.tests, src.engine, src.config, or src.discovery.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 import httpx
 import structlog
 
 from src.core.gateway.base import BaseGatewayAdapter, GatewayAdapterError
+from src.core.gateway.concepts import (
+    ActiveCheck,
+    BackendTimeout,
+    CircuitBreaker,
+    ConceptRead,
+    ConceptScope,
+    ConfigValue,
+    ConfigValueKind,
+    GatewayRoute,
+    HealthCheck,
+    PassiveCheck,
+    SigningPolicy,
+    TargetHealth,
+    TargetState,
+)
+from src.test_config.domain_3 import Test33Config
+from src.test_config.domain_4 import Test43AuditConfig
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -49,7 +67,32 @@ _PATH_ROUTES: str = "/routes"
 _PATH_PLUGINS: str = "/plugins"
 _PATH_SERVICES: str = "/services"
 _PATH_UPSTREAMS: str = "/upstreams"
-_PATH_STATUS: str = "/status"
+_PATH_UPSTREAM_HEALTH: str = "/upstreams/{name}/health"
+
+# Kong milliseconds to the concepts' seconds.
+_MS_PER_SECOND: float = 1000.0
+# Kong's health values of a target that map to a neutral state (others: unknown).
+_KONG_TARGET_STATES: dict[str, TargetState] = {
+    "HEALTHY": TargetState.HEALTHY,
+    "UNHEALTHY": TargetState.UNHEALTHY,
+}
+# Kong OSS ships no circuit breaker: these field names of third-party breaker
+# plugins are tried in order (moved from test 4.3).
+_BREAKER_THRESHOLD_FIELDS: tuple[str, ...] = (
+    "failure_threshold",
+    "consecutive_errors",
+    "error_threshold_percentage",
+)
+_BREAKER_OPEN_FIELDS: tuple[str, ...] = (
+    "timeout",
+    "sleep_time",
+    "recovery_time",
+    "timeout_duration",
+)
+# Depth limit when collecting the text values of a plugin configuration
+# (the same limit test 6.4 applied to the raw configuration).
+_CONFIG_VALUES_MAX_DEPTH: int = 10
+_GLOBAL_SCOPE_NAME: str = "global"
 
 _OK_STATUS: int = 200
 
@@ -84,6 +127,9 @@ class KongGatewayAdapter(BaseGatewayAdapter):
         admin_base_url: str,
         connect_timeout: float,
         read_timeout: float,
+        admin_headers: Mapping[str, str] | None = None,
+        signing_config: Test33Config | None = None,
+        breaker_config: Test43AuditConfig | None = None,
     ) -> None:
         """
         Store admin API coordinates.  No I/O at construction time.
@@ -92,133 +138,235 @@ class KongGatewayAdapter(BaseGatewayAdapter):
             admin_base_url:  Kong Admin API base URL (no trailing slash).
             connect_timeout: TCP connection timeout in seconds.
             read_timeout:    HTTP read timeout in seconds.
+            admin_headers:   Headers sent on every Admin API request (e.g. an
+                             RBAC token); none by default.
+            signing_config:  Test 3.3 configuration: which plugin names are a
+                             request signing policy and the names of their
+                             fields; the defaults when None.
+            breaker_config:  Test 4.3 configuration: which plugin names are a
+                             circuit breaker, in priority order; the defaults
+                             when None.
         """
         self._admin_base_url: str = admin_base_url.rstrip("/")
         self._connect_timeout: float = connect_timeout
         self._read_timeout: float = read_timeout
+        self._admin_headers: dict[str, str] = dict(admin_headers or {})
+        self._signing: Test33Config = signing_config or Test33Config()
+        self._breaker: Test43AuditConfig = breaker_config or Test43AuditConfig()
 
     @property
     def adapter_name(self) -> str:
         """Return the adapter identifier used in logs and error messages."""
         return "kong"
 
-    def check_connectivity(self) -> bool:
-        """
-        Verify that the Kong Admin API is reachable via GET /status.
+    # ------------------------------------------------------------------
+    # Neutral concepts (docs/project/gateway-concepts.md)
+    # ------------------------------------------------------------------
 
-        Returns:
-            True if the status endpoint responds with HTTP 200.
-            False on connection refused, timeout, or any other error.
-        """
-        try:
-            self._fetch_single(_PATH_STATUS)
-            return True
-        except GatewayAdapterError:
-            return False
-        except Exception:  # noqa: BLE001
-            return False
+    def _read_backend_timeouts(self) -> ConceptRead[BackendTimeout]:
+        """Map each Kong Service to its timeouts (milliseconds to seconds)."""
+        items = tuple(
+            BackendTimeout(
+                scope=ConceptScope.BACKEND,
+                name=self._service_name(service),
+                connect_seconds=_ms_to_seconds(service.get("connect_timeout")),
+                send_seconds=_ms_to_seconds(service.get("write_timeout")),
+                read_seconds=_ms_to_seconds(service.get("read_timeout")),
+                source=f"service {self._service_name(service)}",
+            )
+            for service in self._fetch_paginated(_PATH_SERVICES)
+        )
+        return ConceptRead[BackendTimeout].read(items)
 
-    def get_routes(self) -> list[dict[str, Any]]:
-        """
-        Fetch all routes registered in Kong.
-
-        Each returned dict contains at minimum:
-            'id' (str), 'paths' (list[str] | None), 'methods' (list[str] | None),
-            'service' (dict with 'id').
-
-        Returns:
-            List of Kong route objects, empty if none are configured.
-
-        Raises:
-            GatewayAdapterError: On transport failure or non-200 response.
-        """
-        return self._fetch_paginated(_PATH_ROUTES)
-
-    def get_plugins(self) -> list[dict[str, Any]]:
-        """
-        Fetch all plugins installed on Kong.
-
-        Each returned dict contains at minimum:
-            'id' (str), 'name' (str), 'enabled' (bool), 'config' (dict).
-
-        Returns:
-            List of Kong plugin objects, empty if none are installed.
-
-        Raises:
-            GatewayAdapterError: On transport failure or non-200 response.
-        """
-        return self._fetch_paginated(_PATH_PLUGINS)
-
-    def get_services(self) -> list[dict[str, Any]]:
-        """
-        Fetch all services registered in Kong.
-
-        Each returned dict contains at minimum:
-            'id' (str), 'name' (str | None),
-            'connect_timeout' (int), 'read_timeout' (int), 'write_timeout' (int).
-
-        Returns:
-            List of Kong service objects, empty if none are configured.
-
-        Raises:
-            GatewayAdapterError: On transport failure or non-200 response.
-        """
-        return self._fetch_paginated(_PATH_SERVICES)
-
-    def get_upstreams(self) -> list[dict[str, Any]]:
-        """
-        Fetch all upstreams registered in Kong.
-
-        Returns:
-            List of Kong upstream objects, empty if none are configured.
-
-        Raises:
-            GatewayAdapterError: On transport failure or non-200 response.
-        """
-        return self._fetch_paginated(_PATH_UPSTREAMS)
-
-    def get_status(self) -> dict[str, Any]:
-        """
-        Fetch the Kong Admin API /status endpoint.
-
-        Returns:
-            Kong status dict with node information and worker statistics.
-
-        Raises:
-            GatewayAdapterError: On transport failure or non-200 response.
-        """
-        return self._fetch_single(_PATH_STATUS)
-
-    def get_plugin_by_name(self, plugin_name: str) -> dict[str, Any] | None:
-        """
-        Return the first plugin matching plugin_name, or None.
-
-        Fetches all plugins and filters by name.  Returns None if no plugin
-        with that name is registered (enabled or disabled).
-
-        Args:
-            plugin_name: Exact Kong plugin name (e.g. 'rate-limiting',
-                         'circuit-breaker', 'hmac-auth').
-
-        Returns:
-            First matching plugin dict, or None if absent.
-
-        Raises:
-            GatewayAdapterError: On transport failure or non-200 response.
-        """
-        plugins = self.get_plugins()
-        for plugin in plugins:
-            if plugin.get("name") == plugin_name:
-                log.debug(
-                    "kong_gateway_plugin_found",
-                    plugin_name=plugin_name,
-                    plugin_id=plugin.get("id"),
-                    enabled=plugin.get("enabled"),
+    def _read_health_checks(self) -> ConceptRead[HealthCheck]:
+        """Map each Kong Upstream to its passive and active health checks."""
+        items: list[HealthCheck] = []
+        for upstream in self._fetch_paginated(_PATH_UPSTREAMS):
+            name = self._upstream_name(upstream)
+            checks: dict[str, Any] = upstream.get("healthchecks") or {}
+            passive: dict[str, Any] = checks.get("passive") or {}
+            unhealthy: dict[str, Any] = passive.get("unhealthy") or {}
+            active: dict[str, Any] = checks.get("active") or {}
+            items.append(
+                HealthCheck(
+                    scope=ConceptScope.BACKEND,
+                    name=name,
+                    passive=PassiveCheck(
+                        http_failures=unhealthy.get("http_failures"),
+                        tcp_failures=unhealthy.get("tcp_failures"),
+                        timeouts=unhealthy.get("timeouts"),
+                        failure_statuses=tuple(unhealthy.get("http_statuses") or ()),
+                    )
+                    if passive
+                    else None,
+                    active=ActiveCheck(
+                        healthy_interval_seconds=(active.get("healthy") or {}).get("interval"),
+                        unhealthy_interval_seconds=(active.get("unhealthy") or {}).get("interval"),
+                        http_path=active.get("http_path"),
+                    )
+                    if active
+                    else None,
+                    source=f"upstream {name}",
                 )
-                return plugin
+            )
+        return ConceptRead[HealthCheck].read(tuple(items))
 
-        log.debug("kong_gateway_plugin_not_found", plugin_name=plugin_name)
-        return None
+    def _read_target_health(self) -> ConceptRead[TargetHealth]:
+        """Read the live health of the targets of each Kong Upstream."""
+        items: list[TargetHealth] = []
+        for upstream in self._fetch_paginated(_PATH_UPSTREAMS):
+            name = self._upstream_name(upstream)
+            health = self._fetch_single(_PATH_UPSTREAM_HEALTH.format(name=name))
+            for target in health.get("data") or []:
+                items.append(
+                    TargetHealth(
+                        backend=name,
+                        target=str(target.get("target", "")),
+                        state=_KONG_TARGET_STATES.get(
+                            str(target.get("health", "")), TargetState.UNKNOWN
+                        ),
+                        counters=None,
+                    )
+                )
+        return ConceptRead[TargetHealth].read(tuple(items))
+
+    def _read_routes(self) -> ConceptRead[GatewayRoute]:
+        """Map each Kong Route, with the name of its Service as backend."""
+        service_names = {
+            str(s["id"]): self._service_name(s)
+            for s in self._fetch_paginated(_PATH_SERVICES)
+            if "id" in s
+        }
+        items = tuple(
+            GatewayRoute(
+                name=str(route.get("name") or route.get("id")),
+                paths=tuple(route.get("paths") or ()),
+                methods=tuple(route.get("methods") or ()),
+                backend=service_names.get(str((route.get("service") or {}).get("id"))),
+                enabled=True,
+                source=f"route {route.get('name') or route.get('id')}",
+            )
+            for route in self._fetch_paginated(_PATH_ROUTES)
+        )
+        return ConceptRead[GatewayRoute].read(items)
+
+    def _read_circuit_breakers(self) -> ConceptRead[CircuitBreaker]:
+        """
+        Map the plugins named in test 4.3's configuration to circuit breakers.
+
+        Kong OSS has no breaker plugin; third-party ones are recognised by
+        name, in the configured priority order, first instance of each name.
+        """
+        first_by_name: dict[str, dict[str, Any]] = {}
+        for plugin in self._fetch_paginated(_PATH_PLUGINS):
+            first_by_name.setdefault(str(plugin.get("name", "")), plugin)
+        items: list[CircuitBreaker] = []
+        for candidate in self._breaker.accepted_cb_plugin_names:
+            breaker = first_by_name.get(candidate)
+            if breaker is None:
+                continue
+            config: dict[str, Any] = breaker.get("config") or {}
+            scope, name = self._plugin_scope(breaker)
+            items.append(
+                CircuitBreaker(
+                    scope=scope,
+                    name=name,
+                    enabled=bool(breaker.get("enabled", False)),
+                    failure_threshold=_first_number(config, _BREAKER_THRESHOLD_FIELDS),
+                    failure_statuses=(),
+                    open_seconds=_first_number(config, _BREAKER_OPEN_FIELDS),
+                    recovery_successes=None,
+                    source=f"plugin {breaker.get('name')} (id: {breaker.get('id')})",
+                )
+            )
+        return ConceptRead[CircuitBreaker].read(tuple(items))
+
+    def _read_signing_policies(self) -> ConceptRead[SigningPolicy]:
+        """Map the plugins named in test 3.3's configuration to signing policies."""
+        names = {n.lower() for n in self._signing.plugin_names}
+        items: list[SigningPolicy] = []
+        for plugin in self._fetch_paginated(_PATH_PLUGINS):
+            if str(plugin.get("name", "")).lower() not in names:
+                continue
+            config: dict[str, Any] = plugin.get("config") or {}
+            algorithms = config.get(self._signing.field_algorithms)
+            skew = config.get(self._signing.field_clock_skew)
+            body = config.get(self._signing.field_validate_body)
+            scope, name = self._plugin_scope(plugin)
+            items.append(
+                SigningPolicy(
+                    scope=scope,
+                    name=name,
+                    enabled=bool(plugin.get("enabled", False)),
+                    algorithms=tuple(str(a) for a in algorithms)
+                    if algorithms is not None
+                    else None,
+                    replay_window_seconds=float(skew) if skew is not None else None,
+                    required_signed_headers=tuple(config.get("enforce_headers") or ()),
+                    body_signed=bool(body) if body is not None else None,
+                    source=f"plugin {plugin.get('name')} (id: {plugin.get('id', '<unknown>')})",
+                )
+            )
+        return ConceptRead[SigningPolicy].read(tuple(items))
+
+    def _read_config_values(self) -> ConceptRead[ConfigValue]:
+        """Collect the Service URLs and every text value of the plugin configurations."""
+        items: list[ConfigValue] = []
+        for service in self._fetch_paginated(_PATH_SERVICES):
+            url = service.get("url")
+            if isinstance(url, str) and url:
+                items.append(
+                    ConfigValue(
+                        kind=ConfigValueKind.BACKEND,
+                        location=f"service {service.get('name', '<unnamed>')}",
+                        key="url",
+                        value=url,
+                    )
+                )
+        for plugin in self._fetch_paginated(_PATH_PLUGINS):
+            config = plugin.get("config", {})
+            if isinstance(config, dict):
+                location = (
+                    f"plugin {plugin.get('name', '<unnamed>')} (id: {plugin.get('id', '<no-id>')})"
+                )
+                items.extend(_text_values(config, location, "config", depth=0))
+        return ConceptRead[ConfigValue].read(tuple(items))
+
+    def _plugin_scope(self, plugin: dict[str, Any]) -> tuple[ConceptScope, str]:
+        """
+        Return the scope of a Kong plugin and the name of the object it is attached to.
+
+        Names are those of the other concepts (a Service's name, a Route's
+        name), so that a policy can be related to the routes of its backend;
+        an object without a name keeps its id.
+        """
+        route = plugin.get("route") or {}
+        service = plugin.get("service") or {}
+        if route.get("id"):
+            names = {
+                str(r["id"]): str(r.get("name") or r["id"])
+                for r in self._fetch_paginated(_PATH_ROUTES)
+                if "id" in r
+            }
+            return ConceptScope.ROUTE, names.get(str(route["id"]), str(route["id"]))
+        if service.get("id"):
+            names = {
+                str(s["id"]): self._service_name(s)
+                for s in self._fetch_paginated(_PATH_SERVICES)
+                if "id" in s
+            }
+            return ConceptScope.BACKEND, names.get(str(service["id"]), str(service["id"]))
+        return ConceptScope.GLOBAL, _GLOBAL_SCOPE_NAME
+
+    @staticmethod
+    def _service_name(service: dict[str, Any]) -> str:
+        """Return a Service's name, or its id when unnamed (as test 4.2 did)."""
+        return str(service.get("name") or service.get("id", "<unknown>"))
+
+    @staticmethod
+    def _upstream_name(upstream: dict[str, Any]) -> str:
+        """Return an Upstream's name, or its id when unnamed (as test 4.3 did)."""
+        return str(upstream.get("name") or upstream.get("id") or "<unnamed>")
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -303,7 +451,7 @@ class KongGatewayAdapter(BaseGatewayAdapter):
 
         try:
             with httpx.Client(timeout=timeout, follow_redirects=False) as http:
-                response = http.get(url)
+                response = http.get(url, headers=self._admin_headers)
         except httpx.TransportError as exc:
             raise GatewayAdapterError(
                 message=(
@@ -326,3 +474,56 @@ class KongGatewayAdapter(BaseGatewayAdapter):
 
         result: dict[str, Any] = response.json()
         return result
+
+
+# ---------------------------------------------------------------------------
+# Module helpers for the concept mappings
+# ---------------------------------------------------------------------------
+
+
+def _ms_to_seconds(value: int | float | None) -> float | None:
+    """Return a Kong millisecond value in seconds; None stays None (not set)."""
+    return None if value is None else float(value) / _MS_PER_SECOND
+
+
+def _first_number(config: dict[str, Any], fields: tuple[str, ...]) -> int | None:
+    """
+    Return the integer value of the first field present, or None.
+
+    None both when no field is present and when the value is not numeric:
+    the neutral concept has no place for an unreadable value.
+    """
+    field = next((f for f in fields if f in config), None)
+    if field is None:
+        return None
+    try:
+        return int(float(str(config[field])))
+    except (ValueError, TypeError):
+        return None
+
+
+def _text_values(data: dict[str, Any], location: str, prefix: str, depth: int) -> list[ConfigValue]:
+    """
+    Collect the text values of a configuration, with their dotted keys.
+
+    Descends into dictionaries and into dictionaries inside lists, up to
+    _CONFIG_VALUES_MAX_DEPTH levels; only strings are collected (the rules test
+    6.4 applied to the raw plugin configuration).
+    """
+    if depth > _CONFIG_VALUES_MAX_DEPTH:
+        log.warning("kong_gateway_config_values_max_depth", location=location, key=prefix)
+        return []
+    values: list[ConfigValue] = []
+    for key, value in data.items():
+        path = f"{prefix}.{key}"
+        if isinstance(value, dict):
+            values.extend(_text_values(value, location, path, depth + 1))
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                if isinstance(item, dict):
+                    values.extend(_text_values(item, location, f"{path}[{index}]", depth + 1))
+        elif isinstance(value, str):
+            values.append(
+                ConfigValue(kind=ConfigValueKind.PLUGIN, location=location, key=path, value=value)
+            )
+    return values

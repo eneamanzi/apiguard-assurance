@@ -94,7 +94,7 @@ from src.core.exceptions import (
     TestDefinitionError,
     raise_for_test_definition_problems,
 )
-from src.core.gateway.kong import KongGatewayAdapter
+from src.core.gateway import GATEWAY_ADAPTERS
 from src.core.models import (
     AttackSurface,
     ExitCode,
@@ -571,13 +571,21 @@ class AssessmentEngine:
 
         # Instantiate the gateway adapter when configured.
         # Injected into TargetContext so that WHITE_BOX tests access the admin plane
-        # via target.gateway.get_services() / .get_plugins() etc.
+        # via the neutral concept readers (target.gateway.backend_timeouts() etc.).
+        # The adapter is chosen by target.gateway_adapter in GATEWAY_ADAPTERS
+        # (src/core/gateway/__init__.py). It receives the Admin API headers and
+        # the configuration of tests 3.3 and 4.3 (which plugin and field names
+        # are a signing policy or a circuit breaker on gateways that need it).
         gateway = None
-        if config.target.gateway_adapter == "kong" and config.target.admin_api_url is not None:
-            gateway = KongGatewayAdapter(
+        adapter_class = GATEWAY_ADAPTERS.get(config.target.gateway_adapter or "")
+        if adapter_class is not None and config.target.admin_api_url is not None:
+            gateway = adapter_class(
                 admin_base_url=str(config.target.admin_api_url).rstrip("/"),
                 connect_timeout=config.target.admin_connect_timeout_seconds,
                 read_timeout=config.target.admin_read_timeout_seconds,
+                admin_headers=config.target.admin_api_headers,
+                signing_config=config.tests.domain_3.test_3_3,
+                breaker_config=config.tests.domain_4.test_4_3,
             )
             log.info(
                 "pipeline_phase_3_gateway_adapter_instantiated",
@@ -606,6 +614,9 @@ class AssessmentEngine:
         )
 
         context = TestContext()
+        # The Admin API header values are credentials: masked in every output.
+        for header_name, header_value in config.target.admin_api_headers.items():
+            context.register_secret(header_value, f"admin API header {header_name}")
 
         # FIX: tools_dir receives config.output.directory / "tools" so that
         # pin_artifact() writes a standalone JSON copy of each external tool's

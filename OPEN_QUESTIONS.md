@@ -106,6 +106,8 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - How to verify: decision per item; tests pages "Limitations" sections list the same points.
 - Evidence (2026-10-06): 2.1 on cRAPI returned PASS with the Forgejo default `admin_endpoint_paths`, a path that does not exist there.
 - Added 2026-10-11 (Q-65): 1.5 checks HSTS only on the root `/` of `base_url`, which may be outside the API (on both labs it is Kong's 404); 1.5 sub-test 1 checks only the 301/308 status, not that `Location` points to HTTPS. 2.1 counts a 404 on the configured admin path as enforced (on cRAPI the Forgejo default path now answers 404).
+- Added 2026-10-12 (block 7+8, Kong concept mapping): 6.4 sub-test B scans nothing on the Kong labs: it reads the Service field `url`, which Kong DB-less does not return (it returns `protocol`, `host`, `port`, `path`), and skips strings inside lists (e.g. plugin header values); the Kong adapter reproduces this behaviour exactly.
+- Added 2026-10-12 (owner, block 7+8, test 4.3 on the neutral concepts): a circuit breaker parameter with a non-numeric value was reported as "Non-Numeric"; the concept has no place for an unreadable value, so it is now reported as "Not Found". To investigate in the 4.3 review (owner). The observability check now reads the live target health concept instead of Kong's `/status` (decided 2026-10-12).
 - Resolution:
 
 ### Q-30 - Side effects on the target

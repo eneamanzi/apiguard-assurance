@@ -65,15 +65,15 @@ Sub-test A -- Debug endpoint probe
         2xx response + no credential pattern     -> no finding (still informative)
         Non-2xx response                         -> ENDPOINT_BLOCKED (best outcome)
 
-Sub-test B -- Kong Admin API credential scan
-    Executed only when target.admin_api_available is True.
-    1. Fetch all services from /services.
-    2. For each service: scan the 'url' field with URL credential pattern.
-    3. Fetch all plugins from /plugins.
-    4. For each plugin: recursively scan the 'config' dict with all patterns.
-    5. Semantic check: for config keys matching _SEMANTIC_CREDENTIAL_KEYS,
-       flag values with length >= _MIN_CREDENTIAL_VALUE_LENGTH that are not
-       in _PLACEHOLDER_STRINGS.
+Sub-test B -- gateway configuration credential scan
+    Executed only when a gateway adapter is configured.
+    1. Read the gateway concept "configuration values" (backend URLs and the
+       text values of plugin configurations, with location and dotted key).
+    2. Backend values: scan with the credential patterns.
+    3. Plugin values: scan with all patterns; semantic check on the key's
+       last segment (_SEMANTIC_CREDENTIAL_KEY_FRAGMENTS), values with length
+       >= _MIN_CREDENTIAL_VALUE_LENGTH that are not in _PLACEHOLDER_STRINGS.
+    4. Client credentials are not scanned.
 
     Oracle:
         URL-embedded credentials found in service URL  -> FAIL
@@ -86,24 +86,27 @@ EvidenceStore policy:
     Sub-test A: every HTTP transaction is logged via _log_transaction().
     Transactions that produce a FAIL finding are additionally stored via
     store.add_fail_evidence() for inclusion in evidence.json.
-    Sub-test B: no EvidenceRecord objects are produced (Kong Admin API helper
-    uses its own internal httpx client, not SecurityClient).  The transaction_log
-    for Sub-test B findings will be empty -- this is expected: Admin API calls do
-    not go through SecurityClient, so they produce no HTTP evidence.
+    Sub-test B: reads the gateway concept "configuration values"
+    (src/core/gateway/concepts.py) through the adapter and stores it as an
+    artifact (secrets masked); Sub-test B findings point to it (evidence_ref).
+    Client credentials (values the gateway keeps for its clients) are not
+    scanned. When the concept is not supported or not accessible, Sub-test A
+    still stands and an InfoNote says why Sub-test B was not verified.
 """
 
 from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from typing import Any, ClassVar
+from typing import ClassVar
 
 import structlog
 
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
-from src.core.gateway.base import BaseGatewayAdapter, GatewayAdapterError
+from src.core.gateway.base import CONCEPT_CONFIG_VALUES
+from src.core.gateway.concepts import ConceptStatus, ConfigValue, ConfigValueKind
 from src.core.models import (
     Finding,
     InfoNote,
@@ -340,8 +343,10 @@ class Test64HardcodedCredentialsAudit(BaseTest):
             # ---- Sub-test B: Kong Admin API audit (conditional) ----------
             notes: list[InfoNote] = list(a_notes)  # start with any open-with-data notes
             if target.gateway is not None:
-                b_findings = self._audit_gateway_configuration(target.gateway)
+                b_findings, b_note = self._audit_gateway_configuration(target, store)
                 findings.extend(b_findings)
+                if b_note is not None:
+                    notes.append(b_note)
                 # Always document the inherent scope limits of this test,
                 # even when the Admin API audit ran successfully.  The HTTP-only
                 # tool cannot inspect docker-compose files, Dockerfiles,
@@ -618,228 +623,147 @@ class Test64HardcodedCredentialsAudit(BaseTest):
 
     def _audit_gateway_configuration(
         self,
-        gateway: BaseGatewayAdapter,
-    ) -> list[Finding]:
+        target: TargetContext,
+        store: EvidenceStore,
+    ) -> tuple[list[Finding], InfoNote | None]:
         """
-        Scan gateway services and plugins for hardcoded credential patterns.
+        Scan the gateway configuration values for hardcoded credentials.
 
-        Returns a list of Finding objects.  An empty list means no credential
-        patterns were found in the audited configuration.
+        Reads the concept "configuration values", stores it as evidence (the
+        values masked), and scans backend URLs and plugin values with the same
+        two rules as before: known credential patterns, and a credential-like
+        key name (the last segment of the dotted key) holding a long value that
+        is not a placeholder. Client credentials are not scanned.
 
         Args:
-            gateway: Instantiated gateway adapter from target.gateway.
-        """
-        findings: list[Finding] = []
+            target: The current TargetContext (target.gateway is set).
+            store:  The EvidenceStore of the current test.
 
+        Returns:
+            (findings, note): the findings, each pointing to the stored concept;
+            and an InfoNote when the concept could not be read (None otherwise).
+        """
+        gateway = target.gateway
+        assert gateway is not None  # noqa: S101
         log.info("test_6_4_admin_audit_starting", gateway_adapter=gateway.adapter_name)
 
-        # ---- Scan service URLs ----------------------------------------
-        services = self._fetch_services(gateway)
-        if services is not None:
-            for svc in services:
-                svc_name: str = svc.get("name", "<unnamed>")
-                url_value: str | None = svc.get("url")
-                if url_value and isinstance(url_value, str):
-                    matched = self._scan_text_for_credentials(url_value)
-                    for pattern_name, snippet in matched:
-                        log.info(
-                            "test_6_4_credential_in_service_url",
-                            service_name=svc_name,
-                            pattern=pattern_name,
-                        )
-                        findings.append(
-                            Finding(
-                                title=(f"Credential Hardcoded in Kong Service URL: {svc_name}"),
-                                detail=(
-                                    f"Kong service '{svc_name}' has a URL field "
-                                    f"containing a credential-like pattern: "
-                                    f"'{pattern_name}'. "
-                                    f"Partial match (redacted): {snippet!r}. "
-                                    f"Embedding credentials in service URLs stores "
-                                    f"them in Kong's configuration database in plaintext. "
-                                    f"Credentials must be managed via a dedicated Secret "
-                                    f"Manager and referenced at runtime, not hardcoded. "
-                                    f"References: OWASP ASVS V13.3.1, CWE-798."
-                                ),
-                                references=list(_REFERENCES),
-                                evidence_ref=None,
-                            )
-                        )
+        answer = gateway.config_values()
+        evidence_ref = self._record_gateway_concept(target, store, CONCEPT_CONFIG_VALUES, answer)
+        if answer.status != ConceptStatus.READ:
+            return [], InfoNote(
+                title="Sub-test B Not Verified: Gateway Configuration Not Readable",
+                detail=(
+                    f"The gateway configuration values could not be read "
+                    f"({answer.status.value}: {answer.reason}). Sub-test B (credentials "
+                    "hardcoded in the gateway configuration) was not verified; Sub-test A "
+                    f"results stand. Evidence: {evidence_ref}."
+                ),
+                references=["OWASP-ASVS-V13.3.1", "CWE-798"],
+            )
 
-        # ---- Scan plugin configs ---------------------------------------
-        plugins = self._fetch_plugins(gateway)
-        if plugins is not None:
-            for plugin in plugins:
-                plugin_name: str = plugin.get("name", "<unnamed>")
-                plugin_id: str = plugin.get("id", "<no-id>")
-                config_block: Any = plugin.get("config", {})
-                if isinstance(config_block, dict):
-                    config_findings = self._scan_config_dict(
-                        config_block,
-                        context_label=f"plugin '{plugin_name}' (id={plugin_id})",
-                    )
-                    findings.extend(config_findings)
+        findings: list[Finding] = []
+        for item in answer.items:
+            if item.kind == ConfigValueKind.BACKEND:
+                findings.extend(self._scan_backend_value(item, evidence_ref))
+            elif item.kind == ConfigValueKind.PLUGIN:
+                findings.extend(self._scan_plugin_value(item, evidence_ref))
+        return findings, None
 
+    def _scan_backend_value(self, item: ConfigValue, evidence_ref: str) -> list[Finding]:
+        """Scan a backend value (its URL) for credential patterns."""
+        findings: list[Finding] = []
+        for pattern_name, snippet in self._scan_text_for_credentials(item.value.get_secret_value()):
+            log.info(
+                "test_6_4_credential_in_backend_url", location=item.location, pattern=pattern_name
+            )
+            findings.append(
+                Finding(
+                    title=f"Credential Hardcoded in Gateway Backend URL: {item.location}",
+                    detail=(
+                        f"{item.location} has a '{item.key}' value containing a credential-like "
+                        f"pattern: '{pattern_name}'. Partial match (redacted): {snippet!r}. "
+                        "Embedding credentials in backend URLs stores them in the gateway "
+                        "configuration in plaintext. Credentials must be managed via a "
+                        "dedicated Secret Manager and referenced at runtime, not hardcoded. "
+                        "References: OWASP ASVS V13.3.1, CWE-798."
+                    ),
+                    references=list(_REFERENCES),
+                    evidence_ref=evidence_ref,
+                )
+            )
         return findings
 
-    def _fetch_services(
-        self,
-        gateway: BaseGatewayAdapter,
-    ) -> list[dict[str, Any]] | None:
+    def _scan_plugin_value(self, item: ConfigValue, evidence_ref: str) -> list[Finding]:
         """
-        Retrieve services via the gateway adapter.
-
-        Returns None on GatewayAdapterError so the caller can produce a partial
-        result rather than an ERROR.
-
-        Args:
-            gateway: Instantiated gateway adapter from target.gateway.
-        """
-        try:
-            return gateway.get_services()
-        except GatewayAdapterError as exc:
-            log.error(
-                "test_6_4_gateway_services_fetch_failed",
-                adapter=gateway.adapter_name,
-                error=str(exc),
-            )
-            return None
-
-    def _fetch_plugins(
-        self,
-        gateway: BaseGatewayAdapter,
-    ) -> list[dict[str, Any]] | None:
-        """
-        Retrieve plugins via the gateway adapter.
-
-        Returns None on GatewayAdapterError so the caller can produce a partial
-        result rather than an ERROR.
-
-        Args:
-            gateway: Instantiated gateway adapter from target.gateway.
-        """
-        try:
-            return gateway.get_plugins()
-        except GatewayAdapterError as exc:
-            log.error(
-                "test_6_4_gateway_plugins_fetch_failed",
-                adapter=gateway.adapter_name,
-                error=str(exc),
-            )
-            return None
-
-    def _scan_config_dict(
-        self,
-        data: dict[str, Any],
-        context_label: str,
-        _depth: int = 0,
-    ) -> list[Finding]:
-        """
-        Recursively scan a configuration dictionary for credential patterns.
-
-        Two detection strategies are applied at each leaf string value:
+        Scan a plugin configuration value with the two detection rules.
 
         1. Pattern match: the value is tested against all _CREDENTIAL_PATTERNS.
-           A match is flagged regardless of the key name.
-
-        2. Semantic match: if the (lowercased) key name contains any fragment
-           from _SEMANTIC_CREDENTIAL_KEY_FRAGMENTS, and the value is a string
-           with length >= _MIN_CREDENTIAL_VALUE_LENGTH, and the lowercased
-           value is not in _PLACEHOLDER_STRINGS, the value is flagged as a
-           probable credential stored in plaintext.
-
-        Recursion depth is capped at 10 to prevent pathological configs from
-        causing infinite recursion.
+        2. Semantic match: the key's last segment contains a fragment of
+           _SEMANTIC_CREDENTIAL_KEY_FRAGMENTS, the value has at least
+           _MIN_CREDENTIAL_VALUE_LENGTH characters, is not a placeholder, and
+           matched no pattern (no duplicate finding for the same value).
         """
+        value = item.value.get_secret_value()
+        key = item.key.rsplit(".", 1)[-1]
         findings: list[Finding] = []
-        max_depth = 10
-
-        if _depth > max_depth:
-            log.debug(
-                "test_6_4_config_scan_max_depth_reached",
-                context_label=context_label,
-                depth=_depth,
+        matched_patterns = self._scan_text_for_credentials(value)
+        for pattern_name, snippet in matched_patterns:
+            log.info(
+                "test_6_4_credential_pattern_in_plugin_config",
+                location=item.location,
+                key=key,
+                pattern=pattern_name,
             )
-            return findings
-
-        for key, value in data.items():
-            if isinstance(value, dict):
-                findings.extend(self._scan_config_dict(value, context_label, _depth + 1))
-            elif isinstance(value, list):
-                for item in value:
-                    if isinstance(item, dict):
-                        findings.extend(self._scan_config_dict(item, context_label, _depth + 1))
-            elif isinstance(value, str):
-                # Strategy 1: known credential patterns (key-agnostic).
-                matched_patterns = self._scan_text_for_credentials(value)
-                for pattern_name, snippet in matched_patterns:
-                    log.info(
-                        "test_6_4_credential_pattern_in_plugin_config",
-                        context_label=context_label,
-                        key=key,
-                        pattern=pattern_name,
-                    )
-                    findings.append(
-                        Finding(
-                            title=(f"Credential Pattern in Kong Config: {context_label}"),
-                            detail=(
-                                f"Config key '{key}' in {context_label} contains "
-                                f"a credential-like pattern: '{pattern_name}'. "
-                                f"Partial match (redacted): {snippet!r}. "
-                                f"Secrets must not be stored as plaintext values "
-                                f"in Kong plugin configuration. Use a Secret Manager "
-                                f"and reference secrets at runtime. "
-                                f"References: OWASP ASVS V13.3.1, CWE-798."
-                            ),
-                            references=list(_REFERENCES),
-                            evidence_ref=None,
-                        )
-                    )
-
-                # Strategy 2: semantic key match with high-entropy value.
-                key_lower = key.lower()
-                is_semantic_credential_key = any(
-                    fragment in key_lower for fragment in _SEMANTIC_CREDENTIAL_KEY_FRAGMENTS
+            findings.append(
+                Finding(
+                    title=f"Credential Pattern in Gateway Config: {item.location}",
+                    detail=(
+                        f"Config key '{key}' ({item.key}) in {item.location} contains "
+                        f"a credential-like pattern: '{pattern_name}'. "
+                        f"Partial match (redacted): {snippet!r}. "
+                        "Secrets must not be stored as plaintext values in the gateway "
+                        "configuration. Use a Secret Manager and reference secrets at "
+                        "runtime. References: OWASP ASVS V13.3.1, CWE-798."
+                    ),
+                    references=list(_REFERENCES),
+                    evidence_ref=evidence_ref,
                 )
-                value_lower = value.strip().lower()
-                is_placeholder = value_lower in _PLACEHOLDER_STRINGS
-                is_long_enough = len(value.strip()) >= _MIN_CREDENTIAL_VALUE_LENGTH
+            )
 
-                if (
-                    is_semantic_credential_key
-                    and is_long_enough
-                    and not is_placeholder
-                    and not matched_patterns  # avoid duplicate finding for same value
-                ):
-                    log.info(
-                        "test_6_4_semantic_credential_key_in_plugin_config",
-                        context_label=context_label,
-                        key=key,
-                        value_length=len(value.strip()),
+        key_lower = key.lower()
+        is_semantic_credential_key = any(
+            fragment in key_lower for fragment in _SEMANTIC_CREDENTIAL_KEY_FRAGMENTS
+        )
+        is_placeholder = value.strip().lower() in _PLACEHOLDER_STRINGS
+        is_long_enough = len(value.strip()) >= _MIN_CREDENTIAL_VALUE_LENGTH
+        if is_semantic_credential_key and is_long_enough and not is_placeholder:
+            if not matched_patterns:
+                log.info(
+                    "test_6_4_semantic_credential_key_in_plugin_config",
+                    location=item.location,
+                    key=key,
+                    value_length=len(value.strip()),
+                )
+                findings.append(
+                    Finding(
+                        title=f"Probable Plaintext Credential in Gateway Config: {item.location}",
+                        detail=(
+                            f"Config key '{key}' ({item.key}) in {item.location} has a name "
+                            f"suggesting it holds a credential "
+                            f"(contains fragment from semantic key list: "
+                            f"{_SEMANTIC_CREDENTIAL_KEY_FRAGMENTS!r}) "
+                            f"and its value has {len(value.strip())} characters "
+                            f"(>= the {_MIN_CREDENTIAL_VALUE_LENGTH}-character "
+                            f"minimum to exclude known placeholders). "
+                            f"The value does not match any known placeholder. "
+                            f"If this value is a real credential it must be "
+                            f"replaced with a Secret Manager reference. "
+                            f"References: OWASP ASVS V13.3.1, NIST SP 800-53 IA-5(1)."
+                        ),
+                        references=list(_REFERENCES),
+                        evidence_ref=evidence_ref,
                     )
-                    findings.append(
-                        Finding(
-                            title=(
-                                f"Probable Plaintext Credential in Kong Config: {context_label}"
-                            ),
-                            detail=(
-                                f"Config key '{key}' in {context_label} has a name "
-                                f"suggesting it holds a credential "
-                                f"(contains fragment from semantic key list: "
-                                f"{_SEMANTIC_CREDENTIAL_KEY_FRAGMENTS!r}) "
-                                f"and its value has {len(value.strip())} characters "
-                                f"(>= the {_MIN_CREDENTIAL_VALUE_LENGTH}-character "
-                                f"minimum to exclude known placeholders). "
-                                f"The value does not match any known placeholder. "
-                                f"If this value is a real credential it must be "
-                                f"replaced with a Secret Manager reference. "
-                                f"References: OWASP ASVS V13.3.1, NIST SP 800-53 IA-5(1)."
-                            ),
-                            references=list(_REFERENCES),
-                            evidence_ref=None,
-                        )
-                    )
-
+                )
         return findings
 
     # ------------------------------------------------------------------

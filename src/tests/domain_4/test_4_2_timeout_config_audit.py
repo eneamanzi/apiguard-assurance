@@ -50,25 +50,32 @@ Sub-test 2 -- Timeout Value Validation (per service)
         value == 0                  -> Finding: "timeout not configured"
         value > max_value_ms        -> Finding: "timeout exceeds oracle threshold"
 
+Gateway access:
+    The test reads the neutral concept "backend timeouts" through the gateway
+    adapter (target.gateway.backend_timeouts(), src/core/gateway/concepts.py):
+    one item per backend, or per route that overrides its backend's timeouts,
+    in seconds; the oracle thresholds stay in milliseconds (configuration) and
+    the values are converted. A concept not supported or not accessible gives
+    SKIP with the reason (BaseTest._skip_for_concept).
+
 EvidenceStore policy:
-    WHITE_BOX configuration audit tests make no HTTP requests to the target
-    API, therefore no EvidenceRecord is produced and _log_transaction() is
-    never called. Findings contain the service name and field values as
-    evidence_ref=None (no HTTP transaction to reference). The full audit
-    result is documented in the Finding.detail field.
+    No HTTP request is made to the target API. The concept read is stored as
+    an artifact (BaseTest._record_gateway_concept) and every Finding points to
+    it through evidence_ref.
 --------------------------------------------------------------------------
 """  # noqa: N999
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import ClassVar
 
 import structlog
 
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
-from src.core.gateway.base import BaseGatewayAdapter, GatewayAdapterError
+from src.core.gateway.base import CONCEPT_BACKEND_TIMEOUTS
+from src.core.gateway.concepts import BackendTimeout, ConceptScope, ConceptStatus
 from src.core.models import Finding, TestResult, TestStrategy
 from src.test_config.domain_4 import Test42AuditConfig
 from src.tests.base import BaseTest
@@ -79,16 +86,26 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # Module-level constants
 # ---------------------------------------------------------------------------
 
-# Kong timeout field names as returned by the Admin API.
-_FIELD_CONNECT_TIMEOUT: str = "connect_timeout"
-_FIELD_READ_TIMEOUT: str = "read_timeout"
-_FIELD_WRITE_TIMEOUT: str = "write_timeout"
+# The three timeouts, in the words of the findings (the names the gateways
+# commonly use) and the concept's field (seconds).
+_TIMEOUT_LABELS: tuple[tuple[str, str], ...] = (
+    ("connect_timeout", "connect_seconds"),
+    ("read_timeout", "read_seconds"),
+    ("write_timeout", "send_seconds"),
+)
+_MS_PER_SECOND: int = 1000
 
-# A timeout value of zero means "not configured" in Kong's Admin API.
-# Kong actually defaults all three to 60 000 ms if not explicitly set,
-# so a zero should never appear in practice, but we guard against it
-# explicitly to produce a clear finding rather than a confusing comparison.
+# A timeout of zero means "not configured". Kong defaults all three to
+# 60 000 ms, so a zero should not appear, but it gets a clear finding rather
+# than a confusing comparison.
 _TIMEOUT_UNCONFIGURED: int = 0
+
+# Word for the object a timeout applies to, in the findings.
+_SCOPE_WORDS: dict[ConceptScope, str] = {
+    ConceptScope.BACKEND: "service",
+    ConceptScope.ROUTE: "route",
+    ConceptScope.GLOBAL: "gateway",
+}
 
 # OWASP/NIST references cited in every Finding produced by this test.
 _REFERENCES: tuple[str, ...] = (
@@ -143,19 +160,16 @@ class Test42TimeoutConfigAudit(BaseTest):
         store: EvidenceStore,
     ) -> TestResult:
         """
-        Audit Kong service timeout configuration via the Admin API.
+        Audit the timeouts towards the backends through the gateway adapter.
 
         Execution flow:
-            1. Guard: requires Admin API to be configured (_requires_admin_api).
-            2. Fetch all Kong services via get_services().
-            3. If no services found, return SKIP.
-            4. For each service, validate connect_timeout, read_timeout,
-               write_timeout against the configured oracle thresholds.
-            5. Return PASS if all services are compliant, FAIL with findings
-               otherwise.
-
-        No HTTP requests are made to the target API. No _log_transaction()
-        calls are needed because there are no EvidenceRecords.
+            1. Guard: requires a gateway adapter (_requires_admin_api).
+            2. Read the concept "backend timeouts" and store it as evidence.
+            3. Not supported or not accessible: SKIP with the reason.
+            4. No backend: SKIP (nothing to audit).
+            5. Validate connect, read and write timeouts of each item against
+               the configured thresholds: PASS, or FAIL with one finding per
+               violation, each pointing to the stored concept.
 
         Returns:
             TestResult with status PASS, FAIL, SKIP, or ERROR.
@@ -178,39 +192,32 @@ class Test42TimeoutConfigAudit(BaseTest):
                 max_write_timeout_ms=cfg.max_write_timeout_ms,
             )
 
-            # Sub-test 1: fetch services
-            services = self._fetch_services(gateway)
-            if services is None:
-                # GatewayAdapterError was raised and converted to ERROR result
-                return self._make_error(
-                    RuntimeError(
-                        "Kong Admin API call failed -- see structured log for details. "
-                        "Verify that admin_api_url is correct and the Kong Admin API "
-                        "is reachable from this host."
-                    )
-                )
+            answer = gateway.backend_timeouts()
+            evidence_ref = self._record_gateway_concept(
+                target, store, CONCEPT_BACKEND_TIMEOUTS, answer
+            )
+            if answer.status != ConceptStatus.READ:
+                return self._skip_for_concept(CONCEPT_BACKEND_TIMEOUTS, answer, evidence_ref)
 
-            if not services:
+            if not answer.items:
                 return self._make_skip(
                     reason=(
-                        "No Kong services registered. GET /services returned an empty list. "
-                        "There is nothing to audit for timeout configuration. "
-                        "Verify that Kong is configured with at least one service "
-                        "before running this test."
+                        "No backend registered on the gateway: there is nothing to audit "
+                        "for timeout configuration. Verify that the gateway has at least "
+                        f"one backend before running this test. Evidence: {evidence_ref}."
                     )
                 )
 
-            log.info("test_4_2_services_retrieved", service_count=len(services))
+            log.info("test_4_2_backends_retrieved", backend_count=len(answer.items))
 
-            # Sub-test 2: validate each service
-            findings = self._audit_service_timeouts(services, cfg)
+            findings = self._audit_timeouts(answer.items, cfg, evidence_ref)
 
             if findings:
                 return self._make_fail_multi(
                     message=(
                         f"Timeout audit found {len(findings)} violation(s) across "
-                        f"{len(services)} service(s). "
-                        "Services with missing or over-threshold timeouts expose the gateway "
+                        f"{len(answer.items)} backend(s). "
+                        "Backends with missing or over-threshold timeouts expose the gateway "
                         "to resource exhaustion via connection pool starvation."
                     ),
                     findings=findings,
@@ -218,7 +225,7 @@ class Test42TimeoutConfigAudit(BaseTest):
 
             return self._make_pass(
                 message=(
-                    f"All {len(services)} Kong service(s) have compliant timeout configuration: "
+                    f"All {len(answer.items)} backend(s) have compliant timeout configuration: "
                     f"connect_timeout <= {cfg.max_connect_timeout_ms} ms, "
                     f"read_timeout <= {cfg.max_read_timeout_ms} ms, "
                     f"write_timeout <= {cfg.max_write_timeout_ms} ms."
@@ -230,182 +237,120 @@ class Test42TimeoutConfigAudit(BaseTest):
             return self._make_error(exc)
 
     # ------------------------------------------------------------------
-    # Sub-test 1: service fetch
+    # Timeout validation
     # ------------------------------------------------------------------
 
-    def _fetch_services(
+    def _audit_timeouts(
         self,
-        gateway: BaseGatewayAdapter,
-    ) -> list[dict[str, Any]] | None:
-        """
-        Retrieve all services via the gateway adapter.
-
-        Returns None on error so the caller can produce ERROR without
-        re-catching the exception.
-
-        Args:
-            gateway: Instantiated gateway adapter from target.gateway.
-
-        Returns:
-            List of service dicts (may be empty), or None on Admin API error.
-        """
-        try:
-            services = gateway.get_services()
-            log.debug(
-                "test_4_2_services_fetched",
-                count=len(services),
-            )
-            return services
-        except GatewayAdapterError as exc:
-            log.error(
-                "test_4_2_admin_api_error",
-                path="/services",
-                status_code=exc.status_code,
-                error=str(exc),
-            )
-            return None
-
-    # ------------------------------------------------------------------
-    # Sub-test 2: timeout validation
-    # ------------------------------------------------------------------
-
-    def _audit_service_timeouts(
-        self,
-        services: list[dict[str, Any]],
+        items: tuple[BackendTimeout, ...],
         cfg: Test42AuditConfig,
+        evidence_ref: str,
     ) -> list[Finding]:
         """
-        Validate timeout fields on every Kong service dict.
-
-        For each service, three fields are checked:
-            connect_timeout, read_timeout, write_timeout.
-
-        Each field produces at most one Finding:
-            - If the field is absent from the service dict (should not occur
-              in a healthy Kong instance but is guarded defensively): Finding.
-            - If the field value is 0 ("not configured"): Finding.
-            - If the field value exceeds the oracle threshold: Finding.
+        Validate the three timeouts of every item of the concept.
 
         Args:
-            services: List of Kong service objects from GET /services.
-            cfg:      Test42AuditConfig carrying the oracle thresholds.
+            items:        The backend timeouts read from the gateway.
+            cfg:          Test42AuditConfig carrying the oracle thresholds.
+            evidence_ref: Evidence record of the concept read.
 
         Returns:
-            Flat list of all findings across all services. Empty if all are
-            compliant.
+            Flat list of all findings. Empty if all items are compliant.
         """
+        thresholds: dict[str, int] = {
+            "connect_timeout": cfg.max_connect_timeout_ms,
+            "read_timeout": cfg.max_read_timeout_ms,
+            "write_timeout": cfg.max_write_timeout_ms,
+        }
         findings: list[Finding] = []
-
-        # (field_name, oracle_threshold, label_for_messages)
-        field_checks: list[tuple[str, int, str]] = [
-            (_FIELD_CONNECT_TIMEOUT, cfg.max_connect_timeout_ms, "connect_timeout"),
-            (_FIELD_READ_TIMEOUT, cfg.max_read_timeout_ms, "read_timeout"),
-            (_FIELD_WRITE_TIMEOUT, cfg.max_write_timeout_ms, "write_timeout"),
-        ]
-
-        for service in services:
-            service_name: str = service.get("name") or service.get("id", "<unknown>")
-
-            for field_name, max_value_ms, label in field_checks:
+        for item in items:
+            subject = f"{_SCOPE_WORDS[item.scope]} '{item.name}'"
+            for label, concept_field in _TIMEOUT_LABELS:
+                seconds: float | None = getattr(item, concept_field)
+                value_ms = None if seconds is None else round(seconds * _MS_PER_SECOND)
                 finding = self._check_single_timeout(
-                    service_name=service_name,
-                    service=service,
-                    field_name=field_name,
+                    subject=subject,
                     label=label,
-                    max_value_ms=max_value_ms,
+                    value_ms=value_ms,
+                    max_value_ms=thresholds[label],
+                    evidence_ref=evidence_ref,
                 )
                 if finding is not None:
                     findings.append(finding)
                     log.info(
                         "test_4_2_timeout_violation",
-                        service_name=service_name,
-                        field=field_name,
-                        observed=service.get(field_name),
-                        oracle_max_ms=max_value_ms,
+                        subject=subject,
+                        field=label,
+                        observed_ms=value_ms,
+                        oracle_max_ms=thresholds[label],
                     )
                 else:
                     log.debug(
                         "test_4_2_timeout_compliant",
-                        service_name=service_name,
-                        field=field_name,
-                        value_ms=service.get(field_name),
+                        subject=subject,
+                        field=label,
+                        value_ms=value_ms,
                     )
-
         return findings
 
     def _check_single_timeout(
         self,
-        service_name: str,
-        service: dict[str, Any],
-        field_name: str,
+        subject: str,
         label: str,
+        value_ms: int | None,
         max_value_ms: int,
+        evidence_ref: str,
     ) -> Finding | None:
         """
-        Check one timeout field on a single Kong service dict.
+        Check one timeout of one backend or route.
 
         Three conditions produce a Finding:
-            1. Field absent from the service dict.
-            2. Field value equals 0 (sentinel for "not configured").
-            3. Field value exceeds max_value_ms (oracle threshold).
+            1. The timeout is not stated (None).
+            2. It is 0 ("not configured").
+            3. It exceeds max_value_ms (oracle threshold).
 
         Args:
-            service_name: Display name of the Kong service (for Finding detail).
-            service:      Kong service dict from the Admin API.
-            field_name:   Key to look up (e.g. 'connect_timeout').
-            label:        Human-readable field label for the Finding title.
+            subject:      "service '<name>'" or "route '<name>'", for the messages.
+            label:        Timeout name for the messages (e.g. 'connect_timeout').
+            value_ms:     The timeout in milliseconds, or None if not stated.
             max_value_ms: Maximum acceptable value in milliseconds.
+            evidence_ref: Evidence record of the concept read.
 
         Returns:
-            Finding if the field is non-compliant, None if compliant.
+            Finding if the timeout is non-compliant, None if compliant.
         """
-        raw_value = service.get(field_name)
-
-        # Condition 1: field absent from response (Kong Admin API bug or
-        # unexpected response structure -- guard defensively).
-        if raw_value is None:
+        if value_ms is None:
             return Finding(
-                title=f"Timeout Field Absent: {label} on service '{service_name}'",
+                title=f"Timeout Field Absent: {label} on {subject}",
                 detail=(
-                    f"The field '{field_name}' is absent from the Kong Admin API response "
-                    f"for service '{service_name}'. Expected an integer timeout value in "
-                    f"milliseconds. This may indicate a Kong version incompatibility or a "
-                    f"corrupted service configuration. Without this field, timeout enforcement "
-                    f"for this service is unknown and cannot be audited."
+                    f"The gateway does not state '{label}' for {subject}. Expected a "
+                    f"timeout value. Without it, timeout enforcement for this backend is "
+                    f"unknown and cannot be audited (the gateway's default applies)."
                 ),
                 references=list(_REFERENCES),
-                evidence_ref=None,
+                evidence_ref=evidence_ref,
             )
 
-        value_ms = int(raw_value)
-
-        # Condition 2: value is 0 (not configured).
         if value_ms == _TIMEOUT_UNCONFIGURED:
             return Finding(
-                title=f"Timeout Not Configured: {label} == 0 on service '{service_name}'",
+                title=f"Timeout Not Configured: {label} == 0 on {subject}",
                 detail=(
-                    f"Service '{service_name}' has {field_name} = 0, which indicates "
-                    f"the timeout is not configured. Kong's default for an unconfigured "
-                    f"timeout is platform-dependent and may be indefinitely long. "
-                    f"An unconfigured timeout on a backend service means a single slow "
+                    f"{subject.capitalize()} has {label} = 0, which indicates the timeout is "
+                    f"not configured. An unconfigured timeout on a backend means a single slow "
                     f"or unresponsive dependency can block a connection-pool thread "
                     f"indefinitely, leading to pool exhaustion and denial of service. "
-                    f"Oracle: {field_name} must be > 0 and <= {max_value_ms} ms "
+                    f"Oracle: {label} must be > 0 and <= {max_value_ms} ms "
                     f"(NIST SP 800-204A Section 4.3)."
                 ),
                 references=list(_REFERENCES),
-                evidence_ref=None,
+                evidence_ref=evidence_ref,
             )
 
-        # Condition 3: value exceeds oracle threshold.
         if value_ms > max_value_ms:
             return Finding(
-                title=(
-                    f"Timeout Exceeds Oracle Threshold: {label} = {value_ms} ms "
-                    f"on service '{service_name}'"
-                ),
+                title=(f"Timeout Exceeds Oracle Threshold: {label} = {value_ms} ms on {subject}"),
                 detail=(
-                    f"Service '{service_name}' has {field_name} = {value_ms} ms, "
+                    f"{subject.capitalize()} has {label} = {value_ms} ms, "
                     f"which exceeds the oracle threshold of {max_value_ms} ms "
                     f"({max_value_ms / 1000:.0f} s) from NIST SP 800-204A Section 4.3. "
                     f"A {label} of {value_ms / 1000:.1f} s means the Gateway will wait "
@@ -413,12 +358,11 @@ class Test42TimeoutConfigAudit(BaseTest):
                     f"Under load ({100} concurrent requests blocked for {value_ms / 1000:.0f} s "
                     f"each), the connection pool saturates and the Gateway stops accepting new "
                     f"requests entirely, producing a self-inflicted denial of service. "
-                    f"Recommended action: reduce {field_name} to <= {max_value_ms} ms in the "
-                    f"Kong service configuration."
+                    f"Recommended action: reduce {label} to <= {max_value_ms} ms in the "
+                    f"gateway configuration."
                 ),
                 references=list(_REFERENCES),
-                evidence_ref=None,
+                evidence_ref=evidence_ref,
             )
 
-        # Value is within bounds -- no finding.
         return None

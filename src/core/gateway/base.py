@@ -5,10 +5,10 @@ Abstract base for gateway adapter implementations.
 
 A gateway adapter provides read-only access to the API Gateway's admin
 plane for WHITE_BOX configuration audit tests.  The adapter abstracts the
-gateway-specific admin API behind a uniform interface so that tests like
+gateway-specific admin API behind neutral concepts so that tests like
 3.3, 4.2, 4.3, 6.4 remain gateway-agnostic: they call
-``target.gateway.get_services()`` without knowing whether the underlying
-gateway is Kong, Traefik, nginx, or another implementation.
+``target.gateway.backend_timeouts()`` without knowing whether the underlying
+gateway is Kong, APISIX, or another implementation.
 
 Architecture position
 ---------------------
@@ -25,19 +25,70 @@ Tests that require gateway access guard with::
     guard = self._requires_admin_api(target)  # SKIP when target.gateway is None
     if guard is not None:
         return guard
-    services = target.gateway.get_services()
+    timeouts = target.gateway.backend_timeouts()
 
-Dependency rule: this module imports only from stdlib and src.core.exceptions.
-It must never import from config/, tests/, external_tests/, connectors/, or
-report/.
+Neutral concepts
+----------------
+The tests read the gateway through one reader per concept (backend_timeouts(),
+circuit_breakers(), health_checks(), signing_policies(), routes(),
+config_values(), target_health()), each answering with a ConceptRead
+(src/core/gateway/concepts.py): read, not supported, or not accessible. The
+public readers are written once, here: the first call runs the adapter's
+_read_<concept>() method, later calls in the same run return the same answer
+(one adapter per run, so a concept is read once per run), and a
+GatewayAdapterError becomes "not accessible" with its message. A concrete
+adapter overrides the _read_<concept>() methods it can serve; the others answer
+"not supported by this adapter". Design: docs/project/gateway-concepts.md.
+
+Dependency rule: this module imports only from stdlib, structlog,
+src.core.exceptions and src.core.gateway.concepts. It must never import from
+config/, tests/, external_tests/, connectors/, or report/.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from collections.abc import Callable
+from typing import Any, TypeVar, cast
+
+import structlog
 
 from src.core.exceptions import ToolBaseError
+from src.core.gateway.concepts import (
+    BackendTimeout,
+    CircuitBreaker,
+    ConceptRead,
+    ConfigValue,
+    GatewayRoute,
+    HealthCheck,
+    SigningPolicy,
+    TargetHealth,
+)
+
+log: structlog.BoundLogger = structlog.get_logger(__name__)
+
+# Names of the concepts: keys of the per-run memory and words of the reasons.
+CONCEPT_BACKEND_TIMEOUTS: str = "backend timeouts"
+CONCEPT_CIRCUIT_BREAKERS: str = "circuit breakers"
+CONCEPT_HEALTH_CHECKS: str = "health checks"
+CONCEPT_SIGNING_POLICIES: str = "request signing policies"
+CONCEPT_ROUTES: str = "routes"
+CONCEPT_CONFIG_VALUES: str = "configuration values"
+CONCEPT_TARGET_HEALTH: str = "live target health"
+
+# Instance attribute holding the answers already read in this run.
+_CONCEPT_MEMORY_ATTRIBUTE: str = "_concept_memory"
+
+ItemT = TypeVar(
+    "ItemT",
+    BackendTimeout,
+    CircuitBreaker,
+    HealthCheck,
+    SigningPolicy,
+    GatewayRoute,
+    ConfigValue,
+    TargetHealth,
+)
 
 # ---------------------------------------------------------------------------
 # GatewayAdapterError
@@ -120,103 +171,119 @@ class BaseGatewayAdapter(ABC):
         Used in log keys and error messages to identify the gateway type.
         """
 
-    @abstractmethod
-    def check_connectivity(self) -> bool:
+    # ------------------------------------------------------------------
+    # Neutral concepts: public readers (read once per run)
+    # ------------------------------------------------------------------
+
+    def backend_timeouts(self) -> ConceptRead[BackendTimeout]:
+        """Return the timeouts towards the backends (and route overrides)."""
+        return self._read_once(
+            CONCEPT_BACKEND_TIMEOUTS, BackendTimeout, self._read_backend_timeouts
+        )
+
+    def circuit_breakers(self) -> ConceptRead[CircuitBreaker]:
+        """Return the circuit breakers configured on the gateway."""
+        return self._read_once(
+            CONCEPT_CIRCUIT_BREAKERS, CircuitBreaker, self._read_circuit_breakers
+        )
+
+    def health_checks(self) -> ConceptRead[HealthCheck]:
+        """Return the health checks of each backend."""
+        return self._read_once(CONCEPT_HEALTH_CHECKS, HealthCheck, self._read_health_checks)
+
+    def signing_policies(self) -> ConceptRead[SigningPolicy]:
+        """Return the request signing (HMAC) policies."""
+        return self._read_once(CONCEPT_SIGNING_POLICIES, SigningPolicy, self._read_signing_policies)
+
+    def routes(self) -> ConceptRead[GatewayRoute]:
+        """Return the routes the gateway exposes."""
+        return self._read_once(CONCEPT_ROUTES, GatewayRoute, self._read_routes)
+
+    def config_values(self) -> ConceptRead[ConfigValue]:
+        """Return the configuration text values, secrets masked unless asked for."""
+        return self._read_once(CONCEPT_CONFIG_VALUES, ConfigValue, self._read_config_values)
+
+    def target_health(self) -> ConceptRead[TargetHealth]:
+        """Return the live health of each target of each backend."""
+        return self._read_once(CONCEPT_TARGET_HEALTH, TargetHealth, self._read_target_health)
+
+    # ------------------------------------------------------------------
+    # Neutral concepts: adapter-specific reads (override the ones served)
+    # ------------------------------------------------------------------
+
+    def _read_backend_timeouts(self) -> ConceptRead[BackendTimeout]:
+        """Read the backend timeouts; default: not supported by this adapter."""
+        return ConceptRead[BackendTimeout].not_supported(self._not_read(CONCEPT_BACKEND_TIMEOUTS))
+
+    def _read_circuit_breakers(self) -> ConceptRead[CircuitBreaker]:
+        """Read the circuit breakers; default: not supported by this adapter."""
+        return ConceptRead[CircuitBreaker].not_supported(self._not_read(CONCEPT_CIRCUIT_BREAKERS))
+
+    def _read_health_checks(self) -> ConceptRead[HealthCheck]:
+        """Read the health checks; default: not supported by this adapter."""
+        return ConceptRead[HealthCheck].not_supported(self._not_read(CONCEPT_HEALTH_CHECKS))
+
+    def _read_signing_policies(self) -> ConceptRead[SigningPolicy]:
+        """Read the signing policies; default: not supported by this adapter."""
+        return ConceptRead[SigningPolicy].not_supported(self._not_read(CONCEPT_SIGNING_POLICIES))
+
+    def _read_routes(self) -> ConceptRead[GatewayRoute]:
+        """Read the routes; default: not supported by this adapter."""
+        return ConceptRead[GatewayRoute].not_supported(self._not_read(CONCEPT_ROUTES))
+
+    def _read_config_values(self) -> ConceptRead[ConfigValue]:
+        """Read the configuration values; default: not supported by this adapter."""
+        return ConceptRead[ConfigValue].not_supported(self._not_read(CONCEPT_CONFIG_VALUES))
+
+    def _read_target_health(self) -> ConceptRead[TargetHealth]:
+        """Read the live target health; default: not supported by this adapter."""
+        return ConceptRead[TargetHealth].not_supported(self._not_read(CONCEPT_TARGET_HEALTH))
+
+    # ------------------------------------------------------------------
+    # Neutral concepts: helpers
+    # ------------------------------------------------------------------
+
+    def _not_read(self, concept: str) -> str:
+        """Return the reason for a concept this adapter does not read."""
+        return f"the {self.adapter_name} adapter does not read {concept}"
+
+    def _read_once(
+        self,
+        concept: str,
+        item_type: type[ItemT],
+        reader: Callable[[], ConceptRead[ItemT]],
+    ) -> ConceptRead[ItemT]:
         """
-        Verify that the gateway admin endpoint is reachable.
+        Return the answer for a concept, reading the gateway only the first time.
 
-        Makes a lightweight request to the admin status/health endpoint.
-        Returns True if the endpoint responds with a 2xx status.
-        Returns False on connection refusal or timeout (does not raise).
-
-        Returns:
-            bool: True if the admin API is reachable.
-        """
-
-    @abstractmethod
-    def get_routes(self) -> list[dict[str, Any]]:
-        """
-        Fetch all routes registered in the gateway.
-
-        Returns:
-            List of route objects.  Each dict structure is gateway-specific;
-            see the concrete adapter's docstring for field documentation.
-            Empty list if no routes are configured.
-
-        Raises:
-            GatewayAdapterError: On transport failure or non-2xx response.
-        """
-
-    @abstractmethod
-    def get_plugins(self) -> list[dict[str, Any]]:
-        """
-        Fetch all plugins (middleware) installed on the gateway.
-
-        Returns:
-            List of plugin objects.  Each dict structure is gateway-specific.
-            Empty list if no plugins are installed.
-
-        Raises:
-            GatewayAdapterError: On transport failure or non-2xx response.
-        """
-
-    @abstractmethod
-    def get_services(self) -> list[dict[str, Any]]:
-        """
-        Fetch all upstream services registered in the gateway.
-
-        Returns:
-            List of service objects.  Each dict structure is gateway-specific.
-            Empty list if no services are configured.
-
-        Raises:
-            GatewayAdapterError: On transport failure or non-2xx response.
-        """
-
-    @abstractmethod
-    def get_upstreams(self) -> list[dict[str, Any]]:
-        """
-        Fetch all upstream (load balancer) objects registered in the gateway.
-
-        Returns:
-            List of upstream objects.  Each dict structure is gateway-specific.
-            Empty list if no upstreams are configured.
-
-        Raises:
-            GatewayAdapterError: On transport failure or non-2xx response.
-        """
-
-    @abstractmethod
-    def get_plugin_by_name(self, plugin_name: str) -> dict[str, Any] | None:
-        """
-        Return the first plugin matching plugin_name, or None.
-
-        Fetches all plugins and filters by name.  Returns None if no plugin
-        with the given name is registered (absent or disabled).  The caller
-        decides whether absence is a FAIL or a SKIP.
+        A GatewayAdapterError raised by the reader (transport failure, refused
+        or unexpected answer of the gateway's interface) becomes a "not
+        accessible" answer with its message; the answer, whatever it is, is
+        kept for the rest of the run.
 
         Args:
-            plugin_name: Exact plugin identifier (e.g. 'rate-limiting',
-                         'hmac-auth', 'circuit-breaker').
+            concept:   Name of the concept (CONCEPT_* constant).
+            item_type: Model of the concept's items.
+            reader:    The adapter's _read_<concept>() method.
 
         Returns:
-            First matching plugin dict, or None.
-
-        Raises:
-            GatewayAdapterError: On transport failure or non-2xx response.
+            The answer for the concept.
         """
-
-    @abstractmethod
-    def get_status(self) -> dict[str, Any]:
-        """
-        Fetch the gateway node status / health endpoint.
-
-        Used as a connectivity check and to inspect runtime diagnostics
-        (e.g. whether circuit-breaker metrics are exposed on the status page).
-
-        Returns:
-            Status dict.  Structure is gateway-specific.
-
-        Raises:
-            GatewayAdapterError: On transport failure or non-2xx response.
-        """
+        memory: dict[str, Any] = self.__dict__.setdefault(_CONCEPT_MEMORY_ATTRIBUTE, {})
+        if concept not in memory:
+            try:
+                answer = reader()
+            except GatewayAdapterError as exc:
+                answer = ConceptRead[item_type].not_accessible(  # type: ignore[valid-type]
+                    f"{self.adapter_name}: {concept} could not be read: {exc.message}"
+                )
+            memory[concept] = answer
+            log.info(
+                "gateway_concept_read",
+                adapter=self.adapter_name,
+                concept=concept,
+                status=answer.status.value,
+                items=len(answer.items),
+                reason=answer.reason,
+            )
+        return cast("ConceptRead[ItemT]", memory[concept])

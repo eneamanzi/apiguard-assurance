@@ -1,6 +1,6 @@
 # 3.3 HMAC Configuration Audit
 
-> **Audience:** analysts, contributors · **Status:** implemented (v0.1.0), Kong only · **Source of truth:**
+> **Audience:** analysts, contributors · **Status:** implemented (v0.1.0); any gateway with an adapter (today Kong) · **Source of truth:**
 > [`src/tests/domain_3/test_3_3_hmac_config_audit.py`](../../../src/tests/domain_3/test_3_3_hmac_config_audit.py) ·
 > **Verified:** 2026-10-05
 
@@ -21,23 +21,26 @@ replay (unlimited or too wide `clock_skew`) and must not accept weak algorithms 
 
 ## How it works
 
-No request is sent to the target API: the test reads the gateway configuration through the adapter
-(`target.gateway`).
+No request is sent to the target API: the test reads the gateway concepts "request signing policies" and "routes"
+through the adapter (`target.gateway`, [gateway concepts](../../project/gateway-concepts.md)). On Kong the policies
+are the plugins whose name is in `plugin_names` (default `hmac-auth`), read with the field names of this test's
+configuration; `<policy>` below is the policy's reference, on Kong `plugin <name> (id: <id>)`.
 
-1. **Plugin discovery.** List the plugins and take the **first** one whose name is in `plugin_names`
-   (default `hmac-auth`).
-2. **Clock skew** (field `field_clock_skew`, default `clock_skew`):
+1. **Policy discovery.** Take the **first** policy.
+2. **Replay window** (field `field_clock_skew`, default `clock_skew`):
 
 | Value | Finding |
 |---|---|
-| field absent | `HMAC '<field>' Field Absent on Plugin '<id>'` |
+| not stated by the gateway | `HMAC '<field>' Field Absent on '<policy>'` |
 | equals `clock_skew_unconfigured_value` (default `0`) | `HMAC Replay Window Unlimited: …` |
 | greater than `max_clock_skew_seconds` (default 300) | `HMAC Replay Window Too Wide: …` |
 
-3. **Algorithms** (field `field_algorithms`): one finding per value in `forbidden_algorithms` that the plugin
-   allows: `Forbidden HMAC Algorithm '<alg>' Allowed on Plugin '<id>'`. A missing field is also a finding.
-4. **Coverage scope** (InfoNote, never a finding): global plugin, or which services and routes are and are not
-   covered (from the gateway's services and routes).
+3. **Algorithms** (field `field_algorithms`): one finding per value in `forbidden_algorithms` that the policy
+   allows: `Forbidden HMAC Algorithm '<alg>' Allowed on '<policy>'`. Algorithms not stated by the gateway are also a
+   finding; an empty list is not.
+4. **Coverage scope** (InfoNote, never a finding): global policy, or which backends and routes are and are not
+   covered, by name (backends from the routes concept; a backend-scope policy covers the routes that send to it).
+   Routes not readable: a note listing the policy scopes only.
 5. **Body validation** (InfoNote, never a finding): value of `validate_request_body`.
 
 ## Outcomes
@@ -46,11 +49,12 @@ No request is sent to the target API: the test reads the gateway configuration t
 |---|---|
 | PASS | Plugin found and enabled, no finding. Carries the coverage and body-validation InfoNotes. |
 | FAIL | At least one finding (InfoNotes attached too). |
-| SKIP | No Admin API / adapter configured; `plugin_names` empty; no matching plugin; or the matching plugin is disabled (InfoNote `HMAC Authentication Not Active: Manual Verification Recommended`). |
-| ERROR | Admin API call failed, or unexpected exception. |
+| SKIP | No gateway adapter configured; `plugin_names` empty; the signing policies not supported or not readable ("Not applicable to this gateway: ..." / "Not verifiable: no access to ..."); no policy; or the first policy disabled (InfoNote `HMAC Authentication Not Active: Manual Verification Recommended`). |
+| ERROR | Unexpected exception. |
 
 References: OWASP-API2:2023, CWE-326, NIST-SP-800-107-Rev1-S5.3.2, NIST-SP-800-131A-Rev2-2019, RFC-2104, RFC-6151,
-OWASP-ASVS-v5.0.0-V2.9.1. Findings have no `evidence_ref`: the plugin values are quoted in the finding detail.
+OWASP-ASVS-v5.0.0-V2.9.1. The concepts read are stored in `evidence.json` (`artifact-3.3-gateway_...`); findings point
+to the signing policies read (`evidence_ref`), the coverage note names the routes evidence.
 
 ## Prerequisites and effects on the target
 
@@ -84,7 +88,7 @@ voids that protection.
 
 - Only the first matching plugin instance is audited; if it is disabled the test SKIPs even when another enabled
   instance exists.
-- Kong only (the only gateway adapter).
+- Gateways with an adapter (today Kong).
 
 ## See also
 

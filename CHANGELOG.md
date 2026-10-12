@@ -32,6 +32,9 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
   in the working directory.
 - `tests.domain_0.test_0_1.method_probe_sample_size` (1-100, default 10): how many documented endpoints test 0.1
   takes for the undeclared-method sub-check (it was a fixed 10). Every native test now has a configuration model.
+- `target.admin_api_headers`: headers sent on every read of the gateway's Admin API (e.g. an APISIX key or a Kong
+  Enterprise RBAC token), for a gateway that protects it; the values are registered as secrets and masked in logs
+  and reports (Q-34).
 
 ### Fixed
 
@@ -65,6 +68,18 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
 ### Changed
 
+- **Changed results**, gateway audits (block 7+8): tests 4.2, 4.3, 3.3 and 6.4 (sub-test B) read the gateway
+  through neutral concepts.
+  When the Admin API cannot be read they return SKIP "Not verifiable: no access to <concept>: ..." (was ERROR);
+  their findings point to the stored concept (`evidence_ref`, was empty). 4.3: the observability check reads the
+  live health of the backend targets (Kong `/upstreams/<name>/health`) instead of looking for circuit-breaker
+  fields in Kong's `/status`, which never has them: the note "Observability Gap: CB Metrics Absent from Kong
+  /status" is gone on Kong (on a FAIL it was an extra finding); a circuit-breaker parameter that is not a number
+  is reported as "Not Found" (was "Non-Numeric"). 3.3: findings name the policy by its reference (on Kong
+  `plugin hmac-auth (id: ...)`, was the plugin id alone); the coverage note lists backends and routes by name.
+  6.4: sub-test B finding titles say "Gateway" instead of "Kong"; when the configuration cannot be read, a note
+  says that sub-test B was not verified (sub-test A stands).
+  Same statuses and findings on both labs.
 - Test labs: Kong active health checks re-enable a backend excluded by the passive checks (Q-66): on the crAPI lab a
   run no longer leaves the workshop service excluded, so consecutive runs give the same results without a reset.
   Results unchanged.
@@ -146,6 +161,9 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
   `extra_flags` remains for testssl and nuclei.
 - Test 7.2: the redirect sub-test is called "Sub-test G" in the report texts (was "Sub-test E", which is the DNS
   bypass sub-test).
+- Internal: the gateway adapter interface is made of neutral concepts (`src/core/gateway/concepts.py`, one
+  reader per concept, read once per run); the Kong-shaped methods (`get_services`, `get_plugins`, ...) are gone;
+  adapters are registered in `GATEWAY_ADAPTERS`. Guide: `docs/guides/extending/add-a-gateway-adapter.md`.
 - Internal: every test parameter is defined once, in `src/test_config/` (one model per test, the same model
   validates `config.yaml` and reaches the test); the runtime copies and the field-by-field copy in the engine were
   removed; the engine collects them automatically, and a model missing on one side stops the run at
