@@ -121,6 +121,17 @@ a default). OAuth 2.0 client credentials, session cookie and mutual TLS when a l
   Right after the change the old password was still accepted, then rejected minutes later: cause not verified. The
   methodology sub-test "token rejected after a password change" (Q-32) would give a real FAIL on crAPI.
 
+- 2026-10-12 (owner delegated the choice), **prefix with a declared scheme**: `credentials.send_as` describes how
+  the credential is sent, and every field left out is taken from the specification's scheme. With a declared
+  `apiKey` scheme only `prefix` may be set (`in` and `name` come from the scheme; setting them differently is an
+  error); schemes that define their own format (`http` basic or bearer, `oauth2`, `openIdConnect`) take no prefix
+  (error). Reason: an `apiKey` scheme has no prefix field in OpenAPI, and APIs often describe one in words only;
+  Forgejo declares `AuthorizationHeaderToken` (`apiKey`, header `Authorization`) and writes "API tokens must be
+  prepended with "token" followed by a space" in its description. Writing the prefix into the value works only for
+  a value typed by a person (Swagger UI, Schemathesis `api_key`), not for a token the tool obtains
+  (`forgejo_token`, `json_login`); openapi-generator clients keep a prefix per scheme, separate from the key
+  (`api_key_prefix`). Forgejo lab: `security_scheme: AuthorizationHeaderToken`, `send_as: {prefix: "token "}`.
+
 ## Sources
 
 1. OpenAPI Specification 3.1.0, Security Scheme Object: https://spec.openapis.org/oas/v3.1.0#security-scheme-object

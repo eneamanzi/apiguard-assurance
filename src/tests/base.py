@@ -760,12 +760,10 @@ class BaseTest(ABC):
 
         return self._make_skip(
             reason=(
-                "No API credentials configured: config.yaml credentials section "
-                "is empty or all credential pairs are missing. "
-                "Tests that log in to the API require at least one role with complete "
-                "username + password to acquire tokens via the Forgejo API. "
-                "Set ADMIN_USERNAME/ADMIN_PASSWORD or USER_A_USERNAME/USER_A_PASSWORD "
-                "environment variables and re-run to enable these tests."
+                "No API credentials configured: no role has the credentials its "
+                "authentication method needs (credentials.auth_type with username "
+                "and password, or <role>_token for static_token). Configure at least "
+                "one role to run the tests that log in to the API."
             )
         )
 

@@ -23,11 +23,12 @@ Symbol inventory by source module:
 
     http.py            EvidenceRecord, TransactionSummary
 
-    surface.py         ParameterInfo, EndpointRecord, AttackSurface
+    surface.py         ParameterInfo, EndpointRecord, AttackSurface,
+                       SecuritySchemeRecord, SecuritySchemeType
 
     results.py         Finding, InfoNote, TestResult, ResultSet, NotRunEntry
 
-    runtime.py         RuntimeCredentials
+    runtime.py         RuntimeCredentials, SendAs, AuthType, CredentialLocation
                        (per-test parameters: src/test_config/)
 
     external_tools.py  BaseExternalToolConfig, TestsslConfig, NucleiConfig,
@@ -45,8 +46,14 @@ from src.core.models.external_tools import (
 )
 from src.core.models.http import EvidenceRecord, TransactionSummary
 from src.core.models.results import Finding, InfoNote, NotRunEntry, ResultSet, TestResult
-from src.core.models.runtime import RuntimeCredentials
-from src.core.models.surface import AttackSurface, EndpointRecord, ParameterInfo
+from src.core.models.runtime import AuthType, CredentialLocation, RuntimeCredentials, SendAs
+from src.core.models.surface import (
+    AttackSurface,
+    EndpointRecord,
+    ParameterInfo,
+    SecuritySchemeRecord,
+    SecuritySchemeType,
+)
 
 __all__ = [
     # enums.py
@@ -62,6 +69,8 @@ __all__ = [
     "ParameterInfo",
     "EndpointRecord",
     "AttackSurface",
+    "SecuritySchemeRecord",
+    "SecuritySchemeType",
     # results.py
     "Finding",
     "InfoNote",
@@ -70,6 +79,9 @@ __all__ = [
     "NotRunEntry",
     # runtime.py
     "RuntimeCredentials",
+    "SendAs",
+    "AuthType",
+    "CredentialLocation",
     # external_tools.py
     "BaseExternalToolConfig",
     "TestsslConfig",

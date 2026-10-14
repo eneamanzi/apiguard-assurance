@@ -86,7 +86,7 @@ Helpers: `endpoint_base_url()` and `admin_endpoint_base_url()` (string URLs with
 
 | Channel | Methods | Notes |
 |---|---|---|
-| Tokens | `set_token(role, token)`, `get_token`, `has_token`, `stored_roles` | roles `admin`, `user_a`, `user_b`; tokens stored without the `Bearer ` prefix |
+| Tokens | `set_token(role, token)`, `get_token`, `has_token`, `stored_roles` | roles `admin`, `user_a`, `user_b`; the credential as the method obtained it, without any prefix (the placement adds it: `src/core/auth_placement.py`) |
 | Teardown | `register_resource_for_teardown(method, path, headers)`, `drain_resources()`, `registered_resource_count` | LIFO; drained in Phase 6 |
 | Shared data | `set_shared(key, value)`, `get_shared`, `has_shared`, `shared_keys` | convention `"{test_id}.{name}"` |
 

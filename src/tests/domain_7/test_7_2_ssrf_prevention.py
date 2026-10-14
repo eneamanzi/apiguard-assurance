@@ -74,6 +74,7 @@ from urllib.parse import urlparse
 
 import structlog
 
+from src.core.auth_placement import RequestAuthParts
 from src.core.client import SecurityClient
 from src.core.context import ROLE_USER_A, TargetContext, TestContext
 from src.core.evidence import EvidenceStore
@@ -86,7 +87,7 @@ from src.core.models import (
 )
 from src.tests.base import BaseTest
 from src.tests.data.ssrf_payloads import ALL_SSRF_PAYLOADS
-from src.tests.helpers.auth import acquire_tokens
+from src.tests.helpers.auth import acquire_tokens, auth_parts
 from src.tests.helpers.forgejo_resources import ForgejoResourceError, create_repository
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -257,20 +258,7 @@ class Test72SSRFPrevention(BaseTest):
             if skip is not None:
                 return skip
 
-            token: str | None = context.get_token(ROLE_USER_A)
-            if token is None:
-                # Defensive branch: _requires_token() above already verified
-                # that the token is present and returns SKIP if absent.  This
-                # branch is therefore unreachable in correct execution.  The
-                # guard exists solely to narrow the type from str | None to str
-                # so that Pylance does not flag the two method calls below.
-                return self._make_error(
-                    ValueError(
-                        "ROLE_USER_A token is None after _requires_token guard "
-                        "-- unexpected authentication state; investigate "
-                        "acquire_tokens()."
-                    )
-                )
+            user_a_auth = auth_parts(target, context, ROLE_USER_A)
             cfg = target.tests_config.test_7_2
 
             # Build active payload set from the enabled categories.
@@ -374,7 +362,7 @@ class Test72SSRFPrevention(BaseTest):
             findings, timeout_notes = self._run_payload_subtests(
                 payloads=active_payloads,
                 webhook_path=webhook_path,
-                token=token,
+                user_a_auth=user_a_auth,
                 cfg_keywords=cfg.ssrf_block_response_keywords,
                 cfg_malformed_keywords=cfg.ssrf_malformed_url_keywords,
                 cfg_scheme_keywords=cfg.ssrf_unsupported_scheme_keywords,
@@ -388,7 +376,7 @@ class Test72SSRFPrevention(BaseTest):
             self._run_redirect_subtest(
                 redirect_server_url=cfg.ssrf_redirect_server_url,
                 webhook_path=webhook_path,
-                token=token,
+                user_a_auth=user_a_auth,
                 cfg_keywords=cfg.ssrf_block_response_keywords,
                 cfg_malformed_keywords=cfg.ssrf_malformed_url_keywords,
                 cfg_scheme_keywords=cfg.ssrf_unsupported_scheme_keywords,
@@ -481,7 +469,7 @@ class Test72SSRFPrevention(BaseTest):
         self,
         payloads: list[_SSRFPayloadEntry],
         webhook_path: str,
-        token: str,
+        user_a_auth: RequestAuthParts,
         cfg_keywords: Sequence[str],
         cfg_malformed_keywords: Sequence[str],
         cfg_scheme_keywords: Sequence[str],
@@ -499,7 +487,7 @@ class Test72SSRFPrevention(BaseTest):
         Args:
             payloads:              Active payload entries to probe.
             webhook_path:          Resolved injection endpoint path.
-            token:                 user_a Bearer token.
+            user_a_auth:           Request parts carrying the user_a credential.
             cfg_keywords:          Case-insensitive SSRF-validation block keywords.
             cfg_malformed_keywords: Case-insensitive URL-parser-error keywords;
                                    checked FIRST (Level 1) to detect syntactically
@@ -542,7 +530,8 @@ class Test72SSRFPrevention(BaseTest):
                     method="POST",
                     path=webhook_path,
                     test_id=self.test_id,
-                    headers={"Authorization": f"Bearer {token}"},
+                    headers=dict(user_a_auth.headers),
+                    params=dict(user_a_auth.params) or None,
                     json=webhook_body,
                 )
             except SecurityClientError as exc:
@@ -645,7 +634,7 @@ class Test72SSRFPrevention(BaseTest):
         self,
         redirect_server_url: str,
         webhook_path: str,
-        token: str,
+        user_a_auth: RequestAuthParts,
         cfg_keywords: Sequence[str],
         cfg_malformed_keywords: Sequence[str],
         cfg_scheme_keywords: Sequence[str],
@@ -667,7 +656,7 @@ class Test72SSRFPrevention(BaseTest):
         Args:
             redirect_server_url:   Operator-controlled redirect server URL.
             webhook_path:          Resolved injection endpoint path.
-            token:                 user_a Bearer token.
+            user_a_auth:           Request parts carrying the user_a credential.
             cfg_keywords:          SSRF-validation block keywords.
             cfg_malformed_keywords: URL-parser-error keywords; checked first.
             cfg_scheme_keywords:   Unsupported-scheme keywords; checked second.
@@ -703,7 +692,8 @@ class Test72SSRFPrevention(BaseTest):
                 method="POST",
                 path=webhook_path,
                 test_id=self.test_id,
-                headers={"Authorization": f"Bearer {token}"},
+                headers=dict(user_a_auth.headers),
+                params=dict(user_a_auth.params) or None,
                 json=webhook_body,
             )
         except SecurityClientError as exc:

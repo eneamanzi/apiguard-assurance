@@ -14,8 +14,8 @@ paths or payloads of a specific application: the attack surface is built at runt
 target-specific values live in `config.yaml`. Two exceptions are deliberate and isolated:
 
 - **gateway adapters** (`src/core/gateway/`, Kong and APISIX) read the gateway configuration for WHITE_BOX audits;
-- **application helpers** (`src/tests/helpers/auth_forgejo.py`, `forgejo_resources.py`) and some test defaults
-  are Forgejo-specific. Which tests depend on them is stated on each [test page](../tests/README.md) (Q-18).
+- **application helpers** (the `forgejo_token` authentication method in `src/tests/helpers/auth_forgejo.py`,
+  `forgejo_resources.py`) and some test defaults are Forgejo-specific. Which tests depend on them is stated on each [test page](../tests/README.md) (Q-18).
 
 **Split state.** What is known before execution (`TargetContext`) is immutable; what tests discover or create
 (`TestContext`) is mutable and has a typed interface. A test cannot corrupt the inputs of the others.
@@ -32,7 +32,7 @@ target-specific values live in `config.yaml`. Two exceptions are deliberate and 
 |---|---|---|---|
 | 1 Initialization | Read YAML, resolve `${VAR}`, validate with Pydantic → frozen `ToolConfig`; then check every test declaration (`src/core/test_metadata.py`) and the `test_ids` entries (`engine.check_tests`) | `src/config/loader.py`, `src/config/schema/`, `src/engine.py` | `ConfigurationError` or `TestDefinitionError` → exit 10 |
 | 2 OpenAPI discovery | Fetch or read the spec, dereference `$ref` (prance, in a worker thread), detect dialect, validate, build `AttackSurface` | `src/discovery/openapi.py`, `surface.py` | `OpenAPILoadError` → exit 10 |
-| 3 Context construction | Build `TargetContext` (config + surface + credentials + per-test config + gateway adapter), `TestContext`, `EvidenceStore` | `src/engine.py`, `src/core/context.py`, `src/core/evidence.py` | exit 10 |
+| 3 Context construction | Resolve where and how credentials are sent (credentials + the spec's security schemes); build `TargetContext` (config + surface + credentials + placement + per-test config + gateway adapter), `TestContext`, `EvidenceStore` | `src/engine.py`, `src/core/auth_placement.py`, `src/core/context.py`, `src/core/evidence.py` | `ConfigurationError` (placement not determined) → exit 10 |
 | 4 Discovery and scheduling | Discover native and external tests, filter, build dependency batches | `src/tests/registry.py`, `src/external_tests/registry.py`, `src/core/dag.py` | `DAGCycleError` → exit 10 |
 | 5 Execution | Run each test sequentially in batch order with one shared `SecurityClient` | `src/engine.py`, `src/tests/`, `src/external_tests/` | per test: `ERROR` result |
 | 6 Teardown | Delete resources registered by tests, in reverse order | `src/engine.py`, `TestContext.drain_resources()` | warning, run continues |
@@ -81,13 +81,14 @@ src/
 │   ├── models/         Pydantic models (results, evidence, surface, credentials, tool config)
 │   ├── client.py       SecurityClient: the only HTTP client for the target API
 │   ├── context.py      TargetContext (frozen), TestContext (mutable)
+│   ├── auth_placement.py Where and how a credential is sent (header / query / cookie, name, prefix)
 │   ├── evidence.py     EvidenceStore (streaming JSONL, merged in Phase 7)
 │   ├── dag.py          DAGScheduler
 │   ├── gateway/        BaseGatewayAdapter + KongGatewayAdapter, ApisixGatewayAdapter
 │   ├── test_metadata.py Rules of a test declaration (ID formats, priority and domain ranges)
 │   └── exceptions.py   Exception hierarchy
 ├── connectors/         Wrappers around external tools (nuclei, testssl.sh, sslyze)
-├── tests/              Native tests (domain_0 … domain_7), helpers/, data/ (payloads, wordlists)
+├── tests/              Native tests (domain_0 … domain_7), helpers/ (incl. the authentication methods), data/
 ├── external_tests/     Tests that run an external tool through a connector
 ├── report/             Phase 7: ReportData builder, Jinja2 HTML renderer, template
 └── test_config/        Per-test parameter models (one per test, by domain) + RuntimeTestsConfig

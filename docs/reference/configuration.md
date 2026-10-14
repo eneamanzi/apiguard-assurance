@@ -2,7 +2,7 @@
 
 > **Audience:** users, integrators · **Status:** stable · **Source of truth:** `src/config/schema/tool_config.py`,
 > `src/test_config/domain_*.py`, `src/core/models/external_tools.py`, `src/config/loader.py` ·
-> **Verified:** 2026-10-12 (gateway keys), 2026-10-05, v0.1.0 (field list extracted from the Pydantic models; behaviours tested with
+> **Verified:** 2026-10-14 (credentials), 2026-10-12 (gateway keys), 2026-10-05, v0.1.0 (field list extracted from the Pydantic models; behaviours tested with
 > `apiguard validate-config`)
 
 Every field, type, default and constraint below comes from the Pydantic models. For a guided setup see
@@ -72,16 +72,37 @@ API's administrator account) by the WHITE_BOX test 1.4. Always provide values th
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `auth_type` | string | `forgejo_token` | Token acquisition strategy: `forgejo_token` (Forgejo/Gitea token API, `POST /users/{username}/tokens` with Basic Auth) or `jwt_login` (generic JSON login endpoint). |
-| `admin_username`, `admin_password` | string \| null | `null` | Administrator role. |
+| `auth_type` | string \| null | `null` | How a credential is obtained. **Required** when an account or a token is configured. `basic` (HTTP Basic with username and password, RFC 7617), `static_token` (the `<role>_token` values), `json_login` (POST username and password as JSON to `login_endpoint`, token read at `token_response_path`), `forgejo_token` (Forgejo/Gitea token API, `POST /api/v1/users/{username}/tokens` with Basic Auth; tokens deleted at the end of the run). `jwt_login` (v0.1.0) is rejected with a message naming `json_login`. |
+| `admin_username`, `admin_password` | string \| null | `null` | Administrator role (`basic`, `json_login`, `forgejo_token`). |
 | `user_a_username`, `user_a_password` | string \| null | `null` | First non-privileged role. |
 | `user_b_username`, `user_b_password` | string \| null | `null` | Second non-privileged role. |
-| `login_endpoint` | string \| null | `null` | `jwt_login` only, **required** there. Path relative to `base_url`. |
-| `username_body_field` | string | `username` | `jwt_login`: JSON field carrying the username (e.g. `email`). |
-| `password_body_field` | string | `password` | `jwt_login`: JSON field carrying the password. |
-| `token_response_path` | string | `access_token` | `jwt_login`: dot-path to the token in the login response (`data.token`). No array indexing. |
+| `admin_token`, `user_a_token`, `user_b_token` | string \| null | `null` | `static_token` only: the token of each role. |
+| `login_endpoint` | string \| null | `null` | `json_login` only, **required** there. Path relative to `base_url`. |
+| `username_body_field` | string | `username` | `json_login`: JSON field carrying the username (e.g. `email`). |
+| `password_body_field` | string | `password` | `json_login`: JSON field carrying the password. |
+| `token_response_path` | string | `access_token` | `json_login`: dot-path to the token in the login response (`data.token`). No array indexing. |
+| `security_scheme` | string \| null | `null` | Name of the specification's security scheme the credential is sent with. **Required** when the specification declares more than one scheme that can carry a token (e.g. Forgejo: `AuthorizationHeaderToken`). Not with `basic`. |
+| `send_as` | map \| null | `null` | Where and how the credential is sent: `in` (`header`, `query`, `cookie`), `name`, `prefix` (written before the credential, spaces included). Every field left out comes from the specification's scheme; with no usable scheme `in` and `name` are required. With a declared `apiKey` scheme only `prefix` may be set (Forgejo: `prefix: "token "`). Not with `basic`. |
 
-Each role's username and password must be set together or not at all.
+Each method takes its own kind of credential: `static_token` the `<role>_token` keys only, the other methods username
+and password, set together or not at all. Every value comes from a `${VAR}` placeholder; passwords and tokens are
+registered as secrets and masked in every output.
+
+**How the credential is sent** (resolved once per run, after the specification is read; `src/core/auth_placement.py`):
+
+| Situation | Result |
+|---|---|
+| `auth_type: basic` | `Authorization: Basic <base64(username:password)>` |
+| one scheme that can carry a token | that scheme |
+| several such schemes | the one named in `security_scheme` (error otherwise, listing the names) |
+| no such scheme | `send_as` with `in` and `name` (error otherwise) |
+| `http` bearer, `oauth2`, `openIdConnect` scheme | `Authorization: Bearer <token>`; a `send_as.prefix` is an error |
+| `apiKey` scheme | its location and name, after `send_as.prefix` if set |
+
+Schemes that can carry a token: `apiKey`, `http` bearer, `oauth2`, `openIdConnect` (not `http` basic, not
+`mutualTLS`). A configuration that does not determine the placement stops the run with exit `10` before any test;
+`validate-config` checks it too, reading the specification (download or local file) only when credentials are
+configured, and prints where the credentials will be sent.
 
 ## `execution`
 
@@ -277,8 +298,9 @@ Phase 1 rejects the configuration (exit `10`) when:
 |---|---|
 | Exactly one OpenAPI source | `target.openapi_spec_url`, `target.openapi_spec_path` |
 | Adapter needs the Admin API URL; `kong` or `apisix` | `target.gateway_adapter`, `target.admin_api_url` |
-| Supported `auth_type`; `jwt_login` needs `login_endpoint` | `credentials.*` |
+| `auth_type` set when credentials are configured, supported value (`jwt_login` renamed `json_login`); `json_login` needs `login_endpoint`; each method's own credential keys only; `basic` without `security_scheme` / `send_as` | `credentials.*` |
 | Username and password set together per role | `credentials.*` |
+| The credentials determine where they are sent (`security_scheme`, `send_as` against the specification's schemes; checked after the specification is read) | `credentials.security_scheme`, `credentials.send_as` |
 | `strategies` not empty | `execution.strategies` |
 | `test_ids` format `X.Y` or `ext.X.Y.tool` | `execution.test_ids` |
 | `test_ids` entries exist and their tool is enabled (checked right after Phase 1, also by `validate-config`) | `execution.test_ids` |

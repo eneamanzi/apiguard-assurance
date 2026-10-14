@@ -77,8 +77,8 @@ not met: the prerequisite is never added to the run automatically. The `SKIP` re
 that depend on the skipped one. The test is not executed.
 
 Declare a prerequisite only when one of the two cases is true. Tokens are not a reason: every test that needs one
-calls `acquire_tokens()` (`src/tests/helpers/auth.py`), which logs in once per role and reuses the token stored in
-`TestContext`, in any order. No test declares a prerequisite today. A prerequisite that names no existing test, or
+calls `acquire_tokens()` (`src/tests/helpers/auth.py`), which obtains each role's credential once and reuses the one
+stored in `TestContext`, in any order. No test declares a prerequisite today. A prerequisite that names no existing test, or
 the test itself, stops the tool at startup (exit `10`).
 
 ## Oracles and verdicts

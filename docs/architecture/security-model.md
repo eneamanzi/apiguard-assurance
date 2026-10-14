@@ -27,7 +27,9 @@ systems you are authorised to test.
   [evidence format](../reference/evidence-format.md#sensitive-data);
 - custom API-key headers and response bodies are kept as received (a body is often the proof itself), apart from
   the secrets registered by the tool;
-- token-acquisition requests of the authentication helpers are not recorded;
+- the passwords and configured tokens of `credentials`, and every credential the authentication methods obtain,
+  are registered as secrets before any request;
+- token-acquisition requests of the authentication methods are not recorded;
 - external-tool artefacts are sanitised for credentials before storage;
 - test 6.4 masks the secrets it finds in the finding detail (first and last characters kept).
 

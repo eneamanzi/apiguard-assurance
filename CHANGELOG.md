@@ -78,6 +78,24 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
 ### Changed
 
+- **Breaking:** authentication is configured in two parts (block 7+8 phase C, `docs/project/auth-survey.md`).
+  `credentials.auth_type` has no default and is required when an account or a token is configured (it was
+  `forgejo_token` by default); values `basic` (new, HTTP Basic), `static_token` (new, `admin_token` /
+  `user_a_token` / `user_b_token`), `json_login` (renamed from `jwt_login`, which is now rejected with a message
+  naming the new value), `forgejo_token`. How the credential is sent comes from the security schemes the
+  specification declares: one scheme is used as is, several need `credentials.security_scheme`, none needs
+  `credentials.send_as` (`in`, `name`, `prefix`); `send_as.prefix` also completes a declared `apiKey` scheme whose
+  prefix is described only in words (Forgejo: `security_scheme: AuthorizationHeaderToken`, `send_as: {prefix:
+  "token "}`). A configuration that does not determine it stops the run before any test (exit `10`);
+  `validate-config` checks it too, reading the specification only when credentials are configured, and prints
+  where the credentials are sent. Each method accepts only its own kind of credential (tokens or username and
+  password). Passwords and configured tokens are registered as secrets.
+- **Changed results**, authentication (block 7+8 phase C): the tests send the credential as the specification
+  declares instead of always `Authorization: Bearer`: on Forgejo `Authorization: token <value>` (results
+  unchanged). Test 1.4 uses the revocation capability of the authentication method, which only `forgejo_token`
+  has: with any other method it returns SKIP "Not applicable: the authentication method '<auth_type>' cannot revoke
+  a credential." (crAPI: was ERROR). The SKIP reason for missing credentials no longer mentions Forgejo.
+- Config key suggestions use the names written in `config.yaml` (e.g. `credentials.send_as.inn` suggests `in`).
 - **Changed results**, gateway audits (block 7+8): tests 4.2, 4.3, 3.3 and 6.4 (sub-test B) read the gateway
   through neutral concepts.
   When the Admin API cannot be read they return SKIP "Not verifiable: no access to <concept>: ..." (was ERROR);

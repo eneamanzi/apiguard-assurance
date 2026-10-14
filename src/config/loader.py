@@ -463,17 +463,21 @@ def _known_keys_at(loc: tuple[str | int, ...]) -> list[str]:
         loc: Location of the mapping, as in a Pydantic error 'loc'.
 
     Returns:
-        The declared field names at that location.
+        The declared keys at that location, as written in config.yaml (a
+        field's alias when it has one, e.g. 'in' for send_as.location).
     """
     model: type[BaseModel] | None = ToolConfig
     for part in loc:
         if model is None:
             return []
-        field = model.model_fields.get(str(part))
+        fields = {field.alias or name: field for name, field in model.model_fields.items()}
+        field = fields.get(str(part))
         if field is None:
             return []
         model = _model_in_annotation(field.annotation)
-    return list(model.model_fields) if model is not None else []
+    if model is None:
+        return []
+    return [field.alias or name for name, field in model.model_fields.items()]
 
 
 def _model_in_annotation(annotation: object) -> type[BaseModel] | None:
@@ -543,7 +547,8 @@ def _emit_coherence_warnings(config: ToolConfig) -> None:
                 "execution.strategies includes WHITE_BOX but the admin credentials "
                 "are not configured. The tests that use the API's administrator "
                 "account will return SKIP. Set credentials.admin_username and "
-                "credentials.admin_password (through environment variables) to run them."
+                "credentials.admin_password (credentials.admin_token with static_token), "
+                "through environment variables, to run them."
             ),
         )
 
@@ -556,7 +561,8 @@ def _emit_coherence_warnings(config: ToolConfig) -> None:
                 "execution.strategies includes GREY_BOX but the user_a credentials "
                 "are not configured. The tests that use a normal user account will "
                 "return SKIP. Set credentials.user_a_username and "
-                "credentials.user_a_password (through environment variables) to run them."
+                "credentials.user_a_password (credentials.user_a_token with static_token), "
+                "through environment variables, to run them."
             ),
         )
 

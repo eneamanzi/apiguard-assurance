@@ -52,7 +52,7 @@ from pydantic import (
 
 from src.config.schema.tests_config import TestsConfig
 from src.core.gateway import GATEWAY_ADAPTERS
-from src.core.models import TestStrategy
+from src.core.models import RuntimeCredentials, TestStrategy
 from src.core.models.external_tools import ExternalToolsConfig
 from src.core.test_metadata import PRIORITY_MAX, PRIORITY_MIN, is_valid_test_id
 
@@ -379,234 +379,6 @@ class TargetConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# CredentialsConfig
-# ---------------------------------------------------------------------------
-
-
-class CredentialsConfig(BaseModel):
-    """
-    Authentication credentials for the tests that log in to the API: user_a
-    (an ordinary account) for GREY_BOX tests, admin (the API's administrator
-    account) for the WHITE_BOX test that needs it (1.4).
-
-    All credential fields are populated via ${VAR_NAME} environment variable
-    interpolation in loader.py. They must NEVER appear in plain text in
-    config.yaml.
-
-    auth_type selects the token-acquisition strategy used by the auth dispatcher
-    (src/tests/helpers/auth.py) at the start of every test that logs in:
-
-        "forgejo_token"  (default) -- Forgejo/Gitea Token API.
-            POST /api/v1/users/{username}/tokens with HTTP Basic Auth.
-            Returns an opaque token in the "sha1" response field.
-            Backward-compatible: config.yaml files without an explicit
-            auth_type field continue to work without modification.
-
-        "jwt_login"  -- Generic JSON login endpoint.
-            POST {login_endpoint} with {username_body_field}/{password_body_field}
-            as JSON body. Extracts the token from the response via
-            token_response_path (dotted JSONPath, e.g. "data.access_token").
-            Use for crAPI, Django REST Framework, FastAPI, Rails Devise, etc.
-
-    Choosing auth_type as a plain str (not Literal) is intentional: it leaves
-    the dispatcher open to new implementations without a schema change. The
-    model_validator validates the value and emits a clear error listing the
-    supported options.
-    """
-
-    model_config = {"frozen": True, "extra": "forbid"}
-
-    # ------------------------------------------------------------------
-    # Auth type discriminator
-    # ------------------------------------------------------------------
-
-    auth_type: str = Field(
-        default="forgejo_token",
-        description=(
-            "Token-acquisition method for the tests that log in to the API. "
-            "Supported values: 'forgejo_token' (default), 'jwt_login'. "
-            "See class docstring for details."
-        ),
-    )
-
-    # ------------------------------------------------------------------
-    # Common credential fields (used by forgejo_token and jwt_login)
-    # ------------------------------------------------------------------
-
-    admin_username: str | None = Field(
-        default=None,
-        description=(
-            "Administrator role username, resolved at load time from a "
-            "${VAR} placeholder in config.yaml (typically ${ADMIN_USERNAME}). "
-            "Required by WHITE_BOX tests that acquire an admin token via the "
-            "auth dispatcher.  Never logged; redacted as '[REDACTED]' in all "
-            "structured log output."
-        ),
-    )
-    admin_password: str | None = Field(
-        default=None,
-        description=(
-            "Administrator role password, resolved at load time from a "
-            "${VAR} placeholder in config.yaml (typically ${ADMIN_PASSWORD}). "
-            "Required by WHITE_BOX tests that acquire an admin token via the "
-            "auth dispatcher.  Never logged; redacted as '[REDACTED]' in all "
-            "structured log output."
-        ),
-    )
-    user_a_username: str | None = Field(
-        default=None,
-        description=(
-            "Primary non-privileged role (user_a) username, resolved at load "
-            "time from a ${VAR} placeholder in config.yaml (typically "
-            "${USER_A_USERNAME}).  Required by GREY_BOX tests that probe with "
-            "standard user credentials.  Never logged; redacted as '[REDACTED]'."
-        ),
-    )
-    user_a_password: str | None = Field(
-        default=None,
-        description=(
-            "Primary non-privileged role (user_a) password, resolved at load "
-            "time from a ${VAR} placeholder in config.yaml (typically "
-            "${USER_A_PASSWORD}).  Required by GREY_BOX tests that probe with "
-            "standard user credentials.  Never logged; redacted as '[REDACTED]'."
-        ),
-    )
-    user_b_username: str | None = Field(
-        default=None,
-        description=(
-            "Secondary non-privileged role (user_b) username, resolved at load "
-            "time from a ${VAR} placeholder in config.yaml (typically "
-            "${USER_B_USERNAME}).  Required by GREY_BOX cross-tenant tests "
-            "(e.g. 2.1 RBAC enforcement) that need a second distinct user.  "
-            "Never logged; redacted as '[REDACTED]'."
-        ),
-    )
-    user_b_password: str | None = Field(
-        default=None,
-        description=(
-            "Secondary non-privileged role (user_b) password, resolved at load "
-            "time from a ${VAR} placeholder in config.yaml (typically "
-            "${USER_B_PASSWORD}).  Required by GREY_BOX cross-tenant tests "
-            "(e.g. 2.1 RBAC enforcement) that need a second distinct user.  "
-            "Never logged; redacted as '[REDACTED]'."
-        ),
-    )
-
-    # ------------------------------------------------------------------
-    # jwt_login specific fields
-    # ------------------------------------------------------------------
-
-    login_endpoint: str | None = Field(
-        default=None,
-        description=(
-            "Required when auth_type='jwt_login'. "
-            "Absolute path of the login endpoint, e.g. '/identity/api/auth/login'. "
-            "The full URL is constructed as target.base_url + login_endpoint."
-        ),
-    )
-    username_body_field: str = Field(
-        default="username",
-        description=(
-            "JSON body field name for the username in jwt_login POST requests. "
-            "Default: 'username'. Override to 'email' for targets that use email login."
-        ),
-    )
-    password_body_field: str = Field(
-        default="password",
-        description=(
-            "JSON body field name for the password in jwt_login POST requests. Default: 'password'."
-        ),
-    )
-    token_response_path: str = Field(
-        default="access_token",
-        description=(
-            "Dotted JSONPath to extract the token from the login response body. "
-            "Supports simple dot-notation only (no array indexing, no keys with dots). "
-            "Examples: 'access_token' for {'access_token': '...'}, "
-            "'data.token' for {'data': {'token': '...'}}. "
-            "Default: 'access_token'."
-        ),
-    )
-
-    # ------------------------------------------------------------------
-    # Validators
-    # ------------------------------------------------------------------
-
-    @model_validator(mode="after")
-    def validate_credentials(self) -> CredentialsConfig:
-        """
-        Enforce auth_type validity and credential pair completeness.
-
-        Two independent checks:
-        1. auth_type must be one of the supported values.
-        2. jwt_login requires login_endpoint.
-        3. Each role's username and password must be provided together or not at all.
-        """
-        supported_auth_types = ("forgejo_token", "jwt_login")
-        if self.auth_type not in supported_auth_types:
-            raise ValueError(
-                f"Unsupported auth_type: '{self.auth_type}'. "
-                f"Supported values: {sorted(supported_auth_types)}."
-            )
-
-        if self.auth_type == "jwt_login" and not self.login_endpoint:
-            raise ValueError(
-                "auth_type='jwt_login' requires 'login_endpoint' to be set in "
-                "config.yaml under credentials.login_endpoint."
-            )
-
-        pairs = [
-            ("admin_username", "admin_password", "admin"),
-            ("user_a_username", "user_a_password", "user_a"),
-            ("user_b_username", "user_b_password", "user_b"),
-        ]
-        for username_field, password_field, role_label in pairs:
-            username_val = getattr(self, username_field)
-            password_val = getattr(self, password_field)
-            username_present = bool(username_val and str(username_val).strip())
-            password_present = bool(password_val and str(password_val).strip())
-
-            if username_present and not password_present:
-                raise ValueError(
-                    f"Credential pair incomplete for role '{role_label}': "
-                    f"'{username_field}' is set but '{password_field}' is missing."
-                )
-            if password_present and not username_present:
-                raise ValueError(
-                    f"Credential pair incomplete for role '{role_label}': "
-                    f"'{password_field}' is set but '{username_field}' is missing."
-                )
-        return self
-
-    def has_admin_credentials(self) -> bool:
-        """True if both admin_username and admin_password are present."""
-        return bool(
-            self.admin_username
-            and self.admin_username.strip()
-            and self.admin_password
-            and self.admin_password.strip()
-        )
-
-    def has_user_a_credentials(self) -> bool:
-        """True if both user_a_username and user_a_password are present."""
-        return bool(
-            self.user_a_username
-            and self.user_a_username.strip()
-            and self.user_a_password
-            and self.user_a_password.strip()
-        )
-
-    def has_user_b_credentials(self) -> bool:
-        """True if both user_b_username and user_b_password are present."""
-        return bool(
-            self.user_b_username
-            and self.user_b_username.strip()
-            and self.user_b_password
-            and self.user_b_password.strip()
-        )
-
-
-# ---------------------------------------------------------------------------
 # ExecutionConfig
 # ---------------------------------------------------------------------------
 
@@ -813,9 +585,12 @@ class ToolConfig(BaseModel):
     target: TargetConfig = Field(
         description="Connection parameters for the target API and its infrastructure."
     )
-    credentials: CredentialsConfig = Field(
-        default_factory=CredentialsConfig,
-        description="Authentication credentials injected via environment variables.",
+    credentials: RuntimeCredentials = Field(
+        default_factory=RuntimeCredentials,
+        description=(
+            "Authentication credentials injected via environment variables; the same "
+            "model reaches the tests (src/core/models/runtime.py)."
+        ),
     )
     execution: ExecutionConfig = Field(
         default_factory=ExecutionConfig,
@@ -867,13 +642,10 @@ class ToolConfig(BaseModel):
         if TestStrategy.WHITE_BOX in self.execution.strategies:
             if self.target.gateway_adapter is None:
                 self._white_box_without_gateway = True
-            if not self.credentials.has_admin_credentials():
+            if not self.credentials.has_admin():
                 self._white_box_without_admin_credentials = True
 
-        if (
-            TestStrategy.GREY_BOX in self.execution.strategies
-            and not self.credentials.has_user_a_credentials()
-        ):
+        if TestStrategy.GREY_BOX in self.execution.strategies and not self.credentials.has_user_a():
             self._grey_box_without_user_credentials = True
 
         return self

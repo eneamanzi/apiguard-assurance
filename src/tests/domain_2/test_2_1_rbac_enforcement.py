@@ -52,13 +52,14 @@ from typing import ClassVar
 
 import structlog
 
+from src.core.auth_placement import RequestAuthParts
 from src.core.client import SecurityClient
 from src.core.context import ROLE_USER_A, TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.exceptions import AuthenticationSetupError, SecurityClientError
 from src.core.models import Finding, TestResult, TestStrategy
 from src.tests.base import BaseTest
-from src.tests.helpers.auth import acquire_tokens
+from src.tests.helpers.auth import acquire_tokens, auth_parts
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -158,7 +159,7 @@ class Test21RbacEnforcement(BaseTest):
             if skip is not None:
                 return skip
 
-            user_a_token: str = context.get_token(ROLE_USER_A)  # type: ignore[assignment]
+            user_a_auth = auth_parts(target, context, ROLE_USER_A)
             cfg = target.tests_config.test_2_1
 
             log.info(
@@ -174,7 +175,7 @@ class Test21RbacEnforcement(BaseTest):
                     store=store,
                     method=cfg.admin_endpoint_method,
                     path=path,
-                    user_a_token=user_a_token,
+                    user_a_auth=user_a_auth,
                 )
                 if finding is not None:
                     findings.append(finding)
@@ -213,7 +214,7 @@ class Test21RbacEnforcement(BaseTest):
         store: EvidenceStore,
         method: str,
         path: str,
-        user_a_token: str,
+        user_a_auth: RequestAuthParts,
     ) -> Finding | None:
         """
         Probe a single admin endpoint with the ROLE_USER_A token and apply the oracle.
@@ -229,7 +230,7 @@ class Test21RbacEnforcement(BaseTest):
             store:        EvidenceStore (only used for FAIL pinning).
             method:       HTTP method to probe (from cfg.admin_endpoint_method).
             path:         Endpoint path under test.
-            user_a_token: Bearer token for the non-privileged ROLE_USER_A.
+            user_a_auth:  Request parts carrying the ROLE_USER_A credential.
 
         Returns:
             Finding when the endpoint accepts the non-privileged token (FAIL),
@@ -240,7 +241,8 @@ class Test21RbacEnforcement(BaseTest):
             method=method,
             path=path,
             test_id=self.test_id,
-            headers={"Authorization": f"Bearer {user_a_token}"},
+            headers=dict(user_a_auth.headers),
+            params=dict(user_a_auth.params) or None,
         )
 
         if response.status_code in _RBAC_BYPASS_CODES:

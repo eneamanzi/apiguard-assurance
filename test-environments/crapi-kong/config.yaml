@@ -21,7 +21,7 @@ target:
 
 credentials:
   # crAPI logs in with POST /identity/api/auth/login {"email", "password"} -> {"token"}.
-  auth_type: jwt_login
+  auth_type: json_login
   login_endpoint: "/identity/api/auth/login"
   username_body_field: email
   password_body_field: password

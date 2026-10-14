@@ -83,18 +83,32 @@ MYAPI_ADMIN_USER=...
 MYAPI_ADMIN_PASSWORD=...
 ```
 
-The tool supports two ways of obtaining a token (`credentials.auth_type`):
+Two things to set: **how the tool obtains a credential** (`credentials.auth_type`, required) and, when your
+specification does not settle it by itself, **how the credential is sent** (`security_scheme`, `send_as`).
 
-| `auth_type` | For | How it gets a token |
+| `auth_type` | For | How it obtains the credential |
 |---|---|---|
-| `forgejo_token` (default) | Forgejo and Gitea | `POST /users/{username}/tokens` with Basic Auth |
-| `jwt_login` | an API with a JSON login endpoint | posts username and password to `login_endpoint`, reads the token from the response |
+| `basic` | an API that accepts HTTP Basic | username and password, sent as `Authorization: Basic ...` |
+| `static_token` | an API key or a token you already have | `admin_token`, `user_a_token`, `user_b_token` (from `.env`) |
+| `json_login` | an API with a JSON login endpoint | posts username and password to `login_endpoint`, reads the token from the response |
+| `forgejo_token` | Forgejo and Gitea | `POST /api/v1/users/{username}/tokens` with Basic Auth; the tokens are deleted at the end of the run |
 
-Example for `jwt_login` (from `test-environments/crapi-kong/config.yaml`, where the login takes an email and returns `{"token": "..."}`):
+How the credential is sent comes from the security schemes your specification declares:
+
+- **one** scheme that can carry a token (an `apiKey`, `http` bearer, OAuth 2.0, OpenID Connect): nothing to set;
+- **several**: name the one to use in `security_scheme` (the tool stops and lists them if you do not);
+- **none**: describe it in `send_as` (`in`: `header`, `query` or `cookie`; `name`; optional `prefix`);
+- an `apiKey` scheme whose prefix is described only in words (e.g. "tokens must be prepended with `token`"): add
+  `send_as: {prefix: "token "}`.
+
+`apiguard validate-config` reads the specification and prints where the credentials will be sent.
+
+Example for `json_login` (from `test-environments/crapi-kong/config.yaml`, where the login takes an email and
+returns `{"token": "..."}`, and the specification declares one bearer scheme):
 
 ```yaml
 credentials:
-  auth_type: jwt_login
+  auth_type: json_login
   login_endpoint: "/identity/api/auth/login"
   username_body_field: email
   password_body_field: password
@@ -107,9 +121,36 @@ credentials:
   user_b_password: "${MYAPI_USER_B_PASSWORD}"
 ```
 
+Example for `forgejo_token` (from `test-environments/forgejo-kong/config.yaml`: Forgejo declares several schemes,
+and its token header needs the `token ` prefix):
+
+```yaml
+credentials:
+  auth_type: forgejo_token
+  security_scheme: AuthorizationHeaderToken
+  send_as:
+    prefix: "token "
+  admin_username: "${ADMIN_USERNAME}"
+  admin_password: "${ADMIN_PASSWORD}"
+  user_a_username: "${USER_A_USERNAME}"
+  user_a_password: "${USER_A_PASSWORD}"
+```
+
+Example for `static_token` with an API key in a header the specification does not declare:
+
+```yaml
+credentials:
+  auth_type: static_token
+  user_a_token: "${MYAPI_USER_A_KEY}"
+  send_as:
+    in: header
+    name: X-Api-Key
+```
+
 Rules:
 
-- Username and password of a role go together, or the role is left out entirely.
+- Username and password of a role go together, or the role is left out entirely; `static_token` takes tokens
+  only, the other methods username and password only.
 - A `${VAR}` without a value stops the tool with `Environment variable(s) not set`, **even inside a YAML comment**.
 - Credentials rejected by the target (`401`/`403` at login) make the tests that log in return ERROR.
 
@@ -159,10 +200,10 @@ Some test defaults are written for the lab. On another target review them:
 |---|---|---|
 | 7.2 | `injection_mode: forgejo_webhook` (creates a Forgejo repository and a webhook) | set `injection_mode: fixed_path` and `injection_path_template`, `injection_url_field`, `injection_body_template` to an endpoint of your API that accepts a URL ([reference](../../reference/configuration.md#testsdomain_7test_7_2---ssrf-prevention)) |
 | 2.1 | `admin_endpoint_paths` defaults to Forgejo admin paths | list admin-only endpoints of your API; on a target without those paths a `404` is counted as enforced, so the test can PASS without testing anything |
-| 1.4 | always uses the Forgejo token API | not configurable: ERROR on any other target (Q-18) |
+| 1.4 | needs a method that can revoke a credential: only `forgejo_token` | SKIP "Not applicable" with any other `auth_type` |
 | 0.2, 6.4 | Kong-specific server identifiers and block message | review [`tests.domain_0.test_0_2`](../../reference/configuration.md#testsdomain_0test_0_2---deny-by-default) and [`tests.domain_6.test_6_4`](../../reference/configuration.md#testsdomain_6test_6_4---hardcoded-credentials-audit) |
 
-Measured on cRAPI (no gateway, `jwt_login`, 7.2 in `fixed_path` mode): 0.1, 0.2, 0.3, 1.1, 1.5, 1.6, 4.1, 6.2 and
+Measured on cRAPI on 2026-10-06 (no gateway, `jwt_login`, now `json_login`, 7.2 in `fixed_path` mode): 0.1, 0.2, 0.3, 1.1, 1.5, 1.6, 4.1, 6.2 and
 6.4 ran normally, 7.2 worked, 2.1 passed only because the Forgejo admin paths do not exist there, 1.4 returned ERROR,
 3.3, 4.2 and 4.3 returned SKIP (Q-18). Making the tool fully independent of Forgejo and Kong is an open decision
 (Q-43).

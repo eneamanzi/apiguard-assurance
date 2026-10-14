@@ -7,31 +7,34 @@
 
 - **Done:** documentation restructured (phase 2, pages 2.1 and 2.4 written); open questions decided (phase 3);
   code blocks 1, 2, 3, 4, 4b, 5, 5b, 5c and 5d (configuration structure, interface contract and versioning, secret
-  redaction, console interface, prerequisites between tests); integration guide written. The tool behaves as before
-  on the lab: results identical to the baseline.
-- **Next step:** block 7+8, agnosticism with the cRAPI lab, step 1 (analysis, no code). Agreed approach (owner,
-  2026-10-10): analysis first, labs as proof, no patches to make a target pass. Steps: (1) inventory of every tie to
-  Forgejo or Kong, tests included, in `docs/project/agnosticism-analysis.md`; (2) design decided with the owner one
-  point at a time (incl. Q-38 neutral adapter data, Q-34 Admin API protection); (3) cRAPI behind Kong (only the API
-  changes); (4) implementation, verified on both labs; (5) a known API behind a second gateway (only the gateway
-  changes), gateway chosen after the analysis. Per-test changes go into the test review unless a lab needs them to
-  prove the structure: decided case by case.
+  redaction, console interface, prerequisites between tests); integration guide written. Block 7+8 steps 1-3
+  (analysis `docs/project/agnosticism-analysis.md`, design decided with the owner in `gateway-concepts.md` and
+  `auth-survey.md`, cRAPI lab behind Kong) and step 4 phases A and B (neutral gateway concepts, APISIX lab and
+  adapter). Three labs: Forgejo + Kong, crAPI + Kong, Forgejo + APISIX; native results of the Kong labs identical
+  to their baselines after every step.
+- **Next step:** block 7+8 step 4, **Phase D** (2.1 and 7.2 without Forgejo defaults, `config.example.yaml` with a
+  key-alignment check, documentation, open questions brought to the owner), first file to be presented to the owner.
+  Agreed approach of the block (owner, 2026-10-10): labs as proof, no patches to make a target pass; verdict
+  correctness belongs to the test review.
 - **Step 4 of block 7+8, implementation plan** (approved by the owner 2026-10-12; one file per change, each approved
   before writing, verified on the labs):
-  - Phase A, neutral gateway concepts on Kong, no behaviour change: `src/core/gateway/concepts.py` (models and the
+  - Phase A, **done 2026-10-12**, neutral gateway concepts on Kong, no behaviour change: `src/core/gateway/concepts.py` (models and the
     read / not supported / not accessible outcome), one memoised reader per concept in `base.py`, Kong mapping in
     `kong.py`, concepts stored as masked evidence (`pin_artifact`), `target.admin_api_headers`, adapter registry in
     the engine, tests 4.2, 4.3, 3.3, 6.4 B migrated one at a time (oracles unchanged);
   - Phase B, **done 2026-10-12**: `test-environments/forgejo-apisix/` (Forgejo behind APISIX 3.19.0 with etcd,
     ports 10000/10443/10001, Control API 10002) and `src/core/gateway/apisix.py` (defaults from APISIX's schemas),
     `target.health_api_url`, constructor and HTTP reads shared in `base.py`;
-  - Phase C, authentication methods (obtain, apply from the spec's security schemes, optional revoke): `basic`,
-    `static_token`, `json_login`, `forgejo_token`; `auth_type` required; tests 2.1, 7.2, 1.4 migrated;
+  - Phase C, **done 2026-10-14**, authentication methods (obtain, apply from the spec's security schemes, optional revoke): `basic`,
+    `static_token`, `json_login`, `forgejo_token`; `auth_type` required; tests 2.1, 7.2, 1.4 migrated. Steps:
+    C1 security schemes in the attack surface; C2 one credentials model (new keys); C3 placement (where and how the
+    credential is sent) resolved once after Phase 2, also by `validate-config`; C4 the four methods; C5 tests;
+    C6 lab configurations and docs. `send_as.prefix` allowed with a declared `apiKey` scheme (2026-10-12, choice
+    delegated by the owner: Forgejo's "token " prefix is described only in words);
   - Phase D, 2.1 and 7.2 without Forgejo defaults, `config.example.yaml` with a key-alignment check in `dev:check`,
     documentation, open questions brought to the owner.
-- **Then, in order** (revised 2026-10-09, owner: everything around the tests first, the test review last): block 7
-  cRAPI lab together with the infrastructure part of block 8 agnosticism (neutral gateway data, "not applicable"
-  result, Forgejo defaults to configuration; the per-test parts go into the test review) → block 9 CI and generated
+- **Then, in order** (revised 2026-10-09, owner: everything around the tests first, the test review last): the end
+  of block 7+8 (phases C and D above) → block 9 CI and generated
   docs, 10b, 10 roadmap, 2.3 knowledge translation (with Q-33) → block 6 test review → block 6b E2E on both labs →
   missing methodology sub-tests and new tests (Q-32, Milestone 2). To decide before the test review: where release
   **1.0.0** goes (before it, then splitting 6.4 changes test IDs and would be breaking; or after it).
@@ -268,3 +271,5 @@ CI (Q-16), E2E test suite (Q-51), documentation generated from code with a drift
 | 2026-10-12 | Phase A step 6, test 6.4 sub-test B migrated (configuration values; client credentials not scanned): both labs identical; a temporary fake Stripe-format key in a Kong http-log plugin was found (finding pointing to the stored concept, key 0 times in the outputs, evidence shows location and key with the value masked), `kong.yml` restored byte-identical; Admin API down gives a note, sub-test A stands. All four audits migrated. Next: remove the Kong-shaped methods from the adapter interface |
 | 2026-10-12 | Phase A done: Kong-shaped methods removed from the adapter interface and the Kong adapter; guide `add-a-gateway-adapter.md` rewritten for the concepts; overview and native-test guide updated. Both labs identical to their baselines; all seven concepts read on both labs. Next: Phase B, APISIX lab |
 | 2026-10-12 | Phase B done. Lab `test-environments/forgejo-apisix/`: APISIX 3.19.0 in traditional mode with etcd 3.5.34 (official images; standalone modes left out: no or reduced Admin API), configuration written through the Admin API by `apisix/setup.sh`, readiness from the Status API, Admin and Control API on 127.0.0.1, keys `admin` (setup) and `viewer` (tool) from `.env`, `fallback_sni`; verified from scratch (`down -v`), setup idempotent. Owner decisions: `target.health_api_url` (neutral name, optional, no Admin API headers); missing fields filled with the defaults of the running APISIX (its schemas, not constants in the code); constructor and HTTP reads moved to `BaseGatewayAdapter`. Adapter `apisix.py` verified on the lab: seven concepts read, no key → not accessible (401), no `health_api_url` → only live health not accessible, `hmac-auth {}` → hmac-sha1 allowed by default. Native run: identical to Forgejo + Kong (statuses, findings, oracle states; notes differ only in the 3.3 policy name); no secret in the outputs; Forgejo + Kong and cRAPI + Kong identical to their baselines after each step. Docs: configuration, compatibility, security model, maintainer commands, adapter guide, gateway concepts and survey, changelog. Next: Phase C, authentication methods |
+| 2026-10-14 | Phase C steps C1-C3 done. C1: declared security schemes in the attack surface (Forgejo 7, crAPI 1). C2: one credentials model (`src/core/models/runtime.py`, the old `CredentialsConfig` copy and its hidden `forgejo_token` default removed): `auth_type` required with credentials, `jwt_login` renamed `json_login` (clear error), `<role>_token`, `security_scheme`, `send_as`; per-method checks; config key suggestions now use aliases (`in`). C3: `src/core/auth_placement.py` resolves where and how the credential is sent (engine Phase 3, exit 10 before any test; `validate-config` reads the spec only when credentials are configured). Lab configs: Forgejo `forgejo_token` + `AuthorizationHeaderToken` + `send_as.prefix "token "`, cRAPI `json_login`. Three labs identical to their references (the tests still send Bearer until C4). Next: C4, the four methods |
+| 2026-10-14 | Phase C done. C4: authentication methods as classes (`src/tests/helpers/auth_base.py`, `auth_static.py` with `basic` and `static_token`, `auth_json_login.py` renamed from `auth_jwt_login.py`, `auth_forgejo.py` with the revocation capability moved from test 1.4), `auth.py` with `acquire_tokens` (same contract), `auth_parts`, `credential_parts`, `revocation_capability`; passwords and configured tokens registered as secrets. C5: 2.1, 7.2, `forgejo_resources.py` (requests and teardown) send the credential through the placement; 1.4 uses the revocation capability (SKIP "Not applicable" otherwise). Verified: Forgejo + Kong and Forgejo + APISIX identical; cRAPI only 1.4 ERROR -> SKIP; `basic` and `static_token` on Forgejo (1.4 SKIP, 2.1 PASS, 7.2 FAIL 58, as `forgejo_token` except 1.4); no apiguard token left on Forgejo, no secret in the outputs. Negative control (wrong prefix): 7.2 changes, 1.4 and 2.1 stay PASS with a rejected credential: false PASS added to Q-29. C6: configuration reference, configure-a-target, compatibility, native-test guide, architecture, test pages 1.4, 2.1, 7.2, changelog (Breaking). Next: Phase D |

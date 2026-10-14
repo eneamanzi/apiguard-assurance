@@ -7,9 +7,10 @@ Contains the OpenAPI-derived map of the target's exposed endpoints,
 built during Phase 2 (OpenAPI Discovery) and stored immutably in
 TargetContext for the entire pipeline run.
 
-    ParameterInfo   -- Descriptor for a single declared parameter of an API operation.
-    EndpointRecord  -- Structured descriptor for a single HTTP operation (path + method).
-    AttackSurface   -- Structured map of all HTTP operations exposed by the target API.
+    ParameterInfo        -- Descriptor for a single declared parameter of an API operation.
+    EndpointRecord       -- Structured descriptor for a single HTTP operation (path + method).
+    SecuritySchemeRecord -- One authentication scheme declared by the specification.
+    AttackSurface        -- Structured map of all HTTP operations exposed by the target API.
 
 Dependency rule: this module imports only from pydantic, the stdlib, and
 sibling modules within src.core.models. It must never import from any other
@@ -17,6 +18,8 @@ src/ package.
 """
 
 from __future__ import annotations
+
+from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -105,6 +108,58 @@ class EndpointRecord(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# SecuritySchemeRecord - authentication scheme declared by the specification
+# ---------------------------------------------------------------------------
+
+
+class SecuritySchemeType(StrEnum):
+    """
+    Type of a declared security scheme, with the OpenAPI 3 names.
+
+    Swagger 2.0 'basic' is recorded as HTTP with http_scheme 'basic'.
+    """
+
+    API_KEY = "apiKey"
+    HTTP = "http"
+    OAUTH2 = "oauth2"
+    OPENID_CONNECT = "openIdConnect"
+    MUTUAL_TLS = "mutualTLS"
+
+
+class SecuritySchemeRecord(BaseModel):
+    """
+    One authentication scheme declared by the specification.
+
+    Read from components.securitySchemes (OpenAPI 3) or securityDefinitions
+    (Swagger 2.0). It tells where and how a credential is sent: an apiKey in
+    a header, query parameter or cookie with a given name; an HTTP scheme
+    (basic, bearer) in the Authorization header; OAuth 2.0 and OpenID Connect
+    as a bearer token.
+    """
+
+    model_config = {"frozen": True}
+
+    name: str = Field(description="Name of the scheme in the specification, e.g. 'bearerAuth'.")
+    scheme_type: SecuritySchemeType = Field(description="Type of the scheme.")
+    location: str | None = Field(
+        default=None,
+        description="apiKey only: 'header', 'query' or 'cookie'. Stored lowercase.",
+    )
+    parameter_name: str | None = Field(
+        default=None,
+        description="apiKey only: name of the header, query parameter or cookie.",
+    )
+    http_scheme: str | None = Field(
+        default=None,
+        description="HTTP only: the scheme, e.g. 'basic' or 'bearer'. Stored lowercase.",
+    )
+    description: str | None = Field(
+        default=None,
+        description="Free text of the specification (may describe a prefix in words).",
+    )
+
+
+# ---------------------------------------------------------------------------
 # AttackSurface — OpenAPI-derived map of the target's exposed endpoints
 # ---------------------------------------------------------------------------
 
@@ -135,6 +190,10 @@ class AttackSurface(BaseModel):
     endpoints: list[EndpointRecord] = Field(
         default_factory=list,
         description="All (path, method) operations declared in the spec.",
+    )
+    security_schemes: list[SecuritySchemeRecord] = Field(
+        default_factory=list,
+        description="Authentication schemes declared by the spec, in declaration order.",
     )
 
     @property

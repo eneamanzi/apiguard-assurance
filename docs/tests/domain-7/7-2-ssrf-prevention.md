@@ -22,7 +22,8 @@ addresses, ambiguous URLs.
 
 ## How it works
 
-1. Acquire a `user_a` token.
+1. Obtain the `user_a` credential with the configured authentication method (`credentials.auth_type`); every
+   request sends it as the run's credential placement says.
 2. Prepare the injection endpoint according to `injection_mode`:
    - `forgejo_webhook` (default): create a temporary repository (registered for teardown) and post to
      `POST /api/v1/repos/{owner}/{repo}/hooks`. Webhooks are created inactive and are removed with the repository.

@@ -17,13 +17,17 @@ Strategy and priority:
     a temporary test token.  The test does not access the token store
     directly; it verifies the externally observable behaviour only.
 
-Sub-test performed:
-    1. Acquire the ADMIN token via the auth dispatcher.
-    2. Create a short-lived temporary API token under the admin account.
-    3. Register the token path for teardown (Phase 6 safety net).
-    4. Delete the temporary token immediately (= revocation).
-    5. Re-attempt an authenticated request using the revoked token value.
-    6. Oracle: 401/403 → PASS; 2xx → FAIL.
+Sub-test performed, through the revocation capability of the configured
+authentication method (src/tests/helpers/auth_base.py; only forgejo_token
+has it: any other method gives SKIP "Not applicable"):
+    1. Create a temporary credential under the admin account (registered as
+       a secret and for teardown by the method).
+    2. Revoke it.
+    3. Re-attempt an authenticated request with it, sent as the credential
+       placement of the run says.
+    4. Oracle: 401/403 → PASS; 2xx → FAIL.
+The re-probe path (/api/v1/user) is Forgejo's: it is valid because only the
+Forgejo method can revoke today (test review, Q-29).
 
 EvidenceStore policy:
     The re-probe response is the key evidence.
@@ -31,35 +35,31 @@ EvidenceStore policy:
     PASS:  _log_transaction(re-probe record, oracle_state=_STATE_REVOKED_REJECTED).
 
 DAG placement:
-    No prerequisite (depends_on = [], requires_pass = []): the test acquires
-    its own tokens through acquire_tokens(), which reuses a token already in
-    TestContext; a rejected login gives ERROR with the reason.
+    No prerequisite (depends_on = [], requires_pass = []): the method creates
+    the temporary credential with the admin account; a refused creation gives
+    ERROR with the reason.
 
 Dependency rule:
     Imports from: stdlib, structlog, src.core, src.tests.base,
-                  src.tests.helpers.auth, src.tests.helpers.forgejo_resources.
+                  src.tests.helpers.auth.
     Must never import from: connectors/, external_tests/, config/loader.py,
                              discovery/, report/, engine.py.
 """
 
 from __future__ import annotations
 
-import base64
-from typing import Any, ClassVar
+from typing import ClassVar
 
 import structlog
 
+from src.core.auth_placement import RequestAuthParts
 from src.core.client import SecurityClient
 from src.core.context import ROLE_ADMIN, TargetContext, TestContext
 from src.core.evidence import EvidenceStore
-from src.core.exceptions import AuthenticationSetupError, SecurityClientError
+from src.core.exceptions import AuthenticationSetupError
 from src.core.models import TestResult, TestStrategy
 from src.tests.base import BaseTest
-from src.tests.helpers.auth import acquire_tokens
-from src.tests.helpers.forgejo_resources import (
-    ForgejoResourceError,
-    get_authenticated_user,
-)
+from src.tests.helpers.auth import credential_parts, revocation_capability
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -67,21 +67,11 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # Module-level constants
 # ---------------------------------------------------------------------------
 
-# Forgejo API path templates for token lifecycle management.
-# {username} is resolved at runtime from the authenticated admin identity.
-_TOKEN_CREATE_PATH_TEMPLATE: str = "/api/v1/users/{username}/tokens"  # noqa: S105 -- URL path, not a credential
-_TOKEN_DELETE_PATH_TEMPLATE: str = "/api/v1/users/{username}/tokens/{name}"  # noqa: S105 -- URL path, not a credential
-
 # Endpoint used for the re-probe after revocation.
 # /api/v1/user returns the authenticated user's profile; it is always
 # protected and reachable without path parameters.
 _REPROBE_PATH: str = "/api/v1/user"
 
-# Labels of the secrets of this test in the redacted evidence (Q-31). The
-# temporary token keeps its last characters, as Forgejo's token_last_eight.
-_TEMP_TOKEN_LABEL: str = "1.4 temporary token"  # noqa: S105 -- a label, not a credential
-_TOKEN_FINGERPRINT_LENGTH: int = 8
-_BASIC_AUTH_LABEL: str = "admin Basic credentials"
 _REPROBE_METHOD: str = "GET"
 
 # HTTP status code sets for oracle evaluation.
@@ -109,7 +99,7 @@ class Test14TokenRevocation(BaseTest):
     Verify that a revoked API token is immediately rejected by the gateway.
 
     Creates a temporary token under the admin account, revokes it via the
-    Forgejo token-deletion API, then re-probes using the revoked token value.
+    authentication method (Forgejo: token deletion), then re-probes with it.
     PASS if the gateway returns 401/403; FAIL if the revoked token is still
     accepted (2xx).
 
@@ -159,242 +149,69 @@ class Test14TokenRevocation(BaseTest):
             if guard is not None:
                 return guard
 
+            method = revocation_capability(target)
+            if method is None:
+                return self._make_skip(
+                    reason=(
+                        "Not applicable: the authentication method "
+                        f"'{target.credentials.auth_type}' cannot revoke a credential."
+                    )
+                )
+            if not target.credentials.has_admin():
+                return self._make_skip(
+                    reason=(
+                        f"No credentials for role '{ROLE_ADMIN}': the temporary token is "
+                        "created under the admin account."
+                    )
+                )
+
             cfg = target.tests_config.test_1_4
+            log.info("test_1_4_starting", token_name=cfg.token_name)
 
-            session = self._setup_admin_session(target, context, client)
-            if isinstance(session, TestResult):
-                return session
-            admin_username, basic_auth_value = session
+            try:
+                credential = method.create_temporary_credential(
+                    target, context, client, ROLE_ADMIN, cfg.token_name, self.test_id
+                )
+            except AuthenticationSetupError as exc:
+                return self._make_error(exc)
+            self._log_transaction(credential.create_record, oracle_state=_STATE_TOKEN_CREATED)
 
+            outcome = method.revoke_credential(target, client, credential, ROLE_ADMIN, self.test_id)
+            if not outcome.revoked:
+                self._log_transaction(outcome.record, oracle_state="TOKEN_DELETE_FAILED")
+                return self._make_error(
+                    RuntimeError(
+                        f"Revocation of the temporary token '{credential.name}' returned "
+                        f"{outcome.status_code}. Cannot verify revocation behaviour."
+                    )
+                )
+            self._log_transaction(outcome.record, oracle_state=_STATE_TOKEN_DELETED)
             log.info(
-                "test_1_4_starting",
-                admin_username="[REDACTED]",
-                token_name=cfg.token_name,
+                "test_1_4_token_revoked",
+                token_name=credential.name,
+                delete_status=outcome.status_code,
             )
-
-            create_outcome = self._create_temp_token(
-                client=client,
-                context=context,
-                admin_username=admin_username,
-                basic_auth_value=basic_auth_value,
-                token_name=cfg.token_name,
-            )
-            if isinstance(create_outcome, TestResult):
-                return create_outcome
-            temp_token_value, delete_path = create_outcome
-
-            revoke_error = self._revoke_token(
-                client=client,
-                delete_path=delete_path,
-                basic_auth_value=basic_auth_value,
-                token_name=cfg.token_name,
-            )
-            if revoke_error is not None:
-                return revoke_error
 
             return self._verify_revocation(
                 client=client,
                 store=store,
-                temp_token_value=temp_token_value,
-                delete_path=delete_path,
-                token_name=cfg.token_name,
+                credential_auth=credential_parts(target, credential.value),
+                delete_path=credential.revoke_path,
+                token_name=credential.name,
             )
 
         except Exception as exc:  # noqa: BLE001
             return self._make_error(exc)
 
     # ------------------------------------------------------------------
-    # Private helpers — one logical phase each
+    # Private helpers
     # ------------------------------------------------------------------
-
-    def _setup_admin_session(
-        self,
-        target: TargetContext,
-        context: TestContext,
-        client: SecurityClient,
-    ) -> tuple[str, str] | TestResult:
-        """
-        Acquire the admin token, resolve the admin username, build Basic Auth.
-
-        Forgejo's token-creation endpoint (POST /api/v1/users/{user}/tokens)
-        requires Basic Auth from the token owner; an existing API token — even
-        with admin role — is rejected with 401.  This helper produces both the
-        username (needed for the URL path) and the Basic Auth header value.
-
-        Returns:
-            Either (admin_username, basic_auth_value) on success, or a
-            TestResult (SKIP / ERROR) describing the setup failure.
-        """
-        try:
-            acquire_tokens(
-                target,
-                context,
-                client,
-                required_roles=frozenset({ROLE_ADMIN}),
-            )
-        except (AuthenticationSetupError, SecurityClientError) as exc:
-            return self._make_error(exc)
-
-        skip = self._requires_token(context, ROLE_ADMIN)
-        if skip is not None:
-            return skip
-
-        try:
-            admin_user: dict[str, Any] = get_authenticated_user(target, context, client, ROLE_ADMIN)
-        except ForgejoResourceError as exc:
-            return self._make_error(exc)
-
-        admin_username: str = admin_user.get("login", "")
-        if not admin_username:
-            return self._make_error(
-                ValueError("Could not determine admin username from Forgejo identity response.")
-            )
-
-        admin_password: str | None = target.credentials.admin_password
-        if not admin_password:
-            return self._make_skip(
-                reason=("admin_password not configured — required for token creation step.")
-            )
-
-        basic_auth_value: str = base64.b64encode(
-            f"{admin_username}:{admin_password}".encode()
-        ).decode()
-        context.register_secret(basic_auth_value, _BASIC_AUTH_LABEL)
-        return admin_username, basic_auth_value
-
-    def _create_temp_token(
-        self,
-        client: SecurityClient,
-        context: TestContext,
-        admin_username: str,
-        basic_auth_value: str,
-        token_name: str,
-    ) -> tuple[str, str] | TestResult:
-        """
-        Create a temporary token under the admin account; register its teardown.
-
-        Steps performed:
-            1. Pre-flight cleanup: DELETE any stale token from a previous crashed
-               run (Forgejo returns 204 if it existed, 404 otherwise — both fine).
-            2. POST the create request with Basic Auth + scopes=["read:user"].
-            3. Extract the ``sha1`` token value from the 201 response body.
-            4. Register the DELETE path with the teardown channel so Phase 6
-               cleans up even if the test fails partway through.
-
-        Returns:
-            Either (temp_token_value, delete_path) on success, or a TestResult
-            (ERROR) if creation failed or the response shape is unexpected.
-        """
-        delete_path = _TOKEN_DELETE_PATH_TEMPLATE.format(
-            username=admin_username,
-            name=token_name,
-        )
-
-        # Pre-flight cleanup.  Status code is intentionally ignored.
-        client.request(
-            method="DELETE",
-            path=delete_path,
-            test_id=self.test_id,
-            headers={"Authorization": f"Basic {basic_auth_value}"},
-        )
-
-        create_path = _TOKEN_CREATE_PATH_TEMPLATE.format(username=admin_username)
-        create_response, create_record = client.request(
-            method="POST",
-            path=create_path,
-            test_id=self.test_id,
-            headers={"Authorization": f"Basic {basic_auth_value}"},
-            json={"name": token_name, "scopes": ["read:user"]},
-        )
-
-        if create_response.status_code != 201:
-            self._log_transaction(create_record, oracle_state="TOKEN_CREATE_FAILED")
-            return self._make_error(
-                RuntimeError(
-                    f"Expected 201 when creating temporary token '{token_name}', "
-                    f"got {create_response.status_code}.  "
-                    "Ensure the admin credential has token-creation privileges."
-                )
-            )
-
-        create_body: dict[str, Any] = create_response.json()
-        temp_token_value: str = create_body.get("sha1", "")
-        if temp_token_value:
-            # Redacted in every output; the last characters are kept so that the
-            # create, revoke and reuse requests can be correlated (Forgejo shows
-            # the same ones as token_last_eight).
-            context.register_secret(
-                temp_token_value,
-                f"{_TEMP_TOKEN_LABEL}, last {_TOKEN_FINGERPRINT_LENGTH}: "
-                f"{temp_token_value[-_TOKEN_FINGERPRINT_LENGTH:]}",
-            )
-        if not temp_token_value:
-            self._log_transaction(create_record, oracle_state="TOKEN_CREATE_NO_VALUE")
-            return self._make_error(
-                RuntimeError(
-                    "Forgejo token creation response did not contain a 'sha1' field.  "
-                    "Cannot proceed with revocation test."
-                )
-            )
-
-        self._log_transaction(create_record, oracle_state=_STATE_TOKEN_CREATED)
-
-        # Register teardown IMMEDIATELY after successful creation, before any
-        # further assertion.  Forgejo token deletion requires Basic Auth from
-        # the token owner, not an API token header.
-        context.register_resource_for_teardown(
-            method="DELETE",
-            path=delete_path,
-            headers={"Authorization": f"Basic {basic_auth_value}"},
-        )
-
-        return temp_token_value, delete_path
-
-    def _revoke_token(
-        self,
-        client: SecurityClient,
-        delete_path: str,
-        basic_auth_value: str,
-        token_name: str,
-    ) -> TestResult | None:
-        """
-        Delete the temporary token.  Returns None on success, TestResult on error.
-
-        A revocation that fails to return 200/204 makes the rest of the test
-        meaningless — there is no way to verify rejection of a token that
-        was not actually revoked.  In that case the test ERRORs out.
-        """
-        delete_response, delete_record = client.request(
-            method="DELETE",
-            path=delete_path,
-            test_id=self.test_id,
-            headers={"Authorization": f"Basic {basic_auth_value}"},
-        )
-
-        if delete_response.status_code not in (204, 200):
-            self._log_transaction(delete_record, oracle_state="TOKEN_DELETE_FAILED")
-            return self._make_error(
-                RuntimeError(
-                    f"Expected 204 when deleting token '{token_name}', "
-                    f"got {delete_response.status_code}.  "
-                    "Cannot verify revocation behaviour."
-                )
-            )
-
-        self._log_transaction(delete_record, oracle_state=_STATE_TOKEN_DELETED)
-
-        log.info(
-            "test_1_4_token_revoked",
-            token_name=token_name,
-            delete_status=delete_response.status_code,
-        )
-        return None
 
     def _verify_revocation(
         self,
         client: SecurityClient,
         store: EvidenceStore,
-        temp_token_value: str,
+        credential_auth: RequestAuthParts,
         delete_path: str,
         token_name: str,
     ) -> TestResult:
@@ -409,7 +226,8 @@ class Test14TokenRevocation(BaseTest):
             method=_REPROBE_METHOD,
             path=_REPROBE_PATH,
             test_id=self.test_id,
-            headers={"Authorization": f"token {temp_token_value}"},
+            headers=dict(credential_auth.headers),
+            params=dict(credential_auth.params) or None,
         )
 
         if reprobe_response.status_code in _BYPASS_STATUS_CODES:

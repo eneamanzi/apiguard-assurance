@@ -90,7 +90,7 @@ from src.core.evidence import EvidenceStore
 from src.core.exceptions import AuthenticationSetupError, SecurityClientError
 from src.core.models import Finding, TestResult, TestStrategy
 from src.tests.base import BaseTest
-from src.tests.helpers.auth import acquire_tokens
+from src.tests.helpers.auth import acquire_tokens, auth_parts
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -165,9 +165,10 @@ def execute(self, target: TargetContext, context: TestContext,
 `_log_transaction()`, and a violation stores its evidence **before** logging it:
 
 ```python
+user_a_auth = auth_parts(target, context, ROLE_USER_A)   # headers and query parameters
 response, record = client.request(
     method=method, path=path, test_id=self.test_id,
-    headers={"Authorization": f"Bearer {user_a_token}"},
+    headers=dict(user_a_auth.headers), params=dict(user_a_auth.params) or None,
 )
 if response.status_code in _RBAC_BYPASS_CODES:
     store.add_fail_evidence(record)
@@ -224,7 +225,7 @@ sends on purpose as `Authorization` (e.g. a malformed token) is not a secret: de
 
 | Module | Provides |
 |---|---|
-| `auth.py` | `acquire_tokens(target, context, client, required_roles=...)`: dispatches to `auth_forgejo.py` or `auth_jwt_login.py` according to `credentials.auth_type` and stores tokens in `TestContext` |
+| `auth.py` | `acquire_tokens(target, context, client, required_roles=...)`: obtains each role's credential with the method of `credentials.auth_type` (`auth_static.py`: `basic`, `static_token`; `auth_json_login.py`; `auth_forgejo.py`) and stores it in `TestContext`. `auth_parts(target, context, role)`: the headers and query parameters that carry it, as the run's credential placement says; never write `Authorization: Bearer` in a test. `revocation_capability(target)`: the method when it can revoke a credential (test 1.4), else `None` |
 | `path_resolver.py` | `resolve_path_with_seed(path, seed, fallback)`, `extract_param_names_from_path(path)`; constants `PATH_PARAM_FALLBACK_DEFAULT` (`"1"`), `PATH_PARAM_FALLBACK_SAFE_DELETE` (`"apiguard-probe"`) |
 | `forgejo_resources.py` | `get_authenticated_user`, `create_repository`, `create_issue`, `list_repositories` (Forgejo only; creation helpers register teardown) |
 | `response_inspector.py` | `contains_stack_trace`, `contains_sensitive_fields`, `extract_debug_fields`, `check_security_headers`, `find_missing_security_headers`, `find_invalid_security_headers`, `find_leaky_headers`, `auth_errors_are_uniform` |

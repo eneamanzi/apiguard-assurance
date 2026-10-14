@@ -64,7 +64,14 @@ from collections.abc import Sequence
 import structlog
 
 from src.core.exceptions import OpenAPILoadError
-from src.core.models import AttackSurface, EndpointRecord, ParameterInfo, SpecDialect
+from src.core.models import (
+    AttackSurface,
+    EndpointRecord,
+    ParameterInfo,
+    SecuritySchemeRecord,
+    SecuritySchemeType,
+    SpecDialect,
+)
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -110,6 +117,18 @@ _KEY_FORMAT: str = "format"
 _KEY_NAME: str = "name"
 _KEY_IN: str = "in"
 _KEY_CONSUMES: str = "consumes"
+
+# Declared security schemes: Swagger 2.0 root key, OpenAPI 3.x components key.
+_KEY_SECURITY_DEFINITIONS: str = "securityDefinitions"
+_KEY_COMPONENTS: str = "components"
+_KEY_SECURITY_SCHEMES: str = "securitySchemes"
+_KEY_SCHEME: str = "scheme"
+_KEY_DESCRIPTION: str = "description"
+# Swagger 2.0 'basic' scheme type, recorded as HTTP basic.
+_SWAGGER2_BASIC_TYPE: str = "basic"
+_HTTP_SCHEME_BASIC: str = "basic"
+# Where an apiKey can be sent (both dialects; 'cookie' is OpenAPI 3 only).
+_API_KEY_LOCATIONS: frozenset[str] = frozenset({"header", "query", "cookie"})
 
 
 # ---------------------------------------------------------------------------
@@ -215,11 +234,14 @@ def build_attack_surface(
         )
         endpoints.extend(records)
 
+    security_schemes = _extract_security_schemes(spec, dialect)
+
     surface = AttackSurface(
         spec_title=spec_title,
         spec_version=spec_version,
         dialect=dialect,
         endpoints=endpoints,
+        security_schemes=security_schemes,
     )
 
     log.info(
@@ -232,6 +254,7 @@ def build_attack_surface(
         authenticated_endpoints=len(surface.get_authenticated_endpoints()),
         public_endpoints=len(surface.get_public_endpoints()),
         deprecated_endpoints=surface.deprecated_count,
+        security_schemes=[scheme.name for scheme in security_schemes],
         base_path_prefix=base_path_prefix if base_path_prefix else "(none)",
     )
 
@@ -385,6 +408,81 @@ def _extract_spec_metadata(spec: dict[str, object]) -> tuple[str, str]:
         str(title) if title is not None else "Unknown",
         str(version) if version is not None else "Unknown",
     )
+
+
+def _extract_security_schemes(
+    spec: dict[str, object],
+    dialect: SpecDialect,
+) -> list[SecuritySchemeRecord]:
+    """
+    Extract the declared security schemes, in declaration order.
+
+    Swagger 2.0: ``securityDefinitions``; its ``basic`` type is recorded as
+    HTTP with scheme ``basic``. OpenAPI 3.x: ``components.securitySchemes``.
+    A scheme of unknown type or without the fields its type needs is skipped
+    with a warning: the schemes are used to send credentials, and a scheme
+    the tool cannot use must not stop the discovery.
+    """
+    if dialect is SpecDialect.SWAGGER_2:
+        declared = spec.get(_KEY_SECURITY_DEFINITIONS)
+    else:
+        components = spec.get(_KEY_COMPONENTS)
+        declared = components.get(_KEY_SECURITY_SCHEMES) if isinstance(components, dict) else None
+    if not isinstance(declared, dict):
+        return []
+
+    known_types = {scheme_type.value: scheme_type for scheme_type in SecuritySchemeType}
+    records: list[SecuritySchemeRecord] = []
+    for raw_name, raw_scheme in declared.items():
+        name = str(raw_name)
+        if not isinstance(raw_scheme, dict):
+            log.warning("attack_surface_skipping_security_scheme", scheme=name, reason="not a dict")
+            continue
+        raw_type = str(raw_scheme.get(_KEY_TYPE, ""))
+        http_scheme = raw_scheme.get(_KEY_SCHEME)
+        if dialect is SpecDialect.SWAGGER_2 and raw_type == _SWAGGER2_BASIC_TYPE:
+            raw_type, http_scheme = SecuritySchemeType.HTTP.value, _HTTP_SCHEME_BASIC
+        scheme_type = known_types.get(raw_type)
+        if scheme_type is None:
+            log.warning(
+                "attack_surface_skipping_security_scheme",
+                scheme=name,
+                reason=f"unknown type '{raw_type}'",
+            )
+            continue
+        location = str(raw_scheme.get(_KEY_IN, "")).lower() or None
+        parameter_name = raw_scheme.get(_KEY_NAME)
+        if scheme_type is SecuritySchemeType.API_KEY and (
+            location not in _API_KEY_LOCATIONS or not isinstance(parameter_name, str)
+        ):
+            log.warning(
+                "attack_surface_skipping_security_scheme",
+                scheme=name,
+                reason="apiKey without a valid 'in' or 'name'",
+            )
+            continue
+        if scheme_type is SecuritySchemeType.HTTP and not isinstance(http_scheme, str):
+            log.warning(
+                "attack_surface_skipping_security_scheme",
+                scheme=name,
+                reason="http without 'scheme'",
+            )
+            continue
+        description = raw_scheme.get(_KEY_DESCRIPTION)
+        is_api_key = scheme_type is SecuritySchemeType.API_KEY
+        records.append(
+            SecuritySchemeRecord(
+                name=name,
+                scheme_type=scheme_type,
+                location=location if is_api_key else None,
+                parameter_name=str(parameter_name) if is_api_key else None,
+                http_scheme=(
+                    str(http_scheme).lower() if scheme_type is SecuritySchemeType.HTTP else None
+                ),
+                description=str(description) if isinstance(description, str) else None,
+            )
+        )
+    return records
 
 
 def _extract_global_security(spec: dict[str, object]) -> list[object]:

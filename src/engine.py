@@ -82,6 +82,7 @@ from pydantic import BaseModel, Field
 from src import __version__
 from src.config.loader import closest_match, load_config
 from src.config.schema import ToolConfig
+from src.core.auth_placement import CredentialPlacement, resolve_placement
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.dag import DAGScheduler, ScheduledBatch, prerequisite_skip_reason
@@ -101,7 +102,6 @@ from src.core.models import (
     NotRunEntry,
     NotRunReason,
     ResultSet,
-    RuntimeCredentials,
     TestResult,
     TestStatus,
 )
@@ -205,6 +205,38 @@ def check_tests(config: ToolConfig) -> None:
             ),
             config_path="execution.test_ids",
         )
+
+
+def check_credentials(config: ToolConfig) -> CredentialPlacement | None:
+    """
+    Check that the credentials determine where and how they are sent.
+
+    The same resolution the run makes after Phase 2 (resolve_placement), for
+    validate-config: it reads the specification (download or local file, as
+    the run does) only when credentials are configured, since only then the
+    declared security schemes matter.
+
+    Args:
+        config: The validated configuration.
+
+    Returns:
+        The placement, or None when no credentials are configured (nothing
+        read).
+
+    Raises:
+        ConfigurationError: When the configuration and the specification do not
+            determine one placement.
+        OpenAPILoadError: When the specification cannot be read.
+    """
+    if config.credentials.auth_type is None:
+        return None
+    spec_source = config.target.get_openapi_source()
+    spec, dialect = load_openapi_spec(
+        spec_source,
+        timeout_seconds=config.execution.openapi_fetch_timeout_seconds,
+    )
+    surface = build_attack_surface(spec, dialect, source_url=spec_source)
+    return resolve_placement(config.credentials, surface.security_schemes)
 
 
 # ---------------------------------------------------------------------------
@@ -600,6 +632,21 @@ class AssessmentEngine:
                 admin_base_url=str(config.target.admin_api_url).rstrip("/"),
             )
 
+        # Where and how credentials are sent: the configuration completed by the
+        # security schemes of the specification. A configuration that does not
+        # determine it raises ConfigurationError here, before any test (exit 10).
+        credential_placement = resolve_placement(
+            config.credentials, attack_surface.security_schemes
+        )
+        if credential_placement is not None:
+            log.info(
+                "pipeline_phase_3_credential_placement_resolved",
+                auth_type=str(config.credentials.auth_type),
+                location=credential_placement.location.value,
+                name=credential_placement.name,
+                source=credential_placement.source,
+            )
+
         target = TargetContext(
             base_url=config.target.base_url,
             openapi_spec_url=config.target.openapi_spec_url,
@@ -612,7 +659,8 @@ class AssessmentEngine:
             admin_connect_timeout_seconds=config.target.admin_connect_timeout_seconds,
             admin_read_timeout_seconds=config.target.admin_read_timeout_seconds,
             attack_surface=attack_surface,
-            credentials=RuntimeCredentials.model_validate(config.credentials.model_dump()),
+            credentials=config.credentials,
+            credential_placement=credential_placement,
             tests_config=tests_config,
             path_seed=dict(config.target.path_seed),
             verify_tls=config.target.verify_tls,

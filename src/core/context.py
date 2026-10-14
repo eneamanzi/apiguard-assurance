@@ -47,6 +47,7 @@ from pathlib import Path
 import structlog
 from pydantic import AnyHttpUrl, BaseModel, Field, PrivateAttr, computed_field, model_validator
 
+from src.core.auth_placement import CredentialPlacement
 from src.core.gateway.base import BaseGatewayAdapter
 from src.core.models import AttackSurface, RuntimeCredentials
 from src.core.models.external_tools import ExternalToolsConfig
@@ -165,6 +166,14 @@ class TargetContext(BaseModel):
         description=(
             "Immutable credentials for GREY_BOX (P1/P2) test execution. "
             "SECURITY: this field must never appear in log output."
+        ),
+    )
+    credential_placement: CredentialPlacement | None = Field(
+        default=None,
+        description=(
+            "Where and how credentials are sent (src/core/auth_placement.py), resolved "
+            "by the engine after Phase 2 from credentials and the declared security "
+            "schemes. None when no credentials are configured."
         ),
     )
     tests_config: RuntimeTestsConfig = Field(

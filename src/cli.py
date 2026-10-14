@@ -452,7 +452,9 @@ def validate_config(
 
     Performs Phase 1 (configuration loading and validation) and the test
     checks: every test is declared correctly, and every execution.test_ids
-    entry exists and can run.
+    entry exists and can run. When credentials are configured it also reads
+    the specification (download or local file, as the run does) and checks
+    that the credentials determine where and how they are sent.
     Useful for verifying that the configuration file is correct and all
     required environment variables are exported before running a full
     assessment.
@@ -465,19 +467,25 @@ def validate_config(
     _load_env_file(env_file)
 
     from src.config.loader import load_config
-    from src.core.exceptions import ConfigurationError, TestDefinitionError
+    from src.core.exceptions import ConfigurationError, OpenAPILoadError, TestDefinitionError
     from src.core.models.enums import ExitCode
 
     log = structlog.get_logger("cli.validate_config")
 
-    from src.engine import check_tests
+    from src.engine import check_credentials, check_tests
 
     try:
         tool_config = load_config(config)
         check_tests(tool_config)
+        placement = check_credentials(tool_config)
         _console_out.print(
             f"[bold green]Configuration valid.[/bold green] Target: {tool_config.target.base_url}"
         )
+        if placement is not None:
+            _console_out.print(
+                f"Credentials ({tool_config.credentials.auth_type}) sent in the "
+                f"{placement.location.value} '{placement.name}' ({placement.source})."
+            )
         raise typer.Exit(code=0)
     except ConfigurationError as exc:
         log.error(
@@ -487,6 +495,15 @@ def validate_config(
             config_path=exc.config_path,
         )
         _console_err.print(f"[bold red]Configuration invalid:[/bold red] {exc.message}")
+        raise typer.Exit(code=ExitCode.INFRASTRUCTURE) from None
+    except OpenAPILoadError as exc:
+        # Raised by check_credentials(): the specification is needed to check
+        # how the credentials are sent, and it cannot be read.
+        log.error("config_validation_spec_unreadable", detail=exc.message)
+        _console_err.print(
+            "[bold red]Specification not readable[/bold red] (needed to check how the "
+            f"credentials are sent): {exc.message}"
+        )
         raise typer.Exit(code=ExitCode.INFRASTRUCTURE) from None
     except TestDefinitionError as exc:
         # Raised by check_tests() when it scans the test modules: an error

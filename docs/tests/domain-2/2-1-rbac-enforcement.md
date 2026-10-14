@@ -21,9 +21,10 @@ function-level authorization, OWASP API5:2023).
 
 ## How it works
 
-1. Acquire a `user_a` token through the authentication dispatcher (`credentials.auth_type`).
+1. Obtain the `user_a` credential with the configured authentication method (`credentials.auth_type`).
 2. For each path in `admin_endpoint_paths` (default `/api/v1/admin/users`, a Forgejo path), send
-   `admin_endpoint_method` (default `GET`) with `Authorization: Bearer <user_a token>`.
+   `admin_endpoint_method` (default `GET`) with the `user_a` credential, sent as the run's credential placement says
+   (Forgejo labs: `Authorization: token <value>`; crAPI: `Authorization: Bearer <value>`).
 3. Oracle per response:
 
 | Response | Verdict |

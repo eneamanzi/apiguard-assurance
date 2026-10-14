@@ -20,15 +20,19 @@ A token that has been explicitly revoked must be rejected immediately, not accep
 
 ## How it works
 
-1. Acquire the admin token through the authentication dispatcher (`credentials.auth_type`).
-2. Read the admin username from the authenticated identity endpoint.
-3. Create a temporary API token named `token_name` with `POST /api/v1/users/{username}/tokens` (Basic Auth with
-   the admin credentials). A `DELETE` for it is registered for teardown as a safety net.
-4. Delete it: `DELETE /api/v1/users/{username}/tokens/{name}` (= revocation).
-5. Re-use the deleted token: `GET /api/v1/user` with `Authorization: token <value>`.
-6. Oracle on step 5: `2xx` → FAIL; any other status → PASS.
+The test uses the **revocation capability** of the configured authentication method (`credentials.auth_type`).
+Only `forgejo_token` has it; with any other method the test returns SKIP.
 
-All paths and the `token` authorization scheme are the Forgejo/Gitea API (constants in the test module).
+1. The method creates a temporary token named `token_name` under the admin account: `POST
+   /api/v1/users/{username}/tokens` with Basic Auth (a token left with the same name by an interrupted run is
+   deleted first). A `DELETE` for it is registered for teardown as a safety net.
+2. The method revokes it: `DELETE /api/v1/users/{username}/tokens/{name}`.
+3. Re-use the revoked token: `GET /api/v1/user`, sent as the run's credential placement says (on the Forgejo labs
+   `Authorization: token <value>`).
+4. Oracle on step 3: `2xx` → FAIL; any other status → PASS.
+
+The token API and the re-probe path are Forgejo/Gitea's (`src/tests/helpers/auth_forgejo.py` and the test
+module). The test does not check that the token worked before the revocation (Q-29).
 
 ## Outcomes
 
@@ -36,8 +40,8 @@ All paths and the `token` authorization scheme are the Forgejo/Gitea API (consta
 |---|---|
 | PASS | The revoked token was not accepted (step 5 returned a non-`2xx` status). |
 | FAIL | The revoked token was accepted (`2xx`). |
-| SKIP | No API credentials configured, admin token not available, or `admin_password` missing. |
-| ERROR | Token acquisition failed, admin username not found, token creation or deletion failed, or an unexpected exception. On a target without the Forgejo token API the test ends here. |
+| SKIP | No API credentials configured; the authentication method cannot revoke a credential ("Not applicable: the authentication method '<auth_type>' cannot revoke a credential."); no admin account configured. |
+| ERROR | Token creation or revocation failed, or an unexpected exception. |
 
 References: CWE-613, OWASP-API2:2023, RFC-7009, OWASP-ASVS-v5.0.0-V7.4, NIST-SP-800-63B-4-S5.1.
 

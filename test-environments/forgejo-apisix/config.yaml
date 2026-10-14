@@ -72,6 +72,14 @@ target:
   }
 
 credentials:
+  # Forgejo token API: the tool creates a token per account (Basic Auth on
+  # POST /api/v1/users/{username}/tokens) and deletes it at the end of the run.
+  auth_type: forgejo_token
+  # Forgejo declares several schemes; tokens go in "Authorization: token <value>"
+  # (AuthorizationHeaderToken; the "token " prefix is described only in words).
+  security_scheme: AuthorizationHeaderToken
+  send_as:
+    prefix: "token "
   admin_username: "${ADMIN_USERNAME}"
   admin_password: "${ADMIN_PASSWORD}"
   user_a_username: "${USER_A_USERNAME}"

@@ -1,62 +1,63 @@
 """
 src/tests/helpers/auth.py
 
-Public auth dispatcher for GREY_BOX test credential acquisition.
+Public entry point of authentication for the tests that log in to the API.
 
-Responsibility
---------------
-This module is the single import point that every GREY_BOX test uses to
-acquire authentication tokens.  It reads target.credentials.auth_type and
-delegates to the appropriate implementation:
+Two separate questions (docs/project/auth-survey.md, section 5):
+    how a credential is obtained   the method of credentials.auth_type
+                                   (AUTH_METHODS below; one class per method);
+    how it is sent                 TargetContext.credential_placement, resolved
+                                   once per run (src/core/auth_placement.py).
 
-    "forgejo_token"  ->  auth_forgejo.acquire_all_tokens_if_needed()
-    "jwt_login"      ->  auth_jwt_login.acquire_all_tokens_if_needed()
+Functions for the tests:
+    acquire_tokens(target, context, client, required_roles)
+        Obtain the credential of each configured role not yet in TestContext.
+        Idempotent: a role that already has one is skipped without requests.
+    auth_parts(target, context, role)
+        The headers and query parameters that carry the role's credential;
+        merge them into the request instead of writing 'Bearer' by hand.
+    credential_parts(target, credential)
+        The same for a credential that is not stored for a role (the
+        temporary token of test 1.4).
+    revocation_capability(target)
+        The configured method when it can revoke a credential, else None.
 
-Adding a new auth_type requires:
-    1. Implementing a module src/tests/helpers/auth_{type}.py with the
-       function acquire_all_tokens_if_needed() following the same signature
-       and contract as the existing implementations.
-    2. Adding the new auth_type to the elif chain in acquire_tokens() below.
-    3. Adding the new auth_type to the supported values in
-       src/config/schema/tool_config.py CredentialsConfig.validate_credentials().
-    4. Documenting the new type in the CredentialsConfig docstring.
+Adding a method: a class implementing AuthMethod (auth_base.py), an AuthType
+value (src/core/models/runtime.py, with its checks in validate_credentials)
+and an entry in AUTH_METHODS.
 
-The dispatcher is intentionally thin (< 40 lines of logic).  It contains no
-token-acquisition logic of its own.  Domain knowledge lives in the
-implementation modules; the dispatcher only routes.
-
-Idempotency contract
---------------------
-Every implementation must be idempotent: calling acquire_all_tokens_if_needed()
-multiple times within the same pipeline run is safe.  Roles that already have
-a token in TestContext are skipped without making network calls.  This allows
-multiple GREY_BOX tests to call acquire_tokens() at the start of execute()
-without duplicating HTTP requests or creating redundant teardown entries.
-
-Dependency rule
----------------
-This module imports from:
-    - stdlib only
-    - src.core.client, src.core.context, src.core.exceptions
-It must never import from src.tests.domain_* or src.engine.
-The implementation modules are imported lazily (inside the elif branches) to
-avoid loading all implementations when only one is needed.
+Dependency rule: imports from stdlib, src.core and the src.tests.helpers.auth_*
+modules. It must never import from src.tests.domain_* or src.engine.
 """
 
 from __future__ import annotations
 
 import structlog
+from src.core.auth_placement import RequestAuthParts
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.exceptions import AuthenticationSetupError
+from src.core.models import AuthType
+from src.tests.helpers.auth_base import ROLE_CREDENTIAL_FIELDS, AuthMethod, RevocableAuthMethod
+from src.tests.helpers.auth_forgejo import ForgejoTokenAuthMethod
+from src.tests.helpers.auth_json_login import JsonLoginAuthMethod
+from src.tests.helpers.auth_static import BasicAuthMethod, StaticTokenAuthMethod
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
-# ---------------------------------------------------------------------------
-# Public dispatcher
-# ---------------------------------------------------------------------------
+# One instance per method: the methods keep no state of their own.
+AUTH_METHODS: dict[AuthType, AuthMethod] = {
+    method.auth_type: method
+    for method in (
+        BasicAuthMethod(),
+        StaticTokenAuthMethod(),
+        JsonLoginAuthMethod(),
+        ForgejoTokenAuthMethod(),
+    )
+}
 
-_SUPPORTED_AUTH_TYPES: tuple[str, ...] = ("forgejo_token", "jwt_login")
+_PASSWORD_SECRET_LABEL: str = "password of role"  # noqa: S105 -- a label, not a credential
+_TOKEN_SECRET_LABEL: str = "configured token of role"  # noqa: S105 -- a label, not a credential
 
 
 def acquire_tokens(
@@ -66,43 +67,108 @@ def acquire_tokens(
     required_roles: frozenset[str] | None = None,
 ) -> None:
     """
-    Acquire authentication tokens for all configured roles.
+    Obtain the credential of each configured role that has none yet.
 
-    Reads target.credentials.auth_type and delegates to the corresponding
-    implementation module.  Idempotent: roles that already have a token in
-    TestContext are skipped.
+    Roles are taken in the order admin, user_a, user_b. A role without
+    credentials is skipped (the calling test checks it with _requires_token).
+    The role's password and configured token are registered as secrets
+    before any request, so they are masked in every output.
 
     Args:
         target:         TargetContext carrying credentials and auth_type.
-        context:        TestContext where acquired tokens are stored.
-        client:         SecurityClient for HTTP calls.
-        required_roles: If provided, acquire only these roles (e.g.
-                        frozenset({"admin", "user_a"})). If None, acquire
-                        all roles that have credentials configured in
-                        target.credentials.
+        context:        TestContext where the credentials are stored.
+        client:         SecurityClient for the method's requests.
+        required_roles: Only these roles (e.g. frozenset({ROLE_USER_A}));
+                        None for every configured role.
 
     Raises:
-        AuthenticationSetupError: If auth_type is unsupported, or if token
-            acquisition fails for any required role.
+        AuthenticationSetupError: If the method fails for a required role.
+        SecurityClientError: On transport-layer failure.
     """
     auth_type = target.credentials.auth_type
+    log.debug("auth_acquire_called", auth_type=str(auth_type), required_roles=required_roles)
+    if auth_type is None:
+        return
+    method = AUTH_METHODS[auth_type]
+    for role, (_, password_field, token_field) in ROLE_CREDENTIAL_FIELDS.items():
+        if required_roles is not None and role not in required_roles:
+            continue
+        if not target.credentials.has_role(role):
+            log.debug("auth_skipping_role_no_credentials", role=role)
+            continue
+        if context.has_token(role):
+            continue
+        for field, label in (
+            (password_field, _PASSWORD_SECRET_LABEL),
+            (token_field, _TOKEN_SECRET_LABEL),
+        ):
+            value = getattr(target.credentials, field)
+            if value:
+                context.register_secret(str(value), f"{label} {role}")
+        method.obtain_credential(target, context, client, role)
 
-    log.debug("auth_dispatcher_called", auth_type=auth_type, required_roles=required_roles)
 
-    if auth_type == "forgejo_token":
-        from src.tests.helpers.auth_forgejo import acquire_all_tokens_if_needed
+def auth_parts(target: TargetContext, context: TestContext, role: str) -> RequestAuthParts:
+    """
+    Return the request parts carrying the credential of a role.
 
-        acquire_all_tokens_if_needed(target, context, client, required_roles)
+    Args:
+        target:  The current TargetContext (placement).
+        context: The TestContext holding the role's credential.
+        role:    A ROLE_* constant.
 
-    elif auth_type == "jwt_login":
-        from src.tests.helpers.auth_jwt_login import acquire_all_tokens_if_needed
+    Returns:
+        Headers and query parameters to merge into the request.
 
-        acquire_all_tokens_if_needed(target, context, client, required_roles)
-
-    else:
+    Raises:
+        AuthenticationSetupError: If the role has no credential in TestContext
+            (acquire_tokens() not called, or the role is not configured).
+    """
+    credential = context.get_token(role)
+    if credential is None:
         raise AuthenticationSetupError(
-            f"Unsupported auth_type: '{auth_type}'. "
-            f"Supported values: {sorted(_SUPPORTED_AUTH_TYPES)}. "
-            "To add a new auth type, see the module docstring in "
-            "src/tests/helpers/auth.py."
+            f"No credential for role '{role}': call acquire_tokens() first, and configure "
+            "the role's credentials.",
+            role=role,
         )
+    return credential_parts(target, credential)
+
+
+def credential_parts(target: TargetContext, credential: str) -> RequestAuthParts:
+    """
+    Return the request parts carrying a credential, as the placement says.
+
+    Args:
+        target:     The current TargetContext (placement).
+        credential: The credential value.
+
+    Returns:
+        Headers and query parameters to merge into the request.
+
+    Raises:
+        AuthenticationSetupError: If no placement was resolved (no credentials
+            configured).
+    """
+    placement = target.credential_placement
+    if placement is None:
+        raise AuthenticationSetupError(
+            "No credential placement: credentials.auth_type is not configured."
+        )
+    return placement.request_parts(credential)
+
+
+def revocation_capability(target: TargetContext) -> RevocableAuthMethod | None:
+    """
+    Return the configured method when it can revoke a credential.
+
+    Args:
+        target: The current TargetContext.
+
+    Returns:
+        The method, or None when no method is configured or it cannot revoke.
+    """
+    auth_type = target.credentials.auth_type
+    if auth_type is None:
+        return None
+    method = AUTH_METHODS[auth_type]
+    return method if isinstance(method, RevocableAuthMethod) else None

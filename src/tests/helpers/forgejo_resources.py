@@ -15,19 +15,18 @@ Contract
 --------
 Every create_* function follows the same contract:
 
-    1. Build the Authorization header from context.get_token(role).
+    1. Take the request parts carrying the role's credential (auth.auth_parts:
+       the placement of the run, e.g. 'Authorization: token <value>').
     2. POST to the appropriate Forgejo API endpoint.
     3. Raise ForgejoResourceError on unexpected HTTP status codes.
     4. Call context.register_resource_for_teardown() immediately after a
        successful creation, before any further logic that could raise.
     5. Return the response body dict to the caller.
 
-The teardown path for Forgejo resources (repos, issues) uses the Bearer
-token stored in the TestContext — not Basic Auth — because the Gateway
-forwards the Bearer token to the Forgejo backend, which applies ownership
-authorization internally.  This is why repository and issue teardown
-registrations do NOT include explicit headers (unlike token deletion in
-auth.py).
+The teardown of a repository is registered with the same request parts of
+the role that created it: Forgejo checks that the caller owns it. (Token
+deletion, in auth_forgejo.py, uses HTTP Basic instead: the token API accepts
+only the account's password.)
 
 Naming convention
 -----------------
@@ -37,8 +36,9 @@ secrets.token_hex(4) suffix to avoid collisions across assessment runs.
 Dependency rule
 ---------------
 This module imports from:
-    - stdlib: secrets
+    - stdlib: secrets, urllib.parse
     - src.core.client, src.core.context, src.core.exceptions, src.core.models
+    - src.tests.helpers.auth (auth_parts)
 It must never import from src.tests.domain_* or src.engine.
 """
 
@@ -46,11 +46,13 @@ from __future__ import annotations
 
 import secrets
 from typing import Any
+from urllib.parse import urlencode
 
 import structlog
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.exceptions import ToolBaseError
+from src.tests.helpers.auth import auth_parts
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -75,6 +77,8 @@ _FORGEJO_REPOS_SEARCH_PATH: str = "/api/v1/repos/search"
 # Expected HTTP status codes.
 _CREATED_STATUS: int = 201
 _OK_STATUS: int = 200
+_CONTENT_TYPE_HEADER: str = "Content-Type"
+_JSON_CONTENT_TYPE: str = "application/json"
 _ACCEPTED_STATUSES: frozenset[int] = frozenset({_OK_STATUS, _CREATED_STATUS})
 
 
@@ -139,13 +143,13 @@ def get_authenticated_user(
     """
     Fetch and return the Forgejo user record for the given role.
 
-    Calls GET /api/v1/user with the Bearer token stored in the TestContext
+    Calls GET /api/v1/user with the role's credential stored in the TestContext
     for the specified role.  Used by tests that need to know the username
     associated with a role before constructing resource paths.
 
     Args:
         target:  Immutable target context carrying base_url.
-        context: Mutable test context providing the Bearer token for the role.
+        context: Mutable test context providing the role's credential.
         client:  Centralized HTTP client.
         role:    Role identifier (e.g. ROLE_USER_A).  Must have a token stored
                  in context.
@@ -157,14 +161,15 @@ def get_authenticated_user(
         ForgejoResourceError: If the API returns a non-200 status.
         SecurityClientError:  On transport failure.
     """
-    token = _require_token(context, role)
-    headers = _bearer_headers(token)
+    parts = auth_parts(target, context, role)
+    headers = {**parts.headers, _CONTENT_TYPE_HEADER: _JSON_CONTENT_TYPE}
 
     response, _ = client.request(
         method="GET",
         path=_FORGEJO_USER_INFO_PATH,
         test_id="helper_get_user",
         headers=headers,
+        params=parts.params or None,
     )
 
     if response.status_code != _OK_STATUS:
@@ -219,15 +224,16 @@ def create_repository(
         ForgejoResourceError: If the API returns an unexpected status code.
         SecurityClientError:  On transport failure.
     """
-    token = _require_token(context, role)
+    parts = auth_parts(target, context, role)
     repo_name = _unique_name("repo")
-    headers = _bearer_headers(token)
+    headers = {**parts.headers, _CONTENT_TYPE_HEADER: _JSON_CONTENT_TYPE}
 
     response, _ = client.request(
         method="POST",
         path=_FORGEJO_USER_REPOS_PATH,
         test_id="helper_create_repo",
         headers=headers,
+        params=parts.params or None,
         json={
             "name": repo_name,
             "description": description,
@@ -255,12 +261,12 @@ def create_repository(
         repo=repo_name,
     )
 
-    # Register teardown before any further logic that could raise.
-    # Repository deletion uses Bearer auth forwarded by the Gateway.
+    # Register teardown before any further logic that could raise, with the
+    # role's credential as the placement sends it.
     context.register_resource_for_teardown(
         method="DELETE",
-        path=teardown_path,
-        headers=_bearer_auth_header(token),
+        path=_with_query(teardown_path, parts.params),
+        headers=dict(parts.headers),
     )
 
     log.info(
@@ -310,9 +316,9 @@ def create_issue(
         ForgejoResourceError: If the API returns an unexpected status code.
         SecurityClientError:  On transport failure.
     """
-    token = _require_token(context, role)
+    parts = auth_parts(target, context, role)
     issue_title = title or _unique_name("issue")
-    headers = _bearer_headers(token)
+    headers = {**parts.headers, _CONTENT_TYPE_HEADER: _JSON_CONTENT_TYPE}
     issues_path = _FORGEJO_ISSUES_PATH_TEMPLATE.format(
         owner=repo_owner,
         repo=repo_name,
@@ -323,6 +329,7 @@ def create_issue(
         path=issues_path,
         test_id="helper_create_issue",
         headers=headers,
+        params=parts.params or None,
         json={"title": issue_title, "body": body},
     )
 
@@ -379,15 +386,15 @@ def list_repositories(
         ForgejoResourceError: If the API returns a non-200 status.
         SecurityClientError:  On transport failure.
     """
-    token = _require_token(context, role)
-    headers = _bearer_headers(token)
+    parts = auth_parts(target, context, role)
+    headers = {**parts.headers, _CONTENT_TYPE_HEADER: _JSON_CONTENT_TYPE}
 
     response, _ = client.request(
         method="GET",
         path=_FORGEJO_REPOS_SEARCH_PATH,
         test_id="helper_list_repos",
         headers=headers,
-        params={"limit": str(limit), "token": ""},
+        params={"limit": str(limit), "token": "", **parts.params},
     )
 
     if response.status_code != _OK_STATUS:
@@ -429,63 +436,8 @@ def _unique_name(resource_type: str) -> str:
     return f"{_RESOURCE_NAME_PREFIX}-{resource_type}-{secrets.token_hex(_NAME_SUFFIX_BYTES)}"
 
 
-def _require_token(context: TestContext, role: str) -> str:
-    """
-    Retrieve the token for the given role or raise if absent.
-
-    Args:
-        context: Mutable test context.
-        role:    Role identifier.
-
-    Returns:
-        Token string.
-
-    Raises:
-        ValueError: If no token is stored for the role.  The caller's
-                    execute() method must have called acquire_all_tokens_if_needed
-                    before invoking any forgejo_resources function.
-    """
-    token = context.get_token(role)
-    if token is None:
-        raise ValueError(
-            f"No token available for role '{role}' in TestContext. "
-            f"Call acquire_all_tokens_if_needed() before using forgejo_resources helpers."
-        )
-    return token
-
-
-def _bearer_headers(token: str) -> dict[str, str]:
-    """
-    Build headers for POST/PUT Forgejo API requests with JSON body.
-
-    Uses the standard ``Bearer`` prefix (RFC 6750) rather than the Forgejo-native
-    ``token`` prefix.  Forgejo accepts both forms; ``Bearer`` is preferred because:
-        1. It matches the prefix used by all other tests in the tool.
-        2. ``EvidenceStore._sanitize_artifact()`` redacts ``Bearer``-prefixed
-           values unconditionally, preventing accidental token leakage in artifacts.
-
-    Args:
-        token: Raw token string without any prefix (as stored in TestContext).
-
-    Returns:
-        Dict suitable for passing as the headers argument to client.request().
-    """
-    return {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    }
-
-
-def _bearer_auth_header(token: str) -> dict[str, str]:
-    """
-    Build headers for GET/DELETE Forgejo API requests without body.
-
-    Uses ``Bearer`` prefix for the same reasons as ``_bearer_headers()``.
-
-    Args:
-        token: Raw token string without any prefix (as stored in TestContext).
-
-    Returns:
-        Dict with Authorization header only, suitable for read/delete calls.
-    """
-    return {"Authorization": f"Bearer {token}"}
+def _with_query(path: str, params: dict[str, str]) -> str:
+    """A path with query parameters appended (for a credential sent in the query)."""
+    if not params:
+        return path
+    return f"{path}?{urlencode(params)}"
