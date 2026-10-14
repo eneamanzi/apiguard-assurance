@@ -271,10 +271,22 @@ review of the implemented tests (Q-29, Q-32) and the work of group 3.D in `plan.
 
 ## Ideas (not planned)
 
+- **Test: the backend is reachable only through the gateway** (owner, 2026-10-14; candidate for Milestone 2, ID to
+  assign). A gateway bypass (CWE-288): a backend reachable directly skips every control of the gateway (TLS, rate
+  limit, headers, access rules, logs). Found when the Forgejo labs turned out to publish Forgejo's port; the
+  methodology has no such control (Q-32). Design notes: WHITE_BOX, the adapter already reads the backends' addresses
+  (concept "live target health"); the test contacts them directly from the tool's position; an optional key lists
+  backend addresses when the Admin API is not available; "not reachable from here" is stated as such (a name the tool
+  cannot resolve is not proof of isolation). Proven on a lab variant with the backend port open (E2E, Q-51).
+
 - **External tools in containers or as HTTP services.** Run nuclei, testssl.sh and other tools from containers, or
   call them as services, instead of local binaries; the target would then be reached by a service name. A first,
   never wired attempt (`effective_base_url`, `<TOOL>_SERVICE_URL`) was removed in 2026-10; to be
   designed for real if the integration into another product needs it.
+- **Prepared resources proposed from the specification** (owner, 2026-10-14). Resources (`config.yaml`
+  `resources:`, the login among them) are written by hand today. A command, like `generate-seed` for `path_seed`,
+  could propose them from the OpenAPI specification: the login operation, the field holding the token, a create
+  and delete pair for an object. A proposal for the user to check, never applied automatically.
 
 ## Connectors
 

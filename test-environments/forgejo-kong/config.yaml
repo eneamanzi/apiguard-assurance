@@ -127,6 +127,12 @@ resources:
     delete:
       path: "/api/v1/repos/{owner}/{repo}"
 
+# What runs: every test by default, native and external (same in the three labs).
+# To run only a part, change one line:
+#   min_priority   3 = all; 0 = P0 only, 1 = P0-P1, 2 = P0-P2
+#   strategies     remove one to exclude its tests (e.g. only BLACK_BOX: no credentials used)
+#   test_ids       e.g. ["1.4", "7.2", "ext.1.5.sslyze"]: only these (replaces the two filters above)
+#   external_tools.enabled: false (below): no external test, a run of a minute or two
 execution:
   min_priority: 3
   strategies:
@@ -193,10 +199,11 @@ tests:
         active: false             # the webhook never fires on real events
         branch_filter: "*"
 
-# External tools (installed by install_tools.sh): all three, about 5 minutes.
+# External tools (installed by install_tools.sh): all three, about 5 minutes more.
 external_tools:
-  # Master switch. Set false to skip all external tests in one line.
+  # Master switch: false skips every external test in one line.
   enabled: true
+  # Each tool can also be switched off alone (enabled: false).
   testssl:
     enabled: true
     timeout_seconds: 180

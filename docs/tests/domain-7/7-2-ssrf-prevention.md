@@ -79,6 +79,10 @@ References: OWASP-API7:2023, CWE-918, OWASP-ASVS-v5.0.0-V1.3.6, NIST-SP-800-204-
   it; teardown deletes the repository, and the webhooks with it.
 - Without it: **nothing is registered for teardown**. On a vulnerable target each accepted payload may create a
   persistent object (the request is a real `POST` with a valid token); remove them manually.
+- On a gateway with passive health checks the probed service may be **excluded for a few seconds**: on the crAPI
+  lab the payloads make the workshop service answer 503/504 and Kong takes it out of the pool until its active check
+  re-enables it (about 5 s). Real users of that service would get errors meanwhile, and a run started in that window
+  sees 503 there (Q-30, Q-29).
 - The test only checks whether the URL is **accepted**. It does not observe an outbound request from the server
   (no out-of-band callback).
 

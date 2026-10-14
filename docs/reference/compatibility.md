@@ -28,7 +28,7 @@ Nothing in the "unknown" column should be assumed to work.
 
 What each test needs to run on a target other than the labs, and what happens when the need is not met: most tests
 return SKIP with a reason naming what is missing; 0.2 and 6.4 run anyway, with the effect stated. Measured on the three labs on 2026-10-14
-(native tests, lab configurations); the external tests were last run on Forgejo + Kong.
+(full runs with the lab configurations, external tests included, which every lab now enables).
 
 | Test | Needs | Without it | Forgejo + Kong | crAPI + Kong | Forgejo + APISIX |
 |---|---|---|---|---|---|
@@ -41,7 +41,7 @@ return SKIP with a reason naming what is missing; 0.2 and 6.4 run anyway, with t
 | 3.3, 4.2, 4.3 | a gateway adapter (`kong` or `apisix`) and access to its Admin API | SKIP with the reason (no adapter, not supported, not accessible) | ran | ran | ran |
 | 6.4 | sub-test A: the gateway's block message (`gateway_block_body_fragment`; default is Kong's); sub-test B: a gateway adapter | without the message, a blocked endpoint is labelled blocked by the application, not by the gateway (same verdict); without an adapter, sub-test B gives a note and sub-test A still runs | ran | ran | ran (message set) |
 | 7.2 | credentials and the injection endpoint keys (and `injection_resource` when the endpoint belongs to an object) | SKIP naming the keys | ran (resource `repository`) | ran (fixed path) | ran (resource `repository`) |
-| ext.0.1.nuclei, ext.1.5.testssl, ext.1.5.sslyze | the tool installed | SKIP | ran | not run | not run |
+| ext.0.1.nuclei, ext.1.5.testssl, ext.1.5.sslyze | the tool installed | SKIP | ran | ran | ran |
 
 "Ran" means the test reached a verdict (PASS or FAIL), not that the verdict is right: verdict correctness is the
 subject of the test review (`OPEN_QUESTIONS.md` Q-29: for example 2.1 counts a `404` as enforced, so a path the
@@ -110,7 +110,10 @@ How it was built, and why:
   (`NOTICE.md` lists the copied files).
 
 Start, reset and run: [maintainer commands](../project/maintainer-commands.md#test-labs). Repeatability: two runs
-of the native tests on a lab reset in between gave identical results (2026-10-10).
+of the native tests on a lab reset in between gave identical results (2026-10-10); rebuilt from scratch on 2026-10-14
+with the documented commands, setup run twice, results identical to the reference. `crapi-identity` depends on the
+mock service `api.mypremiumdealership.com` (not in the official file, which starts every service) so that the
+documented start command starts it too.
 
 ### Forgejo + APISIX
 

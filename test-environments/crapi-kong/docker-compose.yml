@@ -11,6 +11,10 @@
 #   - left out: crapi-web (crAPI's web front end; Kong replaces it as the entry point), the
 #     chatbot and chromadb (the chatbot needs an OpenAI key and is reached only through crapi-web).
 #   - TLS_ENABLED=false inside the lab network: HTTPS is terminated by Kong, as in the Forgejo lab.
+#   - one addition: crapi-identity depends on api.mypremiumdealership.com (the official file has no
+#     such dependency and starts every service with "up -d"; here the start command starts Kong and
+#     what it depends on, so the dependency makes the mock service start too; identity and workshop
+#     use it through API_GATEWAY_URL).
 # No crAPI service publishes a port: the API is reachable only through Kong.
 #
 # Images: the release workflow of tag v1.1.6 failed after publishing only crapi-identity:1.1.6;
@@ -86,6 +90,8 @@ services:
       mongodb:
         condition: service_healthy
       mailhog:
+        condition: service_healthy
+      api.mypremiumdealership.com:
         condition: service_healthy
     healthcheck:
       test: /app/health.sh

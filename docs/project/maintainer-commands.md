@@ -261,9 +261,11 @@ docker compose --env-file ../../.env up forgejo-setup apisix-setup   # "Provisio
 cd ../..
 ```
 
-**Runs one after the other need no reset.** On the crAPI lab test 7.2 makes the workshop service answer 503/504 and
-Kong's passive health check excludes it; the active health check re-enables it about 5 seconds later (Q-66). The last
-command of the crAPI check below must print `"health":"HEALTHY"`.
+**Runs one after the other need no reset, but on the crAPI lab wait a few seconds.** Test 7.2 makes the workshop
+service answer 503/504 and Kong's passive health check excludes it; the active health check re-enables it about 5
+seconds later (Q-66). A run started within that window gets 503 from the workshop endpoints, and test 1.1 can PASS
+without having checked them (seen 2026-10-14, Q-29). Before the next run, the last command of the crAPI check below
+must print `"health":"HEALTHY"`.
 
 **Check that a lab is ready** (each line must print `200`):
 
@@ -305,10 +307,9 @@ hatch run apiguard validate-config -c test-environments/forgejo-kong/config.yaml
 hatch run apiguard run -c test-environments/forgejo-kong/config.yaml                 # reports in outputs/forgejo/ (crAPI: outputs/crapi/, APISIX: outputs/forgejo-apisix/)
 ```
 
-The Forgejo lab configurations (Kong and APISIX) enable the external tools (nuclei, testssl.sh, sslyze: about 5 minutes); for the
-native tests only, set `external_tools: {enabled: false}` in a copy (see [Running the Tool](#running-the-tool-cli)).
-The crAPI lab configuration has no `external_tools` section: every tool is off by default, so it runs the native
-tests only (about 2 minutes).
+The three lab configurations run every test, native and external (nuclei, testssl.sh, sslyze: about 5 minutes
+more), with the same commented filters above `execution`: for the native tests only, set
+`external_tools.enabled: false` (a run of one or two minutes); for some tests only, `execution.test_ids`.
 
 ## Git - Clean Up Commit History
 

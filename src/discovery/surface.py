@@ -23,8 +23,8 @@ from openapi.py. The two dialects differ in three areas:
         OpenAPI 3.x   -- the ``paths`` object already contains absolute paths.
                          Server-level prefixes live in ``servers[].url`` and
                          are intentionally not applied here: our tests send
-                         requests to the Gateway base URL and rely on Kong's
-                         route matching, not on path construction from the spec.
+                         requests to the Gateway base URL and rely on the
+                         gateway's route matching, not on path construction from the spec.
 
     2. Parameter schema location:
         OpenAPI 3.x   -- type/format are nested under ``param.schema.type``
@@ -280,7 +280,7 @@ def _extract_base_path(
     This key is Swagger 2.0-specific. OpenAPI 3.x uses ``servers[].url`` to
     express the same concept, but we deliberately do not apply server-level
     prefixes for OpenAPI 3.x: test requests are sent to the Gateway base URL
-    and rely on Kong's route matching, not on paths constructed from the spec.
+    and rely on the gateway's route matching, not on paths constructed from the spec.
 
     The returned value is normalized:
         - Leading slash is guaranteed.

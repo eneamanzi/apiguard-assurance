@@ -244,8 +244,7 @@ Some test defaults are written for the lab. On another target review them:
 Measured on cRAPI on 2026-10-06 (no gateway, `jwt_login`, now a `login` resource, 7.2 posting to a fixed path): 0.1, 0.2, 0.3, 1.1, 1.5, 1.6, 4.1, 6.2 and
 6.4 ran normally, 7.2 worked, 2.1 passed only because the Forgejo admin paths do not exist there, 1.4 returned ERROR,
 3.3, 4.2 and 4.3 returned SKIP. The current behaviour on the three labs is in
-[test portability](../../reference/compatibility.md#test-portability). Making the tool fully independent of Forgejo and Kong is an open decision
-(Q-43).
+[test portability](../../reference/compatibility.md#test-portability).
 
 ## Effects on the target
 

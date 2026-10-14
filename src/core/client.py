@@ -131,11 +131,13 @@ class SecurityClient:
 
     Usage in a BaseTest.execute() implementation:
 
+        parts = auth_parts(target, context, ROLE_USER_A)  # src/tests/helpers/auth.py
         response, record = client.request(
             method="GET",
-            path="/api/v1/users/me",
+            path=path,
             test_id=self.test_id,
-            headers={"Authorization": f"Bearer {token}"},
+            headers=dict(parts.headers),
+            params=dict(parts.params) or None,
         )
         if response.status_code != 401:
             store.add_fail_evidence(record)

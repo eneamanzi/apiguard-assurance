@@ -9,9 +9,9 @@ hardening for production use and integration into another product.
 **Development targets:** three labs in `test-environments/`: Forgejo behind Kong (DB-less, `forgejo-kong/`, the
 reference), OWASP crAPI behind Kong (`crapi-kong/`), Forgejo behind Apache APISIX (`forgejo-apisix/`). Each lab
 configuration holds only its own values; every key is in `config.example.yaml` (checked by `dev:check`).
-The goal is a tool agnostic of the target API and gateway (OpenAPI spec + `config.yaml`); the parts still tied to
-Forgejo or Kong are tracked in `OPEN_QUESTIONS.md` (Q-43); what each test needs from a target is in
-`docs/reference/compatibility.md` (Test portability).
+The tool is agnostic of the target API and gateway (OpenAPI spec + `config.yaml`, including the prepared resources:
+login and objects a test creates); gateways through adapters (`kong`, `apisix`). What each test needs from a target is
+in `docs/reference/compatibility.md` (Test portability).
 
 ## Where things are
 
