@@ -169,8 +169,8 @@ class Test64AuditConfig(BaseModel):
       (a) Debug / actuator endpoints accessible from the network: probed
           empirically via unauthenticated GET.  Any 2xx response whose body
           contains credential-like patterns is a FAIL.
-      (b) Kong Admin API -- service URLs and plugin configs: audited via
-          the Kong Admin API when available.  Credential-like values in
+      (b) Gateway configuration -- service URLs and plugin settings: audited
+          through the gateway adapter when one is configured.  Credential-like values in
           service URL fields or plugin config dictionaries are a FAIL.
 
     Design note -- degraded-run behaviour:

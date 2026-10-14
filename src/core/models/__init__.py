@@ -31,6 +31,10 @@ Symbol inventory by source module:
     runtime.py         RuntimeCredentials, SendAs, AuthType, CredentialLocation
                        (per-test parameters: src/test_config/)
 
+    resources.py       ResourceConfig, CreateRequest, DeleteRequest, ResourceAuth,
+                       CREDENTIAL_VALUE, FIXED_PLACEHOLDERS, PLACEHOLDER_USERNAME,
+                       PLACEHOLDER_PASSWORD, PLACEHOLDER_RANDOM
+
     external_tools.py  BaseExternalToolConfig, TestsslConfig, NucleiConfig,
                        ExternalToolsConfig
 """
@@ -45,6 +49,17 @@ from src.core.models.external_tools import (
     TestsslConfig,
 )
 from src.core.models.http import EvidenceRecord, TransactionSummary
+from src.core.models.resources import (
+    CREDENTIAL_VALUE,
+    FIXED_PLACEHOLDERS,
+    PLACEHOLDER_PASSWORD,
+    PLACEHOLDER_RANDOM,
+    PLACEHOLDER_USERNAME,
+    CreateRequest,
+    DeleteRequest,
+    ResourceAuth,
+    ResourceConfig,
+)
 from src.core.models.results import Finding, InfoNote, NotRunEntry, ResultSet, TestResult
 from src.core.models.runtime import AuthType, CredentialLocation, RuntimeCredentials, SendAs
 from src.core.models.surface import (
@@ -82,6 +97,16 @@ __all__ = [
     "SendAs",
     "AuthType",
     "CredentialLocation",
+    # resources.py
+    "ResourceConfig",
+    "CreateRequest",
+    "DeleteRequest",
+    "ResourceAuth",
+    "CREDENTIAL_VALUE",
+    "FIXED_PLACEHOLDERS",
+    "PLACEHOLDER_USERNAME",
+    "PLACEHOLDER_PASSWORD",
+    "PLACEHOLDER_RANDOM",
     # external_tools.py
     "BaseExternalToolConfig",
     "TestsslConfig",

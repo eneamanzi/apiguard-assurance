@@ -16,9 +16,12 @@ invalid tokens and with SSRF payloads, and some tests create objects on the targ
 
 ## Status
 
-Version 0.1.0, developed and tested on Linux against Forgejo behind Kong (DB-less). It works on any API described
-by Swagger 2.0 or OpenAPI 3.x, but some tests and defaults still assume Forgejo or Kong
-([compatibility](docs/reference/compatibility.md)). The interfaces other than the JSON report are not versioned yet.
+Version 0.1.0, developed and tested on Linux. It works on any API described by Swagger 2.0 or OpenAPI 3.x; the
+unreleased version is tested on three labs (Forgejo behind Kong, OWASP crAPI behind Kong, Forgejo behind Apache
+APISIX), reads the gateway configuration of Kong and APISIX, and authenticates with HTTP Basic, a static token, a
+JSON login or the Forgejo token API, sending the credential as the specification declares. Some tests still
+assume Forgejo ([compatibility](docs/reference/compatibility.md)). The interfaces other than the JSON report are
+not versioned yet.
 
 ## Quick start
 
@@ -42,6 +45,7 @@ Full installation steps, including how to clean up a previous setup: [Installati
 |---|---|
 | Check the configuration | `hatch run apiguard validate-config -c test-environments/forgejo-kong/config.yaml` |
 | Run an assessment | `hatch run apiguard run -c test-environments/forgejo-kong/config.yaml` |
+| Start a configuration for your API | copy `config.example.yaml` (every key, with its description) |
 | Use another configuration file | `hatch run apiguard run -c my-api.yaml` |
 | List the path parameters of a specification | `hatch run apiguard generate-seed <spec-url-or-file>` |
 

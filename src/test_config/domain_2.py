@@ -17,19 +17,11 @@ Dependency rule: imports only from pydantic and the stdlib.
 
 from __future__ import annotations
 
-from typing import Annotated
-
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------
 # Constants — Test 2.1
 # ---------------------------------------------------------------------------
-
-# Default list of admin-only endpoints to probe with a non-privileged token.
-# OWASP ASVS v5.0.0 V8.3.1: all privileged endpoints must enforce role checks.
-# These defaults are Forgejo-specific; operators should extend this list to
-# cover all admin-only endpoints documented in their target's OpenAPI spec.
-TEST_21_ADMIN_ENDPOINT_PATHS_DEFAULT: list[str] = ["/api/v1/admin/users"]
 
 # Default HTTP method for the admin endpoint probe.
 TEST_21_ADMIN_ENDPOINT_METHOD_DEFAULT: str = "GET"
@@ -53,16 +45,14 @@ class Test21Config(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    admin_endpoint_paths: Annotated[
-        tuple[str, ...],
-        Field(min_length=1),
-    ] = Field(
-        default_factory=lambda: tuple(TEST_21_ADMIN_ENDPOINT_PATHS_DEFAULT),
+    admin_endpoint_paths: tuple[str, ...] = Field(
+        default=(),
         description=(
-            "List of admin-only endpoint paths to probe with a non-privileged token.  "
-            "Each path must start with '/'.  "
-            "At least one path is required.  "
-            "Default: ['/api/v1/admin/users'] (Forgejo admin user-list endpoint)."
+            "Admin-only endpoint paths of the target to probe with a non-privileged "
+            "token (OWASP ASVS v5.0.0 V8.3.1), each starting with '/'. No default: "
+            "the admin paths depend on the API, and a path the API does not have "
+            "would answer 404 and pass. Empty: the test returns SKIP. "
+            "Example (Forgejo): ['/api/v1/admin/users']."
         ),
     )
     admin_endpoint_method: str = Field(

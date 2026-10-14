@@ -6,9 +6,12 @@ Python CLI for automated security assessment of REST APIs behind an API gateway.
 Cybersecurity; v0.1.0 released 2026-05-18 (15 native + 3 external tests). Current phase: documentation and
 hardening for production use and integration into another product.
 
-**Development target:** Forgejo REST API behind Kong Gateway (DB-less), lab in `test-environments/forgejo-kong/`.
+**Development targets:** three labs in `test-environments/`: Forgejo behind Kong (DB-less, `forgejo-kong/`, the
+reference), OWASP crAPI behind Kong (`crapi-kong/`), Forgejo behind Apache APISIX (`forgejo-apisix/`). Each lab
+configuration holds only its own values; every key is in `config.example.yaml` (checked by `dev:check`).
 The goal is a tool agnostic of the target API and gateway (OpenAPI spec + `config.yaml`); the parts still tied to
-Forgejo or Kong are tracked in `OPEN_QUESTIONS.md` (Q-18, Q-38, Q-43).
+Forgejo or Kong are tracked in `OPEN_QUESTIONS.md` (Q-43); what each test needs from a target is in
+`docs/reference/compatibility.md` (Test portability).
 
 ## Where things are
 
@@ -41,7 +44,8 @@ src/
 ├── config/           # Phase 1: loader (YAML + ${VAR} interpolation) + ToolConfig schema
 ├── discovery/        # Phase 2: OpenAPI fetch/dereference, AttackSurface, seed generator
 ├── core/             # Shared infrastructure, zero test logic: client, context, evidence, dag,
-│                     #   gateway/ (BaseGatewayAdapter + Kong), models/, exceptions,
+│                     #   gateway/ (BaseGatewayAdapter + Kong, APISIX), auth_placement,
+│                     #   models/, exceptions,
 │                     #   test_metadata (rules every test declaration must satisfy)
 ├── connectors/       # External tool wrappers, zero test logic (nuclei, testssl, sslyze)
 ├── external_tests/   # ExternalToolTest hierarchy, parallel to tests/ (NOT BaseTest subclasses)

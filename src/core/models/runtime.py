@@ -37,8 +37,7 @@ class AuthType(StrEnum):
 
     BASIC = "basic"
     STATIC_TOKEN = "static_token"  # noqa: S105 -- a method name, not a secret
-    JSON_LOGIN = "json_login"
-    FORGEJO_TOKEN = "forgejo_token"  # noqa: S105 -- a method name, not a secret
+    LOGIN = "login"
 
 
 class CredentialLocation(StrEnum):
@@ -49,8 +48,19 @@ class CredentialLocation(StrEnum):
     COOKIE = "cookie"
 
 
-# Previous name of json_login (v0.1.0), rejected with a message naming the new one.
-_RENAMED_AUTH_TYPES: dict[str, AuthType] = {"jwt_login": AuthType.JSON_LOGIN}
+# auth_type values replaced by 'login' with a prepared resource (Phase E,
+# docs/project/resources-design.md 5.4): v0.1.0 had jwt_login and forgejo_token,
+# json_login existed only before the Phase E release. Rejected with the new form.
+_REPLACED_AUTH_TYPES: frozenset[str] = frozenset({"jwt_login", "json_login", "forgejo_token"})
+# Keys of json_login replaced by the login resource's create request and values.
+_REPLACED_LOGIN_KEYS: frozenset[str] = frozenset(
+    {"login_endpoint", "username_body_field", "password_body_field", "token_response_path"}
+)
+_LOGIN_FORM_HINT: str = (
+    "use auth_type: login with credentials.login_resource naming a prepared resource "
+    "(resources:) whose create request logs in and whose value 'credential' is the token; "
+    "see config.example.yaml"
+)
 
 # Roles, as (role, username field, password field, token field). The role
 # names are the ROLE_* constants of src/core/context.py, not imported here to
@@ -115,9 +125,11 @@ class RuntimeCredentials(BaseModel):
     auth_type, required when an account or a token is configured:
         basic          HTTP Basic with username and password (RFC 7617);
         static_token   a token given in config.yaml (<role>_token);
-        json_login     POST login_endpoint with username and password in a
-                       JSON body, token read at token_response_path;
-        forgejo_token  Forgejo/Gitea token API (POST /api/v1/users/{username}/tokens).
+        login          the prepared resource login_resource (resources: in
+                       config.yaml) is created for each role; its value
+                       'credential' is the token, its delete request (if
+                       any) deletes the token at teardown and revokes it
+                       for test 1.4.
     """
 
     model_config = {"frozen": True, "extra": "forbid"}
@@ -125,12 +137,12 @@ class RuntimeCredentials(BaseModel):
     auth_type: AuthType | None = Field(
         default=None,
         description=(
-            "How a credential is obtained: 'basic', 'static_token', 'json_login', "
-            "'forgejo_token'. Required when an account or a token is configured."
+            "How a credential is obtained: 'basic', 'static_token', 'login'. "
+            "Required when an account or a token is configured."
         ),
     )
 
-    # Accounts (basic, json_login, forgejo_token)
+    # Accounts (basic, login)
     admin_username: str | None = Field(
         default=None, description="Admin username. " + _SENSITIVE_DESCRIPTION
     )
@@ -161,24 +173,13 @@ class RuntimeCredentials(BaseModel):
         default=None, description="User B token (static_token). " + _SENSITIVE_DESCRIPTION
     )
 
-    # json_login
-    login_endpoint: str | None = Field(
+    # login
+    login_resource: str | None = Field(
         default=None,
-        description="json_login: path of the login endpoint, e.g. '/identity/api/auth/login'.",
-    )
-    username_body_field: str = Field(
-        default="username",
-        description="json_login: JSON body field for the username. Default 'username'.",
-    )
-    password_body_field: str = Field(
-        default="password",
-        description="json_login: JSON body field for the password. Default 'password'.",
-    )
-    token_response_path: str = Field(
-        default="access_token",
+        min_length=1,
         description=(
-            "json_login: dotted path of the token in the login response, e.g. 'data.token'. "
-            "Default 'access_token'."
+            "login: name of the prepared resource (resources:) that logs in for a role; "
+            "its value 'credential' is the token."
         ),
     )
 
@@ -205,14 +206,16 @@ class RuntimeCredentials(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def reject_renamed_auth_type(cls, data: object) -> object:
-        """Reject an auth_type renamed since v0.1.0, naming the new value."""
+    def reject_replaced_auth_type(cls, data: object) -> object:
+        """Reject the auth_type values and keys replaced by 'login', showing the new form."""
         if isinstance(data, dict):
             old = data.get("auth_type")
-            if isinstance(old, str) and old in _RENAMED_AUTH_TYPES:
+            if isinstance(old, str) and old in _REPLACED_AUTH_TYPES:
+                raise ValueError(f"auth_type '{old}' was replaced: {_LOGIN_FORM_HINT}.")
+            replaced = sorted(_REPLACED_LOGIN_KEYS & set(data))
+            if replaced:
                 raise ValueError(
-                    f"auth_type '{old}' was renamed to '{_RENAMED_AUTH_TYPES[old].value}': "
-                    "update credentials.auth_type."
+                    f"credentials.{', credentials.'.join(replaced)} replaced: {_LOGIN_FORM_HINT}."
                 )
         return data
 
@@ -224,7 +227,7 @@ class RuntimeCredentials(BaseModel):
         1. A configured account or token needs auth_type.
         2. Each method takes its own kind of credential: static_token tokens
            only; the others username and password, given together.
-        3. json_login needs login_endpoint.
+        3. login needs login_resource; only login takes it.
         4. basic has a fixed format: no security_scheme, no send_as.
         """
         configured = [
@@ -265,8 +268,16 @@ class RuntimeCredentials(BaseModel):
                     f"credentials.{missing} is missing."
                 )
 
-        if self.auth_type is AuthType.JSON_LOGIN and not _present(self.login_endpoint):
-            raise ValueError("auth_type 'json_login' requires credentials.login_endpoint.")
+        if self.auth_type is AuthType.LOGIN and self.login_resource is None:
+            raise ValueError(
+                "auth_type 'login' requires credentials.login_resource, the name of a "
+                "prepared resource (resources:) that logs in."
+            )
+        if self.auth_type is not AuthType.LOGIN and self.login_resource is not None:
+            raise ValueError(
+                f"credentials.login_resource is used only by auth_type 'login' "
+                f"(current: '{self.auth_type.value}')."
+            )
         if self.auth_type is AuthType.BASIC and (
             self.security_scheme is not None or self.send_as is not None
         ):

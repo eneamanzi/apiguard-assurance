@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # ---------------------------------------------------------------------------
 # Constants -- Test 7.2 payload categories
@@ -133,21 +133,28 @@ TEST_72_UNSUPPORTED_SCHEME_KEYWORDS_DEFAULT: list[str] = [
 # Constants -- Test 7.2 injection vector defaults
 # ---------------------------------------------------------------------------
 
-# Default injection endpoint path template.  Supports {owner} and {repo}
-# placeholders resolved at runtime when injection_mode == "forgejo_webhook".
-# Methodology ref: Garanzia 7.2 -- Injection vector description.
-TEST_72_INJECTION_PATH_TEMPLATE_DEFAULT: str = "/api/v1/repos/{owner}/{repo}/hooks"
+# Injection endpoint. No default: it depends on the API, so the test returns
+# SKIP until injection_path_template and injection_body_template are set. With
+# injection_resource, a prepared resource (resources: in config.yaml) is created
+# first and its values fill the path and the body.
+#
+# Placeholders the test fills in injection_body_template (src/core/templating.py;
+# the configuration schema checks them, this module cannot import src.core):
+#   {ssrf_url}       each payload URL (required, exactly once)
+#   {random_secret}  32 random hexadecimal characters, fresh per request
+TEST_72_PLACEHOLDER_SSRF_URL: str = "ssrf_url"
+TEST_72_PLACEHOLDER_RANDOM_SECRET: str = "random_secret"  # noqa: S105 -- a placeholder name
 
-# Default injection mode.  "forgejo_webhook" creates an assessment repository
-# before probing; "fixed_path" probes the injection_path_template directly
-# without resource setup.
-TEST_72_INJECTION_MODE_DEFAULT: str = "forgejo_webhook"
-
-# Default field path (dot-notation) inside the request body where the SSRF
-# URL is injected.  "config.url" is the Forgejo webhook body field.
-# A dot-separated path like "config.url" means the body is:
-#   {"config": {"url": "<ssrf_url>", ...}, ...}
-TEST_72_INJECTION_URL_FIELD_DEFAULT: str = "config.url"
+# Keys removed in Phase E (docs/project/resources-design.md, 5.6), rejected with
+# the new form.
+_TEST_72_REMOVED_KEYS: dict[str, str] = {
+    "injection_mode": (
+        "removed: set injection_resource to the name of a prepared resource (resources:) "
+        "whose values fill the path (formerly 'forgejo_webhook'); without it the path is "
+        "used as written (formerly 'fixed_path')"
+    ),
+    "injection_url_field": ("removed: the URL goes where injection_body_template has {ssrf_url}"),
+}
 
 # Default intended timeout for individual SSRF probe requests (milliseconds).
 # Reserved for future per-request timeout override in SecurityClient.
@@ -169,14 +176,15 @@ class Test72SSRFConfig(BaseModel):
     rejecting user-controlled URLs that target internal infrastructure, as
     defined by OWASP API7:2023 and methodology section 7.2.
 
-    Injection vector (config-driven):
-        The URL field that receives the SSRF payload is fully configurable.
-        For Forgejo (default): POST /api/v1/repos/{owner}/{repo}/hooks with
-        the SSRF URL in the 'config.url' body field.  For other targets:
-        set injection_mode='fixed_path', injection_path_template to the
-        endpoint path, injection_body_template to the body JSON with
-        '$SSRF_URL$' as the placeholder, and injection_url_field to the
-        dot-notation field path.
+    Injection vector (config-driven, no default):
+        An endpoint of the target that accepts a URL, sent as POST. Set
+        injection_path_template and injection_body_template (with "{ssrf_url}"
+        where the URL goes); without them the test returns SKIP. When the
+        endpoint belongs to an object that must exist first, injection_resource
+        names a prepared resource created for user A, whose values fill the
+        path and the body. Forgejo example (test-environments/forgejo-kong/
+        config.yaml): resource 'repository', POST
+        /api/v1/repos/{owner}/{repo}/hooks with the URL in config.url.
 
     Sub-tests:
         A (cloud_metadata):       Cloud IMDS endpoints (AWS EC2, AWS ECS,
@@ -207,8 +215,8 @@ class Test72SSRFConfig(BaseModel):
         via _log_transaction() only; not stored in EvidenceStore.
 
     Design note -- GREY_BOX at P0:
-        All Forgejo endpoints that accept user-controlled URLs require
-        authentication. SSRF is OWASP API7:2023 P0 regardless of the
+        The injection endpoints of the labs (Forgejo webhooks, crAPI
+        contact_mechanic) require authentication. SSRF is OWASP API7:2023 P0 regardless of the
         authentication prerequisite; an authenticated attacker can still
         pivot to internal infrastructure. GREY_BOX reflects the auth
         prerequisite, not a lower risk classification.
@@ -232,79 +240,79 @@ class Test72SSRFConfig(BaseModel):
 
     # -- Injection vector (config-driven) --
 
-    injection_mode: Annotated[
-        str,
-        Field(pattern=r"^(forgejo_webhook|fixed_path)$"),
-    ] = Field(
-        default=TEST_72_INJECTION_MODE_DEFAULT,
-        description=(
-            "Controls how the test prepares the injection endpoint before probing. "
-            "'forgejo_webhook': creates an assessment repository via "
-            "forgejo_resources.create_repository(), then probes "
-            "POST /api/v1/repos/{owner}/{repo}/hooks with the SSRF URL in "
-            "the webhook body. Teardown is registered automatically. "
-            "'fixed_path': probes injection_path_template directly without "
-            "resource setup. Use for targets other than Forgejo or for "
-            "Forgejo endpoints that accept a URL without requiring a parent "
-            "resource (e.g. a notification endpoint). "
-            f"Default: '{TEST_72_INJECTION_MODE_DEFAULT}'."
-        ),
-    )
-
-    injection_path_template: str = Field(
-        default=TEST_72_INJECTION_PATH_TEMPLATE_DEFAULT,
+    injection_resource: str | None = Field(
+        default=None,
         min_length=1,
         description=(
-            "URL path template for the SSRF injection endpoint. "
-            "Supports {owner} and {repo} placeholders, resolved at runtime "
-            "when injection_mode='forgejo_webhook'. "
-            "For injection_mode='fixed_path', use a literal path with no "
-            "placeholders (e.g. '/api/v1/notifications'). "
-            "Methodology ref: Garanzia 7.2 -- Injection vector. "
-            f"Default: '{TEST_72_INJECTION_PATH_TEMPLATE_DEFAULT}'."
+            "Name of a prepared resource (resources: in config.yaml) created for user A "
+            "before probing; its values fill the placeholders of injection_path_template "
+            "and injection_body_template, and it is deleted at teardown. Optional: without "
+            "it the path is used as written."
         ),
     )
 
-    injection_url_field: str = Field(
-        default=TEST_72_INJECTION_URL_FIELD_DEFAULT,
+    injection_path_template: str | None = Field(
+        default=None,
         min_length=1,
         description=(
-            "Dot-notation path to the field in injection_body_template that "
-            "receives the SSRF URL at runtime. "
-            "Examples: 'config.url' (nested), 'callback_url' (flat), "
-            "'target.address' (two levels). "
-            "The test resolves this path when building injection_body_template "
-            "by substituting the '$SSRF_URL$' sentinel. "
-            "This field documents the logical injection point for report clarity. "
-            f"Default: '{TEST_72_INJECTION_URL_FIELD_DEFAULT}'."
-        ),
-    )
-
-    injection_body_template: dict[str, object] = Field(
-        default_factory=lambda: {
-            "type": "forgejo",
-            "config": {
-                "url": "$SSRF_URL$",
-                "content_type": "json",
-                "secret": "$RANDOM_SECRET$",
-            },
-            "events": ["push"],
-            "active": False,
-            "branch_filter": "*",
-        },
-        description=(
-            "JSON body template for the webhook creation request. "
-            "Must contain the sentinel string '$SSRF_URL$' exactly once -- "
-            "the test substitutes it with each payload URL at runtime. "
-            "May also contain '$RANDOM_SECRET$', which the test substitutes "
-            "with a 16-byte cryptographically random hex string (secrets.token_hex(16)). "
-            "The default is the Forgejo webhook creation body. "
-            "Override to adapt the test to a different API that accepts "
-            "user-controlled URLs (e.g. a notification webhook endpoint, a "
-            "URL-fetch proxy, a CI/CD pipeline trigger). "
+            "Path of the SSRF injection endpoint (POST). With injection_resource it may "
+            "hold the resource's values, e.g. '/api/v1/repos/{owner}/{repo}/hooks'. "
+            "Unset (with injection_body_template), the test returns SKIP. "
             "Methodology ref: Garanzia 7.2 -- Injection vector."
         ),
     )
+
+    injection_body_template: dict[str, object] | None = Field(
+        default=None,
+        description=(
+            "JSON body of the injection request; required with injection_path_template. "
+            'Must contain "{ssrf_url}" exactly once, replaced by each payload URL; may '
+            'contain "{random_secret}" (32 random hexadecimal characters) and, with '
+            "injection_resource, the resource's values. Placeholders in quotes. "
+            "Methodology ref: Garanzia 7.2 -- Injection vector."
+        ),
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_removed_keys(cls, data: object) -> object:
+        """Reject the keys removed in Phase E, naming the new form."""
+        if isinstance(data, dict):
+            for key, message in _TEST_72_REMOVED_KEYS.items():
+                if key in data:
+                    raise ValueError(f"{key}: {message} (tests.domain_7.test_7_2).")
+        return data
+
+    @model_validator(mode="after")
+    def injection_endpoint_complete(self) -> Test72SSRFConfig:
+        """
+        Require the path and the body together, and both with a resource.
+
+        Without them the test returns SKIP. The placeholders ({ssrf_url} once,
+        the resource's values) are checked by the configuration schema, which
+        also knows the resources.
+        """
+        if self.injection_path_template is None and self.injection_body_template is None:
+            if self.injection_resource is not None:
+                raise ValueError(
+                    "injection_resource requires injection_path_template and "
+                    "injection_body_template (tests.domain_7.test_7_2)."
+                )
+            return self
+        missing = [
+            name
+            for name, value in (
+                ("injection_path_template", self.injection_path_template),
+                ("injection_body_template", self.injection_body_template),
+            )
+            if not value
+        ]
+        if missing:
+            raise ValueError(
+                f"the injection endpoint requires {' and '.join(missing)} "
+                "(tests.domain_7.test_7_2)."
+            )
+        return self
 
     # -- Redirect sub-test (sub-test G) --
 

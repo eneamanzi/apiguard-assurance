@@ -472,7 +472,7 @@ def validate_config(
 
     log = structlog.get_logger("cli.validate_config")
 
-    from src.engine import check_credentials, check_tests
+    from src.engine import check_credentials, check_tests, describe_resources
 
     try:
         tool_config = load_config(config)
@@ -482,10 +482,15 @@ def validate_config(
             f"[bold green]Configuration valid.[/bold green] Target: {tool_config.target.base_url}"
         )
         if placement is not None:
+            method = str(tool_config.credentials.auth_type)
+            if tool_config.credentials.login_resource is not None:
+                method += f", resource '{tool_config.credentials.login_resource}'"
             _console_out.print(
-                f"Credentials ({tool_config.credentials.auth_type}) sent in the "
+                f"Credentials ({method}) sent in the "
                 f"{placement.location.value} '{placement.name}' ({placement.source})."
             )
+        if tool_config.resources:
+            _console_out.print(f"Resources: {describe_resources(tool_config)}.")
         raise typer.Exit(code=0)
     except ConfigurationError as exc:
         log.error(

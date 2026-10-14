@@ -21,17 +21,17 @@ Guarantee (docs/knowledge/methodology/methodology.it.md, Section 6.4):
         A 2xx response whose body contains credential-like patterns is a FAIL.
         The desired outcome is 401, 403, or 404 on every probed path.
 
-    Sub-test B -- Kong Admin API Configuration Audit (runs only when Admin API
-        is available):
-        The Kong Admin API is queried for services and plugins.  Every service
-        URL and every plugin configuration value is scanned with compiled regex
+    Sub-test B -- Gateway Configuration Audit (runs only when a gateway adapter
+        is configured):
+        The gateway adapter reads the configuration text values (concept
+        config_values: service URLs, plugin settings).  Every value is scanned with compiled regex
         patterns for known credential formats (URL-embedded credentials, AWS
         Access Key IDs, Stripe live/test keys, GitHub PATs) and for high-entropy
         values in semantically sensitive config keys (password, secret, api_key,
         token, credential).  Any match is a FAIL finding.
 
-    Sub-test B gap note (Admin API absent):
-        When target.admin_api_available is False, Sub-test B cannot run.
+    Sub-test B gap note (no gateway adapter):
+        When target.gateway is None, Sub-test B cannot run.
         Rather than returning SKIP (which would conceal the result of Sub-test A),
         the test attaches an InfoNote documenting the audit gap.  The operator
         must perform a manual configuration audit to close the gap.
@@ -40,9 +40,9 @@ Strategy: WHITE_BOX -- Configuration Audit (methodology section 6.4).
     Sub-test A uses only network connectivity (no credentials); it is
     BLACK_BOX in nature but is classified under WHITE_BOX at the test level
     because its primary function is a configuration audit.  Sub-test B requires
-    Kong Admin API access, which is the defining characteristic of WHITE_BOX
+    gateway Admin API access, which is the defining characteristic of WHITE_BOX
     tests in this tool.  The test runs Sub-test A regardless of Admin API
-    availability, making it useful even in fully DB-less Kong deployments.
+    availability, making it useful even without a gateway adapter.
 
 Priority: P2 -- Application Logic / Defense in Depth (methodology matrix).
     Hardcoded credentials are a critical vulnerability if exploited but require
@@ -277,7 +277,7 @@ class Test64HardcodedCredentialsAudit(BaseTest):
     Test 6.4 -- Hardcoded Credentials Audit.
 
     Verifies that service credentials are not exposed via accessible debug
-    endpoints or hardcoded in Kong service/plugin configuration.
+    endpoints or hardcoded in the gateway configuration.
 
     Combines an empirical Black-Box probe (Sub-test A, always runs) with an
     optional Admin API configuration audit (Sub-test B, runs only when
@@ -340,7 +340,7 @@ class Test64HardcodedCredentialsAudit(BaseTest):
             )
             findings.extend(a_findings)
 
-            # ---- Sub-test B: Kong Admin API audit (conditional) ----------
+            # ---- Sub-test B: gateway configuration audit (conditional) ---
             notes: list[InfoNote] = list(a_notes)  # start with any open-with-data notes
             if target.gateway is not None:
                 b_findings, b_note = self._audit_gateway_configuration(target, store)
@@ -358,8 +358,8 @@ class Test64HardcodedCredentialsAudit(BaseTest):
                             "Layer Credentials Not Auditable via HTTP"
                         ),
                         detail=(
-                            "This test audits Kong service/plugin configuration via "
-                            "the Admin API and probes known debug endpoints over HTTP. "
+                            "This test audits the gateway configuration via its "
+                            "Admin API and probes known debug endpoints over HTTP. "
                             "It CANNOT detect hardcoded credentials in: "
                             "(1) docker-compose.yml or .env files "
                             "(e.g. POSTGRES_PASSWORD, SECRET_KEY environment variables); "
@@ -388,17 +388,16 @@ class Test64HardcodedCredentialsAudit(BaseTest):
             else:
                 notes.append(
                     InfoNote(
-                        title="Admin API Audit Gap: Kong Configuration Not Scanned",
+                        title="Admin API Audit Gap: Gateway Configuration Not Scanned",
                         detail=(
-                            "The Kong Admin API is not configured "
-                            "(target.admin_api_available=False). "
-                            "Sub-test B -- which scans Kong service URLs and plugin "
-                            "configs for hardcoded credentials -- could not run. "
-                            "To close this gap, configure 'target.admin_api_url' in "
-                            "config.yaml and re-run the assessment with WHITE_BOX "
-                            "strategy enabled. "
-                            "Manual action required: inspect /etc/kong/kong.conf and "
-                            "all plugin config blocks for credential-like values. "
+                            "No gateway adapter is configured. "
+                            "Sub-test B -- which scans the gateway's service URLs and "
+                            "plugin settings for hardcoded credentials -- could not run. "
+                            "To close this gap, set 'target.gateway_adapter' and "
+                            "'target.admin_api_url' in config.yaml and re-run the "
+                            "assessment with WHITE_BOX strategy enabled. "
+                            "Manual action required: inspect the gateway configuration "
+                            "files and all plugin settings for credential-like values. "
                             "References: OWASP ASVS V13.3.1, CWE-798."
                         ),
                         references=["OWASP-ASVS-V13.3.1", "CWE-798"],
@@ -618,7 +617,7 @@ class Test64HardcodedCredentialsAudit(BaseTest):
         return findings, notes
 
     # ------------------------------------------------------------------
-    # Sub-test B helpers: Kong Admin API credential scan
+    # Sub-test B helpers: gateway configuration credential scan
     # ------------------------------------------------------------------
 
     def _audit_gateway_configuration(

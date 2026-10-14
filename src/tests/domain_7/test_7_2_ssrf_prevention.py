@@ -7,27 +7,28 @@ References: OWASP API7:2023, CWE-918, OWASP ASVS v5.0.0 V1.3.6,
 NIST SP 800-204 Section 3.2.2, methodology section 7.2.
 
 Strategy: GREY_BOX (P0)
-    All Forgejo endpoints that accept user-controlled URLs require
-    authentication. The SSRF risk is classified P0 regardless of the
+    The injection endpoints of the labs (Forgejo webhooks, crAPI
+    contact_mechanic) require authentication. The SSRF risk is classified P0 regardless of the
     authentication prerequisite: an authenticated attacker (or one who
     has obtained any valid credential) can still pivot to internal
     infrastructure. See methodology section 7.2, 'Assunzioni e Prerequisiti'.
 
 Priority: P0 (OWASP API7:2023 — critical infrastructure risk)
 
-Injection vector:
-    POST /api/v1/repos/{owner}/{repo}/hooks (Forgejo webhook creation).
-    The SSRF URL is placed in the 'config.url' field of the webhook body.
-    A 201 Created response indicates the application accepted the URL
-    without validation; the webhook would execute an outbound SSRF request
-    on any future push event.  A 4xx response indicates the URL was
+Injection vector (tests.domain_7.test_7_2, no default):
+    POST injection_path_template with injection_body_template, where
+    "{ssrf_url}" is replaced by each payload URL and "{random_secret}" by a
+    fresh random value (registered as a secret). A 2xx response means the
+    application accepted the URL without validation; a 4xx that it was
     rejected at validation time.
 
-    A single test repository is created at the start (via
-    forgejo_resources.create_repository) and registered for Phase 6
-    teardown immediately.  All webhook creation probes target this
-    repository.  All hooks created for the repository are deleted
-    automatically when the parent repository is deleted during teardown.
+    With injection_resource, a prepared resource (resources: in config.yaml)
+    is created once for user A before the probes (src/tests/helpers/
+    resources.py, teardown registered by it); its values fill the path and
+    the body. On the Forgejo labs it is a repository, and the probes create
+    webhooks on it (POST /api/v1/repos/{owner}/{repo}/hooks, URL in
+    config.url); the hooks go with the repository at teardown. A resource
+    that cannot be created gives ERROR.
 
 Sub-tests and oracles:
     A (cloud_metadata)     AWS/GCP/Azure/DigitalOcean IMDS endpoint URLs.
@@ -85,10 +86,15 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
+from src.core.templating import render
+from src.test_config.domain_7 import (
+    TEST_72_PLACEHOLDER_RANDOM_SECRET,
+    TEST_72_PLACEHOLDER_SSRF_URL,
+)
 from src.tests.base import BaseTest
 from src.tests.data.ssrf_payloads import ALL_SSRF_PAYLOADS
 from src.tests.helpers.auth import acquire_tokens, auth_parts
-from src.tests.helpers.forgejo_resources import ForgejoResourceError, create_repository
+from src.tests.helpers.resources import create_resource
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -99,10 +105,8 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # Label of the generated webhook secret in the redacted evidence (Q-31).
 _WEBHOOK_SECRET_LABEL: str = "7.2 webhook secret"  # noqa: S105 -- a label, not a credential
 
-# Sentinel strings used in injection_body_template substitution.
-# The test substitutes these strings at runtime in the body template.
-_BODY_SENTINEL_SSRF_URL: str = "$SSRF_URL$"
-_BODY_SENTINEL_RANDOM_SECRET: str = "$RANDOM_SECRET$"  # noqa: S105
+# Bytes of the value of {random_secret} (32 hexadecimal characters).
+_RANDOM_SECRET_BYTES: int = 16
 
 # HTTP status codes considered 'accepted' -- the webhook was created and
 # the URL was not validated.  A 201 is the normal success code; 200 would
@@ -194,9 +198,10 @@ class Test72SSRFPrevention(BaseTest):
     """
     Test 7.2 — The System Prevents Server-Side Request Forgery (SSRF).
 
-    Verifies that user-controlled URLs injected into Forgejo webhook creation
-    requests are validated against private IP ranges, cloud metadata endpoints,
-    obfuscated loopback addresses, and forbidden protocol schemes.
+    Verifies that user-controlled URLs sent to the configured injection
+    endpoint (e.g. Forgejo webhook creation) are validated against private IP
+    ranges, cloud metadata endpoints, obfuscated loopback addresses, and
+    forbidden protocol schemes.
     """
 
     test_id: ClassVar[str] = "7.2"
@@ -222,7 +227,7 @@ class Test72SSRFPrevention(BaseTest):
         store: EvidenceStore,
     ) -> TestResult:
         """
-        Probe Forgejo webhook creation with SSRF payloads and verify rejection.
+        Probe the configured injection endpoint with SSRF payloads and verify rejection.
 
         Execution sequence:
             1. Guard: GREY_BOX credentials must be present.
@@ -240,11 +245,24 @@ class Test72SSRFPrevention(BaseTest):
                               timed out with no successful acceptance.
             TestResult(FAIL)  if one or more SSRF URLs were accepted (2xx).
                               Each acceptance produces one Finding.
-            TestResult(SKIP)  if no Grey Box credentials are configured or the
-                              user_a token is unavailable.
+            TestResult(SKIP)  if no injection endpoint is configured, no Grey Box
+                              credentials are configured or the user_a token
+                              is unavailable.
             TestResult(ERROR) on unexpected infrastructure failure.
         """
         try:
+            cfg = target.tests_config.test_7_2
+            path_template = cfg.injection_path_template
+            body_template = cfg.injection_body_template
+            if path_template is None or body_template is None:
+                return self._make_skip(
+                    reason=(
+                        "No SSRF injection endpoint configured: set "
+                        "tests.domain_7.test_7_2.injection_path_template and "
+                        "injection_body_template to an endpoint of the target that accepts a URL."
+                    )
+                )
+
             guard = self._requires_credentials(target)
             if guard is not None:
                 return guard
@@ -259,7 +277,6 @@ class Test72SSRFPrevention(BaseTest):
                 return skip
 
             user_a_auth = auth_parts(target, context, ROLE_USER_A)
-            cfg = target.tests_config.test_7_2
 
             # Build active payload set from the enabled categories.
             active_payloads = self._build_active_payloads(cfg.payload_categories)
@@ -279,78 +296,20 @@ class Test72SSRFPrevention(BaseTest):
                 redirect_server_configured=bool(cfg.ssrf_redirect_server_url),
             )
 
-            # Resolve the injection endpoint path based on injection_mode.
-            #
-            # "forgejo_webhook": create a temporary repository and derive the
-            #     injection path from its owner/repo coordinates.  This mode is
-            #     Forgejo-specific and will SKIP on targets that do not expose a
-            #     Forgejo-compatible repository creation endpoint.
-            #
-            # "fixed_path": use injection_path_template verbatim as a static
-            #     endpoint path (no placeholder substitution).  This mode is
-            #     target-agnostic: it works on any API that accepts a user-controlled
-            #     URL in a POST body field.  Requires injection_path_template and
-            #     injection_body_template to be configured for the specific target.
-            if cfg.injection_mode == "forgejo_webhook":
-                try:
-                    repo_data = create_repository(
-                        target=target,
-                        context=context,
-                        client=client,
-                        role=ROLE_USER_A,
-                        description="APIGuard SSRF assessment -- webhook injection probe",
-                        private=True,
-                    )
-                except ForgejoResourceError as exc:
-                    # create_repository() raised a ForgejoResourceError, which
-                    # means the target does not expose a Forgejo-compatible
-                    # repository creation endpoint (HTTP 404 is the typical signal).
-                    # Rather than ERROR, return SKIP: this mode is intentionally
-                    # Forgejo-specific and is not applicable to non-Forgejo targets.
-                    # Operators targeting non-Forgejo APIs should set
-                    # injection_mode: fixed_path in config.yaml.
-                    log.warning(
-                        "test_7_2_forgejo_webhook_mode_not_applicable",
-                        detail=(
-                            "injection_mode='forgejo_webhook' requires a Forgejo-compatible "
-                            "repository creation endpoint (POST /api/v1/user/repos). "
-                            "The target returned an error, which indicates it is not a "
-                            "Forgejo instance. Set injection_mode: fixed_path in "
-                            "config.yaml tests.domain_7.test_7_2 and configure "
-                            "injection_path_template and injection_body_template for "
-                            "the target's SSRF-injectable endpoint."
-                        ),
-                        underlying_error=str(exc),
-                    )
-                    return self._make_skip(
-                        reason=(
-                            "GREY_BOX SSRF sub-test skipped: injection_mode='forgejo_webhook' "
-                            "is not applicable to this target. "
-                            "Configure injection_mode: fixed_path in config.yaml to enable "
-                            "SSRF testing on non-Forgejo targets."
-                        )
-                    )
-
-                owner_login: str = repo_data["owner"]["login"]
-                repo_name: str = repo_data["name"]
-                webhook_path: str = cfg.injection_path_template.format(
-                    owner=owner_login, repo=repo_name
+            # The injection endpoint: with injection_resource, the resource is
+            # created once for user A (its teardown registered) and its values
+            # fill the path and the body; without it, the path is used as written.
+            resource_values: dict[str, str] = {}
+            if cfg.injection_resource is not None:
+                prepared = create_resource(
+                    target, context, client, cfg.injection_resource, ROLE_USER_A, self.test_id
                 )
-
-            else:
-                # fixed_path mode: use injection_path_template verbatim.
-                # No repository creation is needed.  The operator is responsible
-                # for configuring injection_path_template and injection_body_template
-                # for the target's SSRF-injectable endpoint.
-                webhook_path = cfg.injection_path_template
-                log.info(
-                    "test_7_2_fixed_path_mode",
-                    injection_path=webhook_path,
-                )
+                resource_values = dict(prepared.values)
+            webhook_path = str(render(path_template, resource_values))
 
             log.info(
                 "test_7_2_injection_endpoint_resolved",
-                injection_mode=cfg.injection_mode,
+                injection_resource=cfg.injection_resource,
                 webhook_path=webhook_path,
             )
 
@@ -366,7 +325,8 @@ class Test72SSRFPrevention(BaseTest):
                 cfg_keywords=cfg.ssrf_block_response_keywords,
                 cfg_malformed_keywords=cfg.ssrf_malformed_url_keywords,
                 cfg_scheme_keywords=cfg.ssrf_unsupported_scheme_keywords,
-                cfg_body_template=dict(cfg.injection_body_template),
+                cfg_body_template=dict(body_template),
+                resource_values=resource_values,
                 client=client,
                 store=store,
                 context=context,
@@ -380,7 +340,8 @@ class Test72SSRFPrevention(BaseTest):
                 cfg_keywords=cfg.ssrf_block_response_keywords,
                 cfg_malformed_keywords=cfg.ssrf_malformed_url_keywords,
                 cfg_scheme_keywords=cfg.ssrf_unsupported_scheme_keywords,
-                body_template=dict(cfg.injection_body_template),
+                body_template=dict(body_template),
+                resource_values=resource_values,
                 client=client,
                 store=store,
                 context=context,
@@ -474,6 +435,7 @@ class Test72SSRFPrevention(BaseTest):
         cfg_malformed_keywords: Sequence[str],
         cfg_scheme_keywords: Sequence[str],
         cfg_body_template: dict[str, object],
+        resource_values: dict[str, str],
         client: SecurityClient,
         store: EvidenceStore,
         context: TestContext,
@@ -498,8 +460,8 @@ class Test72SSRFPrevention(BaseTest):
                                    injected URL's scheme directly when response
                                    bodies are not discriminant (e.g. Forgejo).
             cfg_body_template:     Operator-configured request body template.
-                                   Passed to _build_webhook_body for sentinel
-                                   substitution on each probe.
+                                   Filled by _build_webhook_body on each probe.
+            resource_values:       Values of injection_resource ({} without it).
             client:                Centralized HTTP client.
             store:                 Evidence store for FAIL transactions.
 
@@ -522,6 +484,7 @@ class Test72SSRFPrevention(BaseTest):
             webhook_body = self._build_webhook_body(
                 ssrf_url=entry.url,
                 body_template=cfg_body_template,
+                resource_values=resource_values,
                 context=context,
             )
 
@@ -564,32 +527,28 @@ class Test72SSRFPrevention(BaseTest):
                 continue
 
             if response.status_code in _ACCEPTED_STATUS_CODES:
-                # Webhook was accepted: the URL was not validated.
-                # This is a direct SSRF risk -- on any push event, Forgejo
-                # will attempt an outbound HTTP request to entry.url.
+                # The URL was accepted without validation: when the
+                # application uses it (e.g. a webhook firing), it will attempt
+                # an outbound HTTP request to entry.url.
                 store.add_fail_evidence(record)
                 self._log_transaction(record, oracle_state=_STATE_SSRF_ALLOWED, is_fail=True)
                 findings.append(
                     Finding(
                         title=(
-                            f"SSRF URL Accepted by Webhook Validation: "
+                            f"SSRF URL Accepted by the Injection Endpoint: "
                             f"{entry.category} / {entry.description}"
                         ),
                         detail=(
                             f"POST {webhook_path} with SSRF URL '{entry.url}' "
                             f"({entry.description}, category: {entry.category}) "
                             f"returned HTTP {response.status_code}. "
-                            f"The webhook was registered with active=false for "
-                            f"assessment safety (no outbound connection is "
-                            f"attempted at creation time); however, the URL was "
-                            f"accepted into persistent storage without validation. "
-                            f"Activating the webhook, or any future push event if "
-                            f"active=true is set, would cause Forgejo to issue an "
-                            f"outbound HTTP request to '{entry.url}', potentially "
+                            f"The URL was accepted without validation. When the "
+                            f"application uses it (for example a webhook firing), "
+                            f"it would issue an outbound HTTP request to "
+                            f"'{entry.url}', potentially "
                             f"exposing cloud credentials (IMDS), internal service "
                             f"data, or enabling internal network enumeration. "
-                            f"Expected: 4xx rejection at URL validation time, "
-                            f"regardless of the active flag."
+                            f"Expected: 4xx rejection at URL validation time."
                         ),
                         references=list(_REFERENCES),
                         evidence_ref=record.record_id,
@@ -639,6 +598,7 @@ class Test72SSRFPrevention(BaseTest):
         cfg_malformed_keywords: Sequence[str],
         cfg_scheme_keywords: Sequence[str],
         body_template: dict[str, object],
+        resource_values: dict[str, str],
         client: SecurityClient,
         store: EvidenceStore,
         context: TestContext,
@@ -661,6 +621,7 @@ class Test72SSRFPrevention(BaseTest):
             cfg_malformed_keywords: URL-parser-error keywords; checked first.
             cfg_scheme_keywords:   Unsupported-scheme keywords; checked second.
             body_template:         Operator-configured request body template.
+            resource_values:       Values of injection_resource ({} without it).
             client:                Centralized HTTP client.
             store:                 Evidence store for FAIL transactions.
             findings:              Mutable list; findings are appended in-place.
@@ -684,6 +645,7 @@ class Test72SSRFPrevention(BaseTest):
         webhook_body = self._build_webhook_body(
             ssrf_url=redirect_server_url,
             body_template=body_template,
+            resource_values=resource_values,
             context=context,
         )
 
@@ -760,71 +722,41 @@ class Test72SSRFPrevention(BaseTest):
     def _build_webhook_body(
         ssrf_url: str,
         body_template: dict[str, object],
+        resource_values: dict[str, str],
         context: TestContext,
     ) -> dict[str, object]:
         """
         Construct the injection request body from the operator-configured template.
 
-        The template is deep-copied and all sentinel string values are substituted:
-            $SSRF_URL$      -> ssrf_url (the payload URL to inject)
-            $RANDOM_SECRET$ -> secrets.token_hex(16) (fresh per call)
-
-        Substitution is performed recursively on every string value in the
-        template, regardless of nesting depth.  Non-string values (int, bool,
-        list, dict) are preserved unchanged.
+        Fills every placeholder (src/core/templating.py) at any depth:
+            {ssrf_url}        -> ssrf_url (the payload URL to inject)
+            {random_secret}   -> secrets.token_hex(16), fresh per call
+            resource values   -> the values of injection_resource
+        Non-string values are preserved. The configuration schema checked the
+        names at startup.
 
         Args:
-            ssrf_url:      The SSRF candidate URL to inject.
-            body_template: Operator-configured body template from
-                           cfg.injection_body_template.  Must contain
-                           '$SSRF_URL$' at least once.
-            context:       The run's TestContext: the generated secret is
-                           registered there, so it is redacted in the evidence.
+            ssrf_url:        The SSRF candidate URL to inject.
+            body_template:   cfg.injection_body_template.
+            resource_values: Values of injection_resource ({} without it).
+            context:         The run's TestContext: the generated secret is
+                             registered there, so it is redacted in the evidence.
 
         Returns:
             Dict suitable for passing as the json= argument to client.request().
         """
-        random_secret: str = secrets.token_hex(16)
+        random_secret: str = secrets.token_hex(_RANDOM_SECRET_BYTES)
         context.register_secret(random_secret, _WEBHOOK_SECRET_LABEL)
-        return Test72SSRFPrevention._substitute_sentinels(body_template, ssrf_url, random_secret)
-
-    @staticmethod
-    def _substitute_sentinels(
-        node: object,
-        ssrf_url: str,
-        random_secret: str,
-    ) -> dict[str, object]:
-        """
-        Recursively substitute sentinel strings in a nested dict/list structure.
-
-        Traverses the node tree depth-first.  At each string leaf, replaces:
-            _BODY_SENTINEL_SSRF_URL      -> ssrf_url
-            _BODY_SENTINEL_RANDOM_SECRET -> random_secret
-
-        Args:
-            node:          Current node (dict, list, or scalar).
-            ssrf_url:      The SSRF candidate URL.
-            random_secret: Fresh random hex string for $RANDOM_SECRET$.
-
-        Returns:
-            New structure with all sentinels substituted.  The input is not
-            mutated.
-        """
-        if isinstance(node, dict):
-            return {
-                k: Test72SSRFPrevention._substitute_sentinels(v, ssrf_url, random_secret)
-                for k, v in node.items()
-            }
-        if isinstance(node, list):
-            return [  # type: ignore[return-value]
-                Test72SSRFPrevention._substitute_sentinels(item, ssrf_url, random_secret)
-                for item in node
-            ]
-        if isinstance(node, str):
-            result = node.replace(_BODY_SENTINEL_SSRF_URL, ssrf_url)
-            result = result.replace(_BODY_SENTINEL_RANDOM_SECRET, random_secret)
-            return result  # type: ignore[return-value]
-        return node  # type: ignore[return-value]
+        body = render(
+            body_template,
+            {
+                **resource_values,
+                TEST_72_PLACEHOLDER_SSRF_URL: ssrf_url,
+                TEST_72_PLACEHOLDER_RANDOM_SECRET: random_secret,
+            },
+        )
+        assert isinstance(body, dict)  # noqa: S101 -- render keeps the structure (mypy narrowing)
+        return body
 
     @staticmethod
     def _classify_blocked_state(

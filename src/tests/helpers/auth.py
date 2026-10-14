@@ -18,9 +18,10 @@ Functions for the tests:
         merge them into the request instead of writing 'Bearer' by hand.
     credential_parts(target, credential)
         The same for a credential that is not stored for a role (the
-        temporary token of test 1.4).
+        temporary credential of test 1.4).
     revocation_capability(target)
-        The configured method when it can revoke a credential, else None.
+        The configured method when it can revoke a credential as configured
+        (login: its resource has a delete request), else None.
 
 Adding a method: a class implementing AuthMethod (auth_base.py), an AuthType
 value (src/core/models/runtime.py, with its checks in validate_credentials)
@@ -39,8 +40,7 @@ from src.core.context import TargetContext, TestContext
 from src.core.exceptions import AuthenticationSetupError
 from src.core.models import AuthType
 from src.tests.helpers.auth_base import ROLE_CREDENTIAL_FIELDS, AuthMethod, RevocableAuthMethod
-from src.tests.helpers.auth_forgejo import ForgejoTokenAuthMethod
-from src.tests.helpers.auth_json_login import JsonLoginAuthMethod
+from src.tests.helpers.auth_login import LoginAuthMethod
 from src.tests.helpers.auth_static import BasicAuthMethod, StaticTokenAuthMethod
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -51,8 +51,7 @@ AUTH_METHODS: dict[AuthType, AuthMethod] = {
     for method in (
         BasicAuthMethod(),
         StaticTokenAuthMethod(),
-        JsonLoginAuthMethod(),
-        ForgejoTokenAuthMethod(),
+        LoginAuthMethod(),
     )
 }
 
@@ -171,4 +170,6 @@ def revocation_capability(target: TargetContext) -> RevocableAuthMethod | None:
     if auth_type is None:
         return None
     method = AUTH_METHODS[auth_type]
-    return method if isinstance(method, RevocableAuthMethod) else None
+    if isinstance(method, RevocableAuthMethod) and method.can_revoke(target):
+        return method
+    return None

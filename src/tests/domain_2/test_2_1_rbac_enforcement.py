@@ -137,10 +137,19 @@ class Test21RbacEnforcement(BaseTest):
 
         Returns:
             TestResult: PASS if all endpoints return 403/404; FAIL if any
-            returns 2xx; SKIP if credentials are missing; ERROR on unexpected
+            returns 2xx; SKIP if no admin path or no credentials is configured; ERROR on unexpected
             exception.
         """
         try:
+            if not target.tests_config.test_2_1.admin_endpoint_paths:
+                return self._make_skip(
+                    reason=(
+                        "No admin endpoint configured: set "
+                        "tests.domain_2.test_2_1.admin_endpoint_paths to the admin-only "
+                        "paths of the target."
+                    )
+                )
+
             guard = self._requires_credentials(target)
             if guard is not None:
                 return guard

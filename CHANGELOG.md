@@ -35,6 +35,10 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 - `target.admin_api_headers`: headers sent on every read of the gateway's Admin API (e.g. an APISIX key or a Kong
   Enterprise RBAC token), for a gateway that protects it; the values are registered as secrets and masked in logs
   and reports (Q-34).
+- `config.example.yaml` in the repository root: every configuration key with its description and default, neutral
+  values; included in the source archive. `hatch run dev:check` runs `scripts/check_config_keys.py`, which fails
+  when a key of the schema is missing from it or it has a key the schema does not know (alternatives that cannot
+  be active together are listed commented out).
 - Apache APISIX gateway adapter, `target.gateway_adapter: apisix` (tested with APISIX 3.19.0 and etcd): the
   configuration audits (3.3, 4.2, 4.3, 6.4 sub-test B) read the APISIX Admin API (a key of role `viewer`, GET only,
   is enough) and fill the fields left out with the defaults of the running APISIX (its plugin and upstream schemas),
@@ -81,8 +85,10 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 - **Breaking:** authentication is configured in two parts (block 7+8 phase C, `docs/project/auth-survey.md`).
   `credentials.auth_type` has no default and is required when an account or a token is configured (it was
   `forgejo_token` by default); values `basic` (new, HTTP Basic), `static_token` (new, `admin_token` /
-  `user_a_token` / `user_b_token`), `json_login` (renamed from `jwt_login`, which is now rejected with a message
-  naming the new value), `forgejo_token`. How the credential is sent comes from the security schemes the
+  `user_a_token` / `user_b_token`), `login` (new, replaces `forgejo_token` and `jwt_login`: the request that logs
+  in is a prepared resource named in `credentials.login_resource`, see the next entry). `forgejo_token`, `jwt_login`
+  and the `jwt_login` keys `login_endpoint`, `username_body_field`, `password_body_field`, `token_response_path`
+  are rejected with a message showing the `login` form. How the credential is sent comes from the security schemes the
   specification declares: one scheme is used as is, several need `credentials.security_scheme`, none needs
   `credentials.send_as` (`in`, `name`, `prefix`); `send_as.prefix` also completes a declared `apiKey` scheme whose
   prefix is described only in words (Forgejo: `security_scheme: AuthorizationHeaderToken`, `send_as: {prefix:
@@ -90,11 +96,40 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
   `validate-config` checks it too, reading the specification only when credentials are configured, and prints
   where the credentials are sent. Each method accepts only its own kind of credential (tokens or username and
   password). Passwords and configured tokens are registered as secrets.
+- **Breaking:** prepared resources (block 7+8 phase E, `docs/project/resources-design.md`): what the tool creates on
+  the target and how it logs in are configuration, in the new top-level section `resources` (a create request,
+  values read from its JSON response, an optional delete request sent at teardown; placeholders `{username}`,
+  `{password}`, `{random}` and the values, checked at startup). The last Forgejo code is gone
+  (`src/tests/helpers/auth_forgejo.py`, `auth_json_login.py`, `forgejo_resources.py`); the Forgejo labs declare the
+  resources `forgejo-token` (login) and `repository` (7.2), crAPI `crapi-login`. Test 7.2: `injection_resource`
+  names a resource created for `user_a` whose values fill the path and the body; `injection_mode` and
+  `injection_url_field` are removed (rejected with the new form); the body placeholders `$SSRF_URL$` and
+  `$RANDOM_SECRET$` are now `{ssrf_url}` and `{random_secret}`. Test 1.4: the temporary credential comes from the
+  login resource and is revoked by its delete request; `verify_request` (method and path, no default: SKIP) replaces
+  the `/api/v1/user` path written in the test; `token_name` is removed (rejected). `validate-config` shows the login
+  resource and who uses each resource. `config.example.yaml` documents every field of a resource, checked by
+  `scripts/check_config_keys.py`.
+- **Breaking:** tests 2.1 and 7.2 have no Forgejo defaults (block 7+8 phase D). 2.1 `admin_endpoint_paths` is empty
+  by default (was `/api/v1/admin/users`); 7.2 `injection_path_template` and `injection_body_template` are unset by
+  default (were the Forgejo webhook ones). Unconfigured, the tests return SKIP naming the keys to set; a path without
+  a body, or a body without `{ssrf_url}` exactly once, stops the run at startup. The Forgejo labs set the previous
+  values explicitly.
+- **Changed results**, 2.1 and 7.2 without configuration (block 7+8 phase D): SKIP instead of probing Forgejo paths;
+  on crAPI 2.1 PASS -> SKIP (the PASS came from a `404` on the Forgejo path, which crAPI does not have).
 - **Changed results**, authentication (block 7+8 phase C): the tests send the credential as the specification
   declares instead of always `Authorization: Bearer`: on Forgejo `Authorization: token <value>` (results
-  unchanged). Test 1.4 uses the revocation capability of the authentication method, which only `forgejo_token`
-  has: with any other method it returns SKIP "Not applicable: the authentication method '<auth_type>' cannot revoke
-  a credential." (crAPI: was ERROR). The SKIP reason for missing credentials no longer mentions Forgejo.
+  unchanged). Test 1.4 uses the revocation capability of the authentication method (`login` with a login resource
+  that has a delete request): otherwise it returns SKIP "Not applicable: the authentication method '<auth_type>'
+  cannot revoke a credential ..." (crAPI: was ERROR). The SKIP reason for missing credentials no longer mentions
+  Forgejo.
+- **Changed results**, prepared resources (block 7+8 phase E): the three labs give the same results. Test 7.2 returns
+  ERROR, naming the resource, the request and the status, when its `injection_resource` cannot be created (was SKIP
+  "not applicable" for the Forgejo mode). The temporary token of 1.4 has the scopes of the login token (it was
+  `read:user` only), and the cleanup of a token left with the fixed name by an interrupted run is gone (names are
+  random). Report texts of 4.3 (circuit breaker notes and finding), 6.4 (configuration audit notes) and 7.2 (accepted
+  URL finding) no longer name Kong or Forgejo as the only gateway or application.
+- The Forgejo + Kong lab configuration holds only the lab's values, like the other labs (774 -> 175 lines); the
+  complete reference is `config.example.yaml`. Its effective configuration is identical (all values compared).
 - Config key suggestions use the names written in `config.yaml` (e.g. `credentials.send_as.inn` suggests `in`).
 - **Changed results**, gateway audits (block 7+8): tests 4.2, 4.3, 3.3 and 6.4 (sub-test B) read the gateway
   through neutral concepts.

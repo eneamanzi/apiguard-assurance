@@ -599,12 +599,12 @@ class Test43CircuitBreakerAudit(BaseTest):
         """
         Build a Finding for a recognised CB plugin that is registered but disabled.
 
-        A disabled plugin is functionally equivalent to an absent one: Kong
-        skips disabled plugins during request processing, so the circuit-breaker
-        state machine is inactive.
+        A disabled plugin is functionally equivalent to an absent one: the
+        gateway skips disabled plugins during request processing, so the
+        circuit-breaker state machine is inactive.
 
         Args:
-            plugin_name:  The breaker's source (plugin name and id on Kong).
+            plugin_name:  The breaker's source (on Kong: plugin name and id).
             evidence_ref: Evidence record of the concept read.
 
         Returns:
@@ -613,8 +613,8 @@ class Test43CircuitBreakerAudit(BaseTest):
         return Finding(
             title=f"CB Plugin '{plugin_name}' Registered but Disabled",
             detail=(
-                f"Plugin '{plugin_name}' is in the Kong plugin registry but its "
-                "'enabled' field is false. Kong does not evaluate disabled plugins "
+                f"Plugin '{plugin_name}' is configured on the gateway but disabled. "
+                "The gateway does not evaluate disabled plugins "
                 "during request processing: circuit-breaker protection is inactive. "
                 "This is functionally identical to the plugin being absent -- "
                 "downstream service failures will not trigger the CB state machine. "
@@ -830,7 +830,7 @@ class Test43CircuitBreakerAudit(BaseTest):
             "Despite these limitations, passive healthchecks reduce cascading failure "
             "risk by eventually ejecting persistently failing backends. This is an "
             "accepted compensating control under OWASP ASVS V16.5.2 when a native "
-            "CB plugin is unavailable (Kong OSS architectural constraint).",
+            "CB plugin is unavailable or not enabled.",
         ]
 
         if gap_lines:
@@ -850,8 +850,8 @@ class Test43CircuitBreakerAudit(BaseTest):
         detail_parts += [
             "",
             "Recommended remediation (eliminates the gap entirely):",
-            "  1. Upgrade to Kong Gateway Enterprise and enable the native "
-            "'circuit-breaker' plugin.",
+            "  1. Enable a circuit-breaker plugin where the gateway has one (e.g. "
+            "'api-breaker' on APISIX).",
             "  2. Implement CB at the service mesh layer (e.g., Istio "
             "DestinationRule.trafficPolicy.outlierDetection).",
         ]
@@ -893,12 +893,13 @@ class Test43CircuitBreakerAudit(BaseTest):
             title="Level 3 (Vulnerable): No Circuit-Breaker Protection Detected",
             detail=(
                 "The Dual-Check a 3 Livelli found no cascading-failure protection "
-                "on this Kong gateway.\n\n"
-                f"Level 1 result: none of the accepted CB plugin names ({names_quoted}) "
-                "are registered and enabled in the Kong plugin registry.\n\n"
+                "on this gateway.\n\n"
+                "Level 1 result: the gateway reports no enabled circuit-breaker plugin "
+                f"(Kong adapter: the names in accepted_cb_plugin_names, {names_quoted}; "
+                "APISIX adapter: 'api-breaker').\n\n"
                 f"Level 2 result: {upstream_count} upstream(s) inspected; none have "
                 "a passive healthcheck with at least one failure counter > 0 "
-                "(Kong default is 0 for all counters = passive HC disabled).\n\n"
+                "(a counter of 0 disables it).\n\n"
                 "Impact: without a circuit breaker or compensating control, a single "
                 "failing downstream service causes every request to block until "
                 "read_timeout expires. At 100 rps with a 30 s read_timeout, 3 000 "
@@ -906,15 +907,16 @@ class Test43CircuitBreakerAudit(BaseTest):
                 "producing a full gateway outage from one dependency failure "
                 "(cascading failure / thundering-herd pattern).\n\n"
                 "Remediation options (in order of protection strength):\n"
-                "  1. Kong Enterprise: enable the native 'circuit-breaker' plugin.\n"
-                "  2. Kong OSS: configure passive healthchecks on ALL upstreams -- "
+                "  1. Enable a circuit-breaker plugin where the gateway has one (e.g. "
+                "'api-breaker' on APISIX).\n"
+                "  2. Configure passive healthchecks on ALL upstreams -- "
                 "set unhealthy.http_failures, unhealthy.tcp_failures, and "
                 "unhealthy.timeouts to non-zero values (e.g., 5, 5, 3).\n"
                 "  3. Service mesh layer: Istio DestinationRule with "
                 "trafficPolicy.outlierDetection (consecutive5xxErrors, interval, "
                 "baseEjectionTime).\n"
-                "  4. Custom Lua plugin implementing the CB state machine: add its "
-                "name to accepted_cb_plugin_names in config.yaml."
+                "  4. A custom plugin implementing the CB state machine (Kong: add its "
+                "name to accepted_cb_plugin_names in config.yaml)."
             ),
             references=_REFERENCES_CB,
             evidence_ref=evidence_ref,

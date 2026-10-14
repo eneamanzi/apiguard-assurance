@@ -60,7 +60,7 @@ about security behaviour. Until then a change is verified by hand against the la
 | You changed | Update |
 |---|---|
 | a test's behaviour | its page in [`docs/tests/`](docs/tests/README.md) and the catalogue row |
-| a configuration parameter | [`docs/reference/configuration.md`](docs/reference/configuration.md) and the commented lab configuration (`test-environments/forgejo-kong/config.yaml`) |
+| a configuration parameter | [`docs/reference/configuration.md`](docs/reference/configuration.md) and `config.example.yaml` (checked by `hatch run dev:check`: every key must be listed) |
 | the report or evidence format | [`report-schema.md`](docs/reference/report-schema.md), [`evidence-format.md`](docs/reference/evidence-format.md) |
 | the lab | [`first-assessment.md`](docs/getting-started/first-assessment.md) (commands and expected output) |
 | what is implemented | [`docs/project/roadmap.md`](docs/project/roadmap.md) and [`CHANGELOG.md`](CHANGELOG.md) |

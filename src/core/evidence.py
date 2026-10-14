@@ -168,7 +168,7 @@ _SANITIZE_JWT_PATTERN: re.Pattern[str] = re.compile(
 # Case-sensitive note: Python str.startswith() is case-sensitive.
 # "Token " (title-case) covers the RFC 6750 non-standard variant used by some
 # API clients. "token " (lowercase) covers the Forgejo/Gitea native format
-# produced by _bearer_headers() in tests/helpers/forgejo_resources.py.
+# ('Authorization: token <value>', the placement of the Forgejo labs).
 # Both must be present to guarantee redaction of Forgejo tokens in artifacts.
 _SANITIZE_HEADER_PREFIXES: tuple[str, ...] = ("Bearer ", "Basic ", "Token ", "token ")
 

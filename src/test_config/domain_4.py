@@ -47,7 +47,8 @@ TEST_41_INTERVAL_MS_MAX: int = 5_000
 # ---------------------------------------------------------------------------
 
 # Oracle thresholds from methodology section 4.2 (NIST SP 800-204A Section 4.3).
-# Kong stores all timeout values as plain integers in milliseconds.
+# Thresholds in milliseconds; test 4.2 converts the backend timeouts the adapter
+# reads (seconds).
 TEST_42_MAX_CONNECT_TIMEOUT_MS_DEFAULT: int = 5_000
 TEST_42_MAX_READ_TIMEOUT_MS_DEFAULT: int = 30_000
 TEST_42_MAX_WRITE_TIMEOUT_MS_DEFAULT: int = 30_000
@@ -134,7 +135,8 @@ class Test42AuditConfig(BaseModel):
         read_timeout     <= 30 000 ms (30 s)
         write_timeout    <= 30 000 ms (30 s)
 
-    Kong stores all timeout values in milliseconds as plain integers.
+    Thresholds in milliseconds; the backend timeouts the adapter reads are in
+    seconds and test 4.2 converts them.
     Adjust these only when the target gateway is intentionally configured
     with different timeouts and the deviation is accepted as a documented risk.
     """
@@ -144,7 +146,7 @@ class Test42AuditConfig(BaseModel):
     max_connect_timeout_ms: Annotated[int, Field(ge=1)] = Field(
         default=TEST_42_MAX_CONNECT_TIMEOUT_MS_DEFAULT,
         description=(
-            "Maximum acceptable Kong service connect_timeout in milliseconds. "
+            "Maximum acceptable backend connect timeout of a gateway service, in milliseconds. "
             "Methodology oracle: connect_timeout <= 5 000 ms (NIST SP 800-204A Section 4.3). "
             "Services with a higher value will produce a FAIL finding."
         ),
@@ -152,7 +154,7 @@ class Test42AuditConfig(BaseModel):
     max_read_timeout_ms: Annotated[int, Field(ge=1)] = Field(
         default=TEST_42_MAX_READ_TIMEOUT_MS_DEFAULT,
         description=(
-            "Maximum acceptable Kong service read_timeout in milliseconds. "
+            "Maximum acceptable backend read timeout of a gateway service, in milliseconds. "
             "Methodology oracle: read_timeout <= 30 000 ms (NIST SP 800-204A Section 4.3). "
             "Services with a higher value will produce a FAIL finding."
         ),
@@ -160,7 +162,8 @@ class Test42AuditConfig(BaseModel):
     max_write_timeout_ms: Annotated[int, Field(ge=1)] = Field(
         default=TEST_42_MAX_WRITE_TIMEOUT_MS_DEFAULT,
         description=(
-            "Maximum acceptable Kong service write_timeout in milliseconds. "
+            "Maximum acceptable backend write (send) timeout of a gateway service, "
+            "in milliseconds. "
             "Methodology oracle: write_timeout <= 30 000 ms. "
             "Services with a higher value will produce a FAIL finding."
         ),
@@ -218,9 +221,10 @@ class Test43AuditConfig(BaseModel):
     accepted_cb_plugin_names: tuple[str, ...] = Field(
         default_factory=lambda: ("circuit-breaker",),
         description=(
-            "Kong plugin names accepted as native circuit-breaker equivalents. "
-            "Evaluated in order; the first enabled match is used for parameter "
-            "validation. 'circuit-breaker' is Kong Enterprise only. "
+            "Plugin names accepted as circuit breakers by the Kong adapter (the APISIX "
+            "adapter reads its own 'api-breaker'). Evaluated in order; the first enabled "
+            "match is used for parameter validation. Kong documents no plugin of this name "
+            "(its circuit breakers are passive health checks; default to review, Q-29). "
             "Do NOT add 'response-ratelimiting': it manages request volumes, not "
             "cascading failures, and does not implement the CB state machine. "
             "Extend this list only when a true custom or third-party CB plugin "
@@ -267,16 +271,16 @@ class Test43AuditConfig(BaseModel):
     passive_hc_max_http_failures: Annotated[int, Field(ge=1)] = Field(
         default=TEST_43_PASSIVE_HC_MAX_HTTP_FAILURES_DEFAULT,
         description=(
-            "Maximum acceptable value for unhealthy.http_failures in a Kong upstream "
+            "Maximum acceptable value for unhealthy.http_failures in an upstream's "
             "passive healthcheck. A passive HC is considered active when this counter "
-            "is > 0 (Kong default is 0 = disabled). Acceptable range: [1, this value]. "
+            "is > 0 (0 disables it). Acceptable range: [1, this value]. "
             "Values above the maximum indicate an overly permissive threshold."
         ),
     )
     passive_hc_max_tcp_failures: Annotated[int, Field(ge=1)] = Field(
         default=TEST_43_PASSIVE_HC_MAX_TCP_FAILURES_DEFAULT,
         description=(
-            "Maximum acceptable value for unhealthy.tcp_failures in a Kong upstream "
+            "Maximum acceptable value for unhealthy.tcp_failures in an upstream's "
             "passive healthcheck. Same semantics as passive_hc_max_http_failures "
             "but for TCP-level connection failures."
         ),
@@ -284,7 +288,7 @@ class Test43AuditConfig(BaseModel):
     passive_hc_max_timeouts: Annotated[int, Field(ge=1)] = Field(
         default=TEST_43_PASSIVE_HC_MAX_TIMEOUTS_DEFAULT,
         description=(
-            "Maximum acceptable value for unhealthy.timeouts in a Kong upstream "
+            "Maximum acceptable value for unhealthy.timeouts in an upstream's "
             "passive healthcheck. Same semantics as passive_hc_max_http_failures "
             "but for upstream response timeouts."
         ),

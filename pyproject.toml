@@ -212,8 +212,9 @@ include = [
     # Build + dependency declaration
     "pyproject.toml",
 
-    # Env example (the lab configurations live in test-environments/, excluded below; a
-    # configuration template for integrators is planned, see docs/project/plan.md)
+    # Complete configuration example (every key, neutral values) and env example; the lab
+    # configurations live in test-environments/, excluded below
+    "config.example.yaml",
     ".env.example",
 
     # External-tool installer (helper for first-time setup)
@@ -320,6 +321,7 @@ check = [
     "bandit -r src/ -c pyproject.toml --severity-level medium",
     "vulture src/ --min-confidence 80",
     "lint-imports",
+    "python scripts/check_config_keys.py",
 ]
 deps = [
     "echo '--- PIP-AUDIT ---' && pip-audit --desc on",

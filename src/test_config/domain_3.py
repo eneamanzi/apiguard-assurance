@@ -119,6 +119,7 @@ class Test33Config(BaseModel):
             "Ordered list of gateway plugin names that implement HMAC request "
             "authentication.  The test iterates the Admin API plugin list and "
             "returns the first plugin whose name appears in this list. "
+            "Read by the Kong adapter only (the APISIX adapter reads its own hmac-auth). "
             "Kong OSS default: ['hmac-auth']. "
             "Override for gateways or custom plugins that use a different name "
             "(e.g. ['hmac-authentication', 'request-signer']). "
@@ -130,7 +131,8 @@ class Test33Config(BaseModel):
         default=TEST_33_FIELD_CLOCK_SKEW_DEFAULT,
         description=(
             "JSON field name in the HMAC plugin's 'config' object that controls "
-            "the replay-attack time window.  Kong hmac-auth default: 'clock_skew'. "
+            "the replay-attack time window (Kong adapter only).  Kong hmac-auth default: "
+            "'clock_skew'. "
             "Override when the gateway plugin uses a different field name "
             "(e.g. 'timestamp_tolerance', 'replay_window_seconds')."
         ),
@@ -140,7 +142,7 @@ class Test33Config(BaseModel):
         default=TEST_33_FIELD_ALGORITHMS_DEFAULT,
         description=(
             "JSON field name in the HMAC plugin's 'config' object that lists the "
-            "allowed HMAC algorithms.  Kong hmac-auth default: 'algorithms'. "
+            "allowed HMAC algorithms (Kong adapter only).  Kong hmac-auth default: 'algorithms'. "
             "Override when the gateway uses a different field name "
             "(e.g. 'allowed_algorithms', 'hmac_algorithms')."
         ),
@@ -151,7 +153,7 @@ class Test33Config(BaseModel):
         description=(
             "JSON field name in the HMAC plugin's 'config' object that controls "
             "whether the request body is covered by the HMAC signature. "
-            "Kong hmac-auth default: 'validate_request_body'. "
+            "Kong adapter only; Kong hmac-auth default: 'validate_request_body'. "
             "Override when the gateway uses a different field name "
             "(e.g. 'body_integrity', 'sign_body')."
         ),
@@ -162,7 +164,7 @@ class Test33Config(BaseModel):
         description=(
             "Integer sentinel value that the gateway uses in the clock_skew field "
             "to signal 'no limit configured' (unlimited replay window). "
-            "Kong hmac-auth default: 0.  When the field equals this sentinel, "
+            "Kong adapter only; Kong hmac-auth default: 0.  When the field equals this sentinel, "
             "the test raises a Finding regardless of max_clock_skew_seconds because "
             "replay protection is effectively disabled."
         ),

@@ -239,6 +239,28 @@ def check_credentials(config: ToolConfig) -> CredentialPlacement | None:
     return resolve_placement(config.credentials, surface.security_schemes)
 
 
+def describe_resources(config: ToolConfig) -> str:
+    """
+    Describe the prepared resources and who uses them, for validate-config.
+
+    Args:
+        config: The validated configuration.
+
+    Returns:
+        E.g. "repository (tests.domain_7.test_7_2), forgejo-token (credentials,
+        login)"; a resource nobody uses is marked "(not used)".
+    """
+    users: dict[str, list[str]] = {name: [] for name in config.resources}
+    if config.credentials.login_resource in users:
+        users[config.credentials.login_resource].append("credentials, login")
+    injection = config.tests.domain_7.test_7_2.injection_resource
+    if injection in users:
+        users[injection].append("tests.domain_7.test_7_2")
+    return ", ".join(
+        f"{name} ({'; '.join(used) if used else 'not used'})" for name, used in users.items()
+    )
+
+
 # ---------------------------------------------------------------------------
 # Run observer (progress for an interface such as the console)
 # ---------------------------------------------------------------------------
@@ -660,6 +682,7 @@ class AssessmentEngine:
             admin_read_timeout_seconds=config.target.admin_read_timeout_seconds,
             attack_surface=attack_surface,
             credentials=config.credentials,
+            resources=dict(config.resources),
             credential_placement=credential_placement,
             tests_config=tests_config,
             path_seed=dict(config.target.path_seed),

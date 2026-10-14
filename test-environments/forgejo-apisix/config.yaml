@@ -8,8 +8,8 @@
 #
 # The API, its users and test resources are those of the Forgejo + Kong lab, and so are the settings
 # below that are not about the gateway (test-environments/forgejo-kong/config.yaml), so that the
-# results of the two labs can be compared. Every other key keeps its default (all keys:
-# docs/reference/configuration.md).
+# results of the two labs can be compared. Every other key keeps its default (all keys, with
+# their description: config.example.yaml in the repository root).
 
 target:
   base_url: "https://localhost:10443"
@@ -72,9 +72,10 @@ target:
   }
 
 credentials:
-  # Forgejo token API: the tool creates a token per account (Basic Auth on
-  # POST /api/v1/users/{username}/tokens) and deletes it at the end of the run.
-  auth_type: forgejo_token
+  # Login with the resource forgejo-token below: the tool creates a Forgejo API token per
+  # account and deletes it at the end of the run.
+  auth_type: login
+  login_resource: forgejo-token
   # Forgejo declares several schemes; tokens go in "Authorization: token <value>"
   # (AuthorizationHeaderToken; the "token " prefix is described only in words).
   security_scheme: AuthorizationHeaderToken
@@ -86,6 +87,38 @@ credentials:
   user_a_password: "${USER_A_PASSWORD}"
   user_b_username: "${USER_B_USERNAME}"
   user_b_password: "${USER_B_PASSWORD}"
+
+# What the tool creates on Forgejo and deletes at the end of the run.
+resources:
+  # Login of every account (credentials.login_resource): a Forgejo API token created with
+  # Basic Auth, deleted at the end of the run; test 1.4 revokes one by deleting it.
+  forgejo-token:
+    create:
+      path: "/api/v1/users/{username}/tokens"
+      auth: basic
+      body:
+        name: "apiguard-{random}"
+        scopes: ["read:repository", "read:user", "write:repository", "write:user"]
+    values:
+      credential: sha1
+      id: id
+    delete:
+      path: "/api/v1/users/{username}/tokens/{id}"
+      auth: basic
+  # Repository for test 7.2's webhooks, created as user A; its webhooks go with it.
+  repository:
+    create:
+      path: /api/v1/user/repos
+      body:
+        name: "apiguard-repo-{random}"
+        description: "APIGuard SSRF assessment -- webhook injection probe"
+        private: true
+        auto_init: true
+    values:
+      owner: owner.login
+      repo: name
+    delete:
+      path: "/api/v1/repos/{owner}/{repo}"
 
 execution:
   min_priority: 3
@@ -117,9 +150,20 @@ tests:
         - "envoy"
         - "apisix"
   domain_1:
+    test_1_4:
+      # Sent with the revoked token: Forgejo's profile of the authenticated user.
+      verify_request:
+        method: GET
+        path: /api/v1/user
     test_1_5:
       # The lab's HTTP listener (APISIX, host port 10000) redirects to HTTPS.
       http_probe_url: "http://localhost:10000/api/v1/version"
+  domain_2:
+    test_2_1:
+      # Forgejo admin-only endpoint, as in the Forgejo + Kong lab.
+      admin_endpoint_paths:
+        - "/api/v1/admin/users"
+      admin_endpoint_method: "GET"
   domain_6:
     test_6_4:
       # Body of APISIX's own 404 (no route matched): {"error_msg":"404 Route Not Found"}.
@@ -137,6 +181,22 @@ tests:
         - /api/config
         - /admin/config
         - /_debug
+
+  domain_7:
+    test_7_2:
+      # Forgejo webhooks, as in the Forgejo + Kong lab: the resource 'repository' is created first.
+      injection_resource: repository
+      injection_path_template: "/api/v1/repos/{owner}/{repo}/hooks"
+      injection_body_template:
+        type: "forgejo"
+        config:
+          url: "{ssrf_url}"
+          content_type: "json"
+          secret: "{random_secret}"
+        events:
+          - "push"
+        active: false
+        branch_filter: "*"
 
 # Same external tool settings as the Forgejo + Kong lab.
 external_tools:

@@ -1,0 +1,401 @@
+# config.example.yaml
+#
+# Complete configuration of APIGuard Assurance: every key, with its description and its default.
+# Copy it, keep what your target needs, and run:
+#   apiguard validate-config -c my-config.yaml
+#   apiguard run -c my-config.yaml
+# A key left out takes its default. Reference: docs/reference/configuration.md; guided setup:
+# docs/guides/usage/configure-a-target.md. The test labs hold only their own values
+# (test-environments/*/config.yaml).
+#
+# Values written as ${...} with an uppercase variable name come from environment variables (or the
+# .env file of the working directory, or --env-file). Never write a credential in clear here. Such a
+# placeholder without a value stops the tool, even inside a comment: the commented examples below
+# show <...> instead; write the placeholder when you uncomment them.
+# Relative paths are resolved against the directory the command is run from.
+#
+# Alternatives that cannot be active together are shown commented out (e.g. openapi_spec_url or
+# openapi_spec_path). `hatch run dev:check` verifies that this file lists every key
+# (scripts/check_config_keys.py).
+
+# =============================================================================
+# TARGET
+# =============================================================================
+target:
+  # Base URL of the API, as the clients reach it (through the gateway).
+  base_url: "https://api.example.com"
+
+  # The OpenAPI specification (Swagger 2.0 or OpenAPI 3.x): exactly one of the two.
+  openapi_spec_url: "https://api.example.com/openapi.json"
+  # openapi_spec_path: "./specs/openapi.json"
+
+  # Certificate verification towards base_url (and the HTTP probe of test 1.5). Default true.
+  # Set false only for a lab with a self-signed certificate.
+  verify_tls: true
+
+  # Real identifiers of existing resources, by path parameter name, so that probes on
+  # /items/{id} reach the authentication check instead of a 404. Generate the names with
+  #   apiguard generate-seed <spec url or path> -o seed.yaml
+  # Parameters left out take "1" (or "apiguard-probe" for DELETE probes). Default: none.
+  path_seed: {}
+  #   Example:
+  #     owner: "user-a"
+  #     id: "42"
+
+  # --- Gateway configuration audits (WHITE_BOX: 3.3, 4.2, 4.3, 6.4 sub-test B) -----------------
+  # Without gateway_adapter and admin_api_url these tests return SKIP.
+  # Adapters: kong (Kong 3.x Admin API), apisix (Apache APISIX 3.x Admin API).
+  # gateway_adapter: kong
+  # admin_api_url: "http://127.0.0.1:8001"
+
+  # Headers sent on every Admin API request, for a gateway that protects it (APISIX: X-API-KEY;
+  # a key of role viewer, GET only, is enough). Values from placeholders, masked in every output.
+  admin_api_headers: {}
+  #   Example (APISIX):
+  #     X-API-KEY: "<APISIX viewer key placeholder>"
+
+  # Interface reporting the live health of the backends, when the gateway keeps it outside the
+  # Admin API (APISIX: Control API). Not used by Kong. Read without admin_api_headers.
+  # health_api_url: "http://127.0.0.1:9090"
+
+  # Timeouts of the Admin API (and health_api_url) requests, in seconds. Defaults 5.0 and 10.0.
+  admin_connect_timeout_seconds: 5.0
+  admin_read_timeout_seconds: 10.0
+
+# =============================================================================
+# CREDENTIALS
+# =============================================================================
+# Accounts the tests log in with: admin (the API's administrator, test 1.4), user_a (an ordinary
+# account, tests 2.1 and 7.2), user_b (a second ordinary account, reserved). Without them those
+# tests return SKIP.
+credentials:
+  # How a credential is obtained; required when an account or a token is configured:
+  #   basic          HTTP Basic with username and password;
+  #   static_token   the <role>_token values below;
+  #   login          the prepared resource login_resource (see resources) is created for each
+  #                  account: its value "credential" is the token; with a delete request, the
+  #                  token is deleted at the end of the run and test 1.4 can revoke one.
+  auth_type: login
+  login_resource: api-login
+
+  # Accounts (basic, login): username and password together.
+  admin_username: "${MYAPI_ADMIN_USERNAME}"
+  admin_password: "${MYAPI_ADMIN_PASSWORD}"
+  user_a_username: "${MYAPI_USER_A_USERNAME}"
+  user_a_password: "${MYAPI_USER_A_PASSWORD}"
+  # user_b_username: "<placeholder>"
+  # user_b_password: "<placeholder>"
+
+  # Tokens (static_token only, instead of the accounts above).
+  # admin_token: "<placeholder>"
+  # user_a_token: "<placeholder>"
+  # user_b_token: "<placeholder>"
+
+  # How the credential is sent. It comes from the security schemes the specification declares:
+  # one scheme is used as is; with several, name it here; with none, describe it in send_as.
+  # Not with basic (always "Authorization: Basic ...").
+  # security_scheme: "bearerAuth"
+
+  # Completes or replaces the declared scheme. Every field left out comes from the scheme.
+  #   in      header, query or cookie (required, with name, when no scheme is declared)
+  #   name    header, query parameter or cookie name
+  #   prefix  written before the credential, spaces included (an apiKey scheme whose prefix
+  #           is described only in words, e.g. Forgejo: "token ")
+  # send_as:
+    # in: header
+    # name: "X-Api-Key"
+    # prefix: "Token "
+
+# =============================================================================
+# RESOURCES
+# =============================================================================
+# Prepared resources: what the tool creates on the target and deletes at the end of the run,
+# referred to by name (letters, digits, "_", "-"). None by default.
+# Each resource has a create request, values taken from its JSON response (name: dotted path)
+# and an optional delete request. A request has a path, an optional JSON body, a method
+# (create POST, delete DELETE by default) and an auth:
+#   credential  the credential of the role the resource is created for (default)
+#   basic       HTTP Basic with that role's username and password
+#   none        nothing
+# Placeholders, always in quotes: {username} and {password} (the role's account), {random}
+# (8 hexadecimal characters, the same in create and delete); in delete also the value names.
+resources:
+  # The login of credentials.login_resource: a JSON login whose response holds the token.
+  api-login:
+    create:
+      path: "/auth/login"
+      auth: none
+      body:
+        username: "{username}"
+        password: "{password}"
+    values:
+      credential: "access_token"
+  # A resource for test 7.2 (injection_resource), created as user A and deleted at the end.
+  # repository:
+    # create:
+      # method: POST
+      # path: "/api/repos"
+      # body:
+        # name: "apiguard-{random}"
+        # private: true
+    # values:
+      # repo_id: "id"
+    # delete:
+      # method: DELETE
+      # auth: credential
+      # path: "/api/repos/{repo_id}"
+
+# =============================================================================
+# EXECUTION
+# =============================================================================
+execution:
+  # Highest priority included: 0 = P0 only ... 3 = all (default).
+  min_priority: 3
+  # BLACK_BOX (network only), GREY_BOX (an ordinary account), WHITE_BOX (administrator and gateway).
+  strategies:
+    - BLACK_BOX
+    - GREY_BOX
+    - WHITE_BOX
+  # Only these tests (e.g. ["1.1", "ext.1.5.testssl"]); empty = all selected by the two keys above.
+  test_ids: []
+  # Stop at the first P0 test that returns FAIL or ERROR.
+  fail_fast: false
+  # Requests to the target: timeouts in seconds, retries on transport errors.
+  connect_timeout: 5.0
+  read_timeout: 30.0
+  max_retry_attempts: 3
+  # Download of the specification, in seconds.
+  openapi_fetch_timeout_seconds: 60.0
+
+# =============================================================================
+# OUTPUT
+# =============================================================================
+output:
+  # Reports, evidence and tool outputs; created if missing. One directory per run is safest.
+  directory: "outputs"
+
+# =============================================================================
+# TESTS (every value below is the default)
+# =============================================================================
+tests:
+  domain_0:
+    # 0.1 Shadow API discovery: how many documented endpoints get undeclared-method probes.
+    test_0_1:
+      method_probe_sample_size: 10
+    # 0.2 Gateway deny-by-default: substrings of the Server header that mean "answered by the
+    # gateway". Add your gateway's (e.g. "apisix", "tyk", "haproxy"); never an application server.
+    test_0_2:
+      gateway_server_identifiers:
+        - "kong"
+        - "nginx"
+        - "openresty"
+        - "apache"
+        - "caddy"
+        - "traefik"
+        - "envoy"
+    # 0.3 Deprecated API enforcement: no parameters.
+    test_0_3: {}
+
+  domain_1:
+    # 1.1 Authentication required: 0 = every protected endpoint; a positive number caps the scan.
+    test_1_1:
+      max_endpoints_cap: 0
+    # 1.4 Token revocation: name of the temporary token (forgejo_token only; other methods SKIP).
+    test_1_4:
+      # Request sent with the revoked credential: an endpoint that requires authentication.
+      # Unset: SKIP. 1.4 also needs auth_type login with a login resource that has a delete
+      # request (otherwise "Not applicable").
+      # verify_request:
+        # method: GET
+        # path: "/api/me"
+    # 1.5 Insecure credential transport.
+    test_1_5:
+      # Minimum HSTS max-age (seconds); one year.
+      hsts_min_max_age_seconds: 31536000
+      # Probe the HTTP URL for a redirect to HTTPS.
+      http_probe_enabled: true
+      # HTTP URL to probe; empty = derived from base_url (http, port 80). Point it to an API path
+      # of the gateway's HTTP listener when the HTTPS port is not 443.
+      http_probe_url: ""
+      http_probe_timeout_seconds: 5.0
+      # Permanent redirects only (302 and 307 allow a downgrade).
+      expected_redirect_status_codes: [301, 308]
+    # 1.6 Session cookies.
+    test_1_6:
+      cookie_probe_paths:
+        - "/"
+      session_cookie_names:
+        - "session"
+        - "sid"
+        - "PHPSESSID"
+        - "JSESSIONID"
+        - "connect.sid"
+        - "_session"
+        - "auth_session"
+        - "user_session"
+      check_samesite: true
+      expected_samesite_value: "Strict"
+
+  domain_2:
+    # 2.1 RBAC: admin-only paths probed with user_a. No default: empty = SKIP. Use paths that
+    # exist in your API: a path it does not have answers 404, counted as enforced.
+    test_2_1:
+      admin_endpoint_paths: []
+      #   Example:
+      #     - "/api/admin/users"
+      admin_endpoint_method: "GET"
+
+  domain_3:
+    # 3.3 HMAC policy audit (gateway).
+    test_3_3:
+      # Largest acceptable replay window (seconds) and algorithms that are a finding.
+      max_clock_skew_seconds: 300
+      forbidden_algorithms:
+        - "hmac-sha1"
+        - "hmac-md5"
+      # Kong only: plugin names and field names of a signing plugin (APISIX: its own hmac-auth).
+      plugin_names:
+        - "hmac-auth"
+      field_clock_skew: "clock_skew"
+      field_algorithms: "algorithms"
+      field_validate_body: "validate_request_body"
+      clock_skew_unconfigured_value: 0
+
+  domain_4:
+    # 4.1 Rate limiting: request budget and interval of the probe.
+    test_4_1:
+      max_requests: 150
+      request_interval_ms: 50
+    # 4.2 Backend timeouts (gateway): largest acceptable values, milliseconds.
+    test_4_2:
+      max_connect_timeout_ms: 5000
+      max_read_timeout_ms: 30000
+      max_write_timeout_ms: 30000
+    # 4.3 Circuit breaker (gateway).
+    test_4_3:
+      # Kong only: plugin names accepted as a circuit breaker (APISIX: its own api-breaker).
+      accepted_cb_plugin_names:
+        - "circuit-breaker"
+      failure_threshold_min: 3
+      failure_threshold_max: 10
+      timeout_duration_min_seconds: 30
+      timeout_duration_max_seconds: 120
+      # Largest acceptable passive health check thresholds (compensating control).
+      passive_hc_max_http_failures: 10
+      passive_hc_max_tcp_failures: 10
+      passive_hc_max_timeouts: 10
+
+  domain_6:
+    # 6.2 Security headers.
+    test_6_2:
+      hsts_min_max_age_seconds: 31536000
+      # Endpoints sampled for consistency; 0 = all.
+      endpoint_sample_size: 5
+    # 6.4 Hardcoded credentials.
+    test_6_4:
+      # Body of the gateway's own 404, to tell a gateway block from an application one
+      # (Kong's default; APISIX: "404 Route Not Found"; "" disables the distinction).
+      gateway_block_body_fragment: "no Route matched with those values"
+      # Debug and actuator paths probed without credentials. Add your stack's.
+      debug_endpoint_paths:
+        - "/actuator/env"
+        - "/actuator/configprops"
+        - "/actuator/health"
+        - "/debug/vars"
+        - "/debug/pprof"
+        - "/api/config"
+        - "/admin/config"
+        - "/_debug"
+        - "/api/debug/users"
+        - "/api/debug/config"
+
+  domain_7:
+    # 7.2 SSRF: an endpoint of your API that accepts a URL. No default: unset = SKIP.
+    test_7_2:
+      payload_categories:
+        - "cloud_metadata"
+        - "private_ip"
+        - "encoding_bypass"
+        - "forbidden_protocol"
+        - "dns_bypass"
+        - "url_parser_confusion"
+      # Injection endpoint (POST), unset by default: the test returns SKIP. Path and body go
+      # together; the body holds "{ssrf_url}" once, where the URL goes ("{random_secret}" gets
+      # a random value). Optional: a prepared resource (see resources) created for user A
+      # first, whose values fill the path and the body (here the example resource's {repo_id}).
+      # injection_resource: repository
+      # injection_path_template: "/api/repos/{repo_id}/hooks"
+      # injection_body_template:
+        # callback_url: "{ssrf_url}"
+      # Operator-controlled server that redirects to an internal address (sub-test G); empty = skip.
+      ssrf_redirect_server_url: ""
+      # Response substrings that classify a rejection (no effect on the verdict).
+      ssrf_malformed_url_keywords:
+        - "invalid character"
+        - "invalid url"
+        - "url malformed"
+        - "malformed url"
+        - "parse error"
+        - "url parse"
+        - "could not parse"
+        - "bad url"
+      ssrf_unsupported_scheme_keywords:
+        - "scheme not supported"
+        - "scheme not allowed"
+        - "unsupported scheme"
+        - "unsupported protocol"
+        - "invalid scheme"
+        - "only http"
+        - "only https"
+        - "protocol not allowed"
+      ssrf_block_response_keywords:
+        - "invalid host"
+        - "not allowed"
+        - "forbidden"
+        - "scheme not supported"
+        - "scheme not allowed"
+        - "host not allowed"
+        - "private"
+        - "loopback"
+        - "blocked"
+        - "disallowed"
+        - "restricted"
+      # No effect today (Q-24).
+      ssrf_request_timeout_ms: 10000
+
+# =============================================================================
+# EXTERNAL TOOLS (installed by install_tools.sh; off by default)
+# =============================================================================
+external_tools:
+  # Master switch for every external test.
+  enabled: true
+  # testssl.sh, TLS analysis (ext.1.5.testssl). timeout_seconds is required when enabled.
+  testssl:
+    enabled: false
+    timeout_seconds: 180
+    expected_version: "3.2.3"
+    extra_flags: "--quiet --color 0"
+    # Reuse cached output instead of running the tool: never in a real assessment.
+    dev_mode: false
+  # nuclei, template scan (ext.0.1.nuclei).
+  nuclei:
+    enabled: false
+    timeout_seconds: 240
+    expected_version: "3.8.0"
+    template_dir: "./tools/nuclei-templates"
+    tags:
+      - "api"
+      - "exposure"
+      - "misconfig"
+      - "panel"
+    # Per-request timeout (seconds) and request rate (per second).
+    per_request_timeout: 10
+    rate_limit_rps: 30
+    extra_flags: ""
+    dev_mode: false
+  # sslyze, TLS analysis as a Python library (ext.1.5.sslyze; pip install "apiguard-assurance[sslyze]").
+  sslyze:
+    enabled: false
+    timeout_seconds: 60
+    # expected_version: "6.3.1"
+    dev_mode: false

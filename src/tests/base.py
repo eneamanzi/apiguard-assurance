@@ -693,7 +693,7 @@ class BaseTest(ABC):
             skip = self._requires_token(context, ROLE_USER_A)
             if skip is not None:
                 return skip
-            token = context.get_token(ROLE_USER_A)
+            user_a_auth = auth_parts(target, context, ROLE_USER_A)
 
         Args:
             context: The current TestContext.

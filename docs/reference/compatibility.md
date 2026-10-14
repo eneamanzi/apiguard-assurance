@@ -21,8 +21,33 @@ Nothing in the "unknown" column should be assumed to work.
 |---|---|---|---|
 | Specification formats | Swagger 2.0; OpenAPI 3.0.x and 3.1.x (validator chosen by minor version) | Swagger 2.0 (Forgejo), OpenAPI 3.0.1 (crAPI, `test-environments/crapi-kong/crapi-openapi-spec.json`) | OpenAPI 3.1 not exercised on a real target. Swagger 2.0 skips structural validation (`src/discovery/openapi.py`). A major version other than `swagger: 2` / `openapi: 3` → `OpenAPILoadError` (exit `10`). |
 | Gateway adapter (WHITE_BOX audits) | `kong`, `apisix` (`target.gateway_adapter`) | Kong 3.9.3 in DB-less mode; Apache APISIX 3.19.0, traditional deployment with etcd, Admin API key of role `viewer`, Control API for live health (see [Test lab](#test-lab)) | Kong with a database, other APISIX versions, APISIX standalone (no Admin API: its configuration cannot be read). Other gateways: configuration-audit tests SKIP. |
-| Target application | any REST API with an OpenAPI spec | Forgejo 14.0.5 and OWASP crAPI 1.1.6, each behind Kong (see [Test lab](#test-lab)); Forgejo 14.0.3 in the v0.1.0 release audit | Some tests or defaults are Forgejo-specific (test 1.4 token API paths; test 7.2 default `injection_mode`; test 2.1 default admin path). Per-test portability is not yet established (Q-18). |
-| Authentication (`credentials.auth_type`; how the credential is sent: the specification's security schemes, `security_scheme`, `send_as`) | `basic`, `static_token`, `json_login`, `forgejo_token` | `forgejo_token` (scheme `AuthorizationHeaderToken` + `token ` prefix) on both Forgejo labs; `json_login` (scheme `bearerAuth`) on crAPI; `basic` and `static_token` on Forgejo + Kong for tests 1.4, 2.1, 7.2 (2026-10-14) | OAuth 2.0 client credentials, session cookies obtained by login, mutual TLS: not implemented (`docs/project/auth-survey.md`). Revocation (test 1.4): `forgejo_token` only. |
+| Target application | any REST API with an OpenAPI spec | Forgejo 14.0.5 behind Kong and behind APISIX, OWASP crAPI 1.1.6 behind Kong (see [Test lab](#test-lab)); Forgejo 14.0.3 in the v0.1.0 release audit | What each test needs from the target: [Test portability](#test-portability). |
+| Authentication (`credentials.auth_type`; how the credential is sent: the specification's security schemes, `security_scheme`, `send_as`) | `basic`, `static_token`, `login` (a [prepared resource](configuration.md#resources) that logs in) | `login` with Forgejo's token API (resource `forgejo-token`, scheme `AuthorizationHeaderToken` + `token ` prefix) on both Forgejo labs and with crAPI's JSON login (resource `crapi-login`, scheme `bearerAuth`) (2026-10-14); `basic` and `static_token` on Forgejo + Kong for tests 1.4, 2.1, 7.2 (2026-10-14, before `login` replaced `forgejo_token` and `json_login`) | OAuth 2.0 client credentials, session cookies obtained by login, mutual TLS: not implemented (`docs/project/auth-survey.md`). Revocation (test 1.4): `login` with a delete request (token deletion); revocation by a logout request not implemented. |
+
+## Test portability
+
+What each test needs to run on a target other than the labs, and what happens when the need is not met: most tests
+return SKIP with a reason naming what is missing; 0.2 and 6.4 run anyway, with the effect stated. Measured on the three labs on 2026-10-14
+(native tests, lab configurations); the external tests were last run on Forgejo + Kong.
+
+| Test | Needs | Without it | Forgejo + Kong | crAPI + Kong | Forgejo + APISIX |
+|---|---|---|---|---|---|
+| 0.1, 1.1, 1.5, 4.1, 6.2 | the specification and the target URL only | - | ran | ran | ran |
+| 0.2 | the gateway's server identifiers (`gateway_server_identifiers`; default includes Kong's) | a 404 with another gateway's `Server` header is reported as coming from the backend (false finding) | ran | ran | ran (set to `apisix`) |
+| 0.3 | operations marked `deprecated` in the specification, without path parameters | SKIP | SKIP (all have path parameters) | SKIP (none marked) | SKIP (as Forgejo + Kong) |
+| 1.4 | `auth_type: login` with a login resource that has a delete request, and `verify_request` | SKIP "Not applicable", or SKIP naming `verify_request` | ran | SKIP (no revocation) | ran |
+| 1.6 | session cookies set by the target (`session_cookie_names`) | SKIP | SKIP | SKIP | SKIP |
+| 2.1 | credentials and `admin_endpoint_paths` | SKIP naming the key | ran | SKIP (not configured) | ran |
+| 3.3, 4.2, 4.3 | a gateway adapter (`kong` or `apisix`) and access to its Admin API | SKIP with the reason (no adapter, not supported, not accessible) | ran | ran | ran |
+| 6.4 | sub-test A: the gateway's block message (`gateway_block_body_fragment`; default is Kong's); sub-test B: a gateway adapter | without the message, a blocked endpoint is labelled blocked by the application, not by the gateway (same verdict); without an adapter, sub-test B gives a note and sub-test A still runs | ran | ran | ran (message set) |
+| 7.2 | credentials and the injection endpoint keys (and `injection_resource` when the endpoint belongs to an object) | SKIP naming the keys | ran (resource `repository`) | ran (fixed path) | ran (resource `repository`) |
+| ext.0.1.nuclei, ext.1.5.testssl, ext.1.5.sslyze | the tool installed | SKIP | ran | not run | not run |
+
+"Ran" means the test reached a verdict (PASS or FAIL), not that the verdict is right: verdict correctness is the
+subject of the test review (`OPEN_QUESTIONS.md` Q-29: for example 2.1 counts a `404` as enforced, so a path the
+target does not have gives PASS). No test or helper contains Forgejo paths: what is specific to an application (its
+login, the objects a test needs, the request that checks a revoked token) is configuration
+([`resources`](configuration.md#resources)); the Forgejo values are in the lab configurations.
 
 ## Test lab
 

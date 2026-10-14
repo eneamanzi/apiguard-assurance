@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # ---------------------------------------------------------------------------
 # Constants — Test 1.1
@@ -31,10 +31,19 @@ TEST_11_MAX_ENDPOINTS_CAP_MIN: int = 0
 # Constants — Test 1.4
 # ---------------------------------------------------------------------------
 
-# Default name for the temporary API token created and immediately revoked
-# during the token-revocation probe.  Must be a valid Forgejo token name
-# (alphanumeric, hyphens allowed).
-TEST_14_TOKEN_NAME_DEFAULT: str = "apiguard-token-revocation-test"  # noqa: S105 -- token NAME, not a credential
+# Methods of the request that checks a revoked credential (verify_request).
+TEST_14_VERIFY_METHODS: tuple[str, ...] = ("GET", "POST", "PUT", "PATCH", "DELETE")
+TEST_14_VERIFY_METHOD_DEFAULT: str = "GET"
+
+# Key removed in Phase E (docs/project/resources-design.md, 5.5), rejected with
+# the new form: the temporary credential now comes from the login resource,
+# with a random name.
+_TEST_14_REMOVED_KEYS: dict[str, str] = {
+    "token_name": (
+        "removed: the temporary credential is created by the login resource "
+        "(credentials.login_resource), with a random name"
+    ),
+}
 
 # ---------------------------------------------------------------------------
 # Constants — Test 1.5
@@ -73,15 +82,54 @@ TEST_16_SESSION_COOKIE_NAMES_DEFAULT: list[str] = [
 # ---------------------------------------------------------------------------
 
 
+class Test14VerifyRequest(BaseModel):
+    """The request that checks whether a revoked credential is still accepted."""
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    method: str = Field(
+        default=TEST_14_VERIFY_METHOD_DEFAULT,
+        description=f"HTTP method. Default {TEST_14_VERIFY_METHOD_DEFAULT}.",
+    )
+    path: str = Field(
+        min_length=1,
+        description=(
+            "Path of an endpoint that requires authentication and answers 2xx to a valid "
+            "credential, e.g. '/api/v1/user'."
+        ),
+    )
+
+    @field_validator("method", mode="after")
+    @classmethod
+    def method_allowed(cls, value: str) -> str:
+        """Accept the usual HTTP methods, in any case; store uppercase."""
+        method = value.upper()
+        if method not in TEST_14_VERIFY_METHODS:
+            raise ValueError(
+                f"method '{value}' is not supported: use one of "
+                f"{', '.join(TEST_14_VERIFY_METHODS)}."
+            )
+        return method
+
+    @field_validator("path", mode="after")
+    @classmethod
+    def path_absolute(cls, value: str) -> str:
+        """Require a path starting with '/'."""
+        if not value.startswith("/"):
+            raise ValueError(f"path '{value}' must start with '/'.")
+        return value
+
+
 class Test14Config(BaseModel):
     """
     Tuning parameters for Test 1.4 (Revoked Token Rejected After Deletion).
 
-    The test creates a temporary API token under the admin account, immediately
-    revokes it via DELETE /api/v1/users/{user}/tokens/{name}, then verifies
-    that the revoked token is rejected with 401/403.  This parameter controls
-    the name of the temporary token so operators can identify and clean up
-    any leftover tokens from interrupted runs.
+    The test creates a temporary credential for the admin account with the
+    authentication method (auth_type login: a new instance of the login
+    resource), revokes it (the resource's delete request), then sends
+    verify_request with it: the revoked credential must be rejected (401/403).
+    Without verify_request the test returns SKIP; with a method that cannot
+    revoke, SKIP "Not applicable".
 
     Reference: OWASP API2:2023, RFC 7009, OWASP ASVS v5.0.0 V7.4+V9,
     NIST SP 800-63B-4 Section 5.1.
@@ -89,17 +137,23 @@ class Test14Config(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    token_name: str = Field(
-        default=TEST_14_TOKEN_NAME_DEFAULT,
-        min_length=1,
-        max_length=40,
+    verify_request: Test14VerifyRequest | None = Field(
+        default=None,
         description=(
-            "Name of the temporary API token created and revoked during the "
-            "token-revocation probe.  Must be a valid Forgejo token name "
-            "(alphanumeric and hyphens).  "
-            f"Default: '{TEST_14_TOKEN_NAME_DEFAULT}'."
+            "Request sent with the revoked credential: method (default GET) and path of an "
+            "endpoint that requires authentication. No default: unset, the test returns SKIP."
         ),
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_removed_keys(cls, data: object) -> object:
+        """Reject the keys removed in Phase E, naming the new form."""
+        if isinstance(data, dict):
+            for key, message in _TEST_14_REMOVED_KEYS.items():
+                if key in data:
+                    raise ValueError(f"{key}: {message} (tests.domain_1.test_1_4).")
+        return data
 
 
 class Test11Config(BaseModel):
@@ -180,8 +234,8 @@ class Test15Config(BaseModel):
             "HTTP counterpart from the HTTPS base URL. "
             "Use in non-standard port lab setups where the HTTPS base URL uses a "
             "port other than 443 (e.g. https://localhost:8443 -> derive produces "
-            "http://localhost:8443/ which hits Kong's TLS listener and returns 400). "
-            "Example: 'http://localhost:8000/' to probe Kong's HTTP listener. "
+            "http://localhost:8443/ which hits the gateway's TLS listener and returns 400). "
+            "Example: 'http://localhost:8000/' to probe the gateway's HTTP listener. "
             "Empty string (default) falls back to the derived URL."
         ),
     )

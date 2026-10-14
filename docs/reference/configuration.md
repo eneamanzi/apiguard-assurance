@@ -1,13 +1,14 @@
 # Configuration Reference (`config.yaml`)
 
 > **Audience:** users, integrators · **Status:** stable · **Source of truth:** `src/config/schema/tool_config.py`,
-> `src/test_config/domain_*.py`, `src/core/models/external_tools.py`, `src/config/loader.py` ·
-> **Verified:** 2026-10-14 (credentials), 2026-10-12 (gateway keys), 2026-10-05, v0.1.0 (field list extracted from the Pydantic models; behaviours tested with
+> `src/test_config/domain_*.py`, `src/core/models/external_tools.py`, `src/core/models/resources.py`,
+> `src/config/loader.py` · **Verified:** 2026-10-14 (credentials, resources), 2026-10-12 (gateway keys), 2026-10-05, v0.1.0 (field list extracted from the Pydantic models; behaviours tested with
 > `apiguard validate-config`)
 
 Every field, type, default and constraint below comes from the Pydantic models. For a guided setup see
-[`guides/usage/configure-a-target.md`](../guides/usage/configure-a-target.md); the annotated example in the repository, with every key, is the Forgejo lab's configuration,
-[`test-environments/forgejo-kong/config.yaml`](../../test-environments/forgejo-kong/config.yaml).
+[`guides/usage/configure-a-target.md`](../guides/usage/configure-a-target.md); the complete example in the repository, with every key, its description and its default, is
+[`config.example.yaml`](../../config.example.yaml) (`hatch run dev:check` verifies that it lists every key); the lab
+configurations hold only their own values.
 
 ## Loading rules
 
@@ -72,20 +73,23 @@ API's administrator account) by the WHITE_BOX test 1.4. Always provide values th
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `auth_type` | string \| null | `null` | How a credential is obtained. **Required** when an account or a token is configured. `basic` (HTTP Basic with username and password, RFC 7617), `static_token` (the `<role>_token` values), `json_login` (POST username and password as JSON to `login_endpoint`, token read at `token_response_path`), `forgejo_token` (Forgejo/Gitea token API, `POST /api/v1/users/{username}/tokens` with Basic Auth; tokens deleted at the end of the run). `jwt_login` (v0.1.0) is rejected with a message naming `json_login`. |
-| `admin_username`, `admin_password` | string \| null | `null` | Administrator role (`basic`, `json_login`, `forgejo_token`). |
+| `auth_type` | string \| null | `null` | How a credential is obtained. **Required** when an account or a token is configured. `basic` (HTTP Basic with username and password, RFC 7617), `static_token` (the `<role>_token` values), `login` (the [prepared resource](#resources) `login_resource` is created for each role: its value `credential` is the token; its delete request, if any, deletes the token at the end of the run and lets test 1.4 revoke one). `forgejo_token` and `jwt_login` (v0.1.0) are rejected with a message showing the `login` form. |
+| `admin_username`, `admin_password` | string \| null | `null` | Administrator role (`basic`, `login`). |
 | `user_a_username`, `user_a_password` | string \| null | `null` | First non-privileged role. |
 | `user_b_username`, `user_b_password` | string \| null | `null` | Second non-privileged role. |
 | `admin_token`, `user_a_token`, `user_b_token` | string \| null | `null` | `static_token` only: the token of each role. |
-| `login_endpoint` | string \| null | `null` | `json_login` only, **required** there. Path relative to `base_url`. |
-| `username_body_field` | string | `username` | `json_login`: JSON field carrying the username (e.g. `email`). |
-| `password_body_field` | string | `password` | `json_login`: JSON field carrying the password. |
-| `token_response_path` | string | `access_token` | `json_login`: dot-path to the token in the login response (`data.token`). No array indexing. |
+| `login_resource` | string \| null | `null` | `login` only, **required** there: the name of a resource of [`resources`](#resources) whose create request logs in for a role (`auth: basic` or `none`) and whose values include `credential`, the dotted path of the token in the response. The v0.1.0 keys `login_endpoint`, `username_body_field`, `password_body_field`, `token_response_path` are rejected with a message showing this form. |
 | `security_scheme` | string \| null | `null` | Name of the specification's security scheme the credential is sent with. **Required** when the specification declares more than one scheme that can carry a token (e.g. Forgejo: `AuthorizationHeaderToken`). Not with `basic`. |
 | `send_as` | map \| null | `null` | Where and how the credential is sent: `in` (`header`, `query`, `cookie`), `name`, `prefix` (written before the credential, spaces included). Every field left out comes from the specification's scheme; with no usable scheme `in` and `name` are required. With a declared `apiKey` scheme only `prefix` may be set (Forgejo: `prefix: "token "`). Not with `basic`. |
 
 Each method takes its own kind of credential: `static_token` the `<role>_token` keys only, the other methods username
-and password, set together or not at all. Every value comes from a `${VAR}` placeholder; passwords and tokens are
+and password, set together or not at all.
+
+Examples of `login` resources, from the labs: crAPI's JSON login (`test-environments/crapi-kong/config.yaml`,
+`crapi-login`: `POST /identity/api/auth/login` with `auth: none` and the body `email: "{username}"`,
+`password: "{password}"`, value `credential: token`); Forgejo's token API (`test-environments/forgejo-kong/config.yaml`,
+`forgejo-token`: `POST /api/v1/users/{username}/tokens` with `auth: basic`, value `credential: sha1`, and a delete
+request, so tokens are deleted at the end of the run and 1.4 can revoke one). Every value comes from a `${VAR}` placeholder; passwords and tokens are
 registered as secrets and masked in every output.
 
 **How the credential is sent** (resolved once per run, after the specification is read; `src/core/auth_placement.py`):
@@ -103,6 +107,34 @@ Schemes that can carry a token: `apiKey`, `http` bearer, `oauth2`, `openIdConnec
 `mutualTLS`). A configuration that does not determine the placement stops the run with exit `10` before any test;
 `validate-config` checks it too, reading the specification (download or local file) only when credentials are
 configured, and prints where the credentials will be sent.
+
+## `resources`
+
+Prepared resources: what the tool creates on the target and deletes at the end of the run, by name (letters, digits,
+`_`, `-`). Used by `credentials.login_resource` and by `tests.domain_7.test_7_2.injection_resource`; the test or the
+login chooses the role a resource is created for. None by default. Design: `docs/project/resources-design.md`.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `<name>.create.method` | `GET` `POST` `PUT` `PATCH` `DELETE` | `POST` | Method of the create request. |
+| `<name>.create.path` | string | **required** | Path, starting with `/`; may use `{username}`, `{password}`, `{random}`. |
+| `<name>.create.auth` | `credential` \| `basic` \| `none` | `credential` | `credential`: the role's credential, sent as `credentials` says; `basic`: HTTP Basic with the role's username and password; `none`: nothing. |
+| `<name>.create.body` | JSON \| null | `null` | JSON body; strings may use the same placeholders. |
+| `<name>.values` | map name → dotted path | `{}` | Values read from the JSON response, e.g. `owner: owner.login`. A login resource needs `credential` (always masked as a secret); other values are not secrets. No array indexes. |
+| `<name>.delete.method` | as `create.method` | `DELETE` | Method of the delete request, sent at teardown with the same role. |
+| `<name>.delete.path` | string | none | Path; may also use the names of `values`. No `delete`: nothing is deleted. A delete request has no body. |
+| `<name>.delete.auth` | as `create.auth` | `credential` | How the delete request authenticates. |
+
+**Placeholders** (`{...}`, one syntax for every value the tool fills): `{username}` and `{password}` are the account of
+the role the resource is created for, `{random}` is 8 hexadecimal characters (the same in the create and delete
+request of one resource), and in `delete` the names of `values`. Literal braces are written `{{` and `}}`. In YAML a
+value that starts with `{` must be quoted (`email: "{username}"`): unquoted, YAML reads it as a mapping, and the
+configuration is rejected. `${VAR}` is different: an environment variable, filled by the loader.
+
+At run time: a create request answered with a non-`2xx` status, or a configured value missing from the response, gives
+an error naming the resource (the test returns ERROR). The teardown entry is registered as soon as the create request
+succeeds; teardown runs in reverse creation order, so a resource created with a credential is deleted before the
+credential. `validate-config` lists the resources and who uses them.
 
 ## `execution`
 
@@ -151,7 +183,12 @@ Schema per domain: `src/test_config/domain_<D>.py`.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `token_name` | string (1-40) | `apiguard-token-revocation-test` | Name of the temporary API token created and revoked during the probe. |
+| `verify_request.method` | `GET` `POST` `PUT` `PATCH` `DELETE` | `GET` | Method of the request sent with the revoked credential. |
+| `verify_request.path` | string | none | Path of an endpoint that requires authentication and answers `2xx` to a valid credential (Forgejo: `/api/v1/user`). No `verify_request`: the test returns SKIP. |
+
+The temporary credential is a new instance of the login resource for the `admin` role, revoked by its delete request;
+1.4 runs only with `auth_type: login` and a login resource that has a delete request (otherwise SKIP "Not
+applicable"). `token_name` (v0.1.0) is rejected: names now come from the resource (`apiguard-{random}` on the labs).
 
 ### `tests.domain_1.test_1_5` - Credentials over insecure channels
 
@@ -176,7 +213,7 @@ Schema per domain: `src/test_config/domain_<D>.py`.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `admin_endpoint_paths` | list (≥1) | `/api/v1/admin/users` | Admin-only paths probed with a non-privileged token. The default is a Forgejo path: set it for other targets. |
+| `admin_endpoint_paths` | list | empty | Admin-only paths of the target probed with a non-privileged token. No default (a path the target does not have answers `404`, counted as enforced): empty, the test returns SKIP. Forgejo: `/api/v1/admin/users`. |
 | `admin_endpoint_method` | string | `GET` | HTTP method used for the probes. |
 
 ### `tests.domain_3.test_3_3` - HMAC configuration audit
@@ -236,10 +273,12 @@ Schema per domain: `src/test_config/domain_<D>.py`.
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `payload_categories` | list | `cloud_metadata, private_ip, encoding_bypass, forbidden_protocol, dns_bypass, url_parser_confusion` | Payload families sent. |
-| `injection_mode` | `forgejo_webhook` \| `fixed_path` | `forgejo_webhook` | `forgejo_webhook`: create a temporary repository and inject through its webhook endpoint (Forgejo only; removed in teardown). `fixed_path`: post directly to `injection_path_template`; use for any other target. |
-| `injection_path_template` | string | `/api/v1/repos/{owner}/{repo}/hooks` | Endpoint receiving the injected URL. |
-| `injection_url_field` | string | `config.url` | Dot-path inside `injection_body_template` where the SSRF URL is placed. |
-| `injection_body_template` | object | Forgejo webhook body | Request body; `$SSRF_URL$` and `$RANDOM_SECRET$` are substituted at runtime. |
+| `injection_path_template` | string \| null | `null` | Endpoint receiving the injected URL (`POST`). No default: unset (with the body), the test returns SKIP. With `injection_resource` it may use the resource's values (Forgejo: `/api/v1/repos/{owner}/{repo}/hooks`). |
+| `injection_body_template` | object \| null | `null` | Request body; **required** with the path. Must contain `"{ssrf_url}"` exactly once (each payload URL); may contain `"{random_secret}"` (32 random hexadecimal characters, masked as a secret) and the resource's values. Checked at startup. Forgejo webhook body: `test-environments/forgejo-kong/config.yaml`. |
+| `injection_resource` | string \| null | `null` | A [prepared resource](#resources) created for `user_a` before the probes (once per run), whose values fill the path and the body; deleted at teardown (Forgejo: `repository`). Without it the path is used as written (crAPI). A resource that cannot be created gives ERROR. |
+
+`injection_mode` and `injection_url_field` (v0.1.0) are rejected with a message showing the new form; `$SSRF_URL$`
+and `$RANDOM_SECRET$` are now `{ssrf_url}` and `{random_secret}`.
 | `ssrf_redirect_server_url` | string | `""` | Operator-controlled server answering `302` to an internal address. Empty → the redirect sub-test is skipped and documented with an InfoNote. |
 | `ssrf_block_response_keywords` | list | 11 keywords | Body substrings identifying an explicit SSRF block. |
 | `ssrf_malformed_url_keywords` | list | 8 keywords | Body substrings identifying a URL rejected as syntactically invalid. |
@@ -298,7 +337,11 @@ Phase 1 rejects the configuration (exit `10`) when:
 |---|---|
 | Exactly one OpenAPI source | `target.openapi_spec_url`, `target.openapi_spec_path` |
 | Adapter needs the Admin API URL; `kong` or `apisix` | `target.gateway_adapter`, `target.admin_api_url` |
-| `auth_type` set when credentials are configured, supported value (`jwt_login` renamed `json_login`); `json_login` needs `login_endpoint`; each method's own credential keys only; `basic` without `security_scheme` / `send_as` | `credentials.*` |
+| `auth_type` set when credentials are configured, supported value (`forgejo_token`, `jwt_login`, `json_login` and the v0.1.0 login keys rejected with the `login` form); `login` needs `login_resource`, only `login` takes it; each method's own credential keys only; `basic` without `security_scheme` / `send_as` | `credentials.*` |
+| The login resource exists, has the value `credential`, and its create request does not use `auth: credential` | `credentials.login_resource`, `resources` |
+| Resource names (letters, digits, `_`, `-`); paths start with `/`; methods `GET` `POST` `PUT` `PATCH` `DELETE`; placeholders well formed, known where used (no response value in `create`), quoted in YAML; value names not `username` / `password` / `random` | `resources.*` |
+| 7.2: path and body together; `injection_resource` defined; path and body placeholders known; `{ssrf_url}` exactly once | `tests.domain_7.test_7_2` |
+| 1.4: `verify_request` path starts with `/`, supported method | `tests.domain_1.test_1_4` |
 | Username and password set together per role | `credentials.*` |
 | The credentials determine where they are sent (`security_scheme`, `send_as` against the specification's schemes; checked after the specification is read) | `credentials.security_scheme`, `credentials.send_as` |
 | `strategies` not empty | `execution.strategies` |
@@ -317,6 +360,7 @@ without the `user_a` credentials (2.1, 7.2). Log event `config_coherence_warning
 
 - [`cli.md`](cli.md) - `validate-config`, `generate-seed`
 - [`exit-codes.md`](exit-codes.md)
-- [`test-environments/forgejo-kong/config.yaml`](../../test-environments/forgejo-kong/config.yaml) - annotated example used for the Forgejo + Kong lab
+- [`config.example.yaml`](../../config.example.yaml) - every key, with description and default
+- [`test-environments/forgejo-kong/config.yaml`](../../test-environments/forgejo-kong/config.yaml) - configuration of the Forgejo + Kong lab
 - [`test-environments/crapi-kong/config.yaml`](../../test-environments/crapi-kong/config.yaml) - configuration of the crAPI + Kong lab
 - [`test-environments/forgejo-apisix/config.yaml`](../../test-environments/forgejo-apisix/config.yaml) - configuration of the Forgejo + APISIX lab (Admin API key, Control API)

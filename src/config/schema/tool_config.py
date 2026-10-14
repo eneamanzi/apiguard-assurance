@@ -32,12 +32,15 @@ Design notes preserved from the original schema.py:
     ValueError when both or neither are provided.
 
 Dependency rule: imports from pydantic, the stdlib, src.core.models (for
-TestStrategy), and src.config.schema.tests_config. Must never import from
-engine.py, tests/, discovery/, or report/.
+TestStrategy, RuntimeCredentials, ResourceConfig), src.core.templating (to
+check placeholders), src.test_config (placeholder names of test 7.2) and
+src.config.schema.tests_config. Must never import from engine.py, tests/,
+discovery/, or report/.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Annotated
 
@@ -52,9 +55,20 @@ from pydantic import (
 
 from src.config.schema.tests_config import TestsConfig
 from src.core.gateway import GATEWAY_ADAPTERS
-from src.core.models import RuntimeCredentials, TestStrategy
+from src.core.models import (
+    CREDENTIAL_VALUE,
+    ResourceAuth,
+    ResourceConfig,
+    RuntimeCredentials,
+    TestStrategy,
+)
 from src.core.models.external_tools import ExternalToolsConfig
+from src.core.templating import names_in, occurrences, placeholder_names, unquoted_placeholders
 from src.core.test_metadata import PRIORITY_MAX, PRIORITY_MIN, is_valid_test_id
+from src.test_config.domain_7 import (
+    TEST_72_PLACEHOLDER_RANDOM_SECRET,
+    TEST_72_PLACEHOLDER_SSRF_URL,
+)
 
 # ---------------------------------------------------------------------------
 # Constants -- HTTP client timeouts and retries
@@ -71,11 +85,17 @@ RETRY_MAX_ATTEMPTS_DEFAULT: int = 3
 RETRY_MAX_ATTEMPTS_MIN: int = 1
 RETRY_MAX_ATTEMPTS_MAX: int = 10
 
+# Test 7.2's URL placeholder before Phase E, named in the error that rejects it.
+_FORMER_SSRF_SENTINEL: str = "$SSRF_URL$"
+
+# Name of a prepared resource (resources:), referred to by other keys.
+RESOURCE_NAME_PATTERN: re.Pattern[str] = re.compile(r"[A-Za-z0-9_-]+")
+
 # ---------------------------------------------------------------------------
-# Constants -- Kong Admin API timeouts
+# Constants -- gateway Admin API timeouts
 # ---------------------------------------------------------------------------
 
-# The Kong Admin API is a local endpoint (same host or same LAN).  The short
+# The gateway Admin API is a local endpoint (same host or same LAN).  The short
 # defaults reflect that expectation: if the Admin API does not respond in 10 s
 # the connection is almost certainly misconfigured, not merely slow.
 # Operators who run the Admin API behind a slow inter-datacenter link can
@@ -202,7 +222,7 @@ class TargetConfig(BaseModel):
     ] = Field(
         default=ADMIN_CONNECT_TIMEOUT_DEFAULT,
         description=(
-            "TCP connection timeout in seconds for Kong Admin API requests. "
+            "TCP connection timeout in seconds for gateway Admin API requests. "
             "The Admin API is a local endpoint; the default (5 s) is intentionally "
             "short.  Raise this only when the Admin API is behind a slow link. "
             f"Range: [{ADMIN_CONNECT_TIMEOUT_MIN}, {ADMIN_CONNECT_TIMEOUT_MAX}]. "
@@ -215,7 +235,7 @@ class TargetConfig(BaseModel):
     ] = Field(
         default=ADMIN_READ_TIMEOUT_DEFAULT,
         description=(
-            "HTTP read timeout in seconds for Kong Admin API requests. "
+            "HTTP read timeout in seconds for gateway Admin API requests. "
             "Covers paginated list responses (routes, plugins, services); "
             "10 s is sufficient for any local Admin API. "
             f"Range: [{ADMIN_READ_TIMEOUT_MIN}, {ADMIN_READ_TIMEOUT_MAX}]. "
@@ -260,7 +280,7 @@ class TargetConfig(BaseModel):
             "When set, engine.py Phase 3 instantiates the corresponding adapter and "
             "exposes it as target.gateway in TargetContext. "
             "Supported: the keys of GATEWAY_ADAPTERS (src/core/gateway/__init__.py); "
-            "today 'kong' (Kong DB-less Admin API v3.x). "
+            "today 'kong' and 'apisix'. "
             "Leave unset (None) to skip all gateway-specific WHITE_BOX tests: "
             "those tests will return SKIP with the reason "
             "'Gateway adapter not configured: ...' (BaseTest._requires_admin_api). "
@@ -592,6 +612,15 @@ class ToolConfig(BaseModel):
             "model reaches the tests (src/core/models/runtime.py)."
         ),
     )
+    resources: dict[str, ResourceConfig] = Field(
+        default_factory=dict,
+        description=(
+            "Prepared resources: what the tool creates on the target and deletes at the end "
+            "of the run, by name (letters, digits, '_', '-'). Each has a create request, values "
+            "taken from its JSON response and an optional delete request "
+            "(src/core/models/resources.py, docs/project/resources-design.md)."
+        ),
+    )
     execution: ExecutionConfig = Field(
         default_factory=ExecutionConfig,
         description="Pipeline execution behavior.",
@@ -621,6 +650,111 @@ class ToolConfig(BaseModel):
     _white_box_without_gateway: bool = PrivateAttr(default=False)
     _white_box_without_admin_credentials: bool = PrivateAttr(default=False)
     _grey_box_without_user_credentials: bool = PrivateAttr(default=False)
+
+    @field_validator("resources", mode="after")
+    @classmethod
+    def resource_names_valid(cls, value: dict[str, ResourceConfig]) -> dict[str, ResourceConfig]:
+        """Require resource names made of letters, digits, '_' and '-'."""
+        for name in value:
+            if not RESOURCE_NAME_PATTERN.fullmatch(name):
+                raise ValueError(
+                    f"resource name '{name}' must be letters, digits, '_' and '-' "
+                    "(it is referred to by other keys)."
+                )
+        return value
+
+    @model_validator(mode="after")
+    def login_resource_valid(self) -> ToolConfig:
+        """
+        Check the login resource of auth_type 'login'.
+
+        It must be defined, have the value 'credential' (the token) and not
+        authenticate its create request with the credential it obtains
+        (docs/project/resources-design.md, 5.4 and 5.8).
+        """
+        name = self.credentials.login_resource
+        if name is None:
+            return self
+        where = "credentials.login_resource"
+        resource = self.resources.get(name)
+        if resource is None:
+            defined = ", ".join(sorted(self.resources)) or "none"
+            raise ValueError(
+                f"{where}: resource '{name}' is not defined in resources (defined: {defined})."
+            )
+        if CREDENTIAL_VALUE not in resource.values:
+            raise ValueError(
+                f"{where}: resource '{name}' needs a value '{CREDENTIAL_VALUE}', the dotted "
+                "path of the token in the login response (e.g. credential: token)."
+            )
+        if resource.create.auth is ResourceAuth.CREDENTIAL:
+            raise ValueError(
+                f"{where}: resource '{name}' logs in, so its create request cannot use "
+                "auth: credential (the credential is what it obtains): use 'basic' or 'none'."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def test_7_2_injection_placeholders(self) -> ToolConfig:
+        """
+        Check test 7.2's injection endpoint against the resources.
+
+        injection_resource must name a resource; the path may use its values;
+        the body must hold {ssrf_url} exactly once and may use {random_secret}
+        and the resource's values, in quotes (docs/project/resources-design.md,
+        5.6 and 5.8).
+        """
+        cfg = self.tests.domain_7.test_7_2
+        where = "tests.domain_7.test_7_2"
+        values: frozenset[str] = frozenset()
+        if cfg.injection_resource is not None:
+            resource = self.resources.get(cfg.injection_resource)
+            if resource is None:
+                defined = ", ".join(sorted(self.resources)) or "none"
+                raise ValueError(
+                    f"{where}.injection_resource: resource '{cfg.injection_resource}' is not "
+                    f"defined in resources (defined: {defined})."
+                )
+            values = frozenset(resource.values)
+        if cfg.injection_path_template is not None:
+            unknown = placeholder_names(cfg.injection_path_template) - values
+            if unknown:
+                raise ValueError(
+                    f"{where}.injection_path_template: unknown placeholder(s) "
+                    f"{', '.join(f'{{{n}}}' for n in sorted(unknown))}; known: the values of "
+                    "injection_resource."
+                )
+        body = cfg.injection_body_template
+        if body is None:
+            return self
+        known = values | {TEST_72_PLACEHOLDER_SSRF_URL, TEST_72_PLACEHOLDER_RANDOM_SECRET}
+        unquoted = unquoted_placeholders(body, known)
+        if unquoted:
+            raise ValueError(
+                f"{where}.injection_body_template: write the placeholders in quotes, e.g. "
+                f'"{{{sorted(unquoted)[0]}}}": unquoted, YAML reads them as a mapping.'
+            )
+        unknown = names_in(body) - known
+        if unknown:
+            raise ValueError(
+                f"{where}.injection_body_template: unknown placeholder(s) "
+                f"{', '.join(f'{{{n}}}' for n in sorted(unknown))}; known: "
+                f"{', '.join(f'{{{n}}}' for n in sorted(known))}."
+            )
+        count = occurrences(body, TEST_72_PLACEHOLDER_SSRF_URL)
+        if count != 1:
+            hint = (
+                " The former '$SSRF_URL$' and '$RANDOM_SECRET$' are now "
+                '"{ssrf_url}" and "{random_secret}".'
+                if _FORMER_SSRF_SENTINEL in str(body)
+                else ""
+            )
+            raise ValueError(
+                f"{where}.injection_body_template must contain "
+                f'"{{{TEST_72_PLACEHOLDER_SSRF_URL}}}" exactly once, where the SSRF URL goes '
+                f"(found {count}).{hint}"
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_cross_submodel_coherence(self) -> ToolConfig:

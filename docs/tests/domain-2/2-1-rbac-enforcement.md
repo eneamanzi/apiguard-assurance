@@ -22,7 +22,7 @@ function-level authorization, OWASP API5:2023).
 ## How it works
 
 1. Obtain the `user_a` credential with the configured authentication method (`credentials.auth_type`).
-2. For each path in `admin_endpoint_paths` (default `/api/v1/admin/users`, a Forgejo path), send
+2. For each path in `admin_endpoint_paths` (no default; the Forgejo labs set `/api/v1/admin/users`), send
    `admin_endpoint_method` (default `GET`) with the `user_a` credential, sent as the run's credential placement says
    (Forgejo labs: `Authorization: token <value>`; crAPI: `Authorization: Bearer <value>`).
 3. Oracle per response:
@@ -39,7 +39,7 @@ function-level authorization, OWASP API5:2023).
 |---|---|
 | PASS | No configured admin endpoint returned `2xx`. |
 | FAIL | At least one bypass. |
-| SKIP | No API credentials or no `user_a` token. |
+| SKIP | No admin path configured (`admin_endpoint_paths` empty, the default); no API credentials or no `user_a` credential. |
 | ERROR | Token acquisition failed, or unexpected exception. |
 
 References: CWE-285, OWASP-API5:2023, OWASP-ASVS-v5.0.0-V8.3.1, OWASP-ASVS-v5.0.0-V8.2.2, NIST-SP-800-53-Rev5-AC-3.
@@ -56,8 +56,8 @@ References: CWE-285, OWASP-API5:2023, OWASP-ASVS-v5.0.0-V8.3.1, OWASP-ASVS-v5.0.
 
 ## Configuration
 
-For a target other than Forgejo, set `admin_endpoint_paths` to the target's admin-only endpoints: the default
-path does not exist elsewhere and will be classified as `404` = enforced.
+Set `admin_endpoint_paths` to the target's admin-only endpoints; without them the test returns SKIP. Use paths the
+target has: a path it does not have answers `404`, classified as enforced (Q-29).
 
 ## Coverage against the methodology
 

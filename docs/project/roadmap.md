@@ -6,6 +6,7 @@
 
 - [Legend](#legend)
 - [Tests Overview](#tests-overview)
+- [Since v0.1.0 (unreleased)](#since-v010-unreleased)
 - [MILESTONE 1 - v0.1.0 (released 2026-05-18)](#milestone-1---v010-released-2026-05-18)
   - [Domain 0 - API Discovery \& Inventory](#domain-0---api-discovery--inventory)
   - [Domain 1 - Identity \& Authentication](#domain-1---identity--authentication)
@@ -101,6 +102,18 @@ tests are implemented (Cat B connectors are optional and never count). Guarantee
 | ext.7.4.interactsh | M2 | [ ] |
 
 ---
+
+## Since v0.1.0 (unreleased)
+
+No new test. Infrastructure for production use and integration (details: `CHANGELOG.md`, "Unreleased"):
+
+- interface contract and versioning, secret redaction, console interface, prerequisites between tests
+  (blocks 1-5d);
+- agnosticism (block 7+8, 2026-10-10/14): gateway audits on neutral concepts with the `kong` and `apisix`
+  adapters; authentication methods `basic`, `static_token`, `login`, the credential sent as the specification
+  declares; prepared resources (what the tool creates on the target and how it logs in, in `config.yaml`: no
+  Forgejo code left); tests 2.1, 7.2 and 1.4 without Forgejo defaults; three labs (Forgejo + Kong, crAPI + Kong,
+  Forgejo + APISIX); `config.example.yaml` with every key.
 
 ## MILESTONE 1 - v0.1.0 (released 2026-05-18)
 

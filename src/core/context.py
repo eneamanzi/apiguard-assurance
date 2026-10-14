@@ -49,7 +49,7 @@ from pydantic import AnyHttpUrl, BaseModel, Field, PrivateAttr, computed_field, 
 
 from src.core.auth_placement import CredentialPlacement
 from src.core.gateway.base import BaseGatewayAdapter
-from src.core.models import AttackSurface, RuntimeCredentials
+from src.core.models import AttackSurface, ResourceConfig, RuntimeCredentials
 from src.core.models.external_tools import ExternalToolsConfig
 from src.core.redaction import SecretRegistry
 from src.test_config.runtime import RuntimeTestsConfig
@@ -99,7 +99,7 @@ class TargetContext(BaseModel):
 
     base_url: AnyHttpUrl = Field(
         description=(
-            "Base URL of the target API as exposed through the Kong proxy. "
+            "Base URL of the target API as exposed through the gateway proxy. "
             "All test HTTP requests are constructed relative to this URL. "
             "Example: http://localhost:8000."
         )
@@ -127,7 +127,7 @@ class TargetContext(BaseModel):
     admin_api_url: AnyHttpUrl | None = Field(
         default=None,
         description=(
-            "URL of the Kong Admin API, required by the tests that read the gateway "
+            "URL of the gateway Admin API, required by the tests that read the gateway "
             "configuration. If None, those tests return SKIP with the reason "
             "'Gateway adapter not configured: ...' (BaseTest._requires_admin_api). "
             "Example: http://localhost:8001"
@@ -166,6 +166,14 @@ class TargetContext(BaseModel):
         description=(
             "Immutable credentials for GREY_BOX (P1/P2) test execution. "
             "SECURITY: this field must never appear in log output."
+        ),
+    )
+    resources: dict[str, ResourceConfig] = Field(
+        default_factory=dict,
+        description=(
+            "Prepared resources of config.yaml (resources:), by name: what a test or the "
+            "login method creates on the target and deletes at teardown "
+            "(src/tests/helpers/resources.py)."
         ),
     )
     credential_placement: CredentialPlacement | None = Field(
@@ -455,19 +463,19 @@ class TestContext(BaseModel):
 
     def set_token(self, role: str, token: str) -> None:
         """
-        Store a JWT token for the given role.
+        Store the credential of a role, registered as a secret.
 
-        Called by Domain 1 authentication tests after a successful login.
-        Overwrites any previously stored token for the same role, which is
-        the correct behavior for token rotation scenarios (test 1.4).
+        Called by the authentication methods (src/tests/helpers/auth*.py).
+        Overwrites any previously stored credential for the same role.
 
-        The token value is stored as a raw string WITHOUT the 'Bearer ' prefix.
-        Tests that construct Authorization headers must add the prefix:
-            headers = {"Authorization": f"Bearer {context.get_token(ROLE_ADMIN)}"}
+        The value is stored without any prefix. Tests never build an
+        Authorization header themselves: auth.auth_parts(target, context, role)
+        returns the request parts as the run's credential placement says.
 
         Args:
             role: Role identifier. Use ROLE_* constants from this module.
-            token: Raw JWT token string. Must not be empty.
+            token: The credential (a token, or base64 'user:password' for HTTP
+                   Basic). Must not be empty.
 
         Raises:
             ValueError: If role or token is empty after stripping whitespace.
@@ -547,11 +555,9 @@ class TestContext(BaseModel):
         in the same test, so that cleanup is guaranteed even if a later
         assertion raises an exception that causes execute() to return ERROR.
 
-        The optional headers parameter exists for resources whose DELETE
-        endpoint requires explicit authentication -- specifically Forgejo API
-        tokens, which require Basic Auth from the token owner. For all other
-        Forgejo resources (repositories, issues) where the Gateway forwards
-        the Bearer token automatically, headers should be omitted.
+        The optional headers parameter carries the authentication of the
+        delete request: the credential of the role that created the resource,
+        or HTTP Basic with its account (src/tests/helpers/resources.py).
 
         Args:
             method:  HTTP method for the cleanup request, uppercase.

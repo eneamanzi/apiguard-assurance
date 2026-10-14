@@ -11,11 +11,13 @@ Related pages: [data model](data-model.md) · [assessment model](assessment-mode
 
 **Target knowledge comes from configuration and the OpenAPI specification.** The core pipeline does not contain
 paths or payloads of a specific application: the attack surface is built at runtime from the spec, and
-target-specific values live in `config.yaml`. Two exceptions are deliberate and isolated:
+target-specific values live in `config.yaml`, including what the tool creates on the target and how it logs in
+(prepared resources, `src/tests/helpers/resources.py`; design `docs/project/resources-design.md`). One exception is
+deliberate and isolated:
 
-- **gateway adapters** (`src/core/gateway/`, Kong and APISIX) read the gateway configuration for WHITE_BOX audits;
-- **application helpers** (the `forgejo_token` authentication method in `src/tests/helpers/auth_forgejo.py`,
-  `forgejo_resources.py`) and some test defaults are Forgejo-specific. Which tests depend on them is stated on each [test page](../tests/README.md) (Q-18).
+- **gateway adapters** (`src/core/gateway/`, Kong and APISIX) read the gateway configuration for WHITE_BOX audits.
+
+What each test needs from the target is in [compatibility](../reference/compatibility.md#test-portability).
 
 **Split state.** What is known before execution (`TargetContext`) is immutable; what tests discover or create
 (`TestContext`) is mutable and has a typed interface. A test cannot corrupt the inputs of the others.

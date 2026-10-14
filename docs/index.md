@@ -22,7 +22,7 @@
 | I need… | Go to |
 |---|---|
 | What a test checks, what it needs, what it does to the target | [`tests/`](tests/README.md) |
-| Exact meaning of a config field | [`reference/configuration.md`](reference/configuration.md) |
+| Exact meaning of a config field | [`reference/configuration.md`](reference/configuration.md); every key with its default: [`config.example.yaml`](../config.example.yaml) |
 | Commands and options | [`reference/cli.md`](reference/cli.md) |
 | Exit codes | [`reference/exit-codes.md`](reference/exit-codes.md) |
 | Output files | [`reference/report-schema.md`](reference/report-schema.md), [`reference/evidence-format.md`](reference/evidence-format.md) |

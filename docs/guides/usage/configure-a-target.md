@@ -2,8 +2,8 @@
 
 > **Audience:** users · **Status:** v0.1.0 · **Source of truth:** `src/config/schema/tool_config.py`,
 > `src/config/loader.py`, `src/cli.py`, per-test pages in [`tests/`](../../tests/README.md) · **Verified:** 2026-10-06
-> (minimal configuration run against the lab, native tests only, and `generate-seed`; behaviour on a non-Forgejo target from the cRAPI
-> run recorded in Q-18)
+> (minimal configuration run against the lab, native tests only, and `generate-seed`; behaviour on a non-Forgejo target from the
+> crAPI lab, see [test portability](../../reference/compatibility.md#test-portability))
 
 How to point the tool at your own API. Do this **only against systems you are allowed to test**: the tool sends
 unauthenticated requests to every endpoint, requests with invalid tokens, and SSRF payloads.
@@ -21,12 +21,12 @@ without it those tests return SKIP (a missing precondition, not a pass).
 | Base URL of the API + its OpenAPI specification | 0.1, 0.2, 0.3, 1.1, 1.5, 1.6, 4.1, 6.2, 6.4 (sub-test A) | nothing runs |
 | Accounts: an admin and an ordinary user (`user_a`) | 1.4 (admin, WHITE_BOX), 2.1 and 7.2 (`user_a`, GREY_BOX) | SKIP |
 | Real identifiers of existing resources (`path_seed`) | meaningful results on endpoints with `{parameters}` (mainly 1.1) | those probes end `INCONCLUSIVE_PARAMETRIC` |
-| Gateway Admin API (Kong only) | 3.3, 4.2, 4.3, 6.4 sub-test B | SKIP |
+| Gateway Admin API (Kong or APISIX) | 3.3, 4.2, 4.3, 6.4 sub-test B | SKIP |
 
 ## 1. Create a configuration file
 
-Keep the lab's configuration (`test-environments/forgejo-kong/config.yaml`, every key with its description) as a reference and create a
-separate file for your API, in the repository folder (the name is free, here `my-api.yaml`):
+Keep `config.example.yaml` (repository root: every key with its description and default) as a reference and create
+a separate file for your API, in the repository folder (the name is free, here `my-api.yaml`):
 
 ```yaml
 target:
@@ -90,8 +90,7 @@ specification does not settle it by itself, **how the credential is sent** (`sec
 |---|---|---|
 | `basic` | an API that accepts HTTP Basic | username and password, sent as `Authorization: Basic ...` |
 | `static_token` | an API key or a token you already have | `admin_token`, `user_a_token`, `user_b_token` (from `.env`) |
-| `json_login` | an API with a JSON login endpoint | posts username and password to `login_endpoint`, reads the token from the response |
-| `forgejo_token` | Forgejo and Gitea | `POST /api/v1/users/{username}/tokens` with Basic Auth; the tokens are deleted at the end of the run |
+| `login` | an API that gives a token in exchange for a login request (a JSON login, a token API) | sends the request of a [prepared resource](../../reference/configuration.md#resources) named in `login_resource` and reads the token from its response; with a delete request, the tokens are deleted at the end of the run and test 1.4 can revoke one |
 
 How the credential is sent comes from the security schemes your specification declares:
 
@@ -103,30 +102,41 @@ How the credential is sent comes from the security schemes your specification de
 
 `apiguard validate-config` reads the specification and prints where the credentials will be sent.
 
-Example for `json_login` (from `test-environments/crapi-kong/config.yaml`, where the login takes an email and
-returns `{"token": "..."}`, and the specification declares one bearer scheme):
+Example of a JSON login (from `test-environments/crapi-kong/config.yaml`, where the login takes an email and returns
+`{"token": "..."}`, and the specification declares one bearer scheme). The placeholders `{username}` and
+`{password}` are the account of each role, and must be quoted:
 
 ```yaml
 credentials:
-  auth_type: json_login
-  login_endpoint: "/identity/api/auth/login"
-  username_body_field: email
-  password_body_field: password
-  token_response_path: "token"
+  auth_type: login
+  login_resource: api-login
   admin_username: "${MYAPI_ADMIN_USER}"
   admin_password: "${MYAPI_ADMIN_PASSWORD}"
   user_a_username: "${MYAPI_USER_A}"
   user_a_password: "${MYAPI_USER_A_PASSWORD}"
   user_b_username: "${MYAPI_USER_B}"
   user_b_password: "${MYAPI_USER_B_PASSWORD}"
+
+resources:
+  api-login:
+    create:
+      path: /identity/api/auth/login
+      auth: none
+      body:
+        email: "{username}"
+        password: "{password}"
+    values:
+      credential: token          # where the token is in the response
 ```
 
-Example for `forgejo_token` (from `test-environments/forgejo-kong/config.yaml`: Forgejo declares several schemes,
-and its token header needs the `token ` prefix):
+Example of a token API (from `test-environments/forgejo-kong/config.yaml`: Forgejo creates tokens with HTTP Basic,
+declares several schemes, and its token header needs the `token ` prefix). The delete request removes each token at
+the end of the run and lets test 1.4 revoke one:
 
 ```yaml
 credentials:
-  auth_type: forgejo_token
+  auth_type: login
+  login_resource: forgejo-token
   security_scheme: AuthorizationHeaderToken
   send_as:
     prefix: "token "
@@ -134,6 +144,21 @@ credentials:
   admin_password: "${ADMIN_PASSWORD}"
   user_a_username: "${USER_A_USERNAME}"
   user_a_password: "${USER_A_PASSWORD}"
+
+resources:
+  forgejo-token:
+    create:
+      path: "/api/v1/users/{username}/tokens"
+      auth: basic
+      body:
+        name: "apiguard-{random}"
+        scopes: ["read:repository", "read:user", "write:repository", "write:user"]
+    values:
+      credential: sha1
+      id: id
+    delete:
+      path: "/api/v1/users/{username}/tokens/{id}"
+      auth: basic
 ```
 
 Example for `static_token` with an API key in a header the specification does not declare:
@@ -179,9 +204,10 @@ Only fill in what you can: the more parameters point to real resources, the fewe
 credentials to the seeded resources: on a correctly protected API they are rejected, but if authentication is
 missing on that endpoint the resource is deleted.
 
-## 5. Gateway Admin API (optional, Kong only)
+## 5. Gateway Admin API (optional: Kong or APISIX)
 
-If the API is behind **Kong** and you can reach its Admin API, the configuration-audit tests can run:
+If the API is behind **Kong** or **Apache APISIX** and you can reach its Admin API, the configuration-audit tests
+can run:
 
 ```yaml
 target:
@@ -189,8 +215,20 @@ target:
   gateway_adapter: kong
 ```
 
-Both keys are needed. `kong` is the only supported adapter; with another gateway leave both out and those tests
-return SKIP (Q-38, Q-43).
+For APISIX the Admin API needs a key (a key of role `viewer`, GET only, is enough), and the live health of the
+backends is read from its Control API:
+
+```yaml
+target:
+  admin_api_url: "http://127.0.0.1:9180"
+  admin_api_headers:
+    X-API-KEY: "${APISIX_VIEWER_KEY}"
+  health_api_url: "http://127.0.0.1:9090"
+  gateway_adapter: apisix
+```
+
+`admin_api_url` and `gateway_adapter` are both needed; with another gateway leave them out and those tests return
+SKIP. A complete example: `test-environments/forgejo-apisix/config.yaml`.
 
 ## 6. Settings that assume Forgejo or Kong
 
@@ -198,14 +236,15 @@ Some test defaults are written for the lab. On another target review them:
 
 | Test | Setting | What to do on another target |
 |---|---|---|
-| 7.2 | `injection_mode: forgejo_webhook` (creates a Forgejo repository and a webhook) | set `injection_mode: fixed_path` and `injection_path_template`, `injection_url_field`, `injection_body_template` to an endpoint of your API that accepts a URL ([reference](../../reference/configuration.md#testsdomain_7test_7_2---ssrf-prevention)) |
-| 2.1 | `admin_endpoint_paths` defaults to Forgejo admin paths | list admin-only endpoints of your API; on a target without those paths a `404` is counted as enforced, so the test can PASS without testing anything |
-| 1.4 | needs a method that can revoke a credential: only `forgejo_token` | SKIP "Not applicable" with any other `auth_type` |
+| 7.2 | no injection endpoint by default: SKIP until configured | set `injection_path_template` and `injection_body_template` (with `"{ssrf_url}"`) to an endpoint of your API that accepts a URL; if the endpoint belongs to an object that must exist first, add a [prepared resource](../../reference/configuration.md#resources) and name it in `injection_resource` ([reference](../../reference/configuration.md#testsdomain_7test_7_2---ssrf-prevention)) |
+| 2.1 | no admin path by default: SKIP until configured | list admin-only endpoints of your API; a path your API does not have answers `404`, counted as enforced, so the test can PASS without testing anything |
+| 1.4 | needs `auth_type: login` with a login resource that has a delete request, and `verify_request` | SKIP "Not applicable" otherwise; SKIP without `verify_request` |
 | 0.2, 6.4 | Kong-specific server identifiers and block message | review [`tests.domain_0.test_0_2`](../../reference/configuration.md#testsdomain_0test_0_2---deny-by-default) and [`tests.domain_6.test_6_4`](../../reference/configuration.md#testsdomain_6test_6_4---hardcoded-credentials-audit) |
 
-Measured on cRAPI on 2026-10-06 (no gateway, `jwt_login`, now `json_login`, 7.2 in `fixed_path` mode): 0.1, 0.2, 0.3, 1.1, 1.5, 1.6, 4.1, 6.2 and
+Measured on cRAPI on 2026-10-06 (no gateway, `jwt_login`, now a `login` resource, 7.2 posting to a fixed path): 0.1, 0.2, 0.3, 1.1, 1.5, 1.6, 4.1, 6.2 and
 6.4 ran normally, 7.2 worked, 2.1 passed only because the Forgejo admin paths do not exist there, 1.4 returned ERROR,
-3.3, 4.2 and 4.3 returned SKIP (Q-18). Making the tool fully independent of Forgejo and Kong is an open decision
+3.3, 4.2 and 4.3 returned SKIP. The current behaviour on the three labs is in
+[test portability](../../reference/compatibility.md#test-portability). Making the tool fully independent of Forgejo and Kong is an open decision
 (Q-43).
 
 ## Effects on the target
@@ -216,10 +255,10 @@ The tool is not read-only. Before the first run on a system that matters, know w
 | Test | Effect |
 |---|---|
 | 1.1 | `POST`/`PUT`/`PATCH`/`DELETE` without credentials on every protected endpoint, including the `path_seed` resources |
-| 1.4 | creates and deletes an API token on the admin account |
+| 1.4 | creates a credential with the login resource on the admin account and revokes it |
 | 2.1 | sends the configured method with a `user_a` token (default `GET`, read-only) |
 | 4.1 | up to 300 requests in a burst against one endpoint: it can trip the rate limit for the tool's IP |
-| 7.2 | `fixed_path`: up to 73 `POST` requests with a valid token; on a vulnerable API each may create an object that is **not removed** afterwards |
+| 7.2 | up to 73 `POST` requests with a valid token. With `injection_resource` the resource is deleted at teardown, and objects created under it usually go with it (Forgejo webhooks); without it, on a vulnerable API each request may create an object that is **not removed** afterwards |
 
 ## 7. First run
 

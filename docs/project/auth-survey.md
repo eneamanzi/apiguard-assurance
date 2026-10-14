@@ -95,6 +95,10 @@ a default). OAuth 2.0 client credentials, session cookie and mutual TLS when a l
 
 ## 5. Decisions
 
+> Superseded in part by Phase E (2026-10-14, [`resources-design.md`](resources-design.md)): `json_login` and
+> `forgejo_token` became one method, `login`, whose request is a prepared resource of `config.yaml`; the revocation
+> of test 1.4 is the resource's delete request. The decisions below are kept as the record of 2026-10-11/12.
+
 - 2026-10-11 (owner): direction accepted: an authentication method component with two responsibilities, obtain and
   apply; first set static credential, HTTP Basic, JSON login, Forgejo token API (not a default). OAuth 2.0 client
   credentials, session cookie and mutual TLS stay in view: the design must let them be added later with little

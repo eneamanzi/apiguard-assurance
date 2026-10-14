@@ -433,7 +433,9 @@ def _describe_validation_error(error: ErrorDetails) -> str:
     Render one Pydantic validation error as '<dotted.path>: <message>'.
 
     An unknown key (extra="forbid") is reported as 'unknown key', with the
-    closest key declared at the same level when one is similar enough.
+    closest key declared at the same level when one is similar enough. An
+    error of the whole configuration (a check across sections) has no path:
+    its message names the keys.
 
     Args:
         error: One entry of ValidationError.errors().
@@ -443,7 +445,9 @@ def _describe_validation_error(error: ErrorDetails) -> str:
     """
     loc: tuple[str | int, ...] = tuple(error["loc"])
     dotted_path = ".".join(str(part) for part in loc)
-    if error["type"] != _PYDANTIC_EXTRA_FORBIDDEN or not loc:
+    if not loc:
+        return str(error["msg"])
+    if error["type"] != _PYDANTIC_EXTRA_FORBIDDEN:
         return f"{dotted_path}: {error['msg']}"
 
     suggestion = closest_match(str(loc[-1]), _known_keys_at(loc[:-1]), _KEY_SUGGESTION_CUTOFF)
@@ -456,8 +460,10 @@ def _known_keys_at(loc: tuple[str | int, ...]) -> list[str]:
     """
     Return the keys the schema declares at a location of config.yaml.
 
-    Walks ToolConfig field by field along loc. Returns an empty list when the
-    location is not a model (e.g. a free-form mapping such as path_seed).
+    Walks ToolConfig field by field along loc. In a mapping of names to a
+    model (resources), the name is chosen by the user and the walk continues
+    in the model. Returns an empty list when the location is not a model
+    (e.g. a free-form mapping such as path_seed).
 
     Args:
         loc: Location of the mapping, as in a Pydantic error 'loc'.
@@ -467,17 +473,46 @@ def _known_keys_at(loc: tuple[str | int, ...]) -> list[str]:
         field's alias when it has one, e.g. 'in' for send_as.location).
     """
     model: type[BaseModel] | None = ToolConfig
+    # Model of the entries when the previous part was a name -> model mapping.
+    entry_model: type[BaseModel] | None = None
     for part in loc:
+        if entry_model is not None:
+            model, entry_model = entry_model, None  # 'part' is a name chosen by the user
+            continue
         if model is None:
             return []
         fields = {field.alias or name: field for name, field in model.model_fields.items()}
         field = fields.get(str(part))
         if field is None:
             return []
-        model = _model_in_annotation(field.annotation)
+        entry_model = _mapping_entry_model(field.annotation)
+        model = None if entry_model is not None else _model_in_annotation(field.annotation)
     if model is None:
         return []
     return [field.alias or name for name, field in model.model_fields.items()]
+
+
+def _mapping_entry_model(annotation: object) -> type[BaseModel] | None:
+    """
+    Return the model of the values of a mapping annotation (dict[str, Model]).
+
+    Handles wrappers such as Optional[...] and Annotated[...].
+
+    Args:
+        annotation: A field annotation from model_fields.
+
+    Returns:
+        The model of the mapping's values, or None when the annotation is not
+        a mapping of names to a model (e.g. dict[str, str]).
+    """
+    if typing.get_origin(annotation) is dict:
+        arguments = typing.get_args(annotation)
+        return _model_in_annotation(arguments[-1]) if arguments else None
+    for argument in typing.get_args(annotation):
+        model = _mapping_entry_model(argument)
+        if model is not None:
+            return model
+    return None
 
 
 def _model_in_annotation(annotation: object) -> type[BaseModel] | None:

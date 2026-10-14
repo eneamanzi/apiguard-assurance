@@ -2,7 +2,9 @@
 
 > **Audience:** analysts, contributors · **Status:** implemented (v0.1.0) · **Source of truth:**
 > [`src/tests/domain_7/test_7_2_ssrf_prevention.py`](../../../src/tests/domain_7/test_7_2_ssrf_prevention.py),
-> [`src/tests/data/ssrf_payloads.py`](../../../src/tests/data/ssrf_payloads.py) · **Verified:** 2026-10-05
+> [`src/tests/data/ssrf_payloads.py`](../../../src/tests/data/ssrf_payloads.py),
+> [`src/tests/helpers/resources.py`](../../../src/tests/helpers/resources.py) · **Verified:** 2026-10-14 (injection
+> endpoint and prepared resource), 2026-10-05
 
 | | |
 |---|---|
@@ -24,12 +26,13 @@ addresses, ambiguous URLs.
 
 1. Obtain the `user_a` credential with the configured authentication method (`credentials.auth_type`); every
    request sends it as the run's credential placement says.
-2. Prepare the injection endpoint according to `injection_mode`:
-   - `forgejo_webhook` (default): create a temporary repository (registered for teardown) and post to
-     `POST /api/v1/repos/{owner}/{repo}/hooks`. Webhooks are created inactive and are removed with the repository.
-   - `fixed_path`: post directly to `injection_path_template`, for any other target.
-3. For each payload in the enabled `payload_categories`, put the URL in `injection_url_field` of
-   `injection_body_template` and send the request with the user token.
+2. Prepare the injection endpoint (`injection_path_template` and `injection_body_template`; no default: unset, the
+   test returns SKIP). With `injection_resource`, the [prepared resource](../../reference/configuration.md#resources)
+   is created once for `user_a` (deletion registered for teardown) and its values fill the placeholders of the path
+   and the body. On the Forgejo labs it is a repository and the path is `/api/v1/repos/{owner}/{repo}/hooks`;
+   webhooks are created inactive and go with the repository. Without it the path is used as written (crAPI).
+3. For each payload in the enabled `payload_categories`, `POST` the body with `"{ssrf_url}"` replaced by the payload
+   URL (and `"{random_secret}"` by a fresh random value, masked as a secret) with the `user_a` credential.
 
 Payloads (73 in total, `src/tests/data/ssrf_payloads.py`):
 
@@ -64,25 +67,27 @@ Oracle per response:
 |---|---|
 | PASS | Every payload rejected. InfoNotes for timeouts and for the skipped redirect sub-test. |
 | FAIL | At least one payload accepted. The result carries **one consolidated finding** stating how many payloads were accepted; per-payload detail is in the transaction log and `evidence.json`. |
-| SKIP | No API credentials or no `user_a` token; no payload category enabled; or `forgejo_webhook` mode on a target where the repository cannot be created (message suggests `fixed_path`). |
-| ERROR | Token acquisition failed, or unexpected exception. |
+| SKIP | No injection endpoint configured (the default); no API credentials or no `user_a` credential; no payload category enabled. |
+| ERROR | Token acquisition failed; the `injection_resource` could not be created (the message names the resource, the request and the status); or unexpected exception. |
 
 References: OWASP-API7:2023, CWE-918, OWASP-ASVS-v5.0.0-V1.3.6, NIST-SP-800-204-S3.2.2.
 
 ## Prerequisites and effects on the target
 
 - `user_a` username and password.
-- `forgejo_webhook`: creates one repository and up to 73 inactive webhooks; teardown deletes the repository.
-- `fixed_path`: **nothing is registered for teardown**. On a vulnerable target each accepted payload may create
-  a persistent object (the request is a real `POST` with a valid token); remove them manually.
+- With `injection_resource` (Forgejo labs): creates one resource, a repository, and up to 73 inactive webhooks on
+  it; teardown deletes the repository, and the webhooks with it.
+- Without it: **nothing is registered for teardown**. On a vulnerable target each accepted payload may create a
+  persistent object (the request is a real `POST` with a valid token); remove them manually.
 - The test only checks whether the URL is **accepted**. It does not observe an outbound request from the server
   (no out-of-band callback).
 
 ## Configuration
 
-For a non-Forgejo target set `injection_mode: fixed_path`, `injection_path_template`, `injection_url_field` and
-`injection_body_template` for the target's URL-accepting endpoint (example for cRAPI in
-[`test-environments/crapi-kong/config.yaml`](../../../test-environments/crapi-kong/config.yaml)). Adjust the keyword lists to the target's error messages so
+Set `injection_path_template` and `injection_body_template` (with `"{ssrf_url}"`), and `injection_resource` when the
+endpoint belongs to an object that must exist first, for the target's URL-accepting endpoint: Forgejo webhooks on the
+resource `repository` in [`test-environments/forgejo-kong/config.yaml`](../../../test-environments/forgejo-kong/config.yaml),
+cRAPI's fixed path in [`test-environments/crapi-kong/config.yaml`](../../../test-environments/crapi-kong/config.yaml). Adjust the keyword lists to the target's error messages so
 that rejections are classified precisely. `ssrf_request_timeout_ms` has no effect (Q-24).
 
 ## Coverage against the methodology

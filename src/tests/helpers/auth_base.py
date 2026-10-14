@@ -10,10 +10,11 @@ the method's business: TargetContext.credential_placement decides it for every
 method (src/core/auth_placement.py), and auth.auth_parts() applies it.
 
 A method may also be able to revoke a credential (RevocableAuthMethod): create
-a temporary credential and revoke it, used by test 1.4. Only forgejo_token
-can today; a method without the capability makes 1.4 SKIP.
+a temporary credential and revoke it, used by test 1.4. Whether it can may
+depend on the configuration (login: its resource has a delete request), so
+the method answers can_revoke(target); without the capability 1.4 SKIPs.
 
-Design: docs/project/auth-survey.md, section 5.
+Design: docs/project/auth-survey.md, section 5; docs/project/resources-design.md.
 
 Dependency rule: imports from stdlib, pydantic, src.core only.
 """
@@ -102,15 +103,19 @@ class AuthMethod(ABC):
 
 
 class TemporaryCredential(BaseModel):
-    """A credential created to be revoked (test 1.4)."""
+    """
+    A credential created to be revoked (test 1.4).
+
+    A method that needs more to revoke it (e.g. the resource it came from)
+    returns a subclass of its own.
+    """
 
     model_config = {"frozen": True}
 
-    value: str = Field(min_length=1, description="The credential; registered as a secret.")
-    name: str = Field(min_length=1, description="Name the credential was created with.")
-    revoke_path: str = Field(
-        min_length=1, description="Request path that revokes it (method-specific)."
+    value: str = Field(
+        min_length=1, repr=False, description="The credential; registered as a secret."
     )
+    role: str = Field(description="The role whose account created it (a ROLE_* constant).")
     create_record: EvidenceRecord = Field(description="The creation request and response.")
 
 
@@ -133,13 +138,21 @@ class RevocableAuthMethod(AuthMethod):
     """
 
     @abstractmethod
+    def can_revoke(self, target: TargetContext) -> bool:
+        """
+        True when the method, as configured, can revoke a credential.
+
+        Args:
+            target: The current TargetContext (configuration).
+        """
+
+    @abstractmethod
     def create_temporary_credential(
         self,
         target: TargetContext,
         context: TestContext,
         client: SecurityClient,
         role: str,
-        name: str,
         test_id: str,
     ) -> TemporaryCredential:
         """
@@ -150,7 +163,6 @@ class RevocableAuthMethod(AuthMethod):
             context: The TestContext (secrets, teardown).
             client:  The SecurityClient.
             role:    A ROLE_* constant whose account creates the credential.
-            name:    Name to create it with.
             test_id: Test the requests are attributed to.
 
         Returns:
@@ -166,9 +178,9 @@ class RevocableAuthMethod(AuthMethod):
     def revoke_credential(
         self,
         target: TargetContext,
+        context: TestContext,
         client: SecurityClient,
         credential: TemporaryCredential,
-        role: str,
         test_id: str,
     ) -> RevocationOutcome:
         """
@@ -176,15 +188,16 @@ class RevocableAuthMethod(AuthMethod):
 
         Args:
             target:     The current TargetContext.
+            context:    The TestContext (the role's credential, secrets).
             client:     The SecurityClient.
-            credential: The credential to revoke.
-            role:       The role whose account created it.
+            credential: The credential to revoke (it carries its role).
             test_id:    Test the request is attributed to.
 
         Returns:
             The outcome, with the request record.
 
         Raises:
-            AuthenticationSetupError: When the role has no account.
+            AuthenticationSetupError: When the credential cannot be revoked as
+                configured.
             SecurityClientError: On a transport failure.
         """

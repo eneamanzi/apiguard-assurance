@@ -156,7 +156,8 @@ plain SSH, connect with `ssh -L 8080:localhost:8080 <host>`.
 - **Known limits that produce misleading findings:**
   - 1.5 reports a false FAIL if `http_probe_url` is not set on an HTTPS port that is not 443
     ([configure a target](configure-a-target.md#2-tls)).
-  - 2.1 on a non-Forgejo target with the default `admin_endpoint_paths` can PASS without testing anything (Q-18).
+  - 2.1 counts a `404` as enforced: an `admin_endpoint_paths` entry your API does not have gives PASS without
+    testing anything (Q-29).
 - **Counts depend on the target's data.** More real resources in `path_seed` move probes from inconclusive to
   conclusive, and can change the number of findings.
 
