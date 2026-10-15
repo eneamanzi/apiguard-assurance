@@ -3,7 +3,7 @@
 #
 # The labs' certificate authority and the certificates it signs (LAB USE ONLY).
 # Run by the one-shot "pki" service of every lab before its gateway starts
-# (docs/project/connections-design.md, 5.8); the folder is shared by the three
+# (docs/architecture/design-decisions.md, D4); the folder is shared by the three
 # labs, as one company authority signs every service.
 #
 #   ca.crt, ca.key          the lab authority (10 years)

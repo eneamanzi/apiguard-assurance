@@ -97,7 +97,7 @@ not needed.
 
 | Gap | Question |
 |---|---|
-| No password-protected client key, no certificate pinning, no minimum TLS version per connection (design boundaries, `docs/project/connections-design.md` section 4) | - |
+| No password-protected client key, no certificate pinning, no minimum TLS version per connection ([design decisions, D2](design-decisions.md#d2-certificate-trust-per-connection)) | - |
 | Unauthenticated write requests and leftover objects on the target | Q-30 |
 | sslyze dependency is AGPL v3 | Q-11 |
 

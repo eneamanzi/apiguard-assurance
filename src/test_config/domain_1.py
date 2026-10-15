@@ -35,7 +35,7 @@ TEST_11_MAX_ENDPOINTS_CAP_MIN: int = 0
 TEST_14_VERIFY_METHODS: tuple[str, ...] = ("GET", "POST", "PUT", "PATCH", "DELETE")
 TEST_14_VERIFY_METHOD_DEFAULT: str = "GET"
 
-# Key removed in Phase E (docs/project/resources-design.md, 5.5), rejected with
+# Key removed in Phase E (docs/architecture/design-decisions.md, D6), rejected with
 # the new form: the temporary credential now comes from the login resource,
 # with a random name.
 _TEST_14_REMOVED_KEYS: dict[str, str] = {

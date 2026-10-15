@@ -35,7 +35,7 @@ Credential patterns: URL-embedded `user:password@host`, AWS access key id (`AKIA
 GitHub `ghp_` token, PEM private key.
 
 **Sub-test B, gateway configuration (only with a gateway adapter).** The test reads the gateway concept
-"configuration values" ([gateway concepts](../../project/gateway-concepts.md)): backend URLs and the text values of
+"configuration values" ([gateway concepts](../../architecture/design-decisions.md#d7-neutral-gateway-concepts)): backend URLs and the text values of
 the plugin configurations, each with its location and dotted key. Client credentials (values the gateway keeps for
 its clients) are not scanned. On Kong DB-less no backend URL is returned and strings inside lists are not collected,
 so sub-test B finds nothing on the labs (Q-29).

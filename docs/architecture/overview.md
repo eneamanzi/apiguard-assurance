@@ -13,7 +13,7 @@ Related pages: [data model](data-model.md) · [assessment model](assessment-mode
 **Target knowledge comes from configuration and the OpenAPI specification.** The core pipeline does not contain
 paths or payloads of a specific application: the attack surface is built at runtime from the spec, and
 target-specific values live in `config.yaml`, including what the tool creates on the target and how it logs in
-(prepared resources, `src/tests/helpers/resources.py`; design `docs/project/resources-design.md`). One exception is
+(prepared resources, `src/tests/helpers/resources.py`; design [D6](design-decisions.md#d6-prepared-resources)). One exception is
 deliberate and isolated:
 
 - **gateway adapters** (`src/core/gateway/`, Kong and APISIX) read the gateway configuration for WHITE_BOX audits.
@@ -160,7 +160,7 @@ download, and the gateway adapter (Admin API, health interface). `certificate_fa
 port), into a message naming the key to set. Before the first test the engine sends one request to the API
 (`_preflight`, recorded as test `preflight`): a TLS problem stops the run once (exit 10) instead of failing every
 test. The report states how each connection was trusted (`ReportData.connections`, `src/report/builder.py`). Design:
-`docs/project/connections-design.md`; security aspects: [security model](security-model.md).
+[design decisions D1-D3](design-decisions.md#d1-configuration-organised-by-connection); security aspects: [security model](security-model.md).
 
 **Gateway adapters** (`src/core/gateway/`). `BaseGatewayAdapter` exposes one reader per neutral concept
 (`backend_timeouts`, `circuit_breakers`, `health_checks`, `target_health`, `signing_policies`, `routes`,

@@ -108,7 +108,7 @@ class KongGatewayAdapter(BaseGatewayAdapter):
         return "kong"
 
     # ------------------------------------------------------------------
-    # Neutral concepts (docs/project/gateway-concepts.md)
+    # Neutral concepts (docs/architecture/design-decisions.md, D7)
     # ------------------------------------------------------------------
 
     def _read_backend_timeouts(self) -> ConceptRead[BackendTimeout]:

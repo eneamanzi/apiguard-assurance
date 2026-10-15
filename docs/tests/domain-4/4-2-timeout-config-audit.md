@@ -22,7 +22,7 @@ that a slow backend cannot hold gateway workers indefinitely.
 ## How it works
 
 No request is sent to the target API. The test reads the gateway concept "backend timeouts" through the gateway
-adapter ([gateway concepts](../../project/gateway-concepts.md)): one item per backend (a Kong service), or per route
+adapter ([gateway concepts](../../architecture/design-decisions.md#d7-neutral-gateway-concepts)): one item per backend (a Kong service), or per route
 that overrides its backend's timeouts (APISIX), in seconds. For each item it checks the connect, read and write
 timeouts (`write_timeout` is the time between two writes to the backend):
 

@@ -38,7 +38,7 @@ _read_<concept>() method, later calls in the same run return the same answer
 (one adapter per run, so a concept is read once per run), and a
 GatewayAdapterError becomes "not accessible" with its message. A concrete
 adapter overrides the _read_<concept>() methods it can serve; the others answer
-"not supported by this adapter". Design: docs/project/gateway-concepts.md.
+"not supported by this adapter". Design: docs/architecture/design-decisions.md, D7.
 
 Construction and transport
 --------------------------

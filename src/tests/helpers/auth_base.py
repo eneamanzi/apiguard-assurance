@@ -14,7 +14,7 @@ a temporary credential and revoke it, used by test 1.4. Whether it can may
 depend on the configuration (login: its resource has a delete request), so
 the method answers can_revoke(target); without the capability 1.4 SKIPs.
 
-Design: docs/project/auth-survey.md, section 5; docs/project/resources-design.md.
+Design: docs/architecture/design-decisions.md, D5 and D6.
 
 Dependency rule: imports from stdlib, pydantic, src.core only.
 """

@@ -9,7 +9,7 @@ The per-test parameters are not here: they live in src/test_config/ (one
 model per test, the same model that validates config.yaml) and reach the
 tests through TargetContext.tests_config (src/test_config/runtime.py).
 
-Authentication is decided in two parts (docs/project/auth-survey.md):
+Authentication is decided in two parts (docs/architecture/design-decisions.md, D5):
     auth_type      how a credential is obtained (the method);
     security_scheme / send_as
                    where and how it is sent; completed with the schemes the
@@ -49,7 +49,7 @@ class CredentialLocation(StrEnum):
 
 
 # auth_type values replaced by 'login' with a prepared resource (Phase E,
-# docs/project/resources-design.md 5.4): v0.1.0 had jwt_login and forgejo_token,
+# docs/architecture/design-decisions.md D6): v0.1.0 had jwt_login and forgejo_token,
 # json_login existed only before the Phase E release. Rejected with the new form.
 _REPLACED_AUTH_TYPES: frozenset[str] = frozenset({"jwt_login", "json_login", "forgejo_token"})
 # Keys of json_login replaced by the login resource's create request and values.

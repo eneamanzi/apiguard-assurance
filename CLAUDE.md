@@ -23,6 +23,7 @@ in `docs/reference/compatibility.md` (Test portability).
 | What is implemented, milestones | `docs/project/roadmap.md` (single source of truth) |
 | Pipeline, modules, dependencies, components | `docs/architecture/overview.md` |
 | Data models, assessment model, security model | `docs/architecture/data-model.md`, `assessment-model.md`, `security-model.md` |
+| Why a design choice was made (decisions D1-D7) | `docs/architecture/design-decisions.md` |
 | Coding rules (English) | `docs/guides/extending/coding-rules.md` |
 | Adding a native test / external test / gateway adapter | `docs/guides/extending/add-a-native-test.md`, `add-an-external-test.md`, `add-a-gateway-adapter.md` |
 | What each test does, its oracle, its effects on the target | `docs/tests/` (index `docs/tests/README.md`) |
@@ -30,7 +31,6 @@ in `docs/reference/compatibility.md` (Test portability).
 | Methodology (guarantees, oracles, box gradient), Italian | `docs/knowledge/methodology/methodology.it.md` |
 | Thesis implementation chapter (superseded by `docs/architecture/`), Italian | `docs/knowledge/archive/implementation-chapter.it.md` |
 | Original coding rules and workflow protocol, Italian | `docs/project/claude-rules.it.md` |
-| Old-to-new documentation mapping | `docs/project/docs-inventory.md` |
 
 `*.it.md` files are Italian sources pending selective translation.
 

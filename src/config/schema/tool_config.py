@@ -23,7 +23,7 @@ Design notes preserved from the original schema.py:
     __pydantic_private__ which is the only mutable slot on a frozen model by
     design.
 
-    Configuration by connection (docs/project/connections-design.md)
+    Configuration by connection (docs/architecture/design-decisions.md, D1)
     ----------------------------------------------------------------
     Every party the tool talks to is a section with its own settings:
         target         the API under test (base_url, timeouts, retries);
@@ -91,8 +91,8 @@ RETRY_MAX_ATTEMPTS_MAX: int = 10
 # Test 7.2's URL placeholder before Phase E, named in the error that rejects it.
 _FORMER_SSRF_SENTINEL: str = "$SSRF_URL$"
 
-# Keys moved by the configuration by connection (docs/project/connections-design.md,
-# 5.1 and 5.2), rejected with their new place.
+# Keys moved by the configuration by connection (docs/architecture/design-decisions.md,
+# D1), rejected with their new place.
 _MOVED_TARGET_KEYS: dict[str, str] = {
     "openapi_spec_url": "specification.url",
     "openapi_spec_path": "specification.path",
@@ -182,7 +182,7 @@ class TargetConfig(BaseModel):
 
     The requests of every test go to base_url. Connection settings (timeouts,
     retries, certificate check) are those of this connection only
-    (docs/project/connections-design.md).
+    (docs/architecture/design-decisions.md, D1).
     """
 
     model_config = {"frozen": True, "extra": "forbid"}
@@ -676,7 +676,7 @@ class ToolConfig(BaseModel):
             "Prepared resources: what the tool creates on the target and deletes at the end "
             "of the run, by name (letters, digits, '_', '-'). Each has a create request, values "
             "taken from its JSON response and an optional delete request "
-            "(src/core/models/resources.py, docs/project/resources-design.md)."
+            "(src/core/models/resources.py, docs/architecture/design-decisions.md D6)."
         ),
     )
     execution: ExecutionConfig = Field(
@@ -728,7 +728,7 @@ class ToolConfig(BaseModel):
 
         It must be defined, have the value 'credential' (the token) and not
         authenticate its create request with the credential it obtains
-        (docs/project/resources-design.md, 5.4 and 5.8).
+        (docs/architecture/design-decisions.md, D6).
         """
         name = self.credentials.login_resource
         if name is None:
@@ -759,8 +759,8 @@ class ToolConfig(BaseModel):
 
         injection_resource must name a resource; the path may use its values;
         the body must hold {ssrf_url} exactly once and may use {random_secret}
-        and the resource's values, in quotes (docs/project/resources-design.md,
-        5.6 and 5.8).
+        and the resource's values, in quotes (docs/architecture/design-decisions.md,
+        D6).
         """
         cfg = self.tests.domain_7.test_7_2
         where = "tests.domain_7.test_7_2"

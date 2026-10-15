@@ -178,7 +178,7 @@ class TargetContext(BaseModel):
         description=(
             "Path of target.tls.ca_bundle, when set: the authority the external TLS tools "
             "(testssl.sh --add-ca, sslyze custom_ca_file) trust in addition to theirs, and "
-            "the report states it (connections-design 5.6)."
+            "the report states it (design-decisions D2)."
         ),
     )
     path_seed: dict[str, str] = Field(

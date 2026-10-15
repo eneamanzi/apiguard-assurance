@@ -22,7 +22,7 @@ replay (unlimited or too wide `clock_skew`) and must not accept weak algorithms 
 ## How it works
 
 No request is sent to the target API: the test reads the gateway concepts "request signing policies" and "routes"
-through the adapter (`target.gateway`, [gateway concepts](../../project/gateway-concepts.md)). On Kong the policies
+through the adapter (`target.gateway`, [gateway concepts](../../architecture/design-decisions.md#d7-neutral-gateway-concepts)). On Kong the policies
 are the plugins whose name is in `plugin_names` (default `hmac-auth`), read with the field names of this test's
 configuration; `<policy>` below is the policy's reference, on Kong `plugin <name> (id: <id>)`.
 

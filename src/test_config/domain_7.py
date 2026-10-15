@@ -145,7 +145,7 @@ TEST_72_UNSUPPORTED_SCHEME_KEYWORDS_DEFAULT: list[str] = [
 TEST_72_PLACEHOLDER_SSRF_URL: str = "ssrf_url"
 TEST_72_PLACEHOLDER_RANDOM_SECRET: str = "random_secret"  # noqa: S105 -- a placeholder name
 
-# Keys removed in Phase E (docs/project/resources-design.md, 5.6), rejected with
+# Keys removed in Phase E (docs/architecture/design-decisions.md, D6), rejected with
 # the new form.
 _TEST_72_REMOVED_KEYS: dict[str, str] = {
     "injection_mode": (

@@ -4,7 +4,7 @@ src/tests/helpers/auth_login.py
 The login authentication method: the credential comes from a prepared resource.
 
 credentials.login_resource names a resource of config.yaml (resources:) that
-logs in for a role (docs/project/resources-design.md, 5.4):
+logs in for a role (docs/architecture/design-decisions.md, D6):
 
     create   the login request, e.g. a JSON login (auth: none, the account in
              the body as "{username}" and "{password}") or a token API

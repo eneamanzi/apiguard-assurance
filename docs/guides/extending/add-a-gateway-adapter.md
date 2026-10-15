@@ -8,7 +8,7 @@
 A gateway adapter gives the WHITE_BOX audit tests read-only access to the gateway's configuration. Tests use it as
 `target.gateway` (`None` when no adapter is configured) and never see the gateway's own objects: they read
 **neutral concepts**, and the adapter translates. Design and field mappings: [gateway
-concepts](../../project/gateway-concepts.md).
+concepts](../../architecture/design-decisions.md#d7-neutral-gateway-concepts).
 
 ## The contract (`BaseGatewayAdapter`)
 
@@ -78,7 +78,7 @@ Rules:
 2. **Register** it in `GATEWAY_ADAPTERS` (`src/core/gateway/__init__.py`): the configuration schema accepts its name
    and the engine builds it from there.
 3. **Document:** `docs/reference/configuration.md` (`gateway.adapter` values), `docs/reference/compatibility.md`,
-   and the mapping of each concept in `docs/project/gateway-concepts.md`.
+   and the mapping of each concept in this page ("Current ... adapter").
 
 ## Current Kong adapter
 

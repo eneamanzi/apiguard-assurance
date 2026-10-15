@@ -276,7 +276,7 @@ class ExecutiveSummary(BaseModel):
 
 
 class ConnectionTrust(BaseModel):
-    """How the certificate of one connection of the tool was checked (connections-design 5.12)."""
+    """How the certificate of one connection was checked (design-decisions.md, D2)."""
 
     model_config = {"frozen": True}
 

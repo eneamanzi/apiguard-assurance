@@ -5,7 +5,7 @@ Apache APISIX adapter for WHITE_BOX configuration audit tests.
 
 Implements BaseGatewayAdapter against the APISIX Admin API (3.x, traditional
 deployment with etcd) and, for the live health of the backends, the APISIX
-Control API. Mappings: docs/project/gateway-concepts.md.
+Control API. Concepts: docs/architecture/design-decisions.md, D7.
 
 Interfaces
 ----------
@@ -142,7 +142,7 @@ class ApisixGatewayAdapter(BaseGatewayAdapter):
         return "apisix"
 
     # ------------------------------------------------------------------
-    # Neutral concepts (docs/project/gateway-concepts.md)
+    # Neutral concepts (docs/architecture/design-decisions.md, D7)
     # ------------------------------------------------------------------
 
     def _read_backend_timeouts(self) -> ConceptRead[BackendTimeout]:

@@ -263,7 +263,7 @@ def _configured_authority_notes(target: TargetContext) -> list[InfoNote]:
 
     Without it the tools judge the certificate as anyone on the Internet would;
     with it, as a client of the organisation that configured that authority.
-    The reader must know which (docs/project/connections-design.md, 5.6).
+    The reader must know which (docs/architecture/design-decisions.md, D2).
 
     Args:
         target: The run's TargetContext.

@@ -4,8 +4,8 @@ src/core/models/tls.py
 TlsSettings: the certificate settings of one connection of the tool.
 
 Every connection (target, specification, gateway.admin, gateway.health) has
-an optional `tls` block of this shape (docs/project/connections-design.md,
-5.3):
+an optional `tls` block of this shape (docs/architecture/design-decisions.md,
+D2):
 
     verify       check the server's certificate (default true)
     ca_bundle    trust only the authorities in this PEM file

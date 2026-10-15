@@ -224,7 +224,7 @@ configured, and prints where the credentials will be sent.
 
 Prepared resources: what the tool creates on the target and deletes at the end of the run, by name (letters, digits,
 `_`, `-`). Used by `credentials.login_resource` and by `tests.domain_7.test_7_2.injection_resource`; the test or the
-login chooses the role a resource is created for. None by default. Design: `docs/project/resources-design.md`.
+login chooses the role a resource is created for. None by default. Design: [D6](../architecture/design-decisions.md#d6-prepared-resources).
 
 | Key | Type | Default | Description |
 |---|---|---|---|

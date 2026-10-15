@@ -30,6 +30,7 @@
 | How the tool works internally | [`architecture/overview.md`](architecture/overview.md), [`data-model.md`](architecture/data-model.md) |
 | How tests are organised, selected and judged | [`architecture/assessment-model.md`](architecture/assessment-model.md) |
 | Secrets, outputs, traffic and TLS | [`architecture/security-model.md`](architecture/security-model.md) |
+| Why the tool is built this way (configuration by connection, TLS, credentials, prepared resources, gateway concepts) | [`architecture/design-decisions.md`](architecture/design-decisions.md) |
 | Why a test or a design choice exists (research) | [`knowledge/`](knowledge/README.md) (repository only) |
 | Project state, roadmap, past audits | [`project/roadmap.md`](project/roadmap.md), [`project/audits/`](project/audits/) (repository only) |
 
@@ -40,7 +41,7 @@ getting-started/   installation, first assessment
 guides/            usage/ · integration/ · extending/
 tests/             one page per test
 reference/         configuration, cli, report schema, evidence format, exit codes, compatibility
-architecture/      overview, data model, assessment model, security model
+architecture/      overview, data model, assessment model, security model, design decisions
 knowledge/         thesis research: background, methodology, tools, design properties (repository only)
 project/           roadmap, audits, maintainer notes (repository only)
 ```

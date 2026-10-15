@@ -50,7 +50,7 @@ total). Until 2026-10 the check looked for circuit-breaker fields in Kong's `/st
 always reported a gap although Kong exposes the upstream health.
 
 **Gateway access.** The levels read the gateway concepts circuit breakers, health checks and live target health
-([gateway concepts](../../project/gateway-concepts.md)). Health checks not supported or not accessible: SKIP.
+([gateway concepts](../../architecture/design-decisions.md#d7-neutral-gateway-concepts)). Health checks not supported or not accessible: SKIP.
 Circuit breakers not accessible: SKIP when the verdict would be Level 3 (their absence is not proven), a note when
 Level 2 holds.
 

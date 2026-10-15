@@ -13,7 +13,7 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
 ### Added
 
-- Certificate settings for every connection of the tool (`docs/project/connections-design.md`): an optional `tls`
+- Certificate settings for every connection of the tool (`docs/architecture/design-decisions.md`, D2): an optional `tls`
   block on `target`, `specification`, `gateway.admin` and `gateway.health` with `verify`, `ca_bundle` (the authorities
   to trust, instead of the default ones, as `curl --cacert`), `client_cert` and `client_key` (mutual TLS). A private
   authority, an Admin API over HTTPS with a company certificate and an Admin API that requires a client certificate
@@ -112,7 +112,7 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
 ### Changed
 
-- **Breaking:** the configuration is organised by connection (`docs/project/connections-design.md`): `target` is
+- **Breaking:** the configuration is organised by connection (`docs/architecture/design-decisions.md`, D1): `target` is
   the API (address, `tls`, `connect_timeout`, `read_timeout`, `max_retry_attempts`, `path_seed`), `specification` the
   OpenAPI document (`url` or `path`, `timeout`, `tls`), `gateway` the gateway (`adapter`, `admin` with `url`,
   `headers`, `connect_timeout`, `read_timeout`, `tls`, and `health` with `url`, `tls`). The previous keys are rejected
@@ -135,7 +135,7 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
   OCSP address). The native tests give the same results. The Forgejo labs serve the specification through the gateway
   (`/swagger.v1.json`, test 0.1 excludes it as before), Forgejo publishes no port and its `ROOT_URL` is the gateway's
   address.
-- **Breaking:** authentication is configured in two parts (block 7+8 phase C, `docs/project/auth-survey.md`).
+- **Breaking:** authentication is configured in two parts (block 7+8 phase C, `docs/architecture/design-decisions.md` D5).
   `credentials.auth_type` has no default and is required when an account or a token is configured (it was
   `forgejo_token` by default); values `basic` (new, HTTP Basic), `static_token` (new, `admin_token` /
   `user_a_token` / `user_b_token`), `login` (new, replaces `forgejo_token` and `jwt_login`: the request that logs
@@ -149,7 +149,7 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
   `validate-config` checks it too, reading the specification only when credentials are configured, and prints
   where the credentials are sent. Each method accepts only its own kind of credential (tokens or username and
   password). Passwords and configured tokens are registered as secrets.
-- **Breaking:** prepared resources (block 7+8 phase E, `docs/project/resources-design.md`): what the tool creates on
+- **Breaking:** prepared resources (block 7+8 phase E, `docs/architecture/design-decisions.md` D6): what the tool creates on
   the target and how it logs in are configuration, in the new top-level section `resources` (a create request,
   values read from its JSON response, an optional delete request sent at teardown; placeholders `{username}`,
   `{password}`, `{random}` and the values, checked at startup). The last Forgejo code is gone
