@@ -12,7 +12,7 @@
 | Priority / strategy | P3 / WHITE_BOX (gateway Admin API) |
 | CWE | CWE-326 |
 | Depends on | none |
-| Configuration | [`tests.domain_3.test_3_3`](../../reference/configuration.md#testsdomain_3test_3_3---hmac-configuration-audit), `target.admin_api_url`, `target.gateway_adapter` |
+| Configuration | [`tests.domain_3.test_3_3`](../../reference/configuration.md#testsdomain_3test_3_3---hmac-configuration-audit), `gateway.adapter` and `gateway.admin.url` |
 
 ## What it checks
 
@@ -58,7 +58,7 @@ to the signing policies read (`evidence_ref`), the coverage note names the route
 
 ## Prerequisites and effects on the target
 
-`target.admin_api_url` and `target.gateway_adapter: kong`. Read-only Admin API calls; no traffic to the API.
+`gateway` (`adapter` `kong` or `apisix`, `admin.url`). Read-only Admin API calls; no traffic to the API.
 
 ## Configuration
 

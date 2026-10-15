@@ -12,7 +12,7 @@
 | Priority / strategy | P1 / WHITE_BOX (gateway Admin API) |
 | CWE | CWE-400 |
 | Depends on | none |
-| Configuration | [`tests.domain_4.test_4_3`](../../reference/configuration.md#testsdomain_4test_4_3---circuit-breaker-audit), `target.admin_api_url`, `target.gateway_adapter` |
+| Configuration | [`tests.domain_4.test_4_3`](../../reference/configuration.md#testsdomain_4test_4_3---circuit-breaker-audit), `gateway.adapter` and `gateway.admin.url` |
 
 ## What it checks
 
@@ -69,7 +69,7 @@ stored in `evidence.json` (`artifact-4.3-gateway_...`); findings point to the co
 
 ## Prerequisites and effects on the target
 
-`target.admin_api_url` and `target.gateway_adapter: kong`. Read-only Admin API calls.
+`gateway` (`adapter` `kong` or `apisix`, `admin.url`; APISIX: `health.url` for the live health). Read-only Admin API calls.
 
 ## Coverage against the methodology
 

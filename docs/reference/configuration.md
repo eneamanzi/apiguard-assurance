@@ -2,7 +2,8 @@
 
 > **Audience:** users, integrators · **Status:** stable · **Source of truth:** `src/config/schema/tool_config.py`,
 > `src/test_config/domain_*.py`, `src/core/models/external_tools.py`, `src/core/models/resources.py`,
-> `src/config/loader.py` · **Verified:** 2026-10-14 (credentials, resources), 2026-10-12 (gateway keys), 2026-10-05, v0.1.0 (field list extracted from the Pydantic models; behaviours tested with
+> `src/config/loader.py`, `src/core/models/tls.py` · **Verified:** 2026-10-15 (connections: `target`, `specification`,
+> `gateway`, `tls`), 2026-10-14 (credentials, resources), 2026-10-12 (gateway keys), 2026-10-05, v0.1.0 (field list extracted from the Pydantic models; behaviours tested with
 > `apiguard validate-config`)
 
 Every field, type, default and constraint below comes from the Pydantic models. For a guided setup see
@@ -21,8 +22,9 @@ configurations hold only their own values.
      to placeholders **inside YAML comments too**, because interpolation happens on the raw text.
    - `.env` is loaded first: the one in the working directory, or the file given with `--env-file`
      ([details](cli.md#environment-and-env)); variables already in the environment win.
-3. **Relative paths** (`openapi_spec_path`, `output.directory`, `external_tools.nuclei.template_dir`) are
-   resolved against the **working directory**, not the location of `config.yaml`.
+3. **Relative paths** (`specification.path`, the files of the `tls` blocks, `output.directory`,
+   `external_tools.nuclei.template_dir`) are resolved against the **working directory**, not the location of
+   `config.yaml`.
 4. **Unknown keys are rejected.** Every section with a schema forbids keys it does not declare: a misspelled key
    (e.g. `min_prioriti`) stops the tool at Phase 1 with exit `10`. The message lists every error with its
    dotted path and, when a declared key is similar enough, suggests it:
@@ -33,38 +35,148 @@ configurations hold only their own values.
 
 ## Minimal configuration
 
-Only `target.base_url` and one OpenAPI source are required:
+Only `target.base_url` and one specification source are required:
 
 ```yaml
 target:
   base_url: "https://gateway.example.com"
-  openapi_spec_path: "./specs/openapi.json"
+specification:
+  path: "./specs/openapi.json"
 ```
 
 With this configuration the tests that log in to the API return SKIP (no `credentials`), tests that read the gateway
-configuration return SKIP or skip that part (no `admin_api_url` / `gateway_adapter`), and external tools are
-not scheduled (disabled by default). Which tests are affected is stated on each test page ([`tests/`](../tests/README.md)). Phase 1 logs a
-`config_coherence_warning` for the missing credentials and Admin API; they are warnings, not errors.
+configuration return SKIP or skip that part (no `gateway`), and external tools are not scheduled (disabled by
+default). Which tests are affected is stated on each test page ([`tests/`](../tests/README.md)). Phase 1 logs a
+`config_coherence_warning` for the missing credentials and gateway; they are warnings, not errors. Every certificate
+is checked against the system's authorities ([`tls`](#tls-certificates-of-a-connection)).
+
+The configuration is organised by **connection**: each place the tool connects to has its own section with its address,
+its timeouts and its certificate settings.
+
+| Connection | Section | Used for |
+|---|---|---|
+| the API under test | [`target`](#target) | every test request |
+| the OpenAPI specification | [`specification`](#specification) | Phase 2 (and `validate-config` and `generate-seed`) |
+| the gateway's Admin API | [`gateway.admin`](#gateway) | the WHITE_BOX configuration audits |
+| the gateway's health interface | [`gateway.health`](#gateway) | test 4.3, on a gateway that keeps it apart (APISIX) |
 
 ---
 
 ## `target`
 
-Connection to the API under test and to the gateway admin plane.
+The API under test, as exposed through the gateway proxy, and how the tool connects to it.
 
 | Key | Type | Default | Constraints | Description |
 |---|---|---|---|---|
 | `base_url` | URL | **required** | - | Base URL of the API as exposed through the gateway proxy. |
-| `openapi_spec_url` | URL \| null | `null` | exactly one of `openapi_spec_url` / `openapi_spec_path` | URL fetched at runtime (Phase 2). |
-| `openapi_spec_path` | path \| null | `null` | see above | Local spec file (JSON or YAML). Existence is checked in Phase 2, not by `validate-config`. |
-| `admin_api_url` | URL \| null | `null` | required if `gateway_adapter` is set | Gateway Admin API. Without it, WHITE_BOX tests that read gateway configuration return SKIP. Called with the headers of `admin_api_headers` and with certificate verification on: an Admin API with a certificate not publicly trusted is not accessible, and those tests SKIP with "Not verifiable: no access to ..." ([security model](../architecture/security-model.md)). |
-| `admin_api_headers` | map string → string | `{}` | names and values not empty | Headers sent on every Admin API request, for a gateway that protects it: e.g. `X-API-KEY` (APISIX; a key of role `viewer`, GET only, is enough), `Kong-Admin-Token` (Kong Enterprise). Never sent to `health_api_url`. Write the values as `${VAR}`: they are registered as secrets and masked in logs and reports. |
-| `health_api_url` | URL \| null | `null` | - | Interface reporting the live health of the backends, for a gateway that keeps it outside the Admin API: the APISIX Control API (e.g. `http://127.0.0.1:9090`). Read by test 4.3 (observability), without the `admin_api_headers`. Not used by Kong. Absent on APISIX: the live health is reported as not accessible, the rest of the audits still run. |
-| `gateway_adapter` | string \| null | `null` | `kong`, `apisix` (the adapters listed in `src/core/gateway/__init__.py`) | Adapter used by WHITE_BOX configuration-audit tests. `null` → those tests SKIP even if `admin_api_url` is set. |
-| `admin_connect_timeout_seconds` | float | `5.0` | 1-30 | TCP connect timeout for Admin API (and `health_api_url`) calls. |
-| `admin_read_timeout_seconds` | float | `10.0` | 1-60 | Read timeout for Admin API (and `health_api_url`) calls. |
+| `tls` | [tls block](#tls-certificates-of-a-connection) | none | - | Certificate settings of the API connection, also used by the HTTP-redirect probe of test 1.5 and given to the external TLS tests (`ca_bundle`). |
+| `connect_timeout` | float | `5.0` | 1-30 | TCP connect timeout (s) for requests to the API. |
+| `read_timeout` | float | `30.0` | 5-120 | Read timeout (s) for requests to the API. |
+| `max_retry_attempts` | int | `3` | 1-10 | Total attempts (initial + retries). Only transport errors are retried, never HTTP status codes and never a TLS failure. |
 | `path_seed` | map string→string | `{}` | - | Real values for OpenAPI path parameters (`{owner}` → `"alice"`). Unlisted parameters fall back to the test's placeholder (typically `1`). Generate with [`apiguard generate-seed`](cli.md#generate-seed). **Use only test resources you can lose:** the values are used for every request, including `DELETE` and writes sent without credentials (test 1.1); on an API without protection on those endpoints they are deleted or changed. |
-| `verify_tls` | bool | `true` | - | Verify the TLS certificate of `base_url`. Set `false` only for lab gateways with self-signed certificates. Also applied to the HTTP-redirect probe of test 1.5. |
+
+Before any test the tool sends one request to `base_url` (`GET /`, recorded in the evidence as test `preflight`). A TLS
+failure, or a TLS problem the server reports with an HTTP answer (see [TLS errors](#tls-errors)), stops the run with
+exit `10` and the key to set; any other answer, of any status, lets the run go on.
+
+## `specification`
+
+Where the OpenAPI specification is read from: exactly one of `url` and `path`.
+
+| Key | Type | Default | Constraints | Description |
+|---|---|---|---|---|
+| `url` | URL \| null | `null` | exactly one of `url` / `path` | Downloaded by the tool at runtime (Phase 2), redirects followed, with the settings of `tls`. |
+| `path` | path \| null | `null` | see above | Local file (JSON or YAML). Its existence is checked in Phase 2, not by `validate-config`. |
+| `timeout` | float | `60.0` | 10-300 | Wall-clock limit for loading the specification (download and `$ref` dereferencing). When it expires the run stops with `OpenAPILoadError` (exit `10`), also if the server accepts the connection and never answers. |
+| `tls` | [tls block](#tls-certificates-of-a-connection) | none | - | Certificate settings of the download; ignored (with a warning) for an `http://` URL, unused for `path`. |
+
+Relative `$ref` in a specification read from `url` are not supported (the dereferencing library resolves them only
+for files): save the specification and its referenced files locally and use `path`.
+
+## `gateway`
+
+The API gateway in front of the API, for the WHITE_BOX configuration audits (3.3, 4.2, 4.3, 6.4 sub-test B).
+Optional: without it those audits return SKIP. With it, `adapter` and `admin.url` are required.
+
+| Key | Type | Default | Constraints | Description |
+|---|---|---|---|---|
+| `adapter` | string | **required** | `kong`, `apisix` (the adapters listed in `src/core/gateway/__init__.py`) | How the gateway's configuration is read. |
+| `admin.url` | URL | **required** | - | The gateway's Admin API. Read with GET requests only. |
+| `admin.headers` | map string → string | `{}` | names and values not empty | Headers sent on every Admin API request, for a gateway that protects it: e.g. `X-API-KEY` (APISIX; a key of role `viewer`, GET only, is enough), `Kong-Admin-Token` (Kong Enterprise). Never sent to `health.url`. Write the values as `${VAR}`: they are registered as secrets and masked in logs and reports. |
+| `admin.connect_timeout` | float | `5.0` | 1-30 | TCP connect timeout (s) for the Admin API and the health interface. |
+| `admin.read_timeout` | float | `10.0` | 1-60 | Read timeout (s) for the Admin API and the health interface. |
+| `admin.tls` | [tls block](#tls-certificates-of-a-connection) | none | - | Certificate settings of the Admin API connection (e.g. the client certificate APISIX's `admin_api_mtls` requires). |
+| `health.url` | URL | **required** with `health` | - | Interface reporting the live health of the backends, for a gateway that keeps it outside the Admin API: the APISIX Control API (e.g. `http://127.0.0.1:9090`). Read by test 4.3 (observability), without the `admin.headers`. Not used by Kong. Absent on APISIX: the live health is reported as not accessible, the rest of the audits still run. |
+| `health.tls` | [tls block](#tls-certificates-of-a-connection) | none | - | Certificate settings of the health interface (APISIX's Control API has no TLS: leave it out). |
+
+An Admin API the tool cannot read (refused, wrong address, certificate not trusted, client certificate missing) is
+"not accessible": the audits return SKIP with "Not verifiable: no access to ..." and the reason, which names the key to
+set ([security model](../architecture/security-model.md)).
+
+## `tls`: certificates of a connection
+
+Each of `target`, `specification`, `gateway.admin` and `gateway.health` takes an optional `tls` block of this shape
+(`src/core/models/tls.py`). Guide, with how to obtain the files: [configure a target, TLS and
+certificates](../guides/usage/configure-a-target.md#2-tls-and-certificates).
+
+| Key | Type | Default | Constraints | Description |
+|---|---|---|---|---|
+| `verify` | bool | `true` | not `false` with `ca_bundle` | Check the server's certificate. `false` accepts any certificate (an impostor too): the report shows the connection as **not verified**. |
+| `ca_bundle` | path \| null | `null` | existing file, PEM | The certificate authorities to trust for this connection, **instead of** the default ones (as `curl --cacert`). |
+| `client_cert` | path \| null | `null` | existing file, PEM; with `client_key` | The tool's certificate, for a server that asks for mutual TLS. Allowed with `verify: false`. |
+| `client_key` | path \| null | `null` | existing file, PEM, not encrypted; with `client_cert` | The private key of `client_cert`. Only the path is configuration: the content is read by the TLS library and never logged. |
+
+**Trust.** Without `tls`, or without `ca_bundle`, a connection trusts the operating system's store (through
+`truststore`: a company authority installed by IT, or a proxy inspecting HTTPS, is trusted) plus certifi's list.
+`SSL_CERT_FILE` and `SSL_CERT_DIR` do not change it: the configuration does.
+
+**Checked before any test** (exit `10`, also by `validate-config`): the files exist; `client_cert` and `client_key`
+together; `verify: false` with `ca_bundle`; the files are PEM, the key belongs to the certificate, the key is not
+encrypted (the tool never asks for a password: decrypt it with `openssl pkey -in key.pem -out plain.pem`).
+**Warnings** (the run goes on): a `client_key` readable by other users of the machine (`chmod 600`); a `tls` block on
+an `http://` URL (ignored).
+
+### TLS errors
+
+A TLS failure is never retried. The message names the problem and the key to set:
+
+| Problem | Where it is detected | What to set |
+|---|---|---|
+| certificate not trusted | handshake | `<connection>.tls.ca_bundle` (or install the authority in the system's store) |
+| name in the URL not in the certificate | handshake | a URL with a name the certificate was issued for |
+| certificate expired or not yet valid | handshake | the server's certificate |
+| client certificate refused | handshake (alert) | `<connection>.tls.client_cert`, `client_key` |
+| client certificate missing / not accepted | HTTP 400 page of nginx (`No required SSL certificate was sent`, `The SSL certificate error`) | `<connection>.tls.client_cert`, `client_key` |
+| plain HTTP to an HTTPS port | HTTP 400 page of nginx (`The plain HTTP request was sent to HTTPS port`) | `https://` in the URL |
+| HTTPS to a port that does not speak TLS | handshake (`WRONG_VERSION_NUMBER`) | `http://` in the URL, or the right port |
+
+On `target` and `specification` the run stops (exit `10`); on `gateway.admin` and `gateway.health` the audits return
+SKIP with the message. nginx, and the gateways built on it (APISIX), complete the handshake without a client
+certificate and answer with these pages ([nginx: error processing](https://nginx.org/en/docs/http/ngx_http_ssl_module.html#errors)).
+
+The report states how each connection was trusted (`connections` in the [JSON report](report-schema.md), "Certificate
+checks" in the HTML report): `verified_system`, `verified_ca_bundle`, `not_verified`, `plain_http`, `local_file`, and
+whether a client certificate was used.
+
+### Keys moved in this version
+
+Keys of the previous structure are rejected (exit `10`) with a message naming their new place:
+
+| Previous key | New key |
+|---|---|
+| `target.openapi_spec_url` | `specification.url` |
+| `target.openapi_spec_path` | `specification.path` |
+| `execution.openapi_fetch_timeout_seconds` | `specification.timeout` |
+| `target.gateway_adapter` | `gateway.adapter` |
+| `target.admin_api_url` | `gateway.admin.url` |
+| `target.admin_api_headers` | `gateway.admin.headers` |
+| `target.admin_connect_timeout_seconds` | `gateway.admin.connect_timeout` |
+| `target.admin_read_timeout_seconds` | `gateway.admin.read_timeout` |
+| `target.health_api_url` | `gateway.health.url` |
+| `target.verify_tls` | `target.tls.verify` |
+| `execution.connect_timeout` | `target.connect_timeout` |
+| `execution.read_timeout` | `target.read_timeout` |
+| `execution.max_retry_attempts` | `target.max_retry_attempts` |
 
 ## `credentials`
 
@@ -144,10 +256,9 @@ credential. `validate-config` lists the resources and who uses them.
 | `strategies` | list | all three | non-empty; `BLACK_BOX`, `GREY_BOX`, `WHITE_BOX` | Tests, native and external, whose strategy is not listed are excluded (ignored when `test_ids` is set). |
 | `test_ids` | list of strings | `[]` | `X.Y` or `ext.X.Y.tool` | Non-empty: run **only** the listed tests, native or external. Replaces the `min_priority` filter (and `strategies` for native tests). It chooses only among available tests: an ID that does not exist, or an external test whose tool is disabled (`external_tools`), stops the tool at startup (exit `10`) with the reason and, for an unknown ID, the closest existing ID. |
 | `fail_fast` | bool | `false` | - | Stop after the first P0 test returning FAIL or ERROR ([`exit-codes.md`](exit-codes.md)). |
-| `connect_timeout` | float | `5.0` | 1-30 | TCP connect timeout (s) for requests to the target. |
-| `read_timeout` | float | `30.0` | 5-120 | Read timeout (s) for requests to the target. |
-| `max_retry_attempts` | int | `3` | 1-10 | Total attempts (initial + retries). Only transport errors are retried, never HTTP status codes. |
-| `openapi_fetch_timeout_seconds` | float | `60.0` | 10-300 | Wall-clock limit for fetching and dereferencing the spec in Phase 2. When it expires the run stops with `OpenAPILoadError` (exit `10`), also if the server accepts the connection and never answers. |
+
+The timeouts and retries of the API connection are in [`target`](#target), the specification's timeout in
+[`specification`](#specification).
 
 ## `output`
 
@@ -335,8 +446,10 @@ Phase 1 rejects the configuration (exit `10`) when:
 
 | Rule | Fields |
 |---|---|
-| Exactly one OpenAPI source | `target.openapi_spec_url`, `target.openapi_spec_path` |
-| Adapter needs the Admin API URL; `kong` or `apisix` | `target.gateway_adapter`, `target.admin_api_url` |
+| A key of the previous structure (table [Keys moved](#keys-moved-in-this-version)) | `target.*`, `execution.*` |
+| Exactly one specification source | `specification.url`, `specification.path` |
+| With `gateway`: `adapter` (`kong` or `apisix`) and `admin.url`; with `health`: `health.url` | `gateway.*` |
+| `tls` blocks: files exist; `client_cert` with `client_key`; not `verify: false` with `ca_bundle`; PEM files, key matching the certificate, key not encrypted | `*.tls` |
 | `auth_type` set when credentials are configured, supported value (`forgejo_token`, `jwt_login`, `json_login` and the v0.1.0 login keys rejected with the `login` form); `login` needs `login_resource`, only `login` takes it; each method's own credential keys only; `basic` without `security_scheme` / `send_as` | `credentials.*` |
 | The login resource exists, has the value `credential`, and its create request does not use `auth: credential` | `credentials.login_resource`, `resources` |
 | Resource names (letters, digits, `_`, `-`); paths start with `/`; methods `GET` `POST` `PUT` `PATCH` `DELETE`; placeholders well formed, known where used (no response value in `create`), quoted in YAML; value names not `username` / `password` / `random` | `resources.*` |
@@ -353,7 +466,7 @@ Phase 1 rejects the configuration (exit `10`) when:
 | Numeric ranges and types in the tables above | all |
 
 Phase 1 **warns** (does not fail) when a selected strategy has tests that will SKIP for lack of access: WHITE_BOX
-without `gateway_adapter` (gateway configuration audits), WHITE_BOX without the `admin` credentials (1.4), GREY_BOX
+without `gateway` (gateway configuration audits), WHITE_BOX without the `admin` credentials (1.4), GREY_BOX
 without the `user_a` credentials (2.1, 7.2). Log event `config_coherence_warning`, field `condition`.
 
 ## See also
@@ -363,4 +476,4 @@ without the `user_a` credentials (2.1, 7.2). Log event `config_coherence_warning
 - [`config.example.yaml`](../../config.example.yaml) - every key, with description and default
 - [`test-environments/forgejo-kong/config.yaml`](../../test-environments/forgejo-kong/config.yaml) - configuration of the Forgejo + Kong lab
 - [`test-environments/crapi-kong/config.yaml`](../../test-environments/crapi-kong/config.yaml) - configuration of the crAPI + Kong lab
-- [`test-environments/forgejo-apisix/config.yaml`](../../test-environments/forgejo-apisix/config.yaml) - configuration of the Forgejo + APISIX lab (Admin API key, Control API)
+- [`test-environments/forgejo-apisix/config.yaml`](../../test-environments/forgejo-apisix/config.yaml) - configuration of the Forgejo + APISIX lab (Admin API key and client certificate, Control API)

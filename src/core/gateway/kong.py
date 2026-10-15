@@ -8,7 +8,7 @@ Provides read-only access to routes, services, plugins, and upstreams via
 paginated GET requests to the Kong Admin API.
 
 Construction and HTTP reads (direct httpx, not SecurityClient) come from
-BaseGatewayAdapter; target.health_api_url is not used: Kong's Admin API
+BaseGatewayAdapter; gateway.health.url is not used: Kong's Admin API
 reports the live health of the targets.
 
 Paginated responses
@@ -94,7 +94,7 @@ class KongGatewayAdapter(BaseGatewayAdapter):
     Targets Kong OSS 3.x with the DB-less Admin API exposed on a dedicated
     port (default: 8001).  All calls are read-only GET requests.
 
-    Instantiated by engine.py Phase 3 when target.gateway_adapter = 'kong'
+    Instantiated by engine.py Phase 3 when gateway.adapter = 'kong'
     is set in config.yaml.  The instance is stored on TargetContext.gateway
     and shared across all WHITE_BOX tests for the assessment run.
 

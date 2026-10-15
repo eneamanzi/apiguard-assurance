@@ -135,6 +135,12 @@ dependencies = [
     # Retry logic with exponential backoff for SecurityClient.
     "tenacity>=9,<10",
 
+    # Certificate trust of every connection (docs/project/connections-design.md, 5.4):
+    # the operating system's store through truststore, plus certifi's list (as pip does
+    # since 24.2), unless a connection sets its own ca_bundle.
+    "truststore>=0.10,<1",
+    "certifi>=2024.2.2",
+
     # Environment variable loading from .env files.
     # Called once at process startup in cli.py — not in loader.py.
     "python-dotenv>=1.2,<2",

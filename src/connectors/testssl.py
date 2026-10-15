@@ -59,6 +59,7 @@ import json
 import os
 import tempfile
 import time
+from pathlib import Path
 from typing import Any, ClassVar
 from urllib.parse import urlparse
 
@@ -74,6 +75,8 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 # Default CLI flags for machine-readable, colour-free output.
+# testssl.sh flag adding authorities to its trust check (target.tls.ca_bundle).
+_ADD_CA_FLAG: str = "--add-ca"
 # Mirrors ExternalToolsConfig.testssl.extra_flags default.
 _DEFAULT_EXTRA_FLAGS: str = "--quiet --color 0"
 
@@ -191,6 +194,7 @@ class TestsslConnector(BaseSubprocessConnector):
         timeout_seconds: int,
         *,
         extra_flags: str = _DEFAULT_EXTRA_FLAGS,
+        ca_bundle: Path | None = None,
     ) -> ConnectorResult:
         """
         Invoke testssl.sh against the target and return all findings unfiltered.
@@ -229,6 +233,9 @@ class TestsslConnector(BaseSubprocessConnector):
             extra_flags:     Additional CLI flags appended verbatim to the
                              command.  Default: ``--quiet --color 0``.
                              Must not contain credentials or secrets.
+            ca_bundle:       target.tls.ca_bundle, when set: passed as
+                             --add-ca so that the trust check also accepts
+                             the configured authority.
 
         Returns:
             ConnectorResult: Complete (unfiltered) testssl.sh output.
@@ -241,6 +248,11 @@ class TestsslConnector(BaseSubprocessConnector):
         """
         scan_target = self._extract_scan_target(target_url)
         cmd = self._build_command(scan_target, extra_flags)
+        display_prefix = list(cmd)
+        if ca_bundle is not None:
+            # Trust the configured authority too (target.tls.ca_bundle).
+            cmd += [_ADD_CA_FLAG, str(ca_bundle)]
+            display_prefix += [_ADD_CA_FLAG, self._relativize_display_path(str(ca_bundle))]
 
         # Build human-readable commands for analyst reproduction.
         # Delegates path normalisation and string construction to the base class
@@ -251,7 +263,7 @@ class TestsslConnector(BaseSubprocessConnector):
         #   "command"      -- text output (no --jsonfile); what you run manually.
         #   "command_json" -- with --jsonfile flag; mirrors what APIGuard runs.
         reproducible_command, reproducible_command_json = self._build_reproducible_commands(
-            cmd_prefix=cmd,
+            cmd_prefix=display_prefix,
             scan_target=scan_target,
             json_output_args=["--jsonfile", "testssl_result.json"],
         )

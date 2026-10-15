@@ -11,10 +11,17 @@
 
 target:
   base_url: "https://localhost:8443"
-  openapi_spec_url: "http://localhost:3000/swagger.v1.json"   # fetched from Forgejo, not through Kong
-  admin_api_url: "http://localhost:8001"
-  gateway_adapter: "kong"
-  verify_tls: false     # lab certificate is self-signed (gen-certs.sh)
+  # Kong's certificate is signed by the labs' authority (test-environments/pki, created at the lab's
+  # start): verified with it. To lower the level: remove ca_bundle and set verify: false (not
+  # verified: the report says so); with no tls block the system's authorities are used and the
+  # lab certificate is refused.
+  tls:
+    ca_bundle: test-environments/pki/ca.crt
+
+  # Requests to the API: timeouts in seconds, attempts after a transport error.
+  connect_timeout: 5.0
+  read_timeout: 30.0
+  max_retry_attempts: 3
 
   # Resources created by the lab setup (forgejo-setup, from .env), so that parametric paths reach
   # real objects.
@@ -77,6 +84,24 @@ target:
     template_repo: "test-repo",
     topic: "forgejo",
   }
+
+specification:
+  # Served by Forgejo through Kong (route forgejo-spec-route, kong/kong.yml): Forgejo publishes no
+  # port. Same authority as the API; a local copy (path:) needs no connection.
+  url: "https://localhost:8443/swagger.v1.json"
+  timeout: 60.0
+  tls:
+    ca_bundle: test-environments/pki/ca.crt
+
+gateway:
+  adapter: kong
+  admin:
+    # Kong's HTTPS Admin API (127.0.0.1 only), verified with the labs' authority. Kong OSS has no
+    # client certificate or key for the Admin API. To lower the level: url "http://localhost:8001"
+    # and no tls block (plain HTTP: the report says so).
+    url: "https://localhost:8444"
+    tls:
+      ca_bundle: test-environments/pki/ca.crt
 
 credentials:
   # Login with the resource forgejo-token below: the tool creates a Forgejo API token per
@@ -141,10 +166,6 @@ execution:
     - WHITE_BOX
   test_ids: []
   fail_fast: false
-  connect_timeout: 5.0
-  read_timeout: 30.0
-  max_retry_attempts: 3
-  openapi_fetch_timeout_seconds: 60.0
 
 output:
   directory: "outputs/forgejo"

@@ -1,8 +1,12 @@
-# docker-compose.yml — Forgejo + Kong lab environment
+# docker-compose.yml - Forgejo + Kong lab environment
 #
-# Kong exposes two proxy ports:
-#   8000 -- plain HTTP  (kept for legacy scripts and direct curl testing)
-#   8443 -- HTTPS       (primary target for the APIGuard tool)
+# Ports published on the host:
+#   8000  Kong proxy, HTTP   (answers 301 to HTTPS on the API route: test 1.5)
+#   8443  Kong proxy, HTTPS  (the tool's target and the specification, /swagger.v1.json)
+#   8001  Kong Admin API, HTTP   (127.0.0.1 only; kept for the maintainer commands)
+#   8444  Kong Admin API, HTTPS  (127.0.0.1 only; the tool's gateway.admin.url)
+# Forgejo publishes no port: it is reachable only through Kong and, on the lab
+# network, by forgejo-setup (http://forgejo:3000).
 #
 # Credentials and secrets are not written here: they are read from the .env file
 # in the repository root, shared with the tool. Run every command from this
@@ -15,13 +19,11 @@
 # The pinned versions are listed in docs/reference/compatibility.md ("Test lab");
 # update both places together, then verify the lab from scratch.
 #
-# TLS: certs/ already contains a self-signed example certificate and key,
-# committed on purpose, lab only (never reuse them elsewhere). To regenerate:
-#   cd certs && ./gen-certs.sh
-#
-# Tool config.yaml must be updated:
-#   target.base_url:   "https://localhost:8443"
-#   target.verify_tls: false   (self-signed cert, lab only)
+# TLS: the one-shot service "pki" runs ../pki/gen-pki.sh before Kong starts: it
+# creates the labs' authority and the certificates it signs in ../pki (never
+# committed), and does nothing when they exist and are valid. Kong serves
+# ../pki/server.crt on the proxy and on the HTTPS Admin API; the tool trusts
+# ../pki/ca.crt (config.yaml, tls.ca_bundle).
 
 networks:
   lab-net:
@@ -32,6 +34,17 @@ volumes:
   forgejo-db-data:
 
 services:
+
+  # The labs' certificate authority and certificates (../pki/gen-pki.sh), with
+  # the openssl of the Kong image; root inside the container to write the shared
+  # folder, the files are given back to the folder's owner.
+  pki:
+    image: kong:3.9.3
+    container_name: forgejo_kong_pki
+    user: "0"
+    entrypoint: ["sh", "/pki/gen-pki.sh"]
+    volumes:
+      - ../pki:/pki
 
   # PostgreSQL 15: backend di persistenza per Forgejo.
   # Versione Alpine per footprint ridotto in ambiente di laboratorio.
@@ -69,7 +82,8 @@ services:
       - FORGEJO__database__USER=forgejo
       - FORGEJO__database__PASSWD=${LAB_DB_PASSWORD:?LAB_DB_PASSWORD is not set - create .env in the repository root (cp .env.example .env) and run docker compose with --env-file ../../.env}
       - FORGEJO__server__HTTP_PORT=3000
-      - FORGEJO__server__ROOT_URL=http://localhost:3000/
+      # The public address (Kong): links in Forgejo's answers point to it.
+      - FORGEJO__server__ROOT_URL=https://localhost:8443/
       - FORGEJO__security__INSTALL_LOCK=true
       - FORGEJO__security__SECRET_KEY=${LAB_FORGEJO_SECRET_KEY:?LAB_FORGEJO_SECRET_KEY is not set - create .env in the repository root (cp .env.example .env) and run docker compose with --env-file ../../.env}
       - FORGEJO__api__ENABLE_SWAGGER=true
@@ -79,8 +93,6 @@ services:
       - /etc/localtime:/etc/localtime:ro
     networks:
       - lab-net
-    ports:
-      - "3000:3000"
     depends_on:
       forgejo-db:
         condition: service_healthy
@@ -90,16 +102,10 @@ services:
       timeout: 10s
       retries: 5
 
-  # Kong 3.9 in modalita' DB-less.
-  # La configurazione dichiarativa e' in ./kong/kong.yml.
-  #
-  # Proxy listener:
-  #   Port 8000 -- plain HTTP (kept for legacy scripts and direct curl testing)
-  #   Port 8443 -- HTTPS with self-signed certificate from ./certs/
-  # Admin API esposta su 8001 per i test White Box (Dominio 4/6).
-  #
-  # The committed example certificate is used as is; to regenerate it:
-  #   cd test-environments/forgejo-kong/certs && ./gen-certs.sh
+  # Kong 3.9, DB-less: the declarative configuration is ./kong/kong.yml.
+  # Proxy: HTTP on 8000, HTTPS on 8443. Admin API (white-box tests): HTTP on
+  # 8001 and HTTPS on 8444 (Kong's default pair), published on 127.0.0.1 only.
+  # Proxy and Admin API serve the lab certificate (../pki/server.crt).
   kong:
     image: kong:3.9.3
     container_name: kong
@@ -107,34 +113,30 @@ services:
     environment:
       - KONG_DATABASE=off
       - KONG_DECLARATIVE_CONFIG=/kong/kong.yml
-
-      # Proxy: HTTP on 8000, HTTPS on 8443.
-      # The 'ssl' flag on 8443 activates TLS; Kong reads cert/key from the
-      # KONG_SSL_CERT / KONG_SSL_CERT_KEY vars pointing into the mounted certs dir.
       - KONG_PROXY_LISTEN=0.0.0.0:8000, 0.0.0.0:8443 ssl
-
-      # Self-signed certificate paths (mounted from ./certs/ via volume below).
-      # The committed example certificate is used; to regenerate: cd certs && ./gen-certs.sh
-      - KONG_SSL_CERT=/etc/kong/certs/server.crt
-      - KONG_SSL_CERT_KEY=/etc/kong/certs/server.key
-
-      - KONG_ADMIN_LISTEN=0.0.0.0:8001
+      - KONG_SSL_CERT=/etc/kong/pki/server.crt
+      - KONG_SSL_CERT_KEY=/etc/kong/pki/server.key
+      - KONG_ADMIN_LISTEN=0.0.0.0:8001, 0.0.0.0:8444 ssl
+      - KONG_ADMIN_SSL_CERT=/etc/kong/pki/server.crt
+      - KONG_ADMIN_SSL_CERT_KEY=/etc/kong/pki/server.key
       - KONG_PROXY_ACCESS_LOG=/dev/stdout
       - KONG_ADMIN_ACCESS_LOG=/dev/stdout
       - KONG_PROXY_ERROR_LOG=/dev/stderr
       - KONG_ADMIN_ERROR_LOG=/dev/stderr
-      - KONG_HEADERS=off      # rimuove "Server: kong/version" per PASS test 6.2
+      - KONG_HEADERS=off      # no "Server: kong/version" header (test 6.2)
     volumes:
       - ./kong:/kong:ro
-      # Read-only mount of the certs directory (committed example files or gen-certs.sh output).
-      - ./certs:/etc/kong/certs:ro
+      - ../pki:/etc/kong/pki:ro
     ports:
-      - "8000:8000"    # HTTP proxy
-      - "8443:8443"    # HTTPS proxy (primary target for the tool)
-      - "8001:8001"    # Admin API
+      - "8000:8000"              # HTTP proxy
+      - "8443:8443"              # HTTPS proxy (the tool's target)
+      - "127.0.0.1:8001:8001"    # Admin API, HTTP
+      - "127.0.0.1:8444:8444"    # Admin API, HTTPS (the tool's gateway.admin.url)
     networks:
       - lab-net
     depends_on:
+      pki:
+        condition: service_completed_successfully
       forgejo:
         condition: service_healthy
     healthcheck:

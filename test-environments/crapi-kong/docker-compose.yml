@@ -24,7 +24,13 @@
 # Ports (one fixed set per lab, so that labs can run together):
 #   9000  Kong HTTP proxy (redirects to HTTPS)
 #   9443  Kong HTTPS proxy (the tool's target)
-#   9001  Kong Admin API
+#   9001  Kong Admin API, HTTP   (127.0.0.1 only; kept for the maintainer commands)
+#   9444  Kong Admin API, HTTPS  (127.0.0.1 only; the tool's gateway.admin.url)
+#
+# TLS: the one-shot service "pki" runs ../pki/gen-pki.sh before Kong starts (the labs' authority
+# and the certificates it signs, in ../pki, never committed; nothing is done when they exist and
+# are valid). Kong serves ../pki/server.crt on the proxy and on the HTTPS Admin API; the tool and
+# crapi-setup trust ../pki/ca.crt.
 #
 # Usage (from this directory; credentials and passwords come from .env in the repository root),
 # the same steps as the Forgejo lab (docs/project/maintainer-commands.md, "Test Labs"):
@@ -239,6 +245,19 @@ services:
       retries: 15
       start_period: 15s
 
+  # The labs' certificate authority and certificates (../pki/gen-pki.sh), with the openssl of the
+  # Kong image; root inside the container to write the shared folder, the files are given back to
+  # the folder's owner.
+  pki:
+    image: kong:3.9.3
+    container_name: crapi-lab-pki
+    user: "0"
+    entrypoint: ["sh", "/pki/gen-pki.sh"]
+    volumes:
+      - ../pki:/pki
+
+  # Kong 3.9, DB-less (./kong/kong.yml). Admin API on HTTP and HTTPS (Kong's default pair),
+  # published on 127.0.0.1 only; proxy and Admin API serve the lab certificate.
   kong:
     image: kong:3.9.3
     container_name: crapi-lab-kong
@@ -247,9 +266,11 @@ services:
       - KONG_DATABASE=off
       - KONG_DECLARATIVE_CONFIG=/kong/kong.yml
       - KONG_PROXY_LISTEN=0.0.0.0:8000, 0.0.0.0:8443 ssl
-      - KONG_SSL_CERT=/etc/kong/certs/server.crt
-      - KONG_SSL_CERT_KEY=/etc/kong/certs/server.key
-      - KONG_ADMIN_LISTEN=0.0.0.0:8001
+      - KONG_SSL_CERT=/etc/kong/pki/server.crt
+      - KONG_SSL_CERT_KEY=/etc/kong/pki/server.key
+      - KONG_ADMIN_LISTEN=0.0.0.0:8001, 0.0.0.0:8444 ssl
+      - KONG_ADMIN_SSL_CERT=/etc/kong/pki/server.crt
+      - KONG_ADMIN_SSL_CERT_KEY=/etc/kong/pki/server.key
       - KONG_PROXY_ACCESS_LOG=/dev/stdout
       - KONG_ADMIN_ACCESS_LOG=/dev/stdout
       - KONG_PROXY_ERROR_LOG=/dev/stderr
@@ -258,15 +279,17 @@ services:
       - KONG_HEADERS=off
     volumes:
       - ./kong:/kong:ro
-      # The localhost example certificate of the Forgejo lab (same host, lab use only).
-      - ../forgejo-kong/certs:/etc/kong/certs:ro
+      - ../pki:/etc/kong/pki:ro
     ports:
-      - "9000:8000"    # HTTP proxy
-      - "9443:8443"    # HTTPS proxy (the tool's target)
-      - "9001:8001"    # Admin API
+      - "9000:8000"              # HTTP proxy
+      - "9443:8443"              # HTTPS proxy (the tool's target)
+      - "127.0.0.1:9001:8001"    # Admin API, HTTP
+      - "127.0.0.1:9444:8444"    # Admin API, HTTPS (the tool's gateway.admin.url)
     networks:
       - crapi-lab-net
     depends_on:
+      pki:
+        condition: service_completed_successfully
       crapi-identity:
         condition: service_healthy
       crapi-community:
@@ -291,13 +314,16 @@ services:
         condition: service_healthy
     networks:
       - crapi-lab-net
+    volumes:
+      - ../pki:/pki:ro
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        # Through the gateway, over HTTPS (lab certificate: -k).
+        # Through the gateway, over HTTPS, verified with the labs' authority (the certificate
+        # names "kong").
         base="https://kong:8443"
         signup() {
-          code=$$(curl -sk -o /tmp/signup.json -w '%{http_code}' -H 'Content-Type: application/json' \
+          code=$$(curl -s --cacert /pki/ca.crt -o /tmp/signup.json -w '%{http_code}' -H 'Content-Type: application/json' \
             -d "{\"name\":\"$$1\",\"email\":\"$$2\",\"number\":\"$$3\",\"password\":\"$$4\"}" \
             "$$base/identity/api/auth/signup")
           case "$$code" in
@@ -307,7 +333,7 @@ services:
           esac
         }
         login() {
-          code=$$(curl -sk -o /tmp/login.json -w '%{http_code}' -H 'Content-Type: application/json' \
+          code=$$(curl -s --cacert /pki/ca.crt -o /tmp/login.json -w '%{http_code}' -H 'Content-Type: application/json' \
             -d "{\"email\":\"$$1\",\"password\":\"$$2\"}" \
             "$$base/identity/api/auth/login")
           if [ "$$code" = "200" ] && grep -q '"token"' /tmp/login.json; then
@@ -321,4 +347,4 @@ services:
         login "${CRAPI_ADMIN_EMAIL:?missing in .env}" "${CRAPI_ADMIN_PASSWORD:?missing in .env}"
         login "${CRAPI_USER_A_EMAIL}" "${CRAPI_USER_A_PASSWORD}"
         login "${CRAPI_USER_B_EMAIL}" "${CRAPI_USER_B_PASSWORD}"
-        echo "crAPI lab ready: https://localhost:9443 (Admin API http://localhost:9001)."
+        echo "crAPI lab ready: https://localhost:9443 (Admin API https://localhost:9444)."

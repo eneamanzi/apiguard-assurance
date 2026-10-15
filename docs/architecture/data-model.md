@@ -2,7 +2,7 @@
 
 > **Audience:** contributors · **Status:** v0.1.0 · **Source of truth:** `src/core/models/` (exports in
 > `src/core/models/__init__.py`), `src/core/context.py`, `src/report/builder.py`, `src/config/schema/` ·
-> **Verified:** 2026-10-05
+> **Verified:** 2026-10-15 (TargetContext fields, from `src/core/context.py`), 2026-10-05
 
 All shared data structures are Pydantic v2 models. `src/core/models/` is the shared vocabulary; it depends only on
 the standard library, Pydantic and structlog.
@@ -71,11 +71,17 @@ Built in Phase 2 from the specification (`src/discovery/surface.py`):
 
 | Field | Content |
 |---|---|
-| `base_url`, `openapi_spec_url` / `openapi_spec_path`, `admin_api_url`, admin timeouts | from `target.*` |
+| `base_url` | from `target.*` |
+| `openapi_spec_url` / `openapi_spec_path` | from `specification.url` / `specification.path` |
+| `admin_api_url` | from `gateway.admin.url` |
 | `attack_surface` | from Phase 2 |
 | `credentials` | `RuntimeCredentials` (never to be logged) |
+| `resources` | the prepared resources of `resources`, by name |
+| `credential_placement` | where and how credentials are sent (`src/core/auth_placement.py`), or `None` without credentials |
 | `tests_config` | `RuntimeTestsConfig` (`src/test_config/runtime.py`): one `Test<XY>Config` per configurable test |
-| `path_seed`, `verify_tls` | from `target.*` |
+| `path_seed` | from `target.*` |
+| `tls_context` | the `ssl.SSLContext` of the API connection, built at startup from `target.tls` (`src/core/tls.py`); the same trust as `SecurityClient`, for a test that opens its own connection (1.5's HTTP probe) |
+| `tls_ca_bundle` | the path of `target.tls.ca_bundle`, or `None`: given to the external TLS tools |
 | `external_tools` | `ExternalToolsConfig` |
 | `gateway` | `BaseGatewayAdapter` instance, or `None` |
 

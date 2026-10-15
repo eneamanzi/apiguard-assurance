@@ -13,15 +13,17 @@
 
 target:
   base_url: "https://localhost:10443"
-  openapi_spec_url: "http://localhost:10003/swagger.v1.json"   # fetched from Forgejo, not through APISIX
-  admin_api_url: "http://127.0.0.1:10001"
-  # APISIX Admin API key of role viewer (GET only).
-  admin_api_headers:
-    X-API-KEY: "${APISIX_VIEWER_KEY}"
-  # APISIX Control API: live health of the upstream nodes (test 4.3).
-  health_api_url: "http://127.0.0.1:10002"
-  gateway_adapter: "apisix"
-  verify_tls: false     # lab certificate is self-signed
+  # APISIX's certificate is signed by the labs' authority (test-environments/pki, created at the
+  # lab's start): verified with it. To lower the level: remove ca_bundle and set verify: false (not
+  # verified: the report says so); with no tls block the system's authorities are used and the
+  # lab certificate is refused.
+  tls:
+    ca_bundle: test-environments/pki/ca.crt
+
+  # Requests to the API: timeouts in seconds, attempts after a transport error.
+  connect_timeout: 5.0
+  read_timeout: 30.0
+  max_retry_attempts: 3
 
   # Same resources as the Forgejo + Kong lab (created by forgejo-setup).
   path_seed: {
@@ -70,6 +72,34 @@ target:
     template_repo: "test-repo",
     topic: "forgejo",
   }
+
+specification:
+  # Served by Forgejo through APISIX (route forgejo-spec-route, apisix/setup.sh): Forgejo publishes
+  # no port. Same authority as the API; a local copy (path:) needs no connection.
+  url: "https://localhost:10443/swagger.v1.json"
+  timeout: 60.0
+  tls:
+    ca_bundle: test-environments/pki/ca.crt
+
+gateway:
+  adapter: apisix
+  admin:
+    # APISIX Admin API over HTTPS with mutual TLS (127.0.0.1 only, apisix/config.yaml): APISIX's
+    # certificate verified with the labs' authority, the tool's client certificate, then the key.
+    # Lowering the level here also means changing APISIX's configuration (https_admin and
+    # admin_api_mtls in apisix/config.yaml, then a lab restart).
+    url: "https://127.0.0.1:10001"
+    tls:
+      ca_bundle: test-environments/pki/ca.crt
+      client_cert: test-environments/pki/client.crt
+      client_key: test-environments/pki/client.key
+    # APISIX Admin API key of role viewer (GET only).
+    headers:
+      X-API-KEY: "${APISIX_VIEWER_KEY}"
+  # APISIX Control API: live health of the upstream nodes (test 4.3). Plain HTTP: APISIX offers
+  # no TLS on it (no key either); it listens on 127.0.0.1 only.
+  health:
+    url: "http://127.0.0.1:10002"
 
 credentials:
   # Login with the resource forgejo-token below: the tool creates a Forgejo API token per
@@ -134,10 +164,6 @@ execution:
     - WHITE_BOX
   test_ids: []
   fail_fast: false
-  connect_timeout: 5.0
-  read_timeout: 30.0
-  max_retry_attempts: 3
-  openapi_fetch_timeout_seconds: 60.0
 
 output:
   directory: "outputs/forgejo-apisix"

@@ -42,7 +42,7 @@ Rules:
 - **Read-only.** Never change the gateway.
 - **Names:** a backend has the same `name` in every concept (a route's `backend` too), so tests can relate them.
 - **Secrets:** `ConfigValue.value` is a `SecretStr`; never log the values you read.
-- **Protected interfaces:** the base sends `admin_headers` (from `target.admin_api_headers`) on every Admin API
+- **Protected interfaces:** the base sends `admin_headers` (from `gateway.admin.headers`) on every Admin API
   request, and never to the health interface.
 - **Values the gateway does not return:** if the gateway's interface returns only what was written and not the
   defaults it applies, fill them in, preferably from the gateway itself (the APISIX adapter reads the schemas of the
@@ -55,16 +55,18 @@ Rules:
 
   | Argument | From | Attribute |
   |---|---|---|
-  | `admin_base_url` | `target.admin_api_url` | `_admin_base_url` |
-  | `connect_timeout`, `read_timeout` | `target.admin_connect_timeout_seconds`, `target.admin_read_timeout_seconds` | `_connect_timeout`, `_read_timeout` |
-  | `admin_headers` | `target.admin_api_headers` | `_admin_headers` |
-  | `health_api_url` | `target.health_api_url` (a separate interface for live health) | `_health_api_url` |
+  | `admin_base_url` | `gateway.admin.url` | `_admin_base_url` |
+  | `connect_timeout`, `read_timeout` | `gateway.admin.connect_timeout`, `gateway.admin.read_timeout` | `_connect_timeout`, `_read_timeout` |
+  | `admin_headers` | `gateway.admin.headers` | `_admin_headers` |
+  | `health_api_url` | `gateway.health.url` (a separate interface for live health) | `_health_api_url` |
+  | `admin_tls_context`, `health_tls_context` | the TLS contexts of `gateway.admin.tls` and `gateway.health.tls` (`src/core/tls.py`) | `_admin_tls`, `_health_tls` |
   | `signing_config`, `breaker_config` | test 3.3 and 4.3 configuration (plugin and field names, for a gateway without such plugins of its own) | `_signing`, `_breaker` |
 
 - **HTTP reads**: `_get_json_object(url, path)` and `_get_json_array(url, path)`, one GET without redirects, with
-  certificate verification on; pass `HEALTH_API_INTERFACE` as third argument for the health interface (no Admin API
+  the interface's TLS context; pass `HEALTH_API_INTERFACE` as third argument for the health interface (no Admin API
   headers). Transport failure, a status other than 200, a body that is not JSON or not of the expected shape raise
-  `GatewayAdapterError`, with a message naming the interface and its configuration key.
+  `GatewayAdapterError`, with a message naming the interface and its configuration key; a TLS problem (refused
+  handshake, or an nginx 400 page for a missing client certificate) names the `tls` key to set.
 - **`collect_text_values(data, kind, location, prefix)`**: the text values of a configuration object, with dotted
   keys, for the configuration values concept.
 
@@ -75,7 +77,7 @@ Rules:
    are the references.
 2. **Register** it in `GATEWAY_ADAPTERS` (`src/core/gateway/__init__.py`): the configuration schema accepts its name
    and the engine builds it from there.
-3. **Document:** `docs/reference/configuration.md` (`gateway_adapter` values), `docs/reference/compatibility.md`,
+3. **Document:** `docs/reference/configuration.md` (`gateway.adapter` values), `docs/reference/compatibility.md`,
    and the mapping of each concept in `docs/project/gateway-concepts.md`.
 
 ## Current Kong adapter
@@ -90,19 +92,19 @@ Rules:
 | signing policies | `GET /plugins` | plugins named in `tests.domain_3.test_3_3.plugin_names`, with its field names |
 | configuration values | `GET /services`, `GET /plugins` | service `url` (absent in DB-less), plugin configuration strings |
 
-Paginated (`next`), no redirects, certificate verification always on. Tested against Kong 3.9.3 in DB-less mode.
-`target.health_api_url` is not used.
+Paginated (`next`), no redirects, with the context of `gateway.admin.tls`. Tested against Kong 3.9.3 in DB-less
+mode, Admin API over HTTPS. `gateway.health` is not used.
 
 ## Current APISIX adapter
 
-Admin API under `<admin_api_url>/apisix/admin` (the path is added when missing), key of role `viewer` in
-`target.admin_api_headers` (`X-API-KEY`); Control API at `target.health_api_url`.
+Admin API under `<gateway.admin.url>/apisix/admin` (the path is added when missing), key of role `viewer` in
+`gateway.admin.headers` (`X-API-KEY`); Control API at `gateway.health.url`.
 
 | Concept | Read from | Notes |
 |---|---|---|
 | backend timeouts | `GET /upstreams`, `/services`, `/routes` | each upstream (also inline in a service or route), and routes with their own `timeout`; seconds |
 | health checks | upstreams' `checks` | defaults from `GET /schema/upstream` |
-| live target health | Control API `GET /v1/healthcheck` | `mostly_healthy` / `mostly_unhealthy` classed as healthy / unhealthy; empty until the first request through APISIX; not accessible without `health_api_url` |
+| live target health | Control API `GET /v1/healthcheck` | `mostly_healthy` / `mostly_unhealthy` classed as healthy / unhealthy; empty until the first request through APISIX; not accessible without `gateway.health` |
 | routes | `GET /routes` | `uri` / `uris`, `methods`, `status`; backend from `upstream`, `upstream_id` or the service's upstream |
 | circuit breakers | `api-breaker` | in global rules, routes, their plugin configs and services |
 | signing policies | `hmac-auth` | as above |
@@ -113,12 +115,13 @@ plugin on a service is reported for each route of that service. Missing plugin f
 of `GET /plugins/{name}` (documented); upstream defaults come from `GET /schema/upstream` (served by APISIX 3.19.0,
 not in its documentation). A schema that cannot be read leaves the fields empty and is logged
 (`apisix_gateway_schema_not_read`). The test 3.3 and 4.3 plugin names are not used: APISIX's own plugins are read.
-Tested against APISIX 3.19.0 with etcd (`test-environments/forgejo-apisix/`).
+Tested against APISIX 3.19.0 with etcd (`test-environments/forgejo-apisix/`), Admin API over HTTPS with a client
+certificate (`admin_api_mtls`) and the key.
 
 ## Verify
 
-1. `apiguard validate-config` with `target.gateway_adapter: <name>` and `target.admin_api_url` set (and
-   `target.admin_api_headers`, `target.health_api_url` if the gateway needs them).
+1. `apiguard validate-config` with `gateway.adapter: <name>` and `gateway.admin.url` set (and
+   `gateway.admin.headers`, `gateway.admin.tls`, `gateway.health.url` if the gateway needs them).
 2. Read every concept from a lab and compare with the gateway's own configuration.
 3. Run the WHITE_BOX audits only (`execution.test_ids: ["3.3", "4.2", "4.3", "6.4"]`): no SKIP with "Gateway
    adapter not configured"; findings reflect the real configuration and point to the stored concepts

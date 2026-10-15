@@ -9,15 +9,15 @@ Control API. Mappings: docs/project/gateway-concepts.md.
 
 Interfaces
 ----------
-Admin API (target.admin_api_url, e.g. http://127.0.0.1:9180): the
+Admin API (gateway.admin.url, e.g. http://127.0.0.1:9180): the
 configuration. Collections are read under /apisix/admin (routes, upstreams,
 services, global_rules, plugin_configs, consumers), each answered as
 {"total": n, "list": [{"key": ..., "value": {...}}]}; without paging
 parameters APISIX returns the whole collection. A key of role viewer is
 enough (GET only); it is sent as the X-API-KEY header of
-target.admin_api_headers.
+gateway.admin.headers.
 
-Control API (target.health_api_url, e.g. http://127.0.0.1:9090): live health
+Control API (gateway.health.url, e.g. http://127.0.0.1:9090): live health
 of the upstream nodes, GET /v1/healthcheck. It has no authentication and is
 read without the Admin API headers. APISIX starts checking an upstream only
 when it first receives a request, so before that the list is empty.
@@ -118,7 +118,7 @@ _ROUTE_STATUS_DISABLED: int = 0
 _GLOBAL_SCOPE_NAME: str = "global"
 
 _NO_HEALTH_API_REASON: str = (
-    "the address of the APISIX Control API is not configured: set target.health_api_url"
+    "the address of the APISIX Control API is not configured: set gateway.health.url"
 )
 
 

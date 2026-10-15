@@ -444,6 +444,9 @@ class ExternalToolTest(ABC):
 
         # --- Step 5: oracle evaluation (subclass responsibility) ---
         result = self._evaluate(connector_result, artifact_ref)
+        context_notes = self._context_notes(target)
+        if context_notes:
+            result = result.model_copy(update={"notes": [*result.notes, *context_notes]})
 
         return result.model_copy(
             update={
@@ -457,6 +460,22 @@ class ExternalToolTest(ABC):
                 "tool_artifact_record_id": artifact_ref,
             }
         )
+
+    def _context_notes(self, target: TargetContext) -> list[InfoNote]:
+        """
+        Return notes about how the run was configured, added to the result.
+
+        Default: none. A subclass states here what the reader of the report
+        must know about the conditions of the scan (e.g. the TLS tests: the
+        certificate trust established through target.tls.ca_bundle).
+
+        Args:
+            target: The run's TargetContext.
+
+        Returns:
+            Notes appended to the result's notes.
+        """
+        return []
 
     # ------------------------------------------------------------------
     # Dev mode helpers

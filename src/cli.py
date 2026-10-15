@@ -61,6 +61,8 @@ from src.connectors.base import BaseSubprocessConnector
 # (single source of truth -- see src/__init__.py).
 TOOL_NAME: str = "APIGuard Assurance"
 TOOL_VERSION: str = __version__
+# Exit code of a command line used wrongly (as typer's own usage errors).
+_EXIT_USAGE: int = 2
 # File loaded from the current working directory when --env-file is not given.
 DEFAULT_ENV_FILENAME: str = ".env"
 
@@ -472,11 +474,17 @@ def validate_config(
 
     log = structlog.get_logger("cli.validate_config")
 
-    from src.engine import check_credentials, check_tests, describe_resources
+    from src.engine import (
+        build_connection_contexts,
+        check_credentials,
+        check_tests,
+        describe_resources,
+    )
 
     try:
         tool_config = load_config(config)
         check_tests(tool_config)
+        build_connection_contexts(tool_config)
         placement = check_credentials(tool_config)
         _console_out.print(
             f"[bold green]Configuration valid.[/bold green] Target: {tool_config.target.base_url}"
@@ -521,17 +529,34 @@ def validate_config(
 @app.command(name="generate-seed")
 def generate_seed(
     spec: Annotated[
-        str,
+        str | None,
         typer.Argument(
             help=(
                 "OpenAPI specification source. Accepts either: "
-                "(1) an HTTP/HTTPS URL (e.g. http://localhost:3000/swagger.v1.json), or "
+                "(1) an HTTP/HTTPS URL (e.g. https://api.example.com/openapi.json), or "
                 "(2) a local filesystem path (e.g. ./specs/openapi.yaml). "
                 "The spec is fetched or read as-is without full $ref dereferencing, "
-                "which makes this command fast and usable before the target is fully running."
+                "which makes this command fast and usable before the target is fully running. "
+                "Omit it with --config to take the specification of a configuration file."
             ),
         ),
-    ],
+    ] = None,
+    config: Annotated[
+        Path | None,
+        typer.Option(
+            "--config",
+            "-c",
+            help=(
+                "Take the specification from this config.yaml: its source, its timeout and "
+                "its certificate settings (specification.tls). Instead of the SPEC argument."
+            ),
+            exists=False,
+            file_okay=True,
+            dir_okay=False,
+            resolve_path=True,
+        ),
+    ] = None,
+    env_file: EnvFileOption = None,
     output: Annotated[
         Path | None,
         typer.Option(
@@ -586,8 +611,9 @@ def generate_seed(
 
     Examples:
 
-        # Generate from a running target and print to stdout
-        apiguard generate-seed http://localhost:3000/swagger.v1.json
+        # Generate from the specification of a configuration (its URL or file,
+        # and its certificate settings) and print to stdout
+        apiguard generate-seed -c test-environments/forgejo-kong/config.yaml
 
         # Generate from a local spec file and save to disk
         apiguard generate-seed ./specs/openapi.yaml --output seed_template.yaml
@@ -596,9 +622,14 @@ def generate_seed(
         apiguard generate-seed https://api.example.com/openapi.json \\
             --output my_seed.yaml --timeout 60
 
+        # Take the specification of a configuration (source, timeout, specification.tls)
+        apiguard generate-seed -c config.yaml --env-file .env -o seed_template.yaml
+
     Exit codes:
         0   Template generated successfully.
         1   Fetch or parse error (spec unreachable or malformed).
+        2   Neither SPEC nor --config, or both.
+        10  The configuration given with --config is invalid.
 
     Streams: stdout carries only the YAML template (without --output), so
     that it can be redirected to a file; the panel, logs and messages always go
@@ -615,10 +646,29 @@ def generate_seed(
 
     log_inner = structlog.get_logger("cli.generate_seed")
 
+    if (spec is None) == (config is None):
+        _console_err.print(
+            "[bold red]Give either a SPEC (URL or path) or --config, not both.[/bold red]"
+        )
+        raise typer.Exit(code=_EXIT_USAGE)
+    spec_source, fetch_timeout, tls_context = (spec or "", timeout, None)
+    if config is not None:
+        from src.config.loader import load_config
+        from src.core.exceptions import ConfigurationError
+        from src.core.models.enums import ExitCode
+        from src.engine import specification_connection
+
+        _load_env_file(env_file)
+        try:
+            spec_source, fetch_timeout, tls_context = specification_connection(load_config(config))
+        except ConfigurationError as exc:
+            _console_err.print(f"[bold red]Configuration invalid:[/bold red] {exc.message}")
+            raise typer.Exit(code=ExitCode.INFRASTRUCTURE) from None
+
     if log_format == LogFormat.CONSOLE:
         _console_err.print(
             Panel(
-                f"[dim]Spec source:[/dim] [white]{spec}[/white]",
+                f"[dim]Spec source:[/dim] [white]{spec_source}[/white]",
                 title="[bold cyan]APIGuard — Generate Seed[/bold cyan]",
                 border_style="bright_blue",
                 padding=(0, 2),
@@ -628,8 +678,9 @@ def generate_seed(
 
     try:
         param_names = extract_path_param_names(
-            spec_source=spec,
-            timeout_seconds=timeout,
+            spec_source=spec_source,
+            timeout_seconds=fetch_timeout,
+            tls_context=tls_context,
         )
     except SeedGeneratorFetchError as exc:
         log_inner.error(
@@ -652,7 +703,7 @@ def generate_seed(
         )
         raise typer.Exit(code=1) from None
 
-    yaml_content = render_seed_template(param_names=param_names, spec_source=spec)
+    yaml_content = render_seed_template(param_names=param_names, spec_source=spec_source)
 
     if output is None:
         # stdout carries only the template, written raw (no wrapping, no markup)

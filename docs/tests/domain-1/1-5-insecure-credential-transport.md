@@ -12,7 +12,7 @@
 | Priority / strategy | P2 / BLACK_BOX (network access only; the methodology calls it a configuration audit) |
 | CWE | CWE-319 |
 | Depends on | none |
-| Configuration | [`tests.domain_1.test_1_5`](../../reference/configuration.md#testsdomain_1test_1_5---credentials-over-insecure-channels), `target.verify_tls` |
+| Configuration | [`tests.domain_1.test_1_5`](../../reference/configuration.md#testsdomain_1test_1_5---credentials-over-insecure-channels), `target.tls` |
 | Companion tests | [`ext.1.5.testssl`, `ext.1.5.sslyze`](../external/domain-1/ext-1-5-tls-analysis.md) (TLS protocols and ciphers) |
 
 ## What it checks
@@ -28,7 +28,8 @@ compliant `Strict-Transport-Security` header. TLS protocol and cipher analysis i
 
 **Sub-test 1, HTTP redirect** (if `http_probe_enabled`). URL: `http_probe_url` if set, otherwise `base_url`
 with `https://` replaced by `http://`. One `GET` without following redirects, sent directly with httpx (not through
-the tool's HTTP client, so it does not appear in the audit trail or in `evidence.json`).
+the tool's HTTP client, so it does not appear in the audit trail or in `evidence.json`), with the TLS context of
+`target.tls` (an `http_probe_url` given as `https://` is checked as the API's certificate is).
 
 | Result | Verdict |
 |---|---|

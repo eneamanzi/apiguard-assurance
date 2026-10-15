@@ -68,7 +68,8 @@ WHITE_BOX tests access the gateway admin plane via `target.gateway` (a `BaseGate
 injected by engine.py Phase 3). Tests guard with `if target.gateway is None: return SKIP`.
 The ABC and all concrete implementations live in `src/core/gateway/` (currently: `KongGatewayAdapter`,
 `ApisixGatewayAdapter`).
-The adapter type is configured via `target.gateway_adapter` (`kong` or `apisix`) in `config.yaml`.
+The adapter type is configured via `gateway.adapter` (`kong` or `apisix`) in `config.yaml`, with the Admin API in
+`gateway.admin` (`url`, `headers`, `tls`).
 
 ---
 

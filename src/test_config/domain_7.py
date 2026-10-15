@@ -158,7 +158,7 @@ _TEST_72_REMOVED_KEYS: dict[str, str] = {
 
 # Default intended timeout for individual SSRF probe requests (milliseconds).
 # Reserved for future per-request timeout override in SecurityClient.
-# Currently the global execution.read_timeout governs all requests.
+# Currently the global target.read_timeout governs all requests.
 # NIST SP 800-204 S3.2.2 recommends tight timeouts on outbound connections.
 TEST_72_REQUEST_TIMEOUT_MS_DEFAULT: int = 10_000
 TEST_72_REQUEST_TIMEOUT_MS_MIN: int = 1_000
@@ -399,7 +399,7 @@ class Test72SSRFConfig(BaseModel):
         description=(
             "Intended timeout in milliseconds for individual SSRF probe requests. "
             "Reserved for future per-request timeout override support in "
-            "SecurityClient. Currently the global execution.read_timeout "
+            "SecurityClient. Currently the global target.read_timeout "
             "governs all requests; this field documents the operator's intent "
             "and will be honoured automatically once SecurityClient supports "
             "per-request timeout overrides. "

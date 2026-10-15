@@ -35,6 +35,8 @@ Symbol inventory by source module:
                        CREDENTIAL_VALUE, FIXED_PLACEHOLDERS, PLACEHOLDER_USERNAME,
                        PLACEHOLDER_PASSWORD, PLACEHOLDER_RANDOM
 
+    tls.py             TlsSettings
+
     external_tools.py  BaseExternalToolConfig, TestsslConfig, NucleiConfig,
                        ExternalToolsConfig
 """
@@ -69,6 +71,7 @@ from src.core.models.surface import (
     SecuritySchemeRecord,
     SecuritySchemeType,
 )
+from src.core.models.tls import TlsSettings
 
 __all__ = [
     # enums.py
@@ -107,6 +110,8 @@ __all__ = [
     "PLACEHOLDER_USERNAME",
     "PLACEHOLDER_PASSWORD",
     "PLACEHOLDER_RANDOM",
+    # tls.py
+    "TlsSettings",
     # external_tools.py
     "BaseExternalToolConfig",
     "TestsslConfig",

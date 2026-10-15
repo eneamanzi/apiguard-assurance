@@ -13,6 +13,34 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
 ### Added
 
+- Certificate settings for every connection of the tool (`docs/project/connections-design.md`): an optional `tls`
+  block on `target`, `specification`, `gateway.admin` and `gateway.health` with `verify`, `ca_bundle` (the authorities
+  to trust, instead of the default ones, as `curl --cacert`), `client_cert` and `client_key` (mutual TLS). A private
+  authority, an Admin API over HTTPS with a company certificate and an Admin API that requires a client certificate
+  (APISIX `admin_api_mtls`) now work. The files are checked before any test (exit `10`): they exist, are PEM, the key
+  matches the certificate and is not encrypted (the tool never prompts for a password); a key readable by other users
+  and a `tls` block on an `http://` URL give a warning. Guide: `configure-a-target.md`, "TLS and certificates".
+- A TLS problem is explained with the key to set and never retried: certificate not trusted, wrong name, expired,
+  client certificate refused or missing (also when nginx-based servers, such as APISIX, answer with an HTTP 400
+  page instead of refusing the connection), plain HTTP to an HTTPS port, HTTPS to a plain port. Before the first
+  test the tool sends one request to the API (`preflight` in `evidence.json`): a TLS problem stops the run there
+  (exit `10`) instead of failing every test.
+- A run that stops with exit `10` prints the reason in full on a `Reason` line below the exit code (the log lines
+  cut values at 160 characters, so the key to set was often lost).
+- `apiguard_report.json` has `connections`: how the certificate of each connection was checked
+  (`verified_system`, `verified_ca_bundle`, `not_verified`, `plain_http`, `local_file`) and whether a client
+  certificate was used; the HTML report shows them under "Certificate checks", a not verified connection in red.
+- The external TLS tests receive `target.tls.ca_bundle` (testssl.sh `--add-ca`, sslyze `custom_ca_file`), so a
+  certificate from a private authority is judged on its properties, with an InfoNote saying that trust came from the
+  configured authority.
+- `apiguard generate-seed` takes `-c/--config` (and `--env-file`): the specification and its certificate settings
+  come from the configuration; the `SPEC` argument is optional with it.
+- The labs' certificate authority (`test-environments/pki/gen-pki.sh`): generated at the first start of any lab by a
+  one-shot `pki` service, shared by the three labs, never committed; certificates of 180 days with the RFC 5280
+  extensions, renewed automatically. Every connection of the labs is verified with it; Kong labs have an HTTPS Admin
+  API (8444, 9444), the APISIX lab an Admin API over HTTPS with a mandatory client certificate; the Admin APIs listen
+  on `127.0.0.1` only.
+
 - Second test lab, `test-environments/crapi-kong/`: OWASP crAPI 1.1.6 behind Kong 3.9.3, with the same gateway
   configuration as the Forgejo lab, on ports 9000/9443/9001 (both labs can run together); users created by a setup
   container from `.env`; the crAPI specification is stored in the lab. Its configuration is
@@ -32,22 +60,22 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
   in the working directory.
 - `tests.domain_0.test_0_1.method_probe_sample_size` (1-100, default 10): how many documented endpoints test 0.1
   takes for the undeclared-method sub-check (it was a fixed 10). Every native test now has a configuration model.
-- `target.admin_api_headers`: headers sent on every read of the gateway's Admin API (e.g. an APISIX key or a Kong
+- `gateway.admin.headers`: headers sent on every read of the gateway's Admin API (e.g. an APISIX key or a Kong
   Enterprise RBAC token), for a gateway that protects it; the values are registered as secrets and masked in logs
   and reports (Q-34).
 - `config.example.yaml` in the repository root: every configuration key with its description and default, neutral
   values; included in the source archive. `hatch run dev:check` runs `scripts/check_config_keys.py`, which fails
   when a key of the schema is missing from it or it has a key the schema does not know (alternatives that cannot
   be active together are listed commented out).
-- Apache APISIX gateway adapter, `target.gateway_adapter: apisix` (tested with APISIX 3.19.0 and etcd): the
+- Apache APISIX gateway adapter, `gateway.adapter: apisix` (tested with APISIX 3.19.0 and etcd): the
   configuration audits (3.3, 4.2, 4.3, 6.4 sub-test B) read the APISIX Admin API (a key of role `viewer`, GET only,
   is enough) and fill the fields left out with the defaults of the running APISIX (its plugin and upstream schemas),
   so that, for example, `hmac-auth` without `allowed_algorithms` is seen to allow `hmac-sha1`.
-- `target.health_api_url`: address of the interface reporting the live health of the backends when the gateway keeps
+- `gateway.health.url`: address of the interface reporting the live health of the backends when the gateway keeps
   it outside the Admin API (APISIX Control API), read by test 4.3 without the Admin API headers; not used by Kong.
 - Third test lab, `test-environments/forgejo-apisix/`: the Forgejo lab's API behind Apache APISIX 3.19.0 (etcd 3.5.34),
-  with a gateway configuration of the same intent as the Kong labs, on ports 10000/10443/10001 (Control API 10002,
-  Forgejo 10003); Admin API keys from `.env` (`APISIX_ADMIN_KEY` for the setup, `APISIX_VIEWER_KEY` for the tool).
+  with a gateway configuration of the same intent as the Kong labs, on ports 10000/10443/10001 (Control API 10002);
+  Admin API keys from `.env` (`APISIX_ADMIN_KEY` for the setup, `APISIX_VIEWER_KEY` for the tool).
   Native results identical to the Forgejo + Kong lab.
 
 ### Fixed
@@ -72,16 +100,41 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 - `apiguard generate-seed SPEC > seed.yaml` writes a valid YAML file: stdout carries only the template, the panel,
   logs and messages go to stderr.
 - A spec URL that accepts the connection and never answers no longer hangs the run: after
-  `execution.openapi_fetch_timeout_seconds` the run stops with exit `10`.
+  `specification.timeout` the run stops with exit `10`.
 
 ### Removed
 
+- The lab's committed self-signed certificate and private key (`test-environments/forgejo-kong/certs/`) and
+  `gen-certs.sh`: no private key is in the repository; the labs generate their certificates (see Added).
 - `TargetContext.effective_base_url` and the `<TOOL>_SERVICE_URL` tool discovery: both were never functional.
   External tools are found in `./tools/` or `PATH`; a missing tool gives SKIP (with `<TOOL>_SERVICE_URL` set it
   used to give ERROR).
 
 ### Changed
 
+- **Breaking:** the configuration is organised by connection (`docs/project/connections-design.md`): `target` is
+  the API (address, `tls`, `connect_timeout`, `read_timeout`, `max_retry_attempts`, `path_seed`), `specification` the
+  OpenAPI document (`url` or `path`, `timeout`, `tls`), `gateway` the gateway (`adapter`, `admin` with `url`,
+  `headers`, `connect_timeout`, `read_timeout`, `tls`, and `health` with `url`, `tls`). The previous keys are rejected
+  at startup with their new place: `target.openapi_spec_url` / `openapi_spec_path` → `specification.url` / `path`,
+  `execution.openapi_fetch_timeout_seconds` → `specification.timeout`, `target.gateway_adapter` →
+  `gateway.adapter`, `target.admin_api_url` → `gateway.admin.url`, `target.admin_connect_timeout_seconds` /
+  `admin_read_timeout_seconds` → `gateway.admin.connect_timeout` / `read_timeout`, `execution.connect_timeout` /
+  `read_timeout` / `max_retry_attempts` → `target.*`. Table: `docs/reference/configuration.md`, "Keys moved".
+- **Breaking:** `target.verify_tls` is replaced by `target.tls.verify`; the Admin API, which was always verified
+  against the public authorities only, now follows `gateway.admin.tls`.
+- **Breaking:** by default every connection trusts the operating system's certificate store (through `truststore`)
+  plus certifi's list; before, only certifi's list (httpx's default). A company authority installed in the system
+  is now trusted without configuration; `SSL_CERT_FILE` / `SSL_CERT_DIR` no longer change what the tool trusts.
+- The specification is downloaded by the tool (with the settings of `specification`), no longer by prance; relative
+  `$ref` in a specification read from a URL were never resolved (prance resolves them only for files) and now give a
+  message saying to use a local copy.
+- **Changed results**, connections and TLS: on the three labs, with the labs' authority, the external TLS tests no
+  longer report an untrusted chain: `ext.1.5.sslyze` FAIL → PASS (`cert_chain_not_trusted` gone), `ext.1.5.testssl`
+  keeps only `cert_revocation` (`cert_chain_of_trust` and `overall_grade` gone; the lab certificates declare no CRL or
+  OCSP address). The native tests give the same results. The Forgejo labs serve the specification through the gateway
+  (`/swagger.v1.json`, test 0.1 excludes it as before), Forgejo publishes no port and its `ROOT_URL` is the gateway's
+  address.
 - **Breaking:** authentication is configured in two parts (block 7+8 phase C, `docs/project/auth-survey.md`).
   `credentials.auth_type` has no default and is required when an account or a token is configured (it was
   `forgejo_token` by default); values `basic` (new, HTTP Basic), `static_token` (new, `admin_token` /
@@ -194,7 +247,7 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
   too. Relabelled: 1.5, 1.6, 6.2, `ext.1.5.testssl`, `ext.1.5.sslyze` WHITE_BOX → BLACK_BOX (network access only);
   1.4 GREY_BOX → WHITE_BOX (administrator account). With all three strategies (the default) the same tests run; the
   `strategy` field of these tests changes in the report. Phase 1 warnings follow the exact SKIP conditions: WHITE_BOX
-  without `gateway_adapter` (was: without `admin_api_url`, which missed an URL without adapter), WHITE_BOX without
+  without `gateway` (was: without `admin_api_url`, which missed an URL without adapter), WHITE_BOX without
   the `admin` credentials (new), GREY_BOX without the `user_a` credentials (was: without any credentials).
 - **Breaking:** a run that would check nothing no longer ends with exit `0` (CLEAN). An `execution.test_ids`
   entry that does not exist (with a suggestion of the closest ID) or that belongs to a disabled tool stops the tool
@@ -213,7 +266,7 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 - Test lab (`test-environments/forgejo-kong/`): every credential and secret comes from `.env` (new variables
   `LAB_DB_PASSWORD`, `LAB_FORGEJO_SECRET_KEY`, `LAB_TEST_REPO`, `LAB_TEST_ORG`, `LAB_TEST_TAG` in `.env.example`);
   the setup container creates users that can call the API immediately, plus the repository, organization, tag,
-  issue and comment that `path_seed` points to; `gen-certs.sh` makes the key readable by Kong.
+  issue and comment that `path_seed` points to.
 - Supported Python range set to the versions verified on the lab: `>=3.11,<3.15` (3.11, 3.12, 3.13, 3.14);
   previously `>=3.11` with only 3.12 tested.
 - Test lab: Docker images pinned to exact versions (Forgejo 14.0.5, Kong 3.9.3, PostgreSQL 15.19), listed in

@@ -3,7 +3,8 @@
 > **Audience:** users, integrators · **Status:** draft - several points are open (see `OPEN_QUESTIONS.md`) ·
 > **Source of truth:** `pyproject.toml`, `install_tools.sh`, `src/core/gateway/`, `src/discovery/openapi.py`,
 > `test-environments/*/docker-compose.yml` · **Verified:** 2026-10-05, v0.1.0; interface stability 2026-10-09; crAPI lab
-> 2026-10-10; APISIX lab and adapter 2026-10-12
+> 2026-10-10; APISIX lab and adapter 2026-10-12; connections and TLS, labs rebuilt with their certificate authority
+> 2026-10-15
 
 This page separates what the code **declares**, what has been **tested**, and what is **unknown**.
 Nothing in the "unknown" column should be assumed to work.
@@ -20,9 +21,10 @@ Nothing in the "unknown" column should be assumed to work.
 | Item | Declared | Tested | Notes |
 |---|---|---|---|
 | Specification formats | Swagger 2.0; OpenAPI 3.0.x and 3.1.x (validator chosen by minor version) | Swagger 2.0 (Forgejo), OpenAPI 3.0.1 (crAPI, `test-environments/crapi-kong/crapi-openapi-spec.json`) | OpenAPI 3.1 not exercised on a real target. Swagger 2.0 skips structural validation (`src/discovery/openapi.py`). A major version other than `swagger: 2` / `openapi: 3` → `OpenAPILoadError` (exit `10`). |
-| Gateway adapter (WHITE_BOX audits) | `kong`, `apisix` (`target.gateway_adapter`) | Kong 3.9.3 in DB-less mode; Apache APISIX 3.19.0, traditional deployment with etcd, Admin API key of role `viewer`, Control API for live health (see [Test lab](#test-lab)) | Kong with a database, other APISIX versions, APISIX standalone (no Admin API: its configuration cannot be read). Other gateways: configuration-audit tests SKIP. |
+| Gateway adapter (WHITE_BOX audits) | `kong`, `apisix` (`gateway.adapter`) | Kong 3.9.3 in DB-less mode, Admin API over HTTPS; Apache APISIX 3.19.0, traditional deployment with etcd, Admin API over HTTPS with a client certificate and a key of role `viewer`, Control API for live health (see [Test lab](#test-lab)) | Kong with a database, other APISIX versions, APISIX standalone (no Admin API: its configuration cannot be read). Other gateways: configuration-audit tests SKIP. |
+| TLS of the connections (`tls` of `target`, `specification`, `gateway.admin`, `gateway.health`) | system store plus certifi, `ca_bundle`, `verify: false`, client certificate (PEM, key not encrypted) | every connection of the three labs verified with the labs' authority (`ca_bundle`), client certificate on the APISIX Admin API; negative cases on the labs: no authority, wrong authority, no or wrong client certificate, plain HTTP to an HTTPS port, encrypted and readable keys (2026-10-15) | the system store on macOS and Windows (not supported platforms); a `.p12` used directly: not supported (convert it to PEM) |
 | Target application | any REST API with an OpenAPI spec | Forgejo 14.0.5 behind Kong and behind APISIX, OWASP crAPI 1.1.6 behind Kong (see [Test lab](#test-lab)); Forgejo 14.0.3 in the v0.1.0 release audit | What each test needs from the target: [Test portability](#test-portability). |
-| Authentication (`credentials.auth_type`; how the credential is sent: the specification's security schemes, `security_scheme`, `send_as`) | `basic`, `static_token`, `login` (a [prepared resource](configuration.md#resources) that logs in) | `login` with Forgejo's token API (resource `forgejo-token`, scheme `AuthorizationHeaderToken` + `token ` prefix) on both Forgejo labs and with crAPI's JSON login (resource `crapi-login`, scheme `bearerAuth`) (2026-10-14); `basic` and `static_token` on Forgejo + Kong for tests 1.4, 2.1, 7.2 (2026-10-14, before `login` replaced `forgejo_token` and `json_login`) | OAuth 2.0 client credentials, session cookies obtained by login, mutual TLS: not implemented (`docs/project/auth-survey.md`). Revocation (test 1.4): `login` with a delete request (token deletion); revocation by a logout request not implemented. |
+| Authentication (`credentials.auth_type`; how the credential is sent: the specification's security schemes, `security_scheme`, `send_as`) | `basic`, `static_token`, `login` (a [prepared resource](configuration.md#resources) that logs in) | `login` with Forgejo's token API (resource `forgejo-token`, scheme `AuthorizationHeaderToken` + `token ` prefix) on both Forgejo labs and with crAPI's JSON login (resource `crapi-login`, scheme `bearerAuth`) (2026-10-14); `basic` and `static_token` on Forgejo + Kong for tests 1.4, 2.1, 7.2 (2026-10-14, before `login` replaced `forgejo_token` and `json_login`) | OAuth 2.0 client credentials, session cookies obtained by login: not implemented; mutual TLS is a connection setting (`target.tls.client_cert`), not an `auth_type` (`docs/project/auth-survey.md`). Revocation (test 1.4): `login` with a delete request (token deletion); revocation by a logout request not implemented. |
 
 ## Test portability
 
@@ -55,11 +57,33 @@ Three labs, each pinning every image to an exact version, so that an assessment 
 target. These are the versions the documentation and the measured results refer to. Each lab has its own ports, so
 they can run at the same time.
 
-| Lab | Folder | Configuration | Ports (proxy HTTP, proxy HTTPS, Admin API) |
+| Lab | Folder | Configuration | Ports (proxy HTTP, proxy HTTPS, Admin API on 127.0.0.1) |
 |---|---|---|---|
-| Forgejo + Kong | `test-environments/forgejo-kong/` | `test-environments/forgejo-kong/config.yaml` | 8000, 8443, 8001 (Forgejo directly: 3000) |
-| crAPI + Kong | `test-environments/crapi-kong/` | `test-environments/crapi-kong/config.yaml` | 9000, 9443, 9001 (nothing else exposed) |
-| Forgejo + APISIX | `test-environments/forgejo-apisix/` | `test-environments/forgejo-apisix/config.yaml` | 10000, 10443, 10001 (Control API: 10002; Forgejo directly: 10003; Admin and Control API on 127.0.0.1 only) |
+| Forgejo + Kong | `test-environments/forgejo-kong/` | `test-environments/forgejo-kong/config.yaml` | 8000, 8443, 8444 HTTPS and 8001 HTTP |
+| crAPI + Kong | `test-environments/crapi-kong/` | `test-environments/crapi-kong/config.yaml` | 9000, 9443, 9444 HTTPS and 9001 HTTP |
+| Forgejo + APISIX | `test-environments/forgejo-apisix/` | `test-environments/forgejo-apisix/config.yaml` | 10000, 10443, 10001 HTTPS with client certificate (Control API: 10002, HTTP, 127.0.0.1) |
+
+No backend publishes a port: Forgejo and crAPI are reachable only through their gateway, as in production.
+
+**Certificates and protection level** (2026-10-15). The three labs share one certificate authority, generated at the
+first start of any lab by its one-shot `pki` service (`test-environments/pki/gen-pki.sh`, with the `openssl` of the
+gateway image; never committed): an authority (10 years) and, signed by it, the gateways' certificate and a client
+certificate (180 days, the CA/Browser Forum limit for public certificates from March 2026 is 200 days), with the
+RFC 5280 extensions strict validators require (`basicConstraints`, `keyUsage`, `extendedKeyUsage`, key
+identifiers: sslyze refuses a chain without `keyUsage`). Each lab exercises the highest level its gateway offers:
+
+| Connection | Forgejo + Kong | crAPI + Kong | Forgejo + APISIX |
+|---|---|---|---|
+| API | HTTPS verified | HTTPS verified | HTTPS verified |
+| Specification | HTTPS verified, through Kong (`/swagger.v1.json`) | local file | HTTPS verified, through APISIX |
+| Admin API | HTTPS verified (Kong OSS has no client certificate or key for it) | HTTPS verified | HTTPS verified, client certificate required, then the key |
+| Health interface | - (Kong's Admin API) | - | HTTP on 127.0.0.1 (the Control API has no TLS) |
+
+Sources: Kong `admin_listen`, `admin_ssl_cert`
+([configuration](https://developer.konghq.com/gateway/configuration/)); APISIX `https_admin`, `admin_api_mtls`
+([config.yaml.example 3.19](https://raw.githubusercontent.com/apache/apisix/release/3.19/conf/config.yaml.example)),
+which set nginx's `ssl_verify_client on` (APISIX `apisix/cli/ngx_tpl.lua`). The comments in each lab configuration
+say how to lower each level.
 
 ### Forgejo + Kong
 
@@ -138,10 +162,14 @@ How it was built, and why:
 - **etcd**: the official image of the etcd project, instead of the example's `bitnamilegacy/etcd`, which is no
   longer maintained.
 - **Admin API keys** from `.env` (`${{VAR}}` in `apisix/config.yaml`): `admin` for the setup only, `viewer` (GET
-  only, `apisix/admin/init.lua`) for the tool, through `target.admin_api_headers`.
+  only, `apisix/admin/init.lua`) for the tool, through `gateway.admin.headers`.
+- **Admin API over HTTPS with mutual TLS** (`https_admin`, `admin_api_mtls` with the labs' authority as
+  `admin_ssl_ca_cert`): without a client certificate nginx answers `400 No required SSL certificate was sent`, with
+  the certificate and no key APISIX answers `401`. `apisix-setup` presents the client certificate and the `admin` key.
 - **Configuration through the Admin API**: APISIX with etcd starts without routes; `apisix-setup` writes the
   certificate, the upstream (timeouts 5/30/30 s, passive checks as in the Kong labs, active check), the `/api`
-  route (`redirect` `http_to_https`, `response-rewrite` security headers) and an `hmac-auth` route (`hmac-sha256`,
+  route (`redirect` `http_to_https`, `response-rewrite` security headers), the `/swagger.v1.json` route (the same
+  plugins) and an `hmac-auth` route (`hmac-sha256`,
   `hmac-sha512`, 300 s, body signed), each with `PUT` and a fixed id.
 - **Readiness**: the container health check asks the Status API (`/status/ready`, 200 once every worker has the
   configuration from etcd); the image has no curl or wget, so the request is made with bash.
@@ -157,6 +185,11 @@ GET or HEAD gets a 308 redirect, where Kong answers 301.
 
 Results (2026-10-12, native tests): the same tests, statuses, findings and oracle states as the Forgejo + Kong lab;
 every audit read APISIX (concept artifacts with `"adapter": "apisix"`).
+
+Rebuilt from scratch on 2026-10-15 (the three labs, with their certificates, Forgejo's port closed and the
+specification route): native results identical to the references on each lab; the external TLS tests, given the
+labs' authority, no longer report an untrusted chain (sslyze PASS, testssl.sh keeps `cert_revocation`: the lab
+certificates declare no CRL or OCSP address).
 
 ## External tools
 

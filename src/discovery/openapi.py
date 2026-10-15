@@ -11,16 +11,19 @@ Supported spec sources
 ----------------------
 The source parameter accepts two formats:
 
-    HTTP/HTTPS URL  -- the spec is fetched over the network using prance's
-                       built-in requests-based transport. An explicit timeout
-                       watchdog (threading) prevents indefinite hangs on
-                       unresponsive servers.
+    HTTP/HTTPS URL  -- the spec is downloaded by the tool
+                       (src/discovery/download.py) with the settings of
+                       `specification` (TLS context, timeout), then given to
+                       prance as text with its URL, so that relative $ref
+                       resolve as before. External $ref are fetched by prance
+                       itself (requests, no TLS settings): a timeout watchdog
+                       (threading) prevents an indefinite hang.
 
     Filesystem path -- the spec is read from a local file. prance.ResolvingParser
                        accepts absolute filesystem paths natively alongside
                        'file://' URLs, so no format conversion is required.
                        Relative paths are resolved to absolute by the caller
-                       (TargetConfig.get_openapi_source() calls Path.resolve())
+                       (SpecificationConfig.get_source() calls Path.resolve())
                        before being passed here.
                        A pre-flight existence check raises OpenAPILoadError with
                        a clear message before prance is even invoked, avoiding
@@ -51,9 +54,9 @@ Three sequential phases
 
         Timeout implementation
         ----------------------
-        Prance uses the requests library internally for HTTP sources. requests
+        Prance uses the requests library internally for external $ref. requests
         has no default timeout (it waits indefinitely). To prevent the pipeline
-        from hanging on an unresponsive spec URL, _fetch_and_dereference() runs
+        from hanging on an unresponsive host, _fetch_and_dereference() runs
         the entire prance operation in a background daemon thread and waits for
         its concurrent.futures.Future with an explicit timeout_seconds parameter.
         If the thread does not complete within the deadline, a TimeoutError is
@@ -101,6 +104,7 @@ Dependency rule:
 from __future__ import annotations
 
 import concurrent.futures
+import ssl
 import threading
 
 import structlog
@@ -111,6 +115,7 @@ from prance.util.url import ResolutionError as PranceResolutionError  # type: ig
 
 from src.core.exceptions import OpenAPILoadError
 from src.core.models import SpecDialect
+from src.discovery.download import SpecDownloadError, download_specification
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -138,6 +143,9 @@ _DEFAULT_FETCH_TIMEOUT_SECONDS: float = 60.0
 # Used by the pre-flight check in _fetch_and_dereference() to decide whether
 # to verify file existence before invoking prance.
 _NETWORK_SCHEME_PREFIXES: tuple[str, ...] = ("http://", "https://", "file://")
+# prance's message for a relative $ref in a specification read from a URL
+# (prance.util.url.absurl): not supported by prance, with or without TLS.
+_PRANCE_RELATIVE_REF_OVER_URL: str = "non-file reference"
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +175,10 @@ class _NonValidatingResolvingParser(ResolvingParser):  # type: ignore[misc]
     version in pyproject.toml to guard against this breaking silently.
     """
 
+    # URL a downloaded specification came from: relative $ref resolve against it.
+    # None for a local file (prance's own URL is then the file's).
+    ref_base_url: str | None = None
+
     def _validate(self) -> None:
         """Resolve $refs in-place; skip backend validation."""
         forward_arg_names = (
@@ -183,7 +195,7 @@ class _NonValidatingResolvingParser(ResolvingParser):  # type: ignore[misc]
 
         resolver = RefResolver(
             self.specification,  # type: ignore[has-type]
-            self.url,
+            self.ref_base_url if self.ref_base_url is not None else self.url,
             reference_cache=ref_cache,
             **forward_args,
         )
@@ -200,6 +212,7 @@ class _NonValidatingResolvingParser(ResolvingParser):  # type: ignore[misc]
 def load_openapi_spec(
     source_url: str,
     timeout_seconds: float = _DEFAULT_FETCH_TIMEOUT_SECONDS,
+    tls_context: ssl.SSLContext | None = None,
 ) -> tuple[dict[str, object], SpecDialect]:
     """
     Fetch or read, dereference, and validate an API specification.
@@ -215,21 +228,24 @@ def load_openapi_spec(
     alongside the dereferenced spec dict so that downstream modules can
     apply dialect-appropriate parsing logic.
 
-    The entire prance operation (fetch/read + $ref resolution) runs in a
-    background thread. If it does not complete within timeout_seconds, an
-    OpenAPILoadError is raised immediately. For local files this timeout is
-    effectively never reached, but it is enforced unconditionally to keep
-    the implementation uniform.
+    A URL is downloaded by the tool (src/discovery/download.py) with the
+    connection settings of `specification` (TLS context, timeout); prance
+    receives the text and the URL it came from, so that relative $ref resolve
+    as before. prance's $ref resolution runs in a background thread: it may
+    fetch external $ref itself, with no timeout of its own, so if it does not
+    complete within timeout_seconds an OpenAPILoadError is raised.
 
     Args:
         source_url: HTTP/HTTPS URL or absolute filesystem path of the
                     specification file. Relative paths must be resolved to
-                    absolute by the caller (TargetConfig.get_openapi_source()
+                    absolute by the caller (SpecificationConfig.get_source()
                     does this via Path.resolve()) before being passed here.
                     Both JSON and YAML formats are supported.
-        timeout_seconds: Maximum wall-clock time in seconds for the fetch/read
-                         and dereference step. Defaults to 60.0 seconds.
-                         Set via config.execution.openapi_fetch_timeout_seconds.
+        timeout_seconds: Timeout in seconds of the download, and separately of
+                         the dereference step. Defaults to 60.0 seconds.
+                         Set via config.specification.timeout.
+        tls_context: TLS context of specification.tls (src/core/tls.py);
+                     None for the default trust.
 
     Returns:
         A tuple (spec, dialect) where:
@@ -249,8 +265,18 @@ def load_openapi_spec(
         is_local=not source_url.startswith(_NETWORK_SCHEME_PREFIXES),
     )
 
-    # Phase 2a: fetch/read and dereference (skip prance backend validation).
-    dereferenced_spec = _fetch_and_dereference(source_url, timeout_seconds)
+    # Phase 2a: download (URL), then read and dereference (skip prance backend validation).
+    spec_text: str | None = None
+    if not _is_local_path(source_url):
+        try:
+            spec_text = download_specification(source_url, timeout_seconds, tls_context)
+        except SpecDownloadError as exc:
+            raise OpenAPILoadError(
+                message=f"Cannot download the specification from '{source_url}': {exc.reason}",
+                source_url=source_url,
+                underlying_error=exc.reason,
+            ) from exc
+    dereferenced_spec = _fetch_and_dereference(source_url, timeout_seconds, spec_text)
 
     # Phase 2b: detect dialect, then validate against the correct schema.
     dialect = _detect_dialect(dereferenced_spec, source_url)
@@ -341,7 +367,7 @@ def _preflight_check_local_path(source_url: str) -> None:
         raise OpenAPILoadError(
             message=(
                 f"OpenAPI spec file not found: '{source_url}'. "
-                "Verify that openapi_spec_path in config.yaml points to an "
+                "Verify that specification.path in config.yaml points to an "
                 "existing file. Relative paths are resolved from the directory "
                 "where the tool is invoked (cwd at process start)."
             ),
@@ -365,7 +391,7 @@ def _preflight_check_local_path(source_url: str) -> None:
     )
 
 
-def _prance_worker(source_url: str) -> dict[str, object]:
+def _prance_worker(source_url: str, spec_text: str | None) -> dict[str, object]:
     """
     Worker function executed in a background thread by _fetch_and_dereference.
 
@@ -373,12 +399,14 @@ def _prance_worker(source_url: str) -> dict[str, object]:
     dereferenced spec dict. Any exception raised here is propagated back
     to the calling thread via concurrent.futures.Future.result().
 
-    prance.ResolvingParser accepts both HTTP URLs and absolute filesystem paths
-    as its first argument. For local paths it uses Python's built-in file I/O
-    rather than the requests transport, so no network connection is established.
+    A local file is read by prance. A downloaded specification is given as
+    text; prance then sets a placeholder URL, which is replaced by the real
+    one before parsing (lazy parser), so that relative $ref resolve against
+    it. External $ref are still fetched by prance itself.
 
     Args:
         source_url: HTTP/HTTPS URL or absolute filesystem path of the spec.
+        spec_text:  The downloaded text for a URL; None for a local file.
 
     Returns:
         Fully dereferenced spec as a nested dict.
@@ -387,18 +415,26 @@ def _prance_worker(source_url: str) -> dict[str, object]:
         PranceResolutionError: On $ref resolution failure.
         Exception: Any other prance / requests / YAML parse error.
     """
-    parser = _NonValidatingResolvingParser(
-        source_url,
-        lazy=False,
-        strict=False,
-        recursion_limit=10,
-        recursion_limit_handler=lambda *args, **_kwargs: {},
-    )
+    options: dict[str, object] = {
+        "strict": False,
+        "recursion_limit": 10,
+        "recursion_limit_handler": lambda *args, **_kwargs: {},
+    }
+    if spec_text is None:
+        parser = _NonValidatingResolvingParser(source_url, lazy=False, **options)
+    else:
+        # prance's parse() would download the URL again: it keeps its placeholder
+        # URL, and the real one is given only to the $ref resolution (_validate).
+        parser = _NonValidatingResolvingParser(spec_string=spec_text, lazy=True, **options)
+        parser.ref_base_url = source_url
+        parser.parse()
     return parser.specification  # type: ignore[no-any-return]
 
 
 def _run_prance_worker_into(
-    source_url: str, future: concurrent.futures.Future[dict[str, object]]
+    source_url: str,
+    spec_text: str | None,
+    future: concurrent.futures.Future[dict[str, object]],
 ) -> None:
     """
     Target of the fetch daemon thread: run _prance_worker and store its outcome.
@@ -409,15 +445,30 @@ def _run_prance_worker_into(
 
     Args:
         source_url: HTTP/HTTPS URL or absolute filesystem path of the spec.
+        spec_text:  The downloaded text for a URL; None for a local file.
         future:     Future that receives the result or the exception.
     """
     try:
-        future.set_result(_prance_worker(source_url))
+        future.set_result(_prance_worker(source_url, spec_text))
     except Exception as exc:  # noqa: BLE001 - not swallowed: re-raised by Future.result()
         future.set_exception(exc)
 
 
-def _fetch_and_dereference(source_url: str, timeout_seconds: float) -> dict[str, object]:
+def _ssl_error_in_chain(exc: BaseException) -> bool:
+    """True when an SSL error is among the exception's causes (prance's requests fetch)."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        if "SSLError" in type(current).__name__ or "CERTIFICATE_VERIFY_FAILED" in str(current):
+            return True
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def _fetch_and_dereference(
+    source_url: str, timeout_seconds: float, spec_text: str | None
+) -> dict[str, object]:
     """
     Pre-flight check (for local paths) then fetch/read + dereference with watchdog.
 
@@ -433,6 +484,7 @@ def _fetch_and_dereference(source_url: str, timeout_seconds: float) -> dict[str,
     Args:
         source_url: HTTP/HTTPS URL or absolute filesystem path of the spec.
         timeout_seconds: Maximum time to wait for the prance operation.
+        spec_text: The downloaded text for a URL; None for a local file.
 
     Returns:
         Fully dereferenced spec as a nested dict.
@@ -449,12 +501,12 @@ def _fetch_and_dereference(source_url: str, timeout_seconds: float) -> dict[str,
             detail="Source is a local filesystem path; skipping network fetch.",
         )
     else:
-        log.debug("openapi_fetching_remote_spec", source_url=source_url)
+        log.debug("openapi_dereferencing_downloaded_spec", source_url=source_url)
 
     future: concurrent.futures.Future[dict[str, object]] = concurrent.futures.Future()
     threading.Thread(
         target=_run_prance_worker_into,
-        args=(source_url, future),
+        args=(source_url, spec_text, future),
         name="openapi-fetch",
         daemon=True,
     ).start()
@@ -469,7 +521,7 @@ def _fetch_and_dereference(source_url: str, timeout_seconds: float) -> dict[str,
                 f"to be fetched and dereferenced from '{source_url}'. "
                 "Verify that the spec URL is reachable and that the document "
                 "does not contain an excessive number of remote $ref entries. "
-                "Increase 'execution.openapi_fetch_timeout_seconds' in config.yaml "
+                "Increase 'specification.timeout' in config.yaml "
                 "if the spec is large and the network is slow."
             ),
             source_url=source_url,
@@ -477,6 +529,28 @@ def _fetch_and_dereference(source_url: str, timeout_seconds: float) -> dict[str,
         ) from exc
 
     except PranceResolutionError as exc:
+        if _PRANCE_RELATIVE_REF_OVER_URL in str(exc):
+            raise OpenAPILoadError(
+                message=(
+                    f"The specification at '{source_url}' refers to another file with a relative "
+                    "$ref: prance cannot resolve relative references of a specification read "
+                    "from a URL. Use a local copy of the files (specification.path), where "
+                    f"relative references work. Underlying error: {exc}"
+                ),
+                source_url=source_url,
+                underlying_error=str(exc),
+            ) from exc
+        if _ssl_error_in_chain(exc):
+            raise OpenAPILoadError(
+                message=(
+                    f"The specification at '{source_url}' refers to another file ($ref) that "
+                    "could not be downloaded over TLS: such files are downloaded by prance with "
+                    "its own trust (certifi), without specification.tls. Use a single-file "
+                    f"specification, or a local copy (specification.path). Underlying error: {exc}"
+                ),
+                source_url=source_url,
+                underlying_error=str(exc),
+            ) from exc
         raise OpenAPILoadError(
             message=(
                 f"Failed to resolve one or more $ref pointers in the spec "

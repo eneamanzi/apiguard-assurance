@@ -3,7 +3,7 @@
 > **Audience:** analysts, contributors · **Status:** implemented (v0.1.0) · **Source of truth:**
 > [`src/external_tests/ext_test_1_5_tls_analysis.py`](../../../../src/external_tests/ext_test_1_5_tls_analysis.py),
 > [`src/connectors/testssl.py`](../../../../src/connectors/testssl.py), [`src/connectors/sslyze.py`](../../../../src/connectors/sslyze.py) ·
-> **Verified:** 2026-10-05
+> **Verified:** 2026-10-15 (configured authority, runs on the three labs), 2026-10-05
 
 Two independent tests in the same module, same oracle, different tools. Both appear in the report.
 
@@ -27,6 +27,14 @@ vulnerabilities. Test 1.5 covers the HTTP-level part of the same guarantee.
 **testssl.sh** runs against `host:port` of the base URL, e.g.
 `testssl.sh --quiet --color 0 --connect-timeout 10 localhost:8443` (flags from `extra_flags`), with JSON output.
 Severities are assigned by testssl.sh itself.
+
+**The configured authority.** When `target.tls.ca_bundle` is set, both tools trust it in addition to their own
+authorities: testssl.sh with `--add-ca <file>`, sslyze with `custom_ca_file` (shown as `--certinfo_ca_file=<file>`
+in the reproducible command). A certificate issued by a private authority is then judged on its real properties, not
+reported as untrusted, and each test adds the InfoNote "Certificate trust established through the configured
+authority": a client without that authority (e.g. on the public Internet) does not trust the certificate. When the
+chain is still not trusted, sslyze's finding reports the error against the configured authority. The tools never
+receive the client certificate or its key.
 
 **sslyze** runs its scan through the Python API; the connector maps each result to a fixed severity:
 
@@ -57,8 +65,12 @@ Severities are assigned by testssl.sh itself.
 References: OWASP-API2:2023, NIST-SP-800-52-Rev2, OWASP-ASVS-v5.0.0-V14.2.1, OWASP-ASVS-v5.0.0-V12.1.2.
 Raw tool output: `evidence.json` (pinned artefact), `outputs/tools/`, `tool_artifact` in the JSON report.
 
-Real run on the Forgejo + Kong lab (self-signed certificate), 2026-10-05: testssl FAIL with
-`cert_chain_of_trust`, `cert_revocation`, `overall_grade`; sslyze FAIL with `cert_chain_not_trusted`.
+Real runs. On the Forgejo + Kong lab with a self-signed certificate, 2026-10-05: testssl FAIL with
+`cert_chain_of_trust`, `cert_revocation`, `overall_grade`; sslyze FAIL with `cert_chain_not_trusted`. On the three
+labs with the labs' authority as `target.tls.ca_bundle`, 2026-10-15: testssl FAIL with `cert_revocation` only (the
+lab certificates declare no CRL or OCSP address), sslyze PASS; both with the InfoNote of the configured authority.
+sslyze refuses a chain whose certificates lack the RFC 5280 extensions (`keyUsage`: "Certificate is missing required
+extension 2.5.29.15"), which the labs' certificates now have.
 
 ## Coverage against the methodology
 

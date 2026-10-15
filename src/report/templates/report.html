@@ -109,6 +109,10 @@
       margin-top: 0.15rem;
       word-break: break-all;
     }
+    .cert-not-verified {
+      color: var(--color-fail);
+      font-weight: 600;
+    }
 
     /* ------------------------------------------------------------------ */
     /* Executive summary                                                     */
@@ -1540,6 +1544,20 @@
         <div class="meta-item">
           <div class="label">Strategies</div>
           <div class="value">{{ strategies_label }}</div>
+        </div>
+        {% set check_labels = {
+          "verified_system": "verified (system authorities)",
+          "verified_ca_bundle": "verified (configured ca_bundle)",
+          "not_verified": "NOT VERIFIED (verify: false)",
+          "plain_http": "plain HTTP, no TLS",
+          "local_file": "local file"} %}
+        <div class="meta-item">
+          <div class="label">Certificate checks</div>
+          <div class="value">
+            {% for c in connections %}
+            <div{% if c.certificate_check == "not_verified" %} class="cert-not-verified"{% endif %}>{{ c.name }}: {{ check_labels[c.certificate_check] }}{% if c.client_certificate %}, client certificate{% endif %}</div>
+            {% endfor %}
+          </div>
         </div>
         <div class="meta-item">
           <div class="label">Generated</div>

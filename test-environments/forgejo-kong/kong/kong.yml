@@ -49,6 +49,17 @@ services:
         protocols:
           - https
         https_redirect_status_code: 301
+      # Forgejo's OpenAPI specification, the only path outside /api (the tool downloads it from here:
+      # Forgejo publishes no port). Exact match: a Kong path starting with "~" is a regular expression
+      # (https://developer.konghq.com/gateway/routing/traditional/, example "~/foo/bar$").
+      - name: forgejo-spec-route
+        paths:
+          - '~/swagger\.v1\.json$'
+        strip_path: false
+        preserve_host: false
+        protocols:
+          - https
+        https_redirect_status_code: 301
     plugins:
       #- name: rate-limiting    # rimuovere il plugin per mostrare i finding del 4.1 (rate limiting)
       #  config:

@@ -12,7 +12,7 @@
 | Priority / strategy | P2 / WHITE_BOX (sub-test A works without Admin API; sub-test B needs it) |
 | CWE | CWE-798 |
 | Depends on | none |
-| Configuration | [`tests.domain_6.test_6_4`](../../reference/configuration.md#testsdomain_6test_6_4---hardcoded-credentials-audit), optionally `target.admin_api_url` + `target.gateway_adapter` |
+| Configuration | [`tests.domain_6.test_6_4`](../../reference/configuration.md#testsdomain_6test_6_4---hardcoded-credentials-audit), optionally `gateway.adapter` and `gateway.admin.url` |
 
 ## What it checks
 

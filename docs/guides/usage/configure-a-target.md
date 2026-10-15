@@ -1,7 +1,8 @@
 # Configure a Target
 
 > **Audience:** users · **Status:** v0.1.0 · **Source of truth:** `src/config/schema/tool_config.py`,
-> `src/config/loader.py`, `src/cli.py`, per-test pages in [`tests/`](../../tests/README.md) · **Verified:** 2026-10-06
+> `src/config/loader.py`, `src/cli.py`, `src/core/tls.py`, per-test pages in [`tests/`](../../tests/README.md) ·
+> **Verified:** 2026-10-15 (TLS and certificates: every command run against the labs), 2026-10-06
 > (minimal configuration run against the lab, native tests only, and `generate-seed`; behaviour on a non-Forgejo target from the
 > crAPI lab, see [test portability](../../reference/compatibility.md#test-portability))
 
@@ -31,12 +32,13 @@ a separate file for your API, in the repository folder (the name is free, here `
 ```yaml
 target:
   base_url: "https://api.example.com"
-  openapi_spec_url: "https://api.example.com/openapi.json"
+specification:
+  url: "https://api.example.com/openapi.json"
 ```
 
 - `base_url`: the address clients use, i.e. **through the gateway** if there is one.
-- The specification: `openapi_spec_url` (fetched at every run) **or** `openapi_spec_path` (a local file, relative to
-  the repository folder), not both.
+- The specification: `specification.url` (downloaded at every run) **or** `specification.path` (a local file,
+  relative to the repository folder), not both.
 
 Check it:
 
@@ -44,26 +46,98 @@ Check it:
 hatch run apiguard validate-config -c my-api.yaml
 ```
 
-Expected: `Configuration valid. Target: https://api.example.com/`, preceded by two `config_coherence_warning`
-lines saying that there are no credentials and no Admin API. They are warnings, not errors; steps 3 and 5 remove
+Expected: `Configuration valid. Target: https://api.example.com/`, preceded by three `config_coherence_warning`
+lines saying that there is no gateway, no administrator account and no user account. They are warnings, not errors; steps 3 and 5 remove
 them.
 
-`validate-config` checks only the file: it does not contact the API and does not check that the specification
-exists (that happens when the run starts).
+`validate-config` checks the file and the certificate files of the `tls` blocks: it does not contact the API and does
+not check that the specification exists (that happens when the run starts).
 
-## 2. TLS
+## 2. TLS and certificates
 
-`verify_tls` is `true` by default. Set it to `false` only if the API uses a self-signed certificate (as the lab does):
+Every connection of the tool (the API, the specification, the gateway's Admin API and health interface) checks the
+server's certificate, as a browser does. Nothing to configure when the certificates are issued by a public authority,
+or by your company's authority **installed in the operating system** (by the IT team): the tool trusts the
+system's store plus certifi's list.
+
+Each connection has its own optional `tls` block ([reference](../../reference/configuration.md#tls-certificates-of-a-connection)):
+
+| You have | Set | The report says |
+|---|---|---|
+| a public certificate, or the company authority installed in the system | nothing | verified (system) |
+| a certificate from a private authority not installed in the system | `tls.ca_bundle: <the authority's PEM file>` | verified (ca_bundle) |
+| a server that asks for the client's certificate (mutual TLS) | `tls.client_cert` and `tls.client_key` | client certificate: yes |
+| a quick test against a server whose certificate you cannot obtain | `tls.verify: false` | **not verified** (in red) |
+
+`ca_bundle` **replaces** the default authorities for that connection (as `curl --cacert`): put in it every
+authority the connection needs. `verify: false` accepts any certificate, an impostor's too; a report produced with it
+cannot say it talked to the right server.
 
 ```yaml
 target:
-  verify_tls: false
+  base_url: "https://api.internal.example.com"
+  tls:
+    ca_bundle: certs/company-ca.pem
+gateway:
+  adapter: apisix
+  admin:
+    url: "https://gw-admin.internal.example.com:9180"
+    tls:
+      ca_bundle: certs/company-ca.pem
+      client_cert: certs/apiguard.crt
+      client_key: certs/apiguard.key
 ```
 
-If the API listens for HTTPS on a non-standard port, test 1.5 cannot guess the plain-HTTP address for its
-HTTP-to-HTTPS redirect probe: it sends plain HTTP to the HTTPS port and reports a FAIL that is not real (on the lab:
-`GET http://localhost:8443/` → `400`, finding `HTTP Port Accessible Without HTTPS Redirect`). Set the address
-explicitly
+**Where the files come from.**
+
+- **The authority** (`ca_bundle`): from who manages the certificates (the IT or security team), as a PEM file
+  (text starting with `-----BEGIN CERTIFICATE-----`). To see which authority issued a server's certificate, so you
+  know what to ask for:
+
+  ```bash
+  openssl s_client -connect api.internal.example.com:443 -servername api.internal.example.com </dev/null 2>/dev/null \
+    | openssl x509 -noout -subject -issuer -enddate
+  ```
+
+  Then check the file before the run: `curl --cacert certs/company-ca.pem https://api.internal.example.com/` must
+  answer without a certificate error.
+- **The client certificate and its key** (`client_cert`, `client_key`): from who runs the server that asks for
+  them (for a gateway's Admin API, its administrators). Both PEM, the key not encrypted.
+- **A `.p12` / `.pfx` file** (certificate and key in one file with a password): convert it to the two PEM files, then
+  make the key readable only by you:
+
+  ```bash
+  openssl pkcs12 -in apiguard.p12 -clcerts -nokeys -out certs/apiguard.crt
+  openssl pkcs12 -in apiguard.p12 -nocerts -nodes -out certs/apiguard.key
+  chmod 600 certs/apiguard.key
+  ```
+
+  With OpenSSL 3 an older `.p12` can fail with `unsupported` and `RC2-40-CBC`: add `-legacy` to both commands.
+- **An encrypted key** (`-----BEGIN ENCRYPTED PRIVATE KEY-----`): the tool never asks for a password (a CI job would
+  hang); decrypt it once, `openssl pkey -in encrypted.key -out certs/apiguard.key`, then `chmod 600`.
+
+**Private keys.** A client key is a credential: keep it out of the repository, readable only by the user that runs
+the tool (`chmod 600`; the tool warns otherwise). In CI, store it in the CI's secret manager, write it to a file at
+job start with permissions `600`, and give its path through an environment variable:
+`client_key: "${APIGUARD_ADMIN_CLIENT_KEY_FILE}"`. Only the path is in the configuration; the key's content is read
+by the TLS library and never written to logs or reports.
+
+**When it fails.** A certificate problem stops the run before any test (exit `10`) on the API and on the
+specification, and makes the gateway audits SKIP on the Admin API; the message names the key to set. On screen:
+
+```text
+Exit 10   INFRA - the assessment did not run
+Reason    Connection to the API failed before any test: the server's certificate is not trusted
+          (unable to get local issuer certificate): set target.tls.ca_bundle to the authority that
+          issued it (or install that authority in the system's store).
+```
+
+Every message and what to do: [TLS errors](../../reference/configuration.md#tls-errors).
+
+**Test 1.5 on a non-standard port.** If the API listens for HTTPS on a non-standard port, test 1.5 cannot guess the
+plain-HTTP address for its HTTP-to-HTTPS redirect probe: it sends plain HTTP to the HTTPS port and reports a FAIL
+that is not real (on the lab: `GET http://localhost:8443/` → `400`, finding `HTTP Port Accessible Without HTTPS
+Redirect`). Set the address explicitly
 ([`tests.domain_1.test_1_5.http_probe_url`](../../reference/configuration.md#testsdomain_1test_1_5---credentials-over-insecure-channels)),
 e.g. `http://api.example.com:8000/`.
 
@@ -210,25 +284,29 @@ If the API is behind **Kong** or **Apache APISIX** and you can reach its Admin A
 can run:
 
 ```yaml
-target:
-  admin_api_url: "http://kong-admin.internal:8001"
-  gateway_adapter: kong
+gateway:
+  adapter: kong
+  admin:
+    url: "https://kong-admin.internal:8444"
 ```
 
 For APISIX the Admin API needs a key (a key of role `viewer`, GET only, is enough), and the live health of the
 backends is read from its Control API:
 
 ```yaml
-target:
-  admin_api_url: "http://127.0.0.1:9180"
-  admin_api_headers:
-    X-API-KEY: "${APISIX_VIEWER_KEY}"
-  health_api_url: "http://127.0.0.1:9090"
-  gateway_adapter: apisix
+gateway:
+  adapter: apisix
+  admin:
+    url: "https://127.0.0.1:9180"
+    headers:
+      X-API-KEY: "${APISIX_VIEWER_KEY}"
+  health:
+    url: "http://127.0.0.1:9090"
 ```
 
-`admin_api_url` and `gateway_adapter` are both needed; with another gateway leave them out and those tests return
-SKIP. A complete example: `test-environments/forgejo-apisix/config.yaml`.
+An Admin API over HTTPS takes a `tls` block as the API does (step 2): APISIX can require a client certificate
+(`admin_api_mtls`). With another gateway leave `gateway` out and those tests return SKIP. A complete example, with
+HTTPS, client certificate and key: `test-environments/forgejo-apisix/config.yaml`.
 
 ## 6. Settings that assume Forgejo or Kong
 

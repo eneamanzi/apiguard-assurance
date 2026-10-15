@@ -13,11 +13,32 @@
 
 target:
   base_url: "https://localhost:9443"
+  # Kong's certificate is signed by the labs' authority (test-environments/pki, created at the lab's
+  # start): verified with it. To lower the level: remove ca_bundle and set verify: false (not
+  # verified: the report says so); with no tls block the system's authorities are used and the
+  # lab certificate is refused.
+  tls:
+    ca_bundle: test-environments/pki/ca.crt
+
+  # Requests to the API: timeouts in seconds, attempts after a transport error.
+  connect_timeout: 5.0
+  read_timeout: 30.0
+  max_retry_attempts: 3
+
+specification:
   # crAPI 1.1.6 specification, stored in the lab (see test-environments/crapi-kong/NOTICE.md).
-  openapi_spec_path: "./test-environments/crapi-kong/crapi-openapi-spec.json"
-  admin_api_url: "http://localhost:9001"
-  gateway_adapter: "kong"
-  verify_tls: false     # lab certificate is self-signed
+  path: "./test-environments/crapi-kong/crapi-openapi-spec.json"
+  timeout: 60.0
+
+gateway:
+  adapter: kong
+  admin:
+    # Kong's HTTPS Admin API (127.0.0.1 only), verified with the labs' authority. Kong OSS has no
+    # client certificate or key for the Admin API. To lower the level: url "http://localhost:9001"
+    # and no tls block (plain HTTP: the report says so).
+    url: "https://localhost:9444"
+    tls:
+      ca_bundle: test-environments/pki/ca.crt
 
 credentials:
   # crAPI logs in with POST /identity/api/auth/login {"email", "password"} -> {"token"}
@@ -59,10 +80,6 @@ execution:
     - WHITE_BOX
   test_ids: []
   fail_fast: false
-  connect_timeout: 5.0
-  read_timeout: 30.0
-  max_retry_attempts: 3
-  openapi_fetch_timeout_seconds: 60.0
 
 output:
   directory: "outputs/crapi"

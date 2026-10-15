@@ -25,7 +25,7 @@ dependent tests (TestContext is mutable via explicit typed interfaces).
 
 OpenAPI spec source in TargetContext
 -------------------------------------
-TargetContext mirrors the URL-vs-path duality of TargetConfig:
+TargetContext mirrors the URL-vs-path duality of SpecificationConfig (config.yaml specification):
 
     openapi_spec_url  -- set when the spec was fetched over HTTP/HTTPS.
     openapi_spec_path -- set when the spec was read from a local filesystem path.
@@ -42,6 +42,7 @@ report/ to avoid circular dependencies.
 
 from __future__ import annotations
 
+import ssl
 from pathlib import Path
 
 import structlog
@@ -86,7 +87,7 @@ class TargetContext(BaseModel):
     -------------------
     openapi_spec_url and openapi_spec_path are mutually exclusive. The
     model_validator enforce_exactly_one_openapi_source ensures exactly one is
-    set, mirroring the constraint in TargetConfig. Use get_openapi_source() in
+    set, mirroring the constraint in SpecificationConfig. Use get_openapi_source() in
     all consuming code instead of accessing either field directly.
 
     The admin_api_available computed field centralises the check for WHITE_BOX
@@ -110,7 +111,7 @@ class TargetContext(BaseModel):
             "URL from which the OpenAPI specification was fetched. "
             "Mutually exclusive with openapi_spec_path: exactly one must be set. "
             "Stored for traceability in the HTML report and evidence.json metadata. "
-            "Example: http://localhost:3000/swagger.v1.json"
+            "Example: https://localhost:8443/swagger.v1.json"
         ),
     )
     openapi_spec_path: Path | None = Field(
@@ -130,25 +131,7 @@ class TargetContext(BaseModel):
             "URL of the gateway Admin API, required by the tests that read the gateway "
             "configuration. If None, those tests return SKIP with the reason "
             "'Gateway adapter not configured: ...' (BaseTest._requires_admin_api). "
-            "Example: http://localhost:8001"
-        ),
-    )
-    admin_connect_timeout_seconds: float = Field(
-        default=5.0,
-        description=(
-            "TCP connection timeout in seconds for gateway admin API requests. "
-            "Propagated from target.admin_connect_timeout_seconds in config.yaml. "
-            "Read by engine.py Phase 3 to instantiate the gateway adapter. "
-            "Default: 5.0 s (admin endpoint is local; short timeouts are appropriate)."
-        ),
-    )
-    admin_read_timeout_seconds: float = Field(
-        default=10.0,
-        description=(
-            "HTTP read timeout in seconds for gateway admin API requests. "
-            "Propagated from target.admin_read_timeout_seconds in config.yaml. "
-            "Read by engine.py Phase 3 to instantiate the gateway adapter. "
-            "Default: 10.0 s (covers paginated list responses for routes/plugins/services)."
+            "Example: https://localhost:8444"
         ),
     )
     attack_surface: AttackSurface | None = Field(
@@ -190,6 +173,14 @@ class TargetContext(BaseModel):
             "Immutable per-test tuning parameters populated from config.yaml. Never log this field."
         ),
     )
+    tls_ca_bundle: Path | None = Field(
+        default=None,
+        description=(
+            "Path of target.tls.ca_bundle, when set: the authority the external TLS tools "
+            "(testssl.sh --add-ca, sslyze custom_ca_file) trust in addition to theirs, and "
+            "the report states it (connections-design 5.6)."
+        ),
+    )
     path_seed: dict[str, str] = Field(
         default_factory=dict,
         description=(
@@ -203,15 +194,11 @@ class TargetContext(BaseModel):
             "real usernames or resource identifiers that could reveal target topology."
         ),
     )
-    verify_tls: bool = Field(
-        default=True,
+    tls_context: ssl.SSLContext = Field(
         description=(
-            "Whether TLS certificate validation is enabled for requests to base_url. "
-            "Mirrors TargetConfig.verify_tls. Exposed on TargetContext so that tests "
-            "that use httpx directly (e.g. Test 1.5 HTTP redirect probe) can apply the "
-            "same policy as SecurityClient without reading ToolConfig directly. "
-            "False only in lab environments with a self-signed certificate. "
-            "NEVER False in a production assessment."
+            "TLS context of the connection to base_url, built at startup from target.tls "
+            "(src/core/tls.py): the same trust as SecurityClient, for the tests that use "
+            "httpx directly (Test 1.5 HTTP redirect probe)."
         ),
     )
 
@@ -253,8 +240,8 @@ class TargetContext(BaseModel):
         exclude=True,
         description=(
             "Instantiated gateway adapter for WHITE_BOX configuration audit tests. "
-            "None when target.gateway_adapter is not set in config.yaml. "
-            "Populated by engine.py Phase 3 from target.gateway_adapter + admin_api_url. "
+            "None when the gateway section is not set in config.yaml. "
+            "Populated by engine.py Phase 3 from gateway.adapter and gateway.admin. "
             "WHITE_BOX tests guard with 'if target.gateway is None: return SKIP'. "
             "Tests read neutral concepts through it, e.g. target.gateway.backend_timeouts(). "
             "Excluded from model serialisation (not JSON-serialisable)."
@@ -265,12 +252,12 @@ class TargetContext(BaseModel):
     def enforce_exactly_one_openapi_source(self) -> TargetContext:
         """
         Enforce the mutual exclusion invariant between openapi_spec_url and
-        openapi_spec_path, mirroring the constraint in TargetConfig.
+        openapi_spec_path, mirroring the constraint in SpecificationConfig.
 
         This validator is a safety net: engine.py Phase 3 builds TargetContext
-        from a TargetConfig that already passed its own validator. The redundant
+        from a SpecificationConfig that already passed its own validator. The redundant
         check here guarantees the invariant even if TargetContext is constructed
-        directly in tests or other code paths that bypass TargetConfig.
+        directly in tests or other code paths that bypass SpecificationConfig.
         """
         url_set = self.openapi_spec_url is not None
         path_set = self.openapi_spec_path is not None
@@ -307,7 +294,7 @@ class TargetContext(BaseModel):
         Return the canonical string representation of the OpenAPI spec source.
 
         This is the single access point for the spec source across all consuming
-        code. It mirrors TargetConfig.get_openapi_source() so that code which
+        code. It mirrors SpecificationConfig.get_source() so that code which
         holds a TargetContext (e.g., test implementations, e2e fixtures) does
         not need to distinguish between the two source types.
 

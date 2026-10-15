@@ -20,7 +20,9 @@ tests_e2e/) that should not need to know the internal package layout.
 
 Symbol inventory by source module (domain_*.py are in src/test_config/):
 
-    tool_config.py      TargetConfig, ExecutionConfig, OutputConfig, ToolConfig
+    tool_config.py      TargetConfig, SpecificationConfig, GatewayConfig,
+                        GatewayAdminConfig, GatewayHealthConfig, ExecutionConfig,
+                        OutputConfig, ToolConfig
                         (credentials: src/core/models/runtime.py, RuntimeCredentials)
 
     domain_0.py         Test02ProbeConfig, TestDomain0Config
@@ -48,7 +50,11 @@ from __future__ import annotations
 from src.config.schema.tests_config import TestsConfig
 from src.config.schema.tool_config import (
     ExecutionConfig,
+    GatewayAdminConfig,
+    GatewayConfig,
+    GatewayHealthConfig,
     OutputConfig,
+    SpecificationConfig,
     TargetConfig,
     ToolConfig,
 )
@@ -78,6 +84,10 @@ from src.test_config.domain_7 import Test72SSRFConfig, TestDomain7Config
 __all__ = [
     # tool_config.py
     "TargetConfig",
+    "SpecificationConfig",
+    "GatewayConfig",
+    "GatewayAdminConfig",
+    "GatewayHealthConfig",
     "ExecutionConfig",
     "OutputConfig",
     "ToolConfig",

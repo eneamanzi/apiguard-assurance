@@ -42,11 +42,17 @@ from __future__ import annotations
 import time
 import urllib.parse
 import warnings
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import structlog
 
-from src.connectors.base import BaseLibraryConnector, ConnectorRawOutput, ConnectorResult
+from src.connectors.base import (
+    BaseLibraryConnector,
+    BaseSubprocessConnector,
+    ConnectorRawOutput,
+    ConnectorResult,
+)
 from src.connectors.types import TlsFinding
 from src.core.exceptions import ExternalToolError
 
@@ -57,6 +63,9 @@ if TYPE_CHECKING:
     from sslyze.scanner.models import AllScanCommandsAttempts
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
+
+# sslyze's name for the trust store built from custom_ca_file (target.tls.ca_bundle).
+_SUPPLIED_CA_STORE: str = "Supplied CA file"
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -99,6 +108,8 @@ class SslyzeConnector(BaseLibraryConnector):
         self,
         target_url: str,
         timeout_seconds: int,
+        *,
+        ca_bundle: Path | None = None,
     ) -> ConnectorResult:
         """
         Execute a TLS scan against target_url and return normalised findings.
@@ -112,6 +123,8 @@ class SslyzeConnector(BaseLibraryConnector):
             target_url:      Base URL of the target API (scheme://host:port/...).
             timeout_seconds: Per-connection network timeout (sourced from
                              target.external_tools.sslyze.timeout_seconds).
+            ca_bundle:       target.tls.ca_bundle, when set: trusted too by the
+                             certificate check (custom_ca_file).
 
         Returns:
             ConnectorResult: All normalised findings, unfiltered.
@@ -124,8 +137,13 @@ class SslyzeConnector(BaseLibraryConnector):
         host: str = parsed.hostname or target_url
         port: int = parsed.port or 443
 
-        command: str = f"sslyze --regular {host}:{port}"
-        command_json: str = f"sslyze --json_out=- --regular {host}:{port}"
+        # The single path-normalisation function of the connectors.
+        relativize = BaseSubprocessConnector._relativize_display_path
+        ca_option = (
+            f" --certinfo_ca_file={relativize(str(ca_bundle))}" if ca_bundle is not None else ""
+        )
+        command: str = f"sslyze --regular{ca_option} {host}:{port}"
+        command_json: str = f"sslyze --json_out=- --regular{ca_option} {host}:{port}"
 
         log.info(
             "sslyze_connector_run_starting",
@@ -141,7 +159,13 @@ class SslyzeConnector(BaseLibraryConnector):
             # available before run() is ever called.
             # Use documented submodule paths (top-level re-exports trigger
             # static-analysis warnings about non-exported names).
-            from sslyze.scanner.models import ServerScanRequest  # noqa: PLC0415
+            from sslyze.plugins.certificate_info.implementation import (  # noqa: PLC0415
+                CertificateInfoExtraArgument,
+            )
+            from sslyze.scanner.models import (  # noqa: PLC0415
+                ScanCommandsExtraArguments,
+                ServerScanRequest,
+            )
             from sslyze.scanner.scanner import Scanner  # noqa: PLC0415
             from sslyze.server_setting import (  # noqa: PLC0415
                 ServerNetworkConfiguration,
@@ -156,9 +180,19 @@ class SslyzeConnector(BaseLibraryConnector):
                 network_timeout=min(timeout_seconds, 20),
                 network_max_retries=1,
             )
+            # The configured authority (target.tls.ca_bundle) is trusted too
+            # by the certificate check.
+            extra_arguments = ScanCommandsExtraArguments(
+                certificate_info=(
+                    CertificateInfoExtraArgument(custom_ca_file=ca_bundle)
+                    if ca_bundle is not None
+                    else None
+                )
+            )
             req = ServerScanRequest(
                 server_location=location,
                 network_configuration=net_cfg,
+                scan_commands_extra_arguments=extra_arguments,
             )
 
             scanner = Scanner()
@@ -457,14 +491,21 @@ class SslyzeConnector(BaseLibraryConnector):
                         pv.verified_certificate_chain is None for pv in path_results
                     )
                     if all_untrusted:
-                        first_err: str = path_results[0].validation_error or "validation failed"
+                        # With a configured authority (target.tls.ca_bundle) its
+                        # store's error is the one that explains the failure.
+                        supplied = [
+                            pv for pv in path_results if pv.trust_store.name == _SUPPLIED_CA_STORE
+                        ]
+                        reported = supplied[0] if supplied else path_results[0]
+                        first_err: str = reported.validation_error or "validation failed"
+                        scope = " (the configured ca_bundle included)" if supplied else ""
                         findings.append(
                             {
                                 "id": "cert_chain_not_trusted",
                                 "severity": "HIGH",
                                 "finding": (
-                                    f"Certificate chain not trusted by any OS trust store.  "
-                                    f"First error: {first_err[:200]}"
+                                    f"Certificate chain not trusted by any trust store{scope}.  "
+                                    f"Error ({reported.trust_store.name}): {first_err[:200]}"
                                 ),
                                 "cve": "",
                             }

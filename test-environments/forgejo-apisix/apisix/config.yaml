@@ -12,6 +12,8 @@
 #     listens on for HTTPS, so the two must match;
 #   - Admin API keys read from the environment (${{VAR}}, values from .env in the repository root);
 #   - Status API enabled, for the container health check;
+#   - Admin API over HTTPS with mutual TLS (client certificate signed by the labs' authority),
+#     then the key;
 #   - fallback_sni, so that clients without SNI get the lab certificate (as on Kong);
 #   - no version in the Server response header;
 #   - Prometheus left out (not used by the lab).
@@ -62,6 +64,14 @@ deployment:
     admin_listen:
       ip: "0.0.0.0"
       port: 10001
+    # HTTPS on the Admin API listener, with the lab certificate; admin_ssl_ca_cert makes a client
+    # certificate signed by the labs' authority mandatory (nginx "ssl_verify_client on"), checked
+    # before the key. Files from test-environments/pki, mounted at /pki (docker-compose.yml).
+    https_admin: true
+    admin_api_mtls:
+      admin_ssl_cert: "/pki/server.crt"
+      admin_ssl_cert_key: "/pki/server.key"
+      admin_ssl_ca_cert: "/pki/ca.crt"
     # Requests from the host arrive from the Docker bridge address, which changes between
     # machines: every source is allowed here, and docker-compose.yml publishes the Admin API on
     # 127.0.0.1 only, so it is reachable from this machine and from the lab network alone.

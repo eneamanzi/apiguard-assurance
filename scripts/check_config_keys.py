@@ -12,13 +12,13 @@ example has a key the schema does not know. Run by `hatch run dev:check`.
 
 Keys are compared as written in config.yaml (a field's alias when it has one,
 e.g. 'in' for credentials.send_as). A field whose value is a free mapping
-(path_seed, admin_api_headers, injection_body_template) is a leaf: its keys
+(path_seed, gateway.admin.headers, injection_body_template) is a leaf: its keys
 belong to the user. A mapping of names to a model (resources) is checked
 field by field: the names are the user's and count as '*', so every field of
 the model must appear in at least one entry (e.g. resources.*.create.path).
 
 A key may be listed commented out, for the alternatives that cannot be active
-together in a valid file (openapi_spec_url or openapi_spec_path, tokens or
+together in a valid file (specification.url or specification.path, tokens or
 passwords): a line '<indent># <key>: ...' whose key is lowercase snake_case
 counts as the key '<key>' at that indentation. Prose comments start with an
 uppercase letter or have no 'key:' form, so they are not taken for keys.

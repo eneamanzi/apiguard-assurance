@@ -44,10 +44,13 @@ from src.core.models import (
     NotRunEntry,
     ResultSet,
     TestStatus,
+    TlsSettings,
     TransactionSummary,
 )
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
+
+_PLAIN_HTTP_PREFIX: str = "http://"
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -272,6 +275,28 @@ class ExecutiveSummary(BaseModel):
     )
 
 
+class ConnectionTrust(BaseModel):
+    """How the certificate of one connection of the tool was checked (connections-design 5.12)."""
+
+    model_config = {"frozen": True}
+
+    name: str = Field(description="target, specification, gateway.admin or gateway.health.")
+    url: str = Field(description="The connection's URL, or the specification's file path.")
+    certificate_check: Literal[
+        "verified_system", "verified_ca_bundle", "not_verified", "plain_http", "local_file"
+    ] = Field(
+        description=(
+            "verified_system: verified with the system's authorities plus certifi's list; "
+            "verified_ca_bundle: verified with the configured ca_bundle only; not_verified: "
+            "verify false, the tool did not know whether it talked to the right server; "
+            "plain_http: no TLS; local_file: the specification was read from a file."
+        )
+    )
+    client_certificate: bool = Field(
+        description="True when the tool presented a client certificate (mutual TLS)."
+    )
+
+
 class ReportData(BaseModel):
     """
     Complete, pre-computed data structure for the HTML report template.
@@ -300,6 +325,10 @@ class ReportData(BaseModel):
         description="Human-readable label for the configured min_priority."
     )
     strategies_label: str = Field(description="Comma-separated list of enabled strategy names.")
+    connections: list[ConnectionTrust] = Field(
+        default_factory=list,
+        description="How the certificate of each connection of the tool was checked.",
+    )
     executive_summary: ExecutiveSummary = Field(
         description="High-level statistics for the report header."
     )
@@ -399,6 +428,7 @@ def build_report_data(
         spec_version=spec_version,
         min_priority_label=min_priority_label,
         strategies_label=strategies_label,
+        connections=_connection_trust(config),
         executive_summary=executive_summary,
         domains=domains,
         all_rows=all_rows,
@@ -421,6 +451,56 @@ def build_report_data(
 # ---------------------------------------------------------------------------
 # Internal aggregation helpers
 # ---------------------------------------------------------------------------
+
+
+def _connection_trust(config: ToolConfig) -> list[ConnectionTrust]:
+    """
+    Describe how the certificate of each connection was checked, from its tls block.
+
+    Args:
+        config: The run's configuration.
+
+    Returns:
+        One entry per connection: target, specification, and the gateway's
+        Admin API and health API when configured.
+    """
+    connections: list[tuple[str, str, TlsSettings | None]] = [
+        ("target", str(config.target.base_url), config.target.tls)
+    ]
+    spec = config.specification
+    connections.append(("specification", spec.get_source(), spec.tls))
+    if config.gateway is not None:
+        connections.append(
+            ("gateway.admin", str(config.gateway.admin.url), config.gateway.admin.tls)
+        )
+        if config.gateway.health is not None:
+            health = config.gateway.health
+            connections.append(("gateway.health", str(health.url), health.tls))
+    entries: list[ConnectionTrust] = []
+    for name, url, tls in connections:
+        settings = tls if tls is not None else TlsSettings()
+        check: Literal[
+            "verified_system", "verified_ca_bundle", "not_verified", "plain_http", "local_file"
+        ]
+        if name == "specification" and spec.is_local:
+            check = "local_file"
+        elif url.lower().startswith(_PLAIN_HTTP_PREFIX):
+            check = "plain_http"
+        elif not settings.verify:
+            check = "not_verified"
+        elif settings.ca_bundle is not None:
+            check = "verified_ca_bundle"
+        else:
+            check = "verified_system"
+        entries.append(
+            ConnectionTrust(
+                name=name,
+                url=url,
+                certificate_check=check,
+                client_certificate=settings.has_client_certificate and check != "plain_http",
+            )
+        )
+    return entries
 
 
 def _build_all_rows(result_set: ResultSet) -> list[TestResultRow]:

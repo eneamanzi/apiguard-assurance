@@ -3,7 +3,7 @@
 > **Audience:** integrators, operators, contributors · **Status:** v0.1.0, several open points (see
 > `OPEN_QUESTIONS.md`) · **Source of truth:** `src/cli.py`, `src/config/loader.py`, `src/core/client.py`,
 > `src/core/models/http.py`, `src/core/evidence.py`, `src/core/gateway/kong.py`, `src/connectors/`,
-> `src/report/renderer.py` · **Verified:** 2026-10-05
+> `src/report/renderer.py`, `src/core/tls.py` · **Verified:** 2026-10-15 (TLS), 2026-10-05
 
 How the tool treats secrets, the target and its own outputs. The tool sends attack traffic: run it only against
 systems you are authorised to test.
@@ -49,12 +49,39 @@ Treat all output files as sensitive: response bodies can carry the target's data
 
 ## TLS
 
-- `target.verify_tls` (default `true`) controls certificate verification towards `base_url` and the HTTP-redirect
-  probe of test 1.5. Set it to `false` only for lab gateways with self-signed certificates.
-- The gateway Admin API is called with the headers of `target.admin_api_headers` (values registered as secrets,
-  masked in every output) and always with certificate verification on (Q-34). The health interface
-  (`target.health_api_url`, the APISIX Control API) is read without those headers: it has no authentication of its
-  own, and the key is not sent where it is not needed.
+**Certificate trust.** Every connection (the API, the specification download, the Admin API, the health interface)
+checks the server's certificate with its own `tls` block (`src/core/tls.py`):
+
+- by default the operating system's store (through `truststore`, so a company authority installed by IT and a proxy
+  inspecting HTTPS are trusted) plus certifi's list; `SSL_CERT_FILE` / `SSL_CERT_DIR` do not change it;
+- with `ca_bundle`, only the authorities in that file: a connection to an internal server does not also trust every
+  public authority;
+- with `verify: false`, nothing is checked: the report shows that connection as **not verified** (red in the HTML
+  report, `not_verified` in the JSON report), because the run cannot know it talked to the right server.
+
+A TLS failure is never retried, and on the API it stops the run before any test (preflight, exit 10): an attacker
+in the middle, or a wrong configuration, does not produce a report of results against the wrong server. The HTTP
+redirect probe of test 1.5 uses the API's context.
+
+**Client certificates and private keys** (mutual TLS):
+
+- only the paths are configuration; the key's content is read by the TLS library and never logged or written to the
+  evidence or the reports;
+- an encrypted key is refused (exit 10): the tool never prompts for a password, which would hang a CI job;
+- a key readable by other users of the machine logs a warning (`chmod 600`);
+- keys belong outside the repository; in CI, in the secret manager, written to a `600` file at job start, with the
+  path given through `${VAR}` ([configure a target](../guides/usage/configure-a-target.md#2-tls-and-certificates)).
+
+**The Admin API** is called with the headers of `gateway.admin.headers` (values registered as secrets, masked in
+every output) and with the context of `gateway.admin.tls`. The health interface (`gateway.health.url`, the APISIX
+Control API) is read without those headers: it has no authentication of its own, and the key is not sent where it is
+not needed.
+
+**External TLS tools** (testssl.sh, sslyze) receive the path of `target.tls.ca_bundle` (`--add-ca`,
+`custom_ca_file`), never the client certificate or its key; their result then notes that the chain was trusted through the configured authority.
+
+**Lab certificates.** The labs' authority and certificates are generated at the first start of a lab
+(`test-environments/pki/gen-pki.sh`) and never committed; no private key is in the repository.
 
 ## External tools
 
@@ -70,7 +97,7 @@ Treat all output files as sensitive: response bodies can carry the target's data
 
 | Gap | Question |
 |---|---|
-| Admin API over TLS with a private certificate (custom CA) not supported; authentication by header is (`admin_api_headers`) | Q-34 |
+| No password-protected client key, no certificate pinning, no minimum TLS version per connection (design boundaries, `docs/project/connections-design.md` section 4) | - |
 | Unauthenticated write requests and leftover objects on the target | Q-30 |
 | sslyze dependency is AGPL v3 | Q-11 |
 

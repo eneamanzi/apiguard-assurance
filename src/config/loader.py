@@ -161,7 +161,7 @@ def load_config(config_path: Path) -> ToolConfig:
         min_priority=config.execution.min_priority,
         strategies=[s.value for s in config.execution.strategies],
         fail_fast=config.execution.fail_fast,
-        admin_api_configured=config.target.admin_api_url is not None,
+        gateway_configured=config.gateway is not None,
     )
 
     return config
@@ -566,10 +566,10 @@ def _emit_coherence_warnings(config: ToolConfig) -> None:
             "config_coherence_warning",
             condition="white_box_without_gateway",
             detail=(
-                "execution.strategies includes WHITE_BOX but target.gateway_adapter "
-                "is not configured. The tests that read the gateway configuration "
+                "execution.strategies includes WHITE_BOX but the gateway section is "
+                "not configured. The tests that read the gateway configuration "
                 "through the Admin API will return SKIP (or skip that part). "
-                "Set target.gateway_adapter and target.admin_api_url to run them."
+                "Set gateway.adapter and gateway.admin.url to run them."
             ),
         )
 

@@ -234,8 +234,31 @@ the `.env` of the repository root.
 |---|---|---|---|
 | Folder | `test-environments/forgejo-kong` | `test-environments/crapi-kong` | `test-environments/forgejo-apisix` |
 | Tool configuration | `test-environments/forgejo-kong/config.yaml` | `test-environments/crapi-kong/config.yaml` | `test-environments/forgejo-apisix/config.yaml` |
-| Ports (proxy HTTP, HTTPS, Admin API) | 8000, 8443, 8001 (+ Forgejo 3000) | 9000, 9443, 9001 | 10000, 10443, 10001 (+ Control API 10002, Forgejo 10003) |
+| Ports (proxy HTTP, HTTPS) | 8000, 8443 | 9000, 9443 | 10000, 10443 |
+| Admin API (127.0.0.1 only) | 8444 HTTPS (the tool), 8001 HTTP | 9444 HTTPS (the tool), 9001 HTTP | 10001 HTTPS with client certificate, then the key (+ Control API 10002, HTTP) |
+| Specification | `https://localhost:8443/swagger.v1.json` (through Kong) | local file | `https://localhost:10443/swagger.v1.json` (through APISIX) |
 | Setup services | `forgejo-setup` | `crapi-setup` | `forgejo-setup`, `apisix-setup` |
+
+No backend publishes a port: Forgejo and crAPI are reachable only through their gateway (and, on the lab network,
+by the setup services).
+
+**Certificates** (`test-environments/pki/`, shared by the three labs). At every start, the one-shot service `pki` of
+the lab runs `gen-pki.sh` before the gateway: the first time it creates the labs' authority (`ca.crt`, 10 years), the
+gateways' certificate (`server.crt`, names `localhost`, `127.0.0.1`, `kong`, `apisix`) and the tool's client
+certificate (`client.crt`, used by the APISIX Admin API), both 180 days; later it does nothing while they are valid
+for 30 more days, and reissues the one about to expire. The files are never committed (`.gitignore`). The tool's lab
+configurations trust `test-environments/pki/ca.crt` (`tls.ca_bundle`). To regenerate everything: delete the
+generated files (everything in the folder except `gen-pki.sh` and `.gitignore`), then make each running gateway load
+the new certificates (`--force-recreate` also runs the `pki` service again, before the gateway; a gateway left as it
+is keeps serving the old certificate, and the tool stops with `Reason ... certificate is not trusted`):
+
+```bash
+cd test-environments/pki && rm -f ca.* server.* client.* extensions.cnf && cd ../..
+cd test-environments/forgejo-kong && docker compose --env-file ../../.env up -d --force-recreate --wait kong && cd ../..
+cd test-environments/crapi-kong && docker compose --env-file ../../.env up -d --force-recreate --wait kong && cd ../..
+# APISIX: the Admin API reads the files at start; the proxy certificate is in etcd, written by apisix-setup
+cd test-environments/forgejo-apisix && docker compose --env-file ../../.env up -d --force-recreate --wait apisix && docker compose --env-file ../../.env up apisix-setup && cd ../..
+```
 
 **Start** (the first time it downloads the images). The first command starts the lab and waits until the gateway is
 healthy; the second runs the setup once, in the foreground, so its output is shown. Running the setup again is
@@ -267,23 +290,24 @@ seconds later (Q-66). A run started within that window gets 503 from the worksho
 without having checked them (seen 2026-10-14, Q-29). Before the next run, the last command of the crAPI check below
 must print `"health":"HEALTHY"`.
 
-**Check that a lab is ready** (each line must print `200`):
+**Check that a lab is ready**, from the repository root, through the gateway and with the certificates verified
+(each line must print `200`):
 
 ```bash
 # Forgejo lab
-curl -s  -o /dev/null -w "forgejo     %{http_code}\n" http://localhost:3000/swagger.v1.json
-curl -sk -o /dev/null -w "kong https  %{http_code}\n" https://localhost:8443/api/v1/version
-curl -s  -o /dev/null -w "kong admin  %{http_code}\n" http://localhost:8001/status
+curl -s --cacert test-environments/pki/ca.crt -o /dev/null -w "specification  %{http_code}\n" https://localhost:8443/swagger.v1.json
+curl -s --cacert test-environments/pki/ca.crt -o /dev/null -w "kong https     %{http_code}\n" https://localhost:8443/api/v1/version
+curl -s --cacert test-environments/pki/ca.crt -o /dev/null -w "kong admin     %{http_code}\n" https://localhost:8444/status
 
 # crAPI lab (a public endpoint of crAPI's identity service, through Kong)
-curl -sk -o /dev/null -w "kong https  %{http_code}\n" https://localhost:9443/identity/api/auth/jwks.json
-curl -s  -o /dev/null -w "kong admin  %{http_code}\n" http://localhost:9001/status
-curl -s http://localhost:9001/upstreams/workshop-upstream/health | grep -o '"health":"[A-Z]*"' | head -1   # "HEALTHY"
+curl -s --cacert test-environments/pki/ca.crt -o /dev/null -w "kong https     %{http_code}\n" https://localhost:9443/identity/api/auth/jwks.json
+curl -s --cacert test-environments/pki/ca.crt -o /dev/null -w "kong admin     %{http_code}\n" https://localhost:9444/status
+curl -s --cacert test-environments/pki/ca.crt https://localhost:9444/upstreams/workshop-upstream/health | grep -o '"health":"[A-Z]*"' | head -1   # "HEALTHY"
 
-# Forgejo + APISIX lab (from the repository root: the Admin API needs the viewer key of .env)
-curl -s  -o /dev/null -w "forgejo       %{http_code}\n" http://localhost:10003/swagger.v1.json
-curl -sk -o /dev/null -w "apisix https  %{http_code}\n" https://localhost:10443/api/v1/version
-curl -s  -o /dev/null -w "apisix admin  %{http_code}\n" -H "X-API-KEY: $(sed -n 's/^APISIX_VIEWER_KEY=//p' .env)" http://127.0.0.1:10001/apisix/admin/routes
+# Forgejo + APISIX lab (the Admin API needs the client certificate and the viewer key of .env)
+curl -s --cacert test-environments/pki/ca.crt -o /dev/null -w "specification  %{http_code}\n" https://localhost:10443/swagger.v1.json
+curl -s --cacert test-environments/pki/ca.crt -o /dev/null -w "apisix https   %{http_code}\n" https://localhost:10443/api/v1/version
+curl -s --cacert test-environments/pki/ca.crt --cert test-environments/pki/client.crt --key test-environments/pki/client.key -o /dev/null -w "apisix admin   %{http_code}\n" -H "X-API-KEY: $(sed -n 's/^APISIX_VIEWER_KEY=//p' .env)" https://127.0.0.1:10001/apisix/admin/routes
 curl -s http://127.0.0.1:10002/v1/healthcheck | grep -o '"status":"[a-z_]*"' | head -1   # "healthy" (empty until the first request through APISIX)
 ```
 

@@ -23,7 +23,7 @@ Pipeline phases (docs/architecture/overview.md, "Pipeline"):
         Raises ConfigurationError on failure [BLOCKS STARTUP].
 
     Phase 2 -- OpenAPI Discovery:
-        Resolve the spec source via TargetConfig.get_openapi_source().
+        Resolve the spec source via SpecificationConfig.get_source().
         This returns either an HTTP/HTTPS URL or a local filesystem path,
         depending on which field is set in config.yaml. The distinction is
         transparent to the rest of the engine: load_openapi_spec() accepts
@@ -35,7 +35,7 @@ Pipeline phases (docs/architecture/overview.md, "Pipeline"):
     Phase 3 -- Context Construction:
         Build TargetContext (frozen) from ToolConfig + AttackSurface.
         Propagates both openapi_spec_url and openapi_spec_path from
-        TargetConfig to TargetContext (exactly one will be non-None).
+        SpecificationConfig to TargetContext (exactly one will be non-None).
         Build TestContext (mutable, empty).
         Build EvidenceStore (streaming JSONL, unbounded capacity).
 
@@ -71,6 +71,7 @@ Dependency rule:
 
 from __future__ import annotations
 
+import ssl
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -91,6 +92,7 @@ from src.core.exceptions import (
     ConfigurationError,
     DAGCycleError,
     OpenAPILoadError,
+    SecurityClientError,
     TeardownError,
     TestDefinitionError,
     raise_for_test_definition_problems,
@@ -107,6 +109,16 @@ from src.core.models import (
 )
 from src.core.redaction import SecretRegistry
 from src.core.test_metadata import PREREQUISITE_ATTRIBUTES, is_external_test_id
+from src.core.tls import (
+    GATEWAY_ADMIN_TLS,
+    GATEWAY_HEALTH_TLS,
+    SPECIFICATION_TLS,
+    TARGET_TLS,
+    build_ssl_context,
+    certificate_answer,
+    certificate_failure,
+    tls_warnings,
+)
 from src.discovery.openapi import load_openapi_spec
 from src.discovery.surface import build_attack_surface
 from src.external_tests.base import ExternalToolTest
@@ -124,6 +136,112 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # each other, so 0.6 would suggest "1.6" for "1.7"; 0.8 keeps real typos
 # ("ext.1.5.sslyzee" -> "ext.1.5.sslyze", "ext.0.1.nucle" -> "ext.0.1.nuclei").
 _TEST_ID_SUGGESTION_CUTOFF: float = 0.8
+
+
+class ConnectionContexts(BaseModel):
+    """The TLS context of each connection, built once at startup (src/core/tls.py)."""
+
+    model_config = {"frozen": True, "arbitrary_types_allowed": True}
+
+    target: ssl.SSLContext = Field(description="Requests to the API.")
+    specification: ssl.SSLContext = Field(description="The specification download.")
+    admin: ssl.SSLContext | None = Field(
+        description="The gateway's Admin API; None without gateway."
+    )
+    health: ssl.SSLContext | None = Field(description="The gateway's health API; None without it.")
+
+
+def build_connection_contexts(config: ToolConfig) -> ConnectionContexts:
+    """
+    Build the TLS context of every connection and log the warnings about them.
+
+    Called at startup by the run and by validate-config, so that a broken tls
+    block stops the tool before any test.
+
+    Args:
+        config: The validated configuration.
+
+    Returns:
+        The contexts.
+
+    Raises:
+        ConfigurationError: A tls block whose files cannot be used (not PEM,
+            certificate and key not matching, encrypted key).
+    """
+    gateway = config.gateway
+    health = gateway.health if gateway is not None else None
+    blocks = [
+        (TARGET_TLS, config.target.tls, str(config.target.base_url)),
+        (
+            SPECIFICATION_TLS,
+            config.specification.tls,
+            str(config.specification.url) if config.specification.url is not None else None,
+        ),
+    ]
+    if gateway is not None:
+        blocks.append((GATEWAY_ADMIN_TLS, gateway.admin.tls, str(gateway.admin.url)))
+    if health is not None:
+        blocks.append((GATEWAY_HEALTH_TLS, health.tls, str(health.url)))
+    for where, settings, url in blocks:
+        for warning in tls_warnings(settings, url, where):
+            log.warning("tls_configuration_warning", detail=warning)
+    return ConnectionContexts(
+        target=build_ssl_context(config.target.tls, TARGET_TLS),
+        specification=build_ssl_context(config.specification.tls, SPECIFICATION_TLS),
+        admin=(
+            build_ssl_context(gateway.admin.tls, GATEWAY_ADMIN_TLS) if gateway is not None else None
+        ),
+        health=(build_ssl_context(health.tls, GATEWAY_HEALTH_TLS) if health is not None else None),
+    )
+
+
+# Test ID the preflight request is recorded under in the evidence.
+_PREFLIGHT_TEST_ID: str = "preflight"
+_PREFLIGHT_PATH: str = "/"
+
+
+def _preflight(client: SecurityClient, store: EvidenceStore) -> None:
+    """
+    Send one request to the API before any test and record it in the evidence.
+
+    A TLS failure (certificate not trusted, wrong name, expired, client
+    certificate refused) stops the run with a clear message, once, and so does
+    a TLS problem the server reports with an HTTP answer (nginx's pages: client
+    certificate missing or not accepted, plain HTTP to an HTTPS port,
+    src/core/tls.py); any other HTTP answer, of any status, lets it go on.
+    Other transport failures are left to the tests, as before.
+
+    Args:
+        client: The SecurityClient of the run (target.tls).
+        store:  The evidence store.
+
+    Raises:
+        ConfigurationError: On a TLS failure.
+    """
+    store.begin_test(_PREFLIGHT_TEST_ID)
+    try:
+        response, record = client.request(
+            method="GET", path=_PREFLIGHT_PATH, test_id=_PREFLIGHT_TEST_ID
+        )
+        store.pin_evidence(record)
+        log.info("pipeline_preflight_completed", status_code=record.response_status_code)
+    except SecurityClientError as exc:
+        reason = certificate_failure(exc, TARGET_TLS)
+        if reason is not None:
+            raise ConfigurationError(
+                f"Connection to the API failed before any test: {reason}",
+                config_path=TARGET_TLS,
+            ) from exc
+        log.warning("pipeline_preflight_transport_failure", detail=str(exc))
+        return
+    finally:
+        store.end_test()
+    answer_reason = certificate_answer(response.status_code, response.text, TARGET_TLS)
+    if answer_reason is not None:
+        raise ConfigurationError(
+            f"Connection to the API failed before any test: {answer_reason}",
+            config_path=TARGET_TLS,
+        )
 
 
 def check_tests(config: ToolConfig) -> None:
@@ -230,13 +348,36 @@ def check_credentials(config: ToolConfig) -> CredentialPlacement | None:
     """
     if config.credentials.auth_type is None:
         return None
-    spec_source = config.target.get_openapi_source()
+    spec_source = config.specification.get_source()
     spec, dialect = load_openapi_spec(
         spec_source,
-        timeout_seconds=config.execution.openapi_fetch_timeout_seconds,
+        timeout_seconds=config.specification.timeout,
+        tls_context=build_ssl_context(config.specification.tls, SPECIFICATION_TLS),
     )
     surface = build_attack_surface(spec, dialect, source_url=spec_source)
     return resolve_placement(config.credentials, surface.security_schemes)
+
+
+def specification_connection(config: ToolConfig) -> tuple[str, float, ssl.SSLContext]:
+    """
+    Return the specification source of a configuration and how to download it.
+
+    For the generate-seed command run with a configuration file.
+
+    Args:
+        config: The validated configuration.
+
+    Returns:
+        The source (URL or absolute path), the timeout and the TLS context.
+
+    Raises:
+        ConfigurationError: A specification.tls block whose files cannot be used.
+    """
+    return (
+        config.specification.get_source(),
+        config.specification.timeout,
+        build_ssl_context(config.specification.tls, SPECIFICATION_TLS),
+    )
 
 
 def describe_resources(config: ToolConfig) -> str:
@@ -309,6 +450,9 @@ class RunObserver(Protocol):
     def run_finished(self, result_set: ResultSet, exit_code: int, report_paths: list[Path]) -> None:
         """Phase 7 done: final results, exit code and the reports written."""
 
+    def run_stopped(self, reason: str) -> None:
+        """The run stopped before any verdict (exit 10): the reason, in full."""
+
 
 # ---------------------------------------------------------------------------
 # AssessmentEngine
@@ -371,6 +515,8 @@ class AssessmentEngine:
                 detail=str(exc),
             )
             exit_code = ExitCode.INFRASTRUCTURE
+            if self._observer is not None:
+                self._observer.run_stopped(str(exc))
         except Exception as exc:  # noqa: BLE001
             log.error(
                 "assessment_pipeline_unexpected_engine_error",
@@ -379,6 +525,10 @@ class AssessmentEngine:
                 detail=str(exc),
             )
             exit_code = ExitCode.INFRASTRUCTURE
+            if self._observer is not None:
+                self._observer.run_stopped(
+                    f"unexpected error in the engine ({type(exc).__name__}): {exc}"
+                )
 
         elapsed = time.monotonic() - wall_start
         log.info(
@@ -401,12 +551,13 @@ class AssessmentEngine:
         Phases 1-4 are blocking: exceptions propagate to run() which converts
         them to ExitCode.INFRASTRUCTURE. Phases 5-7 are non-blocking.
         """
-        config = self._phase_1_initialize()
+        config, connections = self._phase_1_initialize()
         check_tests(config)
-        attack_surface = self._phase_2_openapi_discovery(config)
+        attack_surface = self._phase_2_openapi_discovery(config, connections)
         target, context, store = self._phase_3_build_contexts(
             config=config,
             attack_surface=attack_surface,
+            connections=connections,
         )
         scheduled_batches, active_tests, not_run = self._phase_4_discover_and_schedule(config)
         if self._observer is not None:
@@ -428,12 +579,17 @@ class AssessmentEngine:
 
         with SecurityClient(
             base_url=target.endpoint_base_url(),
-            connect_timeout=config.execution.connect_timeout,
-            read_timeout=config.execution.read_timeout,
-            max_retry_attempts=config.execution.max_retry_attempts,
-            verify_tls=config.target.verify_tls,
+            connect_timeout=config.target.connect_timeout,
+            read_timeout=config.target.read_timeout,
+            max_retry_attempts=config.target.max_retry_attempts,
+            tls_context=target.tls_context,
             secrets=context.secrets,
         ) as client:
+            # One request before any test: a TLS problem (certificate not
+            # trusted, client certificate missing) stops the run once (exit 10)
+            # instead of failing every test.
+            _preflight(client, store)
+
             # Phase 6 (teardown) MUST run even if Phase 5 is interrupted by
             # KeyboardInterrupt (Ctrl+C) or terminated by an unexpected
             # exception.  Tests in Phase 5 register real resources on the
@@ -504,12 +660,12 @@ class AssessmentEngine:
     # Phase 1 -- Initialization
     # ------------------------------------------------------------------
 
-    def _phase_1_initialize(self) -> ToolConfig:
+    def _phase_1_initialize(self) -> tuple[ToolConfig, ConnectionContexts]:
         """
-        Load and validate config.yaml.
+        Load and validate config.yaml, and build the TLS context of every connection.
 
         Returns:
-            Frozen ToolConfig instance.
+            Frozen ToolConfig instance and the connections' TLS contexts.
 
         Raises:
             ConfigurationError: If config.yaml is missing, unreadable,
@@ -519,30 +675,34 @@ class AssessmentEngine:
         log.info("pipeline_phase_1_initialization_started")
 
         config = load_config(self._config_path)
+        # Every tls block is usable, or the run stops here (exit 10).
+        connections = build_connection_contexts(config)
 
         log.info(
             "pipeline_phase_1_initialization_completed",
             base_url=str(config.target.base_url),
-            openapi_source=config.target.get_openapi_source(),
-            openapi_source_type="local_path" if config.target.is_local_spec else "url",
+            openapi_source=config.specification.get_source(),
+            openapi_source_type="local_path" if config.specification.is_local else "url",
             min_priority=config.execution.min_priority,
             strategies=[s.value for s in config.execution.strategies],
             fail_fast=config.execution.fail_fast,
             output_directory=str(config.output.directory),
-            openapi_fetch_timeout_seconds=config.execution.openapi_fetch_timeout_seconds,
+            specification_timeout=config.specification.timeout,
         )
 
-        return config
+        return config, connections
 
     # ------------------------------------------------------------------
     # Phase 2 -- OpenAPI Discovery
     # ------------------------------------------------------------------
 
-    def _phase_2_openapi_discovery(self, config: ToolConfig) -> AttackSurface:
+    def _phase_2_openapi_discovery(
+        self, config: ToolConfig, connections: ConnectionContexts
+    ) -> AttackSurface:
         """
         Fetch or read the OpenAPI spec and build the AttackSurface.
 
-        The spec source is resolved via TargetConfig.get_openapi_source(),
+        The spec source is resolved via SpecificationConfig.get_source(),
         which returns either an HTTP/HTTPS URL or an absolute filesystem path
         depending on which config field is set. load_openapi_spec() accepts
         both formats; the distinction is handled transparently inside that
@@ -560,17 +720,18 @@ class AssessmentEngine:
         """
         log.info("pipeline_phase_2_openapi_discovery_started")
 
-        spec_source: str = config.target.get_openapi_source()
+        spec_source: str = config.specification.get_source()
 
         log.info(
             "pipeline_phase_2_openapi_source_resolved",
             spec_source=spec_source,
-            source_type="local_path" if config.target.is_local_spec else "url",
+            source_type="local_path" if config.specification.is_local else "url",
         )
 
         spec, dialect = load_openapi_spec(
             spec_source,
-            timeout_seconds=config.execution.openapi_fetch_timeout_seconds,
+            timeout_seconds=config.specification.timeout,
+            tls_context=connections.specification,
         )
         attack_surface = build_attack_surface(spec, dialect, source_url=spec_source)
 
@@ -593,13 +754,14 @@ class AssessmentEngine:
         self,
         config: ToolConfig,
         attack_surface: AttackSurface,
+        connections: ConnectionContexts,
     ) -> tuple[TargetContext, TestContext, EvidenceStore]:
         """
         Construct the three shared state objects for the pipeline run.
 
         TargetContext is frozen and populated from config + attack_surface.
         Both openapi_spec_url and openapi_spec_path are propagated from
-        TargetConfig; exactly one will be non-None, preserving the source
+        SpecificationConfig; exactly one will be non-None, preserving the source
         type information for test_0_1's shadow-API exclusion set builder
         and for the HTML report header.
 
@@ -626,32 +788,33 @@ class AssessmentEngine:
         # Instantiate the gateway adapter when configured.
         # Injected into TargetContext so that WHITE_BOX tests access the admin plane
         # via the neutral concept readers (target.gateway.backend_timeouts() etc.).
-        # The adapter is chosen by target.gateway_adapter in GATEWAY_ADAPTERS
+        # The adapter is chosen by gateway.adapter in GATEWAY_ADAPTERS
         # (src/core/gateway/__init__.py). It receives the Admin API headers, the
-        # address of a separate health interface (target.health_api_url, for a
+        # address of a separate health interface (gateway.health.url, for a
         # gateway that keeps live backend health outside the Admin API) and the
         # configuration of tests 3.3 and 4.3 (which plugin and field names are a
         # signing policy or a circuit breaker on gateways that need it).
         gateway = None
-        adapter_class = GATEWAY_ADAPTERS.get(config.target.gateway_adapter or "")
-        if adapter_class is not None and config.target.admin_api_url is not None:
-            gateway = adapter_class(
-                admin_base_url=str(config.target.admin_api_url).rstrip("/"),
-                connect_timeout=config.target.admin_connect_timeout_seconds,
-                read_timeout=config.target.admin_read_timeout_seconds,
-                admin_headers=config.target.admin_api_headers,
+        gateway_config = config.gateway
+        if gateway_config is not None:
+            admin = gateway_config.admin
+            gateway = GATEWAY_ADAPTERS[gateway_config.adapter](
+                admin_base_url=str(admin.url).rstrip("/"),
+                connect_timeout=admin.connect_timeout,
+                read_timeout=admin.read_timeout,
+                admin_headers=admin.headers,
                 health_api_url=(
-                    str(config.target.health_api_url)
-                    if config.target.health_api_url is not None
-                    else None
+                    str(gateway_config.health.url) if gateway_config.health is not None else None
                 ),
                 signing_config=config.tests.domain_3.test_3_3,
                 breaker_config=config.tests.domain_4.test_4_3,
+                admin_tls_context=connections.admin,
+                health_tls_context=connections.health,
             )
             log.info(
                 "pipeline_phase_3_gateway_adapter_instantiated",
                 adapter=gateway.adapter_name,
-                admin_base_url=str(config.target.admin_api_url).rstrip("/"),
+                admin_base_url=str(admin.url).rstrip("/"),
             )
 
         # Where and how credentials are sent: the configuration completed by the
@@ -671,29 +834,29 @@ class AssessmentEngine:
 
         target = TargetContext(
             base_url=config.target.base_url,
-            openapi_spec_url=config.target.openapi_spec_url,
+            openapi_spec_url=config.specification.url,
             openapi_spec_path=(
-                config.target.openapi_spec_path.resolve()
-                if config.target.openapi_spec_path is not None
+                config.specification.path.resolve()
+                if config.specification.path is not None
                 else None
             ),
-            admin_api_url=config.target.admin_api_url,
-            admin_connect_timeout_seconds=config.target.admin_connect_timeout_seconds,
-            admin_read_timeout_seconds=config.target.admin_read_timeout_seconds,
+            admin_api_url=gateway_config.admin.url if gateway_config is not None else None,
             attack_surface=attack_surface,
             credentials=config.credentials,
             resources=dict(config.resources),
             credential_placement=credential_placement,
             tests_config=tests_config,
             path_seed=dict(config.target.path_seed),
-            verify_tls=config.target.verify_tls,
+            tls_ca_bundle=config.target.tls.ca_bundle if config.target.tls is not None else None,
+            tls_context=connections.target,
             external_tools=config.external_tools,
             gateway=gateway,
         )
 
         context = TestContext()
         # The Admin API header values are credentials: masked in every output.
-        for header_name, header_value in config.target.admin_api_headers.items():
+        admin_headers = gateway_config.admin.headers if gateway_config is not None else {}
+        for header_name, header_value in admin_headers.items():
             context.register_secret(header_value, f"admin API header {header_name}")
 
         # FIX: tools_dir receives config.output.directory / "tools" so that

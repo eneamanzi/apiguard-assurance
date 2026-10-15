@@ -1,9 +1,10 @@
 # Integrate APIGuard Assurance
 
 > **Audience:** developers integrating the tool into another product or an automated pipeline · **Status:** 0.x
-> (see [versions](#versions)) · **Source of truth:** `src/cli.py`, `src/engine.py`, the
+> (see [versions](#9-versions)) · **Source of truth:** `src/cli.py`, `src/engine.py`, the
 > [reference pages](../../reference/) · **Verified:** 2026-10-09 with a wheel installed by `pip` in a fresh virtual
-> environment, run from a working directory outside the repository, against the Forgejo + Kong lab
+> environment, run from a working directory outside the repository, against the Forgejo + Kong lab; certificates
+> and the `connections` checks 2026-10-15 on the three labs
 
 How to run the tool from another program and use what it produces. Every command on this page was run as written.
 What to configure on the target side is in [Configure a target](../usage/configure-a-target.md); what each test
@@ -67,9 +68,18 @@ the process or in a file passed with `--env-file` (variables already in the envi
 apiguard validate-config -c config.yaml --env-file credentials.env
 ```
 
-`validate-config` contacts nothing; it checks the configuration, the test declarations and `test_ids`, and exits
-`0` (`Configuration valid. Target: ...`) or `10` with every problem listed (e.g. the variables that are not set).
-Run it whenever the configuration changes.
+`validate-config` does not contact the API; it checks the configuration, the certificate files, the test
+declarations and `test_ids`, and exits `0` (`Configuration valid. Target: ...`) or `10` with every problem listed
+(e.g. the variables that are not set). With credentials configured it also reads the specification (download or
+file), to resolve where they are sent. Run it whenever the configuration changes.
+
+**Certificates and keys.** Each connection (the API, the specification, the gateway's Admin API) checks the server's
+certificate against the system's store by default; for a private authority, a client certificate or a key, see
+[TLS and certificates](../usage/configure-a-target.md#2-tls-and-certificates). When the tool runs inside another
+product, give it files, not contents: the product writes the authority, the client certificate and its key to files
+readable only by the user that runs the tool (`600` for the key), passes their paths through variables
+(`client_key: "${APIGUARD_ADMIN_CLIENT_KEY_FILE}"`), and deletes them after the run if they are temporary. The key
+is never printed in the logs or the reports; an encrypted key is refused, so decrypt it first.
 
 **One output directory per run.** The reports are written to `output.directory` and a new run **overwrites** them.
 To keep each run, take the directory from a variable, like the credentials:
@@ -113,7 +123,7 @@ To run part of the tests (a subset, by priority or strategy): [Select tests](../
 | `1` | at least one security guarantee is violated | read the findings |
 | `2` | invalid invocation: nothing ran | fix the command line |
 | `3` | no violation found, but at least one test could not complete | read the ERROR messages, fix, run again |
-| `10` | the assessment did not run (configuration, specification, test selection) | read the error message (stderr / log) |
+| `10` | the assessment did not run (configuration, certificates, specification, test selection) | read the reason: the `Reason` line on the console, or `detail` of the log event `assessment_pipeline_infrastructure_failure` with `--log-format json` (complete) |
 | `130`, `143` | interrupted (Ctrl+C, SIGTERM) after cleaning the target | no report: run again |
 
 Full reference: [exit codes](../../reference/exit-codes.md). A script that keeps the code even with `set -e`:
@@ -164,6 +174,11 @@ jq -r '.all_rows[] | select(.status == "FAIL") | .findings[] | "\(.evidence_ref 
 
 # The transaction behind a finding
 jq --arg id "0.1_002" '.records[] | select(.record_id == $id) | {request_method, request_url, response_status_code}' evidence.json
+
+# How each connection's certificate was checked (a not verified one means the run could not know it talked to
+# the right server; the second command exits 1 when one was not verified)
+jq -r '.connections[] | "\(.name)\t\(.certificate_check)\tclient certificate: \(.client_certificate)"' apiguard_report.json
+jq -e '[.connections[] | select(.certificate_check == "not_verified")] | length == 0' apiguard_report.json
 
 # What was not checked: SKIP and ERROR reasons, tests not run
 jq -r '.all_rows[] | select(.status == "SKIP" or .status == "ERROR") | "\(.test_id)\t\(.status)\t\(.skip_reason // .message)"' apiguard_report.json

@@ -257,6 +257,36 @@ def _clean_note_detail(raw_finding: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _configured_authority_notes(target: TargetContext) -> list[InfoNote]:
+    """
+    Note that the certificate was judged trusting target.tls.ca_bundle too.
+
+    Without it the tools judge the certificate as anyone on the Internet would;
+    with it, as a client of the organisation that configured that authority.
+    The reader must know which (docs/project/connections-design.md, 5.6).
+
+    Args:
+        target: The run's TargetContext.
+
+    Returns:
+        One note when target.tls.ca_bundle is set, else none.
+    """
+    if target.tls_ca_bundle is None:
+        return []
+    return [
+        InfoNote(
+            title="Certificate trust established through the configured authority",
+            detail=(
+                f"The certificate chain was checked trusting target.tls.ca_bundle "
+                f"({target.tls_ca_bundle.name}) in addition to the tool's own authorities. "
+                "A certificate trusted only through it is not trusted by clients that do not "
+                "have that authority (e.g. on the public Internet)."
+            ),
+            references=[],
+        )
+    ]
+
+
 class ExtTest15TlsAnalysis(ExternalToolTest):
     """
     External test for Garanzia 1.5 -- deep TLS stack analysis via testssl.sh.
@@ -377,7 +407,12 @@ class ExtTest15TlsAnalysis(ExternalToolTest):
             target_url=target_url,
             timeout_seconds=timeout_seconds,
             extra_flags=extra_flags,
+            ca_bundle=target.tls_ca_bundle,
         )
+
+    def _context_notes(self, target: TargetContext) -> list[InfoNote]:
+        """State that certificate trust used the configured authority (target.tls.ca_bundle)."""
+        return _configured_authority_notes(target)
 
     def _evaluate(
         self,
@@ -689,10 +724,16 @@ class ExtTest15SslyzeAnalysis(ExternalToolTest):
             timeout_seconds=timeout_seconds,
         )
 
+        assert isinstance(connector, SslyzeConnector)
         return connector.run(
             target_url=target_url,
             timeout_seconds=timeout_seconds,
+            ca_bundle=target.tls_ca_bundle,
         )
+
+    def _context_notes(self, target: TargetContext) -> list[InfoNote]:
+        """State that certificate trust used the configured authority (target.tls.ca_bundle)."""
+        return _configured_authority_notes(target)
 
     def _evaluate(
         self,

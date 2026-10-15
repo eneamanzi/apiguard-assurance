@@ -787,11 +787,11 @@ class BaseTest(ABC):
 
         return self._make_skip(
             reason=(
-                "Gateway adapter not configured: target.gateway_adapter is absent "
+                "Gateway adapter not configured: the gateway section is absent "
                 "from config.yaml. This WHITE_BOX test requires read access to the "
                 "gateway admin API to perform configuration audit. "
-                "Set target.gateway_adapter (e.g. 'kong') and target.admin_api_url "
-                "(e.g. http://localhost:8001) to enable. "
+                "Set gateway.adapter (e.g. 'kong') and gateway.admin.url "
+                "(e.g. https://localhost:8444) to enable. "
                 "If the gateway does not expose an admin API, this SKIP is expected."
             )
         )

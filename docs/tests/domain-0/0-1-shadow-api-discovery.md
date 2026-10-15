@@ -27,7 +27,7 @@ Two sub-checks, all requests unauthenticated:
 1. **Path fuzzing.** `GET` on each of the 37 paths in `SHADOW_API_WORDLIST`
    (`src/tests/data/shadow_wordlists.py`: `/api/admin`, `/api/internal`, `/actuator`-style paths,
    `/api/v1/*`, `/api/v2/*`, `/.env`, `/health`, …). Paths declared in the spec are skipped. When the spec is
-   loaded from `openapi_spec_url`, the spec's own path (e.g. `/swagger.v1.json`) is also skipped.
+   loaded from `specification.url`, the spec's own path (e.g. `/swagger.v1.json`) is also skipped.
 2. **Undeclared methods.** For the first `method_probe_sample_size` endpoints of the attack surface (default 10),
    skipping paths with `{parameters}`,
    every method in `GET, POST, PUT, PATCH, DELETE` that the spec does not declare for that path is sent.

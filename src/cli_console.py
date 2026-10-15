@@ -4,9 +4,10 @@ src/cli_console.py
 The console interface of ``apiguard run`` (log format ``console``).
 
 ConsoleObserver implements engine.RunObserver: the engine reports the
-progress of the run (plan, each test, cleanup, end) and this module prints it
-for a person: a header, one line per test with its findings grouped by kind,
-the cleanup, and a summary with the paths of the reports. The technical log
+progress of the run (plan, each test, cleanup, end, or why it stopped) and
+this module prints it for a person: a header, one line per test with its
+findings grouped by kind, the cleanup, and a summary with the paths of the
+reports, or the reason of a run that stopped (exit 10). The technical log
 (``--log-level``) is printed through the same rich Console, so that it never
 breaks the line of the test in progress.
 
@@ -22,6 +23,7 @@ from typing import TYPE_CHECKING
 
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+from rich.table import Table
 from rich.text import Text
 
 from src.connectors.base import BaseSubprocessConnector
@@ -106,6 +108,7 @@ class ConsoleObserver:
         self._progress: Progress | None = None
         self._cleanup: tuple[int, int] | None = None
         self._id_width: int = DEFAULT_TEST_ID_WIDTH
+        self._stop_reason: str | None = None
         self.finished: bool = False
 
     # ------------------------------------------------------------------
@@ -248,10 +251,25 @@ class ConsoleObserver:
     # Helpers
     # ------------------------------------------------------------------
 
+    def run_stopped(self, reason: str) -> None:
+        """Remember why the run stopped: printed in full under the exit code line."""
+        self._stop_reason = reason
+
     def print_exit(self, exit_code: int) -> None:
-        """Print the exit code line (also used when the run did not start)."""
+        """
+        Print the exit code line (also used when the run did not start).
+
+        When the run stopped (exit 10), the reason follows in full, wrapped
+        under the text column: the technical log cuts long values.
+        """
         style, label = EXIT_LABELS.get(exit_code, ("white", f"exit code {exit_code}"))
         self._heading(f"Exit {exit_code}", label, style)
+        if self._stop_reason is not None:
+            grid = Table.grid()
+            grid.add_column(width=_HEADING_WIDTH, style="bold", no_wrap=True)
+            grid.add_column(overflow="fold")
+            grid.add_row("Reason", Text(self._stop_reason))
+            self._console.print(grid)
 
     def _heading(self, heading: str, text: str, style: str = "") -> None:
         """Print one summary line: an aligned heading, then the text."""

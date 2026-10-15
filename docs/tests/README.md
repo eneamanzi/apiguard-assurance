@@ -39,8 +39,8 @@ target, and how it relates to the methodology.
 | `7.2` | Server-Side Request Forgery (SSRF) Prevention | P0 | GREY_BOX | CWE-918 | user_a credentials | [7.2](domain-7/7-2-ssrf-prevention.md) |
 
 "Needs" lists what the test requires beyond `target.base_url` and the specification; without it the test returns
-SKIP (or, for external tools that are disabled, is not scheduled). "Admin API (Kong)" means `target.admin_api_url`
-plus `target.gateway_adapter: kong`.
+SKIP (or, for external tools that are disabled, is not scheduled). "Admin API (Kong)" means a `gateway`
+section (`adapter` and `admin.url`).
 
 ## Dependencies and execution order
 

@@ -79,6 +79,7 @@ EvidenceStore policy:
 from __future__ import annotations
 
 import re
+import ssl
 from typing import ClassVar
 from urllib.parse import urlparse
 
@@ -177,7 +178,7 @@ class Test15InsecureCredentialTransport(BaseTest):
         try:
             cfg = target.tests_config.test_1_5
             base_url = target.endpoint_base_url()
-            verify_tls = target.verify_tls
+            tls_context = target.tls_context
 
             # ----------------------------------------------------------------
             # Fast-path FAIL: target is plain HTTP — no TLS layer at all.
@@ -225,7 +226,7 @@ class Test15InsecureCredentialTransport(BaseTest):
             # Sub-test 1 -- HTTP redirect enforcement
             # ------------------------------------------------------------------
             if cfg.http_probe_enabled:
-                finding_1 = self._run_http_redirect_probe(base_url, cfg, verify_tls)
+                finding_1 = self._run_http_redirect_probe(base_url, cfg, tls_context)
                 if finding_1 is not None:
                     findings.append(finding_1)
             else:
@@ -294,7 +295,7 @@ class Test15InsecureCredentialTransport(BaseTest):
         self,
         https_base_url: str,
         cfg: Test15Config,
-        verify_tls: bool,
+        tls_context: ssl.SSLContext,
     ) -> Finding | None:
         """
         Probe the HTTP version of the target base URL.
@@ -303,17 +304,13 @@ class Test15InsecureCredentialTransport(BaseTest):
         bound to the HTTPS base URL at construction.  This is the same
         pattern as KongGatewayAdapter using httpx for the gateway admin API.
 
-        verify_tls is forwarded verbatim to httpx.get(verify=...).  In a lab
-        environment with a self-signed certificate (verify_tls=False), the
-        HTTPS redirect target itself would fail TLS validation; passing the
-        flag ensures the probe mirrors SecurityClient's behaviour on the same
-        target, making the comparison meaningful.
+        The TLS context of target.tls is passed to httpx.get(verify=...), so
+        that the probe trusts what SecurityClient trusts on the same target.
 
         Args:
             https_base_url: HTTPS target base URL from TargetContext.
             cfg: Test15Config instance with probe parameters.
-            verify_tls: Mirror of TargetContext.verify_tls — False in lab,
-                        True in production.
+            tls_context: TargetContext.tls_context (built from target.tls).
 
         Returns:
             Finding if the probe reveals a vulnerability, None otherwise.
@@ -345,7 +342,7 @@ class Test15InsecureCredentialTransport(BaseTest):
                 probe_url,
                 follow_redirects=False,
                 timeout=cfg.http_probe_timeout_seconds,
-                verify=verify_tls,  # noqa: S501 -- controlled by TargetConfig.verify_tls
+                verify=tls_context,
             )
         except (httpx.ConnectError, httpx.RemoteProtocolError):
             # Connection refused or reset: HTTP port is closed.  Secure.

@@ -8,7 +8,10 @@
 # Run by the apisix-setup service of docker-compose.yml (image curlimages/curl), which starts only
 # when APISIX is ready (its health check, GET /status/ready), with:
 #   APISIX_ADMIN_KEY  the key with role admin (from .env); the tool uses the viewer key instead;
-#   /certs            the lab certificate (test-environments/forgejo-kong/certs), read only.
+#   /pki              the labs' authority and certificates (test-environments/pki), read only.
+#
+# The Admin API is HTTPS with mutual TLS (apisix/config.yaml): the setup verifies APISIX's
+# certificate with the labs' authority and presents the client certificate, then the admin key.
 #
 # Every object is written with PUT and a fixed id: running the setup again rewrites the same
 # objects with the same values. Any answer other than HTTP 200/201 stops the setup.
@@ -18,12 +21,14 @@
 
 set -eu
 
-ADMIN_URL="http://apisix:10001/apisix/admin"
+ADMIN_URL="https://apisix:10001/apisix/admin"
+PKI="/pki"
 : "${APISIX_ADMIN_KEY:?APISIX_ADMIN_KEY is not set - see .env.example}"
 
 # put <path> <json body>: writes one object, stops on an unexpected answer.
 put() {
   code=$(curl -s -o /tmp/apisix_response -w '%{http_code}' -X PUT "$ADMIN_URL/$1" \
+    --cacert "$PKI/ca.crt" --cert "$PKI/client.crt" --key "$PKI/client.key" \
     -H "X-API-KEY: $APISIX_ADMIN_KEY" -H 'Content-Type: application/json' -d "$2")
   case "$code" in
     200|201) echo "APISIX $1 written." ;;
@@ -37,10 +42,10 @@ pem_json() {
   awk 'BEGIN { ORS = "\\n" } { print }' "$1"
 }
 
-# --- TLS certificate for the HTTPS proxy (10443) -------------------------------------------------
+# --- TLS certificate for the HTTPS proxy (10443): the lab certificate --------------------------
 put "ssls/localhost" "{
-  \"cert\": \"$(pem_json /certs/server.crt)\",
-  \"key\": \"$(pem_json /certs/server.key)\",
+  \"cert\": \"$(pem_json "$PKI/server.crt")\",
+  \"key\": \"$(pem_json "$PKI/server.key")\",
   \"snis\": [\"localhost\"]
 }"
 
@@ -80,6 +85,30 @@ put "upstreams/forgejo-upstream" '{
 put "routes/forgejo-api-route" '{
   "name": "forgejo-api-route",
   "uris": ["/api", "/api/*"],
+  "upstream_id": "forgejo-upstream",
+  "plugins": {
+    "redirect": { "http_to_https": true },
+    "response-rewrite": {
+      "headers": {
+        "set": {
+          "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+          "Content-Security-Policy": "default-src '"'"'self'"'"'",
+          "Permissions-Policy": "geolocation=(), camera=(), microphone=()",
+          "X-Content-Type-Options": "nosniff",
+          "X-Frame-Options": "DENY"
+        },
+        "remove": ["X-Powered-By"]
+      }
+    }
+  }
+}'
+
+# --- Forgejo OpenAPI specification route ------------------------------------------------------
+# The only path outside /api (the tool downloads the specification from here: Forgejo publishes no
+# port); "uri" without "*" matches exactly. Same plugins as the API route.
+put "routes/forgejo-spec-route" '{
+  "name": "forgejo-spec-route",
+  "uri": "/swagger.v1.json",
   "upstream_id": "forgejo-upstream",
   "plugins": {
     "redirect": { "http_to_https": true },

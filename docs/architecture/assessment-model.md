@@ -59,7 +59,7 @@ Configured in `execution` ([`reference/configuration.md`](../reference/configura
    one left out by the selection, returns SKIP ([dependencies between tests](#dependencies-between-tests)).
 
 Without the `user_a` credentials GREY_BOX tests return SKIP; without the `admin` credentials 1.4 returns SKIP;
-without `gateway_adapter` + `admin_api_url` the Admin API tests return SKIP (6.4 skips sub-test B). Phase 1 warns
+without `gateway` (`adapter` + `admin.url`) the Admin API tests return SKIP (6.4 skips sub-test B). Phase 1 warns
 about each situation when the strategy concerned is selected.
 
 ## Dependencies between tests

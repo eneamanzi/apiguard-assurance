@@ -12,7 +12,7 @@
 | Priority / strategy | P1 / WHITE_BOX (gateway Admin API) |
 | CWE | CWE-400 |
 | Depends on | none |
-| Configuration | [`tests.domain_4.test_4_2`](../../reference/configuration.md#testsdomain_4test_4_2---timeout-configuration-audit), `target.admin_api_url`, `target.gateway_adapter` |
+| Configuration | [`tests.domain_4.test_4_2`](../../reference/configuration.md#testsdomain_4test_4_2---timeout-configuration-audit), `gateway.adapter` and `gateway.admin.url` |
 
 ## What it checks
 
@@ -49,7 +49,7 @@ finding points to it (`evidence_ref`); the SKIP reasons name it too.
 
 ## Prerequisites and effects on the target
 
-`target.admin_api_url` and `target.gateway_adapter` (plus `target.admin_api_headers` for a protected Admin API).
+`gateway.adapter` and `gateway.admin.url` (plus `gateway.admin.headers` and `gateway.admin.tls` for a protected Admin API).
 Read-only Admin API calls.
 
 ## Coverage against the methodology

@@ -1,7 +1,8 @@
 # Architecture Overview
 
 > **Audience:** contributors, integrators who need to understand internals · **Status:** v0.1.0 ·
-> **Source of truth:** `src/engine.py` and the modules linked below · **Verified:** 2026-10-05 (module graph
+> **Source of truth:** `src/engine.py` and the modules linked below · **Verified:** 2026-10-15 (pipeline, connections
+> and TLS, module graph recomputed), 2026-10-05 (module graph
 > computed from imports; behaviours checked in code and, where noted, by execution). The previous Italian version
 > of this page is in git history (commit `fd3bd90`, `docs/architecture/overview.md`).
 
@@ -32,11 +33,11 @@ What each test needs from the target is in [compatibility](../reference/compatib
 
 | Phase | What happens | Code | On failure |
 |---|---|---|---|
-| 1 Initialization | Read YAML, resolve `${VAR}`, validate with Pydantic → frozen `ToolConfig`; then check every test declaration (`src/core/test_metadata.py`) and the `test_ids` entries (`engine.check_tests`) | `src/config/loader.py`, `src/config/schema/`, `src/engine.py` | `ConfigurationError` or `TestDefinitionError` → exit 10 |
-| 2 OpenAPI discovery | Fetch or read the spec, dereference `$ref` (prance, in a worker thread), detect dialect, validate, build `AttackSurface` | `src/discovery/openapi.py`, `surface.py` | `OpenAPILoadError` → exit 10 |
+| 1 Initialization | Read YAML, resolve `${VAR}`, validate with Pydantic → frozen `ToolConfig`; build the TLS context of each connection (`engine.build_connection_contexts`); then check every test declaration (`src/core/test_metadata.py`) and the `test_ids` entries (`engine.check_tests`) | `src/config/loader.py`, `src/config/schema/`, `src/core/tls.py`, `src/engine.py` | `ConfigurationError` or `TestDefinitionError` → exit 10 |
+| 2 OpenAPI discovery | Download (with the specification's TLS context) or read the spec, dereference `$ref` (prance, in a worker thread), detect dialect, validate, build `AttackSurface` | `src/discovery/download.py`, `openapi.py`, `surface.py` | `OpenAPILoadError` → exit 10 |
 | 3 Context construction | Resolve where and how credentials are sent (credentials + the spec's security schemes); build `TargetContext` (config + surface + credentials + placement + per-test config + gateway adapter), `TestContext`, `EvidenceStore` | `src/engine.py`, `src/core/auth_placement.py`, `src/core/context.py`, `src/core/evidence.py` | `ConfigurationError` (placement not determined) → exit 10 |
 | 4 Discovery and scheduling | Discover native and external tests, filter, build dependency batches | `src/tests/registry.py`, `src/external_tests/registry.py`, `src/core/dag.py` | `DAGCycleError` → exit 10 |
-| 5 Execution | Run each test sequentially in batch order with one shared `SecurityClient` | `src/engine.py`, `src/tests/`, `src/external_tests/` | per test: `ERROR` result |
+| 5 Execution | One preflight request to the API, then run each test sequentially in batch order with one shared `SecurityClient` | `src/engine.py`, `src/tests/`, `src/external_tests/` | preflight: TLS problem → `ConfigurationError`, exit 10; per test: `ERROR` result |
 | 6 Teardown | Delete resources registered by tests, in reverse order | `src/engine.py`, `TestContext.drain_resources()` | warning, run continues |
 | 7 Reporting | Merge evidence, build report data, render HTML, write JSON | `src/core/evidence.py`, `src/report/` | each step logged, others still run |
 
@@ -47,9 +48,14 @@ Phase 7 does not run after an interruption. Exit codes:
 
 ### Phase 2 details
 
-- Remote specs are fetched by prance in a background daemon thread with a timeout
-  (`execution.openapi_fetch_timeout_seconds`). When it expires the run stops with `OpenAPILoadError` (exit `10`),
-  also when the server accepts the connection and never answers (verified 2026-10-07).
+- A remote spec is downloaded by the tool (`src/discovery/download.py`: httpx with the context of
+  `specification.tls`, redirects followed) and given to prance as text, with its URL as the base of external `$ref`.
+  `specification.timeout` applies to the download (httpx timeout) and, separately, to the dereferencing, which runs
+  in a background daemon thread because prance fetches external `$ref` itself, without a timeout. When it expires
+  the run stops with `OpenAPILoadError` (exit `10`), also when the server accepts the connection and never answers
+  (verified 2026-10-07). Relative `$ref` in a
+  spec read from a URL are not supported (prance resolves them only for files: "non-file reference"); the message
+  says to use a local copy.
 - Swagger 2.0 specs are dereferenced with `_NonValidatingResolvingParser`, which skips prance's internal validation
   (it rejects `type: file`); OpenAPI 3.0.x / 3.1.x are validated with `openapi-spec-validator`. `prance` is pinned
   exactly (`==25.4.8.0`) because the parser relies on an internal attribute.
@@ -78,10 +84,11 @@ src/
 ├── cli_console.py      Console interface of `run`: implements engine.RunObserver (test lines, summary)
 ├── engine.py           AssessmentEngine: orchestrates the seven phases
 ├── config/             Phase 1: loader + Pydantic schema of config.yaml (ToolConfig)
-├── discovery/          Phase 2: spec loading, AttackSurface builder, path_seed generator
+├── discovery/          Phase 2: spec download and loading, AttackSurface builder, path_seed generator
 ├── core/               Shared vocabulary and infrastructure
 │   ├── models/         Pydantic models (results, evidence, surface, credentials, tool config)
 │   ├── client.py       SecurityClient: the only HTTP client for the target API
+│   ├── tls.py          TLS context of each connection, TLS failure messages
 │   ├── context.py      TargetContext (frozen), TestContext (mutable)
 │   ├── auth_placement.py Where and how a credential is sent (header / query / cookie, name, prefix)
 │   ├── evidence.py     EvidenceStore (streaming JSONL, merged in Phase 7)
@@ -96,21 +103,25 @@ src/
 └── test_config/        Per-test parameter models (one per test, by domain) + RuntimeTestsConfig
 ```
 
-Actual import graph (computed from the source):
+Actual import graph (computed from the source, 2026-10-15):
 
 ```
 cli                -> cli_console, config, connectors, core/exceptions, core/models, discovery, engine
 cli_console        -> connectors, core/models (engine for types only)
 engine             -> config, core/*, discovery, external_tests, report, test_config, tests
-config             -> core/exceptions, core/models, core/test_metadata, test_config
-discovery          -> core/exceptions, core/models
-tests              -> core/client, core/context, core/evidence, core/exceptions, core/gateway, core/models,
+config             -> core/exceptions, core/gateway (the adapter names), core/models, core/templating,
                       core/test_metadata, test_config
+discovery          -> core/exceptions, core/models, core/tls
+tests              -> core/auth_placement, core/client, core/context, core/evidence, core/exceptions, core/gateway,
+                      core/models, core/templating, core/test_metadata, test_config
 external_tests     -> connectors, core/context, core/evidence, core/exceptions, core/models, core/test_metadata
 connectors         -> core/exceptions
-report             -> config, core/models
-core/gateway       -> core/exceptions
-core/context       -> core/gateway, core/models, test_config (only to type TargetContext.tests_config)
+report             -> config, core/models, core/redaction
+core/gateway       -> core/exceptions, core/tls, test_config
+core/context       -> core/auth_placement, core/gateway, core/models, core/redaction, test_config (only to type
+                      TargetContext.tests_config)
+core/client        -> core/exceptions, core/models, core/redaction, core/tls
+core/tls           -> core/exceptions, core/models
 core/test_metadata -> core/models
 test_config        -> nothing from src/
 ```
@@ -126,8 +137,8 @@ checked automatically by `lint-imports` in `hatch run dev:check` (`[tool.importl
 **SecurityClient** (`src/core/client.py`). Wraps httpx. Usable only as a context manager (the underlying client
 is created in `__enter__`; using it outside raises `RuntimeError`). Never follows redirects. Retries only transport
 errors (`ConnectError`, `ConnectTimeout`, `ReadTimeout`, `WriteTimeout`, `PoolTimeout`, `RemoteProtocolError`)
-with exponential backoff and jitter (0.5 s min, 8 s max, 1 s jitter), up to `execution.max_retry_attempts`
-attempts; HTTP status codes are never retried. Each request returns the response and an `EvidenceRecord`
+with exponential backoff and jitter (0.5 s min, 8 s max, 1 s jitter), up to `target.max_retry_attempts`
+attempts; HTTP status codes and TLS failures are never retried. Uses the TLS context of `target.tls`. Each request returns the response and an `EvidenceRecord`
 (`record_id` `{test_id}_{NNN}`). Not thread-safe; execution is sequential.
 
 **EvidenceStore** (`src/core/evidence.py`). Three ways in: `add_fail_evidence()` (mandatory for each FAIL
@@ -138,17 +149,29 @@ external tool, sanitised, also copied to `outputs/tools/`). Records are streamed
 
 **TargetContext / TestContext** (`src/core/context.py`). See [data model](data-model.md#runtime-contexts).
 
+**Connections and TLS** (`src/core/tls.py`, `src/core/models/tls.py`). The configuration is organised by connection
+(`target`, `specification`, `gateway.admin`, `gateway.health`), each with its optional `tls` block (`TlsSettings`).
+In Phase 1 `engine.build_connection_contexts()` builds one `ssl.SSLContext` per connection: the system's store
+(`truststore`) plus certifi's list by default, only `ca_bundle` when set, no check with `verify: false`, the client
+certificate when set; an unusable file stops the run (exit 10) and warnings are logged (key readable by others,
+`tls` on an `http://` URL). The contexts go to `SecurityClient` and `TargetContext.tls_context` (API), the spec
+download, and the gateway adapter (Admin API, health interface). `certificate_failure()` turns a failed handshake,
+`certificate_answer()` an HTTP 400 page of nginx (client certificate missing or not accepted, plain HTTP to an HTTPS
+port), into a message naming the key to set. Before the first test the engine sends one request to the API
+(`_preflight`, recorded as test `preflight`): a TLS problem stops the run once (exit 10) instead of failing every
+test. The report states how each connection was trusted (`ReportData.connections`, `src/report/builder.py`). Design:
+`docs/project/connections-design.md`; security aspects: [security model](security-model.md).
+
 **Gateway adapters** (`src/core/gateway/`). `BaseGatewayAdapter` exposes one reader per neutral concept
 (`backend_timeouts`, `circuit_breakers`, `health_checks`, `target_health`, `signing_policies`, `routes`,
 `config_values`), each answering with a `ConceptRead` (`src/core/gateway/concepts.py`: read, not supported, or not
 accessible), read once per run; a `GatewayAdapterError` becomes "not accessible". The base also holds the
-constructor shared by every adapter and the HTTP reads (plain `GET`s, the headers of `target.admin_api_headers` to the
-Admin API only, TLS always verified). `KongGatewayAdapter` translates `/services`, `/upstreams`,
+constructor shared by every adapter and the HTTP reads (plain `GET`s, the headers of `gateway.admin.headers` to the
+Admin API only, with the TLS contexts of `gateway.admin.tls` and `gateway.health.tls`). `KongGatewayAdapter` translates `/services`, `/upstreams`,
 `/upstreams/{name}/health`, `/routes`, `/plugins` of the Kong Admin API (with pagination);
 `ApisixGatewayAdapter` translates the APISIX Admin API collections, completed with the defaults of the running
-APISIX's schemas, and the Control API `/v1/healthcheck` at `target.health_api_url`. The adapter is chosen from
-`GATEWAY_ADAPTERS` (`src/core/gateway/__init__.py`) in Phase 3 when `target.gateway_adapter` and
-`target.admin_api_url` are set; tests access it as `target.gateway` ([add a gateway
+APISIX's schemas, and the Control API `/v1/healthcheck` at `gateway.health.url`. The adapter is chosen from
+`GATEWAY_ADAPTERS` (`src/core/gateway/__init__.py`) in Phase 3 when the `gateway` section is set; tests access it as `target.gateway` ([add a gateway
 adapter](../guides/extending/add-a-gateway-adapter.md)).
 
 **Connectors** (`src/connectors/`). `BaseConnector` with two tiers: `BaseSubprocessConnector` (nuclei,

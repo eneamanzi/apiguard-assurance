@@ -2,7 +2,8 @@
 
 > **Audience:** integrators · **Status:** stable (contract: [compatibility](compatibility.md#interface-stability)) · **Source of truth:**
 > `src/report/builder.py` (`ReportData` and nested models), `src/core/models/results.py`,
-> `src/core/models/http.py` · **Verified:** 2026-10-05, v0.1.0 (models + real output of a Forgejo + Kong run)
+> `src/core/models/http.py` · **Verified:** 2026-10-15 (`connections`, real output of the three labs), 2026-10-05,
+> v0.1.0 (models + real output of a Forgejo + Kong run)
 
 `apiguard_report.json` is the machine-readable result of an assessment: the same data that renders
 `assessment_report.html`, serialised with `ReportData.model_dump_json()`. It is written in Phase 7 to
@@ -26,12 +27,36 @@ The file has no format version of its own: `tool_version` is the version of the 
 | `spec_title`, `spec_version` | string | `info.title` and `info.version` of the OpenAPI spec. |
 | `min_priority_label` | string | One of `P0 — Critical`, `P1 — High`, `P2 — Medium`, `P3 — Low`. |
 | `strategies_label` | string | Enabled strategies, comma-separated (`BLACK_BOX, GREY_BOX, WHITE_BOX`). |
+| `connections` | array | [`ConnectionTrust`](#connectiontrust): how the certificate of each connection of the tool was checked (added 2026-10-15). |
 | `executive_summary` | object | [`ExecutiveSummary`](#executivesummary). |
 | `domains` | array | [`DomainSummary`](#domainsummary), ordered by domain; domains without active tests are omitted. |
 | `all_rows` | array | Every [`TestResultRow`](#testresultrow), ordered by `test_id`. |
 | `not_run` | array | Every [`NotRunEntry`](#notrunentry): the tests of the tool not executed in this run, ordered by `test_id`. `all_rows` + `not_run` = every test of the tool. |
 
 The same `TestResultRow` objects appear both in `domains[].rows` and in `all_rows`; read one or the other.
+
+## `ConnectionTrust`
+
+One entry per connection, in this order: `target`, `specification`, then `gateway.admin` and `gateway.health` when
+configured. The HTML report shows them under "Certificate checks", a not verified one in red.
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | `target`, `specification`, `gateway.admin` or `gateway.health`. |
+| `url` | string | The connection's URL (the API's with a trailing `/`), or the specification's absolute file path. |
+| `certificate_check` | string | `verified_system` (the system's authorities plus certifi's list), `verified_ca_bundle` (only the configured `ca_bundle`), `not_verified` (`verify: false`: the run did not know whether it talked to the right server), `plain_http` (no TLS), `local_file` (the specification was read from a file). |
+| `client_certificate` | bool | `true` when the tool presented a client certificate (mutual TLS). |
+
+Example (Forgejo + APISIX lab):
+
+```json
+"connections": [
+  {"name": "target", "url": "https://localhost:10443/", "certificate_check": "verified_ca_bundle", "client_certificate": false},
+  {"name": "specification", "url": "https://localhost:10443/swagger.v1.json", "certificate_check": "verified_ca_bundle", "client_certificate": false},
+  {"name": "gateway.admin", "url": "https://127.0.0.1:10001/", "certificate_check": "verified_ca_bundle", "client_certificate": true},
+  {"name": "gateway.health", "url": "http://127.0.0.1:10002/", "certificate_check": "plain_http", "client_certificate": false}
+]
+```
 
 ## `ExecutiveSummary`
 

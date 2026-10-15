@@ -13,11 +13,16 @@
 # Ports (one fixed set per lab, so that labs can run together):
 #   10000  APISIX HTTP proxy (redirects to HTTPS)
 #   10443  APISIX HTTPS proxy (the tool's target)
-#   10001  APISIX Admin API      (127.0.0.1 only, as APISIX recommends)
+#   10001  APISIX Admin API      (127.0.0.1 only, as APISIX recommends; HTTPS with mutual TLS)
 #   10002  APISIX Control API    (127.0.0.1 only; live health of the upstream nodes)
-#   10003  Forgejo, direct       (OpenAPI specification download, as port 3000 in the Kong lab)
+# Forgejo publishes no port: it is reachable only through APISIX and, on the lab network, by
+# forgejo-setup (http://forgejo:3000). The specification is served through APISIX.
 #
-# TLS: the example certificate of the Forgejo + Kong lab (../forgejo-kong/certs), read only.
+# TLS: the one-shot service "pki" runs ../pki/gen-pki.sh before APISIX starts (the labs'
+# authority and the certificates it signs, in ../pki, never committed; nothing is done when they
+# exist and are valid). APISIX serves ../pki/server.crt on the proxy (written by apisix-setup) and
+# on the Admin API, which requires a client certificate signed by ../pki/ca.crt; the tool uses
+# ../pki/client.crt.
 #
 # Usage (from this directory; credentials, passwords and Admin API keys come from .env in the
 # repository root), the same steps as the other labs (docs/project/maintainer-commands.md,
@@ -75,7 +80,8 @@ services:
       - FORGEJO__database__USER=forgejo
       - FORGEJO__database__PASSWD=${LAB_DB_PASSWORD:?LAB_DB_PASSWORD is not set}
       - FORGEJO__server__HTTP_PORT=3000
-      - FORGEJO__server__ROOT_URL=http://localhost:10003/
+      # The public address (APISIX): links in Forgejo's answers point to it.
+      - FORGEJO__server__ROOT_URL=https://localhost:10443/
       - FORGEJO__security__INSTALL_LOCK=true
       - FORGEJO__security__SECRET_KEY=${LAB_FORGEJO_SECRET_KEY:?LAB_FORGEJO_SECRET_KEY is not set}
       - FORGEJO__api__ENABLE_SWAGGER=true
@@ -85,8 +91,6 @@ services:
       - /etc/localtime:/etc/localtime:ro
     networks:
       - apisix-lab-net
-    ports:
-      - "10003:3000"
     depends_on:
       forgejo-db:
         condition: service_healthy
@@ -117,6 +121,17 @@ services:
       timeout: 5s
       retries: 5
 
+  # The labs' certificate authority and certificates (../pki/gen-pki.sh), with the openssl of the
+  # APISIX image; root inside the container to write the shared folder, the files are given back
+  # to the folder's owner.
+  pki:
+    image: apache/apisix:3.19.0-debian
+    container_name: forgejo-apisix-pki
+    user: "0"
+    entrypoint: ["sh", "/pki/gen-pki.sh"]
+    volumes:
+      - ../pki:/pki
+
   # APISIX: the gateway. Startup configuration in ./apisix/config.yaml; routes, upstreams and
   # plugins written by apisix-setup.
   apisix:
@@ -128,14 +143,17 @@ services:
       - APISIX_VIEWER_KEY=${APISIX_VIEWER_KEY:?APISIX_VIEWER_KEY is not set - see .env.example}
     volumes:
       - ./apisix/config.yaml:/usr/local/apisix/conf/config.yaml:ro
+      - ../pki:/pki:ro
     ports:
       - "10000:10000"                 # HTTP proxy
       - "10443:10443"                 # HTTPS proxy (the tool's target)
-      - "127.0.0.1:10001:10001"       # Admin API
+      - "127.0.0.1:10001:10001"       # Admin API (HTTPS, mutual TLS)
       - "127.0.0.1:10002:10002"       # Control API
     networks:
       - apisix-lab-net
     depends_on:
+      pki:
+        condition: service_completed_successfully
       etcd:
         condition: service_healthy
       forgejo:
@@ -230,11 +248,13 @@ services:
 
         echo "Provisioning completed."
 
-  # Gateway configuration (apisix/setup.sh) written through the Admin API with the admin key,
-  # once APISIX is ready.
+  # Gateway configuration (apisix/setup.sh) written through the Admin API with the client
+  # certificate and the admin key, once APISIX is ready. Root inside the container: the client key
+  # is readable only by the owner of ../pki (600).
   apisix-setup:
     image: curlimages/curl:8.22.0
     container_name: forgejo-apisix-apisix-setup
+    user: "0"
     depends_on:
       apisix:
         condition: service_healthy
@@ -242,7 +262,7 @@ services:
       - APISIX_ADMIN_KEY=${APISIX_ADMIN_KEY:?APISIX_ADMIN_KEY is not set - see .env.example}
     volumes:
       - ./apisix/setup.sh:/setup/setup.sh:ro
-      - ../forgejo-kong/certs:/certs:ro
+      - ../pki:/pki:ro
     networks:
       - apisix-lab-net
     entrypoint: ["sh", "/setup/setup.sh"]

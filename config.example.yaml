@@ -14,8 +14,8 @@
 # show <...> instead; write the placeholder when you uncomment them.
 # Relative paths are resolved against the directory the command is run from.
 #
-# Alternatives that cannot be active together are shown commented out (e.g. openapi_spec_url or
-# openapi_spec_path). `hatch run dev:check` verifies that this file lists every key
+# Alternatives that cannot be active together are shown commented out (e.g. specification.url or
+# specification.path). `hatch run dev:check` verifies that this file lists every key
 # (scripts/check_config_keys.py).
 
 # =============================================================================
@@ -25,13 +25,22 @@ target:
   # Base URL of the API, as the clients reach it (through the gateway).
   base_url: "https://api.example.com"
 
-  # The OpenAPI specification (Swagger 2.0 or OpenAPI 3.x): exactly one of the two.
-  openapi_spec_url: "https://api.example.com/openapi.json"
-  # openapi_spec_path: "./specs/openapi.json"
+  # Certificate settings of this connection (also used by the HTTP probe of test 1.5); the same block exists in specification, gateway.admin
+  # and gateway.health. Absent: the operating system's authorities plus certifi's list.
+  #   verify       false accepts any server certificate (an impostor too); not with ca_bundle
+  #   ca_bundle    PEM file of the authorities to trust instead (e.g. the company authority)
+  #   client_cert  the tool's certificate, for a server that asks for mutual TLS (PEM)
+  #   client_key   its private key (PEM, not encrypted, readable only by you), with client_cert
+  # tls:
+    # verify: true
+    # ca_bundle: "certs/company-ca.pem"
+    # client_cert: "certs/apiguard.crt"
+    # client_key: "certs/apiguard.key"
 
-  # Certificate verification towards base_url (and the HTTP probe of test 1.5). Default true.
-  # Set false only for a lab with a self-signed certificate.
-  verify_tls: true
+  # Requests to the API: timeouts in seconds, attempts after a transport error.
+  connect_timeout: 5.0
+  read_timeout: 30.0
+  max_retry_attempts: 3
 
   # Real identifiers of existing resources, by path parameter name, so that probes on
   # /items/{id} reach the authentication check instead of a 404. Generate the names with
@@ -42,25 +51,52 @@ target:
   #     owner: "user-a"
   #     id: "42"
 
-  # --- Gateway configuration audits (WHITE_BOX: 3.3, 4.2, 4.3, 6.4 sub-test B) -----------------
-  # Without gateway_adapter and admin_api_url these tests return SKIP.
-  # Adapters: kong (Kong 3.x Admin API), apisix (Apache APISIX 3.x Admin API).
-  # gateway_adapter: kong
-  # admin_api_url: "http://127.0.0.1:8001"
+# =============================================================================
+# SPECIFICATION
+# =============================================================================
+# The OpenAPI specification of the API (Swagger 2.0 or OpenAPI 3.x): exactly one of url and path.
+specification:
+  url: "https://api.example.com/openapi.json"
+  # path: "./specs/openapi.json"
+  # Time allowed to load it (download and $ref resolution), in seconds.
+  timeout: 60.0
+  # Certificate settings of the download (see target.tls).
+  # tls:
+    # verify: true
+    # ca_bundle: "certs/company-ca.pem"
+    # client_cert: "certs/apiguard.crt"
+    # client_key: "certs/apiguard.key"
 
-  # Headers sent on every Admin API request, for a gateway that protects it (APISIX: X-API-KEY;
-  # a key of role viewer, GET only, is enough). Values from placeholders, masked in every output.
-  admin_api_headers: {}
-  #   Example (APISIX):
-  #     X-API-KEY: "<APISIX viewer key placeholder>"
-
+# =============================================================================
+# GATEWAY
+# =============================================================================
+# The API gateway, for the configuration audits (WHITE_BOX: 3.3, 4.2, 4.3, 6.4 sub-test B).
+# Without this section those tests return SKIP. Adapters: kong (Kong 3.x), apisix (Apache APISIX 3.x).
+# gateway:
+  # adapter: kong
+  # admin:
+    # url: "https://127.0.0.1:8444"
+    # Headers sent on every Admin API request, for a gateway that protects it (APISIX: X-API-KEY;
+    # a key of role viewer, GET only, is enough). Values from placeholders, masked in every output.
+    # headers: {X-API-KEY: "<APISIX viewer key placeholder>"}
+    # Timeouts of the Admin API and health API requests, in seconds. Defaults 5.0 and 10.0.
+    # connect_timeout: 5.0
+    # read_timeout: 10.0
+    # Certificate settings of the Admin API (see target.tls); e.g. APISIX with mutual TLS.
+    # tls:
+      # verify: true
+      # ca_bundle: "certs/internal-ca.pem"
+      # client_cert: "certs/apiguard.crt"
+      # client_key: "certs/apiguard.key"
   # Interface reporting the live health of the backends, when the gateway keeps it outside the
-  # Admin API (APISIX: Control API). Not used by Kong. Read without admin_api_headers.
-  # health_api_url: "http://127.0.0.1:9090"
-
-  # Timeouts of the Admin API (and health_api_url) requests, in seconds. Defaults 5.0 and 10.0.
-  admin_connect_timeout_seconds: 5.0
-  admin_read_timeout_seconds: 10.0
+  # Admin API (APISIX: Control API). Not used by Kong. Read without the Admin API headers.
+  # health:
+    # url: "http://127.0.0.1:9090"
+    # tls:
+      # verify: true
+      # ca_bundle: "certs/internal-ca.pem"
+      # client_cert: "certs/apiguard.crt"
+      # client_key: "certs/apiguard.key"
 
 # =============================================================================
 # CREDENTIALS
@@ -160,12 +196,6 @@ execution:
   test_ids: []
   # Stop at the first P0 test that returns FAIL or ERROR.
   fail_fast: false
-  # Requests to the target: timeouts in seconds, retries on transport errors.
-  connect_timeout: 5.0
-  read_timeout: 30.0
-  max_retry_attempts: 3
-  # Download of the specification, in seconds.
-  openapi_fetch_timeout_seconds: 60.0
 
 # =============================================================================
 # OUTPUT

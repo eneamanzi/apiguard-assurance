@@ -23,13 +23,15 @@ Design notes preserved from the original schema.py:
     __pydantic_private__ which is the only mutable slot on a frozen model by
     design.
 
-    OpenAPI spec source (URL vs. local path)
-    -----------------------------------------
-    TargetConfig supports two mutually exclusive sources for the OpenAPI spec:
-        openapi_spec_url  -- fetch over HTTP/HTTPS at Phase 2 runtime.
-        openapi_spec_path -- read from the local filesystem at Phase 2 runtime.
-    Exactly one of the two must be present; the model_validator raises
-    ValueError when both or neither are provided.
+    Configuration by connection (docs/project/connections-design.md)
+    ----------------------------------------------------------------
+    Every party the tool talks to is a section with its own settings:
+        target         the API under test (base_url, timeouts, retries);
+        specification  the OpenAPI document (url or path, exactly one; timeout);
+        gateway        optional, for the configuration audits (adapter,
+                       admin: url, headers, timeouts; health: url).
+    Keys moved there from target and execution are rejected with their new
+    place.
 
 Dependency rule: imports from pydantic, the stdlib, src.core.models (for
 TestStrategy, RuntimeCredentials, ResourceConfig), src.core.templating (to
@@ -61,6 +63,7 @@ from src.core.models import (
     ResourceConfig,
     RuntimeCredentials,
     TestStrategy,
+    TlsSettings,
 )
 from src.core.models.external_tools import ExternalToolsConfig
 from src.core.templating import names_in, occurrences, placeholder_names, unquoted_placeholders
@@ -88,6 +91,39 @@ RETRY_MAX_ATTEMPTS_MAX: int = 10
 # Test 7.2's URL placeholder before Phase E, named in the error that rejects it.
 _FORMER_SSRF_SENTINEL: str = "$SSRF_URL$"
 
+# Keys moved by the configuration by connection (docs/project/connections-design.md,
+# 5.1 and 5.2), rejected with their new place.
+_MOVED_TARGET_KEYS: dict[str, str] = {
+    "openapi_spec_url": "specification.url",
+    "openapi_spec_path": "specification.path",
+    "gateway_adapter": "gateway.adapter",
+    "admin_api_url": "gateway.admin.url",
+    "admin_api_headers": "gateway.admin.headers",
+    "admin_connect_timeout_seconds": "gateway.admin.connect_timeout",
+    "admin_read_timeout_seconds": "gateway.admin.read_timeout",
+    "health_api_url": "gateway.health.url",
+    "verify_tls": "target.tls.verify",
+}
+_MOVED_EXECUTION_KEYS: dict[str, str] = {
+    "connect_timeout": "target.connect_timeout",
+    "read_timeout": "target.read_timeout",
+    "max_retry_attempts": "target.max_retry_attempts",
+    "openapi_fetch_timeout_seconds": "specification.timeout",
+}
+
+
+def _reject_moved_keys(data: object, section: str, moved: dict[str, str]) -> object:
+    """Raise ValueError naming the new place of a key moved out of a section."""
+    if isinstance(data, dict):
+        found = [key for key in moved if key in data]
+        if found:
+            raise ValueError(
+                "; ".join(f"{section}.{key} moved: use {moved[key]}" for key in found)
+                + " (configuration by connection, see config.example.yaml)."
+            )
+    return data
+
+
 # Name of a prepared resource (resources:), referred to by other keys.
 RESOURCE_NAME_PATTERN: re.Pattern[str] = re.compile(r"[A-Za-z0-9_-]+")
 
@@ -99,8 +135,7 @@ RESOURCE_NAME_PATTERN: re.Pattern[str] = re.compile(r"[A-Za-z0-9_-]+")
 # defaults reflect that expectation: if the Admin API does not respond in 10 s
 # the connection is almost certainly misconfigured, not merely slow.
 # Operators who run the Admin API behind a slow inter-datacenter link can
-# raise these via target.admin_connect_timeout_seconds /
-# target.admin_read_timeout_seconds in config.yaml.
+# raise these via gateway.admin.connect_timeout / gateway.admin.read_timeout.
 ADMIN_CONNECT_TIMEOUT_DEFAULT: float = 5.0
 ADMIN_READ_TIMEOUT_DEFAULT: float = 10.0
 ADMIN_CONNECT_TIMEOUT_MIN: float = 1.0
@@ -143,14 +178,11 @@ EVIDENCE_TMP_DIRNAME: str = "evidence_tmp"
 
 class TargetConfig(BaseModel):
     """
-    Connection parameters for the target API and its infrastructure.
+    The API under test: its address, how the tool connects to it, real path parameter values.
 
-    OpenAPI spec source
-    -------------------
-    Exactly one of openapi_spec_url or openapi_spec_path must be provided.
-    The model_validator enforce_exactly_one_openapi_source verifies this at
-    load time. Use get_openapi_source() in all downstream code to obtain the
-    canonical string representation without if/else branching on source type.
+    The requests of every test go to base_url. Connection settings (timeouts,
+    retries, certificate check) are those of this connection only
+    (docs/project/connections-design.md).
     """
 
     model_config = {"frozen": True, "extra": "forbid"}
@@ -158,88 +190,39 @@ class TargetConfig(BaseModel):
     base_url: AnyHttpUrl = Field(
         description=(
             "Base URL of the target API as exposed through the API Gateway proxy. "
-            "Example: http://localhost:8000"
+            "Example: https://api.example.com"
         )
     )
-    openapi_spec_url: AnyHttpUrl | None = Field(
-        default=None,
+    connect_timeout: Annotated[float, Field(ge=TIMEOUT_CONNECT_MIN, le=TIMEOUT_CONNECT_MAX)] = (
+        Field(
+            default=TIMEOUT_CONNECT_DEFAULT,
+            description=(
+                f"TCP connection timeout in seconds for the requests to the API. "
+                f"Default: {TIMEOUT_CONNECT_DEFAULT}s."
+            ),
+        )
+    )
+    read_timeout: Annotated[float, Field(ge=TIMEOUT_READ_MIN, le=TIMEOUT_READ_MAX)] = Field(
+        default=TIMEOUT_READ_DEFAULT,
         description=(
-            "URL from which the OpenAPI specification will be fetched at runtime. "
-            "Mutually exclusive with openapi_spec_path: set exactly one. "
-            "Pydantic validates the URL format at config load time. "
-            "Example: http://localhost:3000/swagger.v1.json"
+            f"HTTP read timeout in seconds for the requests to the API. "
+            f"Default: {TIMEOUT_READ_DEFAULT}s."
         ),
     )
-    openapi_spec_path: Path | None = Field(
-        default=None,
-        description=(
-            "Absolute or relative filesystem path to a locally stored OpenAPI "
-            "specification file (JSON or YAML). "
-            "Mutually exclusive with openapi_spec_url: set exactly one. "
-            "Pydantic coerces a plain string from config.yaml to a Path object. "
-            "Relative paths are resolved to absolute at call time via Path.resolve(), "
-            "anchored to the working directory of the process. "
-            "prance resolves intra-file $ref pointers normally; remote $ref entries "
-            "inside a local spec still require network access. "
-            "The file's existence is validated by discovery/openapi.py at Phase 2 "
-            "runtime (not here) so that the error message includes the resolved "
-            "absolute path rather than the raw config value. "
-            "Example: ./specs/forgejo-swagger.v1.json"
-        ),
-    )
-    admin_api_url: AnyHttpUrl | None = Field(
-        default=None,
-        description=(
-            "URL of the API Gateway Admin API, required by the tests that read the "
-            "gateway configuration (3.3, 4.2, 4.3, 6.4 sub-test B). If absent, those "
-            "tests return SKIP or skip that part. "
-            "Example: http://localhost:8001"
-        ),
-    )
-    admin_api_headers: dict[str, str] = Field(
-        default_factory=dict,
-        description=(
-            "Headers sent on every read of the gateway's interfaces (Admin API), for a "
-            "gateway that protects them: e.g. APISIX 'X-API-KEY', Kong Enterprise "
-            "'Kong-Admin-Token'. Write the values as ${VAR} placeholders: they are "
-            "registered as secrets and masked in logs and reports. Default: none."
-        ),
-    )
-    health_api_url: AnyHttpUrl | None = Field(
-        default=None,
-        description=(
-            "URL of the gateway interface that reports the live health of the backends, "
-            "for a gateway that keeps it outside the Admin API (APISIX: Control API). "
-            "Read by test 4.3 (observability); admin_api_headers are not sent to it. "
-            "Not used by Kong, whose Admin API reports it. If absent on such a gateway, "
-            "the live health is reported as not accessible. "
-            "Example: http://127.0.0.1:10002"
-        ),
-    )
-    admin_connect_timeout_seconds: Annotated[
-        float,
-        Field(ge=ADMIN_CONNECT_TIMEOUT_MIN, le=ADMIN_CONNECT_TIMEOUT_MAX),
+    max_retry_attempts: Annotated[
+        int, Field(ge=RETRY_MAX_ATTEMPTS_MIN, le=RETRY_MAX_ATTEMPTS_MAX)
     ] = Field(
-        default=ADMIN_CONNECT_TIMEOUT_DEFAULT,
+        default=RETRY_MAX_ATTEMPTS_DEFAULT,
         description=(
-            "TCP connection timeout in seconds for gateway Admin API requests. "
-            "The Admin API is a local endpoint; the default (5 s) is intentionally "
-            "short.  Raise this only when the Admin API is behind a slow link. "
-            f"Range: [{ADMIN_CONNECT_TIMEOUT_MIN}, {ADMIN_CONNECT_TIMEOUT_MAX}]. "
-            f"Default: {ADMIN_CONNECT_TIMEOUT_DEFAULT} s."
+            f"Maximum attempts (initial + retries) of a request to the API after a "
+            f"transport failure. Default: {RETRY_MAX_ATTEMPTS_DEFAULT}."
         ),
     )
-    admin_read_timeout_seconds: Annotated[
-        float,
-        Field(ge=ADMIN_READ_TIMEOUT_MIN, le=ADMIN_READ_TIMEOUT_MAX),
-    ] = Field(
-        default=ADMIN_READ_TIMEOUT_DEFAULT,
+    tls: TlsSettings | None = Field(
+        default=None,
         description=(
-            "HTTP read timeout in seconds for gateway Admin API requests. "
-            "Covers paginated list responses (routes, plugins, services); "
-            "10 s is sufficient for any local Admin API. "
-            f"Range: [{ADMIN_READ_TIMEOUT_MIN}, {ADMIN_READ_TIMEOUT_MAX}]. "
-            f"Default: {ADMIN_READ_TIMEOUT_DEFAULT} s."
+            "Certificate settings of this connection (verify, ca_bundle, client_cert, "
+            "client_key); absent: the system's authorities plus certifi's list."
         ),
     )
     path_seed: dict[str, str] = Field(
@@ -257,144 +240,250 @@ class TargetConfig(BaseModel):
             "parameter names found in the OpenAPI specification."
         ),
     )
-    verify_tls: bool = Field(
-        default=True,
-        description=(
-            "Whether to verify the TLS certificate when connecting to base_url. "
-            "Default: True (production-safe behaviour -- rejects self-signed certs). "
-            "Set to False ONLY in local lab environments where the Gateway uses a "
-            "self-signed certificate generated by gen-certs.sh. "
-            "This flag is forwarded to httpx.Client(verify=...) in SecurityClient "
-            "and to httpx.get(verify=...) in the Test 1.5 HTTP redirect probe. "
-            "Never set this to False in a production assessment: a tool that "
-            "disables TLS verification cannot detect certificate misconfiguration "
-            "and is vulnerable to MITM attacks during the assessment itself. "
-            "NIST SP 800-52 Rev.2 requires TLS certificate validation on all "
-            "connections carrying sensitive data."
-        ),
-    )
-    gateway_adapter: str | None = Field(
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_moved_keys(cls, data: object) -> object:
+        """Reject the keys moved to specification and gateway, naming their new place."""
+        return _reject_moved_keys(data, "target", _MOVED_TARGET_KEYS)
+
+    @field_validator("base_url", mode="before")
+    @classmethod
+    def url_passthrough(cls, value: object) -> object:
+        """Passthrough -- trailing slash normalisation happens in TargetContext."""
+        return value
+
+
+# ---------------------------------------------------------------------------
+# SpecificationConfig
+# ---------------------------------------------------------------------------
+
+
+class SpecificationConfig(BaseModel):
+    """
+    The OpenAPI specification of the target: where it is read from.
+
+    Exactly one of url and path. Use get_source() in downstream code to
+    obtain the canonical string without branching on the source type.
+    """
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    url: AnyHttpUrl | None = Field(
         default=None,
         description=(
-            "Gateway adapter type to use for WHITE_BOX configuration audit tests. "
-            "When set, engine.py Phase 3 instantiates the corresponding adapter and "
-            "exposes it as target.gateway in TargetContext. "
-            "Supported: the keys of GATEWAY_ADAPTERS (src/core/gateway/__init__.py); "
-            "today 'kong' and 'apisix'. "
-            "Leave unset (None) to skip all gateway-specific WHITE_BOX tests: "
-            "those tests will return SKIP with the reason "
-            "'Gateway adapter not configured: ...' (BaseTest._requires_admin_api). "
-            "Requires admin_api_url to also be set when non-None."
+            "URL from which the OpenAPI specification is fetched at runtime. "
+            "Mutually exclusive with path: set exactly one. "
+            "Example: https://api.example.com/openapi.json"
+        ),
+    )
+    path: Path | None = Field(
+        default=None,
+        description=(
+            "Absolute or relative filesystem path to a locally stored OpenAPI "
+            "specification file (JSON or YAML). "
+            "Mutually exclusive with url: set exactly one. "
+            "Relative paths are resolved against the working directory of the process. "
+            "prance resolves intra-file $ref pointers normally; remote $ref entries "
+            "inside a local spec still require network access. "
+            "The file's existence is checked when the specification is loaded, so that "
+            "the error message names the resolved absolute path. "
+            "Example: ./specs/openapi.json"
+        ),
+    )
+    timeout: Annotated[
+        float,
+        Field(ge=OPENAPI_FETCH_TIMEOUT_MIN, le=OPENAPI_FETCH_TIMEOUT_MAX),
+    ] = Field(
+        default=OPENAPI_FETCH_TIMEOUT_DEFAULT,
+        description=(
+            "Timeout in seconds for loading the specification (download from url and "
+            "$ref dereferencing). Only relevant with url; local files load well within "
+            f"it. Range: [{OPENAPI_FETCH_TIMEOUT_MIN}, {OPENAPI_FETCH_TIMEOUT_MAX}]. "
+            f"Default: {OPENAPI_FETCH_TIMEOUT_DEFAULT}s."
         ),
     )
 
-    @field_validator("admin_api_headers")
+    tls: TlsSettings | None = Field(
+        default=None,
+        description=(
+            "Certificate settings of this connection (verify, ca_bundle, client_cert, "
+            "client_key); absent: the system's authorities plus certifi's list."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def exactly_one_source(self) -> SpecificationConfig:
+        """
+        Require exactly one of url and path.
+
+        Neither: Phase 2 could not build an AttackSurface. Both: ambiguous,
+        likely an old field left behind when switching source type. File
+        existence is checked when the specification is loaded, so that the
+        error message names the resolved absolute path.
+        """
+        if self.url is not None and self.path is not None:
+            raise ValueError(
+                "specification: set exactly one of 'url' and 'path', not both. Remove the "
+                "one you do not intend to use."
+            )
+        if self.url is None and self.path is None:
+            raise ValueError(
+                "specification: set 'url' (e.g. https://api.example.com/openapi.json) or "
+                "'path' (e.g. ./specs/openapi.json)."
+            )
+        return self
+
+    def get_source(self) -> str:
+        """
+        Return the canonical string of the specification source.
+
+        Returns:
+            The URL, or the absolute filesystem path.
+
+        Raises:
+            RuntimeError: If neither is set (unreachable after validation).
+        """
+        if self.url is not None:
+            return str(self.url)
+        if self.path is not None:
+            return str(self.path.resolve())
+        raise RuntimeError(
+            "SpecificationConfig.get_source() called with neither url nor path set; "
+            "exactly_one_source should have caught it."
+        )
+
+    @property
+    def is_local(self) -> bool:
+        """True if the specification is read from a local file."""
+        return self.path is not None
+
+
+# ---------------------------------------------------------------------------
+# GatewayConfig
+# ---------------------------------------------------------------------------
+
+
+class GatewayAdminConfig(BaseModel):
+    """The gateway's Admin API: where the configuration audits read the gateway's configuration."""
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    url: AnyHttpUrl = Field(
+        description=(
+            "URL of the gateway Admin API, read by the configuration audits (3.3, 4.2, "
+            "4.3, 6.4 sub-test B). Example: https://gw-admin.internal:8444"
+        ),
+    )
+    headers: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Headers sent on every Admin API request, for a gateway that protects it: "
+            "e.g. APISIX 'X-API-KEY', Kong Enterprise 'Kong-Admin-Token'. Write the values "
+            "as ${VAR} placeholders: they are registered as secrets and masked in logs and "
+            "reports. Default: none."
+        ),
+    )
+    connect_timeout: Annotated[
+        float,
+        Field(ge=ADMIN_CONNECT_TIMEOUT_MIN, le=ADMIN_CONNECT_TIMEOUT_MAX),
+    ] = Field(
+        default=ADMIN_CONNECT_TIMEOUT_DEFAULT,
+        description=(
+            "TCP connection timeout in seconds for the Admin API and the health API. "
+            "The default (5 s) is short: the Admin API is usually a local endpoint. "
+            f"Range: [{ADMIN_CONNECT_TIMEOUT_MIN}, {ADMIN_CONNECT_TIMEOUT_MAX}]. "
+            f"Default: {ADMIN_CONNECT_TIMEOUT_DEFAULT} s."
+        ),
+    )
+    read_timeout: Annotated[
+        float,
+        Field(ge=ADMIN_READ_TIMEOUT_MIN, le=ADMIN_READ_TIMEOUT_MAX),
+    ] = Field(
+        default=ADMIN_READ_TIMEOUT_DEFAULT,
+        description=(
+            "HTTP read timeout in seconds for the Admin API and the health API. "
+            f"Range: [{ADMIN_READ_TIMEOUT_MIN}, {ADMIN_READ_TIMEOUT_MAX}]. "
+            f"Default: {ADMIN_READ_TIMEOUT_DEFAULT} s."
+        ),
+    )
+
+    tls: TlsSettings | None = Field(
+        default=None,
+        description=(
+            "Certificate settings of this connection (verify, ca_bundle, client_cert, "
+            "client_key); absent: the system's authorities plus certifi's list."
+        ),
+    )
+
+    @field_validator("headers")
     @classmethod
-    def admin_api_headers_not_empty(cls, value: dict[str, str]) -> dict[str, str]:
+    def headers_not_empty(cls, value: dict[str, str]) -> dict[str, str]:
         """Reject an empty header name or an empty value (e.g. a variable set to nothing)."""
         for name, header_value in value.items():
             if not name.strip():
-                raise ValueError("admin_api_headers: a header name is empty")
+                raise ValueError("gateway.admin.headers: a header name is empty")
             if not header_value.strip():
                 raise ValueError(
-                    f"admin_api_headers: the value of '{name}' is empty "
+                    f"gateway.admin.headers: the value of '{name}' is empty "
                     "(is its environment variable set?)"
                 )
         return value
 
-    @model_validator(mode="after")
-    def enforce_exactly_one_openapi_source(self) -> TargetConfig:
-        """
-        Enforce the mutual exclusion invariant between openapi_spec_url and
-        openapi_spec_path.
 
-        Exactly one of the two must be provided. Rationale:
+class GatewayHealthConfig(BaseModel):
+    """The gateway interface that reports the live health of the backends, when separate."""
 
-            Neither set  -- Phase 2 cannot build an AttackSurface; the error
-                            would only surface at Phase 2 runtime with a
-                            confusing NoneType exception instead of a clear
-                            configuration error at startup.
+    model_config = {"frozen": True, "extra": "forbid"}
 
-            Both set     -- Ambiguity about which source to use. Silently
-                            applying a precedence rule would hide the likely
-                            operator mistake of leaving an old field in the
-                            config when switching source type.
+    url: AnyHttpUrl = Field(
+        description=(
+            "URL of the gateway interface that reports the live health of the backends, "
+            "for a gateway that keeps it outside the Admin API (APISIX: Control API). "
+            "Read by test 4.3; the Admin API headers are not sent to it. Not used by "
+            "Kong, whose Admin API reports it. Example: http://127.0.0.1:9090"
+        ),
+    )
+    tls: TlsSettings | None = Field(
+        default=None,
+        description=(
+            "Certificate settings of this connection (verify, ca_bundle, client_cert, "
+            "client_key); absent: the system's authorities plus certifi's list."
+        ),
+    )
 
-        File existence on disk is NOT validated here; it is deferred to
-        discovery/openapi.py so that the error message includes the resolved
-        absolute path.
-        """
-        url_set = self.openapi_spec_url is not None
-        path_set = self.openapi_spec_path is not None
 
-        if url_set and path_set:
+class GatewayConfig(BaseModel):
+    """
+    The API gateway in front of the target, for the WHITE_BOX configuration audits.
+
+    Optional: without it the audits SKIP. adapter chooses how its configuration
+    is read (GATEWAY_ADAPTERS); admin is required with it.
+    """
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    adapter: str = Field(
+        description=(
+            "Gateway adapter: the keys of GATEWAY_ADAPTERS (src/core/gateway/__init__.py), "
+            "today 'kong' and 'apisix'."
+        ),
+    )
+    admin: GatewayAdminConfig = Field(description="The gateway's Admin API.")
+    health: GatewayHealthConfig | None = Field(
+        default=None,
+        description="The gateway's health interface, when separate from the Admin API (APISIX).",
+    )
+
+    @field_validator("adapter", mode="after")
+    @classmethod
+    def adapter_supported(cls, value: str) -> str:
+        """Accept only the adapters the tool offers."""
+        if value not in GATEWAY_ADAPTERS:
             raise ValueError(
-                "Exactly one of 'openapi_spec_url' and 'openapi_spec_path' must be "
-                "set, not both. Remove the field you do not intend to use from "
-                "config.yaml."
-            )
-        if not url_set and not path_set:
-            raise ValueError(
-                "One of 'openapi_spec_url' or 'openapi_spec_path' must be set in "
-                "config.yaml under the 'target' section. "
-                "Provide a URL (e.g. http://localhost:3000/swagger.v1.json) or a "
-                "local file path (e.g. ./specs/forgejo-swagger.v1.json)."
-            )
-        return self
-
-    def get_openapi_source(self) -> str:
-        """
-        Return the canonical string representation of the OpenAPI spec source.
-
-        This is the single point where the URL-vs-path decision is made.
-        All downstream code (engine.py Phase 2, discovery/openapi.py,
-        tests_e2e/conftest.py) calls this method instead of accessing
-        openapi_spec_url or openapi_spec_path directly.
-
-        Returns:
-            str: Either the HTTP URL string or the absolute filesystem path string.
-
-        Raises:
-            RuntimeError: If neither field is set (unreachable after validation).
-        """
-        if self.openapi_spec_url is not None:
-            return str(self.openapi_spec_url)
-        if self.openapi_spec_path is not None:
-            return str(self.openapi_spec_path.resolve())
-        raise RuntimeError(
-            "TargetConfig.get_openapi_source() called but neither "
-            "openapi_spec_url nor openapi_spec_path is set. "
-            "This state should have been caught by enforce_exactly_one_openapi_source."
-        )
-
-    @property
-    def is_local_spec(self) -> bool:
-        """True if the OpenAPI specification is sourced from a local filesystem path."""
-        return self.openapi_spec_path is not None
-
-    @model_validator(mode="after")
-    def gateway_adapter_requires_admin_api_url(self) -> TargetConfig:
-        """Enforce that gateway_adapter is only set when admin_api_url is also present."""
-        if self.gateway_adapter is not None and self.admin_api_url is None:
-            raise ValueError(
-                f"target.gateway_adapter='{self.gateway_adapter}' requires "
-                "target.admin_api_url to be set in config.yaml. "
-                "The gateway adapter uses the admin API URL to contact the "
-                "gateway admin plane."
-            )
-        if self.gateway_adapter is not None and self.gateway_adapter not in GATEWAY_ADAPTERS:
-            raise ValueError(
-                f"Unsupported target.gateway_adapter: '{self.gateway_adapter}'. "
+                f"Unsupported gateway.adapter: '{value}'. "
                 f"Supported values: {sorted(GATEWAY_ADAPTERS)}."
             )
-        return self
-
-    @field_validator(
-        "base_url", "openapi_spec_url", "admin_api_url", "health_api_url", mode="before"
-    )
-    @classmethod
-    def url_passthrough(cls, value: object) -> object:
-        """Passthrough -- trailing slash normalisation happens in TargetContext."""
         return value
 
 
@@ -404,7 +493,7 @@ class TargetConfig(BaseModel):
 
 
 class ExecutionConfig(BaseModel):
-    """Parameters that control the pipeline execution behavior."""
+    """What the run does: which tests, and whether it stops at the first P0 failure."""
 
     model_config = {"frozen": True, "extra": "forbid"}
 
@@ -427,48 +516,6 @@ class ExecutionConfig(BaseModel):
         default=False,
         description="Abort immediately when a P0 test returns FAIL or ERROR.",
     )
-    connect_timeout: Annotated[float, Field(ge=TIMEOUT_CONNECT_MIN, le=TIMEOUT_CONNECT_MAX)] = (
-        Field(
-            default=TIMEOUT_CONNECT_DEFAULT,
-            description=(
-                f"TCP connection timeout in seconds for SecurityClient. "
-                f"Default: {TIMEOUT_CONNECT_DEFAULT}s."
-            ),
-        )
-    )
-    read_timeout: Annotated[float, Field(ge=TIMEOUT_READ_MIN, le=TIMEOUT_READ_MAX)] = Field(
-        default=TIMEOUT_READ_DEFAULT,
-        description=(
-            f"HTTP read timeout in seconds for SecurityClient. Default: {TIMEOUT_READ_DEFAULT}s."
-        ),
-    )
-    max_retry_attempts: Annotated[
-        int, Field(ge=RETRY_MAX_ATTEMPTS_MIN, le=RETRY_MAX_ATTEMPTS_MAX)
-    ] = Field(
-        default=RETRY_MAX_ATTEMPTS_DEFAULT,
-        description=(
-            f"Maximum HTTP attempts (initial + retries) for SecurityClient. "
-            f"Default: {RETRY_MAX_ATTEMPTS_DEFAULT}."
-        ),
-    )
-    openapi_fetch_timeout_seconds: Annotated[
-        float,
-        Field(ge=OPENAPI_FETCH_TIMEOUT_MIN, le=OPENAPI_FETCH_TIMEOUT_MAX),
-    ] = Field(
-        default=OPENAPI_FETCH_TIMEOUT_DEFAULT,
-        description=(
-            "Wall-clock timeout in seconds for Phase 2: OpenAPI spec fetch and "
-            "$ref dereferencing via prance. Prance's internal HTTP transport "
-            "(requests library) has no default timeout; without this parameter "
-            "the pipeline would hang indefinitely on an unresponsive spec URL. "
-            "Implemented as a threading watchdog: prance runs in a background "
-            "thread and the main thread raises OpenAPILoadError if the timeout "
-            f"expires. Only relevant when openapi_spec_url is used; local file "
-            f"reads (openapi_spec_path) complete well within this budget. "
-            f"Range: [{OPENAPI_FETCH_TIMEOUT_MIN}, {OPENAPI_FETCH_TIMEOUT_MAX}]. "
-            f"Default: {OPENAPI_FETCH_TIMEOUT_DEFAULT}s."
-        ),
-    )
     test_ids: list[str] = Field(
         default_factory=list,
         description=(
@@ -479,6 +526,12 @@ class ExecutionConfig(BaseModel):
             "Leave empty (default) for normal priority+strategy filtering."
         ),
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_moved_keys(cls, data: object) -> object:
+        """Reject the connection settings moved to target and specification."""
+        return _reject_moved_keys(data, "execution", _MOVED_EXECUTION_KEYS)
 
     @field_validator("strategies", mode="before")
     @classmethod
@@ -602,8 +655,13 @@ class ToolConfig(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    target: TargetConfig = Field(
-        description="Connection parameters for the target API and its infrastructure."
+    target: TargetConfig = Field(description="The API under test and how the tool connects to it.")
+    specification: SpecificationConfig = Field(
+        description="The OpenAPI specification of the target: a URL or a local file."
+    )
+    gateway: GatewayConfig | None = Field(
+        default=None,
+        description=("The API gateway, for the WHITE_BOX configuration audits; absent: they SKIP."),
     )
     credentials: RuntimeCredentials = Field(
         default_factory=RuntimeCredentials,
@@ -762,9 +820,8 @@ class ToolConfig(BaseModel):
         Detect selected strategies whose tests will SKIP for lack of access.
 
         Each rule mirrors the exact SKIP condition of the tests concerned:
-            Rule 1: WHITE_BOX without target.gateway_adapter: no gateway
-                    adapter is created (it needs gateway_adapter and
-                    admin_api_url), so the gateway configuration audits SKIP.
+            Rule 1: WHITE_BOX without a gateway section: no gateway adapter
+                    is created, so the gateway configuration audits SKIP.
             Rule 2: WHITE_BOX without admin credentials: the tests that use
                     the API's administrator account SKIP.
             Rule 3: GREY_BOX without user_a credentials: the tests that use a
@@ -774,7 +831,7 @@ class ToolConfig(BaseModel):
         scoped assessments without some kinds of access are legitimate.
         """
         if TestStrategy.WHITE_BOX in self.execution.strategies:
-            if self.target.gateway_adapter is None:
+            if self.gateway is None:
                 self._white_box_without_gateway = True
             if not self.credentials.has_admin():
                 self._white_box_without_admin_credentials = True

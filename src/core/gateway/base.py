@@ -18,7 +18,7 @@ can reference it without violating the unidirectional dependency rule
 
 Concrete adapter implementations live in src/core/gateway/ (e.g.
 KongGatewayAdapter in src/core/gateway/kong.py) and are instantiated by
-engine.py Phase 3 based on the target.gateway_adapter config field.
+engine.py Phase 3 based on the gateway.adapter config field.
 
 Tests that require gateway access guard with::
 
@@ -61,6 +61,8 @@ never import from config/, tests/, external_tests/, connectors/, or report/.
 
 from __future__ import annotations
 
+import re
+import ssl
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
 from typing import Any, TypeVar, cast
@@ -80,6 +82,13 @@ from src.core.gateway.concepts import (
     SigningPolicy,
     TargetHealth,
 )
+from src.core.tls import (
+    GATEWAY_ADMIN_TLS,
+    GATEWAY_HEALTH_TLS,
+    build_ssl_context,
+    certificate_answer,
+    certificate_failure,
+)
 from src.test_config.domain_3 import Test33Config
 from src.test_config.domain_4 import Test43AuditConfig
 
@@ -95,12 +104,14 @@ CONCEPT_CONFIG_VALUES: str = "configuration values"
 CONCEPT_TARGET_HEALTH: str = "live target health"
 
 # Interfaces of a gateway, for error messages: name and the setting holding its address.
-ADMIN_API_INTERFACE: tuple[str, str] = ("Admin API", "target.admin_api_url")
-HEALTH_API_INTERFACE: tuple[str, str] = ("health API", "target.health_api_url")
+ADMIN_API_INTERFACE: tuple[str, str] = ("Admin API", "gateway.admin.url")
+HEALTH_API_INTERFACE: tuple[str, str] = ("health API", "gateway.health.url")
 
 _OK_STATUS: int = 200
 # Characters of an unexpected answer quoted in an error message.
 _ERROR_BODY_PREVIEW_CHARS: int = 200
+# The title of an HTML error page, quoted instead of its markup.
+_HTML_TITLE: re.Pattern[str] = re.compile(r"<title>\s*(.*?)\s*</title>", re.IGNORECASE | re.DOTALL)
 # Depth limit when collecting the text values of a configuration (the same
 # limit test 6.4 applied to the raw configuration).
 _CONFIG_VALUES_MAX_DEPTH: int = 10
@@ -197,6 +208,8 @@ class BaseGatewayAdapter(ABC):
         health_api_url: str | None = None,
         signing_config: Test33Config | None = None,
         breaker_config: Test43AuditConfig | None = None,
+        admin_tls_context: ssl.SSLContext | None = None,
+        health_tls_context: ssl.SSLContext | None = None,
     ) -> None:
         """
         Store the gateway settings.  No I/O at construction time.
@@ -216,6 +229,10 @@ class BaseGatewayAdapter(ABC):
             breaker_config:  Test 4.3 configuration: which plugin names are a
                              circuit breaker, in priority order; the defaults
                              when None.
+            admin_tls_context:  TLS context of gateway.admin.tls (src/core/tls.py);
+                                None for the default trust.
+            health_tls_context: TLS context of gateway.health.tls; None for the
+                                default trust.
         """
         self._admin_base_url: str = admin_base_url.rstrip("/")
         self._connect_timeout: float = connect_timeout
@@ -226,6 +243,12 @@ class BaseGatewayAdapter(ABC):
         )
         self._signing: Test33Config = signing_config or Test33Config()
         self._breaker: Test43AuditConfig = breaker_config or Test43AuditConfig()
+        self._admin_tls: ssl.SSLContext = admin_tls_context or build_ssl_context(
+            None, GATEWAY_ADMIN_TLS
+        )
+        self._health_tls: ssl.SSLContext = health_tls_context or build_ssl_context(
+            None, GATEWAY_HEALTH_TLS
+        )
         # Answers already read in this run, by concept name.
         self._concept_memory: dict[str, Any] = {}
 
@@ -428,13 +451,19 @@ class BaseGatewayAdapter(ABC):
 
         The Admin API headers are sent only to the Admin API.
 
+        A TLS problem, whether the connection is refused or the server answers
+        with one of nginx's TLS pages (src/core/tls.py), gives a message naming
+        the key to set.
+
         Raises:
             GatewayAdapterError: On transport failure, a status other than 200,
                                  or a body that is not JSON.
         """
         label = self._interface_label(interface)
         setting = interface[1]
-        headers = self._admin_headers if interface == ADMIN_API_INTERFACE else {}
+        is_admin = interface == ADMIN_API_INTERFACE
+        headers = self._admin_headers if is_admin else {}
+        tls_context = self._admin_tls if is_admin else self._health_tls
         timeout = httpx.Timeout(
             connect=self._connect_timeout,
             read=self._read_timeout,
@@ -442,9 +471,18 @@ class BaseGatewayAdapter(ABC):
             pool=self._connect_timeout,
         )
         try:
-            with httpx.Client(timeout=timeout, follow_redirects=False) as http:
+            with httpx.Client(timeout=timeout, follow_redirects=False, verify=tls_context) as http:
                 response = http.get(url, headers=headers)
         except httpx.TransportError as exc:
+            tls_reason = certificate_failure(
+                exc, GATEWAY_ADMIN_TLS if is_admin else GATEWAY_HEALTH_TLS
+            )
+            if tls_reason is not None:
+                raise GatewayAdapterError(
+                    message=f"{label}: {tls_reason}",
+                    path=path,
+                    status_code=None,
+                ) from exc
             raise GatewayAdapterError(
                 message=(
                     f"{label} transport error on GET {path}: {exc}. "
@@ -455,11 +493,21 @@ class BaseGatewayAdapter(ABC):
             ) from exc
 
         if response.status_code != _OK_STATUS:
+            tls_reason = certificate_answer(
+                response.status_code,
+                response.text,
+                GATEWAY_ADMIN_TLS if is_admin else GATEWAY_HEALTH_TLS,
+            )
+            if tls_reason is not None:
+                raise GatewayAdapterError(
+                    message=f"{label}: {tls_reason}",
+                    path=path,
+                    status_code=response.status_code,
+                )
             raise GatewayAdapterError(
                 message=(
                     f"{label} returned HTTP {response.status_code} on GET {path}. "
-                    f"Expected {_OK_STATUS}. "
-                    f"Response: {response.text[:_ERROR_BODY_PREVIEW_CHARS]}"
+                    f"Expected {_OK_STATUS}. Response: {_answer_preview(response.text)}"
                 ),
                 path=path,
                 status_code=response.status_code,
@@ -477,6 +525,14 @@ class BaseGatewayAdapter(ABC):
     def _interface_label(self, interface: tuple[str, str]) -> str:
         """Return e.g. 'kong Admin API', for error messages."""
         return f"{self.adapter_name} {interface[0]}"
+
+
+def _answer_preview(text: str) -> str:
+    """The start of an unexpected answer for a message; the title alone for an HTML page."""
+    title = _HTML_TITLE.search(text)
+    if title is not None:
+        return title.group(1)[:_ERROR_BODY_PREVIEW_CHARS]
+    return text[:_ERROR_BODY_PREVIEW_CHARS]
 
 
 # ---------------------------------------------------------------------------

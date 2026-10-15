@@ -63,11 +63,12 @@ Hatch keeps the tool's Python environment outside the repository, under `~/.loca
 docker ps -a
 ```
 
-Containers named `kong`, `forgejo`, `forgejo-db`, `forgejo_setup` belong to the test lab (running or stopped).
+Containers named `kong`, `forgejo`, `forgejo-db`, `forgejo_setup`, `forgejo_kong_pki` belong to the test lab (running
+or stopped).
 To start the first assessment from a clean lab, remove them with [2.1](#21-test-lab).
 
 ```bash
-ss -ltn | grep -E ':(3000|8000|8001|8443)\b'
+ss -ltn | grep -E ':(8000|8001|8443|8444)\b'
 ```
 
 No output: the four lab ports are free. A line for a port while no lab container exists means another program uses

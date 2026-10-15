@@ -36,9 +36,10 @@ Design constraints
 
 Dependency rule
 ---------------
-This module imports from stdlib (``json``, ``re``, ``pathlib``), third-party
-``httpx`` and ``yaml``, and ``src.core.exceptions`` (for ``ToolBaseError``,
-which is the root of the project's exception hierarchy).  It must never
+This module imports from stdlib (``json``, ``re``, ``pathlib``, ``ssl``), third-party
+``yaml``, ``src.core.exceptions`` (for ``ToolBaseError``, which is the root of the
+project's exception hierarchy) and ``src.discovery.download`` (the shared download
+of the specification).  It must never
 import from ``src.config``, ``src.tests``, ``src.report``, or ``src.engine``.
 
 The ``src.tests.helpers.path_resolver`` module shares the ``{param}`` extraction
@@ -50,14 +51,15 @@ from __future__ import annotations
 
 import json
 import re
+import ssl
 from pathlib import Path
 from urllib.parse import urlparse
 
-import httpx
 import structlog
 import yaml
 
 from src.core.exceptions import ToolBaseError
+from src.discovery.download import SpecDownloadError, download_specification
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -85,6 +87,7 @@ _SPEC_PATHS_KEY: str = "paths"
 def extract_path_param_names(
     spec_source: str,
     timeout_seconds: float = SPEC_FETCH_TIMEOUT_DEFAULT_SECONDS,
+    tls_context: ssl.SSLContext | None = None,
 ) -> list[str]:
     """
     Fetch or read an OpenAPI specification and return all unique path parameter names.
@@ -104,6 +107,8 @@ def extract_path_param_names(
         spec_source:     URL or local path string pointing to the OpenAPI spec.
         timeout_seconds: HTTP fetch timeout in seconds (applies only to URL
                          sources).  Default: ``SPEC_FETCH_TIMEOUT_DEFAULT_SECONDS``.
+        tls_context:     TLS context for a URL (specification.tls of a
+                         configuration); None for the default trust.
 
     Returns:
         Sorted, deduplicated list of parameter name strings extracted from all
@@ -123,7 +128,7 @@ def extract_path_param_names(
         timeout_seconds=timeout_seconds,
     )
 
-    raw_text = _fetch_spec_text(spec_source, timeout_seconds)
+    raw_text = _fetch_spec_text(spec_source, timeout_seconds, tls_context)
     spec_dict = _parse_spec_text(raw_text, spec_source)
     param_names = _collect_param_names(spec_dict, spec_source)
 
@@ -193,16 +198,20 @@ def render_seed_template(
 # ---------------------------------------------------------------------------
 
 
-def _fetch_spec_text(spec_source: str, timeout_seconds: float) -> str:
+def _fetch_spec_text(
+    spec_source: str, timeout_seconds: float, tls_context: ssl.SSLContext | None
+) -> str:
     """
     Retrieve the raw text of the OpenAPI specification.
 
     Routes the request to the appropriate transport based on the scheme of
-    ``spec_source``.  URL sources use ``httpx``; path sources use ``pathlib``.
+    ``spec_source``.  URL sources use the shared download (src/discovery/download.py);
+    path sources use ``pathlib``.
 
     Args:
         spec_source:     URL or filesystem path string.
         timeout_seconds: Timeout for HTTP requests (ignored for local files).
+        tls_context:     TLS context for a URL; None for the default trust.
 
     Returns:
         Raw specification text string (JSON or YAML, not yet parsed).
@@ -214,55 +223,29 @@ def _fetch_spec_text(spec_source: str, timeout_seconds: float) -> str:
     is_url = parsed.scheme in ("http", "https")
 
     if is_url:
-        return _fetch_from_url(spec_source, timeout_seconds)
+        return _fetch_from_url(spec_source, timeout_seconds, tls_context)
     return _read_from_path(spec_source)
 
 
-def _fetch_from_url(url: str, timeout_seconds: float) -> str:
+def _fetch_from_url(url: str, timeout_seconds: float, tls_context: ssl.SSLContext | None) -> str:
     """
-    Fetch the raw specification text over HTTP/HTTPS.
+    Fetch the raw specification text over HTTP/HTTPS (src/discovery/download.py).
 
     Args:
         url:             HTTP/HTTPS URL string.
         timeout_seconds: Request timeout.
+        tls_context:     TLS context of specification.tls; None for the default trust.
 
     Returns:
         Response body text.
 
     Raises:
-        SeedGeneratorFetchError: On connection error or non-2xx HTTP status.
+        SeedGeneratorFetchError: On TLS failure, connection error, timeout or non-2xx status.
     """
-    log.debug("seed_generator_fetching_url", url=url, timeout_seconds=timeout_seconds)
-
     try:
-        response = httpx.get(url, timeout=timeout_seconds, follow_redirects=True)
-        response.raise_for_status()
-    except httpx.TimeoutException as exc:
-        raise SeedGeneratorFetchError(
-            spec_source=url,
-            reason=f"HTTP request timed out after {timeout_seconds}s: {exc}",
-        ) from exc
-    except httpx.HTTPStatusError as exc:
-        raise SeedGeneratorFetchError(
-            spec_source=url,
-            reason=(
-                f"HTTP {exc.response.status_code} received when fetching spec. "
-                f"Verify that the spec URL is correct and the server is reachable."
-            ),
-        ) from exc
-    except httpx.RequestError as exc:
-        raise SeedGeneratorFetchError(
-            spec_source=url,
-            reason=f"Connection error: {exc}",
-        ) from exc
-
-    log.debug(
-        "seed_generator_url_fetched",
-        url=url,
-        status_code=response.status_code,
-        content_length=len(response.text),
-    )
-    return response.text
+        return download_specification(url, timeout_seconds, tls_context)
+    except SpecDownloadError as exc:
+        raise SeedGeneratorFetchError(spec_source=url, reason=exc.reason) from exc
 
 
 def _read_from_path(path_str: str) -> str:

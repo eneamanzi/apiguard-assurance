@@ -47,7 +47,9 @@ repository (Q-54; before, the file was searched from the tool's code folder and 
 
 **Console format of `run`.** The interface is always shown: a header (target, specification, selection), one line
 per test with its status, findings grouped by kind (up to 5 kinds; the full list is in the reports), the reason of
-a SKIP or ERROR, then the cleanup, the result counts, the exit code and the paths of the reports. On a terminal the
+a SKIP or ERROR, then the cleanup, the result counts, the exit code and the paths of the reports. A run that stops
+before any verdict (exit 10) shows the exit code and, on a `Reason` line, the reason in full (the technical log
+cuts it). On a terminal the
 test in progress is shown on a line that updates in place with the elapsed time; with the output redirected, a
 test with a time limit (an external tool) prints a "running (limit Ns)" line first. `--log-level` only decides how
 much technical log appears below the interface (short local time, paths relative to the working directory, values
