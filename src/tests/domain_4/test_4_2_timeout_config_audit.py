@@ -67,8 +67,6 @@ EvidenceStore policy:
 
 from __future__ import annotations
 
-from typing import ClassVar
-
 import structlog
 
 from src.core.client import SecurityClient
@@ -77,6 +75,7 @@ from src.core.evidence import EvidenceStore
 from src.core.gateway.base import CONCEPT_BACKEND_TIMEOUTS
 from src.core.gateway.concepts import BackendTimeout, ConceptScope, ConceptStatus
 from src.core.models import Finding, TestResult, TestStrategy
+from src.core.test_metadata import TestInfo
 from src.test_config.domain_4 import Test42AuditConfig
 from src.tests.base import BaseTest
 
@@ -132,21 +131,20 @@ class Test42TimeoutConfigAudit(BaseTest):
     # BaseTest class-level contract
     # ------------------------------------------------------------------
 
-    test_id: ClassVar[str] = "4.2"
-    test_name: ClassVar[str] = "Timeout Configuration Audit -- Prevention of Resource Lock"
-    domain: ClassVar[int] = 4
-    priority: ClassVar[int] = 1
-    strategy: ClassVar[TestStrategy] = TestStrategy.WHITE_BOX
-    depends_on: ClassVar[list[str]] = []
-    requires_pass: ClassVar[list[str]] = []
-    tags: ClassVar[list[str]] = [
-        "availability",
-        "timeout",
-        "resource-lock",
-        "white-box",
-        "OWASP-API4",
-    ]
-    cwe_id: ClassVar[str] = "CWE-400"
+    info = TestInfo(
+        id="4.2",
+        name="Timeout Configuration Audit -- Prevention of Resource Lock",
+        priority=1,
+        strategy=TestStrategy.WHITE_BOX,
+        cwe="CWE-400",
+        tags=(
+            "availability",
+            "timeout",
+            "resource-lock",
+            "white-box",
+            "OWASP-API4",
+        ),
+    )
 
     # ------------------------------------------------------------------
     # execute

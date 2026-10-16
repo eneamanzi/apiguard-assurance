@@ -86,7 +86,6 @@ from __future__ import annotations
 
 import secrets
 import time
-from typing import ClassVar
 
 import structlog
 
@@ -100,6 +99,7 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
+from src.core.test_metadata import TestInfo
 from src.tests.base import BaseTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -149,20 +149,19 @@ class Test41RateLimiting(BaseTest):
     # BaseTest class-level contract
     # ------------------------------------------------------------------
 
-    test_id: ClassVar[str] = "4.1"
-    test_name: ClassVar[str] = "Rate Limiting -- Resource Exhaustion Prevention"
-    domain: ClassVar[int] = 4
-    priority: ClassVar[int] = 0
-    strategy: ClassVar[TestStrategy] = TestStrategy.BLACK_BOX
-    depends_on: ClassVar[list[str]] = []
-    requires_pass: ClassVar[list[str]] = []
-    tags: ClassVar[list[str]] = [
-        "availability",
-        "rate-limiting",
-        "dos-prevention",
-        "OWASP-API4",
-    ]
-    cwe_id: ClassVar[str] = "CWE-400"
+    info = TestInfo(
+        id="4.1",
+        name="Rate Limiting -- Resource Exhaustion Prevention",
+        priority=0,
+        strategy=TestStrategy.BLACK_BOX,
+        cwe="CWE-400",
+        tags=(
+            "availability",
+            "rate-limiting",
+            "dos-prevention",
+            "OWASP-API4",
+        ),
+    )
 
     # ------------------------------------------------------------------
     # execute
@@ -315,7 +314,7 @@ class Test41RateLimiting(BaseTest):
                 _response, record = client.request(
                     method=method,
                     path=path,
-                    test_id=self.test_id,
+                    test_id=self.info.id,
                     headers=extra_headers,
                 )
             except Exception as exc:  # noqa: BLE001
@@ -412,7 +411,7 @@ class Test41RateLimiting(BaseTest):
                 _response, record = client.request(
                     method=method,
                     path=path,
-                    test_id=self.test_id,
+                    test_id=self.info.id,
                 )
             except Exception as exc:  # noqa: BLE001
                 log.warning(

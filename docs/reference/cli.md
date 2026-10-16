@@ -92,7 +92,8 @@ apiguard validate-config [--config PATH] [--log-format console|json]
 ```
 
 Runs Phase 1 (reads the YAML, resolves `${VAR}` placeholders, validates the schema) and the test checks: every
-test class is declared correctly (`Test definitions invalid: ...`, listing every problem) and every
+test module loads and every test class is declared correctly (`Test definitions invalid: ...`, listing every
+problem with its module) and every
 `execution.test_ids` entry exists and its tool is enabled. It does not fetch the OpenAPI specification and does not
 contact the target or the gateway. A filter combination that selects no test is detected only by `run` (Phase 4).
 

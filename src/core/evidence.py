@@ -315,7 +315,7 @@ class EvidenceStore:
         file from a previous crashed run, guaranteeing idempotent re-runs.
 
         Args:
-            test_id: The test_id ClassVar of the test about to execute,
+            test_id: The ID (info.id) of the test about to execute,
                      e.g. "1.1", "4.3".
 
         Raises:

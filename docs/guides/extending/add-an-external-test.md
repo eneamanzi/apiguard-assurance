@@ -2,7 +2,8 @@
 
 > **Audience:** contributors · **Status:** v0.1.0 · **Source of truth:** `src/external_tests/base.py`,
 > `src/external_tests/registry.py`, `src/connectors/base.py`, `src/core/models/external_tools.py`, the templates
-> `src/connectors/_template_connector.py` and `src/external_tests/_template_ext_test.py` · **Verified:** 2026-10-05.
+> `src/connectors/_template_connector.py` and `src/external_tests/_template_ext_test.py`, `src/core/test_metadata.py`
+> (`TestInfo`), `src/core/assessment_test.py` · **Verified:** 2026-10-05; declaration and result helpers 2026-10-16.
 > The previous long version of this guide is in git history (commit `fd3bd90`).
 
 An external test checks a guarantee by running an external tool (binary or Python library) through a
@@ -85,8 +86,8 @@ class ExternalToolsConfig(BaseModel):
     sslyze: SslyzeConfig = Field(...)
 ```
 
-**The field name must equal the test's `tool_name`.** The registry looks it up with
-`getattr(external_tools, tool_name)`; an unknown name excludes the test with the warning
+**The field name must equal the test's `tool`** (in its `info`). The registry looks it up with
+`getattr(external_tools, tool)`; an unknown name excludes the test with the warning
 `external_tools_unknown_tool_name`.
 
 Optionally re-export the class in `src/core/models/__init__.py` (today `SslyzeConfig` is not re-exported and
@@ -103,21 +104,24 @@ nothing breaks).
 
 Copy `_template_ext_test.py`. The registry imports only modules whose name starts with `ext_test_`.
 
-**Class attributes:** the eight of native tests plus `tool_name`, checked at discovery like native ones (a missing
-or invalid one stops the run, `TestDefinitionError`):
+**Declaration:** the same `TestInfo` as native tests (`src/core/test_metadata.py`), with an ID
+`ext.<domain>.<guarantee>.<tool>` and `tool` set, checked like native ones (an invalid declaration, a native ID,
+a missing `tool` or a module that cannot be imported stops the run, `TestDefinitionError`):
 
 ```python
-test_id: ClassVar[str] = "ext.1.5.testssl"     # ext.<domain>.<guarantee>.<tool>
-test_name: ClassVar[str] = "TLS Stack Analysis (testssl.sh)"
-domain: ClassVar[int] = 1
-priority: ClassVar[int] = 2
-strategy: ClassVar[TestStrategy] = TestStrategy.BLACK_BOX
-depends_on: ClassVar[list[str]] = []            # tests whose data this test uses
-requires_pass: ClassVar[list[str]] = []         # tests that must PASS first
-tags: ClassVar[list[str]] = [...]
-cwe_id: ClassVar[str] = "CWE-326"
-tool_name: ClassVar[str] = "testssl"            # = field name in ExternalToolsConfig
+info = TestInfo(
+    id="ext.1.5.testssl",
+    name="TLS Stack Analysis (testssl.sh)",
+    priority=2,
+    strategy=TestStrategy.BLACK_BOX,
+    cwe="CWE-326",
+    tags=(...),
+    tool="testssl",          # = field name in ExternalToolsConfig
+)
 ```
+
+`depends_on` (tests whose data this test uses) and `requires_pass` (tests that must PASS first) are omitted when
+empty.
 
 `source` is fixed to `"external"` by the base class. `execution.test_ids` validates the `ext.X.Y.tool` format.
 
@@ -129,17 +133,18 @@ tool_name: ClassVar[str] = "testssl"            # = field name in ExternalToolsC
 | `_invoke_connector(self, connector, target, target_url) -> ConnectorResult` | call `connector.run(...)` with `target.external_tools.<tool>.timeout_seconds` and tool options. `target_url` comes from `target.endpoint_base_url()`. |
 | `_evaluate(self, result, artifact_ref) -> TestResult` | apply the oracle to `result.raw_output["results"]`; put `artifact_ref` in each Finding's `evidence_ref`. Return only through the helpers below. |
 
-**Result helpers** (`ExternalToolTest`, different from `BaseTest`):
+**Result helpers** (`src/core/assessment_test.py`, the same as native tests):
 
 | Helper | Note |
 |---|---|
 | `_make_pass(message, notes=None)` | |
-| `_make_fail(message, findings, notes=None)` | takes a **list** of findings (in `BaseTest`, `_make_fail` builds a single finding) |
-| `_make_skip(reason)` | |
-| `_make_error(exc, message_override=None)` | normally not needed: tool errors are handled by the base class |
+| `_make_fail_multi(message, findings, notes=None)` | one finding per tool result above the threshold (the usual case) |
+| `_make_fail(message, detail, evidence_record_id=None, additional_references=None, notes=None)` | one finding built from the test's name and CWE |
+| `_make_skip(reason, notes=None)` | |
+| `_make_error(exc, message=None)` | normally not needed: tool errors are handled by the base class |
 
-Never build `TestResult(...)` directly: the helpers copy the class metadata (name, domain, priority, tool name)
-into the result; without them the report shows empty fields.
+Never build `TestResult(...)` directly: the helpers copy the declaration (name, domain, priority, tool) into the
+result; without them the report shows empty fields.
 
 **Typical oracle** (from `ext_test_1_5_tls_analysis.py`): partition results by severity:
 
@@ -179,7 +184,7 @@ Add the tool block under `external_tools` with `enabled`, `timeout_seconds`, `ex
 
 | Symptom | Cause |
 |---|---|
-| Test absent, warning `external_tools_unknown_tool_name` | `tool_name` does not match a field of `ExternalToolsConfig` |
+| Test absent, warning `external_tools_unknown_tool_name` | `info.tool` does not match a field of `ExternalToolsConfig` |
 | Test absent, no warning | tool disabled, master switch off, module name not starting with `ext_test_`, or filtered by priority / `test_ids` |
 | SKIP "not available" | binary not in `./tools/<subdir>/` or `PATH`; library not installed |
 | ERROR "missing keys" | `raw_output` without one of `command`, `command_json`, `results`, `all_count` |

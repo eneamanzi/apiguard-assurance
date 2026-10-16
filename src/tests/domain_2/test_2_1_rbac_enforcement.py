@@ -48,8 +48,6 @@ Dependency rule:
 
 from __future__ import annotations
 
-from typing import ClassVar
-
 import structlog
 
 from src.core.auth_placement import RequestAuthParts
@@ -58,6 +56,7 @@ from src.core.context import ROLE_USER_A, TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.exceptions import AuthenticationSetupError, SecurityClientError
 from src.core.models import Finding, TestResult, TestStrategy
+from src.core.test_metadata import TestInfo
 from src.tests.base import BaseTest
 from src.tests.helpers.auth import acquire_tokens, auth_parts
 
@@ -104,21 +103,20 @@ class Test21RbacEnforcement(BaseTest):
     D2.P5 (auth dispatcher), D3.P3 (GREY_BOX strategy gradient), D2.P2-PhaseB.
     """
 
-    test_id: ClassVar[str] = "2.1"
-    test_name: ClassVar[str] = "Only Authorized Users Access Privileged Endpoints"
-    domain: ClassVar[int] = 2
-    priority: ClassVar[int] = 2
-    strategy: ClassVar[TestStrategy] = TestStrategy.GREY_BOX
-    depends_on: ClassVar[list[str]] = []
-    requires_pass: ClassVar[list[str]] = []
-    tags: ClassVar[list[str]] = [
-        "authorization",
-        "rbac",
-        "OWASP-API5:2023",
-        "OWASP-ASVS-V8.3.1",
-        "NIST-SP-800-53-AC-3",
-    ]
-    cwe_id: ClassVar[str] = "CWE-285"
+    info = TestInfo(
+        id="2.1",
+        name="Only Authorized Users Access Privileged Endpoints",
+        priority=2,
+        strategy=TestStrategy.GREY_BOX,
+        cwe="CWE-285",
+        tags=(
+            "authorization",
+            "rbac",
+            "OWASP-API5:2023",
+            "OWASP-ASVS-V8.3.1",
+            "NIST-SP-800-53-AC-3",
+        ),
+    )
 
     def execute(
         self,
@@ -249,7 +247,7 @@ class Test21RbacEnforcement(BaseTest):
         response, record = client.request(
             method=method,
             path=path,
-            test_id=self.test_id,
+            test_id=self.info.id,
             headers=dict(user_a_auth.headers),
             params=dict(user_a_auth.params) or None,
         )

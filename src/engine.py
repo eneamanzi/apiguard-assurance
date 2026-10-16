@@ -108,7 +108,7 @@ from src.core.models import (
     TestStatus,
 )
 from src.core.redaction import SecretRegistry
-from src.core.test_metadata import PREREQUISITE_ATTRIBUTES, is_external_test_id
+from src.core.test_metadata import is_external_test_id
 from src.core.tls import (
     GATEWAY_ADMIN_TLS,
     GATEWAY_HEALTH_TLS,
@@ -251,7 +251,7 @@ def check_tests(config: ToolConfig) -> None:
     Called by the engine right after Phase 1, before any contact with the
     target, and by ``apiguard validate-config``. Two checks, in order:
 
-    1. Test declarations (src/core/test_metadata.py): both registries are
+    1. Test declarations (src/core/test_discovery.py): both registries are
        scanned, native and external (even with external tools disabled), and
        the problems of both are listed together, including a prerequisite
        (depends_on, requires_pass) that names no existing test.
@@ -279,16 +279,19 @@ def check_tests(config: ToolConfig) -> None:
         external_tests = ExternalTestRegistry().list_tests()
     except TestDefinitionError as exc:
         definition_problems.extend(exc.problems)
-    native_ids = {t.__class__.test_id for t in native_tests}
-    external_tools = {t.__class__.test_id: t.__class__.tool_name for t in external_tests}
+    native_ids = {t.info.id for t in native_tests}
+    external_tools = {t.info.id: t.tool_name for t in external_tests}
     all_ids = native_ids | set(external_tools)
     for test in [*native_tests, *external_tests]:
         cls = test.__class__
-        for attribute in PREREQUISITE_ATTRIBUTES:
-            for prerequisite in getattr(cls, attribute):
+        for field, prerequisites in (
+            ("depends_on", test.info.depends_on),
+            ("requires_pass", test.info.requires_pass),
+        ):
+            for prerequisite in prerequisites:
                 if prerequisite not in all_ids:
                     definition_problems.append(
-                        f"{cls.__name__} ({cls.__module__}): {attribute!r} names "
+                        f"{cls.__name__} ({cls.__module__}): info.{field} names "
                         f"{prerequisite!r}, which is not a test"
                     )
     raise_for_test_definition_problems(definition_problems)
@@ -567,7 +570,7 @@ class AssessmentEngine:
                     spec_title=attack_surface.spec_title,
                     spec_version=attack_surface.spec_version,
                     endpoint_count=attack_surface.total_endpoint_count,
-                    selected_ids=sorted(t.__class__.test_id for t in active_tests),
+                    selected_ids=sorted(t.info.id for t in active_tests),
                     not_run=not_run,
                     min_priority=config.execution.min_priority,
                     strategies=[s.value for s in config.execution.strategies],
@@ -897,7 +900,7 @@ class AssessmentEngine:
             2. ExternalTestRegistry -> list[ExternalToolTest]  (binary-wrapper tests)
 
         The two lists are merged before being passed to DAGScheduler.  Both
-        hierarchies declare test_id, depends_on and requires_pass ClassVars;
+        hierarchies declare their ID and prerequisites in info (TestInfo);
         both kinds of prerequisite order the run.  Cross-hierarchy
         prerequisites are supported: an ExternalToolTest may name a BaseTest
         test_id.
@@ -969,12 +972,11 @@ class AssessmentEngine:
         # Both kinds of prerequisite order the run; whether a prerequisite is
         # met is decided in Phase 5 (prerequisite_skip_reason).
         dependency_map: dict[str, list[str]] = {
-            t.__class__.test_id: [*t.__class__.depends_on, *t.__class__.requires_pass]
-            for t in all_tests
+            t.info.id: list(t.info.prerequisites) for t in all_tests
         }
 
         scheduler = DAGScheduler()
-        active_test_ids = {t.__class__.test_id for t in all_tests}
+        active_test_ids = {t.info.id for t in all_tests}
         scheduled_batches = scheduler.build_schedule(
             dependencies=dependency_map,
             active_test_ids=active_test_ids,
@@ -1028,9 +1030,7 @@ class AssessmentEngine:
             batch_count=len(scheduled_batches),
         )
 
-        test_lookup: dict[str, BaseTest | ExternalToolTest] = {
-            t.__class__.test_id: t for t in active_tests
-        }
+        test_lookup: dict[str, BaseTest | ExternalToolTest] = {t.info.id: t for t in active_tests}
         fail_fast_triggered = False
         fail_fast_result: TestResult | None = None
         # Position of the test in the run, logged as "<position>/<total>".
@@ -1068,8 +1068,8 @@ class AssessmentEngine:
 
                 position += 1
                 skip_reason = prerequisite_skip_reason(
-                    depends_on=test.__class__.depends_on,
-                    requires_pass=test.__class__.requires_pass,
+                    depends_on=list(test.info.depends_on),
+                    requires_pass=list(test.info.requires_pass),
                     statuses={r.test_id: r.status for r in result_set.results},
                 )
                 if skip_reason is not None:
@@ -1087,7 +1087,7 @@ class AssessmentEngine:
                             position,
                             total,
                             test_id,
-                            str(getattr(test, "test_name", "")),
+                            test.info.name,
                             timeout_seconds,
                         )
                     result = self._execute_single_test(
@@ -1157,7 +1157,7 @@ class AssessmentEngine:
         """
         if not isinstance(test, ExternalToolTest):
             return None
-        tool_config = getattr(config.external_tools, str(getattr(test, "tool_name", "")), None)
+        tool_config = getattr(config.external_tools, test.tool_name, None)
         timeout: int | None = getattr(tool_config, "timeout_seconds", None)
         return timeout
 
@@ -1187,12 +1187,11 @@ class AssessmentEngine:
                 test = test_lookup.get(test_id)
                 if test is None or test_id in executed:
                     continue
-                cls = test.__class__
                 result_set.not_run.append(
                     NotRunEntry(
                         test_id=test_id,
-                        test_name=cls.test_name,
-                        source=cls.source,
+                        test_name=test.info.name,
+                        source=test.source,
                         reason=NotRunReason.FAIL_FAST,
                         detail=detail,
                     )
@@ -1227,10 +1226,9 @@ class AssessmentEngine:
         hierarchy's execute() method, not here -- to avoid double-calling.
         This method only measures wall-clock time and attaches duration_ms.
         """
-        cls = test.__class__
-        test_id = cls.test_id
-        test_name = getattr(cls, "test_name", "")
-        source = getattr(cls, "source", "native")
+        test_id = test.info.id
+        test_name = test.info.name
+        source = test.source
 
         timeout_field: dict[str, int] = (
             {"timeout_seconds": timeout_seconds} if timeout_seconds is not None else {}
@@ -1240,8 +1238,8 @@ class AssessmentEngine:
             progress=progress,
             test_id=test_id,
             test_name=test_name,
-            priority=getattr(cls, "priority", 0),
-            strategy=getattr(cls, "strategy", "BLACK_BOX"),
+            priority=test.info.priority,
+            strategy=test.info.strategy,
             source=source,
             **timeout_field,
         )
@@ -1281,15 +1279,15 @@ class AssessmentEngine:
         an ERROR means the verification of a critical guarantee did not
         complete -- proceeding would produce an assessment without foundation.
         """
-        is_p0 = test.__class__.priority == 0
+        is_p0 = test.info.priority == 0
         is_blocking_status = result.status in (TestStatus.FAIL, TestStatus.ERROR)
 
         if is_p0 and is_blocking_status:
             log.warning(
                 "fail_fast_condition_met",
-                test_id=test.__class__.test_id,
+                test_id=test.info.id,
                 status=result.status.value,
-                priority=test.__class__.priority,
+                priority=test.info.priority,
             )
             return True
 

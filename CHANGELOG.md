@@ -112,6 +112,22 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
 ### Changed
 
+- **Breaking** (for tests written outside the tool): a test declares who it is in one object,
+  `info = TestInfo(id=..., name=..., priority=..., strategy=..., cwe=..., tags=..., depends_on=..., requires_pass=...)`
+  (external tests also `tool=...`), instead of nine class attributes (`test_id`, `test_name`, `domain`, `priority`,
+  `strategy`, `depends_on`, `requires_pass`, `tags`, `cwe_id`, and `tool_name`); the domain is taken from the ID
+  (block 10b, `docs/project/tests-design.md` 6.1). The declaration is a Pydantic model, checked when the module is
+  imported (also the CWE form `CWE-<number>`). Native and external tests share one base (`src/core/assessment_test.py`)
+  with the same result helpers: an external test's FAIL with a list of findings is `_make_fail_multi` (it was
+  `_make_fail`), `_make_error(exc, message=...)` replaces `message_override`. Results and reports keep their field
+  names (`test_id`, `test_name`, `domain`, `cwe_id`, `tool_name`).
+- A test is never left out of a run silently: a test module that cannot be imported (an invalid declaration
+  included), or a test module in a folder without `__init__.py`, stops the tool right after loading the
+  configuration (exit `10`, also in `validate-config`), naming the file and the error. Before, the module was skipped
+  with a warning and the run went on without its tests. An external test's ERROR message for a tool failure is
+  `External tool '<tool>' failed: ...` (it was `[ExternalToolError] ...`); an unexpected exception in an external test
+  gives the same message as in a native one (`Unexpected <type> during test execution: ...`, cut at 500 characters).
+
 - **Breaking:** the configuration is organised by connection (`docs/architecture/design-decisions.md`, D1): `target` is
   the API (address, `tls`, `connect_timeout`, `read_timeout`, `max_retry_attempts`, `path_seed`), `specification` the
   OpenAPI document (`url` or `path`, `timeout`, `tls`), `gateway` the gateway (`adapter`, `admin` with `url`,

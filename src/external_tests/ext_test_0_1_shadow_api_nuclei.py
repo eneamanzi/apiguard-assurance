@@ -75,7 +75,7 @@ Dependency rule:
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Any
 
 import structlog
 
@@ -84,6 +84,7 @@ from src.connectors.base import BaseConnector, ConnectorResult
 from src.core.context import TargetContext
 from src.core.models import Finding, InfoNote, TestStrategy
 from src.core.models.results import TestResult
+from src.core.test_metadata import TestInfo
 from src.external_tests.base import ExternalToolTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -143,24 +144,21 @@ class ExtTest01ShadowApiNuclei(ExternalToolTest):  # noqa: N801
     analyst can review them without misclassifying them as security violations.
     """
 
-    # --- ClassVar attributes (required by BaseTest / ExternalToolTest) ------
-
-    test_id: ClassVar[str] = "ext.0.1.nuclei"
-    test_name: ClassVar[str] = "Shadow API Discovery via nuclei (template-based exposure detection)"
-    priority: ClassVar[int] = 0
-    domain: ClassVar[int] = 0
-    strategy: ClassVar[TestStrategy] = TestStrategy.BLACK_BOX
-    depends_on: ClassVar[list[str]] = []
-    requires_pass: ClassVar[list[str]] = []
-    tags: ClassVar[list[str]] = [
-        "shadow-api",
-        "discovery",
-        "exposure",
-        "OWASP-API9",
-        "nuclei",
-    ]
-    cwe_id: ClassVar[str] = "CWE-200"
-    tool_name: ClassVar[str] = "nuclei"
+    info = TestInfo(
+        id="ext.0.1.nuclei",
+        name="Shadow API Discovery via nuclei (template-based exposure detection)",
+        priority=0,
+        strategy=TestStrategy.BLACK_BOX,
+        cwe="CWE-200",
+        tags=(
+            "shadow-api",
+            "discovery",
+            "exposure",
+            "OWASP-API9",
+            "nuclei",
+        ),
+        tool="nuclei",
+    )
 
     # ------------------------------------------------------------------
     # ExternalToolTest abstract method implementations
@@ -265,7 +263,7 @@ class ExtTest01ShadowApiNuclei(ExternalToolTest):  # noqa: N801
                                     for analyst review.
 
         Note items are always converted to structured InfoNote objects and
-        passed via notes= to _make_pass() / _make_fail().  This ensures they
+        passed via notes= to _make_pass() / _make_fail_multi().  This ensures they
         appear as blue cards in the HTML report detail panel -- not as raw text
         embedded in the message string.
 
@@ -344,7 +342,7 @@ class ExtTest01ShadowApiNuclei(ExternalToolTest):  # noqa: N801
                 fail_count=len(fail_items),
                 note_count=len(note_items),
             )
-            return self._make_fail(
+            return self._make_fail_multi(
                 message=(
                     f"nuclei detected {len(fail_items)} shadow API exposure(s) "
                     f"at severity medium/high/critical out of {total_count} "

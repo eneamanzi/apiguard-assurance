@@ -115,7 +115,6 @@ EvidenceStore policy:
 from __future__ import annotations
 
 import re
-from typing import ClassVar
 
 import structlog
 
@@ -129,6 +128,7 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
+from src.core.test_metadata import TestInfo
 from src.tests.base import BaseTest
 from src.tests.helpers.path_resolver import resolve_path_with_seed
 from src.tests.helpers.response_inspector import (
@@ -206,22 +206,21 @@ class Test62SecurityHeadersAudit(BaseTest):
     # BaseTest class-level contract
     # ------------------------------------------------------------------
 
-    test_id: ClassVar[str] = "6.2"
-    test_name: ClassVar[str] = "Security Headers Configured Appropriately"
-    priority: ClassVar[int] = 3
-    domain: ClassVar[int] = 6
-    strategy: ClassVar[TestStrategy] = TestStrategy.BLACK_BOX
-    depends_on: ClassVar[list[str]] = []
-    requires_pass: ClassVar[list[str]] = []
-    tags: ClassVar[list[str]] = [
-        "hardening",
-        "headers",
-        "OWASP-API8",
-        "ASVS-V3.4",
-        "hsts",
-        "csp",
-    ]
-    cwe_id: ClassVar[str] = "CWE-16"
+    info = TestInfo(
+        id="6.2",
+        name="Security Headers Configured Appropriately",
+        priority=3,
+        strategy=TestStrategy.BLACK_BOX,
+        cwe="CWE-16",
+        tags=(
+            "hardening",
+            "headers",
+            "OWASP-API8",
+            "ASVS-V3.4",
+            "hsts",
+            "csp",
+        ),
+    )
 
     # ------------------------------------------------------------------
     # execute
@@ -387,7 +386,7 @@ class Test62SecurityHeadersAudit(BaseTest):
         response, record = client.request(
             method=_PREFERRED_METHOD,
             path=resolved_path,
-            test_id=self.test_id,
+            test_id=self.info.id,
         )
 
         findings: list[Finding] = []
@@ -609,7 +608,7 @@ class Test62SecurityHeadersAudit(BaseTest):
         response, record = client.request(
             method=_PREFERRED_METHOD,
             path=resolved_path,
-            test_id=self.test_id,
+            test_id=self.info.id,
         )
 
         normalized: dict[str, str] = {k.lower(): v for k, v in response.headers.items()}

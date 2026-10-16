@@ -211,11 +211,14 @@ class TestDefinitionError(ToolBaseError):
     """
     Raised during test discovery when a test class is declared incorrectly.
 
-    A missing or invalid metadata attribute (src/core/test_metadata.py), a
-    test ID used by two classes, or a class that cannot be instantiated
-    without arguments. This is an error in the code of a test, not a runtime
-    condition: like DAGCycleError it stops the run before any test executes
-    [BLOCKS STARTUP], instead of dropping the test or filling in defaults.
+    An invalid or missing declaration (``info = TestInfo(...)``,
+    src/core/test_metadata.py), a test ID used by two classes, a prerequisite
+    that is not a test, a class that cannot be instantiated without
+    arguments, or a test module that cannot be imported or is outside a
+    package (src/core/test_discovery.py). This is an error in the code of a
+    test, not a runtime condition: like DAGCycleError it stops the run before
+    any test executes [BLOCKS STARTUP], instead of dropping the test or
+    filling in defaults.
 
     The problems field lists every problem found, one string each, prefixed
     with the class and its module, so that all of them can be fixed at once.

@@ -70,7 +70,7 @@ from __future__ import annotations
 
 import secrets
 from collections.abc import Sequence
-from typing import ClassVar, NamedTuple
+from typing import NamedTuple
 from urllib.parse import urlparse
 
 import structlog
@@ -87,6 +87,7 @@ from src.core.models import (
     TestStrategy,
 )
 from src.core.templating import render
+from src.core.test_metadata import TestInfo
 from src.test_config.domain_7 import (
     TEST_72_PLACEHOLDER_RANDOM_SECRET,
     TEST_72_PLACEHOLDER_SSRF_URL,
@@ -204,20 +205,19 @@ class Test72SSRFPrevention(BaseTest):
     forbidden protocol schemes.
     """
 
-    test_id: ClassVar[str] = "7.2"
-    test_name: ClassVar[str] = "Server-Side Request Forgery (SSRF) Prevention"
-    priority: ClassVar[int] = 0
-    domain: ClassVar[int] = 7
-    strategy: ClassVar[TestStrategy] = TestStrategy.GREY_BOX
-    depends_on: ClassVar[list[str]] = []
-    requires_pass: ClassVar[list[str]] = []
-    tags: ClassVar[list[str]] = [
-        "ssrf",
-        "business-logic",
-        "OWASP-API7:2023",
-        "CWE-918",
-    ]
-    cwe_id: ClassVar[str] = "CWE-918"
+    info = TestInfo(
+        id="7.2",
+        name="Server-Side Request Forgery (SSRF) Prevention",
+        priority=0,
+        strategy=TestStrategy.GREY_BOX,
+        cwe="CWE-918",
+        tags=(
+            "ssrf",
+            "business-logic",
+            "OWASP-API7:2023",
+            "CWE-918",
+        ),
+    )
 
     def execute(
         self,
@@ -302,7 +302,7 @@ class Test72SSRFPrevention(BaseTest):
             resource_values: dict[str, str] = {}
             if cfg.injection_resource is not None:
                 prepared = create_resource(
-                    target, context, client, cfg.injection_resource, ROLE_USER_A, self.test_id
+                    target, context, client, cfg.injection_resource, ROLE_USER_A, self.info.id
                 )
                 resource_values = dict(prepared.values)
             webhook_path = str(render(path_template, resource_values))
@@ -361,8 +361,8 @@ class Test72SSRFPrevention(BaseTest):
                 # TestResult(...) was built directly here without notes=, causing
                 # timeout annotations to be silently dropped from the report.
                 #
-                # _make_fail() builds exactly one Finding from self.test_name /
-                # self.cwe_id, which matches the single-finding contract of the
+                # _make_fail() builds exactly one Finding from self.info.name /
+                # self.info.cwe, which matches the single-finding contract of the
                 # native helper.  The full list of per-payload findings is NOT
                 # individually surfaced here because the native _make_fail() is
                 # designed for a single consolidated Finding; the per-payload
@@ -492,7 +492,7 @@ class Test72SSRFPrevention(BaseTest):
                 response, record = client.request(
                     method="POST",
                     path=webhook_path,
-                    test_id=self.test_id,
+                    test_id=self.info.id,
                     headers=dict(user_a_auth.headers),
                     params=dict(user_a_auth.params) or None,
                     json=webhook_body,
@@ -653,7 +653,7 @@ class Test72SSRFPrevention(BaseTest):
             response, record = client.request(
                 method="POST",
                 path=webhook_path,
-                test_id=self.test_id,
+                test_id=self.info.id,
                 headers=dict(user_a_auth.headers),
                 params=dict(user_a_auth.params) or None,
                 json=webhook_body,

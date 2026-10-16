@@ -60,7 +60,6 @@ Dependency rule:
 from __future__ import annotations
 
 import re
-from typing import ClassVar
 
 import structlog
 
@@ -71,6 +70,7 @@ from src.connectors.types import TlsFinding
 from src.core.context import TargetContext
 from src.core.models import Finding, InfoNote, TestStrategy
 from src.core.models.results import TestResult
+from src.core.test_metadata import TestInfo
 from src.external_tests.base import ExternalToolTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -307,28 +307,23 @@ class ExtTest15TlsAnalysis(ExternalToolTest):
     See module docstring for oracle logic, DAG placement, and test_id rationale.
     """
 
-    # --- Orchestrator metadata ---
-    test_id: ClassVar[str] = "ext.1.5.testssl"
-    test_name: ClassVar[str] = "TLS Stack Analysis (testssl.sh)"
-    domain: ClassVar[int] = 1
-    priority: ClassVar[int] = 2
-    strategy: ClassVar[TestStrategy] = TestStrategy.BLACK_BOX
-    depends_on: ClassVar[list[str]] = []
-    requires_pass: ClassVar[list[str]] = []
-    tags: ClassVar[list[str]] = [
-        "transport-security",
-        "tls",
-        "cipher-suite",
-        "protocol-version",
-        "testssl",
-        "OWASP-API2:2023",
-        "NIST-SP-800-52",
-    ]
-    cwe_id: ClassVar[str] = "CWE-326"  # Inadequate Encryption Strength
-
-    # --- External tool identifier ---
-    # Must match the key in ExternalToolsConfig for is_tool_enabled() filtering.
-    tool_name: ClassVar[str] = "testssl"
+    info = TestInfo(
+        id="ext.1.5.testssl",
+        name="TLS Stack Analysis (testssl.sh)",
+        priority=2,
+        strategy=TestStrategy.BLACK_BOX,
+        cwe="CWE-326",  # Inadequate Encryption Strength
+        tags=(
+            "transport-security",
+            "tls",
+            "cipher-suite",
+            "protocol-version",
+            "testssl",
+            "OWASP-API2:2023",
+            "NIST-SP-800-52",
+        ),
+        tool="testssl",
+    )
 
     # ------------------------------------------------------------------
     # Abstract method implementations
@@ -536,7 +531,7 @@ class ExtTest15TlsAnalysis(ExternalToolTest):
                 message_parts.append(
                     f"Additionally, {note_count} MEDIUM/WARN observation(s) are listed as notes."
                 )
-            return self._make_fail(
+            return self._make_fail_multi(
                 message=" ".join(message_parts),
                 findings=findings,
                 notes=all_notes,
@@ -656,24 +651,23 @@ class ExtTest15SslyzeAnalysis(ExternalToolTest):
     See module docstring for full context and DAG placement.
     """
 
-    test_id: ClassVar[str] = "ext.1.5.sslyze"
-    test_name: ClassVar[str] = "TLS Stack Analysis (sslyze)"
-    domain: ClassVar[int] = 1
-    priority: ClassVar[int] = 2
-    strategy: ClassVar[TestStrategy] = TestStrategy.BLACK_BOX
-    depends_on: ClassVar[list[str]] = []
-    requires_pass: ClassVar[list[str]] = []
-    tags: ClassVar[list[str]] = [
-        "transport-security",
-        "tls",
-        "cipher-suite",
-        "protocol-version",
-        "sslyze",
-        "OWASP-API2:2023",
-        "NIST-SP-800-52",
-    ]
-    cwe_id: ClassVar[str] = "CWE-326"
-    tool_name: ClassVar[str] = "sslyze"
+    info = TestInfo(
+        id="ext.1.5.sslyze",
+        name="TLS Stack Analysis (sslyze)",
+        priority=2,
+        strategy=TestStrategy.BLACK_BOX,
+        cwe="CWE-326",
+        tags=(
+            "transport-security",
+            "tls",
+            "cipher-suite",
+            "protocol-version",
+            "sslyze",
+            "OWASP-API2:2023",
+            "NIST-SP-800-52",
+        ),
+        tool="sslyze",
+    )
 
     # ------------------------------------------------------------------
     # Abstract method implementations
@@ -839,7 +833,7 @@ class ExtTest15SslyzeAnalysis(ExternalToolTest):
                 message_parts.append(
                     f"Additionally, {note_count} MEDIUM observation(s) are listed as notes."
                 )
-            return self._make_fail(
+            return self._make_fail_multi(
                 message=" ".join(message_parts),
                 findings=findings,
                 notes=all_notes,

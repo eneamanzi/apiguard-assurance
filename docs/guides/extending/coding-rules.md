@@ -24,8 +24,7 @@ Rules every change must follow. Where the current code deviates, the deviation i
 - Data that crosses a boundary (configuration, HTTP data, results) is modelled with Pydantic v2; configuration and
   context models are `frozen`.
 - `TypedDict` is allowed only as a static type for plain dicts that are not data models: the shape of raw
-  external-tool output (`ConnectorRawOutput`, `TlsFinding`) and `**kwargs` bundles (`_MetadataKwargs`,
-  `_ExternalTestMetadataKwargs`). Never for the tool's own data models.
+  external-tool output (`ConnectorRawOutput`, `TlsFinding`). Never for the tool's own data models.
 - Public functions and methods have full docstrings.
 
 ## Constants and configuration

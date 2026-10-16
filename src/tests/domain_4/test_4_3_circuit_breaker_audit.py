@@ -102,7 +102,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import ClassVar
 
 import structlog
 
@@ -127,6 +126,7 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
+from src.core.test_metadata import TestInfo
 from src.test_config.domain_4 import Test43AuditConfig
 from src.tests.base import BaseTest
 
@@ -236,23 +236,22 @@ class Test43CircuitBreakerAudit(BaseTest):
     # BaseTest class-level contract
     # ------------------------------------------------------------------
 
-    test_id: ClassVar[str] = "4.3"
-    test_name: ClassVar[str] = "Circuit Breaker Audit -- Dual-Check a 3 Livelli"
-    domain: ClassVar[int] = 4
-    priority: ClassVar[int] = 1
-    strategy: ClassVar[TestStrategy] = TestStrategy.WHITE_BOX
-    depends_on: ClassVar[list[str]] = []
-    requires_pass: ClassVar[list[str]] = []
-    tags: ClassVar[list[str]] = [
-        "availability",
-        "resilience",
-        "circuit-breaker",
-        "cascading-failure",
-        "passive-healthcheck",
-        "white-box",
-        "OWASP-API4",
-    ]
-    cwe_id: ClassVar[str] = "CWE-400"
+    info = TestInfo(
+        id="4.3",
+        name="Circuit Breaker Audit -- Dual-Check a 3 Livelli",
+        priority=1,
+        strategy=TestStrategy.WHITE_BOX,
+        cwe="CWE-400",
+        tags=(
+            "availability",
+            "resilience",
+            "circuit-breaker",
+            "cascading-failure",
+            "passive-healthcheck",
+            "white-box",
+            "OWASP-API4",
+        ),
+    )
 
     # ------------------------------------------------------------------
     # execute -- main entry point

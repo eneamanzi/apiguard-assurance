@@ -47,8 +47,6 @@ Dependency rule:
 
 from __future__ import annotations
 
-from typing import ClassVar
-
 import structlog
 
 from src.core.auth_placement import RequestAuthParts
@@ -57,6 +55,7 @@ from src.core.context import ROLE_ADMIN, TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.exceptions import AuthenticationSetupError
 from src.core.models import TestResult, TestStrategy
+from src.core.test_metadata import TestInfo
 from src.tests.base import BaseTest
 from src.tests.helpers.auth import credential_parts, revocation_capability
 
@@ -101,21 +100,20 @@ class Test14TokenRevocation(BaseTest):
     D2.P5 (auth dispatcher).
     """
 
-    test_id: ClassVar[str] = "1.4"
-    test_name: ClassVar[str] = "Revoked Token Rejected After Deletion"
-    domain: ClassVar[int] = 1
-    priority: ClassVar[int] = 2
-    strategy: ClassVar[TestStrategy] = TestStrategy.WHITE_BOX
-    depends_on: ClassVar[list[str]] = []
-    requires_pass: ClassVar[list[str]] = []
-    tags: ClassVar[list[str]] = [
-        "authentication",
-        "token-revocation",
-        "OWASP-API2:2023",
-        "RFC-7009",
-        "OWASP-ASVS-V7.4",
-    ]
-    cwe_id: ClassVar[str] = "CWE-613"
+    info = TestInfo(
+        id="1.4",
+        name="Revoked Token Rejected After Deletion",
+        priority=2,
+        strategy=TestStrategy.WHITE_BOX,
+        cwe="CWE-613",
+        tags=(
+            "authentication",
+            "token-revocation",
+            "OWASP-API2:2023",
+            "RFC-7009",
+            "OWASP-ASVS-V7.4",
+        ),
+    )
 
     def execute(
         self,
@@ -173,13 +171,13 @@ class Test14TokenRevocation(BaseTest):
 
             try:
                 credential = method.create_temporary_credential(
-                    target, context, client, ROLE_ADMIN, self.test_id
+                    target, context, client, ROLE_ADMIN, self.info.id
                 )
             except AuthenticationSetupError as exc:
                 return self._make_error(exc)
             self._log_transaction(credential.create_record, oracle_state=_STATE_TOKEN_CREATED)
 
-            outcome = method.revoke_credential(target, context, client, credential, self.test_id)
+            outcome = method.revoke_credential(target, context, client, credential, self.info.id)
             if not outcome.revoked:
                 self._log_transaction(outcome.record, oracle_state="TOKEN_DELETE_FAILED")
                 return self._make_error(
@@ -226,7 +224,7 @@ class Test14TokenRevocation(BaseTest):
         reprobe_response, reprobe_record = client.request(
             method=verify_method,
             path=verify_path,
-            test_id=self.test_id,
+            test_id=self.info.id,
             headers=dict(credential_auth.headers),
             params=dict(credential_auth.params) or None,
         )

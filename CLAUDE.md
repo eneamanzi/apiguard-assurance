@@ -46,9 +46,10 @@ src/
 ├── core/             # Shared infrastructure, zero test logic: client, context, evidence, dag,
 │                     #   gateway/ (BaseGatewayAdapter + Kong, APISIX), auth_placement,
 │                     #   models/, exceptions,
-│                     #   test_metadata (rules every test declaration must satisfy)
+│                     #   test_metadata (TestInfo, the declaration of a test),
+│                     #   assessment_test (base of every test), test_discovery
 ├── connectors/       # External tool wrappers, zero test logic (nuclei, testssl, sslyze)
-├── external_tests/   # ExternalToolTest hierarchy, parallel to tests/ (NOT BaseTest subclasses)
+├── external_tests/   # ExternalToolTest hierarchy, parallel to tests/ (both on core's AssessmentTest)
 ├── tests/            # BaseTest, registry, helpers/, domain_0 … domain_7
 ├── report/           # Phase 7: builder, renderer, templates/report.html
 └── test_config/      # Per-test parameter models (one per test, single definition) + RuntimeTestsConfig
@@ -98,8 +99,7 @@ accessed via `TargetContext` or `TestContext`.
 
 ### Types and Documentation
 - Pydantic v2 only - no `TypedDict` for data models. `TypedDict` is allowed only as a static type for plain
-  dicts that are not data models: the shape of raw external-tool output (`ConnectorRawOutput`, `TlsFinding`) and
-  `**kwargs` bundles (`_MetadataKwargs`, `_ExternalTestMetadataKwargs`)
+  dicts that are not data models: the shape of raw external-tool output (`ConnectorRawOutput`, `TlsFinding`)
 - Type hints on every function signature (params + return type)
 - Full docstrings on every public method
 - All identifiers, docstrings, log keys, comments in **English**
@@ -132,8 +132,9 @@ Use clean placeholders (`nuclei_result.json`, `testssl_result.json`).
 ```
 ToolBaseError
  ├── ConfigurationError       # Phase 1 - invalid config or missing env var [BLOCKS STARTUP]
- ├── TestDefinitionError      # after Phase 1 - a test declared incorrectly (missing or invalid
- │                            #   class attribute, duplicate test_id) [BLOCKS STARTUP]
+ ├── TestDefinitionError      # after Phase 1 - a test declared incorrectly (invalid or missing
+ │                            #   info = TestInfo(...), duplicate ID, module that cannot be
+ │                            #   imported or outside a package) [BLOCKS STARTUP]
  ├── OpenAPILoadError         # Phase 2 - spec unreachable or malformed [BLOCKS STARTUP]
  ├── DAGCycleError            # Phase 4 - circular dependency [BLOCKS STARTUP]
  ├── SecurityClientError      # Phase 5, native tests → caught in execute() → TestResult(ERROR)

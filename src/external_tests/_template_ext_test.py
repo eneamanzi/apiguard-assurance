@@ -9,10 +9,11 @@ Naming convention (non-optional -- enables automatic discovery by ExternalTestRe
 Steps to add a new ExternalToolTest:
     1. Copy this file to src/external_tests/ext_test_<tool>_<description>.py.
     2. Replace TemplateExtTest with your test class name.
-    3. Fill in all ClassVar declarations (all nine are mandatory: the eight
-       standard metadata attributes plus tool_name).
+    3. Fill in the declaration ``info = TestInfo(...)`` (src/core/test_metadata.py):
+       an ID "ext.X.Y.tool" and ``tool`` set to the tool's key in external_tools.
     4. Implement _build_connector(), _invoke_connector(), and _evaluate().
-    5. Verify test_id uniqueness: grep for your chosen test_id across all test files.
+    A duplicate ID or an invalid declaration stops the run with a message
+    naming the test (src/core/test_discovery.py).
 
 Timeout access pattern:
     Read timeout from target.external_tools.<tool>.timeout_seconds.
@@ -41,8 +42,6 @@ Dependency rule:
 
 from __future__ import annotations
 
-from typing import ClassVar
-
 import structlog
 
 from src.connectors.base import BaseConnector, ConnectorResult
@@ -51,6 +50,7 @@ from src.connectors.base import BaseConnector, ConnectorResult
 from src.core.context import TargetContext
 from src.core.models import Finding, InfoNote, TestStrategy
 from src.core.models.results import TestResult
+from src.core.test_metadata import TestInfo
 from src.external_tests.base import ExternalToolTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -89,25 +89,21 @@ class TemplateExtTest(ExternalToolTest):
             unless X.Y ends PASS. Rules: src/core/dag.py.
     """
 
-    # --- Mandatory ClassVar declarations ---
-    # Verify test_id uniqueness before committing: grep -r "test_id" src/tests/ src/external_tests/
-    # Naming convention (mandatory): "ext.X.Y.toolname"
-    #   X = domain number, Y = sequence number, toolname = lowercase tool identifier
-    #   Examples: "ext.0.1.nuclei", "ext.1.5.testssl", "ext.1.5.sslyze"
-    test_id: ClassVar[str] = "ext.X.Y.toolname"
-    test_name: ClassVar[str] = "Template External Test Name"
-    priority: ClassVar[int] = 2  # 0-3 (P0-P3)
-    domain: ClassVar[int] = 0  # methodology domain number
-    strategy: ClassVar[TestStrategy] = TestStrategy.GREY_BOX
-    depends_on: ClassVar[list[str]] = []
-    requires_pass: ClassVar[list[str]] = []
-    tags: ClassVar[list[str]] = ["template", "external"]
-    cwe_id: ClassVar[str] = "CWE-000"
-
-    # tool_name must match a field name in ExternalToolsConfig (testssl/nuclei/ffuf).
-    # A typo here triggers a WARNING in is_tool_enabled() and
-    # causes this test to be excluded from the run.
-    tool_name: ClassVar[str] = "template-tool"  # replace with "testssl", "nuclei", or "ffuf"
+    # The declaration: one TestInfo, checked when the module is imported.
+    # id: "ext.X.Y.tool" (X = domain, Y = sequence, tool = lowercase tool name),
+    #     e.g. "ext.0.1.nuclei", "ext.1.5.testssl"; the domain is taken from it.
+    # tool: the tool's key in external_tools (testssl, sslyze, nuclei); an
+    #     unknown key makes is_tool_enabled() exclude the test from the run.
+    # depends_on / requires_pass: see "DAG placement" above; omitted when empty.
+    info = TestInfo(
+        id="ext.0.9.template",
+        name="Template External Test Name",
+        priority=2,
+        strategy=TestStrategy.GREY_BOX,
+        cwe="CWE-200",
+        tags=("template", "external"),
+        tool="template",
+    )
 
     # ------------------------------------------------------------------
     # ExternalToolTest ABC implementation
@@ -173,13 +169,14 @@ class TemplateExtTest(ExternalToolTest):
         """
         Apply the oracle to ConnectorResult and produce a TestResult.
 
-        ALWAYS use self._make_pass() / self._make_fail() / self._make_skip()
-        to construct the return value.  Building TestResult(...) directly will
-        produce a result missing all metadata fields (test_name, domain,
-        priority, strategy, tags, cwe_id, source, tool_name) because those
-        fields are populated exclusively by _metadata_kwargs() inside the
-        _make_*() helpers.  Pydantic will not raise -- it will silently use
-        the default="" values, producing empty cells in the HTML report.
+        ALWAYS use self._make_pass() / self._make_fail_multi() /
+        self._make_skip() to construct the return value.  Building
+        TestResult(...) directly produces a result without the declaration
+        (test_name, domain, priority, strategy, tags, cwe_id, source,
+        tool_name), which only the _make_*() helpers copy from ``info``
+        (src/core/assessment_test.py).  Pydantic will not raise -- it will
+        silently use the default="" values, producing empty cells in the
+        HTML report.
 
         Args:
             result:       ConnectorResult from _invoke_connector().
@@ -219,7 +216,7 @@ class TemplateExtTest(ExternalToolTest):
                 )
 
         if findings:
-            return self._make_fail(
+            return self._make_fail_multi(
                 message=(
                     f"{len(findings)} finding(s) triggered FAIL oracle. "
                     f"See evidence artifact '{artifact_ref}' for raw output."

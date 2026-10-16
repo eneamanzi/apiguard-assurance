@@ -64,7 +64,6 @@ EvidenceStore policy:
 from __future__ import annotations
 
 import http.cookies
-from typing import ClassVar
 
 import structlog
 
@@ -72,6 +71,7 @@ from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.models import EvidenceRecord, Finding, InfoNote, TestResult, TestStrategy
+from src.core.test_metadata import TestInfo
 from src.test_config.domain_1 import Test16Config
 from src.tests.base import BaseTest
 
@@ -106,20 +106,19 @@ _SAMESITE_FORBIDDEN_VALUE: str = "none"
 class Test16SecureSessionManagement(BaseTest):
     """Test 1.6 -- Secure Session Management in Distributed Architectures."""
 
-    test_id: ClassVar[str] = "1.6"
-    test_name: ClassVar[str] = "Secure Session Management in Distributed Architectures"
-    priority: ClassVar[int] = 3
-    domain: ClassVar[int] = 1
-    strategy: ClassVar[TestStrategy] = TestStrategy.BLACK_BOX
-    depends_on: ClassVar[list[str]] = []
-    requires_pass: ClassVar[list[str]] = []
-    tags: ClassVar[list[str]] = [
-        "session-management",
-        "cookies",
-        "OWASP-API2:2023",
-        "OWASP-ASVS-V3.2",
-    ]
-    cwe_id: ClassVar[str] = "CWE-614"
+    info = TestInfo(
+        id="1.6",
+        name="Secure Session Management in Distributed Architectures",
+        priority=3,
+        strategy=TestStrategy.BLACK_BOX,
+        cwe="CWE-614",
+        tags=(
+            "session-management",
+            "cookies",
+            "OWASP-API2:2023",
+            "OWASP-ASVS-V3.2",
+        ),
+    )
 
     def execute(
         self,
@@ -159,7 +158,7 @@ class Test16SecureSessionManagement(BaseTest):
                 response, record = client.request(
                     method="GET",
                     path=probe_path,
-                    test_id=self.test_id,
+                    test_id=self.info.id,
                     # No Authorization header: cookie audit does not require auth.
                 )
 

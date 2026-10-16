@@ -3,7 +3,7 @@
 > **Audience:** project owner, Claude Code · **Status:** active (created 2026-10-06) · Single source for "what do we
 > do next". Update the status column as steps are completed.
 
-## Where we are (updated 2026-10-15)
+## Where we are (updated 2026-10-16)
 
 - **Done:** documentation restructured (phase 2, pages 2.1 and 2.4 written); open questions decided (phase 3);
   code blocks 1, 2, 3, 4, 4b, 5, 5b, 5c and 5d (configuration structure, interface contract and versioning, secret
@@ -14,7 +14,9 @@
   Q-18 and Q-38 closed). Three labs: Forgejo + Kong, crAPI + Kong, Forgejo + APISIX; native results identical to
   their baselines after every step.
 - **Next step:** block 7+8 is complete (Q-34 closed 2026-10-15: connections and TLS,
-  steps C1-C6, `docs/architecture/design-decisions.md` D1-D4). Next, in the order agreed 2026-10-15: block 10b (Q-56, fewer steps to add a test), block 9 (CI, generated
+  steps C1-C6, `docs/architecture/design-decisions.md` D1-D4). Now: block 10b (Q-56, fewer steps to add a test;
+  design and steps in `docs/project/tests-design.md`), step 1 done 2026-10-16, next step 2. Then, in the order
+  agreed 2026-10-15: block 9 (CI, generated
   documentation: Q-16, Q-04, Q-13), 2.3 translation (Q-33); later the review of the guides and the 1.0.0 decision;
   the test review (block 6, Q-29) near the end, then 6b E2E (Q-51) and new tests (Q-32).
   Agreed approach of the block (owner, 2026-10-10): labs as proof, no patches to make a target pass; verdict
@@ -320,3 +322,4 @@ CI (Q-16), E2E test suite (Q-51), documentation generated from code with a drift
 | 2026-10-15 | Closed by the owner: Q-34 (Admin API protection: the header part since 2026-10-11, the TLS part with connections steps C1-C6, verified on the three labs). Block 7+8 complete |
 | 2026-10-15 | Working files concluded (owner): their decisions summarised in `docs/architecture/design-decisions.md` (D1-D7: configuration by connection, certificate trust, specification download, labs, credentials, prepared resources, gateway concepts; with the commit `49f6e12` holding the full working texts); the notes for the test review they held moved to Q-29; references in code and docs moved to the new page; `agnosticism-analysis.md`, `auth-survey.md`, `gateway-survey.md`, `gateway-concepts.md`, `resources-design.md`, `connections-design.md`, `docs-inventory.md` removed. Rule (owner): a working file lives while the work lasts, then its conclusions go to the documentation and the file goes. Q-17 decided by the owner: no product roadmap for now (block 10 not done) |
 | 2026-10-15 | Closed by the owner: Q-17 (no product roadmap for now; `roadmap.md` stays as it is). Next order agreed: block 10b (Q-56) before block 9 (CI and generated documentation), then 2.3 translation; guides review and 1.0.0 later; test review (block 6) near the end |
+| 2026-10-16 | Block 10b design decided with the owner (`docs/project/tests-design.md`, 6.1-6.7: `TestInfo`, parameters in the test module, generated documentation with Cog, one base, Kong knowledge in the Kong adapter, `needs` and `list-tests` later). Step 1 done: one declaration per test (`info = TestInfo(...)`, `src/core/test_metadata.py`), one base for native and external tests (`src/core/assessment_test.py`), one test discovery (`src/core/test_discovery.py`) where a test module that cannot be imported or is outside a package stops the run (before: skipped with a warning); 17 tests converted; docs and CHANGELOG (Breaking for tests written outside the tool). Verified: `dev:check`, nine declaration mistakes, three full runs identical to the references. Found: nuclei's lab time limit too tight (Q-67); Kong 3.9 `hmac-auth` default algorithms (Q-29). Next: step 2 (Kong knowledge out of 3.3 and 4.3) |

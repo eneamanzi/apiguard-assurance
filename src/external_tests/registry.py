@@ -18,11 +18,12 @@ the differences are:
 Naming convention (non-optional, enables discovery):
     src/external_tests/ext_test_<tool>_<description>.py
 
-    Where <tool> is one of: tls, ffuf, nuclei, (future tools).
-    Files that do not match the ext_test_ prefix are silently skipped.
+    Modules that do not start with ext_test_ (base.py, registry.py) are not
+    test modules. A test module that cannot be used stops the run
+    (src/core/test_discovery.py), as for native tests.
 
 DA-2 -- Phase R4 (_inject_connectors):
-    After filtering (R3), the registry groups the surviving tests by tool_name
+    After filtering (R3), the registry groups the surviving tests by tool (info.tool)
     and performs availability checking once per tool.  For each group:
 
         - If available: one shared connector instance is injected into every
@@ -47,20 +48,13 @@ Dependency rule:
 
 from __future__ import annotations
 
-import importlib
-import importlib.util
-import inspect
-import pkgutil
-import types
 from collections import defaultdict
 
 import structlog
 
-import src.external_tests as _ext_tests_pkg
-from src.core.exceptions import raise_for_test_definition_problems
 from src.core.models import NotRunEntry, NotRunReason, TestStrategy
 from src.core.models.external_tools import ExternalToolsConfig
-from src.core.test_metadata import PRIVATE_CLASS_PREFIX, metadata_problems
+from src.core.test_discovery import discover_tests
 from src.external_tests.base import ExternalToolTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -75,7 +69,10 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # unintended modules to be imported.
 _SANITY_CHECK_MAX_EXTERNAL_TESTS: int = 50
 
-# Prefix that all external test module filenames must start with (after src.).
+# The package that contains the external tests.
+_EXTERNAL_TESTS_PACKAGE: str = "src.external_tests"
+
+# Prefix that all external test module filenames must start with.
 _MODULE_PREFIX: str = "ext_test_"
 
 
@@ -102,7 +99,7 @@ class ExternalTestRegistry:
     Per-tool filtering:
         Even when the master switch is on, tests for a specific tool are
         excluded if that tool's ExternalToolsConfig.<tool>.enabled is False.
-        The registry reads the tool name from the test's `tool_name` ClassVar
+        The registry reads the tool name from the test's declaration (info.tool)
         and delegates the enabled check to ExternalToolsConfig.is_tool_enabled().
 
     DA-2 connector injection (Phase R4):
@@ -139,10 +136,10 @@ class ExternalTestRegistry:
         Discover, instantiate, filter, and inject-prepare all ExternalToolTest subclasses.
 
         Four-phase pipeline:
-            R1: Scan src/external_tests and import all ext_test_*.py modules.
-            R2: Extract concrete ExternalToolTest subclasses from imported modules.
+            R1+R2: Import every ext_test_*.py module of src/external_tests and
+                   instantiate its tests (src/core/test_discovery.py).
             R3: Apply priority, strategy, per-tool, and allowed_ids filters.
-            R4: Group surviving tests by tool_name; inject shared connectors or
+            R4: Group surviving tests by tool; inject shared connectors or
                 set _skip_reason_from_registry (DA-2).
 
         Args:
@@ -182,11 +179,8 @@ class ExternalTestRegistry:
             allowed_ids=sorted(allowed_ids) if allowed_ids is not None else None,
         )
 
-        # Phase R1: scan and import ext_test_*.py modules.
-        imported_modules = self._scan_and_import_modules()
-
-        # Phase R2: extract concrete ExternalToolTest subclasses.
-        all_tests = self._extract_concrete_subclasses(imported_modules)
+        # Phases R1+R2: import the test modules and instantiate the tests.
+        all_tests = self.list_tests()
 
         # Phase R3: apply filters (excluded tests go to self.not_run).
         self.not_run = []
@@ -199,7 +193,7 @@ class ExternalTestRegistry:
         )
 
         # Sort deterministically by test_id before injection.
-        active_tests.sort(key=lambda t: t.__class__.test_id)
+        active_tests.sort(key=lambda t: t.info.id)
 
         if len(active_tests) > _SANITY_CHECK_MAX_EXTERNAL_TESTS:
             log.warning(
@@ -230,150 +224,18 @@ class ExternalTestRegistry:
 
         Returns:
             One instance per external test.
+
+        Raises:
+            TestDefinitionError: Listing every test that cannot be used.
         """
-        modules = self._scan_and_import_modules()
-        return self._extract_concrete_subclasses(modules)
-
-    # ------------------------------------------------------------------
-    # Phase R1 -- Module scan and import
-    # ------------------------------------------------------------------
-
-    def _scan_and_import_modules(self) -> list[types.ModuleType]:
-        """
-        Recursively scan src.external_tests and import all ext_test_*.py modules.
-
-        Uses pkgutil.walk_packages on the src.external_tests package path.
-        Only modules whose final dotted name component starts with 'ext_test_'
-        are imported; others (base.py, registry.py, __init__.py) are silently
-        skipped to avoid importing non-test modules.
-
-        Import errors are logged as WARNING and do not abort discovery of
-        other modules -- a broken ext_test file must not block valid ones.
-
-        Returns:
-            list[types.ModuleType]: Successfully imported test modules.
-        """
-        imported: list[types.ModuleType] = []
-        pkg_path = _ext_tests_pkg.__path__
-        pkg_prefix = _ext_tests_pkg.__name__ + "."
-
-        try:
-            module_infos = list(pkgutil.walk_packages(path=pkg_path, prefix=pkg_prefix))
-        except Exception as exc:  # noqa: BLE001
-            log.error(
-                "external_test_registry_scan_failed",
-                error=str(exc),
-                detail="Cannot scan src.external_tests. No external tests will run.",
-            )
-            return []
-
-        for module_info in module_infos:
-            # Only process modules whose leaf name starts with _MODULE_PREFIX.
-            leaf_name = module_info.name.split(".")[-1]
-            if not leaf_name.startswith(_MODULE_PREFIX):
-                continue
-
-            try:
-                module = importlib.import_module(module_info.name)
-                imported.append(module)
-                log.debug(
-                    "external_test_registry_module_imported",
-                    module=module_info.name,
-                )
-            except Exception as exc:  # noqa: BLE001
-                log.warning(
-                    "external_test_registry_module_import_failed",
-                    module=module_info.name,
-                    error=str(exc),
-                    detail=(
-                        "This module will be skipped. Other ext_test modules "
-                        "are unaffected. Fix the import error to include this test."
-                    ),
-                )
-
-        log.debug(
-            "external_test_registry_scan_complete",
-            module_count=len(imported),
+        # The base is abstract and only used for issubclass(): mypy rejects an
+        # abstract class for type[...] all the same (python/mypy#4717).
+        return discover_tests(
+            _EXTERNAL_TESTS_PACKAGE,
+            _MODULE_PREFIX,
+            ExternalToolTest,  # type: ignore[type-abstract]
+            external=True,
         )
-        return imported
-
-    # ------------------------------------------------------------------
-    # Phase R2 -- Subclass extraction
-    # ------------------------------------------------------------------
-
-    def _extract_concrete_subclasses(
-        self,
-        modules: list[types.ModuleType],
-    ) -> list[ExternalToolTest]:
-        """
-        Inspect imported modules and instantiate concrete ExternalToolTest subclasses.
-
-        A class is considered concrete if it satisfies all three conditions:
-            1. It is a subclass of ExternalToolTest.
-            2. It is NOT ExternalToolTest itself (the ABC must be excluded).
-            3. It does not have abstractmethods remaining (inspect.isabstract == False).
-
-        A class whose declaration is missing or invalid (metadata_problems(),
-        src/core/test_metadata.py) is collected as a problem, and discovery
-        raises TestDefinitionError listing every problem, as TestRegistry does.
-
-        Args:
-            modules: Imported modules from _scan_and_import_modules().
-
-        Returns:
-            list[ExternalToolTest]: Instantiated concrete subclass instances.
-        """
-        instances: list[ExternalToolTest] = []
-        # Every declaration problem found; raised together at the end.
-        problems: list[str] = []
-        owner_by_test_id: dict[str, str] = {}
-
-        for module in modules:
-            for _name, obj in inspect.getmembers(module, inspect.isclass):
-                if not (
-                    issubclass(obj, ExternalToolTest)
-                    and obj is not ExternalToolTest
-                    and not inspect.isabstract(obj)
-                ):
-                    continue
-                # A name starting with "_" marks a helper base class shared by
-                # tests of the module, not a test (no declaration).
-                if obj.__name__.startswith(PRIVATE_CLASS_PREFIX):
-                    continue
-
-                # The declaration must be complete and valid, and the test_id
-                # unique (src/core/test_metadata.py). A problem is collected,
-                # not skipped: the run stops after the scan.
-                where = f"{obj.__name__} ({obj.__module__})"
-                declaration_problems = metadata_problems(obj, external=True)
-                if declaration_problems:
-                    problems.extend(f"{where}: {problem}" for problem in declaration_problems)
-                    continue
-                test_id: str = obj.test_id
-                if test_id in owner_by_test_id:
-                    problems.append(
-                        f"{where}: test_id {test_id!r} already used by {owner_by_test_id[test_id]}"
-                    )
-                    continue
-                owner_by_test_id[test_id] = where
-
-                try:
-                    instance = obj()
-                except Exception as exc:  # noqa: BLE001 -- any failure is reported
-                    problems.append(
-                        f"{where}: cannot be instantiated without arguments "
-                        f"({type(exc).__name__}: {exc})"
-                    )
-                    continue
-                instances.append(instance)
-                log.debug(
-                    "external_test_registry_test_instantiated",
-                    test_id=test_id,
-                    class_name=obj.__name__,
-                )
-
-        raise_for_test_definition_problems(problems)
-        return instances
 
     # ------------------------------------------------------------------
     # Phase R3 -- Filtering
@@ -428,8 +290,7 @@ class ExternalTestRegistry:
         """
         active: list[ExternalToolTest] = []
         for test in tests:
-            cls = test.__class__
-            test_id = getattr(cls, "test_id", "unknown")
+            test_id = test.info.id
 
             # --- Filter 1 / Filter 2 (mutually exclusive) ---
             # When allowed_ids is not None, it replaces the priority filter.
@@ -441,7 +302,7 @@ class ExternalTestRegistry:
                     )
                     continue
             else:
-                priority = cls.priority
+                priority = test.info.priority
                 if priority > min_priority:
                     self._exclude(
                         test,
@@ -449,7 +310,7 @@ class ExternalTestRegistry:
                         f"priority P{priority} is above execution.min_priority (P{min_priority})",
                     )
                     continue
-                strategy = cls.strategy
+                strategy = test.info.strategy
                 if strategy not in enabled_strategies:
                     self._exclude(
                         test,
@@ -462,7 +323,7 @@ class ExternalTestRegistry:
             # --- Filter 3: per-tool enabled (ALWAYS applied) ---
             # This check is intentionally not bypassable via allowed_ids.
             # See docstring rationale above.
-            tool_name = cls.tool_name
+            tool_name = test.tool_name
             if not external_tools_config.is_tool_enabled(tool_name):
                 switch = (
                     f"external_tools.{tool_name}.enabled is false"
@@ -485,19 +346,18 @@ class ExternalTestRegistry:
             reason: The filter that excluded it.
             detail: The values that excluded it.
         """
-        cls = test.__class__
         self.not_run.append(
             NotRunEntry(
-                test_id=cls.test_id,
-                test_name=cls.test_name,
-                source=cls.source,
+                test_id=test.info.id,
+                test_name=test.info.name,
+                source=test.source,
                 reason=reason,
                 detail=detail,
             )
         )
         log.debug(
             "external_test_registry_excluded",
-            test_id=cls.test_id,
+            test_id=test.info.id,
             reason=reason.value,
             detail=detail,
         )
@@ -516,9 +376,7 @@ class ExternalTestRegistry:
         tests depend on it.
 
         Algorithm:
-            1. Group tests by tool_name ClassVar.  Tests without tool_name are
-               skipped with a WARNING (they will fall back to _build_connector()
-               on first execute()).
+            1. Group tests by tool (info.tool, set on every external test).
             2. For each group, call _build_connector() on the first test instance
                to obtain ONE connector -- this is just object construction, no I/O.
             3. Call connector.is_available() ONCE for the group.
@@ -534,8 +392,7 @@ class ExternalTestRegistry:
         Invariant maintained:
             For any test after _inject_connectors():
                 (_injected_connector is not None) XOR
-                (_skip_reason_from_registry is not None) XOR
-                (both None -- no tool_name or fallback mode).
+                (_skip_reason_from_registry is not None).
 
         Args:
             tests: Filtered and sorted list of ExternalToolTest instances.
@@ -546,29 +403,8 @@ class ExternalTestRegistry:
         """
         # --- Group tests by tool_name ---
         groups: dict[str, list[ExternalToolTest]] = defaultdict(list)
-        no_tool_name_count: int = 0
-
         for test in tests:
-            tool_name: str = str(getattr(test.__class__, "tool_name", ""))
-            if not tool_name:
-                no_tool_name_count += 1
-                log.warning(
-                    "external_test_registry_missing_tool_name_for_injection",
-                    test_id=getattr(test.__class__, "test_id", "unknown"),
-                    detail=(
-                        "This test has no tool_name ClassVar and will not benefit "
-                        "from DA-2 connector injection.  It will call _build_connector() "
-                        "and is_available() independently on each execute() invocation."
-                    ),
-                )
-                continue
-            groups[tool_name].append(test)
-
-        if no_tool_name_count > 0:
-            log.debug(
-                "external_test_registry_injection_skipped_no_tool_name",
-                count=no_tool_name_count,
-            )
+            groups[test.tool_name].append(test)
 
         # --- Process each tool group ---
         for tool_name, group in groups.items():
@@ -614,7 +450,7 @@ class ExternalTestRegistry:
             log.warning(
                 "external_test_registry_connector_build_failed",
                 tool=tool_name,
-                affected_tests=[getattr(t.__class__, "test_id", "?") for t in group],
+                affected_tests=[t.info.id for t in group],
                 error=str(exc),
             )
             for test in group:
@@ -641,7 +477,7 @@ class ExternalTestRegistry:
                 "external_test_registry_tool_available",
                 tool=tool_name,
                 test_count=test_count,
-                test_ids=[getattr(t.__class__, "test_id", "?") for t in group],
+                test_ids=[t.info.id for t in group],
                 detail=(
                     f"Shared connector injected into {test_count} test(s). "
                     "is_available() will not be called again during execution."
@@ -661,7 +497,7 @@ class ExternalTestRegistry:
                 "external_test_registry_tool_not_available",
                 tool=tool_name,
                 test_count=test_count,
-                test_ids=[getattr(t.__class__, "test_id", "?") for t in group],
+                test_ids=[t.info.id for t in group],
                 detail=(
                     f"{test_count} test(s) will SKIP. "
                     "This message appears once per tool, not once per test."

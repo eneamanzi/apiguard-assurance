@@ -1,25 +1,36 @@
 """
 src/core/test_metadata.py
 
-The rules every test declaration must satisfy, native and external alike.
+TestInfo: the declaration of a test (who it is), native and external alike.
 
-A test class declares its metadata as class attributes (test_id, test_name,
-domain, priority, strategy, depends_on, requires_pass, tags, cwe_id; external
-tests also tool_name). Python cannot force a subclass to declare a class attribute, so
-the registries call metadata_problems() at discovery and stop the run with
-TestDefinitionError when a declaration is missing or invalid, instead of
-dropping the test or filling in defaults.
+Every test class declares one TestInfo as its ``info`` class attribute
+(docs/project/tests-design.md, 6.1). It is a frozen Pydantic model, validated
+when the test module is imported: an invalid declaration makes the import
+fail, and test discovery (src/core/test_discovery.py) reports it as a
+TestDefinitionError naming the module, so the run stops instead of dropping
+the test or filling in defaults.
 
 The same module holds the test ID formats and the priority range, which the
 configuration schema imports to validate execution.test_ids and
 execution.min_priority: each rule is written once.
 
-Dependency rule: imports only from the standard library and src.core.models.
+Dependency rule: imports only from the standard library, pydantic and src.core.models.
 """
 
 from __future__ import annotations
 
 import re
+from typing import Annotated
+
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    ValidationError,
+    model_validator,
+)
 
 from src.core.models import TestStrategy
 
@@ -53,25 +64,8 @@ EXTERNAL_TEST_ID_PATTERN: re.Pattern[str] = re.compile(
 # and do not check its declaration (Python's convention for internal names).
 PRIVATE_CLASS_PREFIX: str = "_"
 
-# Class attributes every test declares, and the extra one of external tests.
-REQUIRED_ATTRIBUTES: tuple[str, ...] = (
-    "test_id",
-    "test_name",
-    "domain",
-    "priority",
-    "strategy",
-    "depends_on",
-    "requires_pass",
-    "tags",
-    "cwe_id",
-)
-EXTERNAL_REQUIRED_ATTRIBUTES: tuple[str, ...] = ("tool_name",)
-
-# The two kinds of prerequisite (src/core/dag.py, prerequisite_skip_reason):
-# depends_on (the test uses data the prerequisite produces) and requires_pass
-# (the test is meaningful only if the prerequisite passes).
-PREREQUISITE_ATTRIBUTES: tuple[str, ...] = ("depends_on", "requires_pass")
-
+# Primary CWE reference of a test, e.g. "CWE-285".
+CWE_ID_PATTERN: re.Pattern[str] = re.compile(r"^CWE-[1-9][0-9]*$")
 
 # ---------------------------------------------------------------------------
 # Test ID format
@@ -105,85 +99,146 @@ def is_external_test_id(test_id: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Declaration checks
+# TestInfo
 # ---------------------------------------------------------------------------
 
 
-def metadata_problems(test_class: type, *, external: bool) -> list[str]:
-    """
-    Return every problem in the metadata declared by a test class.
+def _not_blank(value: str) -> str:
+    """Reject an empty or whitespace-only text."""
+    if not value.strip():
+        raise ValueError("must not be blank")
+    return value
 
-    Checks presence and value of each required class attribute: test_id in
-    the format of its kind, with the domain part equal to domain; non-empty
-    test_name, cwe_id and (external) tool_name; domain and priority integers
-    in range; strategy a TestStrategy; depends_on and requires_pass lists of
-    valid test IDs, not the test's own; tags a list of strings. Whether a
-    listed prerequisite exists is checked by engine.check_tests, which sees
-    every test.
+
+def _cwe_id(value: str) -> str:
+    """Require the form 'CWE-<number>'."""
+    if not CWE_ID_PATTERN.match(value):
+        raise ValueError("must have the form 'CWE-<number>', e.g. 'CWE-285'")
+    return value
+
+
+_NonEmptyText = Annotated[str, AfterValidator(_not_blank)]
+
+
+class TestInfo(BaseModel):
+    """
+    The declaration of a test: its identity, ranking and prerequisites.
+
+    The domain is not declared: it is the first number of the ID. A native
+    test has an ID "X.Y" and no tool; an external test has an ID
+    "ext.X.Y.tool" and names the tool it wraps (the key of its section in
+    external_tools). Whether the class is native or external is checked by
+    test discovery, which knows the base class.
+
+    The results of a test carry these values under their report names
+    (test_id, test_name, domain, cwe_id, tool_name): report and JSON formats
+    do not depend on this declaration.
+    """
+
+    __test__ = False
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str = Field(description="Unique test ID: 'X.Y' (native) or 'ext.X.Y.tool' (external).")
+    name: _NonEmptyText = Field(description="Name of the security guarantee the test verifies.")
+    priority: Annotated[StrictInt, Field(ge=PRIORITY_MIN, le=PRIORITY_MAX)] = Field(
+        description="P0 (critical) to P3 (compliance); execution.min_priority filters on it."
+    )
+    strategy: TestStrategy = Field(
+        description="What the tester needs: BLACK_BOX, GREY_BOX or WHITE_BOX."
+    )
+    cwe: Annotated[str, AfterValidator(_cwe_id)] = Field(
+        description="Primary CWE of the weakness the test looks for, e.g. 'CWE-285'."
+    )
+    tags: tuple[_NonEmptyText, ...] = Field(
+        default=(), description="Labels for the report (standards, topics)."
+    )
+    depends_on: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "Tests whose data this test uses: they run first, and if one is not in the run "
+            "or returns SKIP or ERROR this test is SKIP (src/core/dag.py)."
+        ),
+    )
+    requires_pass: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "Tests that must hold for this test to be meaningful: they run first, and "
+            "unless each returns PASS this test is SKIP (src/core/dag.py)."
+        ),
+    )
+    tool: _NonEmptyText | None = Field(
+        default=None,
+        description="External tests only: the external_tools key of the wrapped tool.",
+    )
+
+    @model_validator(mode="after")
+    def _id_and_kind_coherent(self) -> TestInfo:
+        """Check the ID format, its domain, the tool and the prerequisites."""
+        native = NATIVE_TEST_ID_PATTERN.match(self.id)
+        external = EXTERNAL_TEST_ID_PATTERN.match(self.id)
+        match = native or external
+        if match is None:
+            raise ValueError(
+                f"id must have the format 'X.Y' (native) or 'ext.X.Y.tool' (external), "
+                f"got {self.id!r}"
+            )
+        domain = int(match.group("domain"))
+        if not DOMAIN_MIN <= domain <= DOMAIN_MAX:
+            raise ValueError(
+                f"id {self.id!r}: the domain must be {DOMAIN_MIN}-{DOMAIN_MAX}, got {domain}"
+            )
+        if external is not None and self.tool is None:
+            raise ValueError(f"id {self.id!r} is external: set tool (its external_tools key)")
+        if native is not None and self.tool is not None:
+            raise ValueError(f"id {self.id!r} is native: a native test has no tool")
+        for field in ("depends_on", "requires_pass"):
+            for prerequisite in getattr(self, field):
+                if not is_valid_test_id(prerequisite):
+                    raise ValueError(f"{field}: {prerequisite!r} is not a test ID")
+                if prerequisite == self.id:
+                    raise ValueError(f"{field} lists the test itself ({self.id!r})")
+        return self
+
+    @property
+    def domain(self) -> int:
+        """The methodology domain: the first number of the ID."""
+        # The validator guarantees the format: "X.Y" or "ext.X.Y.tool".
+        return int(self.id.removeprefix(EXTERNAL_TEST_ID_PREFIX).split(".", 1)[0])
+
+    @property
+    def is_external(self) -> bool:
+        """True for an external test (ID 'ext.X.Y.tool')."""
+        return is_external_test_id(self.id)
+
+    @property
+    def prerequisites(self) -> tuple[str, ...]:
+        """Both kinds of prerequisite, depends_on first."""
+        return (*self.depends_on, *self.requires_pass)
+
+
+# Pydantic error types whose input is not worth showing: a check of ours (the
+# message names the values) and a missing field (the input is the whole
+# declaration).
+_ERRORS_WITHOUT_INPUT: frozenset[str] = frozenset({"value_error", "missing"})
+
+
+def info_problems(exc: ValidationError) -> list[str]:
+    """
+    Turn the validation error of a TestInfo into one message per problem.
 
     Args:
-        test_class: The concrete test class to check.
-        external:   True for an ExternalToolTest subclass, False for BaseTest.
+        exc: The error raised by TestInfo(...) in a test module.
 
     Returns:
-        One message per problem (empty when the declaration is valid).
+        Messages such as "info.priority: Input should be less than or equal
+        to 3 (got 5)"; a check spanning several fields has no field name.
     """
-    required = REQUIRED_ATTRIBUTES + (EXTERNAL_REQUIRED_ATTRIBUTES if external else ())
-    missing = [name for name in required if not hasattr(test_class, name)]
-    if missing:
-        return [f"missing {', '.join(repr(name) for name in missing)}"]
-
     problems: list[str] = []
-    test_id = test_class.test_id  # type: ignore[attr-defined]
-    domain = test_class.domain  # type: ignore[attr-defined]
-    pattern = EXTERNAL_TEST_ID_PATTERN if external else NATIVE_TEST_ID_PATTERN
-    id_match = pattern.match(test_id) if isinstance(test_id, str) else None
-    if id_match is None:
-        expected = "'ext.X.Y.tool'" if external else "'X.Y'"
-        problems.append(f"'test_id' must have the format {expected}, got {test_id!r}")
-
-    if not _is_int_in_range(domain, DOMAIN_MIN, DOMAIN_MAX):
-        problems.append(f"'domain' must be an integer {DOMAIN_MIN}-{DOMAIN_MAX}, got {domain!r}")
-    elif id_match is not None and int(id_match.group("domain")) != domain:
-        problems.append(f"'test_id' {test_id!r} does not match 'domain' {domain}")
-
-    priority = test_class.priority  # type: ignore[attr-defined]
-    if not _is_int_in_range(priority, PRIORITY_MIN, PRIORITY_MAX):
-        problems.append(
-            f"'priority' must be an integer {PRIORITY_MIN}-{PRIORITY_MAX}, got {priority!r}"
-        )
-
-    strategy = test_class.strategy  # type: ignore[attr-defined]
-    if not isinstance(strategy, TestStrategy):
-        problems.append(f"'strategy' must be a TestStrategy, got {strategy!r}")
-
-    text_attributes = ("test_name", "cwe_id") + (EXTERNAL_REQUIRED_ATTRIBUTES if external else ())
-    for name in text_attributes:
-        value = getattr(test_class, name)
-        if not isinstance(value, str) or not value.strip():
-            problems.append(f"{name!r} must be a non-empty string, got {value!r}")
-
-    for name in PREREQUISITE_ATTRIBUTES:
-        prerequisites = getattr(test_class, name)
-        if not _is_list_of_str(prerequisites) or not all(
-            is_valid_test_id(d) for d in prerequisites
-        ):
-            problems.append(f"{name!r} must be a list of test IDs, got {prerequisites!r}")
-        elif test_id in prerequisites:
-            problems.append(f"{name!r} lists the test itself ({test_id!r})")
-
-    tags = test_class.tags  # type: ignore[attr-defined]
-    if not _is_list_of_str(tags):
-        problems.append(f"'tags' must be a list of strings, got {tags!r}")
-
+    for error in exc.errors():
+        location = ".".join(str(part) for part in error["loc"])
+        where = f"info.{location}" if location else "info"
+        message = str(error["msg"]).removeprefix("Value error, ")
+        given = "" if error["type"] in _ERRORS_WITHOUT_INPUT else f" (got {error.get('input')!r})"
+        problems.append(f"{where}: {message}{given}")
     return problems
-
-
-def _is_int_in_range(value: object, low: int, high: int) -> bool:
-    """Return True for an int (not a bool) between low and high inclusive."""
-    return isinstance(value, int) and not isinstance(value, bool) and low <= value <= high
-
-
-def _is_list_of_str(value: object) -> bool:
-    """Return True for a list whose items are all strings."""
-    return isinstance(value, list) and all(isinstance(item, str) for item in value)

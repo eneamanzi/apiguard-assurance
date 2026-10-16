@@ -63,10 +63,14 @@ Phase 7 does not run after an interruption. Exit codes:
 
 ### Phase 4 details
 
-- **Native tests:** `pkgutil.walk_packages` over `src/tests`, importing modules whose name starts with `test_`.
-  A module that fails to import is logged as a warning and skipped. A class is a test if it is a concrete
-  `BaseTest` subclass defined in that module with all required metadata.
-- **External tests:** `ExternalTestRegistry` discovers `ExternalToolTest` subclasses, drops those whose tool is
+- **Native tests:** `src/core/test_discovery.py` imports every module of `src/tests` whose name starts with
+  `test_`; a class is a test if it is a concrete `BaseTest` subclass defined in that module whose name does not
+  start with `_`, and it must declare its own `info = TestInfo(...)`. A test is never left out silently: a module
+  that cannot be imported (an invalid declaration included), a test module in a folder without `__init__.py`, a
+  class without `info`, a duplicate ID or an unknown prerequisite stops the run with `TestDefinitionError`
+  (exit 10), checked right after Phase 1 (`engine.check_tests`, also run by `validate-config`).
+- **External tests:** `ExternalTestRegistry` discovers `ExternalToolTest` subclasses in the same way (modules
+  `ext_test_*`, IDs `ext.X.Y.tool`, `info.tool` set), drops those whose tool is
   disabled (they are not scheduled at all), and checks tool availability once per tool: available tools get a
   shared connector instance injected, unavailable ones mark their tests to return SKIP.
 - **Filters:** native and external tests by `min_priority` and `strategies`; external tests also by tool
@@ -94,7 +98,9 @@ src/
 │   ├── evidence.py     EvidenceStore (streaming JSONL, merged in Phase 7)
 │   ├── dag.py          DAGScheduler
 │   ├── gateway/        BaseGatewayAdapter + KongGatewayAdapter, ApisixGatewayAdapter
-│   ├── test_metadata.py Rules of a test declaration (ID formats, priority and domain ranges)
+│   ├── test_metadata.py TestInfo: the declaration of a test (ID formats, priority and domain ranges)
+│   ├── assessment_test.py AssessmentTest: base of native and external tests (declaration, result helpers)
+│   ├── test_discovery.py Finds the test classes of a package; any test that cannot be used stops the run
 │   └── exceptions.py   Exception hierarchy
 ├── connectors/         Wrappers around external tools (nuclei, testssl.sh, sslyze)
 ├── tests/              Native tests (domain_0 … domain_7), helpers/ (incl. the authentication methods), data/
@@ -103,7 +109,7 @@ src/
 └── test_config/        Per-test parameter models (one per test, by domain) + RuntimeTestsConfig
 ```
 
-Actual import graph (computed from the source, 2026-10-15):
+Actual import graph (computed from the source, 2026-10-15; tests and core modules 2026-10-16):
 
 ```
 cli                -> cli_console, config, connectors, core/exceptions, core/models, discovery, engine
@@ -112,9 +118,11 @@ engine             -> config, core/*, discovery, external_tests, report, test_co
 config             -> core/exceptions, core/gateway (the adapter names), core/models, core/templating,
                       core/test_metadata, test_config
 discovery          -> core/exceptions, core/models, core/tls
-tests              -> core/auth_placement, core/client, core/context, core/evidence, core/exceptions, core/gateway,
-                      core/models, core/templating, core/test_metadata, test_config
-external_tests     -> connectors, core/context, core/evidence, core/exceptions, core/models, core/test_metadata
+tests              -> core/assessment_test, core/auth_placement, core/client, core/context, core/evidence,
+                      core/exceptions, core/gateway, core/models, core/templating, core/test_discovery,
+                      core/test_metadata, test_config
+external_tests     -> connectors, core/assessment_test, core/context, core/evidence, core/exceptions, core/models,
+                      core/test_discovery, core/test_metadata
 connectors         -> core/exceptions
 report             -> config, core/models, core/redaction
 core/gateway       -> core/exceptions, core/tls, test_config
@@ -123,6 +131,8 @@ core/context       -> core/auth_placement, core/gateway, core/models, core/redac
 core/client        -> core/exceptions, core/models, core/redaction, core/tls
 core/tls           -> core/exceptions, core/models
 core/test_metadata -> core/models
+core/assessment_test -> core/models, core/test_metadata
+core/test_discovery -> core/assessment_test, core/exceptions, core/test_metadata
 test_config        -> nothing from src/
 ```
 

@@ -80,7 +80,6 @@ from __future__ import annotations
 
 import re
 import ssl
-from typing import ClassVar
 from urllib.parse import urlparse
 
 import httpx
@@ -90,6 +89,7 @@ from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.models import Finding, TestResult, TestStrategy
+from src.core.test_metadata import TestInfo
 from src.test_config.domain_1 import Test15Config
 from src.tests.base import BaseTest
 
@@ -133,21 +133,20 @@ _HSTS_PROBE_PATH: str = "/"
 class Test15InsecureCredentialTransport(BaseTest):
     """Test 1.5 -- Credentials Not Transmitted via Insecure Channels."""
 
-    test_id: ClassVar[str] = "1.5"
-    test_name: ClassVar[str] = "Credentials Not Transmitted via Insecure Channels"
-    priority: ClassVar[int] = 2
-    domain: ClassVar[int] = 1
-    strategy: ClassVar[TestStrategy] = TestStrategy.BLACK_BOX
-    depends_on: ClassVar[list[str]] = []
-    requires_pass: ClassVar[list[str]] = []
-    tags: ClassVar[list[str]] = [
-        "transport-security",
-        "tls",
-        "hsts",
-        "OWASP-API2:2023",
-        "NIST-SP-800-52",
-    ]
-    cwe_id: ClassVar[str] = "CWE-319"
+    info = TestInfo(
+        id="1.5",
+        name="Credentials Not Transmitted via Insecure Channels",
+        priority=2,
+        strategy=TestStrategy.BLACK_BOX,
+        cwe="CWE-319",
+        tags=(
+            "transport-security",
+            "tls",
+            "hsts",
+            "OWASP-API2:2023",
+            "NIST-SP-800-52",
+        ),
+    )
 
     def execute(
         self,
@@ -416,7 +415,7 @@ class Test15InsecureCredentialTransport(BaseTest):
         response, record = client.request(
             method="GET",
             path=_HSTS_PROBE_PATH,
-            test_id=self.test_id,
+            test_id=self.info.id,
             # No Authorization header: HSTS must be present on ALL responses.
         )
 

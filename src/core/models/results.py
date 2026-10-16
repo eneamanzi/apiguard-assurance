@@ -200,12 +200,13 @@ class TestResult(BaseModel):
     )
 
     # --- Test metadata ---
-    # Copied from BaseTest ClassVar at result-construction time via
-    # _metadata_kwargs(). Allows builder.py to produce a complete report
-    # without importing from tests/ (unidirectional dependency rule).
+    # Copied from the test's declaration (info, TestInfo) when the result is
+    # built (src/core/assessment_test.py). Allows builder.py to produce a
+    # complete report without importing from tests/ (unidirectional
+    # dependency rule).
     test_name: str = Field(
         default="",
-        description="Human-readable test name from the test class ClassVar.",
+        description="Human-readable test name, from the test's declaration (info.name).",
     )
     domain: int = Field(
         default=-1,
@@ -221,7 +222,7 @@ class TestResult(BaseModel):
     )
     tags: list[str] = Field(
         default_factory=list,
-        description="Free-form tags from the test class ClassVar (e.g. OWASP refs).",
+        description="Free-form tags from the test's declaration (e.g. OWASP refs).",
     )
     cwe_id: str = Field(
         default="",
@@ -229,9 +230,8 @@ class TestResult(BaseModel):
     )
 
     # --- External tool identifier ---
-    # Populated exclusively for source='external' results via
-    # ExternalToolTest._metadata_kwargs(). Carries the ClassVar tool_name
-    # value ("testssl.sh", "nuclei", "ffuf") so the HTML report can display
+    # Populated exclusively for source='external' results, from the test's
+    # declaration (info.tool: "testssl", "sslyze", "nuclei") so the HTML report can display
     # it in the dedicated "Tool" column of the External Tool Tests sub-table
     # without requiring any import from external_tests/ in builder.py.
     # Empty string for all source='native' results.
@@ -240,8 +240,8 @@ class TestResult(BaseModel):
         description=(
             "Name of the external binary used by this test. "
             "Non-empty only for source='external' results. "
-            "Populated by ExternalToolTest._metadata_kwargs() from the "
-            "tool_name ClassVar (e.g. 'testssl.sh', 'nuclei', 'ffuf'). "
+            "Taken from the test's declaration (info.tool, e.g. 'testssl', "
+            "'sslyze', 'nuclei'). "
             "Rendered in the 'Tool' column of the External Tool Tests sub-table."
         ),
     )

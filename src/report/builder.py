@@ -13,14 +13,10 @@ Separation of concerns:
     builder.py  -- aggregation and computation (this module)
     renderer.py -- Jinja2 template rendering and file I/O
 
-Previously, this module contained two stub functions (_parse_domain_from_test_id
-and _parse_priority_from_test_id) that inferred metadata from the test_id string
-format. This was a workaround for the fact that TestResult did not carry the full
-metadata from the BaseTest ClassVar declarations. Now that TestResult includes
-test_name, domain, priority, strategy, tags, and cwe_id as proper fields (populated
-by BaseTest helper methods at construction time), this module simply reads them
-directly from each TestResult — no inference, no workarounds, no dependency on
-the tests/ package needed.
+TestResult carries the declaration of its test (test_name, domain, priority,
+strategy, tags, cwe_id, tool_name), copied from the test's ``info`` when the
+result is built (src/core/assessment_test.py): this module reads them from each
+TestResult, with no dependency on the tests/ packages.
 
 Dependency rule:
     This module imports from stdlib, pydantic, structlog,

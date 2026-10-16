@@ -98,7 +98,6 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from typing import ClassVar
 
 import structlog
 
@@ -113,6 +112,7 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
+from src.core.test_metadata import TestInfo
 from src.tests.base import BaseTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -284,21 +284,20 @@ class Test64HardcodedCredentialsAudit(BaseTest):
     target.admin_api_available is True).
     """
 
-    test_id: ClassVar[str] = "6.4"
-    test_name: ClassVar[str] = "Service Credentials Not Hardcoded or Exposed"
-    priority: ClassVar[int] = 2
-    domain: ClassVar[int] = 6
-    strategy: ClassVar[TestStrategy] = TestStrategy.WHITE_BOX
-    depends_on: ClassVar[list[str]] = []
-    requires_pass: ClassVar[list[str]] = []
-    tags: ClassVar[list[str]] = [
-        "hardcoded-credentials",
-        "secret-management",
-        "configuration-audit",
-        "CWE-798",
-        "OWASP-API8:2023",
-    ]
-    cwe_id: ClassVar[str] = "CWE-798"
+    info = TestInfo(
+        id="6.4",
+        name="Service Credentials Not Hardcoded or Exposed",
+        priority=2,
+        strategy=TestStrategy.WHITE_BOX,
+        cwe="CWE-798",
+        tags=(
+            "hardcoded-credentials",
+            "secret-management",
+            "configuration-audit",
+            "CWE-798",
+            "OWASP-API8:2023",
+        ),
+    )
 
     # ------------------------------------------------------------------
     # Main entry point
@@ -479,7 +478,7 @@ class Test64HardcodedCredentialsAudit(BaseTest):
                 response, record = client.request(
                     method="GET",
                     path=path,
-                    test_id=self.test_id,
+                    test_id=self.info.id,
                     # No Authorization header: unauthenticated probe.
                 )
             except Exception as exc:  # noqa: BLE001

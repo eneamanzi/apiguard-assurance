@@ -100,8 +100,6 @@ EvidenceStore policy:
 
 from __future__ import annotations
 
-from typing import ClassVar
-
 import structlog
 
 from src.core.client import SecurityClient
@@ -121,6 +119,7 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
+from src.core.test_metadata import TestInfo
 from src.test_config.domain_3 import Test33Config
 from src.tests.base import BaseTest
 
@@ -190,25 +189,22 @@ class Test33HMACConfigAudit(BaseTest):
     the target API. All evidence is derived from the Kong Admin API response.
     """
 
-    test_id: ClassVar[str] = "3.3"
-    test_name: ClassVar[str] = (
-        "HMAC Authentication Configuration Does Not Allow Replay or Weak Algorithms"
+    info = TestInfo(
+        id="3.3",
+        name="HMAC Authentication Configuration Does Not Allow Replay or Weak Algorithms",
+        priority=3,
+        strategy=TestStrategy.WHITE_BOX,
+        cwe="CWE-326",
+        tags=(
+            "authentication",
+            "cryptography",
+            "hmac",
+            "replay-protection",
+            "white-box",
+            "OWASP-API2:2023",
+            "CWE-326",
+        ),
     )
-    domain: ClassVar[int] = 3
-    priority: ClassVar[int] = 3
-    strategy: ClassVar[TestStrategy] = TestStrategy.WHITE_BOX
-    depends_on: ClassVar[list[str]] = []
-    requires_pass: ClassVar[list[str]] = []
-    tags: ClassVar[list[str]] = [
-        "authentication",
-        "cryptography",
-        "hmac",
-        "replay-protection",
-        "white-box",
-        "OWASP-API2:2023",
-        "CWE-326",
-    ]
-    cwe_id: ClassVar[str] = "CWE-326"
 
     # ------------------------------------------------------------------
     # execute

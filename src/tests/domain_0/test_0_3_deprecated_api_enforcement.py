@@ -63,7 +63,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
-from typing import ClassVar
 
 import structlog
 
@@ -79,6 +78,7 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
+from src.core.test_metadata import TestInfo
 from src.tests.base import BaseTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -169,20 +169,19 @@ class Test03DeprecatedApiEnforcement(BaseTest):
     message but do NOT contribute to FAIL findings.
     """
 
-    test_id: ClassVar[str] = "0.3"
-    priority: ClassVar[int] = 0
-    strategy: ClassVar[TestStrategy] = TestStrategy.BLACK_BOX
-    depends_on: ClassVar[list[str]] = []
-    requires_pass: ClassVar[list[str]] = []
-    test_name: ClassVar[str] = "Deprecated APIs Are Disabled or Under Enhanced Monitoring"
-    domain: ClassVar[int] = 0
-    tags: ClassVar[list[str]] = [
-        "deprecated-api",
-        "lifecycle",
-        "OWASP-API9:2023",
-        "RFC-8594",
-    ]
-    cwe_id: ClassVar[str] = "CWE-1059"
+    info = TestInfo(
+        id="0.3",
+        name="Deprecated APIs Are Disabled or Under Enhanced Monitoring",
+        priority=0,
+        strategy=TestStrategy.BLACK_BOX,
+        cwe="CWE-1059",
+        tags=(
+            "deprecated-api",
+            "lifecycle",
+            "OWASP-API9:2023",
+            "RFC-8594",
+        ),
+    )
 
     def execute(
         self,
@@ -374,7 +373,7 @@ class Test03DeprecatedApiEnforcement(BaseTest):
                 response, record = client.request(
                     method=endpoint.method,
                     path=path,
-                    test_id=self.test_id,
+                    test_id=self.info.id,
                 )
             except SecurityClientError as exc:
                 # Transport-layer failure: the endpoint may not be reachable.

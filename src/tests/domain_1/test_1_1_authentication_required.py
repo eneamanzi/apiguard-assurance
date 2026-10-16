@@ -111,7 +111,7 @@ test_id = "1.1", depends_on = [].
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Any
 
 import structlog
 
@@ -119,6 +119,7 @@ from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.models import EndpointRecord, Finding, InfoNote, TestResult, TestStrategy
+from src.core.test_metadata import TestInfo
 from src.tests.base import BaseTest
 from src.tests.data.auth_payloads import MALFORMED_TOKENS
 from src.tests.helpers.path_resolver import (
@@ -211,21 +212,20 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
     self._log_transaction() so that the HTML report displays full coverage scope.
     """
 
-    test_id: ClassVar[str] = "1.1"
-    priority: ClassVar[int] = 0
-    strategy: ClassVar[TestStrategy] = TestStrategy.BLACK_BOX
-    depends_on: ClassVar[list[str]] = []
-    requires_pass: ClassVar[list[str]] = []
-    test_name: ClassVar[str] = "Only Authenticated Requests Access Protected Resources"
-    domain: ClassVar[int] = 1
-    tags: ClassVar[list[str]] = [
-        "authentication",
-        "OWASP-API2:2023",
-        "NIST-SP-800-63B-4-S4.3.1",
-        "OWASP-ASVS-V6.3",
-        "CIS-API-Gateway-Controls-2.1",
-    ]
-    cwe_id: ClassVar[str] = "CWE-306"
+    info = TestInfo(
+        id="1.1",
+        name="Only Authenticated Requests Access Protected Resources",
+        priority=0,
+        strategy=TestStrategy.BLACK_BOX,
+        cwe="CWE-306",
+        tags=(
+            "authentication",
+            "OWASP-API2:2023",
+            "NIST-SP-800-63B-4-S4.3.1",
+            "OWASP-ASVS-V6.3",
+            "CIS-API-Gateway-Controls-2.1",
+        ),
+    )
 
     def execute(
         self,
@@ -612,7 +612,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
             response, record = client.request(
                 method=method,
                 path=resolved_path,
-                test_id=self.test_id,
+                test_id=self.info.id,
                 **extra_kwargs,
             )
         except Exception as exc:  # noqa: BLE001
@@ -661,7 +661,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
                     f"Expected: HTTP 401 Unauthorized or 403 Forbidden."
                 ),
                 references=[
-                    self.cwe_id,
+                    self.info.cwe,
                     "OWASP-API2:2023",
                     "NIST-SP-800-63B-4-S4.3.1",
                     "OWASP-ASVS-V6.3",
@@ -804,7 +804,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
                 response, record = client.request(
                     method=method,
                     path=path,
-                    test_id=self.test_id,
+                    test_id=self.info.id,
                     headers={"Authorization": token_value},
                     **base_kwargs,
                 )
@@ -846,7 +846,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
                             f"the Authorization header value before processing the request."
                         ),
                         references=[
-                            self.cwe_id,
+                            self.info.cwe,
                             "OWASP-API2:2023",
                             "RFC-9110-S11.6.2",
                             "OWASP-ASVS-V6.3",
@@ -906,7 +906,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
                 response, record = client.request(
                     method=method,
                     path=path,
-                    test_id=self.test_id,
+                    test_id=self.info.id,
                     headers={header_name: _HEADER_CASE_PROBE_VALUE},
                     **base_kwargs,
                 )
@@ -949,7 +949,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
                             f"credentials in a non-standard casing."
                         ),
                         references=[
-                            self.cwe_id,
+                            self.info.cwe,
                             "OWASP-API2:2023",
                             "RFC-9110-S5.1",
                             "OWASP-ASVS-V6.3",
@@ -1024,7 +1024,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
                 response, record = client.request(
                     method=method,
                     path=variant_path,
-                    test_id=self.test_id,
+                    test_id=self.info.id,
                     **base_kwargs,
                 )
             except Exception as exc:  # noqa: BLE001
@@ -1079,7 +1079,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
                             f"request path before normalisation."
                         ),
                         references=[
-                            self.cwe_id,
+                            self.info.cwe,
                             "OWASP-ASVS-V6.3",
                             "NIST-SP-800-204-S4.1",
                             "CWE-284",

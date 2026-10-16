@@ -63,7 +63,7 @@ EvidenceStore policy:
 from __future__ import annotations
 
 import urllib.parse
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING
 
 import structlog
 
@@ -86,6 +86,7 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
+from src.core.test_metadata import TestInfo
 from src.tests.base import BaseTest
 from src.tests.data.shadow_wordlists import DENY_BY_DEFAULT_NONEXISTENT_PATHS
 
@@ -184,20 +185,19 @@ class Test02DenyByDefault(BaseTest):
         is an authentication bypass via path normalization.
     """
 
-    test_id: ClassVar[str] = "0.2"
-    priority: ClassVar[int] = 0
-    strategy: ClassVar[TestStrategy] = TestStrategy.BLACK_BOX
-    depends_on: ClassVar[list[str]] = []
-    requires_pass: ClassVar[list[str]] = []
-    test_name: ClassVar[str] = "Gateway Deny-by-Default on Unregistered Paths"
-    domain: ClassVar[int] = 0
-    tags: ClassVar[list[str]] = [
-        "deny-by-default",
-        "gateway",
-        "OWASP-API9:2023",
-        "NIST-SP-800-204-S4.1",
-    ]
-    cwe_id: ClassVar[str] = "CWE-284"
+    info = TestInfo(
+        id="0.2",
+        name="Gateway Deny-by-Default on Unregistered Paths",
+        priority=0,
+        strategy=TestStrategy.BLACK_BOX,
+        cwe="CWE-284",
+        tags=(
+            "deny-by-default",
+            "gateway",
+            "OWASP-API9:2023",
+            "NIST-SP-800-204-S4.1",
+        ),
+    )
 
     def execute(
         self,
@@ -619,7 +619,7 @@ class Test02DenyByDefault(BaseTest):
             (None, None) on transport failure.
         """
         try:
-            response, record = client.request(method="GET", path=path, test_id=self.test_id)
+            response, record = client.request(method="GET", path=path, test_id=self.info.id)
             return response, record
         except SecurityClientError as exc:
             log.debug(

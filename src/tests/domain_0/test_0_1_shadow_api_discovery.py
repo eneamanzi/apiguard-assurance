@@ -42,7 +42,6 @@ from __future__ import annotations
 
 import urllib.parse
 from collections.abc import Sequence
-from typing import ClassVar
 
 import structlog
 
@@ -50,6 +49,7 @@ from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.models import EndpointRecord, Finding, TestResult, TestStrategy
+from src.core.test_metadata import TestInfo
 from src.tests.base import BaseTest
 from src.tests.data.shadow_wordlists import SHADOW_API_WORDLIST
 
@@ -109,15 +109,18 @@ class Test_0_1_ShadowApiDiscovery(BaseTest):  # noqa: N801
            others (no OPTIONS / Allow check).
     """
 
-    test_id: ClassVar[str] = "0.1"
-    priority: ClassVar[int] = 0
-    strategy: ClassVar[TestStrategy] = TestStrategy.BLACK_BOX
-    depends_on: ClassVar[list[str]] = []
-    requires_pass: ClassVar[list[str]] = []
-    test_name: ClassVar[str] = "All Exposed Endpoints Are Documented and Authorized"
-    domain: ClassVar[int] = 0
-    tags: ClassVar[list[str]] = ["shadow-api", "inventory", "OWASP-API9:2023"]
-    cwe_id: ClassVar[str] = "CWE-1059"
+    info = TestInfo(
+        id="0.1",
+        name="All Exposed Endpoints Are Documented and Authorized",
+        priority=0,
+        strategy=TestStrategy.BLACK_BOX,
+        cwe="CWE-1059",
+        tags=(
+            "shadow-api",
+            "inventory",
+            "OWASP-API9:2023",
+        ),
+    )
 
     def execute(
         self,
@@ -251,7 +254,7 @@ class Test_0_1_ShadowApiDiscovery(BaseTest):  # noqa: N801
                 response, record = client.request(
                     method="GET",
                     path=path,
-                    test_id=self.test_id,
+                    test_id=self.info.id,
                 )
             except Exception as exc:  # noqa: BLE001
                 log.debug(
@@ -279,7 +282,7 @@ class Test_0_1_ShadowApiDiscovery(BaseTest):  # noqa: N801
                             f"Expected: HTTP 404 Not Found (deny-by-default)."
                         ),
                         references=[
-                            self.cwe_id,
+                            self.info.cwe,
                             "OWASP-API9:2023",
                             "NIST-SP-800-204-S3.1",
                         ],
@@ -333,7 +336,7 @@ class Test_0_1_ShadowApiDiscovery(BaseTest):  # noqa: N801
                     response, record = client.request(
                         method=method,
                         path=path,
-                        test_id=self.test_id,
+                        test_id=self.info.id,
                     )
                 except Exception as exc:  # noqa: BLE001
                     log.debug(
@@ -366,7 +369,7 @@ class Test_0_1_ShadowApiDiscovery(BaseTest):  # noqa: N801
                                 f"Expected: HTTP 405 Method Not Allowed."
                             ),
                             references=[
-                                self.cwe_id,
+                                self.info.cwe,
                                 "OWASP-API9:2023",
                                 "RFC-9110-S9.1",
                             ],

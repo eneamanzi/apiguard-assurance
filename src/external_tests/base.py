@@ -4,8 +4,10 @@ src/external_tests/base.py
 ExternalToolTest: abstract base class for tests that wrap an external binary.
 
 Relationship with tests/base.py (BaseTest):
-    ExternalToolTest does NOT inherit from BaseTest.  The two hierarchies are
-    intentionally kept separate because their execution contracts differ:
+    ExternalToolTest does NOT inherit from BaseTest: both inherit from
+    AssessmentTest (src/core/assessment_test.py), which holds the declaration
+    (``info = TestInfo(...)``, with ``tool`` set) and the _make_* result
+    helpers.  The two stay separate because their execution contracts differ:
 
         BaseTest.execute()         -> receives (TargetContext, TestContext,
                                                 SecurityClient, EvidenceStore)
@@ -15,8 +17,8 @@ Relationship with tests/base.py (BaseTest):
     Both return TestResult.  The engine treats them identically -- it sees only
     the TestResult contract, not the implementation hierarchy.
 
-    The `source` ClassVar is set to "external" here and propagated to every
-    TestResult via _metadata_kwargs() (same mechanism as BaseTest).
+    The `source` ClassVar is set to "external" here and carried by every
+    TestResult (AssessmentTest).
 
 Responsibility split:
 
@@ -68,19 +70,18 @@ Dependency rule:
 from __future__ import annotations
 
 import json
-import traceback
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from pathlib import Path
-from typing import Any, ClassVar, Literal, TypedDict
+from typing import Any, ClassVar, Literal
 
 import structlog
 
 from src.connectors.base import BaseConnector, ConnectorResult
+from src.core.assessment_test import AssessmentTest
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.exceptions import ExternalToolError
-from src.core.models import TestStatus, TestStrategy
-from src.core.models.results import Finding, InfoNote, TestResult
+from src.core.models.results import InfoNote, TestResult
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -119,42 +120,11 @@ _REQUIRED_RAW_OUTPUT_KEYS: frozenset[str] = frozenset(
 _DEV_CACHE_UNSAFE_CHARS: str = "./\\ "
 
 # ---------------------------------------------------------------------------
-# _ExternalTestMetadataKwargs -- TypedDict for type-safe TestResult construction
-# ---------------------------------------------------------------------------
-# Mirrors _MetadataKwargs in tests/base.py.  Both TypedDicts are intentionally
-# kept private to their respective modules: external_tests/ must not import from
-# tests/ (unidirectional dependency rule).  Duplication is acceptable because
-# the types are an implementation detail of the _make_*() helper methods and
-# not part of any public interface.  Sharing via core/ would expose an internal
-# construction detail; keeping them local makes each module self-contained and
-# independently refactorable.
-
-
-class _ExternalTestMetadataKwargs(TypedDict):
-    """TypedDict for the metadata keyword arguments passed to TestResult.
-
-    Provides Pylance with exact type information for each key so that
-    **self._metadata_kwargs() is verified as type-safe at the call site.
-    All fields correspond to TestResult metadata fields declared in
-    src/core/models/results.py.
-    """
-
-    test_name: str
-    domain: int
-    priority: int
-    strategy: str
-    tags: list[str]
-    cwe_id: str
-    source: Literal["native", "external"]
-    tool_name: str
-
-
-# ---------------------------------------------------------------------------
 # ExternalToolTest -- ABC
 # ---------------------------------------------------------------------------
 
 
-class ExternalToolTest(ABC):
+class ExternalToolTest(AssessmentTest):
     """
     Abstract base class for security tests that delegate to an external binary.
 
@@ -170,50 +140,23 @@ class ExternalToolTest(ABC):
         5. on ExternalToolError -> TestResult(ERROR).
         6. on unexpected exception -> TestResult(ERROR) -- never propagates.
 
-    ClassVar attributes (required on every concrete subclass):
-
-        test_id   : str        -- unique identifier, e.g. "ext.tls.1.5".
-        test_name : str        -- human-readable name for the HTML report.
-        domain    : int        -- domain number (0-7) matching the methodology.
-        priority  : int        -- 0-3 (P0-P3), used by ExternalTestRegistry filter.
-        strategy  : TestStrategy -- what the tester needs (BLACK_BOX for the
-                                    current scanners: network access only).
-        depends_on: list[str]    -- tests whose data this test uses.
-        requires_pass: list[str] -- tests that must PASS for this test to be
-                                    meaningful. For both kinds, an unmet
-                                    prerequisite makes the engine record SKIP
-                                    without running the test (src/core/dag.py).
-        tags      : list[str]    -- free-form tags for report classification.
-        cwe_id    : str          -- primary CWE reference for the vulnerability.
-        tool_name : str          -- name of the external binary this test uses
-                                    (e.g. "testssl.sh", "ffuf", "nuclei").
-                                    Must match the key used in ExternalToolsConfig
-                                    so that ExternalTestRegistry._apply_filters()
-                                    can call ExternalToolsConfig.is_tool_enabled().
+    Every concrete subclass declares ``info = TestInfo(...)`` with an ID
+    "ext.X.Y.tool" and ``tool`` set to the tool's key in ExternalToolsConfig
+    ("testssl", "sslyze", "nuclei"), so that ExternalTestRegistry can check
+    ExternalToolsConfig.is_tool_enabled() for it.
 
     The `source` ClassVar is fixed at "external" and must NOT be overridden
     by concrete subclasses -- it is the architectural invariant that separates
     external results from native results in the report builder.
     """
 
-    # --- Orchestrator metadata (same role as in BaseTest) ---
-    test_id: ClassVar[str]
-    test_name: ClassVar[str]
-    domain: ClassVar[int]
-    priority: ClassVar[int]
-    strategy: ClassVar[TestStrategy]
-    depends_on: ClassVar[list[str]]
-    requires_pass: ClassVar[list[str]]
-    tags: ClassVar[list[str]]
-    cwe_id: ClassVar[str]
-
-    # --- External tool identifier -- used by ExternalTestRegistry for per-tool filtering ---
-    # Must match the key that ExternalToolsConfig.is_tool_enabled() recognises:
-    # "testssl", "ffuf", "nuclei" (or any future tool key added to the config schema).
-    tool_name: ClassVar[str]
-
     # --- Result origin -- fixed, must not be overridden ---
     source: ClassVar[Literal["native", "external"]] = "external"
+
+    @property
+    def tool_name(self) -> str:
+        """The tool's key in ExternalToolsConfig (``info.tool``, set on every external test)."""
+        return self.info.tool or ""
 
     # ------------------------------------------------------------------
     # DA-2 -- Connector lifecycle (dependency injection hook)
@@ -256,7 +199,7 @@ class ExternalToolTest(ABC):
         Returns:
             TestResult: Always returns a result -- never raises.
         """
-        store.begin_test(self.test_id)
+        store.begin_test(self.info.id)
         try:
             result = self._run(target, context, store)
         except Exception as exc:  # noqa: BLE001 -- top-level catch by design
@@ -322,7 +265,7 @@ class ExternalToolTest(ABC):
         if self._skip_reason_from_registry is not None:
             log.debug(
                 "external_test_skip_from_registry",
-                test_id=self.test_id,
+                test_id=self.info.id,
                 reason=self._skip_reason_from_registry,
             )
             return self._make_skip(self._skip_reason_from_registry)
@@ -340,7 +283,7 @@ class ExternalToolTest(ABC):
         # -> cache file: outputs/tools/ext_0_1_nuclei_output.json
         # The test_id already carries the tool name (ext.X.Y.toolname convention),
         # so appending TOOL_NAME again would produce duplicate suffixes.
-        artifact_label: str = self.test_id
+        artifact_label: str = self.info.id
 
         # --- Dev mode: attempt cache load before touching the binary ---
         # _is_dev_mode() reads the per-tool dev_mode flag from config.yaml.
@@ -385,12 +328,14 @@ class ExternalToolTest(ABC):
                 if exc.timed_out:
                     return self._make_error(
                         exc,
-                        message_override=(
+                        message=(
                             f"External tool '{exc.tool_name}' timed out. "
                             "Increase timeout_seconds in config.yaml external_tools section."
                         ),
                     )
-                return self._make_error(exc)
+                return self._make_error(
+                    exc, message=f"External tool '{exc.tool_name}' failed: {exc}"
+                )
 
         # --- Step 3b: validate ConnectorRawOutput contract ---
         # Applies to both cache-hit and live-run results.  The cache file was
@@ -433,7 +378,7 @@ class ExternalToolTest(ABC):
 
         log.info(
             "external_test_connector_complete",
-            test_id=self.test_id,
+            test_id=self.info.id,
             tool=connector.TOOL_NAME,
             exit_code=connector_result.exit_code,
             execution_time_ms=connector_result.execution_time_ms,
@@ -486,7 +431,7 @@ class ExternalToolTest(ABC):
 
         Reads ``external_tools.<tool_name>.dev_mode`` from the frozen
         TargetContext.  Returns False for any of these conditions:
-            - The tool_name ClassVar is not present in ExternalToolsConfig
+            - The tool (info.tool) is not present in ExternalToolsConfig
               (e.g. a new tool not yet declared in the schema).
             - The per-tool config object does not have a dev_mode attribute
               (e.g. a tool that predates BaseExternalToolConfig.dev_mode).
@@ -576,7 +521,7 @@ class ExternalToolTest(ABC):
         if not cache_path.exists():
             log.info(
                 "dev_mode_cache_miss",
-                test_id=self.test_id,
+                test_id=self.info.id,
                 tool=connector.TOOL_NAME,
                 cache_path=str(cache_path),
                 detail=(
@@ -594,7 +539,7 @@ class ExternalToolTest(ABC):
         except (json.JSONDecodeError, KeyError, OSError) as exc:
             log.warning(
                 "dev_mode_cache_load_failed",
-                test_id=self.test_id,
+                test_id=self.info.id,
                 tool=connector.TOOL_NAME,
                 cache_path=str(cache_path),
                 error=str(exc),
@@ -608,7 +553,7 @@ class ExternalToolTest(ABC):
 
         log.warning(
             "dev_mode_cache_hit",
-            test_id=self.test_id,
+            test_id=self.info.id,
             tool=connector.TOOL_NAME,
             cache_path=str(cache_path),
             cached_at=envelope.get("generated_at_utc", "unknown"),
@@ -715,7 +660,7 @@ class ExternalToolTest(ABC):
         if actual is None:
             log.warning(
                 "external_tool_version_unknown",
-                test_id=self.test_id,
+                test_id=self.info.id,
                 tool=self.tool_name,
                 expected_version=expected,
                 detail=(
@@ -733,7 +678,7 @@ class ExternalToolTest(ABC):
         if expected_normalized not in actual:
             log.warning(
                 "external_tool_version_mismatch",
-                test_id=self.test_id,
+                test_id=self.info.id,
                 tool=self.tool_name,
                 expected_version=expected,
                 actual_version=actual,
@@ -752,7 +697,7 @@ class ExternalToolTest(ABC):
         else:
             log.debug(
                 "external_tool_version_ok",
-                test_id=self.test_id,
+                test_id=self.info.id,
                 tool=self.tool_name,
                 version=actual,
             )
@@ -788,7 +733,7 @@ class ExternalToolTest(ABC):
         except Exception as exc:  # noqa: BLE001 -- is_available() must not raise
             log.warning(
                 "connector_availability_check_failed",
-                test_id=self.test_id,
+                test_id=self.info.id,
                 tool=connector.TOOL_NAME,
                 error=str(exc),
             )
@@ -799,11 +744,11 @@ class ExternalToolTest(ABC):
                 f"External tool '{connector.TOOL_NAME}' is not available. "
                 "Install it: binaries with ./install_tools.sh (./tools/) or in PATH; "
                 "Python libraries with their extra (e.g. sslyze: [sslyze]). "
-                f"Test '{self.test_id}' ({self.test_name}) requires this tool."
+                f"Test '{self.info.id}' ({self.info.name}) requires this tool."
             )
             log.info(
                 "external_test_skipped_tool_not_found",
-                test_id=self.test_id,
+                test_id=self.info.id,
                 tool=connector.TOOL_NAME,
             )
             return self._make_skip(reason)
@@ -965,157 +910,3 @@ class ExternalToolTest(ABC):
                 tool_name=result.tool_name,
                 exit_code=result.exit_code,
             )
-
-    # Result constructors -- mirror BaseTest helpers
-    # ------------------------------------------------------------------
-
-    def _metadata_kwargs(self) -> _ExternalTestMetadataKwargs:
-        """Build metadata dict for type-safe TestResult construction.
-
-        Mirrors BaseTest._metadata_kwargs() exactly, including the source field
-        which is always "external" for ExternalToolTest subclasses.
-
-        The getattr() fallbacks are never used by a registered test: a
-        missing or invalid ClassVar stops the run at discovery
-        (TestDefinitionError), before execute() is ever called.
-
-        Returns:
-            _ExternalTestMetadataKwargs: Keyword arguments for TestResult constructor.
-        """
-        return _ExternalTestMetadataKwargs(
-            test_name=str(getattr(self.__class__, "test_name", "")),
-            domain=int(getattr(self.__class__, "domain", -1)),
-            priority=int(getattr(self.__class__, "priority", 0)),
-            strategy=str(getattr(self.__class__, "strategy", TestStrategy.BLACK_BOX).value),
-            tags=list(getattr(self.__class__, "tags", [])),
-            cwe_id=str(getattr(self.__class__, "cwe_id", "")),
-            source="external",
-            tool_name=str(getattr(self.__class__, "tool_name", "")),
-        )
-
-    def _make_pass(self, message: str, notes: list[InfoNote] | None = None) -> TestResult:
-        """
-        Construct a PASS TestResult with no findings.
-
-        The optional ``notes`` parameter allows a PASS result to carry
-        informational annotations (InfoNote objects) that are semantically
-        distinct from Findings.  Notes are rendered as blue cards in the HTML
-        report and do NOT affect the test status, exit code, or finding count.
-
-        Primary use case for external tests:
-            Tool findings below the FAIL threshold (e.g. testssl.sh MEDIUM/WARN
-            severities that do not trigger FAIL per the oracle) can be surfaced
-            as notes so they are visible in the report without being
-            misclassified as security violations.
-
-        Args:
-            message: Human-readable description of why the test passed.
-            notes:   Optional list of InfoNote objects for informational context.
-                     None (default) produces an empty notes list.
-
-        Returns:
-            TestResult: status=PASS, empty findings list, notes as provided.
-        """
-        return TestResult(
-            test_id=self.test_id,
-            status=TestStatus.PASS,
-            message=message,
-            findings=[],
-            notes=notes or [],
-            **self._metadata_kwargs(),
-        )
-
-    def _make_fail(
-        self,
-        message: str,
-        findings: list[Finding],
-        notes: list[InfoNote] | None = None,
-    ) -> TestResult:
-        """
-        Construct a FAIL TestResult with at least one Finding.
-
-        The optional ``notes`` parameter allows a FAIL result to carry
-        informational annotations alongside the violation findings.  This is
-        semantically correct: a test can simultaneously have HIGH-severity
-        violations (Findings) and MEDIUM/WARN observations (InfoNotes) from
-        the same tool run.  Without this parameter, notes built during
-        _evaluate() would be silently discarded when findings are present.
-
-        Args:
-            message:  Human-readable summary of the failure.
-            findings: Non-empty list of Finding objects documenting the violation.
-            notes:    Optional list of InfoNote objects for informational context.
-                      None (default) produces an empty notes list.
-
-        Returns:
-            TestResult: status=FAIL with findings attached and optional notes.
-        """
-        return TestResult(
-            test_id=self.test_id,
-            status=TestStatus.FAIL,
-            message=message,
-            findings=findings,
-            notes=notes or [],
-            **self._metadata_kwargs(),
-        )
-
-    def _make_skip(self, reason: str) -> TestResult:
-        """
-        Construct a SKIP TestResult.
-
-        Used by _check_and_skip() when the connector binary is not available,
-        by _run() when _skip_reason_from_registry is set (DA-2 fast-path), and
-        by _evaluate() for oracle-level inapplicability discovered post-execution.
-
-        The skip_reason field is required by the TestResult model_validator --
-        omitting it raises a Pydantic ValidationError.
-
-        Args:
-            reason: Human-readable explanation of why the test was skipped.
-
-        Returns:
-            TestResult: status=SKIP, empty findings list, skip_reason=reason.
-        """
-        return TestResult(
-            test_id=self.test_id,
-            status=TestStatus.SKIP,
-            message=reason,
-            skip_reason=reason,  # required by model_validator (TestStatus.SKIP invariant)
-            findings=[],
-            **self._metadata_kwargs(),
-        )
-
-    def _make_error(
-        self,
-        exc: Exception,
-        message_override: str | None = None,
-    ) -> TestResult:
-        """
-        Construct an ERROR TestResult from any unexpected exception.
-
-        Called by execute()'s top-level handler and by _run() for ExternalToolError.
-        The full traceback is logged at WARNING level for operator debugging.
-        The TestResult message is kept concise for the HTML report.
-
-        Args:
-            exc:              The exception that caused the ERROR.
-            message_override: If provided, used as message instead of str(exc).
-
-        Returns:
-            TestResult: status=ERROR, empty findings list.
-        """
-        log.warning(
-            "external_test_error",
-            test_id=self.test_id,
-            error_type=type(exc).__name__,
-            error=str(exc),
-            traceback=traceback.format_exc(),
-        )
-        message = message_override or f"[{type(exc).__name__}] {exc}"
-        return TestResult(
-            test_id=self.test_id,
-            status=TestStatus.ERROR,
-            message=message,
-            findings=[],
-            **self._metadata_kwargs(),
-        )
