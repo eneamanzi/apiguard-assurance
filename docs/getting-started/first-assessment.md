@@ -174,6 +174,7 @@ Results are written to `outputs/forgejo/` (a previous run's files are replaced):
 | `assessment_report.html` | interactive report |
 | `apiguard_report.json` | machine-readable report ([schema](../reference/report-schema.md)) |
 | `evidence.json` | full HTTP transactions proving the FAILs ([format](../reference/evidence-format.md)) |
+| `config_used.yaml` | every configuration value the run used, written by you or default ([details](../reference/configuration.md#the-configuration-a-run-used-config_usedyaml)) |
 
 Open the HTML report:
 

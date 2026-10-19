@@ -82,7 +82,8 @@ import structlog
 from pydantic import BaseModel, Field
 
 from src import __version__
-from src.config.loader import closest_match, load_config
+from src.config.config_used import config_used_yaml
+from src.config.loader import closest_match, read_config
 from src.config.schema import ToolConfig
 from src.config.tests_section import validate_tests_section
 from src.core.assessment_test import NEEDED_TO_RUN, REFERS_TO_RESOURCE, AssessmentTest, has_marker
@@ -245,6 +246,33 @@ def _preflight(client: SecurityClient, store: EvidenceStore) -> None:
             f"Connection to the API failed before any test: {answer_reason}",
             config_path=TARGET_TLS,
         )
+
+
+def _write_config_used(
+    config: ToolConfig, written: dict[str, object], test_params: dict[str, BaseModel]
+) -> None:
+    """
+    Write config_used.yaml, the configuration the run used, among the outputs.
+
+    Written before the run contacts the target, so it exists even when the run
+    stops later (src/config/config_used.py). A failure to write it is logged
+    and does not stop the run, like a report that cannot be written.
+
+    Args:
+        config:      The validated configuration.
+        written:     The file as written.
+        test_params: Test ID -> its validated parameters.
+    """
+    path = config.output.config_used_path
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            config_used_yaml(config, written, test_params, __version__), encoding="utf-8"
+        )
+    except OSError as exc:
+        log.error("config_used_write_failed", output_path=str(path), detail=str(exc))
+        return
+    log.info("config_used_written", output_path=str(path))
 
 
 def check_tests(config: ToolConfig) -> dict[str, BaseModel]:
@@ -791,8 +819,9 @@ class AssessmentEngine:
         Phases 1-4 are blocking: exceptions propagate to run() which converts
         them to ExitCode.INFRASTRUCTURE. Phases 5-7 are non-blocking.
         """
-        config, connections = self._phase_1_initialize()
+        config, connections, config_as_written = self._phase_1_initialize()
         test_params = check_tests(config)
+        _write_config_used(config, config_as_written, test_params)
         attack_surface = self._phase_2_openapi_discovery(config, connections)
         target, context, store = self._phase_3_build_contexts(
             config=config,
@@ -893,6 +922,7 @@ class AssessmentEngine:
                     config.output.report_path,
                     config.output.json_report_path,
                     config.output.evidence_path,
+                    config.output.config_used_path,
                 )
                 if path.is_file()
             ]
@@ -903,12 +933,13 @@ class AssessmentEngine:
     # Phase 1 -- Initialization
     # ------------------------------------------------------------------
 
-    def _phase_1_initialize(self) -> tuple[ToolConfig, ConnectionContexts]:
+    def _phase_1_initialize(self) -> tuple[ToolConfig, ConnectionContexts, dict[str, object]]:
         """
         Load and validate config.yaml, and build the TLS context of every connection.
 
         Returns:
-            Frozen ToolConfig instance and the connections' TLS contexts.
+            Frozen ToolConfig instance, the connections' TLS contexts, and the
+            file as written (for config_used.yaml).
 
         Raises:
             ConfigurationError: If config.yaml is missing, unreadable,
@@ -917,7 +948,8 @@ class AssessmentEngine:
         """
         log.info("pipeline_phase_1_initialization_started")
 
-        config = load_config(self._config_path)
+        loaded = read_config(self._config_path)
+        config = loaded.config
         # Every tls block is usable, or the run stops here (exit 10).
         connections = build_connection_contexts(config)
 
@@ -933,7 +965,7 @@ class AssessmentEngine:
             specification_timeout=config.specification.timeout,
         )
 
-        return config, connections
+        return config, connections, loaded.written
 
     # ------------------------------------------------------------------
     # Phase 2 -- OpenAPI Discovery

@@ -50,6 +50,7 @@ from src.core.models import (
     TlsSettings,
 )
 from src.core.models.external_tools import ExternalToolsConfig
+from src.core.models.runtime import SECRET_VALUE
 from src.core.test_metadata import PRIORITY_MAX, PRIORITY_MIN, is_valid_test_id
 
 # ---------------------------------------------------------------------------
@@ -106,6 +107,7 @@ OUTPUT_DIRECTORY_DEFAULT: str = "outputs"
 EVIDENCE_FILENAME: str = "evidence.json"
 HTML_REPORT_FILENAME: str = "assessment_report.html"
 JSON_REPORT_FILENAME: str = "apiguard_report.json"
+CONFIG_USED_FILENAME: str = "config_used.yaml"
 
 # Subdirectory name for per-test streaming JSONL files written during Phase 5.
 # EvidenceStore creates one <test_id>.jsonl file per test inside this directory
@@ -320,6 +322,7 @@ class GatewayAdminConfig(BaseModel):
             "as ${VAR} placeholders: they are registered as secrets and masked in logs and "
             "reports. Default: none."
         ),
+        json_schema_extra=SECRET_VALUE,
     )
     connect_timeout: Annotated[
         float,
@@ -560,6 +563,11 @@ class OutputConfig(BaseModel):
     def json_report_path(self) -> Path:
         """Full path to the machine-readable JSON report output file."""
         return self.directory / JSON_REPORT_FILENAME
+
+    @property
+    def config_used_path(self) -> Path:
+        """Full path to the configuration the run used (src/config/config_used.py)."""
+        return self.directory / CONFIG_USED_FILENAME
 
 
 # ---------------------------------------------------------------------------

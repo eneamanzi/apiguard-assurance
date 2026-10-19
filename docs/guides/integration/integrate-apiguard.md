@@ -102,8 +102,9 @@ APIGUARD_OUTPUT_DIR=runs/r1 apiguard run -c config.yaml --env-file credentials.e
 ```
 
 On the lab a run takes about 25 seconds with the native tests and about 5 minutes with nuclei and testssl.sh;
-nuclei alone takes about 195 seconds against its default limit of 240 (`external_tools.nuclei.timeout_seconds`):
-give your own timeout a margin.
+nuclei alone takes about 195 seconds against the example's limit of 600 (`external_tools.nuclei.timeout_seconds`):
+give your own limit a margin (the run warns, `external_tool_near_time_limit`, when a tool ends after more than 70% of
+it).
 
 **Output for people or for machines.** The default console output is a progress view (one line per test, a
 summary with the report paths). For a log collector use JSON lines:
@@ -158,8 +159,9 @@ the tool's own code (`143` after SIGTERM); without it `timeout` returns its own 
 
 ## 6. Read the results
 
-Three files in the output directory: `apiguard_report.json` (results, the file to read),
-`evidence.json` (the HTTP transactions that prove the findings) and `assessment_report.html` (for people).
+Four files in the output directory: `apiguard_report.json` (results, the file to read),
+`evidence.json` (the HTTP transactions that prove the findings), `assessment_report.html` (for people) and
+`config_used.yaml` (every configuration value the run used: keep it with the results to repeat the run).
 Fields: [report schema](../../reference/report-schema.md), [evidence format](../../reference/evidence-format.md).
 
 ```bash

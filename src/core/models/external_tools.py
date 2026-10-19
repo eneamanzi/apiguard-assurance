@@ -124,10 +124,10 @@ class TestsslConfig(BaseExternalToolConfig):
     timeout_seconds: int | None = Field(
         default=None,
         ge=30,
-        le=600,
         description=(
-            "Wall-clock timeout for a single testssl.sh execution in seconds. "
-            "Mandatory when enabled=True.  Recommended: 120."
+            "Wall-clock limit of one testssl.sh execution in seconds: it only stops a tool that "
+            "hangs, so set it to 2-3 times the duration seen on the target (no upper bound; a run "
+            "ending after more than 70% of it is warned about). Mandatory when enabled=True."
         ),
     )
     extra_flags: str = Field(
@@ -149,10 +149,11 @@ class NucleiConfig(BaseExternalToolConfig):
     timeout_seconds: int | None = Field(
         default=None,
         ge=60,
-        le=600,
         description=(
-            "Wall-clock timeout for a single nuclei execution in seconds. "
-            "Mandatory when enabled=True.  Recommended: 240."
+            "Wall-clock limit of one nuclei execution in seconds: it only stops a tool that hangs, "
+            "so set it to 2-3 times the duration seen on the target (it grows with the templates, "
+            "the endpoints and the request rate; no upper bound; a run ending after more than 70% "
+            "of it is warned about). Mandatory when enabled=True."
         ),
     )
     extra_flags: str = Field(

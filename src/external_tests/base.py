@@ -76,7 +76,7 @@ from typing import Any, ClassVar, Literal
 
 import structlog
 
-from src.connectors.base import BaseConnector, ConnectorResult
+from src.connectors.base import BaseConnector, BaseSubprocessConnector, ConnectorResult
 from src.core.assessment_test import AssessmentTest, ParamsT
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
@@ -118,6 +118,16 @@ _REQUIRED_RAW_OUTPUT_KEYS: frozenset[str] = frozenset(
 #
 # Characters: dot, forward slash, backslash, space.
 _DEV_CACHE_UNSAFE_CHARS: str = "./\\ "
+
+# ---------------------------------------------------------------------------
+# Time limit of a tool (external_tools.<tool>.timeout_seconds)
+# ---------------------------------------------------------------------------
+# The limit only stops a tool that hangs; a tool that ends after more than this
+# share of its limit is warned about, so that the limit is raised before a slower
+# run (a larger API, a loaded machine) ends in a false ERROR (Q-67).
+_TIME_LIMIT_WARNING_RATIO: float = 0.7
+_MS_PER_SECOND: int = 1000
+_PERCENT: int = 100
 
 # ---------------------------------------------------------------------------
 # ExternalToolTest -- ABC
@@ -386,6 +396,8 @@ class ExternalToolTest(AssessmentTest[ParamsT]):
             artifact_ref=artifact_ref,
             dev_mode_cache_hit=cache_hit,
         )
+        if not cache_hit:
+            self._warn_if_near_time_limit(connector, connector_result, target)
 
         # --- Step 5: oracle evaluation (subclass responsibility) ---
         result = self._evaluate(connector_result, artifact_ref)
@@ -421,6 +433,46 @@ class ExternalToolTest(AssessmentTest[ParamsT]):
             Notes appended to the result's notes.
         """
         return []
+
+    def _warn_if_near_time_limit(
+        self,
+        connector: BaseConnector,
+        connector_result: ConnectorResult,
+        target: TargetContext,
+    ) -> None:
+        """
+        Warn when a tool ended after more than 70% of its time limit.
+
+        Only for tools run as a process, where timeout_seconds is the limit of
+        the whole run (for sslyze, a library, it is a per-connection timeout).
+
+        Args:
+            connector:        The connector that ran the tool.
+            connector_result: Its result (execution_time_ms).
+            target:           The run's TargetContext (external_tools).
+        """
+        if not isinstance(connector, BaseSubprocessConnector):
+            return
+        tool_config = getattr(target.external_tools, self.tool_name, None)
+        limit: int | None = getattr(tool_config, "timeout_seconds", None)
+        if not limit:
+            return
+        elapsed = connector_result.execution_time_ms / _MS_PER_SECOND
+        if elapsed <= limit * _TIME_LIMIT_WARNING_RATIO:
+            return
+        share = round(elapsed / limit * _PERCENT)
+        log.warning(
+            "external_tool_near_time_limit",
+            test_id=self.info.id,
+            tool=self.tool_name,
+            elapsed_seconds=round(elapsed),
+            timeout_seconds=limit,
+            share_percent=share,
+            detail=(
+                f"{self.tool_name} took {round(elapsed)} s of its {limit} s limit ({share}%): "
+                f"raise external_tools.{self.tool_name}.timeout_seconds before it fails."
+            ),
+        )
 
     # ------------------------------------------------------------------
     # Dev mode helpers

@@ -234,7 +234,7 @@ external_tools:
     expected_version: "3.2.3"
   nuclei:
     enabled: true
-    timeout_seconds: 240
+    timeout_seconds: 600
     expected_version: "3.8.0"
   sslyze:
     enabled: true

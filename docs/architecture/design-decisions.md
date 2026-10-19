@@ -2,7 +2,7 @@
 
 > **Audience:** contributors, maintainers · **Status:** decisions in force · **Source of truth:** the code cited in
 > each decision; the decisions were taken with the project owner point by point (2026-10-11 to 2026-10-17) ·
-> **Verified:** 2026-10-15 (each consequence checked on the three labs); D8 2026-10-17
+> **Verified:** 2026-10-15 (each consequence checked on the three labs); D8 2026-10-17; D9 2026-10-19
 
 Why the tool is built the way it is, where the reason is not visible in the code: the problem, the decision, the
 alternatives left out and why, the consequences. What the tool does is described in [overview](overview.md) and in
@@ -29,6 +29,7 @@ git log -- docs/project/tests-design.md                # D8: the last commit bef
 | [D6](#d6-prepared-resources) | Prepared resources | 2026-10-14 |
 | [D7](#d7-neutral-gateway-concepts) | Neutral gateway concepts | 2026-10-11 |
 | [D8](#d8-a-test-is-self-contained) | A test is self-contained | 2026-10-17 |
+| [D9](#d9-the-configuration-as-written-and-as-used) | The configuration as written and as used | 2026-10-19 |
 
 ## D1. Configuration organised by connection
 
@@ -300,6 +301,49 @@ Sources: [Cog, running cog](https://cog.readthedocs.io/en/latest/running.html),
 [Pydantic validation context](https://docs.pydantic.dev/latest/concepts/validators/#validation-context),
 [Kong hmac-auth schema 3.9.0](https://github.com/Kong/kong/blob/3.9.0/kong/plugins/hmac-auth/schema.lua),
 [APISIX hmac-auth 3.13.0](https://github.com/apache/apisix/blob/3.13.0/apisix/plugins/hmac-auth.lua).
+
+## D9. The configuration as written and as used
+
+**Problem.** Four defects of `config.yaml` (Q-68, Q-69, Q-70), all of the same kind: what the tool ran with could
+differ from what the user wrote, without a message. A key written twice kept its last value. A `${VAR}` was
+replaced in the raw text before YAML read it, so the value became YAML source: a password `ab #cd` arrived as `ab`,
+`C:\new` in quotes with a newline, and a YAML error printed the password. A block with every line commented was
+`null`, rejected, and `config.example.yaml` had never loaded as written. A key left out took a default that no
+output showed.
+
+**Decision.** The file is read once, as written, and every step after it keeps the two apart
+(`src/config/loader.py`, `read_config`):
+
+- **Parsing first:** PyYAML's safe loader reads the file as written and rejects a key repeated in the same mapping
+  (each mapping on its own; a `<<:` merge may override).
+- **Interpolation in values:** `${VAR}` is replaced inside the parsed string values, never in the text, keys or
+  comments; quotes decide the type as for a value written by hand (unquoted and alone, a number, a boolean or an
+  empty value takes its type; anything else is the exact text).
+- **Empty blocks:** a declared block written empty takes its defaults (`without_empty_blocks`); a required block,
+  a scalar and free data are unchanged.
+- **Defaults stay in the code** (the models, shown by the generated reference and example), and every run writes
+  what it used: `config_used.yaml`, every key marked `# specified` or `# default`, re-runnable as is. It holds no
+  value from the environment (placeholders as written) and no secret (a field marked `SECRET_VALUE` written in
+  clear becomes a placeholder named after its key).
+- `dev:check` loads `config.example.yaml` as written.
+
+**Alternatives left out.** Every key required in the file, no defaults in the code (owner, 2026-10-19: 160 keys to
+write, and each new parameter breaks every configuration on upgrade); dropping every `null` before validation
+(it would change free data, a `null` in a body sent to the API); resolved values in `config_used.yaml` for the
+fields that look harmless (the tool cannot know which variable holds a secret); replacing `[REDACTED]` for secrets
+(the re-run would log in with that text); escaping the values in the text substitution (Vector's way: it blocks
+only newlines and calls the option "dangerous").
+
+**Consequences.** Any value from the environment arrives exactly as set; a YAML error quotes the file, never a
+value. A run can be repeated from its outputs: on the Forgejo + Kong lab, a run and a second run with its
+`config_used.yaml` gave the same tests, statuses, findings, oracle states and exit code. An unquoted placeholder in
+a mapping written on one line (`{count: ${N}}`) is a YAML error (as in Docker Compose): quote it, or write the
+mapping on several lines. A new secret field of the configuration takes `SECRET_VALUE`.
+
+Sources: [compose-go interpolation](https://raw.githubusercontent.com/compose-spec/compose-go/main/interpolation/interpolation.go),
+[OpenTelemetry Collector confmap](https://raw.githubusercontent.com/open-telemetry/opentelemetry-collector/main/confmap/README.md),
+[OpenTelemetry env-vars RFC](https://raw.githubusercontent.com/open-telemetry/opentelemetry-collector/main/docs/rfcs/env-vars.md),
+[Vector environment variables](https://vector.dev/docs/reference/environment_variables/).
 
 ## See also
 

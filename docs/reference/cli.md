@@ -45,6 +45,7 @@ repository (Q-54; before, the file was searched from the tool's code folder and 
 | Command | stdout | stderr |
 |---|---|---|
 | `run`, `validate-config`, `version` | console format of `run`: the progress interface and the technical log; JSON format: the log lines; result messages | human-readable error summary of `validate-config` |
+| `validate-config --show-config` | **only the configuration** (`config_used.yaml`) | the result messages, logs and errors |
 | `generate-seed` | **only the YAML template** (when `--output` is not given), so that `generate-seed SPEC > seed.yaml` writes a valid file | the panel, logs, messages and errors |
 
 **Console format of `run`.** The interface is always shown: a header (target, specification, selection), one line
@@ -90,20 +91,22 @@ apiguard run --log-level debug
 ## `validate-config`
 
 ```
-apiguard validate-config [--config PATH] [--log-format console|json]
+apiguard validate-config [--config PATH] [--log-format console|json] [--env-file PATH] [--show-config]
 ```
 
 Runs Phase 1 (reads the YAML, resolves `${VAR}` placeholders, validates the schema) and the test checks: every
 test module loads and every test class is declared correctly (`Test definitions invalid: ...`, listing every
 problem with its module) and every
-`execution.test_ids` entry exists and its tool is enabled. It does not fetch the OpenAPI specification and does not
-contact the target or the gateway. A filter combination that selects no test is detected only by `run` (Phase 4).
+`execution.test_ids` entry exists and its tool is enabled. When credentials are configured it also reads the OpenAPI
+specification (download or local file, as the run does), to check where the credentials are sent; it never
+contacts the gateway or sends a request to the API. A filter combination that selects no test is detected only by `run` (Phase 4).
 
 | Option | Default | Description |
 |---|---|---|
 | `--config`, `-c` | `config.yaml` | Path to the configuration file. |
 | `--log-format` | `console` | As for `run`. Log level is fixed to `warning`. |
 | `--env-file` | `.env` in the working directory | As for `run`. |
+| `--show-config` | off | Print on stdout the configuration a run would use, as `config_used.yaml` ([details](configuration.md#the-configuration-a-run-used-config_usedyaml)); the other messages go to stderr, so `validate-config --show-config > used.yaml` writes the file. |
 
 On success prints `Configuration valid. Target: <base_url>` (then the credential placement and the resources,
 when configured, and `N of the M selected tests will SKIP (what they need is not configured):` with one line per

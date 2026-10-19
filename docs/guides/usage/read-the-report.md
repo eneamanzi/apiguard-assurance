@@ -19,6 +19,7 @@ replacing the files of the previous run:
 | `assessment_report.html` | people | interactive report: summary, filters, one card per test |
 | `apiguard_report.json` | programs, and you with `jq` | the same data, machine-readable |
 | `evidence.json` | proof | the full HTTP transactions behind the findings, and the raw output of the external tools |
+| `config_used.yaml` | you, and a re-run | every configuration value the run used, `# specified` or `# default`; `apiguard run --config config_used.yaml` repeats the run ([details](../../reference/configuration.md#the-configuration-a-run-used-config_usedyaml)) |
 | `tools/<test>_output.json` | external tests | raw output of each tool (e.g. `tools/ext_1_5_sslyze_output.json`) |
 
 If the run was interrupted with `Ctrl+C`, none of these is written and only `evidence_tmp/` remains (Q-44).

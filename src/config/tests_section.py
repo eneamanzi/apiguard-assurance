@@ -18,6 +18,9 @@ the closest name (``loader.describe_validation_errors``). The validation
 context carries what a parameter model may check against the rest of the
 configuration: the names and values of ``resources`` (test 7.2).
 
+A domain or a test written empty (every line under it commented) takes its
+defaults, as everywhere in config.yaml (loader.without_empty_blocks).
+
 Dependency rule: imports from pydantic, the stdlib, src.config.loader and
 src.core; never from tests/ (the models are passed in).
 """
@@ -29,7 +32,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
 
-from src.config.loader import describe_validation_errors
+from src.config.loader import describe_validation_errors, without_empty_blocks
+from src.config.schema import ToolConfig
 from src.core.assessment_test import PARAMS_CONTEXT_RESOURCES, NoParams
 from src.core.exceptions import ConfigurationError
 from src.core.test_metadata import section_keys
@@ -65,6 +69,25 @@ def tests_section_model(models: Mapping[str, type[BaseModel] | None]) -> type[Ba
     return create_model("TestsSection", __config__=_MODEL_CONFIG, **fields)
 
 
+def config_model(models: Mapping[str, type[BaseModel] | None]) -> type[BaseModel]:
+    """
+    ToolConfig with its tests section as the tool checks it (one model per test).
+
+    The whole schema of config.yaml, for what walks every key: the example
+    check (scripts/check_config_keys.py) and the configuration a run used
+    (src/config/config_used.py).
+
+    Args:
+        models: Test ID -> its parameter model (None: the test has none).
+
+    Returns:
+        A model with ToolConfig's fields and the tests section's model.
+    """
+    section = tests_section_model(models)
+    fields: dict[str, Any] = {TESTS_SECTION: (section, Field(default_factory=section))}
+    return create_model("CompleteConfig", __base__=ToolConfig, **fields)
+
+
 def validate_tests_section(
     raw: Mapping[str, Any],
     models: Mapping[str, type[BaseModel] | None],
@@ -87,7 +110,9 @@ def validate_tests_section(
     """
     section = tests_section_model(models)
     try:
-        validated = section.model_validate(dict(raw), context={PARAMS_CONTEXT_RESOURCES: resources})
+        validated = section.model_validate(
+            without_empty_blocks(dict(raw), section), context={PARAMS_CONTEXT_RESOURCES: resources}
+        )
     except ValidationError as exc:
         lines = describe_validation_errors(exc, section, f"{TESTS_SECTION}.")
         raise ConfigurationError(

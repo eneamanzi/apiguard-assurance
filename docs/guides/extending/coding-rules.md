@@ -86,7 +86,7 @@ security behaviour. Changes are verified by running the affected tests against t
 
 ```bash
 hatch run dev:check   # ruff check, ruff format --check, mypy src/, bandit (medium), vulture (80), lint-imports,
-                      # config.example.yaml keys, generated documentation up to date (cog --check)
+                      # config.example.yaml keys and loading as written, generated documentation up to date (generate_docs.py --check)
 hatch run dev:gen     # rewrite the generated documentation (scripts/generate_docs.py)
 hatch run dev:deps    # pip-audit, before a release
 ```

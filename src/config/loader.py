@@ -17,24 +17,34 @@ of how the tool is invoked (CLI, tests, scripts). If load_config() is called
 from tests without going through the CLI, the test's own conftest.py is
 responsible for loading the .env file before the call.
 
-Loading pipeline (three sequential, non-overlapping phases):
+Loading pipeline (four sequential, non-overlapping phases):
 
     Phase A — Raw read:
         Read config.yaml from disk as a raw UTF-8 string.
         Raises ConfigurationError immediately on FileNotFoundError or
         PermissionError, before any YAML parsing is attempted.
 
-    Phase B — Environment variable interpolation:
-        Scan the raw string for ${VAR_NAME} patterns using a compiled regex.
-        Resolve each pattern against os.environ.
-        Raises ConfigurationError for the first unresolved variable, with
-        ConfigurationError.variable_name populated for structured logging.
-        This phase runs BEFORE YAML parsing so that the error message
-        unambiguously identifies an environment problem, not a YAML problem.
+    Phase B — YAML parsing:
+        Parse the file as written, with PyYAML's safe loader, rejecting a key
+        repeated in the same mapping. ${VAR_NAME} placeholders are still
+        plain text here, so a YAML error never shows a value from the
+        environment.
 
-    Phase C — YAML parsing and Pydantic validation:
-        Parse the interpolated string with yaml.safe_load().
-        Pass the resulting dict to ToolConfig.model_validate().
+    Phase C — Environment variable interpolation:
+        Replace ${VAR_NAME} inside the parsed string values with the variable's
+        value (never in keys). A value from the environment is never read as
+        YAML structure, so any character in a password arrives unchanged, and
+        a placeholder in a comment is ignored (Q-69). An unquoted placeholder
+        that is the whole value takes the type of its value when that is a
+        number, a boolean or empty, as if written in its place; quoted, it is
+        always text. Raises ConfigurationError
+        naming every unset variable, with ConfigurationError.variable_name
+        set to the first for structured logging.
+
+    Phase D — Pydantic validation:
+        A declared block written empty (every line under it commented) is the
+        block with its defaults, as if it were not written (without_empty_blocks).
+        Pass the interpolated dict to ToolConfig.model_validate().
         Convert Pydantic ValidationError to ConfigurationError listing every
         error (an unknown key with the closest declared key, if any), with
         config_path extracted from the first error location.
@@ -53,6 +63,7 @@ import difflib
 import os
 import re
 import typing
+from dataclasses import dataclass
 from pathlib import Path
 
 import structlog
@@ -69,6 +80,10 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
+# YAML tag of a merge key ("<<: *anchor"): repeating a key over a merged mapping
+# is how YAML overrides it, so merges are not duplicates.
+_YAML_MERGE_TAG: str = "tag:yaml.org,2002:merge"
+
 # Regex pattern for environment variable placeholders in config.yaml.
 # Matches ${VAR_NAME} where VAR_NAME is one or more uppercase letters,
 # digits, or underscores. This is the POSIX convention for env var names.
@@ -77,7 +92,14 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # supported. Writing ${ADMIN_URL:-http://localhost} leaves the literal
 # string "${ADMIN_URL:-http://localhost}" in the YAML, which Pydantic
 # then rejects with a confusing validation error rather than a clear one.
-_ENV_VAR_PATTERN: re.Pattern[str] = re.compile(r"\$\{(?P<var_name>[A-Z][A-Z0-9_]*)\}")
+ENV_VAR_PATTERN: re.Pattern[str] = re.compile(r"\$\{(?P<var_name>[A-Z][A-Z0-9_]*)\}")
+
+# YAML tag of a string scalar: the constructor that marks an unquoted placeholder.
+_YAML_STR_TAG: str = "tag:yaml.org,2002:str"
+
+# Types an unquoted placeholder can take from its value, as if the value were written
+# in its place; any other value (text, a list, a mapping, a date) stays the exact text.
+_PLACEHOLDER_SCALAR_TYPES: tuple[type, ...] = (bool, int, float, type(None))
 
 # Pydantic error type raised by extra="forbid" for a key the schema does not
 # declare (every configuration model forbids unknown keys, so a typo stops
@@ -103,7 +125,42 @@ DEFAULT_CONFIG_FILENAME: str = "config.yaml"
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class LoadedConfig:
+    """
+    A configuration file, validated and as written.
+
+    Attributes:
+        config:  The validated configuration.
+        written: The file as parsed, before any placeholder is replaced (an
+                 unquoted ${VAR} alone is an UnquotedPlaceholder): what the
+                 user wrote, for the configuration a run used
+                 (src/config/config_used.py).
+    """
+
+    config: ToolConfig
+    written: dict[str, object]
+
+
 def load_config(config_path: Path) -> ToolConfig:
+    """
+    Load, interpolate, and validate the tool configuration from a YAML file.
+
+    The validated part of read_config(), for the callers that need only it.
+
+    Args:
+        config_path: Filesystem path to the config.yaml file.
+
+    Returns:
+        A fully validated, frozen ToolConfig instance.
+
+    Raises:
+        ConfigurationError: As read_config().
+    """
+    return read_config(config_path).config
+
+
+def read_config(config_path: Path) -> LoadedConfig:
     """
     Load, interpolate, and validate the tool configuration from a YAML file.
 
@@ -122,7 +179,7 @@ def load_config(config_path: Path) -> ToolConfig:
                      error messages.
 
     Returns:
-        A fully validated, frozen ToolConfig instance.
+        The validated configuration and the file as written.
 
     Raises:
         ConfigurationError: For any of the following conditions:
@@ -145,11 +202,14 @@ def load_config(config_path: Path) -> ToolConfig:
     # Phase A: raw file read.
     raw_content = _read_raw_file(absolute_path)
 
-    # Phase B: environment variable interpolation.
-    interpolated_content = _interpolate_env_vars(raw_content, absolute_path)
+    # Phase B: YAML parsing of the file as written.
+    written = _parse_yaml(raw_content, absolute_path)
 
-    # Phase C: YAML parsing and Pydantic validation.
-    config = _parse_and_validate(interpolated_content, absolute_path)
+    # Phase C: environment variable interpolation in the parsed values.
+    interpolated = _interpolate_env_vars(written, absolute_path)
+
+    # Phase D: Pydantic validation.
+    config = _validate(interpolated, absolute_path)
 
     log.info(
         "config_loading_completed",
@@ -161,7 +221,7 @@ def load_config(config_path: Path) -> ToolConfig:
         gateway_configured=config.gateway is not None,
     )
 
-    return config
+    return LoadedConfig(config=config, written=written)
 
 
 # ---------------------------------------------------------------------------
@@ -224,67 +284,241 @@ def _read_raw_file(absolute_path: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Phase B — Environment variable interpolation
+# Phase B — YAML parsing
 # ---------------------------------------------------------------------------
 
 
-def _interpolate_env_vars(raw_content: str, config_path: Path) -> str:
+class _DuplicateKeyError(yaml.YAMLError):
+    """A key written twice in the same mapping of config.yaml."""
+
+    def __init__(self, key: object, first_line: int, second_line: int) -> None:
+        """
+        Record the key and the two lines where it is written.
+
+        Args:
+            key:         The repeated key.
+            first_line:  Line (1-based) of its first occurrence.
+            second_line: Line (1-based) of the repetition.
+        """
+        super().__init__(f"duplicate key {key!r}")
+        self.key = key
+        self.first_line = first_line
+        self.second_line = second_line
+
+
+class UnquotedPlaceholder(str):
     """
-    Replace all ${VAR_NAME} placeholders with their environment variable values.
+    A value written as an unquoted ${VAR_NAME} alone: it takes the type of its value.
 
-    The interpolation is eager and exhaustive: all placeholders are resolved
-    in a single pass using re.sub with a callable replacement function.
-    The first unresolved variable causes an immediate ConfigurationError
-    with ConfigurationError.variable_name populated for structured logging.
+    Kept in LoadedConfig.written, so the configuration a run used writes it
+    unquoted again.
+    """
 
-    The design choice to fail on the first missing variable (rather than
-    collecting all missing variables) is intentional: in practice, a missing
-    variable almost always indicates a forgotten export or a misconfigured
-    deployment environment, and fixing one at a time with a clear error
-    message is faster than receiving a list of twenty missing variables at once.
+    __slots__ = ()
+
+
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """
+    PyYAML's safe loader, rejecting a key repeated in the same mapping.
+
+    PyYAML keeps the last value of a repeated key and says nothing (Q-68), so a
+    setting written twice would silently lose its first value. Each mapping is
+    checked on its own: the same key under different parents, or in different
+    items of a list, is not a repetition; a merge key (<<) is not checked.
+
+    An unquoted scalar that is a ${VAR_NAME} alone is built as an
+    UnquotedPlaceholder (Phase C types it); quoted, it is a plain str.
+    """
+
+    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[object, object]:
+        """Build the mapping as PyYAML does, after checking its keys are unique."""
+        first_line: dict[object, int] = {}
+        for key_node, _value_node in node.value:
+            if key_node.tag == _YAML_MERGE_TAG:
+                continue
+            key = self.construct_object(key_node, deep=True)
+            try:
+                line = first_line.setdefault(key, key_node.start_mark.line + 1)
+            except TypeError:
+                continue  # an unhashable key: PyYAML reports it below
+            if line != key_node.start_mark.line + 1:
+                raise _DuplicateKeyError(key, line, key_node.start_mark.line + 1)
+        return super().construct_mapping(node, deep=deep)
+
+    def construct_placeholder_or_str(self, node: yaml.ScalarNode) -> str:
+        """Build a string scalar, marking an unquoted ${VAR_NAME} alone."""
+        value = self.construct_scalar(node)
+        if node.style is None and ENV_VAR_PATTERN.fullmatch(value):
+            return UnquotedPlaceholder(value)
+        return value
+
+
+_UniqueKeyLoader.add_constructor(_YAML_STR_TAG, _UniqueKeyLoader.construct_placeholder_or_str)
+
+
+def _parse_yaml(raw_content: str, config_path: Path) -> dict[str, object]:
+    """
+    Parse config.yaml as written, before any placeholder is replaced.
+
+    Three failure modes, each a ConfigurationError:
+
+    1. A key written twice in the same mapping (PyYAML would keep the last
+       one silently): rejected, naming the key and both lines.
+    2. yaml.YAMLError: the file is not valid YAML. PyYAML's message is
+       included verbatim because it pinpoints the line and column; it can
+       quote the file, never a value from the environment (not yet replaced).
+    3. The top level is not a mapping.
 
     Args:
-        raw_content: The raw YAML content string, possibly containing
-                     ${VAR_NAME} placeholders.
+        raw_content: The file content.
         config_path: Path of the source file, used only for error messages.
 
     Returns:
-        The interpolated YAML string with all ${VAR_NAME} replaced.
+        The top-level mapping, with ${VAR_NAME} placeholders as written.
 
     Raises:
-        ConfigurationError: If any ${VAR_NAME} placeholder has no corresponding
-                            environment variable set.
+        ConfigurationError: On any of the failures above.
     """
-    # Collect all unique placeholder names before substitution to provide
-    # a complete diagnostic in the error message (how many are missing).
-    all_placeholders = set(_ENV_VAR_PATTERN.findall(raw_content))
+    try:
+        # _UniqueKeyLoader is a yaml.SafeLoader subclass: no arbitrary object is built.
+        written = yaml.load(raw_content, Loader=_UniqueKeyLoader)  # noqa: S506  # nosec B506
+    except _DuplicateKeyError as exc:
+        raise ConfigurationError(
+            message=(
+                f"Configuration invalid: key '{exc.key}' written twice in the same mapping "
+                f"(lines {exc.first_line} and {exc.second_line} of {config_path}): keep one."
+            ),
+            config_path=str(config_path),
+        ) from exc
+    except yaml.YAMLError as exc:
+        raise ConfigurationError(
+            message=(f"YAML syntax error in configuration file '{config_path}': {exc}"),
+            config_path=str(config_path),
+        ) from exc
 
-    if not all_placeholders:
+    if not isinstance(written, dict):
+        raise ConfigurationError(
+            message=(
+                f"Configuration file '{config_path}' must contain a YAML mapping "
+                f"at the top level. Got: {type(written).__name__}. "
+                "Ensure the file starts with keys like 'target:', 'execution:', etc."
+            ),
+            config_path=str(config_path),
+        )
+    return written
+
+
+# ---------------------------------------------------------------------------
+# Phase C — Environment variable interpolation
+# ---------------------------------------------------------------------------
+
+
+def _placeholders_in(value: object) -> set[str]:
+    """
+    Return the names of the ${VAR_NAME} placeholders in the string values of a parsed tree.
+
+    Args:
+        value: A parsed YAML value (mapping, list, scalar).
+
+    Returns:
+        The variable names; keys are not searched.
+    """
+    if isinstance(value, str):
+        return set(ENV_VAR_PATTERN.findall(value))
+    if isinstance(value, dict):
+        return set().union(*(_placeholders_in(item) for item in value.values()))
+    if isinstance(value, list):
+        return set().union(*(_placeholders_in(item) for item in value))
+    return set()
+
+
+def _scalar_of(text: str) -> object:
+    """
+    Return the value an unquoted placeholder takes: text read as one YAML scalar.
+
+    Only a number, a boolean or an empty value is taken ("5" -> 5, "true" ->
+    True, "" -> None), as YAML reads them when written in place; anything
+    else stays the exact text, so a value never becomes a list, a mapping, or
+    a truncated string ("ab #cd").
+
+    Args:
+        text: The variable's value.
+
+    Returns:
+        The typed scalar, or text unchanged.
+    """
+    try:
+        scalar = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return text
+    return scalar if isinstance(scalar, _PLACEHOLDER_SCALAR_TYPES) else text
+
+
+def _replace_placeholders(value: object, variables: dict[str, str]) -> object:
+    """
+    Return a copy of a parsed tree with ${VAR_NAME} replaced in its string values.
+
+    Args:
+        value:     A parsed YAML value (mapping, list, scalar).
+        variables: The value of every placeholder name found in the tree.
+
+    Returns:
+        The same structure. An unquoted placeholder alone takes the type of
+        its value (_scalar_of); any other string stays a str (the schema
+        converts it, e.g. "30" for an integer field). Keys and non-string
+        scalars are unchanged.
+    """
+    if isinstance(value, str):
+        replaced = ENV_VAR_PATTERN.sub(lambda match: variables[match.group("var_name")], value)
+        return _scalar_of(replaced) if isinstance(value, UnquotedPlaceholder) else replaced
+    if isinstance(value, dict):
+        return {key: _replace_placeholders(item, variables) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_replace_placeholders(item, variables) for item in value]
+    return value
+
+
+def _interpolate_env_vars(written: dict[str, object], config_path: Path) -> dict[str, object]:
+    """
+    Replace every ${VAR_NAME} in the parsed string values with its environment value.
+
+    The replacement works on values already parsed, never on the text: a value
+    from the environment is not read as YAML structure, so it cannot add keys,
+    end in a comment, or appear in a YAML error (Q-69). A placeholder is a
+    whole value or part of one ("Bearer ${TOKEN}"); in a key or a comment it
+    is not replaced. Unquoted and alone, it takes the type of a number, a
+    boolean or an empty value, as if written in its place (count: ${N} with
+    N=5 is 5; "${N}" is "5"). Every variable is read once, after checking
+    they are all set.
+
+    Args:
+        written:     The parsed configuration, placeholders as written.
+        config_path: Path of the source file, used only for error messages.
+
+    Returns:
+        The configuration with every placeholder replaced.
+
+    Raises:
+        ConfigurationError: If a placeholder's environment variable is not
+                            set; the message names every one.
+    """
+    names = _placeholders_in(written)
+    if not names:
         log.debug("config_no_env_placeholders_found")
-        return raw_content
+        return written
 
     log.debug(
         "config_env_placeholders_found",
-        placeholder_count=len(all_placeholders),
-        placeholder_names=sorted(all_placeholders),
+        placeholder_count=len(names),
+        placeholder_names=sorted(names),
     )
 
-    # Verify all required variables are present before substitution.
-    # This produces a complete list of missing variables in one pass,
-    # which is more useful than discovering them one by one during re.sub.
-    missing_variables: list[str] = [
-        name for name in sorted(all_placeholders) if name not in os.environ
-    ]
-
+    missing_variables = [name for name in sorted(names) if name not in os.environ]
     if missing_variables:
-        # Report all missing variables in a single error to help the user
-        # configure the environment in one step.
         first_missing = missing_variables[0]
-        all_missing_str = ", ".join(missing_variables)
-
         raise ConfigurationError(
             message=(
-                f"Environment variable(s) not set: {all_missing_str}. "
+                f"Environment variable(s) not set: {', '.join(missing_variables)}. "
                 f"Export the required variable(s) before running the tool. "
                 f"Example: export {first_missing}=<value>"
             ),
@@ -292,93 +526,38 @@ def _interpolate_env_vars(raw_content: str, config_path: Path) -> str:
             config_path=str(config_path),
         )
 
-    def _replace_placeholder(match: re.Match[str]) -> str:
-        """
-        Replacement function for re.sub.
-
-        At this point all variables are verified present (checked above),
-        so os.environ access is guaranteed to succeed. The KeyError guard
-        is a defensive measure against a race condition where an environment
-        variable is unset between the verification loop and this substitution.
-        """
-        var_name = match.group("var_name")
-        value = os.environ.get(var_name)
-        if value is None:
-            raise ConfigurationError(
-                message=(
-                    f"Environment variable '{var_name}' was present during "
-                    "validation but disappeared before substitution. "
-                    "This indicates a race condition in the shell environment."
-                ),
-                variable_name=var_name,
-                config_path=str(config_path),
-            )
-        return value
-
-    interpolated = _ENV_VAR_PATTERN.sub(_replace_placeholder, raw_content)
-
-    log.debug(
-        "config_env_interpolation_completed",
-        variables_resolved=len(all_placeholders),
-    )
-
-    return interpolated
+    variables = {name: os.environ[name] for name in names}
+    interpolated = _replace_placeholders(written, variables)
+    log.debug("config_env_interpolation_completed", variables_resolved=len(names))
+    return typing.cast("dict[str, object]", interpolated)
 
 
 # ---------------------------------------------------------------------------
-# Phase C — YAML parsing and Pydantic validation
+# Phase D — Pydantic validation
 # ---------------------------------------------------------------------------
 
 
-def _parse_and_validate(interpolated_content: str, config_path: Path) -> ToolConfig:
+def _validate(interpolated: dict[str, object], config_path: Path) -> ToolConfig:
     """
-    Parse the interpolated YAML string and validate it against ToolConfig.
+    Validate the interpolated configuration against ToolConfig.
 
-    Two distinct failure modes are handled separately:
-
-    1. yaml.YAMLError: The content is syntactically invalid YAML. This is a
-       formatting error in config.yaml, not an environment problem. The error
-       message from PyYAML is included verbatim because it already pinpoints
-       the line and column of the syntax error.
-
-    2. pydantic.ValidationError: The YAML structure is valid but does not
-       conform to ToolConfig's schema (wrong type, out of range, missing, or
-       an unknown key). Every error is listed in the message as a dotted path
-       into config.yaml (e.g., 'target.base_url'); the first one is also
-       stored in ConfigurationError.config_path.
+    A structure that does not conform to ToolConfig's schema (wrong type, out
+    of range, missing, or an unknown key) is a ConfigurationError listing
+    every error as a dotted path into config.yaml (e.g., 'target.base_url');
+    the first one is also stored in ConfigurationError.config_path.
 
     Args:
-        interpolated_content: YAML string with all ${VAR_NAME} resolved.
-        config_path: Path of the source file, used only for error messages.
+        interpolated: The parsed configuration with every placeholder replaced.
+        config_path:  Path of the source file, used only for error messages.
 
     Returns:
         A fully validated, frozen ToolConfig instance.
 
     Raises:
-        ConfigurationError: On YAML syntax errors or Pydantic validation failures.
+        ConfigurationError: On Pydantic validation failures.
     """
-    # YAML parsing.
     try:
-        raw_dict = yaml.safe_load(interpolated_content)
-    except yaml.YAMLError as exc:
-        raise ConfigurationError(
-            message=(f"YAML syntax error in configuration file '{config_path}': {exc}"),
-            config_path=str(config_path),
-        ) from exc
-
-    if not isinstance(raw_dict, dict):
-        raise ConfigurationError(
-            message=(
-                f"Configuration file '{config_path}' must contain a YAML mapping "
-                f"at the top level. Got: {type(raw_dict).__name__}. "
-                "Ensure the file starts with keys like 'target:', 'execution:', etc."
-            ),
-            config_path=str(config_path),
-        )
-
-    # Pydantic validation.
-    try:
-        config = ToolConfig.model_validate(raw_dict)
+        config = ToolConfig.model_validate(without_empty_blocks(interpolated, ToolConfig))
     except ValidationError as exc:
         # Pydantic v2 errors() returns a list of TypedDict with 'loc' as a
         # tuple of (str | int) representing the path into the model.
@@ -400,6 +579,104 @@ def _parse_and_validate(interpolated_content: str, config_path: Path) -> ToolCon
     )
 
     return config
+
+
+def without_empty_blocks(data: dict[str, object], model: type[BaseModel]) -> dict[str, object]:
+    """
+    Return data without the declared blocks written empty, so they take their defaults.
+
+    YAML reads a key with nothing under it (every line commented) as null, and
+    a block's model rejects null. A block written empty means "nothing set
+    here": it is dropped when the schema declares it as a block (a model or a
+    mapping), it has a default, and null is not one of its valid values.
+    Applied to the whole configuration and, after test discovery, to the tests
+    section (src/config/tests_section.py). Everything else is unchanged: a
+    required block written empty is still an error, a scalar written empty
+    ("max_requests:") is still an error, and free data (a resource body, header
+    values, path_seed values) is never inspected.
+
+    Args:
+        data:  A mapping of config.yaml, as parsed.
+        model: The model it is validated with.
+
+    Returns:
+        A copy of data without the empty blocks, at every level the model
+        declares.
+    """
+    fields = {field.alias or name: field for name, field in model.model_fields.items()}
+    kept: dict[str, object] = {}
+    for key, value in data.items():
+        field = fields.get(key)
+        if field is None:
+            kept[key] = value  # an unknown key: validation reports it
+            continue
+        if value is None:
+            if (
+                _is_block(field.annotation)
+                and not field.is_required()
+                and not _accepts_none(field.annotation)
+            ):
+                continue
+            kept[key] = value
+            continue
+        kept[key] = _without_empty_blocks_in(value, field.annotation)
+    return kept
+
+
+def _without_empty_blocks_in(value: object, annotation: object) -> object:
+    """
+    Apply without_empty_blocks to a value of a field, at the levels its annotation declares.
+
+    Args:
+        value:      The value as parsed.
+        annotation: The field annotation.
+
+    Returns:
+        The value, its empty blocks dropped where it is a model or a mapping of
+        names to a model (resources); any other value unchanged.
+    """
+    if not isinstance(value, dict):
+        return value
+    entry_model = mapping_entry_model(annotation)
+    if entry_model is not None:
+        return {
+            name: without_empty_blocks(entry, entry_model) if isinstance(entry, dict) else entry
+            for name, entry in value.items()
+        }
+    block_model = model_in_annotation(annotation)
+    return without_empty_blocks(value, block_model) if block_model is not None else value
+
+
+def _is_block(annotation: object) -> bool:
+    """
+    True when a field annotation is a block of config.yaml: a model or a mapping.
+
+    Handles wrappers such as Optional[...] and Annotated[...].
+
+    Args:
+        annotation: A field annotation from model_fields.
+
+    Returns:
+        Whether a value of the field is written as a mapping.
+    """
+    if model_in_annotation(annotation) is not None:
+        return True
+    if typing.get_origin(annotation) is dict:
+        return True
+    return any(_is_block(argument) for argument in typing.get_args(annotation))
+
+
+def _accepts_none(annotation: object) -> bool:
+    """
+    True when null is a valid value of a field annotation (Optional[...], X | None).
+
+    Args:
+        annotation: A field annotation from model_fields.
+
+    Returns:
+        Whether None is one of the annotation's members.
+    """
+    return annotation is None or type(None) in typing.get_args(annotation)
 
 
 def closest_match(value: str, candidates: list[str], cutoff: float) -> str | None:
@@ -509,14 +786,14 @@ def _known_keys_at(loc: tuple[str | int, ...], root: type[BaseModel]) -> list[st
         field = fields.get(str(part))
         if field is None:
             return []
-        entry_model = _mapping_entry_model(field.annotation)
-        model = None if entry_model is not None else _model_in_annotation(field.annotation)
+        entry_model = mapping_entry_model(field.annotation)
+        model = None if entry_model is not None else model_in_annotation(field.annotation)
     if model is None:
         return []
     return [field.alias or name for name, field in model.model_fields.items()]
 
 
-def _mapping_entry_model(annotation: object) -> type[BaseModel] | None:
+def mapping_entry_model(annotation: object) -> type[BaseModel] | None:
     """
     Return the model of the values of a mapping annotation (dict[str, Model]).
 
@@ -531,15 +808,15 @@ def _mapping_entry_model(annotation: object) -> type[BaseModel] | None:
     """
     if typing.get_origin(annotation) is dict:
         arguments = typing.get_args(annotation)
-        return _model_in_annotation(arguments[-1]) if arguments else None
+        return model_in_annotation(arguments[-1]) if arguments else None
     for argument in typing.get_args(annotation):
-        model = _mapping_entry_model(argument)
+        model = mapping_entry_model(argument)
         if model is not None:
             return model
     return None
 
 
-def _model_in_annotation(annotation: object) -> type[BaseModel] | None:
+def model_in_annotation(annotation: object) -> type[BaseModel] | None:
     """
     Return the Pydantic model inside a field annotation, if any.
 
@@ -554,7 +831,7 @@ def _model_in_annotation(annotation: object) -> type[BaseModel] | None:
     if isinstance(annotation, type) and issubclass(annotation, BaseModel):
         return annotation
     for argument in typing.get_args(annotation):
-        model = _model_in_annotation(argument)
+        model = model_in_annotation(argument)
         if model is not None:
             return model
     return None

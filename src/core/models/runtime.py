@@ -25,6 +25,7 @@ from __future__ import annotations
 from enum import StrEnum
 
 from pydantic import BaseModel, Field, model_validator
+from pydantic.config import JsonDict
 
 # ---------------------------------------------------------------------------
 # Enumerations
@@ -57,6 +58,11 @@ _ROLES: tuple[tuple[str, str, str, str], ...] = (
 )
 
 _SENSITIVE_DESCRIPTION: str = "From a ${VAR} placeholder; never logged, masked in every output."
+
+# Marks a configuration field whose value is a secret (for a mapping: each of its
+# values), as Field(json_schema_extra=SECRET_VALUE): the configuration a run used
+# (config_used.yaml, src/config/config_used.py) writes it only as a ${VAR} placeholder.
+SECRET_VALUE: JsonDict = {"secret_value": True}
 
 
 # ---------------------------------------------------------------------------
@@ -129,33 +135,51 @@ class RuntimeCredentials(BaseModel):
 
     # Accounts (basic, login)
     admin_username: str | None = Field(
-        default=None, description="Admin username. " + _SENSITIVE_DESCRIPTION
+        default=None,
+        description="Admin username. " + _SENSITIVE_DESCRIPTION,
+        json_schema_extra=SECRET_VALUE,
     )
     admin_password: str | None = Field(
-        default=None, description="Admin password. " + _SENSITIVE_DESCRIPTION
+        default=None,
+        description="Admin password. " + _SENSITIVE_DESCRIPTION,
+        json_schema_extra=SECRET_VALUE,
     )
     user_a_username: str | None = Field(
-        default=None, description="User A username. " + _SENSITIVE_DESCRIPTION
+        default=None,
+        description="User A username. " + _SENSITIVE_DESCRIPTION,
+        json_schema_extra=SECRET_VALUE,
     )
     user_a_password: str | None = Field(
-        default=None, description="User A password. " + _SENSITIVE_DESCRIPTION
+        default=None,
+        description="User A password. " + _SENSITIVE_DESCRIPTION,
+        json_schema_extra=SECRET_VALUE,
     )
     user_b_username: str | None = Field(
-        default=None, description="User B username. " + _SENSITIVE_DESCRIPTION
+        default=None,
+        description="User B username. " + _SENSITIVE_DESCRIPTION,
+        json_schema_extra=SECRET_VALUE,
     )
     user_b_password: str | None = Field(
-        default=None, description="User B password. " + _SENSITIVE_DESCRIPTION
+        default=None,
+        description="User B password. " + _SENSITIVE_DESCRIPTION,
+        json_schema_extra=SECRET_VALUE,
     )
 
     # Tokens (static_token)
     admin_token: str | None = Field(
-        default=None, description="Admin token (static_token). " + _SENSITIVE_DESCRIPTION
+        default=None,
+        description="Admin token (static_token). " + _SENSITIVE_DESCRIPTION,
+        json_schema_extra=SECRET_VALUE,
     )
     user_a_token: str | None = Field(
-        default=None, description="User A token (static_token). " + _SENSITIVE_DESCRIPTION
+        default=None,
+        description="User A token (static_token). " + _SENSITIVE_DESCRIPTION,
+        json_schema_extra=SECRET_VALUE,
     )
     user_b_token: str | None = Field(
-        default=None, description="User B token (static_token). " + _SENSITIVE_DESCRIPTION
+        default=None,
+        description="User B token (static_token). " + _SENSITIVE_DESCRIPTION,
+        json_schema_extra=SECRET_VALUE,
     )
 
     # login

@@ -9,18 +9,29 @@
 
 Every field, type, default and constraint below comes from the Pydantic models. For a guided setup see
 [`guides/usage/configure-a-target.md`](../guides/usage/configure-a-target.md); the complete example in the repository, with every key, its description and its default, is
-[`config.example.yaml`](../../config.example.yaml) (`hatch run dev:check` verifies that it lists every key); the lab
+[`config.example.yaml`](../../config.example.yaml) (`hatch run dev:check` verifies that it lists every key and loads as written); the lab
 configurations hold only their own values.
 
 ## Loading rules
 
 1. **File.** Default `config.yaml` in the working directory; override with `--config`.
 2. **Secrets via environment.** Every `${VAR}` placeholder is replaced with the environment variable `VAR`
-   **before** the YAML is parsed (`src/config/loader.py`).
+   **after** the YAML is parsed, inside the string values (`src/config/loader.py`), as Docker Compose does.
+   - A placeholder is a whole value or part of one (`"Bearer ${TOKEN}"`); in a key it is not replaced, and in
+     a YAML comment it is ignored.
+   - The value from the environment is never read as YAML structure: any character (`#`, `:`, `"`, `\`, `[`)
+     is kept, and a YAML error quotes the file as written, never the value.
+   - Quotes decide the type, as for a value written by hand. Quoted (`"${VAR}"`), the value is always text.
+     Unquoted and alone (`count: ${VAR}`), it takes the type of a number, a boolean or an empty value, as if
+     written in its place (`VAR=5` gives `5`, `true` gives `true`, empty gives `null`); any other value stays the
+     exact text. It matters in free data such as a resource `body`; a configuration field converts the text
+     itself (`timeout_seconds: "${NUCLEI_TIMEOUT}"` is 600). Write passwords and tokens quoted: an unquoted
+     `12345678` is a number, and a password field rejects it.
+   - In a mapping written on one line (`body: {count: ${VAR}}`) the placeholder must be quoted, or the braces
+     are a YAML error; for a number there, write the mapping on several lines.
    - Only uppercase names are recognised: `${[A-Z][A-Z0-9_]*}`. Other forms are left as literal text.
    - `${VAR:-default}` is **not** supported.
-   - An unset variable stops the tool with `ConfigurationError` naming the variable (exit `10`). This applies
-     to placeholders **inside YAML comments too**, because interpolation happens on the raw text.
+   - An unset variable stops the tool with `ConfigurationError` naming every unset variable (exit `10`).
    - `.env` is loaded first: the one in the working directory, or the file given with `--env-file`
      ([details](cli.md#environment-and-env)); variables already in the environment win.
 3. **Relative paths** (`specification.path`, the files of the `tls` blocks, `output.directory`,
@@ -32,7 +43,17 @@ configurations hold only their own values.
    `execution.min_prioriti: unknown key (did you mean 'min_priority'?)`. Free-form mappings such as
    `target.path_seed` (keys chosen by the user) are not checked. A configuration written for a newer version of
    the tool, with keys this version does not know, is rejected the same way.
-5. The loaded configuration is immutable for the whole run.
+5. **A key written twice in the same mapping is rejected** (exit `10`), naming the key and both lines:
+   `key 'path' written twice in the same mapping (lines 129 and 130 of config.yaml): keep one.` YAML alone would
+   keep the last value without a message. Each mapping is checked on its own: the same key under different parents
+   (`path` in two resources) or in different items of a list is not a repetition, and a key that overrides a YAML
+   merge (`<<: *anchor`) is allowed.
+6. **A block written empty takes its defaults**, as if it were not written: a block the schema declares (a
+   section, a tool, a `domain_X`, a `test_X_Y`, `headers`, `path_seed`) with every line under it commented,
+   which YAML reads as `null`. A required block written empty (`target`, `specification`, `gateway.admin`) is
+   still an error, and so is a single value written empty (`fail_fast:`); free data (a `body`, the values of
+   `headers` and `path_seed`) is kept as written, `null` included.
+7. The loaded configuration is immutable for the whole run.
 
 ## Minimal configuration
 
@@ -245,7 +266,24 @@ The timeouts and retries of the API connection are in [`target`](#target), the s
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `directory` | path | `outputs` | Destination of `evidence.json`, `assessment_report.html`, `apiguard_report.json`, `tools/` and the temporary `evidence_tmp/`. Created if missing. |
+| `directory` | path | `outputs` | Destination of `evidence.json`, `assessment_report.html`, `apiguard_report.json`, `config_used.yaml`, `tools/` and the temporary `evidence_tmp/`. Created if missing. |
+
+### The configuration a run used (`config_used.yaml`)
+
+Every run writes `config_used.yaml` in `output.directory` before contacting the target, so it exists also when the
+run stops later (`src/config/config_used.py`; `apiguard validate-config --show-config` prints the same text). It
+holds every key of the schema, the parameters of every test included, each marked `# specified` (written in your
+file) or `# default`. Passed back with `apiguard run --config config_used.yaml`, with the same environment, it runs
+the same assessment (verified on the Forgejo + Kong lab: same tests, statuses, findings, oracle states, exit code).
+
+- A value written with a `${VAR}` placeholder is written as you wrote it, quoted or not, never resolved: the tool
+  cannot know whether a variable holds a secret, and the re-run resolves it from the same environment.
+- A secret written in clear (the usernames, passwords and tokens of `credentials`, the values of
+  `gateway.admin.headers`) becomes a placeholder named after its key, e.g. `${APIGUARD_CREDENTIALS_ADMIN_PASSWORD}`,
+  with the note `written in clear in your config.yaml: export APIGUARD_CREDENTIALS_ADMIN_PASSWORD to re-run`; the
+  re-run stops (exit `10`) naming every such variable until it is exported.
+- Any other value is the one the run used, as validated: a relative TLS file becomes an absolute path, a URL may
+  gain a final `/`.
 
 ## `tests`
 
@@ -428,7 +466,7 @@ Common keys for each tool (`testssl`, `nuclei`, `sslyze`):
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `enabled` | bool | **`false`** | Enable the tool. |
-| `timeout_seconds` | int \| null | `null` | **Required when `enabled: true`** (Phase 1 error otherwise). Ranges: testssl 30-600, nuclei 60-600, sslyze 30-300. For testssl and nuclei: wall-clock limit of one execution. For sslyze: timeout of each TLS connection, not of the whole scan. |
+| `timeout_seconds` | int \| null | `null` | **Required when `enabled: true`** (Phase 1 error otherwise). Ranges: testssl ≥30, nuclei ≥60 (no upper bound), sslyze 30-300. For testssl and nuclei: wall-clock limit of one execution, which only stops a tool that hangs: set it to 2-3 times the duration seen on your target; a tool that ends after more than 70% of it logs the warning `external_tool_near_time_limit` with the value to raise. For sslyze: timeout of each TLS connection, not of the whole scan. |
 | `extra_flags` | string | testssl: `--quiet --color 0`; nuclei: `""` | **testssl and nuclei only** (command-line tools). Flags appended verbatim to the command line. Must not contain secrets. sslyze is a library and has no such key. |
 | `expected_version` | string \| null | `null` | Expected tool version; a mismatch logs a WARNING and the test still runs. |
 | `dev_mode` | bool | `false` | Development only: reuse `outputs/tools/<label>_output.json` instead of running the tool. Never enable in a real assessment. |

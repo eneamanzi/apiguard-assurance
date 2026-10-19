@@ -23,7 +23,7 @@ in `docs/reference/compatibility.md` (Test portability).
 | What is implemented, milestones | `docs/project/roadmap.md` (single source of truth) |
 | Pipeline, modules, dependencies, components | `docs/architecture/overview.md` |
 | Data models, assessment model, security model | `docs/architecture/data-model.md`, `assessment-model.md`, `security-model.md` |
-| Why a design choice was made (decisions D1-D8) | `docs/architecture/design-decisions.md` |
+| Why a design choice was made (decisions D1-D9) | `docs/architecture/design-decisions.md` |
 | Coding rules (English) | `docs/guides/extending/coding-rules.md` |
 | Adding a native test / external test / gateway adapter | `docs/guides/extending/add-a-native-test.md`, `add-an-external-test.md`, `add-a-gateway-adapter.md` |
 | What each test does, its oracle, its effects on the target | `docs/tests/` (index `docs/tests/README.md`) |
@@ -42,7 +42,8 @@ src/
 ├── cli_console.py    # Console interface of `run` (engine RunObserver): test lines, summary
 ├── engine.py         # Orchestrator, the only module with full visibility
 ├── config/           # Phase 1: loader (YAML + ${VAR} interpolation) + ToolConfig schema;
-│                     #   tests_section (the tests: section, checked against the tests' models)
+│                     #   tests_section (the tests: section, checked against the tests' models);
+│                     #   config_used (config_used.yaml, the configuration a run used)
 ├── discovery/        # Phase 2: OpenAPI fetch/dereference, AttackSurface, seed generator
 ├── core/             # Shared infrastructure, zero test logic: client, context, evidence, dag,
 │                     #   gateway/ (BaseGatewayAdapter + Kong, APISIX), auth_placement,

@@ -448,6 +448,16 @@ def validate_config(
         ),
     ] = LogFormat.CONSOLE,
     env_file: EnvFileOption = None,
+    show_config: Annotated[
+        bool,
+        typer.Option(
+            "--show-config",
+            help=(
+                "Print on stdout the configuration a run would use (config_used.yaml): every "
+                "key, specified or default. The other messages go to stderr."
+            ),
+        ),
+    ] = False,
 ) -> None:
     """
     Validate config.yaml without running the assessment.
@@ -468,11 +478,15 @@ def validate_config(
     _configure_logging(log_format=log_format, log_level=LogLevel.WARNING)
     _load_env_file(env_file)
 
-    from src.config.loader import load_config
+    from src import __version__
+    from src.config.config_used import config_used_yaml
+    from src.config.loader import read_config
     from src.core.exceptions import ConfigurationError, OpenAPILoadError, TestDefinitionError
     from src.core.models.enums import ExitCode
 
     log = structlog.get_logger("cli.validate_config")
+    # With --show-config, stdout carries only the configuration (redirectable to a file).
+    summary = _console_err if show_config else _console_out
 
     from src.engine import (
         build_connection_contexts,
@@ -485,32 +499,37 @@ def validate_config(
     )
 
     try:
-        tool_config = load_config(config)
+        loaded = read_config(config)
+        tool_config = loaded.config
         test_params = check_tests(tool_config)
         build_connection_contexts(tool_config)
         placement = check_credentials(tool_config)
-        _console_out.print(
+        summary.print(
             f"[bold green]Configuration valid.[/bold green] Target: {tool_config.target.base_url}"
         )
         if placement is not None:
             method = str(tool_config.credentials.auth_type)
             if tool_config.credentials.login_resource is not None:
                 method += f", resource '{tool_config.credentials.login_resource}'"
-            _console_out.print(
+            summary.print(
                 f"Credentials ({method}) sent in the "
                 f"{placement.location.value} '{placement.name}' ({placement.source})."
             )
         if tool_config.resources:
-            _console_out.print(f"Resources: {describe_resources(tool_config, test_params)}.")
+            summary.print(f"Resources: {describe_resources(tool_config, test_params)}.")
         selected, _ = select_tests(tool_config)
         unmet = unmet_needs_by_test(selected, test_params, configuration_facts(tool_config))
         if unmet:
-            _console_out.print(
+            summary.print(
                 f"{len(unmet)} of the {len(selected)} selected tests will SKIP "
                 "(what they need is not configured):"
             )
             for test_id, reasons in unmet.items():
-                _console_out.print(f"  {test_id}: {' '.join(reasons)}", markup=False)
+                summary.print(f"  {test_id}: {' '.join(reasons)}", markup=False)
+        if show_config:
+            sys.stdout.write(
+                config_used_yaml(tool_config, loaded.written, test_params, __version__)
+            )
         raise typer.Exit(code=0)
     except ConfigurationError as exc:
         log.error(

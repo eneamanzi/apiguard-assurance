@@ -65,6 +65,10 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Evidence (2026-10-07): `extra_flags` is read by the testssl and nuclei connectors (CLI tools); sslyze is a Python library with no command line, its `extra_flags` exists only because `SslyzeConfig` inherits `BaseExternalToolConfig` (`src/core/models/external_tools.py:212`) and `src/connectors/sslyze.py` never reads it. `ssrf_request_timeout_ms` is validated (then `src/config/schema/domain_7.py`, now `src/test_config/domain_7.py`), reaches the test through `RuntimeTestsConfig` and is never read by test 7.2, which uses `execution.read_timeout` (default 30 s).
 - Decision (owner, 2026-10-07): no configuration option without effect: implement it or remove it (removed keys must then be rejected, see Q-22). `external_tools.sslyze.extra_flags`: remove. `tests.domain_7.test_7_2.ssrf_request_timeout_ms`: decide implement vs remove during the review of test 7.2 (per-test quality review, Q-29/Q-32). Until then `docs/reference/configuration.md` documents both as without effect.
 - Done (2026-10-07, block 2): `extra_flags` removed from `BaseExternalToolConfig`; it remains on `TestsslConfig` and `NucleiConfig` with the same defaults (they already declared it). A `sslyze.extra_flags` key in `config.yaml` is still accepted and ignored, as before, until unknown keys are rejected (Q-22). Docs updated (`reference/configuration.md`, `add-an-external-test.md`).
+- Added 2026-10-19 (Q-67): `external_tools.sslyze.timeout_seconds` is not a limit of the run, as for testssl.sh and
+  nuclei, but the timeout of each TLS connection, clamped to 20 s (`src/connectors/sslyze.py`, `network_timeout=min(
+  timeout_seconds, 20)`): the same key means two things. Rename it for sslyze (e.g. a per-connection timeout key) or
+  make it the run's limit, in the review.
 - Resolution:
 
 ### Q-29 - Lenient or weak oracles
@@ -165,23 +169,3 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Owner decision (2026-10-07): not now. Expected values taken from today's output would only freeze current results (regression, not correctness), and block 6 will change them. Build the suite after the test quality review, with each expected result stating its basis: `lab-design` (justified by the lab configuration, e.g. 4.1 FAIL because `rate-limiting` is commented out in `kong.yml:36`; 6.2 PASS because Kong adds the headers and `KONG_HEADERS=off`; 1.5 PASS because port 8000 redirects with 301) or `observed`; ideally prove each test on a secure and a vulnerable lab variant. Meanwhile regressions are checked by comparing two reports with `scripts/compare_reports.py`.
 - Note (2026-10-11, Q-65): after the redirect fix both labs give 1.5 FAIL because Kong's own 404 (no route matched) carries no HSTS header (RFC 6797 asks for it on every secure response); a global `response-transformer` adding HSTS makes Kong's 404 carry it (checked on a throwaway Kong 3.9.3). Which controls each lab variant configures to pass or to fail is decided here, with the test review.
 - Resolution:
-
-### Q-67 - External tool time limit: a fixed wall-clock limit too close to the normal duration
-- Status: open (found 2026-10-16, block 10b step 1 verification)
-- Evidence (2026-10-16, Forgejo + Kong lab, `external_tools.nuclei.timeout_seconds: 240` in the three lab configurations): `ext.0.1.nuclei` lasts 173-194 s in a full run (reference of 2026-10-15: 192.4 s; today 173.4, 191.5, 193.6, 194.5 s, alone or in full runs, old and new code, identical command line). Three full runs made while the machine also ran `hatch run dev:check` went over 240 s and ended in ERROR "External tool 'nuclei' timed out" on all three labs; rerun with the machine otherwise idle, the same code gave PASS in about 194 s. The limit is meant to stop a tool that hangs, not one that works: at 25% above the normal duration, load alone makes it fire.
-- Owner (2026-10-16): the limit can be raised a priori for more margin; what matters is that during that time the tool is really working, not hung (no endless wait).
-- Options: (A) raise `timeout_seconds` in the lab configurations and document how to size it for a real target (the duration grows with the API and the templates); (B) a stall check instead of (or beside) the wall-clock limit: stop the tool when it shows no progress for N seconds (nuclei can print periodic statistics; to verify for each tool), so that a long scan of a large API is not cut while a hung one is.
-- Resolution:
-
-### Q-68 - A key written twice in config.yaml is silently overwritten
-- Status: open (found 2026-10-17, block 10b final trial)
-- Evidence (2026-10-17, scratch copy): a configuration with two `domain_2:` mappings under `tests:` (one added at the
-  top, the lab's own further down) validated and ran with the later one only: the parameter set in the first
-  (`tests.domain_2.test_2_9.probe_path: /api/v1/version`) was lost without a message, and the test used its
-  default (`probe_path is /`). PyYAML's `safe_load` keeps the last value of a duplicate key and reports nothing
-  (`src/config/loader.py`, `yaml.safe_load`). The same holds for every section of `config.yaml`, credentials and TLS
-  settings included: what the tool runs with can differ from what the user wrote.
-- Question: reject a duplicate key at load time (exit 10, naming the key and both lines), with a loader that
-  checks duplicates while building the mappings?
-- Resolution:
-

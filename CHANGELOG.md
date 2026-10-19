@@ -13,6 +13,17 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
 ### Added
 
+- `config_used.yaml` among the outputs of every run (Q-70): every key of the configuration, the parameters of every
+  test included, each marked `# specified` or `# default`; `apiguard run --config config_used.yaml` repeats the run
+  (verified on the lab: identical report). Placeholders stay as written; a credential or Admin API header written in
+  clear becomes a placeholder named after its key, so the file holds no secret. `apiguard validate-config
+  --show-config` prints it on stdout. Fields that hold secrets are declared in the schema
+  (`Field(json_schema_extra=SECRET_VALUE)`, `src/core/models/runtime.py`).
+
+- An external tool that ends after more than 70% of its time limit is warned about (`external_tool_near_time_limit`,
+  with the duration, the limit and the key to raise), for the tools run as a process (testssl.sh, nuclei); the limit
+  only stops a tool that hangs (Q-67).
+
 - What a test needs from the configuration is declared (block 10b, `docs/architecture/design-decisions.md`, D8): `TestInfo.needs`
   (`ADMIN_ACCOUNT`, `USER_ACCOUNT`, `GATEWAY`, `REVOCABLE_LOGIN`; `src/core/test_needs.py`, where a new need is one
   entry) and the parameters a test cannot run without (`Field(json_schema_extra=NEEDED_TO_RUN)`). `validate-config`
@@ -100,6 +111,24 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
 ### Fixed
 
+- `config.example.yaml` did not load as written (exit `10`, `tests.domain_1.test_1_4: Input should be a valid
+  dictionary`) since it was created: a block with every line commented is `null` for YAML, and a block rejected
+  `null` (Q-70). A declared block written empty now takes its defaults, as if it were not written (sections, tools,
+  domains and tests of the `tests` section, `headers`, `path_seed`); a required block or a single value written
+  empty is still an error. `dev:check` now loads the example as written (`scripts/check_config_keys.py`, with the
+  tests section check and no contact with the target).
+
+- A value from the environment could change `config.yaml`: `${VAR}` was replaced in the raw text, then the text
+  was parsed as YAML (Q-69). A password `ab #cd` arrived as `ab` without a message, `C:\new` in quotes arrived with a
+  newline, `x: y` or `p"w` stopped the tool, and the YAML error printed the password in clear. The placeholders
+  are now replaced after parsing, inside the string values: any value arrives exactly as set, a YAML error shows
+  the file as written, and a placeholder in a comment is ignored (it used to stop the tool when unset). Quoted, a
+  placeholder is text; unquoted and alone, it takes the type of a number, a boolean or an empty value, as before
+  (`count: ${N}` with `N=5` sends `5`). An unquoted placeholder inside a mapping written on one line
+  (`{count: ${N}}`) is now a YAML error: quote it, or write the mapping on several lines. The lab
+  configurations and `config.example.yaml` load the same data as before. The commented examples of
+  `config.example.yaml` show `${...}` placeholders instead of `<placeholder>`.
+
 - `--log-format json`: the sslyze library wrote plain-text INFO lines into the JSON log stream (5 per run);
   they now appear only at `--log-level debug`.
 - SIGTERM (`kill`, `docker stop`, CI timeouts) is handled like Ctrl+C: teardown runs, so the resources the tests
@@ -131,6 +160,14 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
   used to give ERROR).
 
 ### Changed
+
+- **Breaking:** a key written twice in the same mapping of `config.yaml` stops the tool (exit `10`, naming the
+  key and both lines); before, the last one was kept silently and the first value was lost (Q-68). The same key under
+  different parents, in different list items or overriding a YAML merge (`<<:`) is accepted.
+
+- `external_tools.testssl.timeout_seconds` and `external_tools.nuclei.timeout_seconds` have no upper bound (they were
+  at most 600): the user sizes them to 2-3 times the duration seen on the target. The example and the lab
+  configurations set nuclei to 600 (was 240: a lab scan takes 173-194 s, and a loaded machine went over 240, Q-67).
 
 - **Breaking:** parameters a user gives about the target are named by what they are, not by what the test does
   (block 10b, owner): 1.4 `verify_request` is `protected_endpoint` (an endpoint that requires authentication: method

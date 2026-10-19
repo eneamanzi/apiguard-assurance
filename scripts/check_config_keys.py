@@ -1,7 +1,8 @@
 """
 scripts/check_config_keys.py
 
-Check that config.example.yaml lists every configuration key, and nothing else.
+Check that config.example.yaml lists every configuration key, and nothing else,
+and that it loads as written.
 
 config.example.yaml is the one complete configuration of the repository: every
 key of the schema, with its description. The lab configurations hold only
@@ -25,33 +26,42 @@ passwords): a line '<indent># <key>: ...' whose key is lowercase snake_case
 counts as the key '<key>' at that indentation. Prose comments start with an
 uppercase letter or have no 'key:' form, so they are not taken for keys.
 
+The file is then loaded as written, as a user would copy it: the loader
+(src/config/loader.py) and the tests section check (engine.check_tests), with
+no contact with the target. A ${VAR} placeholder whose variable is not set gets
+a stand-in value in this process only.
+
 Usage:
     python scripts/check_config_keys.py [path]   (default: config.example.yaml)
 
-Exit codes: 0 aligned, 1 not aligned, 2 file unreadable.
+Exit codes: 0 aligned and loadable, 1 not aligned, 2 file unreadable, 3 does not load.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import re
 import sys
 import types
 import typing
 from pathlib import Path
-from typing import Any
 
 import structlog
 import yaml
-from pydantic import BaseModel, Field, create_model
-from src.config.schema.tool_config import ToolConfig
-from src.config.tests_section import TESTS_SECTION, tests_section_model
-from src.engine import test_parameter_models
+from pydantic import BaseModel
+from src.config.loader import ENV_VAR_PATTERN, load_config
+from src.config.tests_section import config_model
+from src.core.exceptions import ToolBaseError
+from src.engine import check_tests, test_parameter_models
 
 _DEFAULT_PATH: Path = Path("config.example.yaml")
 _EXIT_ALIGNED: int = 0
 _EXIT_NOT_ALIGNED: int = 1
 _EXIT_UNREADABLE: int = 2
+_EXIT_NOT_LOADABLE: int = 3
+# Value of a placeholder whose variable is not set, for the load check only.
+_STAND_IN_VALUE: str = "stand-in"
 # Stands for the user's names in a mapping of names to a model (resources.*.create).
 _ANY_NAME: str = "*"
 # A commented-out key: '<indent># <key>:' followed by a space or the end of line.
@@ -155,9 +165,7 @@ def file_keys(data: object, model: type[BaseModel], prefix: str = "") -> set[str
 
 def complete_schema() -> type[BaseModel]:
     """ToolConfig with its tests section as the tool checks it (one model per test)."""
-    section = tests_section_model(test_parameter_models())
-    fields: dict[str, Any] = {TESTS_SECTION: (section, Field(default_factory=section))}
-    return create_model("CompleteConfig", __base__=ToolConfig, **fields)
+    return config_model(test_parameter_models())
 
 
 def main(argv: list[str]) -> int:
@@ -194,6 +202,28 @@ def main(argv: list[str]) -> int:
         )
         return _EXIT_NOT_ALIGNED
     sys.stdout.write(f"{path}: all {len(expected)} configuration keys listed.\n")
+    return _check_loads(path)
+
+
+def _check_loads(path: Path) -> int:
+    """
+    Load the file as written, with the loader and the tests section check.
+
+    Args:
+        path: The configuration file.
+
+    Returns:
+        _EXIT_ALIGNED when it loads, _EXIT_NOT_LOADABLE otherwise (the error
+        on stderr).
+    """
+    for name in ENV_VAR_PATTERN.findall(path.read_text(encoding="utf-8")):
+        os.environ.setdefault(name, _STAND_IN_VALUE)
+    try:
+        check_tests(load_config(path))
+    except ToolBaseError as exc:
+        sys.stderr.write(f"{path}: does not load as written: {exc}\n")
+        return _EXIT_NOT_LOADABLE
+    sys.stdout.write(f"{path}: loads as written.\n")
     return _EXIT_ALIGNED
 
 

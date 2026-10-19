@@ -1,178 +1,64 @@
 # Operational Plan
 
-> **Audience:** project owner, Claude Code · **Status:** active (created 2026-10-06) · Single source for "what do we
-> do next". Update the status column as steps are completed.
+> **Audience:** project owner, Claude Code · **Status:** active (created 2026-10-06, reorganised 2026-10-19) · Single
+> source for "what do we do next": what is still open comes right after where we are, in order; what was done is
+> in the table below it and, step by step, in the log at the end.
 
-## Where we are (updated 2026-10-16)
+## Where we are (updated 2026-10-19)
 
-- **Done:** documentation restructured (phase 2, pages 2.1 and 2.4 written); open questions decided (phase 3);
-  code blocks 1, 2, 3, 4, 4b, 5, 5b, 5c and 5d (configuration structure, interface contract and versioning, secret
-  redaction, console interface, prerequisites between tests); integration guide written. Block 7+8 steps 1-3
-  (analysis, design decided with the owner, cRAPI lab behind Kong; the decisions are in
-  `docs/architecture/design-decisions.md`) and step 4 phases A and B (neutral gateway concepts, APISIX lab and
-  adapter), C (authentication methods) and D (no Forgejo defaults in 2.1 and 7.2, `config.example.yaml`, docs;
-  Q-18 and Q-38 closed). Three labs: Forgejo + Kong, crAPI + Kong, Forgejo + APISIX; native results identical to
-  their baselines after every step.
-- **Next step:** block 7+8 is complete (Q-34 closed 2026-10-15: connections and TLS,
-  steps C1-C6, `docs/architecture/design-decisions.md` D1-D4); block 10b is complete (Q-56 closed 2026-10-19: a
-  test is self-contained, `docs/architecture/design-decisions.md` D8). Next, in the order
-  agreed 2026-10-15: block 9 (CI, generated
-  documentation: Q-16, Q-04, Q-13), 2.3 translation (Q-33); later the review of the guides and the 1.0.0 decision;
-  the test review (block 6, Q-29) near the end, then 6b E2E (Q-51) and new tests (Q-32).
-  Agreed approach of the block (owner, 2026-10-10): labs as proof, no patches to make a target pass; verdict
-  correctness belongs to the test review.
-- **Step 4 of block 7+8, implementation plan** (approved by the owner 2026-10-12; one file per change, each approved
-  before writing, verified on the labs):
-  - Phase A, **done 2026-10-12**, neutral gateway concepts on Kong, no behaviour change: `src/core/gateway/concepts.py` (models and the
-    read / not supported / not accessible outcome), one memoised reader per concept in `base.py`, Kong mapping in
-    `kong.py`, concepts stored as masked evidence (`pin_artifact`), `target.admin_api_headers`, adapter registry in
-    the engine, tests 4.2, 4.3, 3.3, 6.4 B migrated one at a time (oracles unchanged);
-  - Phase B, **done 2026-10-12**: `test-environments/forgejo-apisix/` (Forgejo behind APISIX 3.19.0 with etcd,
-    ports 10000/10443/10001, Control API 10002) and `src/core/gateway/apisix.py` (defaults from APISIX's schemas),
-    `target.health_api_url`, constructor and HTTP reads shared in `base.py`;
-  - Phase C, **done 2026-10-14**, authentication methods (obtain, apply from the spec's security schemes, optional revoke): `basic`,
-    `static_token`, `json_login`, `forgejo_token`; `auth_type` required; tests 2.1, 7.2, 1.4 migrated. Steps:
-    C1 security schemes in the attack surface; C2 one credentials model (new keys); C3 placement (where and how the
-    credential is sent) resolved once after Phase 2, also by `validate-config`; C4 the four methods; C5 tests;
-    C6 lab configurations and docs. `send_as.prefix` allowed with a declared `apiKey` scheme (2026-10-12, choice
-    delegated by the owner: Forgejo's "token " prefix is described only in words);
-  - Phase D, **done 2026-10-14**: 2.1 and 7.2 without Forgejo defaults, `config.example.yaml` with a key-alignment
-    check in `dev:check`, documentation; Q-18 and Q-38 closed by the owner;
-  - Phase E (owner, 2026-10-14: designed as a new designer would, so that the structure is solid and extensible
-    before 1.0.0): one building block, the **prepared resource** (a request that creates something, values taken
-    from its response, a request that deletes it at teardown), declared in `config.yaml` and used by name.
-    Test 7.2 uses one (replaces `injection_mode: forgejo_webhook` and `forgejo_resources.py`); one request-based
-    login method uses it (replaces `forgejo_token` and `json_login`, `auth_forgejo.py` and `auth_json_login.py`
-    removed); test 1.4 takes revocation and its verification request from the configuration (no path in the
-    test); future tests that create data (2.2, 2.3, 7.3) reuse it. Boundaries: one create request, values from
-    the response, one delete request; a few placeholders checked at startup; no chains, conditions or scripts; no
-    inference from the specification (prior art: Nuclei extractors, Schemathesis OpenAPI links, RESTler
-    producer-consumer); what data cannot describe stays a method in the code registry. Steps:
-    E0 design document, decided point by point (resource shape and placeholders, where in the configuration,
-    credential of each request, the login method and the lab conversions, 1.4 revocation and the fixed token name
-    of Q-64, 7.2, secrets);
-    E1 configuration model and startup checks (not used yet);
-    E2 resource executor and 7.2 (`forgejo_resources.py` removed);
-    E3 login method and 1.4 (`auth_forgejo.py`, `auth_json_login.py` removed);
-    E4 docs, `config.example.yaml`, CHANGELOG (Breaking), neutral field descriptions (Q-43 item).
-    Verify after each step: three labs identical to their references, nothing left on Forgejo, no secret in the
-    outputs; at the end `src/` mentions Forgejo only in examples.
-- **Then, in order** (revised 2026-10-09, owner: everything around the tests first, the test review last): the end
-  of block 7+8 (phase E above) → block 9 CI and generated
-  docs, 10b, 10 roadmap, 2.3 knowledge translation (with Q-33) → block 6 test review → block 6b E2E on both labs →
-  missing methodology sub-tests and new tests (Q-32, Milestone 2). To decide before the test review: where release
-  **1.0.0** goes (before it, then splitting 6.4 changes test IDs and would be breaking; or after it).
-- **Deferred:** Q-05 licence, Q-06 security policy, Q-11 sslyze licence (product distribution unknown).
+- **Done:** documentation restructured, open questions decided, code blocks 1-5d, the second and third labs, the
+  agnosticism work (block 7+8, decisions D1-D7), the self-contained tests (block 10b, decision D8) and the
+  configuration as written and as used (Q-68, Q-69, Q-70, decision D9); the decisions
+  and their reasons are in [`design-decisions.md`](../architecture/design-decisions.md).
+- **Next step:** block 9, the first item of [Still open](#still-open): examine it, then the owner decides.
+
+## Still open
+
+In the order agreed with the owner (2026-10-19). Each step is first planned in detail with the owner; its questions
+are in [`OPEN_QUESTIONS.md`](../../OPEN_QUESTIONS.md).
+
+| # | Step | Questions | Content |
+|---|---|---|---|
+| 1 | Block 9, process: examine first, then the owner decides what to do | Q-16, Q-04, Q-13 | CI (`dev:check`), pre-commit; the rest of the generated documentation (CLI reference from the Typer app, the other configuration sections from `ToolConfig`; the tests' part is done, block 10b); the old `hatch run dev:docs` script |
+| 2 | Step 2.3, knowledge translation | Q-33 | methodology, tool decisions, design properties in English; the inconsistencies inside them |
+| 3 | Block 6, test review together with the new and missing tests: complete every planned domain | Q-29, Q-30, Q-50, Q-24 (7.2 timeout), Q-32 | test by test: oracles, calibration and positive controls, missing sub-tests, evidence per finding, side effects, the needs each test declares (notes collected in Q-29: among them 1.4 possibly GREY_BOX, 6.4 split in two, every `Set-Cookie` in 1.6's evidence, 7.2 one finding per payload); the methodology's missing guarantees and sub-tests (Milestone 2) |
+| 4 | Block 6b, E2E suite: evaluate first whether it adds value, else drop it | Q-51 | expected results with a stated basis on the three labs, ideally each test proven on a secure and a vulnerable variant |
+| 5 | Owner review of the guides, then release 1.0.0 | (2.1, 2.2, 2.4) | usage guides, integration guide, entry points (README, CONTRIBUTING, index), last, when they are stable; the release after the test review (6.4's split changes test IDs) |
+
+Set aside until the product's distribution model is known: Q-05 (licence), Q-06 (security policy), Q-11 (sslyze AGPL).
+Set aside by the owner (2026-10-19): showing `config_used.yaml` in the HTML report (a page apart from the results);
+the file is among the outputs and `validate-config --show-config` prints it.
 
 ## Ground rules
 
 1. **One step at a time, in order.** A step starts only when the previous one is done.
 2. **Who does what.** Claude prepares (writes pages, collects evidence, proposes options); the owner tests and
    decides. Claude never closes an open question and never changes code or project files without an explicit go.
-3. **Work in the official repository folder.** No throwaway clones, no shifted ports. A fresh state is obtained
-   with the reset command in step 0 of [`first-assessment.md`](../getting-started/first-assessment.md).
-4. **Every step has a check the owner can run** and a "done when" condition.
+3. **Work in the official repository folder** for the repository; build and test changes in a scratch copy first. A
+   fresh lab is obtained with the reset command in step 0 of
+   [`first-assessment.md`](../getting-started/first-assessment.md).
+4. **Every step has a check the owner can run** and a "done when" condition; the labs prove a change (results
+   identical to their references, or differences explained).
 5. **Commits are made by the owner**; Claude gives the command at the end of each step.
+6. **Closing a question** means deleting its entry from `OPEN_QUESTIONS.md` and writing the decision in the log;
+   only the owner closes one.
 
-## Phase 1 - Validate the getting-started guide
+## Done
 
-| # | Step | Who | Check / done when | Status |
-|---|---|---|---|---|
-| 1.1 | Simplify `installation.md` and `first-assessment.md` (single path, standard ports, reset in step 0) | Claude | pages readable top to bottom with no detour | done |
-| 1.2 | Follow `installation.md` then `first-assessment.md` literally, from the official folder, **without interrupting the run** | owner | exit code `1`, three report files in `outputs/`, three `200` in the readiness check; every unclear point noted | done |
-| 1.3 | Fix the pages from the notes of 1.2, mark them verified | Claude | owner confirms | done |
-| 1.4 | Commit | owner | `git status` clean | done (`b8cdd9e`) |
-
-## Working order (agreed 2026-10-06)
-
-Phases 2 and 3 are interleaved: a group of open questions is decided before the guide that depends on it, so no
-page is written twice.
-
-| Order | Step | Status |
+| What | Questions closed | When |
 |---|---|---|
-| 1 | Phase 1 closed (commit) | done |
-| 2 | 3.1 Test lab (Q-46) | done |
-| 3 | 2.1 `guides/usage/` (current behaviour, links to open questions where in doubt) | written 2026-10-06, owner review pending |
-| 4 | 2.4 Entry points (README first) | written 2026-10-06, owner review pending |
-| 5 | 3.A Close the questions already settled (Q-01, Q-42, Q-07, Q-08) | done |
-| 6 | 3.B/3.C quick decisions without code: ~~Q-12~~ (closed), ~~Q-03~~ (closed), ~~Q-14~~ (closed), ~~Q-37~~ (decided, moved to 3.D), ~~Q-49~~ (closed), ~~Q-09~~ (closed), ~~Q-32~~ (moved to 3.D with Q-29), Q-33 (with 2.3 translation) (one at a time, discussed in full) | done (Q-33 waits for step 10) |
-| 7 | 3.B remaining: ~~Q-02~~ (closed), ~~Q-15~~ (decided, moved to 3.D), ~~Q-17~~ (light fix done, rewrite moved to 3.D) (Q-25 moved to 3.D) | done |
-| 8 | 3.C (done 2026-10-07): ~~Q-10~~ (decided, moved to 3.D), ~~Q-24~~ (decided, moved to 3.D), ~~Q-31~~ (decided, moved to 3.D), ~~Q-47~~ (closed); then ~~Q-11~~ (deferred, owner asks), ~~Q-18~~ (moved to 3.D, agnosticism), ~~Q-26~~ (decided, moved to 3.D), ~~Q-30~~ (decided, code items moved to 3.D) | done |
-| 9 | 3.D Code work, block by block (see Phase 4 below): each block is planned in detail with the owner, then implemented one change at a time | in progress (blocks 1-5 done) |
-| 10 | 2.3 `knowledge/` translation (with Q-33) | to do |
-
-Phase 4 (implementation) follows the block order below; Phase 5 is block 9.
-
-## Phase 2 - Finish the documentation
-
-Each step: Claude writes the section from verified facts, the owner reads it as a user (is it clear, can I follow
-it), Claude fixes, owner commits.
-
-| # | Step | Content | Status |
-|---|---|---|---|
-| 2.1 | `guides/usage/` | configure a target, select tests, read the report | written 2026-10-06, updated with blocks 1-5; owner review pending |
-| 2.2 | `guides/integration/` | one page, `integrate-apiguard.md`: install with pip, configuration and credentials, run, exit codes (script fixing the old `set -e` defect), reading the results with `jq`, stopping, effects on the target, versions; no CI-specific example | written 2026-10-09; owner review pending |
-| 2.3 | `knowledge/` translation | methodology, tool decisions, design properties in English; background as a summary | to do |
-| 2.4 | Entry points | new README (English only, Hatch, Linux), CONTRIBUTING, CHANGELOG, `docs/index.md`, CLAUDE.md as a thin router, clean `maintainer-commands.md`, remove `README.en.md` duplicate | written 2026-10-06; owner review pending |
-
-## Phase 3 - Decide the open questions
-
-`OPEN_QUESTIONS.md` holds every doubt found so far. One session per group: Claude presents each question with
-the evidence and 2-3 options, the owner decides, the decision is written in the entry. **No code is changed in
-this phase**; decisions feed Phase 4.
-
-Groups re-organised on 2026-10-06 by how much code each question needs (owner decision). Closing a question
-means deleting its entry from `OPEN_QUESTIONS.md` and writing the decision in the log below.
-
-| # | Group | Questions | Note |
-|---|---|---|---|
-| 3.1 | Test lab | - | done 2026-10-06 (Q-40, Q-41, Q-46 closed) |
-| 3.A | Already settled | - | done 2026-10-06 (Q-01, Q-07, Q-08, Q-42 closed) |
-| 3.B | Decision + documentation only | Q-33 | with the `knowledge/` translation |
-| 3.C | "Document as is" or "change the code" | - | a question whose decision needs code moves to 3.D |
-| 3.D | Code or process changes | all remaining questions except Q-33 and the deferred ones | organised in blocks, see Phase 4 |
-| - | Deferred | Q-05, Q-06, Q-11 | licence, security policy, sslyze AGPL (waiting for the product's distribution model) |
-
-## Phase 4 - Implement the decisions
-
-Block order agreed on 2026-10-07. Every block is first planned in detail with the owner (scope, files, how it is
-verified); then each change follows the usual rule: Claude states the files and the plan, waits for the go, changes
-them, verifies on the lab with only the affected tests, and gives the owner a check to run. The documentation page
-affected is updated in the same change.
-
-| # | Block | Questions | Content | Risk | Status |
-|---|---|---|---|---|---|
-| 1 | Safety net | Q-39 (+ Q-15) | development helper `scripts/compare_reports.py` (compare two reports, development only, to be removed later); `ruff format` + check in `dev:check` (Markdown excluded); `import-linter` with the dependency rule in `dev:check` (after fixing Q-15); the two rule exceptions written in CLAUDE.md and `coding-rules.md`. Pre-commit hook comes with block 9 | low: adds checks only, no behaviour change | done 2026-10-07 |
-| 2 | Cleanup | Q-19, Q-28, Q-26 (descriptions), Q-24 (`sslyze.extra_flags`) | stale paths and comments, comments that contradict the code, one no-op field (Q-15 done in block 1) | very low | done 2026-10-07 |
-| 3 | Small bugs | Q-35, Q-21, Q-48, Q-55 (lab setup), Q-36 and Q-27 (remove) | spec fetch hang, `generate-seed` stdout, warning messages, lab setup after deletions, two unwired features removed | low-medium | done 2026-10-07 |
-| 4 | Configuration structure | Q-53, Q-37 | one definition per parameter (`src/test_config/`), every test has a config model, automatic wiring (mismatch stops the run) | medium: after block 1 | done 2026-10-08 |
-| 4b | Immutable list parameters | Q-57 | safety check: list parameters as tuples | low: same files as block 4 | done 2026-10-08 |
-| 5 | Contract 1.0 | Q-25, Q-20, Q-22, Q-23, Q-45, Q-58, Q-50 (rule), Q-54, Q-10, Q-60, Q-31, Q-26 ("not run by choice" list), Q-44 | everything an integrator sees; then the stability policy | medium-high | done 2026-10-09 |
-| 5b | Console output | Q-59 | readability of the `apiguard run` console output, after group 3 of block 5 (Q-26 and Q-10 change what is shown) | low | done 2026-10-09 |
-| 5c | Cleanup | Q-63 | dead `src/tests/strategy.py`, empty validator, `build_zip.sh` excludes, `scripts/` lint, external-tool models location | very low | done 2026-10-09 |
-| 5d | Engine and infrastructure leftovers | Q-61, Q-64, Q-62 | prerequisites between tests, parallel runs (not a goal), partial report (dropped); Q-34 moved to block 8 | low-medium | done 2026-10-10 |
-| - | Integration guide | (step 2.2) | written on the fixed contract, short; tests the contract from the integrator's side; updated in block 8 | - | written 2026-10-09; owner review pending |
-| 6 | Test quality review | Q-29, Q-32, Q-30 (code items), Q-24 (7.2 timeout), Q-50 (evidence per finding) | test by test: oracles, missing sub-tests, 1.1 `DELETE` last + `path_seed` check, 7.2 cleanup, evidence of 7.2, 4.1, 1.5 and config audits; notes from block 5: 1.4 may be GREY_BOX with an ordinary account, 6.4 split in two (changes test IDs: before 1.0.0), all `Set-Cookie` headers in the evidence of 1.6, 7.2 one finding per payload; map what each test produces and uses (tokens, created resources, repeated reads of the specification or gateway configuration) and share repeated work through `depends_on` (owner, Q-61) | high: one test at a time | to do |
-| 7 | Second lab | ~~Q-52~~ (closed 2026-10-14) | cRAPI behind Kong, pinned, automated setup | low for the tool | done 2026-10-10, verified from scratch 2026-10-14 |
-| 6b | E2E suite | Q-51 | after the test review and the second lab: expected results with a stated basis (`lab-design` from the lab configuration, or `observed`) on both labs, ideally each test proven on a secure and a vulnerable variant | low | to do |
-| 8 | Agnosticism | ~~Q-18~~ (closed 2026-10-14), ~~Q-43~~ (closed 2026-10-14), ~~Q-38~~ (closed 2026-10-14), ~~Q-34~~ (closed 2026-10-15) | per-test portability analysis on both labs, then remove Forgejo/Kong ties, protected Admin API | high | done 2026-10-15 (Q-34 closed: header part 2026-10-11, TLS part with connections steps C1-C6) |
-| - | Release 1.0.0 | (2.1, 2.2, 2.4) | owner review of the usage guides, integration guide and entry points, now stable; then release **1.0.0** (Q-25) | - | to do |
-| 9 | Process | Q-16, Q-04, Q-13 | CI (`dev:check` + E2E), generated documentation with drift check | low | to do |
-| 10b | Simplify adding a test | Q-56 | review the steps needed to add a native test | low | to do |
-| 10 | Roadmap | Q-17 | rewrite as a product roadmap | none | not done: owner 2026-10-15, no product roadmap for now (Q-17) |
-| - | Knowledge translation | Q-33 (step 2.3) | methodology, tool decisions, design properties in English | none | to do |
-
-Ordering rationale: the safety net first, so every later change is checked in minutes; risk-free work next; the
-configuration structure before the contract and the test review (both touch test parameters); the contract (output
-format) before the test review (output content). Revised 2026-10-09: a short cleanup (5c) first; the integration
-guide right after the contract, to test it from the integrator's side before the test review; the second lab before
-the E2E suite (expected results written once, for both labs) and before the agnosticism work; the owner review of
-the guides last, when they are stable, just before 1.0.0; process and documentation work after the release.
-
-## Phase 5 - Process
-
-CI (Q-16), E2E test suite (Q-51), documentation generated from code with a drift check
-(Q-04): blocks 6b and 9 of Phase 4.
+| Phase 1: getting-started guide validated by the owner | - | 2026-10-06 |
+| Phase 2: documentation restructured; usage guides, integration guide, entry points written (owner review: see Still open) | - | 2026-10-06 to 10-09 |
+| Phase 3: open questions decided, grouped by how much code they need | Q-01, Q-02, Q-03, Q-07, Q-08, Q-09, Q-12, Q-14, Q-40, Q-41, Q-42, Q-46, Q-47, Q-49 | 2026-10-06 to 10-07 |
+| Block 1, safety net: `compare_reports.py`, `ruff format`, `lint-imports` in `dev:check` | Q-39, Q-15 | 2026-10-07 |
+| Block 2, cleanup | Q-19, Q-28 | 2026-10-07 |
+| Block 3, small bugs | Q-35, Q-21, Q-48, Q-55, Q-36, Q-27 | 2026-10-07 |
+| Blocks 4 and 4b, configuration structure, immutable lists | Q-53, Q-37, Q-57 | 2026-10-08 |
+| Block 5, contract 1.0; 5b console output; 5c cleanup; 5d engine leftovers | Q-25, Q-20, Q-22, Q-23, Q-45, Q-58, Q-54, Q-10, Q-60, Q-31, Q-26, Q-44, Q-59, Q-63, Q-61, Q-64, Q-62 | 2026-10-09 to 10-10 |
+| Block 7, second lab (crAPI behind Kong) and third lab (Forgejo behind APISIX) | Q-52 | 2026-10-10 to 10-14 |
+| Block 8 (7+8), agnosticism: gateway concepts, authentication methods, prepared resources, connections and TLS (D1-D7) | Q-18, Q-38, Q-43, Q-34, Q-65, Q-66 | 2026-10-11 to 10-15 |
+| Block 10, roadmap: not rewritten (no product roadmap for now) | Q-17 | 2026-10-15 |
+| Block 10b, a test is self-contained: `TestInfo`, parameters in the test module, declared needs, generated documentation, `list-tests` (D8) | Q-56 | 2026-10-16 to 10-19 |
 
 ## Log
 
@@ -329,3 +215,6 @@ CI (Q-16), E2E test suite (Q-51), documentation generated from code with a drift
 | 2026-10-17 | Block 10b final trial (step 6): a new test is its module and its page (4 hand-written files for two trial tests, one with a parameter, one in a domain without tests); everything else generated and checked; both ran on the lab. Found: a key written twice in config.yaml is silently overwritten (Q-68). Left in block 10b: step 5 (`needs`, `list-tests`), then the conclusion into `design-decisions.md` |
 | 2026-10-17 | Block 10b step 5 done (6.4, 6.7): tests declare their needs (`TestInfo.needs`, `NEEDED_TO_RUN` parameters); the engine checks them in one place (`src/core/test_needs.py`), records SKIP before running and warns before the first test; `validate-config` lists the tests that will SKIP; `apiguard list-tests [--config] [--json]`. Verified: three labs and two variants (no user_a, no gateway), statuses identical before and after. Block 10b complete: conclusions in `design-decisions.md` D8 |
 | 2026-10-19 | Block 10b names (owner): parameters a user gives about the target are named by what they are, not by what the test does: 1.4 `verify_request` -> `protected_endpoint`, 1.5 `http_probe_url` -> `http_url`, 1.6 `cookie_probe_paths` -> `session_cookie_paths`, 7.2 the three `injection_*` keys -> `url_accepting_endpoint` (`path`, `body`, `resource`). Verified: 1.4, 1.5, 1.6, 7.2 identical before and after on the three labs, nothing left on Forgejo. Closed by the owner: Q-56. Block 10b complete; its working file `docs/project/tests-design.md` removed (decisions in `docs/architecture/design-decisions.md`, D8). Next: block 9 (CI, generated documentation: Q-16, Q-04, Q-13) |
+| 2026-10-19 | Closed by the owner: Q-67 (external tool time limit): the limit stays a wall-clock guard against a hung tool (nuclei's progress statistics delay its start by about 3 minutes, and its output alone has gaps of 78 s on the lab, so "no progress" cannot be detected); no upper bound for testssl.sh and nuclei (was 600), nuclei 600 in the example and the labs (was 240); a tool ending after more than 70% of its limit is warned about (`external_tool_near_time_limit`, verified on the lab); sizing rule in the example and the configuration reference; the sslyze meaning of `timeout_seconds` noted in Q-24 |
+| 2026-10-19 | Closed by the owner: Q-68 (a key written twice in `config.yaml`): rejected at startup by the loader (`_UniqueKeyLoader`), naming the key and both lines; each mapping is checked on its own (the same key under different parents or list items, or over a `<<:` merge, is accepted); the labs, the example and the compose files load the same data. Q-69 (an environment value could change `config.yaml`: `${VAR}` was replaced in the raw text, so `ab #cd` arrived as `ab`, `C:\new` with a newline, and a YAML error printed the password): the YAML is parsed first, then `${VAR}` is replaced inside the string values (as Docker Compose and the OpenTelemetry Collector do); quotes decide the type as for a value written by hand; a placeholder in a comment is ignored. Verified: same data on the labs and the example, 18 password cases, 20 type cases against the old loader (only the 4 broken ones differ), `dev:check`, 1.4 and 2.1 live on Forgejo + Kong (PASS, target clean, no password in the outputs). Found: an empty block rejected, the example not loadable, no record of the values a run used (Q-70, design decided with the owner) |
+| 2026-10-19 | Closed by the owner: Q-70 (an empty block rejected, the example not loadable, no record of the values a run used): a declared block written empty takes its defaults (`loader.without_empty_blocks`); `dev:check` loads `config.example.yaml` as written (`scripts/check_config_keys.py`, exit 3 otherwise); every run writes `config_used.yaml` (`src/config/config_used.py`): every key `# specified` or `# default`, placeholders as written, a secret written in clear (fields marked `SECRET_VALUE`) as `${APIGUARD_<KEY_PATH>}`; `validate-config --show-config` prints it. Verified: the labs and the example reload from their `config_used.yaml` with the same configuration and test parameters; two live runs on Forgejo + Kong (the second from the first's `config_used.yaml`) give no differences; no secret in the files. Decision D9; maintainer cheat sheet updated (commands run as written, `dev:check` steps). The HTML page set aside (owner) |

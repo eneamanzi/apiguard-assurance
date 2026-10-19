@@ -31,7 +31,10 @@ systems you are authorised to test.
   are registered as secrets before any request;
 - token-acquisition requests of the authentication methods are not recorded;
 - external-tool artefacts are sanitised for credentials before storage;
-- test 6.4 masks the secrets it finds in the finding detail (first and last characters kept).
+- test 6.4 masks the secrets it finds in the finding detail (first and last characters kept);
+- `config_used.yaml` holds no value from the environment and no secret: placeholders stay as written, a secret
+  written in clear becomes a placeholder named after its key (fields marked `SECRET_VALUE`,
+  [configuration](../reference/configuration.md#the-configuration-a-run-used-config_usedyaml)).
 
 Treat all output files as sensitive: response bodies can carry the target's data. The HTML report is rendered with Jinja2 autoescaping on HTML and
 `StrictUndefined`, so target-controlled strings (e.g. response bodies) are escaped.

@@ -125,15 +125,35 @@ cp outputs/forgejo/apiguard_report.json /tmp/before.json      # before a change
 hatch run python scripts/compare_reports.py /tmp/before.json outputs/forgejo/apiguard_report.json   # after
 ```
 
+**Repeat a run**: every run writes `config_used.yaml` next to its reports, every value it used (`# specified` or
+`# default`; placeholders kept, no secret). Given back to `run`, with the same `.env`, it repeats the run. It writes
+to the same output directory, so keep the report first to compare:
+```bash
+cp outputs/forgejo/apiguard_report.json /tmp/before.json
+apiguard run -c outputs/forgejo/config_used.yaml
+hatch run python scripts/compare_reports.py /tmp/before.json outputs/forgejo/apiguard_report.json   # "No differences ..."
+```
+
 ### Other CLI commands
 
 ```bash
 apiguard version                              # Print the tool version and exit
 apiguard validate-config -c $CFG              # Phase 1 + test checks (config, test declarations, test_ids), exit 0 if OK / 10 if invalid
 apiguard validate-config -c test-environments/crapi-kong/config.yaml   # the crAPI lab configuration
+apiguard validate-config -c $CFG --show-config > /tmp/config_used.yaml   # also write every value a run would use, "# specified" or "# default"
+
+apiguard list-tests                           # every test: ID, priority, strategy, name
+apiguard list-tests -c $CFG                   # + for this configuration: runs, or why it would SKIP
 
 apiguard generate-seed <openapi-spec-url>     # Generate a path_seed YAML template from an OpenAPI spec
 apiguard generate-seed <spec> -o seed.yaml    # Write the template to seed.yaml instead of stdout
+```
+
+`config.example.yaml` is not for `validate-config`: its `${MYAPI_*}` variables are not set and its specification URL
+(`https://api.example.com`) does not exist, so it stops with exit `10`. It is checked by `hatch run dev:check`, or
+alone (every key listed, and the file loads as written, with stand-in values and no network):
+```bash
+hatch run python scripts/check_config_keys.py   # prints "all N configuration keys listed." and "loads as written."
 ```
 
 `generate-seed` extracts every `{param}` placeholder declared in the OpenAPI spec and emits a YAML template
@@ -189,9 +209,23 @@ deactivate && rm -rf /tmp/cold-test
 ```bash
 hatch run dev:lint    # ruff + mypy           (fast: run on every commit)
 hatch run dev:audit   # bandit + vulture       (slower: run before push)
-hatch run dev:check   # full suite in sequence
+hatch run dev:check   # full suite in sequence (below), stops at the first failing step
+hatch run dev:gen     # rewrite the generated documentation (python scripts/generate_docs.py), then dev:check again
 hatch run dev:deps    # pip-audit              (run before any release)
 ```
+
+What `dev:check` runs, in order (`[tool.hatch.envs.dev.scripts]` in `pyproject.toml`):
+
+| Step | Checks | When it fails |
+|---|---|---|
+| `ruff check .` | lint (rules `E W F I N UP B S ANN`, `[tool.ruff.lint]`): errors and style, unused names, import order, naming, outdated syntax, likely bugs, security patterns, type hints on every signature | a rule violated; `ruff check --fix .` fixes the simple ones |
+| `ruff format --check .` | the code formatted as `ruff format` would | run `ruff format .` |
+| `mypy src/ scripts/` | static types of every signature and call | a type mismatch |
+| `bandit -r src/ -c pyproject.toml --severity-level medium` | security patterns in `src/` (subprocess, YAML loading, hardcoded secrets) | a finding not justified with `# nosec` |
+| `vulture src/ --min-confidence 80` | dead code: functions, variables, imports never used | code to remove |
+| `lint-imports` | the dependency direction of `CLAUDE.md` (`core` <- `connectors` <- `tests` <- `engine`; `[tool.importlinter]`) | a forbidden import |
+| `python scripts/check_config_keys.py` | `config.example.yaml` lists every configuration key, and loads as written (loader and tests section, no network) | a key missing or unknown, or the example invalid (exit 3) |
+| `python scripts/generate_docs.py --check` | the generated documentation is up to date with the tests' declarations (catalogue, page headers, parameter tables, the tests section of `config.example.yaml`; the files are listed in `GENERATED_FILES`, run through Cog) | the file and the difference are shown: run `hatch run dev:gen` |
 
 Individual tools:
 ```bash

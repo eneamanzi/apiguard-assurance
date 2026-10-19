@@ -10,8 +10,7 @@
 #
 # Values written as ${...} with an uppercase variable name come from environment variables (or the
 # .env file of the working directory, or --env-file). Never write a credential in clear here. Such a
-# placeholder without a value stops the tool, even inside a comment: the commented examples below
-# show <...> instead; write the placeholder when you uncomment them.
+# placeholder without a value stops the tool; in a comment it is ignored.
 # Relative paths are resolved against the directory the command is run from.
 #
 # Alternatives that cannot be active together are shown commented out (e.g. specification.url or
@@ -78,7 +77,7 @@ specification:
     # url: "https://127.0.0.1:8444"
     # Headers sent on every Admin API request, for a gateway that protects it (APISIX: X-API-KEY;
     # a key of role viewer, GET only, is enough). Values from placeholders, masked in every output.
-    # headers: {X-API-KEY: "<APISIX viewer key placeholder>"}
+    # headers: {X-API-KEY: "${MYAPI_GATEWAY_ADMIN_KEY}"}
     # Timeouts of the Admin API and health API requests, in seconds. Defaults 5.0 and 10.0.
     # connect_timeout: 5.0
     # read_timeout: 10.0
@@ -119,13 +118,13 @@ credentials:
   admin_password: "${MYAPI_ADMIN_PASSWORD}"
   user_a_username: "${MYAPI_USER_A_USERNAME}"
   user_a_password: "${MYAPI_USER_A_PASSWORD}"
-  # user_b_username: "<placeholder>"
-  # user_b_password: "<placeholder>"
+  # user_b_username: "${MYAPI_USER_B_USERNAME}"
+  # user_b_password: "${MYAPI_USER_B_PASSWORD}"
 
   # Tokens (static_token only, instead of the accounts above).
-  # admin_token: "<placeholder>"
-  # user_a_token: "<placeholder>"
-  # user_b_token: "<placeholder>"
+  # admin_token: "${MYAPI_ADMIN_TOKEN}"
+  # user_a_token: "${MYAPI_USER_A_TOKEN}"
+  # user_b_token: "${MYAPI_USER_B_TOKEN}"
 
   # How the credential is sent. It comes from the security schemes the specification declares:
   # one scheme is used as is; with several, name it here; with none, describe it in send_as.
@@ -428,7 +427,10 @@ tests:
 external_tools:
   # Master switch for every external test.
   enabled: true
-  # testssl.sh, TLS analysis (ext.1.5.testssl). timeout_seconds is required when enabled.
+  # timeout_seconds (required when a tool is enabled) only stops a tool that hangs: set it to 2-3 times the
+  # duration seen on your target (it grows with the templates, the endpoints and the request rate). A tool that
+  # ends after more than 70% of it is warned about (external_tool_near_time_limit).
+  # testssl.sh, TLS analysis (ext.1.5.testssl).
   testssl:
     enabled: false
     timeout_seconds: 180
@@ -439,7 +441,7 @@ external_tools:
   # nuclei, template scan (ext.0.1.nuclei).
   nuclei:
     enabled: false
-    timeout_seconds: 240
+    timeout_seconds: 600
     expected_version: "3.8.0"
     template_dir: "./tools/nuclei-templates"
     tags:
@@ -455,6 +457,7 @@ external_tools:
   # sslyze, TLS analysis as a Python library (ext.1.5.sslyze; pip install "apiguard-assurance[sslyze]").
   sslyze:
     enabled: false
+    # For sslyze (a library, not a process): the timeout of each network connection, at most 20 s.
     timeout_seconds: 60
     # expected_version: "6.3.1"
     dev_mode: false

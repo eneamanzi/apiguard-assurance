@@ -226,7 +226,7 @@ raises the version as above. Adding something (a field, a test, an option, a rea
 | Exit codes | `0`, `1`, `2`, `3`, `10` (`130` / `143` come from the signal) | [`exit-codes.md`](exit-codes.md) |
 | `apiguard_report.json` | fields, types and meanings; allowed values: statuses (`PASS`, `FAIL`, `SKIP`, `ERROR`), strategies, `not_run` reasons, domain numbers and names | [`report-schema.md`](report-schema.md) |
 | `evidence.json` | structure, record ID format (`<test_id>_<NNN>`, the target of `evidence_ref`), redaction placeholders (`[REDACTED: <label>]`, `[public probe] <value>`) | [`evidence-format.md`](evidence-format.md) |
-| Output files | names and location: `apiguard_report.json`, `evidence.json`, `assessment_report.html` in `output.directory`, external-tool outputs in `tools/` | [`report-schema.md`](report-schema.md), [`evidence-format.md`](evidence-format.md) |
+| Output files | names and location: `apiguard_report.json`, `evidence.json`, `assessment_report.html`, `config_used.yaml` in `output.directory`, external-tool outputs in `tools/` | [`report-schema.md`](report-schema.md), [`evidence-format.md`](evidence-format.md) |
 | Test IDs | `X.Y` and `ext.X.Y.tool` identifiers: renaming or removing a test is breaking, adding one is not | [`../tests/README.md`](../tests/README.md) |
 | CLI | commands, options and defaults; stdout / stderr split (`generate-seed` writes the YAML on stdout); `--log-format json` is one JSON object per line | [`cli.md`](cli.md) |
 | `config.yaml` | documented keys, types, defaults, validation (unknown keys rejected), `${VAR}` syntax, `.env` lookup | [`configuration.md`](configuration.md) |

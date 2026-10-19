@@ -13,8 +13,11 @@ into the files between markers, leaving everything else as written:
     ... generated ...
     <!-- [[[end]]] -->
 
-    hatch run dev:gen    writes every generated part
-    hatch run dev:check  fails when a part is out of date (cog --check --diff)
+    python scripts/generate_docs.py           writes every generated part (hatch run dev:gen)
+    python scripts/generate_docs.py --check   fails when a part is out of date, showing the
+                                              difference (in hatch run dev:check)
+
+The files with generated parts are listed once, in GENERATED_FILES.
 
 Generated parts:
 
@@ -36,9 +39,14 @@ This file lives in scripts/ (development only), like check_config_keys.py.
 
 from __future__ import annotations
 
+import argparse
 import logging
 import os
 import re
+import shutil
+import subprocess
+import sys
+import tempfile
 import typing
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -62,6 +70,16 @@ from src.tests.registry import TestRegistry
 structlog.configure(wrapper_class=structlog.make_filtering_bound_logger(logging.WARNING))
 
 _ROOT: Path = Path(__file__).resolve().parent.parent
+# The files with generated parts, relative to the repository root (glob patterns).
+GENERATED_FILES: tuple[str, ...] = (
+    "docs/tests/README.md",
+    "docs/tests/*/*.md",
+    "docs/tests/external/*/*.md",
+    "docs/architecture/assessment-model.md",
+    "docs/reference/configuration.md",
+    "config.example.yaml",
+)
+_EXIT_OUT_OF_DATE: int = 1
 _TEST_PAGES: Path = _ROOT / "docs" / "tests"
 _CONFIGURATION_PAGE: Path = _ROOT / "docs" / "reference" / "configuration.md"
 _PORTABILITY: str = "../reference/compatibility.md#test-portability"
@@ -529,3 +547,54 @@ def _parameter_lines(name: str, field: FieldInfo, indent: str) -> list[str]:
         lines.append(f"{indent}# Example:")
         lines += _yaml_value(name, examples[0], indent, commented=True)
     return lines
+
+
+def generated_files() -> list[str]:
+    """The files with generated parts, relative to the repository root, sorted."""
+    found = {path for pattern in GENERATED_FILES for path in _ROOT.glob(pattern)}
+    return sorted(str(path.relative_to(_ROOT)) for path in found)
+
+
+def main(argv: list[str]) -> int:
+    """
+    Write the generated parts of the documentation, or check they are up to date.
+
+    Cog runs in its own interpreter with an empty bytecode cache: it imports
+    the test modules, and a stale .pyc (a module edited to the same size within
+    the same second) would hide the change.
+
+    Args:
+        argv: Command-line arguments: --check, or none to write.
+
+    Returns:
+        0 when written, or when every part is up to date; 1 when a part is out of
+        date (Cog prints the file and the difference).
+    """
+    parser = argparse.ArgumentParser(description=__doc__.strip().splitlines()[2])
+    parser.add_argument(
+        "--check", action="store_true", help="fail when a part is out of date, without writing"
+    )
+    check = parser.parse_args(argv[1:]).check
+    files = generated_files()
+    mode = ["--check", "--diff"] if check else ["-r"]
+    cache = tempfile.mkdtemp(prefix="apiguard-cog-pycache-")
+    try:
+        result = subprocess.run(  # noqa: S603 -- fixed arguments, the repository's own files
+            [sys.executable, "-m", "cogapp", "-I", "scripts", "--verbosity=1", *mode, *files],
+            cwd=_ROOT,
+            env={**os.environ, "PYTHONPYCACHEPREFIX": cache},
+            check=False,
+        )
+    finally:
+        shutil.rmtree(cache, ignore_errors=True)
+    if result.returncode != 0:
+        if check:
+            sys.stderr.write("Generated documentation out of date: run hatch run dev:gen.\n")
+        return _EXIT_OUT_OF_DATE if check else result.returncode
+    done = "up to date" if check else "written"
+    sys.stdout.write(f"Generated documentation {done} ({len(files)} files).\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

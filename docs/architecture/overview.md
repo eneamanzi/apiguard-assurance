@@ -33,7 +33,7 @@ What each test needs from the target is in [compatibility](../reference/compatib
 
 | Phase | What happens | Code | On failure |
 |---|---|---|---|
-| 1 Initialization | Read YAML, resolve `${VAR}`, validate with Pydantic → frozen `ToolConfig`; build the TLS context of each connection (`engine.build_connection_contexts`); then discover the tests and check every declaration (`src/core/test_discovery.py`), the `test_ids` entries and the `tests` section against the parameter models the tests declare (`engine.check_tests`, `src/config/tests_section.py`) | `src/config/loader.py`, `src/config/schema/`, `src/config/tests_section.py`, `src/core/tls.py`, `src/engine.py` | `ConfigurationError` or `TestDefinitionError` → exit 10 |
+| 1 Initialization | Read YAML as written, resolve `${VAR}` in its values, validate with Pydantic → frozen `ToolConfig` (D9); build the TLS context of each connection (`engine.build_connection_contexts`); then discover the tests and check every declaration (`src/core/test_discovery.py`), the `test_ids` entries and the `tests` section against the parameter models the tests declare (`engine.check_tests`, `src/config/tests_section.py`); write `config_used.yaml`, the configuration the run uses (`src/config/config_used.py`) | `src/config/loader.py`, `src/config/schema/`, `src/config/tests_section.py`, `src/config/config_used.py`, `src/core/tls.py`, `src/engine.py` | `ConfigurationError` or `TestDefinitionError` → exit 10 |
 | 2 OpenAPI discovery | Download (with the specification's TLS context) or read the spec, dereference `$ref` (prance, in a worker thread), detect dialect, validate, build `AttackSurface` | `src/discovery/download.py`, `openapi.py`, `surface.py` | `OpenAPILoadError` → exit 10 |
 | 3 Context construction | Resolve where and how credentials are sent (credentials + the spec's security schemes); build `TargetContext` (config + surface + credentials + placement + per-test config + gateway adapter), `TestContext`, `EvidenceStore` | `src/engine.py`, `src/core/auth_placement.py`, `src/core/context.py`, `src/core/evidence.py` | `ConfigurationError` (placement not determined) → exit 10 |
 | 4 Discovery and scheduling | Discover native and external tests, filter, build dependency batches | `src/tests/registry.py`, `src/external_tests/registry.py`, `src/core/dag.py` | `DAGCycleError` → exit 10 |
@@ -88,7 +88,8 @@ src/
 ├── cli_console.py      Console interface of `run`: implements engine.RunObserver (test lines, summary)
 ├── engine.py           AssessmentEngine: orchestrates the seven phases
 ├── config/             Phase 1: loader + Pydantic schema of config.yaml (ToolConfig); tests_section.py checks
-│                       `tests:` against the parameter models the tests declare
+│                       `tests:` against the parameter models the tests declare; config_used.py writes
+│                       config_used.yaml, the configuration a run used
 ├── discovery/          Phase 2: spec download and loading, AttackSurface builder, path_seed generator
 ├── core/               Shared vocabulary and infrastructure
 │   ├── models/         Pydantic models (results, evidence, surface, credentials, tool config)
