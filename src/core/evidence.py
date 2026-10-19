@@ -84,7 +84,7 @@ from typing import IO, Any, cast
 
 import structlog
 
-from src.core.models import EvidenceRecord
+from src.core.models import EvidenceFile, EvidenceRecord
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -454,16 +454,13 @@ class EvidenceStore:
         all_records.sort(key=lambda r: r.timestamp_utc)
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        serializable = [r.model_dump(mode="json") for r in all_records]
-
-        output_payload: dict[str, object] = {
-            "tool_version": tool_version,
-            "generated_at_utc": datetime.now(UTC).isoformat(),
-            "record_count": len(all_records),
-            "records": serializable,
-        }
-
-        document = json.dumps(output_payload, indent=2, ensure_ascii=False)
+        evidence_file = EvidenceFile(
+            tool_version=tool_version,
+            generated_at_utc=datetime.now(UTC).isoformat(),
+            record_count=len(all_records),
+            records=all_records,
+        )
+        document = json.dumps(evidence_file.model_dump(mode="json"), indent=2, ensure_ascii=False)
         if redact is not None:
             document = redact(document)
         output_path.write_text(document, encoding="utf-8")
@@ -495,7 +492,8 @@ class EvidenceStore:
 
     def add_fail_evidence(self, record: EvidenceRecord) -> None:
         """
-        Record an HTTP transaction that produced a FAIL outcome.
+        Store a transaction that proves a FAIL in evidence.json; log it with
+        _log_transaction(..., is_fail=True).
 
         Primary write path.  Every transaction where the observed server
         behavior violates the security guarantee under test must be recorded
@@ -530,7 +528,7 @@ class EvidenceStore:
 
     def pin_evidence(self, record: EvidenceRecord) -> None:
         """
-        Record an HTTP transaction explicitly marked as key evidence by a test.
+        Store in evidence.json a transaction that is key context but proves no FAIL.
 
         Pinned records are stored even when they did not directly produce a
         FAIL outcome.  Used for setup transactions that establish the context

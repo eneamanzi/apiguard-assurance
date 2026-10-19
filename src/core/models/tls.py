@@ -43,26 +43,31 @@ class TlsSettings(BaseModel):
     verify: bool = Field(
         default=True,
         description=(
-            "Check the server's certificate. false accepts any certificate (an impostor "
-            "too): only for a quick test. Not with ca_bundle."
+            "Check the server's certificate. `false` accepts any certificate (an impostor "
+            "too): the report shows the connection as **not verified**. Not `false` with "
+            "`ca_bundle`."
         ),
     )
     ca_bundle: Path | None = Field(
         default=None,
         description=(
-            "PEM file of the certificate authorities to trust for this connection, "
-            "instead of the system's store and certifi's list (as curl --cacert)."
+            "The certificate authorities to trust for this connection (an existing PEM "
+            "file), **instead of** the default ones (as `curl --cacert`)."
         ),
     )
     client_cert: Path | None = Field(
         default=None,
-        description="The tool's certificate (PEM), for a server that asks for mutual TLS.",
+        description=(
+            "The tool's certificate (an existing PEM file, with `client_key`), for a server "
+            "that asks for mutual TLS. Allowed with `verify: false`."
+        ),
     )
     client_key: Path | None = Field(
         default=None,
         description=(
-            "The private key of client_cert (PEM, not encrypted), always with it. Only the "
-            "path is configuration: the content is never logged."
+            "The private key of `client_cert` (an existing PEM file, not encrypted, with "
+            "`client_cert`). Only the path is configuration: the content is read by the TLS "
+            "library and never logged."
         ),
     )
 

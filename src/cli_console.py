@@ -28,6 +28,7 @@ from rich.text import Text
 
 from src.connectors.base import BaseSubprocessConnector
 from src.core.models import ExitCode, ResultSet, TestResult, TestStatus
+from src.core.models.enums import exit_code_text
 
 if TYPE_CHECKING:
     # Type only: importing the engine here would load the whole tool for every
@@ -58,11 +59,12 @@ STATUS_STYLES: dict[str, str] = {
     TestStatus.SKIP: "yellow",
     TestStatus.ERROR: "bold magenta",
 }
-EXIT_LABELS: dict[int, tuple[str, str]] = {
-    ExitCode.CLEAN: ("green", "CLEAN - no violation detected"),
-    ExitCode.FAIL: ("bold red", "FAIL - at least one security guarantee was violated"),
-    ExitCode.ERROR: ("bold magenta", "ERROR - at least one verification did not complete"),
-    ExitCode.INFRASTRUCTURE: ("yellow", "INFRA - the assessment did not run"),
+# Colour of the exit code line; its text is exit_code_text (src/core/models/enums.py).
+EXIT_STYLES: dict[int, str] = {
+    ExitCode.CLEAN: "green",
+    ExitCode.FAIL: "bold red",
+    ExitCode.ERROR: "bold magenta",
+    ExitCode.INFRASTRUCTURE: "yellow",
 }
 # Labels of the section headings in the final summary (aligned).
 _HEADING_WIDTH: int = 10
@@ -262,8 +264,8 @@ class ConsoleObserver:
         When the run stopped (exit 10), the reason follows in full, wrapped
         under the text column: the technical log cuts long values.
         """
-        style, label = EXIT_LABELS.get(exit_code, ("white", f"exit code {exit_code}"))
-        self._heading(f"Exit {exit_code}", label, style)
+        style = EXIT_STYLES.get(exit_code, "white")
+        self._heading(f"Exit {exit_code}", exit_code_text(exit_code), style)
         if self._stop_reason is not None:
             grid = Table.grid()
             grid.add_column(width=_HEADING_WIDTH, style="bold", no_wrap=True)

@@ -142,9 +142,9 @@ ToolBaseError
  ├── OpenAPILoadError         # Phase 2 - spec unreachable or malformed [BLOCKS STARTUP]
  ├── DAGCycleError            # Phase 4 - circular dependency [BLOCKS STARTUP]
  ├── SecurityClientError      # Phase 5, native tests → caught in execute() → TestResult(ERROR)
- ├── AuthenticationSetupError # Phase 5, helpers/auth.py - credentials rejected (401/403)
- │                            #   by target API; caught in execute() → TestResult(ERROR)
- ├── ExternalToolError        # Phase 5, external tests (fields: tool_name, exit_code, timed_out)
+ ├── AuthenticationSetupError # Phase 5, helpers/auth*.py - a role's credential not obtained (login
+ │                            #   request not 2xx, no credential value); caught in execute() → TestResult(ERROR)
+ ├── ExternalToolError        # Phase 5, external tests (fields: tool_name, exit_code, timed_out, raw_stderr)
  │                            #   → caught in execute() → TestResult(ERROR)
  └── TeardownError            # Phase 6 → WARNING log, never propagated
 ```

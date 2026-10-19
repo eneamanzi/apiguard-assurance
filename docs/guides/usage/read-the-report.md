@@ -22,21 +22,20 @@ replacing the files of the previous run:
 | `config_used.yaml` | you, and a re-run | every configuration value the run used, `# specified` or `# default`; `apiguard run --config config_used.yaml` repeats the run ([details](../../reference/configuration.md#the-configuration-a-run-used-config_usedyaml)) |
 | `tools/<test>_output.json` | external tests | raw output of each tool (e.g. `tools/ext_1_5_sslyze_output.json`) |
 
-If the run was interrupted with `Ctrl+C`, none of these is written and only `evidence_tmp/` remains (Q-44).
+If the run was interrupted (`Ctrl+C`, SIGTERM), the reports are not written: the folder keeps `config_used.yaml`
+(written before the run contacts the target) and, when the tests had started, `evidence_tmp/` with the evidence
+collected so far.
 
 **`evidence.json` is sensitive.** Response bodies are stored as received: if the API returns secrets, they are in
-this file. Only the `Authorization` header is redacted.
+this file. Only secret values are redacted: `Authorization` and cookie values, and the secrets the tool knows
+(passwords, tokens, the values it generates) ([sensitive data](../../reference/evidence-format.md#sensitive-data)).
 
 ## 1. The verdict
 
-The exit code of `apiguard run` is the overall verdict ([exit codes](../../reference/exit-codes.md)):
-
-| Exit | Meaning |
-|---|---|
-| `0` | every executed test passed (SKIPs do not count) |
-| `1` | at least one test FAILED: a security guarantee is violated |
-| `3` | no FAIL, but at least one test could not complete (ERROR) |
-| `10` | the assessment did not run (configuration, unreachable specification): **no verdict, not "clean"** |
+The exit code of `apiguard run` is the overall verdict: every code and its meaning in
+[exit codes](../../reference/exit-codes.md). Two to keep in mind when reading a report: `10` means the assessment did
+not run or did not complete, so **no verdict, never "clean"**; `3` may come with findings, since an ERROR result
+can carry the findings collected before the error.
 
 The executive summary gives the counts:
 

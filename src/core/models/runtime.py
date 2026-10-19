@@ -57,8 +57,6 @@ _ROLES: tuple[tuple[str, str, str, str], ...] = (
     ("user_b", "user_b_username", "user_b_password", "user_b_token"),
 )
 
-_SENSITIVE_DESCRIPTION: str = "From a ${VAR} placeholder; never logged, masked in every output."
-
 # Marks a configuration field whose value is a secret (for a mapping: each of its
 # values), as Field(json_schema_extra=SECRET_VALUE): the configuration a run used
 # (config_used.yaml, src/config/config_used.py) writes it only as a ${VAR} placeholder.
@@ -85,7 +83,7 @@ class SendAs(BaseModel):
     location: CredentialLocation | None = Field(
         default=None,
         alias="in",
-        description="'header', 'query' or 'cookie' (key 'in' in config.yaml).",
+        description="Where the credential is sent: `header`, `query` or `cookie`.",
     )
     name: str | None = Field(
         default=None,
@@ -95,7 +93,7 @@ class SendAs(BaseModel):
     prefix: str | None = Field(
         default=None,
         min_length=1,
-        description="Text written before the credential, spaces included, e.g. 'token '.",
+        description='Text written before the credential, spaces included (Forgejo: `"token "`).',
     )
 
 
@@ -128,57 +126,91 @@ class RuntimeCredentials(BaseModel):
     auth_type: AuthType | None = Field(
         default=None,
         description=(
-            "How a credential is obtained: 'basic', 'static_token', 'login'. "
-            "Required when an account or a token is configured."
+            "How a credential is obtained. **Required** when an account or a token is "
+            "configured. `basic` (HTTP Basic with username and password, RFC 7617), "
+            "`static_token` (the `<role>_token` values), `login` (the prepared resource "
+            "`login_resource` is created for each role: its value `credential` is the "
+            "token; its delete request, if any, deletes the token at the end of the run and "
+            "lets test 1.4 revoke one)."
         ),
     )
 
     # Accounts (basic, login)
     admin_username: str | None = Field(
         default=None,
-        description="Admin username. " + _SENSITIVE_DESCRIPTION,
-        json_schema_extra=SECRET_VALUE,
+        description=(
+            "Username of the administrator role (`basic`, `login`). Not a secret: it may "
+            "appear in the outputs (e.g. in a path)."
+        ),
     )
     admin_password: str | None = Field(
         default=None,
-        description="Admin password. " + _SENSITIVE_DESCRIPTION,
+        description=(
+            "Password of the administrator role (`basic`, `login`). Write it as a `${VAR}` "
+            "placeholder: never logged, and masked in every output when it has 8 characters "
+            "or more."
+        ),
         json_schema_extra=SECRET_VALUE,
     )
     user_a_username: str | None = Field(
         default=None,
-        description="User A username. " + _SENSITIVE_DESCRIPTION,
-        json_schema_extra=SECRET_VALUE,
+        description=(
+            "Username of the first non-privileged role (`basic`, `login`). Not a secret: it "
+            "may appear in the outputs (e.g. in a path)."
+        ),
     )
     user_a_password: str | None = Field(
         default=None,
-        description="User A password. " + _SENSITIVE_DESCRIPTION,
+        description=(
+            "Password of the first non-privileged role (`basic`, `login`). Write it as a "
+            "`${VAR}` placeholder: never logged, and masked in every output when it has 8 "
+            "characters or more."
+        ),
         json_schema_extra=SECRET_VALUE,
     )
     user_b_username: str | None = Field(
         default=None,
-        description="User B username. " + _SENSITIVE_DESCRIPTION,
-        json_schema_extra=SECRET_VALUE,
+        description=(
+            "Username of the second non-privileged role (`basic`, `login`). Not a secret: "
+            "it may appear in the outputs (e.g. in a path)."
+        ),
     )
     user_b_password: str | None = Field(
         default=None,
-        description="User B password. " + _SENSITIVE_DESCRIPTION,
+        description=(
+            "Password of the second non-privileged role (`basic`, `login`). Write it as a "
+            "`${VAR}` placeholder: never logged, and masked in every output when it has 8 "
+            "characters or more."
+        ),
         json_schema_extra=SECRET_VALUE,
     )
 
     # Tokens (static_token)
     admin_token: str | None = Field(
         default=None,
-        description="Admin token (static_token). " + _SENSITIVE_DESCRIPTION,
+        description=(
+            "`static_token` only: the token of the administrator role. Write it as a "
+            "`${VAR}` placeholder: never logged, and masked in every output when it has 8 "
+            "characters or more."
+        ),
         json_schema_extra=SECRET_VALUE,
     )
     user_a_token: str | None = Field(
         default=None,
-        description="User A token (static_token). " + _SENSITIVE_DESCRIPTION,
+        description=(
+            "`static_token` only: the token of the first non-privileged role. Write it as a "
+            "`${VAR}` placeholder: never logged, and masked in every output when it has 8 "
+            "characters or more."
+        ),
         json_schema_extra=SECRET_VALUE,
     )
     user_b_token: str | None = Field(
         default=None,
-        description="User B token (static_token). " + _SENSITIVE_DESCRIPTION,
+        description=(
+            "`static_token` only: the token of the second non-privileged role. Write it as "
+            "a `${VAR}` placeholder: never logged, and masked in every output when it has 8 "
+            "characters or more."
+        ),
         json_schema_extra=SECRET_VALUE,
     )
 
@@ -187,8 +219,10 @@ class RuntimeCredentials(BaseModel):
         default=None,
         min_length=1,
         description=(
-            "login: name of the prepared resource (resources:) that logs in for a role; "
-            "its value 'credential' is the token."
+            "`login` only, **required** there: the name of a prepared resource "
+            "(`resources`) whose create request logs in for a role (`auth: basic` or "
+            "`none`) and whose values include `credential`, the dotted path of the token in "
+            "the response."
         ),
     )
 
@@ -197,15 +231,19 @@ class RuntimeCredentials(BaseModel):
         default=None,
         min_length=1,
         description=(
-            "Name of the specification's security scheme to send the credential with; "
-            "required when the specification declares more than one usable scheme."
+            "Name of the specification's security scheme the credential is sent with. "
+            "**Required** when the specification declares more than one scheme that can "
+            "carry a token (e.g. Forgejo: `AuthorizationHeaderToken`). Not with `basic`."
         ),
     )
     send_as: SendAs | None = Field(
         default=None,
         description=(
-            "Where and how the credential is sent: completes the declared scheme (e.g. a "
-            "prefix), or describes it when the specification declares none."
+            "Where and how the credential is sent. Every field left out comes from the "
+            "specification's scheme; with no usable scheme `in` and `name` are required. "
+            "With a declared scheme `in` and `name` may only repeat the scheme's, and a "
+            '`prefix` is allowed only for an `apiKey` scheme (Forgejo: `prefix: "token "`). '
+            "Not with `basic`."
         ),
     )
 

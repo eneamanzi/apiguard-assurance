@@ -19,10 +19,13 @@ without it those tests return SKIP (a missing precondition, not a pass).
 
 | Information | Enables | Without it |
 |---|---|---|
-| Base URL of the API + its OpenAPI specification | 0.1, 0.2, 0.3, 1.1, 1.5, 1.6, 4.1, 6.2, 6.4 (sub-test A) | nothing runs |
-| Accounts: an admin and an ordinary user (`user_a`) | 1.4 (admin, WHITE_BOX), 2.1 and 7.2 (`user_a`, GREY_BOX) | SKIP |
+| Base URL of the API + its OpenAPI specification | 0.1, 0.2, 0.3, 1.1, 1.5, 1.6, 4.1, 6.2, 6.4 (sub-test A), and the external tests | nothing runs |
+| Accounts: an admin and an ordinary user (`user_a`) | 1.4 (admin, WHITE_BOX: also a login that can revoke a token, and `protected_endpoint`), 2.1 (`user_a`, GREY_BOX: also `admin_endpoint_paths`), 7.2 (`user_a`, GREY_BOX: also `url_accepting_endpoint`) | SKIP |
 | Real identifiers of existing resources (`path_seed`) | meaningful results on endpoints with `{parameters}` (mainly 1.1) | those probes end `INCONCLUSIVE_PARAMETRIC` |
 | Gateway Admin API (Kong or APISIX) | 3.3, 4.2, 4.3, 6.4 sub-test B | SKIP |
+
+For your configuration, `apiguard list-tests -c my-api.yaml` says which tests the run selects and why each other one
+would SKIP; what every test needs: [test portability](../../reference/compatibility.md#test-portability).
 
 ## 1. Create a configuration file
 
@@ -128,7 +131,7 @@ by the TLS library and never written to logs or reports.
 specification, and makes the gateway audits SKIP on the Admin API; the message names the key to set. On screen:
 
 ```text
-Exit 10   INFRA - the assessment did not run
+Exit 10   INFRA - the assessment did not run or did not complete: no security verdict
 Reason    Connection to the API failed before any test: the server's certificate is not trusted
           (unable to get local issuer certificate): set target.tls.ca_bundle to the authority that
           issued it (or install that authority in the system's store).

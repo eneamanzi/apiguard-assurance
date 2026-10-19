@@ -166,6 +166,75 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
 ### Changed
 
+- The usage guides state a fact once and link to its page (Q-04): the exit codes are explained in `exit-codes.md`
+  (`read-the-report.md` keeps the two warnings for a reader, `integrate-apiguard.md` only what a program should
+  do); the output files in `read-the-report.md`. Fixed on the way: an interrupted run keeps `config_used.yaml` and,
+  when the tests had started, `evidence_tmp/` (verified with Ctrl+C on the lab; the guides said only
+  `evidence_tmp/`); the integration guide said exit `3` means "no violation found" (an ERROR result may carry
+  findings); `evidence.json` redacts more than `Authorization` (cookies, the known secrets); the first assessment
+  showed nuclei's old 240 s limit (600); `configure-a-target.md` now says what 1.4, 2.1 and 7.2 need besides the
+  accounts, and points to `apiguard list-tests -c`.
+
+- The developer tables are generated from the code (Q-04): the result helpers and the evidence calls
+  (`add-a-native-test.md`), the connector bases, their helpers and the methods an external test implements
+  (`add-an-external-test.md`), the gateway concepts with the tests that use them (`add-a-gateway-adapter.md`), the
+  exceptions (`docs/architecture/overview.md`): signatures from `inspect`, the text from the first paragraph of each
+  docstring, rewritten for the guides and checked against the code. Fixed on the way: the native test guide still
+  said to guard with `_requires_admin_api` (removed: a test declares `Need.GATEWAY`); the connector attributes
+  `DEFAULT_TIMEOUT_SECONDS` and `LOCAL_TOOLS_SUBDIR` have defaults (the guide listed them as required);
+  `SecurityClientError` never comes from an HTTP status, and its `status_code` is always `None` (its docstring said
+  503 is retried and 502 is reported); `AuthenticationSetupError` follows any login status that is not 2xx (not only
+  401/403); `GatewayAdapterError` is caught by the concept readers, not by the tests; `generate-seed` exits with a
+  named constant.
+
+- Every description generated into the reference was checked against the code that does what it says (Q-04),
+  and corrected where it did not match: the usernames are not secrets (never registered: they appear in the
+  outputs, e.g. in a path) and no longer carry `SECRET_VALUE`, so `config_used.yaml` writes a username as given;
+  passwords and tokens are masked only with 8 characters or more; `execution.test_ids` sets aside both
+  `min_priority` and `strategies`, for native and external tests (the page said strategies only for native ones);
+  `specification.timeout` is the download's timeout and, separately, the limit of the `$ref` dereferencing;
+  `path_seed` falls back to `apiguard-probe` in a DELETE; with a declared security scheme `send_as.in` and `name`
+  may repeat the scheme's; `list-tests --config` does not read the certificates nor the specification;
+  `tool_artifact_label` is the external test's ID; `all_rows` and `not_run` are ordered by `test_id` as text.
+  `external_tools.sslyze.timeout_seconds` has no effect (connections time out after 20 s whatever the value,
+  Q-24): the description says so until the owner decides.
+
+- **Breaking:** the text of an exit code has one definition (`EXIT_CODES`, `src/core/models/enums.py`), used by the
+  report (`executive_summary.exit_code_label`), the console summary, `apiguard run --help` and
+  `docs/reference/exit-codes.md` (generated); before, five places described the codes with different words. The
+  label in the JSON report changes, e.g. `FAIL — At least one security guarantee violated` becomes `FAIL - at least
+  one security guarantee is violated`; `exit_code` is unchanged. Each meaning checked against the code: exit `3`
+  may come with findings (an ERROR result may carry some), exit `10` also follows an unexpected error after the
+  tests ran.
+- `docs/reference/evidence-format.md`: the tables of the file and of `EvidenceRecord` are generated (`evidence_table`,
+  Q-04); the top level of `evidence.json` has a model (`EvidenceFile`, `src/core/models/http.py`) instead of a
+  dictionary built by hand, and the file written is the same, character by character. Fixed on the way: the code
+  said the request body is not sanitized (the registered secrets are replaced); a tool output stored in
+  `evidence.json` is truncated like any body, the full output being in `tools/<label>_output.json`.
+
+- `docs/reference/report-schema.md`: the table of every model of `apiguard_report.json` (`ReportData`,
+  `ConnectionTrust`, `ExecutiveSummary`, `NotRunEntry`, `DomainSummary`, `TestResultRow`, `Finding`, `InfoNote`,
+  `TransactionSummary`) and the domain names are generated from the models (`report_table`, `domain_names_table`,
+  Q-04); the field descriptions in the code now carry the page's wording (checked against a real report: the JSON has
+  exactly the models' fields). The labels and the truncation limits come from their constants. Fixed on the way:
+  `total_finding_count` counts the findings of every result (the page said FAIL only); the code's descriptions of
+  `request_headers`, `findings` and `notes` were outdated (typed placeholders, findings on ERROR, notes on any status).
+
+- `docs/reference/cli.md`: the syntax line and the options table of every command are generated from the CLI
+  (`scripts/generate_docs.py`, `cli_synopsis` and `cli_options`, from Typer's command objects, Q-04); the help texts
+  in `src/cli.py` now carry the page's wording, so `apiguard <command> --help` says the same. Fixed on the way: the
+  syntax of `run` lacked `--env-file`, the syntax of `generate-seed` lacked `--config` and `--env-file`, and its
+  `SPEC` argument was given as required (it is optional: `--config` is the alternative). `--env-file` and `--output`
+  show their real default in `--help` ("'.env' in the working directory", "stdout").
+
+- The tables of `docs/reference/configuration.md` outside `tests` (`target`, `specification`, `gateway`, `tls`,
+  `credentials`, `resources`, `execution`, `output`, `external_tools`) are generated from the configuration schema
+  (`scripts/generate_docs.py`, `configuration_table`, Q-04): key, type with its range, default, description; the
+  descriptions in the code now carry the page's wording (60 fields). Fixed on the way: `dev_mode` reads
+  `<output.directory>/tools/<label>_output.json` (the page said `outputs/tools/`) and, without it, runs the tool and
+  saves the file; `resources.<name>.delete.path` is required in a `delete` block (the page said "none"). The
+  `external_tools` keys are one table, with each tool's own defaults and ranges.
+
 - **Breaking:** a key written twice in the same mapping of `config.yaml` stops the tool (exit `10`, naming the
   key and both lines); before, the last one was kept silently and the first value was lost (Q-68). The same key under
   different parents, in different list items or overriding a YAML merge (`<<:`) is accepted.

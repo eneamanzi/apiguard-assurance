@@ -250,7 +250,7 @@ class BaseConnector(ABC):
 
 class BaseSubprocessConnector(BaseConnector):
     """
-    Concrete base class for external tools invoked as OS subprocesses.
+    Base of a connector for a tool run as a program (nuclei, testssl.sh).
 
     Provides complete implementations of is_available(), get_version(), and
     the protected helpers _run_subprocess(), _parse_json_output(), and
@@ -293,7 +293,8 @@ class BaseSubprocessConnector(BaseConnector):
 
     def _resolve_binary_path(self) -> str | None:
         """
-        Return the filesystem path to the binary using a two-channel cascade.
+        Return the binary's path: ./tools/<LOCAL_TOOLS_SUBDIR>/<BINARY_NAME> (relative
+        to the working directory), else the one on PATH, else None.
 
         Discovery channels (evaluated in priority order, first hit wins):
 
@@ -445,7 +446,8 @@ class BaseSubprocessConnector(BaseConnector):
         tool_name: str,
     ) -> tuple[str, int]:
         """
-        Execute a subprocess and return (stdout, exit_code).
+        Run an argument list (no shell) and return (stdout, exit_code); a timeout raises
+        ExternalToolError with timed_out=True.
 
         Handles TimeoutExpired by terminating the process and raising
         ExternalToolError(timed_out=True).  Handles OS-level failures
@@ -632,7 +634,7 @@ class BaseSubprocessConnector(BaseConnector):
         skip_invalid_lines: bool = True,
     ) -> list[dict[str, Any]]:
         """
-        Parse a JSONL (JSON Lines) document from tool stdout.
+        Parse the JSON Lines output of a tool.
 
         Use this method for tools that emit one JSON object per line on stdout
         (e.g. ffuf with ``-json``, nuclei with ``-json``).  Each non-empty line
@@ -781,7 +783,8 @@ class BaseSubprocessConnector(BaseConnector):
         path_keys: tuple[str, ...],
     ) -> list[dict[str, Any]]:
         """
-        Relativize local filesystem paths in a list of tool finding dicts.
+        Make the local file paths inside the tool's results relative (with
+        _relativize_display_path).
 
         Use this helper ONLY for fields that contain paths from the local tool
         invocation infrastructure (e.g. template directories, binary locations).
@@ -832,7 +835,8 @@ class BaseSubprocessConnector(BaseConnector):
         json_output_args: list[str],
     ) -> tuple[str, str]:
         """
-        Build the two human-readable command strings stored in raw_output.
+        Build the command and command_json display strings of the raw output, with local
+        paths normalised.
 
         This helper centralises the path-normalisation and command-string
         construction logic that every connector needs to produce the
@@ -995,7 +999,7 @@ class ConnectorRawOutput(TypedDict, total=True):
 
 class BaseLibraryConnector(BaseConnector):
     """
-    Concrete base class for external tools accessed as Python libraries.
+    Base of a connector for a tool used as a Python library (sslyze).
 
     Provides implementations of is_available() and get_version() based on
     importlib introspection rather than subprocess execution.  Concrete

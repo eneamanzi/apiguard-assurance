@@ -88,14 +88,18 @@ its timeouts and its certificate settings.
 
 The API under test, as exposed through the gateway proxy, and how the tool connects to it.
 
-| Key | Type | Default | Constraints | Description |
-|---|---|---|---|---|
-| `base_url` | URL | **required** | - | Base URL of the API as exposed through the gateway proxy. |
-| `tls` | [tls block](#tls-certificates-of-a-connection) | none | - | Certificate settings of the API connection, also used by the HTTP-redirect probe of test 1.5 and given to the external TLS tests (`ca_bundle`). |
-| `connect_timeout` | float | `5.0` | 1-30 | TCP connect timeout (s) for requests to the API. |
-| `read_timeout` | float | `30.0` | 5-120 | Read timeout (s) for requests to the API. |
-| `max_retry_attempts` | int | `3` | 1-10 | Total attempts (initial + retries). Only transport errors are retried, never HTTP status codes and never a TLS failure. |
-| `path_seed` | map string→string | `{}` | - | Real values for OpenAPI path parameters (`{owner}` → `"alice"`). Unlisted parameters fall back to the test's placeholder (typically `1`). Generate with [`apiguard generate-seed`](cli.md#generate-seed). **Use only test resources you can lose:** the values are used for every request, including `DELETE` and writes sent without credentials (test 1.1); on an API without protection on those endpoints they are deleted or changed. |
+<!-- [[[cog import generate_docs as g; cog.out(g.configuration_table("target")) ]]] -->
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `base_url` | URL | **required** | Base URL of the API as exposed through the gateway proxy, e.g. https://api.example.com. |
+| `connect_timeout` | number 1-30 | `5.0` | TCP connect timeout (s) for requests to the API. |
+| `read_timeout` | number 5-120 | `30.0` | Read timeout (s) for requests to the API. |
+| `max_retry_attempts` | int 1-10 | `3` | Total attempts (initial + retries). Only transport errors are retried, never HTTP status codes and never a TLS failure. |
+| `tls` | [tls block](#tls-certificates-of-a-connection) | none | Certificate settings of the API connection, also used by the HTTP-redirect probe of test 1.5 and given to the external TLS tests (`ca_bundle`). |
+| `path_seed` | map string → string | `{}` | Real values for OpenAPI path parameters (`{owner}` → `"alice"`). Unlisted parameters fall back to the test's placeholder (typically `1`; `apiguard-probe` in a DELETE, so that it matches no real resource). Generate with `apiguard generate-seed`. **Use only test resources you can lose:** the values are used for every request, including `DELETE` and writes sent without credentials (test 1.1); on an API without protection on those endpoints they are deleted or changed. |
+
+<!-- [[[end]]] -->
 
 Before any test the tool sends one request to `base_url` (`GET /`, recorded in the evidence as test `preflight`). A TLS
 failure, or a TLS problem the server reports with an HTTP answer (see [TLS errors](#tls-errors)), stops the run with
@@ -105,12 +109,16 @@ exit `10` and the key to set; any other answer, of any status, lets the run go o
 
 Where the OpenAPI specification is read from: exactly one of `url` and `path`.
 
-| Key | Type | Default | Constraints | Description |
-|---|---|---|---|---|
-| `url` | URL \| null | `null` | exactly one of `url` / `path` | Downloaded by the tool at runtime (Phase 2), redirects followed, with the settings of `tls`. |
-| `path` | path \| null | `null` | see above | Local file (JSON or YAML). Its existence is checked in Phase 2, not by `validate-config`. |
-| `timeout` | float | `60.0` | 10-300 | Wall-clock limit for loading the specification (download and `$ref` dereferencing). When it expires the run stops with `OpenAPILoadError` (exit `10`), also if the server accepts the connection and never answers. |
-| `tls` | [tls block](#tls-certificates-of-a-connection) | none | - | Certificate settings of the download; ignored (with a warning) for an `http://` URL, unused for `path`. |
+<!-- [[[cog import generate_docs as g; cog.out(g.configuration_table("specification")) ]]] -->
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `url` | URL \| null | none | Downloaded by the tool at runtime (Phase 2), redirects followed, with the settings of `tls`. Exactly one of `url` and `path`. |
+| `path` | path \| null | none | Local file (JSON or YAML), relative to the working directory. Exactly one of `url` and `path`. Its existence is checked when the specification is loaded (Phase 2; `validate-config` only when credentials are configured). Remote `$ref` entries inside it still need network access. |
+| `timeout` | number 10-300 | `60.0` | Timeout (s) of the download (the connection and each read), and, separately, the limit of the `$ref` dereferencing as a whole. When one expires the run stops with exit `10`, also if the server accepts the connection and never answers. |
+| `tls` | [tls block](#tls-certificates-of-a-connection) | none | Certificate settings of the download; ignored (with a warning) for an `http://` URL, unused for `path`. |
+
+<!-- [[[end]]] -->
 
 Relative `$ref` in a specification read from `url` are not supported (the dereferencing library resolves them only
 for files): save the specification and its referenced files locally and use `path`.
@@ -120,16 +128,21 @@ for files): save the specification and its referenced files locally and use `pat
 The API gateway in front of the API, for the WHITE_BOX configuration audits (3.3, 4.2, 4.3, 6.4 sub-test B).
 Optional: without it those audits return SKIP. With it, `adapter` and `admin.url` are required.
 
-| Key | Type | Default | Constraints | Description |
-|---|---|---|---|---|
-| `adapter` | string | **required** | `kong`, `apisix` (the adapters listed in `src/core/gateway/__init__.py`) | How the gateway's configuration is read. |
-| `admin.url` | URL | **required** | - | The gateway's Admin API. Read with GET requests only. |
-| `admin.headers` | map string → string | `{}` | names and values not empty | Headers sent on every Admin API request, for a gateway that protects it: e.g. `X-API-KEY` (APISIX; a key of role `viewer`, GET only, is enough), `Kong-Admin-Token` (Kong Enterprise). Never sent to `health.url`. Write the values as `${VAR}`: they are registered as secrets and masked in logs and reports. |
-| `admin.connect_timeout` | float | `5.0` | 1-30 | TCP connect timeout (s) for the Admin API and the health interface. |
-| `admin.read_timeout` | float | `10.0` | 1-60 | Read timeout (s) for the Admin API and the health interface. |
-| `admin.tls` | [tls block](#tls-certificates-of-a-connection) | none | - | Certificate settings of the Admin API connection (e.g. the client certificate APISIX's `admin_api_mtls` requires). |
-| `health.url` | URL | **required** with `health` | - | Interface reporting the live health of the backends, for a gateway that keeps it outside the Admin API: the APISIX Control API (e.g. `http://127.0.0.1:9090`). Read by test 4.3 (observability), without the `admin.headers`. Not used by Kong. Absent on APISIX: the live health is reported as not accessible, the rest of the audits still run. |
-| `health.tls` | [tls block](#tls-certificates-of-a-connection) | none | - | Certificate settings of the health interface (APISIX's Control API has no TLS: leave it out). |
+<!-- [[[cog import generate_docs as g; cog.out(g.configuration_table("gateway")) ]]] -->
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `adapter` | string | **required** | How the gateway's configuration is read: `kong`, `apisix`. |
+| `admin.url` | URL | **required** | The gateway's Admin API, read with GET requests only by the configuration audits (3.3, 4.2, 4.3, 6.4 sub-test B). |
+| `admin.headers` | map string → string | `{}` | Headers sent on every Admin API request, for a gateway that protects it: e.g. `X-API-KEY` (APISIX; a key of role `viewer`, GET only, is enough), `Kong-Admin-Token` (Kong Enterprise). Names and values not empty. Never sent to `health.url`. Write the values as `${VAR}`: they are registered as secrets and masked in logs and reports. |
+| `admin.connect_timeout` | number 1-30 | `5.0` | TCP connect timeout (s) for the Admin API and the health interface. |
+| `admin.read_timeout` | number 1-60 | `10.0` | Read timeout (s) for the Admin API and the health interface. |
+| `admin.tls` | [tls block](#tls-certificates-of-a-connection) | none | Certificate settings of the Admin API connection (e.g. the client certificate APISIX's `admin_api_mtls` requires). |
+| `health` | object \| null | none | The gateway's health interface, when separate from the Admin API (APISIX). |
+| `health.url` | URL | required with `health` | Interface reporting the live health of the backends, for a gateway that keeps it outside the Admin API: the APISIX Control API (e.g. `http://127.0.0.1:9090`). Read by test 4.3 (observability), without the `admin.headers`. Not used by Kong. Absent on APISIX: the live health is reported as not accessible, the rest of the audits still run. |
+| `health.tls` | [tls block](#tls-certificates-of-a-connection) | none | Certificate settings of the health interface (APISIX's Control API has no TLS: leave it out). |
+
+<!-- [[[end]]] -->
 
 An Admin API the tool cannot read (refused, wrong address, certificate not trusted, client certificate missing) is
 "not accessible": the audits return SKIP with "Not verifiable: no access to ..." and the reason, which names the key to
@@ -141,12 +154,16 @@ Each of `target`, `specification`, `gateway.admin` and `gateway.health` takes an
 (`src/core/models/tls.py`). Guide, with how to obtain the files: [configure a target, TLS and
 certificates](../guides/usage/configure-a-target.md#2-tls-and-certificates).
 
-| Key | Type | Default | Constraints | Description |
-|---|---|---|---|---|
-| `verify` | bool | `true` | not `false` with `ca_bundle` | Check the server's certificate. `false` accepts any certificate (an impostor too): the report shows the connection as **not verified**. |
-| `ca_bundle` | path \| null | `null` | existing file, PEM | The certificate authorities to trust for this connection, **instead of** the default ones (as `curl --cacert`). |
-| `client_cert` | path \| null | `null` | existing file, PEM; with `client_key` | The tool's certificate, for a server that asks for mutual TLS. Allowed with `verify: false`. |
-| `client_key` | path \| null | `null` | existing file, PEM, not encrypted; with `client_cert` | The private key of `client_cert`. Only the path is configuration: the content is read by the TLS library and never logged. |
+<!-- [[[cog import generate_docs as g; cog.out(g.tls_block_table()) ]]] -->
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `verify` | bool | `true` | Check the server's certificate. `false` accepts any certificate (an impostor too): the report shows the connection as **not verified**. Not `false` with `ca_bundle`. |
+| `ca_bundle` | path \| null | none | The certificate authorities to trust for this connection (an existing PEM file), **instead of** the default ones (as `curl --cacert`). |
+| `client_cert` | path \| null | none | The tool's certificate (an existing PEM file, with `client_key`), for a server that asks for mutual TLS. Allowed with `verify: false`. |
+| `client_key` | path \| null | none | The private key of `client_cert` (an existing PEM file, not encrypted, with `client_cert`). Only the path is configuration: the content is read by the TLS library and never logged. |
+
+<!-- [[[end]]] -->
 
 **Trust.** Without `tls`, or without `ca_bundle`, a connection trusts the operating system's store (through
 `truststore`: a company authority installed by IT, or a proxy inspecting HTTPS, is trusted) plus certifi's list.
@@ -185,16 +202,28 @@ whether a client certificate was used.
 Accounts used by the tests that log in to the API: `user_a` (a normal user) by the GREY_BOX tests, `admin` (the
 API's administrator account) by the WHITE_BOX test 1.4. Always provide values through `${VAR}` placeholders.
 
+<!-- [[[cog import generate_docs as g; cog.out(g.configuration_table("credentials")) ]]] -->
+
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `auth_type` | string \| null | `null` | How a credential is obtained. **Required** when an account or a token is configured. `basic` (HTTP Basic with username and password, RFC 7617), `static_token` (the `<role>_token` values), `login` (the [prepared resource](#resources) `login_resource` is created for each role: its value `credential` is the token; its delete request, if any, deletes the token at the end of the run and lets test 1.4 revoke one). |
-| `admin_username`, `admin_password` | string \| null | `null` | Administrator role (`basic`, `login`). |
-| `user_a_username`, `user_a_password` | string \| null | `null` | First non-privileged role. |
-| `user_b_username`, `user_b_password` | string \| null | `null` | Second non-privileged role. |
-| `admin_token`, `user_a_token`, `user_b_token` | string \| null | `null` | `static_token` only: the token of each role. |
-| `login_resource` | string \| null | `null` | `login` only, **required** there: the name of a resource of [`resources`](#resources) whose create request logs in for a role (`auth: basic` or `none`) and whose values include `credential`, the dotted path of the token in the response. |
-| `security_scheme` | string \| null | `null` | Name of the specification's security scheme the credential is sent with. **Required** when the specification declares more than one scheme that can carry a token (e.g. Forgejo: `AuthorizationHeaderToken`). Not with `basic`. |
-| `send_as` | map \| null | `null` | Where and how the credential is sent: `in` (`header`, `query`, `cookie`), `name`, `prefix` (written before the credential, spaces included). Every field left out comes from the specification's scheme; with no usable scheme `in` and `name` are required. With a declared `apiKey` scheme only `prefix` may be set (Forgejo: `prefix: "token "`). Not with `basic`. |
+| `auth_type` | `basic` \| `static_token` \| `login` \| null | none | How a credential is obtained. **Required** when an account or a token is configured. `basic` (HTTP Basic with username and password, RFC 7617), `static_token` (the `<role>_token` values), `login` (the prepared resource `login_resource` is created for each role: its value `credential` is the token; its delete request, if any, deletes the token at the end of the run and lets test 1.4 revoke one). |
+| `admin_username` | string \| null | none | Username of the administrator role (`basic`, `login`). Not a secret: it may appear in the outputs (e.g. in a path). |
+| `admin_password` | string \| null | none | Password of the administrator role (`basic`, `login`). Write it as a `${VAR}` placeholder: never logged, and masked in every output when it has 8 characters or more. |
+| `user_a_username` | string \| null | none | Username of the first non-privileged role (`basic`, `login`). Not a secret: it may appear in the outputs (e.g. in a path). |
+| `user_a_password` | string \| null | none | Password of the first non-privileged role (`basic`, `login`). Write it as a `${VAR}` placeholder: never logged, and masked in every output when it has 8 characters or more. |
+| `user_b_username` | string \| null | none | Username of the second non-privileged role (`basic`, `login`). Not a secret: it may appear in the outputs (e.g. in a path). |
+| `user_b_password` | string \| null | none | Password of the second non-privileged role (`basic`, `login`). Write it as a `${VAR}` placeholder: never logged, and masked in every output when it has 8 characters or more. |
+| `admin_token` | string \| null | none | `static_token` only: the token of the administrator role. Write it as a `${VAR}` placeholder: never logged, and masked in every output when it has 8 characters or more. |
+| `user_a_token` | string \| null | none | `static_token` only: the token of the first non-privileged role. Write it as a `${VAR}` placeholder: never logged, and masked in every output when it has 8 characters or more. |
+| `user_b_token` | string \| null | none | `static_token` only: the token of the second non-privileged role. Write it as a `${VAR}` placeholder: never logged, and masked in every output when it has 8 characters or more. |
+| `login_resource` | string \| null | none | `login` only, **required** there: the name of a prepared resource (`resources`) whose create request logs in for a role (`auth: basic` or `none`) and whose values include `credential`, the dotted path of the token in the response. |
+| `security_scheme` | string \| null | none | Name of the specification's security scheme the credential is sent with. **Required** when the specification declares more than one scheme that can carry a token (e.g. Forgejo: `AuthorizationHeaderToken`). Not with `basic`. |
+| `send_as` | object \| null | none | Where and how the credential is sent. Every field left out comes from the specification's scheme; with no usable scheme `in` and `name` are required. With a declared scheme `in` and `name` may only repeat the scheme's, and a `prefix` is allowed only for an `apiKey` scheme (Forgejo: `prefix: "token "`). Not with `basic`. |
+| `send_as.in` | `header` \| `query` \| `cookie` \| null | none | Where the credential is sent: `header`, `query` or `cookie`. |
+| `send_as.name` | string \| null | none | Name of the header, query parameter or cookie. |
+| `send_as.prefix` | string \| null | none | Text written before the credential, spaces included (Forgejo: `"token "`). |
+
+<!-- [[[end]]] -->
 
 Each method takes its own kind of credential: `static_token` the `<role>_token` keys only, the other methods username
 and password, set together or not at all.
@@ -228,16 +257,21 @@ Prepared resources: what the tool creates on the target and deletes at the end o
 `_`, `-`). Used by `credentials.login_resource` and by `tests.domain_7.test_7_2.url_accepting_endpoint.resource`; the test or the
 login chooses the role a resource is created for. None by default. Design: [D6](../architecture/design-decisions.md#d6-prepared-resources).
 
+<!-- [[[cog import generate_docs as g; cog.out(g.configuration_table("resources")) ]]] -->
+
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `<name>.create.method` | `GET` `POST` `PUT` `PATCH` `DELETE` | `POST` | Method of the create request. |
-| `<name>.create.path` | string | **required** | Path, starting with `/`; may use `{username}`, `{password}`, `{random}`. |
-| `<name>.create.auth` | `credential` \| `basic` \| `none` | `credential` | `credential`: the role's credential, sent as `credentials` says; `basic`: HTTP Basic with the role's username and password; `none`: nothing. |
-| `<name>.create.body` | JSON \| null | `null` | JSON body; strings may use the same placeholders. |
-| `<name>.values` | map name → dotted path | `{}` | Values read from the JSON response, e.g. `owner: owner.login`. A login resource needs `credential` (always masked as a secret); other values are not secrets. No array indexes. |
-| `<name>.delete.method` | as `create.method` | `DELETE` | Method of the delete request, sent at teardown with the same role. |
-| `<name>.delete.path` | string | none | Path; may also use the names of `values`. No `delete`: nothing is deleted. A delete request has no body. |
-| `<name>.delete.auth` | as `create.auth` | `credential` | How the delete request authenticates. |
+| `<name>.create.path` | string | **required** | Path, starting with `/`; may use `{username}`, `{password}`, `{random}` and, in a delete request, the names of `values`. |
+| `<name>.create.auth` | `credential` \| `basic` \| `none` | `credential` | How the request authenticates: `credential` (the role's credential, sent as `credentials` says), `basic` (HTTP Basic with the role's username and password), `none` (nothing). |
+| `<name>.create.method` | string | `POST` | Method of the create request: `GET`, `POST`, `PUT`, `PATCH` or `DELETE`. |
+| `<name>.create.body` | JSON | none | JSON body; strings may use the same placeholders as the path, in quotes. |
+| `<name>.values` | map string → string | `{}` | Values read from the JSON response, name → dotted path through objects (no array indexes), e.g. `owner: owner.login`; the value found must be a string or a number. A login resource needs `credential` (always masked as a secret); other values are not secrets. |
+| `<name>.delete` | object \| null | none | The request that deletes the resource at teardown; without it nothing is deleted. |
+| `<name>.delete.path` | string | required with `delete` | Path, starting with `/`; may use `{username}`, `{password}`, `{random}` and, in a delete request, the names of `values`. |
+| `<name>.delete.auth` | `credential` \| `basic` \| `none` | `credential` | How the request authenticates: `credential` (the role's credential, sent as `credentials` says), `basic` (HTTP Basic with the role's username and password), `none` (nothing). |
+| `<name>.delete.method` | string | `DELETE` | Method of the delete request, sent at teardown with the same role: `GET`, `POST`, `PUT`, `PATCH` or `DELETE`. A delete request has no body. |
+
+<!-- [[[end]]] -->
 
 **Placeholders** (`{...}`, one syntax for every value the tool fills): `{username}` and `{password}` are the account of
 the role the resource is created for, `{random}` is 8 hexadecimal characters (the same in the create and delete
@@ -252,21 +286,29 @@ credential. `validate-config` lists the resources and who uses them.
 
 ## `execution`
 
-| Key | Type | Default | Constraints | Description |
-|---|---|---|---|---|
-| `min_priority` | int | `3` | 0-3 | **Highest** priority level included (the name is historical): `0` = P0 only, `3` = all. |
-| `strategies` | list | all three | non-empty; `BLACK_BOX`, `GREY_BOX`, `WHITE_BOX` | Tests, native and external, whose strategy is not listed are excluded (ignored when `test_ids` is set). |
-| `test_ids` | list of strings | `[]` | `X.Y` or `ext.X.Y.tool` | Non-empty: run **only** the listed tests, native or external. Replaces the `min_priority` filter (and `strategies` for native tests). It chooses only among available tests: an ID that does not exist, or an external test whose tool is disabled (`external_tools`), stops the tool at startup (exit `10`) with the reason and, for an unknown ID, the closest existing ID. |
-| `fail_fast` | bool | `false` | - | Stop after the first P0 test returning FAIL or ERROR ([`exit-codes.md`](exit-codes.md)). |
+<!-- [[[cog import generate_docs as g; cog.out(g.configuration_table("execution")) ]]] -->
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `min_priority` | int 0-3 | `3` | **Highest** priority level included (the name is historical): `0` = P0 only, `3` = all. |
+| `strategies` | list of `BLACK_BOX` \| `GREY_BOX` \| `WHITE_BOX` | `BLACK_BOX`, `GREY_BOX`, `WHITE_BOX` | Tests, native and external, whose strategy is not listed are excluded (ignored when `test_ids` is set). Not empty. |
+| `fail_fast` | bool | `false` | Stop after the first P0 test returning FAIL or ERROR. |
+| `test_ids` | list | empty | Not empty: run **only** the listed tests, native (`X.Y`) or external (`ext.X.Y.tool`); `min_priority` and `strategies` are then ignored. It chooses only among available tests: an ID that does not exist, or an external test whose tool is disabled (`external_tools`), stops the tool at startup (exit `10`) with the reason and, for an unknown ID, the closest existing ID. |
+
+<!-- [[[end]]] -->
 
 The timeouts and retries of the API connection are in [`target`](#target), the specification's timeout in
 [`specification`](#specification).
 
 ## `output`
 
+<!-- [[[cog import generate_docs as g; cog.out(g.configuration_table("output")) ]]] -->
+
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `directory` | path | `outputs` | Destination of `evidence.json`, `assessment_report.html`, `apiguard_report.json`, `config_used.yaml`, `tools/` and the temporary `evidence_tmp/`. Created if missing. |
+| `directory` | path | `outputs` | Destination of `evidence.json`, `assessment_report.html`, `apiguard_report.json`, `config_used.yaml`, `tools/` and the temporary `evidence_tmp/`, relative to the working directory. Created if missing. |
+
+<!-- [[[end]]] -->
 
 ### The configuration a run used (`config_used.yaml`)
 
@@ -278,8 +320,8 @@ the same assessment (verified on the Forgejo + Kong lab: same tests, statuses, f
 
 - A value written with a `${VAR}` placeholder is written as you wrote it, quoted or not, never resolved: the tool
   cannot know whether a variable holds a secret, and the re-run resolves it from the same environment.
-- A secret written in clear (the usernames, passwords and tokens of `credentials`, the values of
-  `gateway.admin.headers`) becomes a placeholder named after its key, e.g. `${APIGUARD_CREDENTIALS_ADMIN_PASSWORD}`,
+- A secret written in clear (the passwords and tokens of `credentials`, the values of
+  `gateway.admin.headers`; the usernames are not secrets) becomes a placeholder named after its key, e.g. `${APIGUARD_CREDENTIALS_ADMIN_PASSWORD}`,
   with the note `written in clear in your config.yaml: export APIGUARD_CREDENTIALS_ADMIN_PASSWORD to re-run`; the
   re-run stops (exit `10`) naming every such variable until it is exported.
 - Any other value is the one the run used, as validated: a relative TLS file becomes an absolute path, a URL may
@@ -341,7 +383,7 @@ Test [1.5](../tests/domain-1/1-5-insecure-credential-transport.md), Credentials 
 | `hsts_min_max_age_seconds` | int ≥86400 | `31536000` | Minimum acceptable max-age value (seconds) in the Strict-Transport-Security header. NIST SP 800-52 Rev.2, OWASP ASVS v5.0.0 V12.1.1. Default: 31536000 (1 year). |
 | `http_probe_enabled` | bool | `true` | If True, probe the HTTP base URL for redirect enforcement (sub-test 1). Set False only if port 80 is filtered at the network level and any connection attempt would block for the full timeout. Default: True. |
 | `http_url` | string | `""` | A URL of the API in plain HTTP, checked for a redirect to HTTPS (sub-test 1). When non-empty, this URL is used directly instead of deriving the HTTP counterpart from the HTTPS base URL. Use in non-standard port lab setups where the HTTPS base URL uses a port other than 443 (e.g. https://localhost:8443 -> derive produces http://localhost:8443/ which hits the gateway's TLS listener and returns 400). Example: 'http://localhost:8000/' to probe the gateway's HTTP listener. Empty string (default) falls back to the derived URL. |
-| `http_probe_timeout_seconds` | number ≥1.0 | `5.0` | Connect + read timeout (seconds) for the HTTP redirect probe. Keep short: a TCP RST is returned immediately for refused connections. Default: 5.0. |
+| `http_probe_timeout_seconds` | number ≥1 | `5.0` | Connect + read timeout (seconds) for the HTTP redirect probe. Keep short: a TCP RST is returned immediately for refused connections. Default: 5.0. |
 | `expected_redirect_status_codes` | list | `301`, `308` | HTTP status codes that satisfy the redirect oracle in sub-test 1. RFC 9110 permanent redirects: 301 (Moved Permanently) and 308 (Permanent Redirect). Temporary redirects 302/307 are NOT accepted: they allow MITM-driven downgrade attacks. Default: [301, 308]. |
 
 ### `tests.domain_1.test_1_6`
@@ -457,28 +499,31 @@ true (`src/external_tests/registry.py`):
 `execution.test_ids` cannot force a disabled tool to run: listing a test of a disabled tool stops the tool at startup
 (exit `10`, e.g. `'ext.1.5.sslyze' cannot run: external_tools.sslyze.enabled is false`).
 
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `enabled` | bool | `true` | Master switch. `false` removes all external tests from the run. |
-
-Common keys for each tool (`testssl`, `nuclei`, `sslyze`):
+<!-- [[[cog import generate_docs as g; cog.out(g.configuration_table("external_tools")) ]]] -->
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `enabled` | bool | **`false`** | Enable the tool. |
-| `timeout_seconds` | int \| null | `null` | **Required when `enabled: true`** (Phase 1 error otherwise). Ranges: testssl ≥30, nuclei ≥60 (no upper bound), sslyze 30-300. For testssl and nuclei: wall-clock limit of one execution, which only stops a tool that hangs: set it to 2-3 times the duration seen on your target; a tool that ends after more than 70% of it logs the warning `external_tool_near_time_limit` with the value to raise. For sslyze: timeout of each TLS connection, not of the whole scan. |
-| `extra_flags` | string | testssl: `--quiet --color 0`; nuclei: `""` | **testssl and nuclei only** (command-line tools). Flags appended verbatim to the command line. Must not contain secrets. sslyze is a library and has no such key. |
-| `expected_version` | string \| null | `null` | Expected tool version; a mismatch logs a WARNING and the test still runs. |
-| `dev_mode` | bool | `false` | Development only: reuse `outputs/tools/<label>_output.json` instead of running the tool. Never enable in a real assessment. |
+| `enabled` | bool | `true` | Master switch: `false` removes all external tests from the run, whatever the settings of each tool. |
+| `testssl.enabled` | bool | `false` | Enable testssl.sh; `timeout_seconds` is then required. |
+| `testssl.timeout_seconds` | int ≥30 \| null | none | **Required with `enabled: true`.** Wall-clock limit (s) of one execution, which only stops a tool that hangs: set it to 2-3 times the duration seen on your target; a run that ends after more than 70% of it logs the warning `external_tool_near_time_limit` with the value to raise. |
+| `testssl.expected_version` | string \| null | none | Expected tool version; a mismatch logs a WARNING and the test still runs. |
+| `testssl.dev_mode` | bool | `false` | Development only: reuse the output a previous run saved (`<output.directory>/tools/<label>_output.json`) instead of running the tool; without that file the tool runs and saves it. Never enable in a real assessment. |
+| `testssl.extra_flags` | string | `--quiet --color 0` | Flags appended verbatim to the testssl.sh command line. Must not contain secrets. |
+| `nuclei.enabled` | bool | `false` | Enable nuclei; `timeout_seconds` is then required. |
+| `nuclei.timeout_seconds` | int ≥60 \| null | none | **Required with `enabled: true`.** Wall-clock limit (s) of one execution, which only stops a tool that hangs: set it to 2-3 times the duration seen on your target (it grows with the templates, the endpoints and the request rate); a run that ends after more than 70% of it logs the warning `external_tool_near_time_limit` with the value to raise. |
+| `nuclei.expected_version` | string \| null | none | Expected tool version; a mismatch logs a WARNING and the test still runs. |
+| `nuclei.dev_mode` | bool | `false` | Development only: reuse the output a previous run saved (`<output.directory>/tools/<label>_output.json`) instead of running the tool; without that file the tool runs and saves it. Never enable in a real assessment. |
+| `nuclei.extra_flags` | string | `""` | Flags appended verbatim to the nuclei command line. Must not contain secrets. |
+| `nuclei.template_dir` | string | `./tools/nuclei-templates` | Template directory, relative to the working directory (`install_tools.sh` fills the default one). |
+| `nuclei.tags` | list | 4 values (`api`, `exposure`, …) | Template tags selected (`-tags`). |
+| `nuclei.per_request_timeout` | int 5-60 | `10` | Timeout (s) of each request, passed as `-timeout`. |
+| `nuclei.rate_limit_rps` | int 1-150 | `30` | Requests per second, passed as `-rl`. |
+| `sslyze.enabled` | bool | `false` | Enable sslyze; `timeout_seconds` is then required. Needs the `sslyze` extra (`pip install "apiguard-assurance[sslyze]"`). |
+| `sslyze.timeout_seconds` | int 30-300 \| null | none | **Required with `enabled: true`.** Today it has no effect: each TLS connection sslyze opens times out after 20 s whatever the value (`src/connectors/sslyze.py`; Q-24). |
+| `sslyze.expected_version` | string \| null | none | Expected tool version; a mismatch logs a WARNING and the test still runs. |
+| `sslyze.dev_mode` | bool | `false` | Development only: reuse the output a previous run saved (`<output.directory>/tools/<label>_output.json`) instead of running the tool; without that file the tool runs and saves it. Never enable in a real assessment. |
 
-nuclei-specific keys:
-
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `template_dir` | string | `./tools/nuclei-templates` | Template directory (relative to the working directory). |
-| `tags` | list | `api, exposure, misconfig, panel` | Template tags selected (`-tags`). |
-| `per_request_timeout` | int 5-60 | `10` | Per-request timeout passed as `-timeout`. |
-| `rate_limit_rps` | int 1-150 | `30` | Requests per second passed as `-rl`. |
+<!-- [[[end]]] -->
 
 Binary installation: `install_tools.sh` (testssl.sh 3.2.3, nuclei 3.8.0). sslyze is a Python extra:
 `pip install "apiguard-assurance[sslyze]"`.

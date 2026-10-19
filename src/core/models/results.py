@@ -44,17 +44,15 @@ class Finding(BaseModel):
     One TestResult may contain multiple Findings for distinct violations.
     """
 
-    title: str = Field(description="Short description of the violated guarantee.")
-    detail: str = Field(
-        description="Technical description, specific enough to reproduce the finding."
-    )
+    title: str = Field(description="Short description of the violation.")
+    detail: str = Field(description="Technical description, specific enough to reproduce.")
     references: list[str] = Field(
         default_factory=list,
-        description="Standard references: 'CWE-287', 'OWASP-API2:2023', 'RFC-8725'.",
+        description="Standards, e.g. `CWE-1059`, `OWASP-API9:2023`, `NIST-SP-800-204-S3.1`.",
     )
     evidence_ref: str | None = Field(
         default=None,
-        description="record_id of the EvidenceRecord in EvidenceStore proving this finding.",
+        description="`record_id` of the proof in `evidence.json`.",
     )
 
     @field_validator("title", "detail")
@@ -112,11 +110,15 @@ class InfoNote(BaseModel):
         return TestResult(status=TestStatus.PASS, findings=[], notes=notes, ...)
     """
 
-    title: str = Field(description="Short description of the informational context.")
-    detail: str = Field(description="Technical detail, specific enough for an analyst to act on.")
+    title: str = Field(
+        description=(
+            "What the analyst should know (e.g. a compensating control, a skipped sub-check)."
+        )
+    )
+    detail: str = Field(description="The context, in full.")
     references: list[str] = Field(
         default_factory=list,
-        description="Standard references: 'OWASP-ASVS-v5.0.0-V16.5.2', 'CWE-400'.",
+        description="Standards.",
     )
 
     @field_validator("title", "detail")
@@ -363,12 +365,22 @@ class NotRunEntry(BaseModel):
 
     model_config = {"frozen": True}
 
-    test_id: str = Field(description="ID of the test not executed.")
-    test_name: str = Field(description="Human-readable name of the test.")
-    source: Literal["native", "external"] = Field(description="Origin of the test.")
-    reason: NotRunReason = Field(description="Why it was not executed (closed list).")
+    test_id: str = Field(description="The test's ID.")
+    test_name: str = Field(description="The test's name.")
+    source: Literal["native", "external"] = Field(description="`native` or `external`.")
+    reason: NotRunReason = Field(
+        description=(
+            "`priority` (above `min_priority`), `strategy` (not in `strategies`), "
+            "`not_in_test_ids` (`test_ids` set and not listing it), `tool_disabled` "
+            "(external tool or master switch off), `fail_fast` (the run stopped earlier)."
+        )
+    )
     detail: str = Field(
-        description="The values that excluded it, e.g. the priority and min_priority."
+        description=(
+            "The values that excluded it, e.g. `priority P2 is above execution.min_priority "
+            "(P1)`, `external_tools.enabled is false`, `execution.fail_fast: the run "
+            "stopped after 0.1 returned FAIL`."
+        )
     )
 
 

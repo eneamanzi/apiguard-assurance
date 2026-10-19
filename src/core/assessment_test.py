@@ -216,7 +216,8 @@ class AssessmentTest(ABC, Generic[ParamsT]):
 
     def _make_pass(self, message: str, notes: list[InfoNote] | None = None) -> TestResult:
         """
-        Construct a TestResult(status=PASS) with no findings.
+        Return a PASS result: the guarantee holds; notes may add context that is not a
+        violation.
 
         Args:
             message: One-line summary of what was verified and confirmed.
@@ -238,7 +239,8 @@ class AssessmentTest(ABC, Generic[ParamsT]):
         notes: list[InfoNote] | None = None,
     ) -> TestResult:
         """
-        Construct a TestResult(status=FAIL) with a single Finding.
+        Return a FAIL result with one finding, titled with the test's name, with its CWE
+        as first reference.
 
         The finding takes the test's name as title and its CWE as first
         reference. Store the evidence first (store.add_fail_evidence(record))
@@ -271,7 +273,8 @@ class AssessmentTest(ABC, Generic[ParamsT]):
         notes: list[InfoNote] | None = None,
     ) -> TestResult:
         """
-        Construct a TestResult(status=FAIL) with findings built by the caller.
+        Return a FAIL result with the caller's findings, one per violation (preferred:
+        each finding names the endpoint).
 
         Precondition: findings is not empty (a FAIL without findings violates
         the TestResult invariant and raises a ValidationError).
@@ -288,7 +291,7 @@ class AssessmentTest(ABC, Generic[ParamsT]):
 
     def _make_skip(self, reason: str, notes: list[InfoNote] | None = None) -> TestResult:
         """
-        Construct a TestResult(status=SKIP) with its reason.
+        Return a SKIP result naming the missing precondition.
 
         Args:
             reason: Why the test did not run, naming what is missing.
@@ -301,7 +304,8 @@ class AssessmentTest(ABC, Generic[ParamsT]):
 
     def _make_error(self, exc: Exception, message: str | None = None) -> TestResult:
         """
-        Construct a TestResult(status=ERROR) from an exception.
+        Return an ERROR result from an exception, keeping the transactions logged so
+        far.
 
         For the except blocks of a test: the exception becomes the result and
         never reaches the engine. The partial transaction log (requests sent

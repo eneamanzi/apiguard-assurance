@@ -18,20 +18,25 @@ The file has no format version of its own: `tool_version` is the version of the 
 
 ## Top level - `ReportData`
 
+<!-- [[[cog import generate_docs as g; cog.out(g.report_table("ReportData")) ]]] -->
+
 | Field | Type | Description |
 |---|---|---|
-| `tool_version` | string | APIGuard version that produced the report: the version of this format ([versioning](#versioning)). |
-| `run_id` | string | `apiguard-YYYYMMDD-HHMMSS-ffffff`. |
-| `generated_at_utc` | string, ISO 8601 UTC | Generation time, UTC with `+00:00` offset (e.g. `2026-10-08T09:12:57.870747+00:00`), like `generated_at_utc` in `evidence.json`. The HTML report shows it in the reader's local time zone (UTC value in the tooltip). |
-| `target_base_url` | string | `target.base_url`. |
-| `spec_title`, `spec_version` | string | `info.title` and `info.version` of the OpenAPI spec. |
-| `min_priority_label` | string | One of `P0 — Critical`, `P1 — High`, `P2 — Medium`, `P3 — Low`. |
+| `tool_version` | string | APIGuard version that produced the report: the version of this format (see Versioning above). |
+| `run_id` | string | Identifier of the run: `apiguard-YYYYMMDD-HHMMSS-ffffff`. |
+| `generated_at_utc` | string | Generation time, ISO 8601 in UTC with `+00:00` offset (e.g. `2026-10-08T09:12:57.870747+00:00`), like `generated_at_utc` in `evidence.json`. The HTML report shows it in the reader's local time zone (UTC value in the tooltip). |
+| `target_base_url` | string | `target.base_url` of the configuration. |
+| `spec_title` | string | `info.title` of the OpenAPI specification. |
+| `spec_version` | string | `info.version` of the OpenAPI specification. |
+| `min_priority_label` | string | Label of `execution.min_priority`: one of `P0 — Critical`, `P1 — High`, `P2 — Medium`, `P3 — Low`. |
 | `strategies_label` | string | Enabled strategies, comma-separated (`BLACK_BOX, GREY_BOX, WHITE_BOX`). |
-| `connections` | array | [`ConnectionTrust`](#connectiontrust): how the certificate of each connection of the tool was checked (added 2026-10-15). |
-| `executive_summary` | object | [`ExecutiveSummary`](#executivesummary). |
-| `domains` | array | [`DomainSummary`](#domainsummary), ordered by domain; domains without active tests are omitted. |
-| `all_rows` | array | Every [`TestResultRow`](#testresultrow), ordered by `test_id`. |
-| `not_run` | array | Every [`NotRunEntry`](#notrunentry): the tests of the tool not executed in this run, ordered by `test_id`. `all_rows` + `not_run` = every test of the tool. |
+| `connections` | array of [`ConnectionTrust`](#connectiontrust) | How the certificate of each connection of the tool was checked. |
+| `executive_summary` | [`ExecutiveSummary`](#executivesummary) | Counts and verdict of the run. |
+| `domains` | array of [`DomainSummary`](#domainsummary) | The results by methodology domain, ordered by domain; domains without active tests are omitted. |
+| `all_rows` | array of [`TestResultRow`](#testresultrow) | Every test result, ordered by `test_id` as text. |
+| `not_run` | array of [`NotRunEntry`](#notrunentry) | The tests of the tool not executed in this run, ordered by `test_id` as text. `all_rows` + `not_run` = every test of the tool. |
+
+<!-- [[[end]]] -->
 
 The same `TestResultRow` objects appear both in `domains[].rows` and in `all_rows`; read one or the other.
 
@@ -40,12 +45,16 @@ The same `TestResultRow` objects appear both in `domains[].rows` and in `all_row
 One entry per connection, in this order: `target`, `specification`, then `gateway.admin` and `gateway.health` when
 configured. The HTML report shows them under "Certificate checks", a not verified one in red.
 
+<!-- [[[cog import generate_docs as g; cog.out(g.report_table("ConnectionTrust")) ]]] -->
+
 | Field | Type | Description |
 |---|---|---|
 | `name` | string | `target`, `specification`, `gateway.admin` or `gateway.health`. |
 | `url` | string | The connection's URL (the API's with a trailing `/`), or the specification's absolute file path. |
-| `certificate_check` | string | `verified_system` (the system's authorities plus certifi's list), `verified_ca_bundle` (only the configured `ca_bundle`), `not_verified` (`verify: false`: the run did not know whether it talked to the right server), `plain_http` (no TLS), `local_file` (the specification was read from a file). |
+| `certificate_check` | `verified_system` \| `verified_ca_bundle` \| `not_verified` \| `plain_http` \| `local_file` | `verified_system` (the system's authorities plus certifi's list), `verified_ca_bundle` (only the configured `ca_bundle`), `not_verified` (`verify: false`: the run did not know whether it talked to the right server), `plain_http` (no TLS), `local_file` (the specification was read from a file). |
 | `client_certificate` | bool | `true` when the tool presented a client certificate (mutual TLS). |
+
+<!-- [[[end]]] -->
 
 Example (Forgejo + APISIX lab):
 
@@ -60,64 +69,91 @@ Example (Forgejo + APISIX lab):
 
 ## `ExecutiveSummary`
 
+<!-- [[[cog import generate_docs as g; cog.out(g.report_table("ExecutiveSummary")) ]]] -->
+
 | Field | Type | Description |
 |---|---|---|
 | `scheduled_tests` | int | PASS + FAIL + ERROR + SKIP. |
 | `executed_tests` | int | PASS + FAIL + ERROR (SKIP excluded). |
-| `pass_count`, `fail_count`, `skip_count`, `error_count` | int | Counts per status. |
+| `pass_count` | int | Results with status PASS. |
+| `fail_count` | int | Results with status FAIL. |
+| `skip_count` | int | Results with status SKIP. |
+| `error_count` | int | Results with status ERROR. |
 | `not_run_count` | int | Number of entries in `not_run`. |
-| `total_finding_count` | int | Findings across all FAIL results. |
+| `total_finding_count` | int | Findings of every result: FAIL results, and ERROR results that carry some. |
 | `exit_code` | int | Same value as the process exit code. |
-| `exit_code_label` | string | `CLEAN — No violations detected`, `FAIL — At least one security guarantee violated`, `ERROR — At least one verification incomplete`. |
-| `pass_rate_pct` | float | `pass_count / executed_tests × 100`, one decimal; `0.0` when nothing executed. |
-| `assessment_duration_seconds` | float \| null | Wall-clock duration. |
+| `exit_code_label` | string | Label and meaning of the exit code (exit-codes.md), e.g. `FAIL - at least one security guarantee is violated`. |
+| `pass_rate_pct` | number | `pass_count / executed_tests × 100`, one decimal; `0.0` when nothing executed. |
+| `assessment_duration_seconds` | number \| null | Wall-clock duration of the run. |
+
+<!-- [[[end]]] -->
 
 ## `NotRunEntry`
 
 A test of the tool that the run did not execute. It is not a result: a SKIP was selected and missed a
 precondition, a not-run test was not selected or was stopped (`src/core/models/results.py`).
 
+<!-- [[[cog import generate_docs as g; cog.out(g.report_table("NotRunEntry")) ]]] -->
+
 | Field | Type | Description |
 |---|---|---|
-| `test_id`, `test_name` | string | The test. |
-| `source` | string | `native` or `external`. |
+| `test_id` | string | The test's ID. |
+| `test_name` | string | The test's name. |
+| `source` | `native` \| `external` | `native` or `external`. |
 | `reason` | string | `priority` (above `min_priority`), `strategy` (not in `strategies`), `not_in_test_ids` (`test_ids` set and not listing it), `tool_disabled` (external tool or master switch off), `fail_fast` (the run stopped earlier). |
 | `detail` | string | The values that excluded it, e.g. `priority P2 is above execution.min_priority (P1)`, `external_tools.enabled is false`, `execution.fail_fast: the run stopped after 0.1 returned FAIL`. |
 
+<!-- [[[end]]] -->
+
 ## `DomainSummary`
+
+<!-- [[[cog import generate_docs as g; cog.out(g.report_table("DomainSummary")) ]]] -->
 
 | Field | Type | Description |
 |---|---|---|
-| `domain` | int | 0-7. |
-| `domain_name` | string | See [domain names](#domain-names). |
-| `rows` | array | `TestResultRow` of this domain. |
-| `native_rows`, `external_rows` | array | `rows` split by `source`. |
-| `pass_count`, `fail_count`, `skip_count`, `error_count`, `total_finding_count` | int | Per-domain counts. |
+| `domain` | int | Methodology domain, 0-7. |
+| `domain_name` | string | Name of the domain (see Domain names below). |
+| `rows` | array of [`TestResultRow`](#testresultrow) | The results of this domain. |
+| `pass_count` | int | Results with status PASS. |
+| `fail_count` | int | Results with status FAIL. |
+| `skip_count` | int | Results with status SKIP. |
+| `error_count` | int | Results with status ERROR. |
+| `total_finding_count` | int | Findings of the results of this domain. |
+| `native_rows` | array of [`TestResultRow`](#testresultrow) | `rows` of the native tests. |
+| `external_rows` | array of [`TestResultRow`](#testresultrow) | `rows` of the external tests. |
+
+<!-- [[[end]]] -->
 
 ## `TestResultRow`
+
+<!-- [[[cog import generate_docs as g; cog.out(g.report_table("TestResultRow")) ]]] -->
 
 | Field | Type | Description |
 |---|---|---|
 | `test_id` | string | `X.Y` (native) or `ext.X.Y.tool` (external). |
 | `test_name` | string | Human-readable name. |
-| `domain`, `domain_name` | int, string | Methodology domain. |
-| `priority`, `priority_label` | int, string | 0-3 and its label. |
-| `strategy` | string | `BLACK_BOX`, `GREY_BOX`, `WHITE_BOX`. |
-| `status` | string | `PASS`, `FAIL`, `SKIP`, `ERROR`. |
+| `domain` | int | Methodology domain, 0-7. |
+| `domain_name` | string | Name of the domain. |
+| `priority` | int | Priority, 0-3. |
+| `priority_label` | string | Label of the priority (as `min_priority_label`). |
+| `strategy` | string | `BLACK_BOX`, `GREY_BOX` or `WHITE_BOX`. |
+| `status` | string | `PASS`, `FAIL`, `SKIP` or `ERROR` (see Status semantics below). |
 | `message` | string | One-line outcome. |
-| `skip_reason` | string \| null | Set only for `SKIP`. |
-| `duration_ms` | float \| null | Execution time of the test. |
+| `skip_reason` | string \| null | Set only for `SKIP`: the missing precondition. |
+| `duration_ms` | number \| null | Execution time of the test. |
 | `finding_count` | int | Length of `findings`. |
-| `findings` | array | [`Finding`](#finding). At least one for `FAIL`, none for `PASS` (both enforced by the model); an `ERROR` result may carry findings collected before the error. |
-| `notes` | array | [`InfoNote`](#infonote): informational context that is not a violation. |
+| `findings` | array of [`Finding`](#finding) | At least one for `FAIL`, none for `PASS` (both enforced by the model); an `ERROR` result may carry findings collected before the error. |
 | `tags` | array of string | Test tags (e.g. `OWASP-API9:2023`). |
 | `cwe_id` | string | Primary CWE (e.g. `CWE-306`). |
-| `transaction_log` | array | [`TransactionSummary`](#transactionsummary): every HTTP request of the test, PASS included. |
-| `source` | string | `native` or `external`. |
-| `tool_name` | string | External tool name; empty for native tests. |
-| `tool_artifact` | object \| null | External tests only: raw connector output (`command`, `command_json`, `results`, `all_count`, plus `_apiguard_meta_*` keys). |
-| `tool_artifact_label` | string \| null | External tests only: artefact label. |
-| `tool_artifact_record_id` | string \| null | External tests only: `record_id` of the artefact in `evidence.json`. |
+| `transaction_log` | array of [`TransactionSummary`](#transactionsummary) | Every HTTP request of the test, PASS included. |
+| `notes` | array of [`InfoNote`](#infonote) | Informational context that is not a violation (e.g. a compensating control), on any status. |
+| `source` | `native` \| `external` | `native` or `external`. |
+| `tool_name` | string | External tool name (e.g. `nuclei`); empty for native tests. |
+| `tool_artifact` | object \| null | External tests only: the tool's raw output (`command`, `command_json`, `results`, `all_count`, plus `_apiguard_meta_*` keys). |
+| `tool_artifact_label` | string \| null | External tests only: label of the tool output, the external test's ID (e.g. `ext.0.1.nuclei`). |
+| `tool_artifact_record_id` | string \| null | External tests only: `record_id` of the tool output in `evidence.json`. |
+
+<!-- [[[end]]] -->
 
 ### Status semantics
 
@@ -130,36 +166,52 @@ precondition, a not-run test was not selected or was stopped (`src/core/models/r
 
 ## `Finding`
 
+<!-- [[[cog import generate_docs as g; cog.out(g.report_table("Finding")) ]]] -->
+
 | Field | Type | Description |
 |---|---|---|
 | `title` | string | Short description of the violation. |
 | `detail` | string | Technical description, specific enough to reproduce. |
 | `references` | array of string | Standards, e.g. `CWE-1059`, `OWASP-API9:2023`, `NIST-SP-800-204-S3.1`. |
-| `evidence_ref` | string \| null | `record_id` in [`evidence.json`](evidence-format.md). |
+| `evidence_ref` | string \| null | `record_id` of the proof in `evidence.json`. |
+
+<!-- [[[end]]] -->
 
 ## `InfoNote`
 
+<!-- [[[cog import generate_docs as g; cog.out(g.report_table("InfoNote")) ]]] -->
+
 | Field | Type | Description |
 |---|---|---|
-| `title`, `detail` | string | Context the analyst should know (e.g. a compensating control, a skipped sub-check). |
+| `title` | string | What the analyst should know (e.g. a compensating control, a skipped sub-check). |
+| `detail` | string | The context, in full. |
 | `references` | array of string | Standards. |
 
+<!-- [[[end]]] -->
+
 ## `TransactionSummary`
+
+<!-- [[[cog import generate_docs as g; cog.out(g.report_table("TransactionSummary")) ]]] -->
 
 | Field | Type | Description |
 |---|---|---|
 | `record_id` | string | `{test_id}_{NNN}`; matches a record in `evidence.json` when `is_fail_evidence` is `true`. |
 | `timestamp_utc` | string, ISO 8601 UTC | Dispatch time. |
-| `request_method`, `request_url` | string | Request line. |
-| `request_headers` | object | Lowercase names; `authorization` and cookie values redacted with typed placeholders ([evidence format](evidence-format.md#sensitive-data)). |
-| `request_body` | string \| null | Truncated to 2,000 characters. |
-| `response_status_code` | int | HTTP status. |
-| `response_body_preview` | string \| null | Truncated to 1,000 characters. |
+| `request_method` | string | HTTP method of the request. |
+| `request_url` | string | Full URL of the request. |
+| `response_status_code` | int | HTTP status of the response. |
 | `oracle_state` | string \| null | Test-specific classification of the response (e.g. `ENFORCED`, `BYPASS`, `RATE_LIMIT_HIT`, `INCONCLUSIVE_PARAMETRIC`). Free-form: each test defines its own values. |
-| `duration_ms` | float \| null | Duration of the request. |
-| `is_fail_evidence` | bool | The transaction is FAIL evidence; the full record is in `evidence.json`. |
+| `duration_ms` | number \| null | Duration of the request. |
+| `is_fail_evidence` | bool | The transaction is FAIL evidence: the full record is in `evidence.json`. |
+| `request_headers` | object | Lowercase names; `authorization` and cookie values redacted with typed placeholders (see the evidence format). |
+| `request_body` | string \| null | Request body, truncated to 2,000 characters; null without a body. |
+| `response_body_preview` | string \| null | Response body, truncated to 1,000 characters; null without a body. |
+
+<!-- [[[end]]] -->
 
 ## Domain names
+
+<!-- [[[cog import generate_docs as g; cog.out(g.domain_names_table()) ]]] -->
 
 | `domain` | `domain_name` |
 |---|---|
@@ -171,6 +223,8 @@ precondition, a not-run test was not selected or was stopped (`src/core/models/r
 | 5 | Visibility and Auditing |
 | 6 | Configuration and Hardening |
 | 7 | Business Logic and Sensitive Flows |
+
+<!-- [[[end]]] -->
 
 ## Example (abridged, real run)
 

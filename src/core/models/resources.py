@@ -87,14 +87,16 @@ class _ResourceRequest(BaseModel):
     path: str = Field(
         min_length=1,
         description=(
-            "Request path, starting with '/'; may hold placeholders, e.g. '/repos/{owner}'."
+            "Path, starting with `/`; may use `{username}`, `{password}`, `{random}` and, "
+            "in a delete request, the names of `values`."
         ),
     )
     auth: ResourceAuth = Field(
         default=ResourceAuth.CREDENTIAL,
         description=(
-            "How the request authenticates: 'credential' (the role's credential, default), "
-            "'basic' (HTTP Basic with the role's username and password), 'none'."
+            "How the request authenticates: `credential` (the role's credential, sent as "
+            "`credentials` says), `basic` (HTTP Basic with the role's username and "
+            "password), `none` (nothing)."
         ),
     )
 
@@ -131,10 +133,13 @@ class _ResourceRequest(BaseModel):
 class CreateRequest(_ResourceRequest):
     """The request that creates the resource."""
 
-    method: str = Field(default="POST", description="HTTP method. Default POST.")
+    method: str = Field(
+        default="POST",
+        description="Method of the create request: `GET`, `POST`, `PUT`, `PATCH` or `DELETE`.",
+    )
     body: JsonValue = Field(
         default=None,
-        description="JSON body, optional; strings may hold placeholders, written in quotes.",
+        description="JSON body; strings may use the same placeholders as the path, in quotes.",
     )
 
     def json_body(self) -> JsonValue:
@@ -149,7 +154,13 @@ class DeleteRequest(_ResourceRequest):
     No body: the teardown registry keeps method, path and headers only.
     """
 
-    method: str = Field(default="DELETE", description="HTTP method. Default DELETE.")
+    method: str = Field(
+        default="DELETE",
+        description=(
+            "Method of the delete request, sent at teardown with the same role: `GET`, "
+            "`POST`, `PUT`, `PATCH` or `DELETE`. A delete request has no body."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -175,13 +186,17 @@ class ResourceConfig(BaseModel):
     values: dict[str, str] = Field(
         default_factory=dict,
         description=(
-            "Values taken from the JSON response of the create request: name -> dotted "
-            "path, e.g. {owner: owner.login}. A login resource needs 'credential'."
+            "Values read from the JSON response, name → dotted path through objects (no "
+            "array indexes), e.g. `owner: owner.login`; the value found must be a string or "
+            "a number. A login resource needs `credential` (always masked as a secret); "
+            "other values are not secrets."
         ),
     )
     delete: DeleteRequest | None = Field(
         default=None,
-        description="The request that deletes the resource at teardown; none if nothing to delete.",
+        description=(
+            "The request that deletes the resource at teardown; without it nothing is deleted."
+        ),
     )
 
     @field_validator("values", mode="after")

@@ -21,7 +21,7 @@ Symbol inventory by source module:
 
     enums.py           TestStatus, TestStrategy, SpecDialect, ExitCode, NotRunReason
 
-    http.py            EvidenceRecord, TransactionSummary
+    http.py            EvidenceFile, EvidenceRecord, TransactionSummary
 
     surface.py         ParameterInfo, EndpointRecord, AttackSurface,
                        SecuritySchemeRecord, SecuritySchemeType
@@ -50,7 +50,7 @@ from src.core.models.external_tools import (
     NucleiConfig,
     TestsslConfig,
 )
-from src.core.models.http import EvidenceRecord, TransactionSummary
+from src.core.models.http import EvidenceFile, EvidenceRecord, TransactionSummary
 from src.core.models.resources import (
     CREDENTIAL_VALUE,
     FIXED_PLACEHOLDERS,
@@ -81,6 +81,7 @@ __all__ = [
     "ExitCode",
     "NotRunReason",
     # http.py
+    "EvidenceFile",
     "EvidenceRecord",
     "TransactionSummary",
     # surface.py

@@ -835,7 +835,8 @@ class ExternalToolTest(AssessmentTest[ParamsT]):
     @abstractmethod
     def _build_connector(self) -> BaseConnector:
         """
-        Instantiate and return the concrete BaseConnector for this test.
+        Construct the connector only, no I/O: the registry calls it once per tool to
+        check availability and injects the instance into the tool's tests.
 
         Called once per execute() invocation when no injected connector exists.
         Subclasses must not perform I/O or discovery here -- only object construction.
@@ -857,7 +858,8 @@ class ExternalToolTest(AssessmentTest[ParamsT]):
         target_url: str,
     ) -> ConnectorResult:
         """
-        Call connector.run() with the correct tool-specific parameters.
+        Call connector.run(...) with the tool's timeout_seconds and the test's own
+        parameters; target_url is target.endpoint_base_url().
 
         This method is the bridge between the generic ExternalToolTest lifecycle
         and the specific CLI interface of each tool.  It reads tool-specific
@@ -892,7 +894,8 @@ class ExternalToolTest(AssessmentTest[ParamsT]):
         artifact_ref: str,
     ) -> TestResult:
         """
-        Evaluate ConnectorResult against the test oracle and return TestResult.
+        Apply the oracle to result.raw_output['results'] and return the TestResult; put
+        artifact_ref in each finding's evidence_ref.
 
         This is where the security logic lives for external tests.  The subclass
         inspects result.raw_output, applies the oracle from the methodology, and

@@ -51,6 +51,8 @@ from rich.text import Text
 from src import __version__
 from src.cli_console import make_console
 from src.connectors.base import BaseSubprocessConnector
+from src.core.models.enums import EXIT_CODES, exit_code_text
+from src.discovery.seed_generator import SPEC_FETCH_TIMEOUT_DEFAULT_SECONDS
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -63,6 +65,8 @@ TOOL_NAME: str = "APIGuard Assurance"
 TOOL_VERSION: str = __version__
 # Exit code of a command line used wrongly (as typer's own usage errors).
 _EXIT_USAGE: int = 2
+# Exit code of generate-seed when the specification cannot be retrieved or parsed.
+_EXIT_SEED_FAILED: int = 1
 # File loaded from the current working directory when --env-file is not given.
 DEFAULT_ENV_FILENAME: str = ".env"
 
@@ -75,6 +79,13 @@ TOOL_DESCRIPTION: str = (
 # Default paths, relative to the working directory.
 DEFAULT_CONFIG_PATH: Path = Path("config.yaml")
 DEFAULT_LOG_LEVEL: str = "warning"
+# The exit codes listed at the end of `run --help`, from their single definition.
+_EXIT_CODES_EPILOG: str = "Exit codes:\n\n" + "\n\n".join(
+    f"{code}  {exit_code_text(code)}" for code in EXIT_CODES
+)
+# Range of generate-seed --timeout (s); the default is the seed generator's own.
+SEED_FETCH_TIMEOUT_MIN_SECONDS: float = 1.0
+SEED_FETCH_TIMEOUT_MAX_SECONDS: float = 120.0
 
 # Console format of the technical log of `run`: short local time, and values
 # cut to this length so that each event stays on one line (JSON keeps all).
@@ -262,10 +273,11 @@ EnvFileOption = Annotated[
     typer.Option(
         "--env-file",
         help=(
-            "Load environment variables from this file instead of "
+            "Load environment variables from this file, which must exist, instead of "
             f"'{DEFAULT_ENV_FILENAME}' in the current working directory. "
             "Variables already set in the environment take precedence."
         ),
+        show_default=f"'{DEFAULT_ENV_FILENAME}' in the working directory",
         exists=True,
         file_okay=True,
         dir_okay=False,
@@ -279,7 +291,7 @@ EnvFileOption = Annotated[
 # ---------------------------------------------------------------------------
 
 
-@app.command(name="run")
+@app.command(name="run", epilog=_EXIT_CODES_EPILOG)
 def run_assessment(
     config: Annotated[
         Path,
@@ -287,9 +299,9 @@ def run_assessment(
             "--config",
             "-c",
             help=(
-                "Path to the config.yaml configuration file. "
-                "Environment variables referenced as ${VAR_NAME} in the file "
-                "must be exported before invoking this command."
+                "Path to the config.yaml file, resolved to an absolute path. Its ${VAR} "
+                "placeholders are resolved from the environment (after the .env file is "
+                "loaded)."
             ),
             exists=False,
             file_okay=True,
@@ -302,9 +314,8 @@ def run_assessment(
         typer.Option(
             "--log-format",
             help=(
-                "Log output format. "
-                "'console' produces human-readable colorized output (default). "
-                "'json' produces one JSON object per line for log aggregators."
+                "Log format: console (human-readable, coloured) or json (one JSON object per "
+                "line). Case-insensitive."
             ),
             case_sensitive=False,
         ),
@@ -314,10 +325,11 @@ def run_assessment(
         typer.Option(
             "--log-level",
             help=(
-                "Level of the technical log shown below the progress output. "
-                "'warning' (default): only problems. 'info': also the steps of the run "
-                "and each test result. 'debug': also every HTTP transaction. "
-                "'error': only failures of the tool."
+                "Level of the technical log shown below the interface: error, only failures of "
+                "the tool; warning, also problems the user should know (configuration, cleanup, "
+                "network, external tools); info, also the steps of the run and each test "
+                "result; debug, also every HTTP transaction, third-party loggers and library "
+                "warnings."
             ),
             case_sensitive=False,
         ),
@@ -327,7 +339,8 @@ def run_assessment(
         typer.Option(
             "--banner/--no-banner",
             help=(
-                "Show or suppress the header and the final summary (console format). Default: show."
+                "Show the header and the final summary of the interface (console format only; "
+                "the test lines are always shown)."
             ),
         ),
     ] = True,
@@ -341,15 +354,6 @@ def run_assessment(
     variables referenced in config.yaml as ${VAR_NAME} placeholders: exported
     in the environment, or in a .env file (the one in the current working
     directory, or the file given with --env-file).
-
-    Exit codes:
-        0   All tests passed or skipped. No violations detected.
-        1   At least one FAIL. A security guarantee was violated.
-        2   Invalid invocation (unknown option or command). Nothing ran.
-        3   At least one ERROR (no FAIL). A verification was incomplete.
-        10  Infrastructure error. Assessment did not start or complete.
-        130 Interrupted by Ctrl+C: teardown ran, no report.
-        143 Terminated by SIGTERM: teardown ran, no report.
 
     Examples:
 
@@ -443,7 +447,10 @@ def validate_config(
         LogFormat,
         typer.Option(
             "--log-format",
-            help="Log output format.",
+            help=(
+                "Log format: console (human-readable, coloured) or json (one JSON object per "
+                "line). Case-insensitive. The log level is fixed to warning."
+            ),
             case_sensitive=False,
         ),
     ] = LogFormat.CONSOLE,
@@ -453,8 +460,9 @@ def validate_config(
         typer.Option(
             "--show-config",
             help=(
-                "Print on stdout the configuration a run would use (config_used.yaml): every "
-                "key, specified or default. The other messages go to stderr."
+                "Print on stdout the configuration a run would use (config_used.yaml: every "
+                "key, specified or default); the other messages go to stderr, so the output can "
+                "be redirected to a file."
             ),
         ),
     ] = False,
@@ -565,8 +573,10 @@ def list_tests(
             "--config",
             "-c",
             help=(
-                "Also say, for this config.yaml, which tests the run selects and which "
-                "will SKIP because what they need is not configured."
+                "Also say, for this config.yaml, whether the run selects each test (the "
+                "execution filters, the external tools' switches) and why it would SKIP for an "
+                "unmet need. The configuration, the test declarations and the tests section are "
+                "checked; the certificates and the specification are not read."
             ),
             exists=False,
             file_okay=True,
@@ -576,7 +586,10 @@ def list_tests(
     ] = None,
     as_json: Annotated[
         bool,
-        typer.Option("--json", help="Print the list as JSON on stdout, for programs."),
+        typer.Option(
+            "--json",
+            help='Print {"tests": [...]} on stdout instead of the text list, for programs.',
+        ),
     ] = False,
     env_file: EnvFileOption = None,
 ) -> None:
@@ -637,12 +650,8 @@ def generate_seed(
         str | None,
         typer.Argument(
             help=(
-                "OpenAPI specification source. Accepts either: "
-                "(1) an HTTP/HTTPS URL (e.g. https://api.example.com/openapi.json), or "
-                "(2) a local filesystem path (e.g. ./specs/openapi.yaml). "
-                "The spec is fetched or read as-is without full $ref dereferencing, "
-                "which makes this command fast and usable before the target is fully running. "
-                "Omit it with --config to take the specification of a configuration file."
+                "The OpenAPI specification: an HTTP/HTTPS URL or a local file path, read as-is, "
+                "without $ref dereferencing. Instead of --config."
             ),
         ),
     ] = None,
@@ -667,11 +676,10 @@ def generate_seed(
         typer.Option(
             "--output",
             "-o",
+            show_default="stdout",
             help=(
-                "Path where the generated seed template YAML file will be written. "
-                "If omitted, the template is printed to stdout so it can be "
-                "piped or redirected manually. "
-                "Example: --output seed_template.yaml"
+                "Write the template to this file (parent directories are created) instead of "
+                "stdout."
             ),
             file_okay=True,
             dir_okay=False,
@@ -682,19 +690,19 @@ def generate_seed(
         float,
         typer.Option(
             "--timeout",
-            help=(
-                "HTTP fetch timeout in seconds for remote spec URLs. "
-                "Ignored for local filesystem paths. Default: 30s."
-            ),
-            min=1.0,
-            max=120.0,
+            help=("Fetch timeout (s) for a URL; ignored for a local file."),
+            min=SEED_FETCH_TIMEOUT_MIN_SECONDS,
+            max=SEED_FETCH_TIMEOUT_MAX_SECONDS,
         ),
-    ] = 30.0,
+    ] = SPEC_FETCH_TIMEOUT_DEFAULT_SECONDS,
     log_format: Annotated[
         LogFormat,
         typer.Option(
             "--log-format",
-            help="Log output format.",
+            help=(
+                "Log format: console (human-readable, coloured) or json (one JSON object per "
+                "line). Case-insensitive."
+            ),
             case_sensitive=False,
         ),
     ] = LogFormat.CONSOLE,
@@ -796,7 +804,7 @@ def generate_seed(
         _console_err.print(
             f"[bold red]Fetch error:[/bold red] {exc.reason}\n[dim]Source:[/dim] {exc.spec_source}"
         )
-        raise typer.Exit(code=1) from None
+        raise typer.Exit(code=_EXIT_SEED_FAILED) from None
     except SeedGeneratorParseError as exc:
         log_inner.error(
             "generate_seed_parse_failed",
@@ -806,7 +814,7 @@ def generate_seed(
         _console_err.print(
             f"[bold red]Parse error:[/bold red] {exc.reason}\n[dim]Source:[/dim] {exc.spec_source}"
         )
-        raise typer.Exit(code=1) from None
+        raise typer.Exit(code=_EXIT_SEED_FAILED) from None
 
     yaml_content = render_seed_template(param_names=param_names, spec_source=spec_source)
 

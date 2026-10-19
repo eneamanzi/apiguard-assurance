@@ -5,15 +5,26 @@
 
 ## `apiguard run`
 
+<!-- [[[cog import generate_docs as g; cog.out(g.exit_codes_table()) ]]] -->
+
 | Code | Label | Meaning |
 |---|---|---|
-| `0` | CLEAN | Every executed test returned PASS or SKIP. |
-| `1` | FAIL | At least one test returned FAIL: a security guarantee is violated. |
-| `2` | USAGE | Invalid invocation: the assessment did not start (see [Usage errors](#usage-errors)). |
-| `3` | ERROR | No FAIL, but at least one test returned ERROR: a verification did not complete. |
-| `10` | INFRA | The assessment did not run. Raised on `ConfigurationError` (Phase 1; an `execution.test_ids` entry that does not exist or whose tool is disabled, checked right after Phase 1; no test selected by the filters, Phase 4), `TestDefinitionError` (a test class declared incorrectly, checked right after Phase 1), `OpenAPILoadError` (Phase 2), `DAGCycleError` (Phase 4), or any unexpected exception inside the engine. A run never ends `0` without running at least one test. |
-| `130` | Interrupted | The process received Ctrl+C (SIGINT). See [Stopping a run](#stopping-a-run). |
-| `143` | Terminated | The process received SIGTERM (`kill`, `docker stop`, a CI timeout, a calling program). See [Stopping a run](#stopping-a-run). |
+| `0` | CLEAN | No test returned FAIL or ERROR: no violation detected (a SKIP verifies nothing). |
+| `1` | FAIL | At least one security guarantee is violated. |
+| `2` | USAGE | Invalid invocation: the assessment did not start. |
+| `3` | ERROR | At least one verification did not complete and no test returned FAIL; an ERROR result may carry findings. |
+| `10` | INFRA | The assessment did not run or did not complete: no security verdict. |
+| `130` | INTERRUPTED | Stopped by Ctrl+C: teardown removes the resources created on the target, no report. |
+| `143` | TERMINATED | Stopped by SIGTERM: teardown removes the resources created on the target, no report. |
+
+<!-- [[[end]]] -->
+
+`2` is emitted before the tool starts ([usage errors](#usage-errors)). `10` is raised on `ConfigurationError` (Phase 1;
+an `execution.test_ids` entry that does not exist or whose tool is disabled, checked right after Phase 1; no test
+selected by the filters, Phase 4), `TestDefinitionError` (a test class declared incorrectly, checked right after
+Phase 1), `OpenAPILoadError` (Phase 2), `DAGCycleError` (Phase 4), or any unexpected exception inside the engine.
+A run never ends `0` without running at least one test. `130` and `143`: [stopping a run](#stopping-a-run)
+(`kill`, `docker stop`, a CI timeout or a calling program sends SIGTERM).
 
 **Precedence:** FAIL > ERROR > CLEAN. A single FAIL yields `1` regardless of how many ERRORs occurred.
 SKIP never affects the exit code.

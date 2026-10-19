@@ -22,28 +22,38 @@ It does **not** contain every transaction. The full list of requests (PASS inclu
 }
 ```
 
-| Key | Type | Description |
-|---|---|---|
-| `tool_version` | string | APIGuard version that wrote the file: the version of this format ([compatibility](compatibility.md#interface-stability)). |
-| `generated_at_utc` | string, ISO 8601 UTC | When the file was written (Phase 7). |
-| `record_count` | int | Number of records. |
-| `records` | array | Records sorted by `timestamp_utc`. Empty array if no evidence was collected. |
-
-## `EvidenceRecord`
+<!-- [[[cog import generate_docs as g; cog.out(g.evidence_table("EvidenceFile")) ]]] -->
 
 | Field | Type | Description |
 |---|---|---|
-| `record_id` | string | Unique ID. HTTP records: `{test_id}_{NNN}` (e.g. `1.1_005`), counter per test. External-tool artefacts: `artifact-{test_id}-{label}-{HHMMSSffffff}`. |
-| `timestamp_utc` | string, ISO 8601 UTC (`Z`) | When the request was dispatched. |
-| `request_method` | string | Uppercase HTTP method. For artefacts: the uppercased test ID (e.g. `EXT.0.1.NUCLEI`). |
-| `request_url` | string | Full URL. For artefacts: `external://{test_id}/{label}`. |
-| `request_headers` | object | Lowercase header names. `authorization` and cookie values are always redacted ([sensitive data](#sensitive-data)). |
-| `request_body` | string \| null | Body as sent, only when the request carried JSON; `null` otherwise. |
-| `response_status_code` | int | HTTP status. `0` for artefacts. |
+| `tool_version` | string | APIGuard version that wrote the file: the version of this format. |
+| `generated_at_utc` | string | When the file was written (Phase 7), ISO 8601 in UTC with `+00:00` offset. |
+| `record_count` | int | Number of records. |
+| `records` | array of [`EvidenceRecord`](#evidencerecord) | Records sorted by `timestamp_utc`; empty when no evidence was collected. |
+
+<!-- [[[end]]] -->
+
+The version policy of `tool_version`: [compatibility](compatibility.md#interface-stability).
+
+## `EvidenceRecord`
+
+<!-- [[[cog import generate_docs as g; cog.out(g.evidence_table("EvidenceRecord")) ]]] -->
+
+| Field | Type | Description |
+|---|---|---|
+| `record_id` | string | Unique ID. HTTP records: `{test_id}_{NNN}` (e.g. `1.1_005`), a counter per test. Tool outputs: `artifact-{test_id}-{label}-{HHMMSSffffff}`. |
+| `timestamp_utc` | string, ISO 8601 UTC | When the request was dispatched. |
+| `request_method` | string | HTTP method, uppercase. For a tool output: its label uppercased, the external test's ID (e.g. `EXT.0.1.NUCLEI`). |
+| `request_url` | string | Full URL. For a tool output: `external://{test_id}/{label}`. |
+| `request_headers` | object | Lowercase header names; `authorization`, cookie values and the registered secrets replaced with typed placeholders (see Sensitive data below). |
+| `request_body` | string \| null | The JSON body as sent, with the registered secrets replaced; null when the request carried no JSON body. |
+| `response_status_code` | int | HTTP status; `0` for a tool output. |
 | `response_headers` | object | Lowercase header names. |
-| `response_body` | string \| null | Body truncated to 10,000 characters + `... [TRUNCATED]`. Undecodable bodies become `[Binary or undecodable response body]`. For artefacts: the tool's raw output as JSON text, with credentials sanitised. |
-| `is_pinned` | bool | `true` for pinned transactions and artefacts; `false` for FAIL evidence. |
-| `elapsed_ms` | float \| null | Duration of the HTTP transaction including retry waits. `null` for artefacts. |
+| `response_body` | string \| null | Body truncated to 10,000 characters + `... [TRUNCATED]`; an undecodable body becomes `[Binary or undecodable response body]`. For a tool output: the tool's raw output as JSON, credentials removed, truncated the same way (the full output is in `tools/<label>_output.json`). |
+| `is_pinned` | bool | `true` for a transaction a test marked as key context and for a tool output; `false` for FAIL evidence. |
+| `elapsed_ms` | number \| null | Duration (ms) of the HTTP transaction, retry waits included; null for a tool output. |
+
+<!-- [[[end]]] -->
 
 ## Cross-references
 

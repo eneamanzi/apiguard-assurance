@@ -147,10 +147,11 @@ of the reports (add `--log-level info` to see the steps of the run, `--log-level
 
 **Do not interrupt it.** Almost all of the 5 minutes are spent in the external-tool tests (nuclei, testssl.sh,
 sslyze; the native tests take about 30 seconds). The test in progress is shown with its position (`[16/18]`) and,
-on a terminal, the time elapsed against its limit (`0:01:40 (limit 240s)`); with the output redirected to a file,
-an external tool prints a `running (limit 240s)` line when it starts.
+on a terminal, the time elapsed against its limit (`0:01:40 (limit 600s)`); with the output redirected to a file,
+an external tool prints a `running (limit 600s)` line when it starts.
 Reports are written only at the very end: if you press `Ctrl+C` the tool removes what the tests created on the
-target, but there are no reports and `outputs/forgejo/` keeps only `evidence_tmp/`.
+target, but there are no reports: `outputs/forgejo/` keeps `config_used.yaml` and the evidence collected so far
+(`evidence_tmp/`).
 
 When it finishes, print its exit code:
 
@@ -167,14 +168,9 @@ Measured on this lab with the full run: exit code `1`, 18 tests scheduled, no `E
 deprecated endpoint declared) and 1.6 (no session cookie), the rest PASS or FAIL. The exact number of findings
 varies with the lab data.
 
-Results are written to `outputs/forgejo/` (a previous run's files are replaced):
-
-| File | Content |
-|---|---|
-| `assessment_report.html` | interactive report |
-| `apiguard_report.json` | machine-readable report ([schema](../reference/report-schema.md)) |
-| `evidence.json` | full HTTP transactions proving the FAILs ([format](../reference/evidence-format.md)) |
-| `config_used.yaml` | every configuration value the run used, written by you or default ([details](../reference/configuration.md#the-configuration-a-run-used-config_usedyaml)) |
+Results are written to `outputs/forgejo/` (a previous run's files are replaced): the HTML report to open below, the
+same data in `apiguard_report.json`, the evidence and `config_used.yaml`. What each file is for:
+[read the report](../guides/usage/read-the-report.md).
 
 Open the HTML report:
 

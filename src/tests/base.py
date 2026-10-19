@@ -178,7 +178,8 @@ class BaseTest(AssessmentTest[ParamsT]):
         duration_ms: float | None = None,
     ) -> None:
         """
-        Append a TransactionSummary to the per-test audit trail.
+        Add a request to the test's audit trail (transaction_log in the report): call it
+        after every client.request().
 
         Must be called after every SecurityClient.request() call, regardless
         of outcome. The accumulated trail is automatically included in the

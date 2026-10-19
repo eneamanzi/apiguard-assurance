@@ -13,6 +13,8 @@ It must never import from any other src/ module.
 
 from __future__ import annotations
 
+import signal
+from dataclasses import dataclass
 from enum import IntEnum, StrEnum
 
 
@@ -42,16 +44,10 @@ class ExitCode(IntEnum):
     Process exit codes of ``apiguard run`` (docs/reference/exit-codes.md).
 
     The single definition of every code: the ResultSet, the engine, the CLI
-    summary and the report all use these members.
-
-        CLEAN          -- Every executed test returned PASS or SKIP.
-        FAIL           -- At least one test returned FAIL.
-        USAGE          -- Invalid invocation. Emitted by Typer/Click before
-                          the tool starts; listed so that no other outcome
-                          reuses the code.
-        ERROR          -- No FAIL, at least one test returned ERROR.
-        INFRASTRUCTURE -- The assessment did not run (Phases 1-4 or an
-                          unexpected engine exception).
+    summary and the report all use these members. What each code means is in
+    EXIT_CODES below, the one text of the report, the console, `run --help`
+    and docs/reference/exit-codes.md. USAGE is emitted by Typer before the
+    tool starts; it is listed so that no other outcome reuses the code.
 
     130 (Ctrl+C) and 143 (SIGTERM) are not members: after teardown the tool
     ends by the signal itself, and the shell reports 128 + signal number.
@@ -62,6 +58,58 @@ class ExitCode(IntEnum):
     USAGE = 2
     ERROR = 3
     INFRASTRUCTURE = 10
+
+
+@dataclass(frozen=True)
+class ExitCodeInfo:
+    """What an exit code of ``apiguard run`` says: a label and its meaning."""
+
+    label: str
+    meaning: str
+
+
+# How the shell reports a process ended by a signal: 128 + the signal number.
+SIGNAL_EXIT_BASE: int = 128
+
+# Every exit code of `apiguard run`, the ExitCode members and the two stop
+# signals, with its label and meaning: the one text of every output.
+EXIT_CODES: dict[int, ExitCodeInfo] = {
+    ExitCode.CLEAN: ExitCodeInfo(
+        "CLEAN", "no test returned FAIL or ERROR: no violation detected (a SKIP verifies nothing)"
+    ),
+    ExitCode.FAIL: ExitCodeInfo("FAIL", "at least one security guarantee is violated"),
+    ExitCode.USAGE: ExitCodeInfo("USAGE", "invalid invocation: the assessment did not start"),
+    ExitCode.ERROR: ExitCodeInfo(
+        "ERROR",
+        "at least one verification did not complete and no test returned FAIL; an ERROR "
+        "result may carry findings",
+    ),
+    ExitCode.INFRASTRUCTURE: ExitCodeInfo(
+        "INFRA", "the assessment did not run or did not complete: no security verdict"
+    ),
+    SIGNAL_EXIT_BASE + signal.SIGINT: ExitCodeInfo(
+        "INTERRUPTED",
+        "stopped by Ctrl+C: teardown removes the resources created on the target, no report",
+    ),
+    SIGNAL_EXIT_BASE + signal.SIGTERM: ExitCodeInfo(
+        "TERMINATED",
+        "stopped by SIGTERM: teardown removes the resources created on the target, no report",
+    ),
+}
+
+
+def exit_code_text(code: int) -> str:
+    """
+    The text of an exit code: 'FAIL - at least one test returned FAIL: ...'.
+
+    Args:
+        code: The exit code.
+
+    Returns:
+        Its label and meaning, or 'exit code N' for a code the tool does not use.
+    """
+    info = EXIT_CODES.get(code)
+    return f"{info.label} - {info.meaning}" if info is not None else f"exit code {code}"
 
 
 class NotRunReason(StrEnum):

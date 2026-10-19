@@ -12,15 +12,22 @@ concepts](../../architecture/design-decisions.md#d7-neutral-gateway-concepts).
 
 ## The contract (`BaseGatewayAdapter`)
 
-| Concept reader (public, written once in the base) | Override in the adapter | Model | Used by |
+<!-- [[[cog import generate_docs as g; cog.out(g.gateway_concepts_table()) ]]] -->
+
+| Reader | Implement | Items | Used by |
 |---|---|---|---|
 | `backend_timeouts()` | `_read_backend_timeouts()` | `BackendTimeout` | 4.2 |
 | `circuit_breakers()` | `_read_circuit_breakers()` | `CircuitBreaker` | 4.3 |
+| `config_values()` | `_read_config_values()` | `ConfigValue` | 6.4 |
 | `health_checks()` | `_read_health_checks()` | `HealthCheck` | 4.3 |
-| `target_health()` | `_read_target_health()` | `TargetHealth` | 4.3 (observability) |
+| `routes()` | `_read_routes()` | `GatewayRoute` | 3.3 |
 | `signing_policies()` | `_read_signing_policies()` | `SigningPolicy` | 3.3 |
-| `routes()` | `_read_routes()` | `GatewayRoute` | 3.3 (coverage) |
-| `config_values()` | `_read_config_values()` | `ConfigValue` | 6.4 sub-test B |
+| `target_health()` | `_read_target_health()` | `TargetHealth` | 4.3 |
+
+<!-- [[[end]]] -->
+
+The tests use them as: 4.3 `target_health()` for observability, 3.3 `routes()` for coverage, 6.4 `config_values()` in
+sub-test B.
 
 Plus the property `adapter_name` (short lowercase id, e.g. `"kong"`).
 

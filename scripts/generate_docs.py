@@ -40,6 +40,8 @@ This file lives in scripts/ (development only), like check_config_keys.py.
 from __future__ import annotations
 
 import argparse
+import importlib
+import inspect
 import logging
 import os
 import re
@@ -50,21 +52,45 @@ import tempfile
 import typing
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
 import structlog
+import typer.main
 import yaml
 from annotated_types import Ge, Gt, Le, Lt
-from pydantic import BaseModel
+from pydantic import AnyHttpUrl, BaseModel, JsonValue
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
+from src.cli import app as cli_app
+from src.config.loader import mapping_entry_model, model_in_annotation
+from src.config.schema import ToolConfig
 from src.core.assessment_test import NEEDED_TO_RUN, AssessmentTest, has_marker
-from src.core.models import TestStrategy
+from src.core.models import (
+    EvidenceFile,
+    EvidenceRecord,
+    Finding,
+    InfoNote,
+    NotRunEntry,
+    TestStrategy,
+    TlsSettings,
+    TransactionSummary,
+)
+from src.core.models.enums import EXIT_CODES
 from src.core.test_metadata import PRIORITY_MAX, PRIORITY_MIN, TestInfo, section_keys
 from src.external_tests.registry import ExternalTestRegistry
-from src.report.builder import DOMAIN_NAMES
+from src.report.builder import (
+    DOMAIN_NAMES,
+    ConnectionTrust,
+    DomainSummary,
+    ExecutiveSummary,
+    ReportData,
+    TestResultRow,
+)
 from src.tests.registry import TestRegistry
+from typer.core import TyperArgument, TyperCommand, TyperOption
 
 # Discovery logs every test at debug level: keep Cog's output to the generated text.
 structlog.configure(wrapper_class=structlog.make_filtering_bound_logger(logging.WARNING))
@@ -77,6 +103,14 @@ GENERATED_FILES: tuple[str, ...] = (
     "docs/tests/external/*/*.md",
     "docs/architecture/assessment-model.md",
     "docs/reference/configuration.md",
+    "docs/reference/cli.md",
+    "docs/reference/report-schema.md",
+    "docs/reference/exit-codes.md",
+    "docs/reference/evidence-format.md",
+    "docs/guides/extending/add-a-native-test.md",
+    "docs/guides/extending/add-an-external-test.md",
+    "docs/guides/extending/add-a-gateway-adapter.md",
+    "docs/architecture/overview.md",
     "config.example.yaml",
 )
 _EXIT_OUT_OF_DATE: int = 1
@@ -345,7 +379,39 @@ _TYPE_NAMES: dict[type, str] = {
     tuple: "list",
     list: "list",
     dict: "object",
+    Path: "path",
+    AnyHttpUrl: "URL",
 }
+# The section of configuration.md that describes a tls block, linked from each connection.
+_TLS_SECTION: str = "[tls block](#tls-certificates-of-a-connection)"
+
+
+def _type_name(annotation: object) -> str:
+    """The type of a value as written in YAML: a name, the values of an enum, a map, a list."""
+    if annotation is TlsSettings:
+        return _TLS_SECTION
+    if annotation is JsonValue:
+        return "JSON"
+    if isinstance(annotation, type) and issubclass(annotation, Enum):
+        return " \\| ".join(f"`{member.value}`" for member in annotation)
+    if _nested_model(annotation) is not None:
+        return "object"
+    origin = typing.get_origin(annotation) or annotation
+    arguments = typing.get_args(annotation)
+    if origin is dict and len(arguments) == 2 and arguments[1] is str:
+        return "map string → string"
+    if origin in (list, tuple) and arguments and arguments[0] is not Ellipsis:
+        item = arguments[0]
+        if isinstance(item, type) and issubclass(item, Enum):
+            return f"list of {_type_name(item)}"
+    return _TYPE_NAMES.get(origin, "string") if isinstance(origin, type) else "string"
+
+
+def _number(value: object) -> object:
+    """A bound as written: 30.0 as 30, 0.5 as 0.5, anything else unchanged."""
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
 
 
 def _type(field: FieldInfo) -> str:
@@ -355,22 +421,16 @@ def _type(field: FieldInfo) -> str:
     base = field.annotation
     if nullable:
         base = next(a for a in arguments if a is not type(None))
-    origin = typing.get_origin(base) or base
-    if _nested_model(base) is not None:
-        name = "object"
-    elif isinstance(origin, type):
-        name = _TYPE_NAMES.get(origin, "string")
-    else:
-        name = "string"
-    low = _bound(field, Ge, Gt, "ge")
-    high = _bound(field, Le, Lt, "le")
+    name = _type_name(base)
+    low = _number(_bound(field, Ge, Gt, "ge"))
+    high = _number(_bound(field, Le, Lt, "le"))
     if low is not None and high is not None:
         name += f" {low}-{high}"
     elif low is not None:
         name += f" ≥{low}"
     elif high is not None:
         name += f" ≤{high}"
-    return f"{name} \\| null" if nullable else name
+    return f"{name} \\| null" if nullable and base is not TlsSettings else name
 
 
 def _default(field: FieldInfo) -> object:
@@ -434,6 +494,90 @@ def configuration_tests() -> str:
             )
         parts.append("")
     return _block(parts)
+
+
+def _section_model(section: str) -> tuple[type[BaseModel], str]:
+    """
+    The model of a dotted section of config.yaml, and the prefix of its keys.
+
+    A section that maps names to a block (resources) gives the block's model
+    and the prefix <name>.
+
+    Args:
+        section: The section's dotted key (target, gateway, resources, ...).
+
+    Returns:
+        The model and the key prefix ('' for a plain block).
+    """
+    model: type[BaseModel] = ToolConfig
+    prefix = ""
+    for key in section.split("."):
+        annotation = model.model_fields[key].annotation
+        entry = mapping_entry_model(annotation)
+        found = entry or model_in_annotation(annotation)
+        if found is None:
+            raise ValueError(f"{section}: {key} is not a block of the configuration")
+        model, prefix = found, "<name>." if entry is not None else ""
+    return model, prefix
+
+
+def _configuration_rows(
+    model: type[BaseModel], prefix: str = "", optional_block: str | None = None
+) -> Iterable[tuple[str, FieldInfo, str | None]]:
+    """
+    Every key of a block, nested blocks flattened as dotted keys.
+
+    A tls block is one row (it has its own section); a block that may be absent
+    (Block | None) is a row, then its keys; a mapping of names to a block (resources) gives the keys
+    of one entry, as <name>.key.
+
+    Yields:
+        The dotted key, its field, and the optional block it is in (None: none).
+    """
+    for name, field in model.model_fields.items():
+        key = f"{prefix}{field.alias or name}"
+        entry = mapping_entry_model(field.annotation)
+        block = _nested_model(field.annotation)
+        if entry is not None:
+            yield from _configuration_rows(entry, f"{key}.<name>.", optional_block)
+        elif block is not None and block is not TlsSettings:
+            if type(None) in typing.get_args(field.annotation):
+                yield key, field, optional_block
+                yield from _configuration_rows(block, f"{key}.", field.alias or name)
+            else:
+                yield from _configuration_rows(block, f"{key}.", optional_block)
+        else:
+            yield key, field, optional_block
+
+
+def configuration_table(section: str) -> str:
+    """
+    The table of one section of configuration.md (outside tests): every key of it.
+
+    Args:
+        section: The section's dotted key in config.yaml (target, gateway, ...).
+
+    Returns:
+        Markdown: one row per key, with type, default and description.
+    """
+    model, prefix = _section_model(section)
+    return _keys_table(model, prefix)
+
+
+def tls_block_table() -> str:
+    """The table of a tls block, the certificate settings every connection may have."""
+    return _keys_table(TlsSettings, "")
+
+
+def _keys_table(model: type[BaseModel], prefix: str) -> str:
+    """Markdown: one row per key of a block, with type, default and description."""
+    lines = ["| Key | Type | Default | Description |", "|---|---|---|---|"]
+    for key, field, optional_block in _configuration_rows(model, prefix):
+        default = _default_cell(_default(field))
+        if default == "required":
+            default = f"required with `{optional_block}`" if optional_block else "**required**"
+        lines.append(f"| `{key}` | {_type(field)} | {default} | {_cell(field.description or '')} |")
+    return _block(lines)
 
 
 def _first_sentence(text: str) -> str:
@@ -547,6 +691,380 @@ def _parameter_lines(name: str, field: FieldInfo, indent: str) -> list[str]:
         lines.append(f"{indent}# Example:")
         lines += _yaml_value(name, examples[0], indent, commented=True)
     return lines
+
+
+# ---------------------------------------------------------------------------
+# Output formats: report-schema.md
+# ---------------------------------------------------------------------------
+
+# The models of apiguard_report.json, each with its section in report-schema.md.
+_REPORT_MODELS: dict[str, type[BaseModel]] = {
+    model.__name__: model
+    for model in (
+        ReportData,
+        ConnectionTrust,
+        ExecutiveSummary,
+        NotRunEntry,
+        DomainSummary,
+        TestResultRow,
+        Finding,
+        InfoNote,
+        TransactionSummary,
+    )
+}
+
+_JSON_TYPE_NAMES: dict[type, str] = {
+    str: "string",
+    int: "int",
+    float: "number",
+    bool: "bool",
+    dict: "object",
+    datetime: "string, ISO 8601 UTC",
+}
+
+
+def _json_type(annotation: object, models: dict[str, type[BaseModel]]) -> str:
+    """The JSON type of a field: a name, a link to a documented model, an array of either."""
+    arguments = typing.get_args(annotation)
+    if type(None) in arguments:
+        inner = next(a for a in arguments if a is not type(None))
+        return f"{_json_type(inner, models)} \\| null"
+    if typing.get_origin(annotation) is typing.Literal:
+        return " \\| ".join(f"`{value}`" for value in arguments)
+    if isinstance(annotation, type) and annotation.__name__ in models:
+        return f"[`{annotation.__name__}`](#{annotation.__name__.lower()})"
+    origin = typing.get_origin(annotation) or annotation
+    if origin in (list, tuple) and arguments:
+        return f"array of {_json_type(arguments[0], models)}"
+    return _JSON_TYPE_NAMES.get(origin, "string") if isinstance(origin, type) else "string"
+
+
+def _fields_table(model: type[BaseModel], models: dict[str, type[BaseModel]]) -> str:
+    """Markdown: one row per field of an output model, with its JSON type and description."""
+    lines = ["| Field | Type | Description |", "|---|---|---|"]
+    for name, field in model.model_fields.items():
+        lines.append(
+            f"| `{field.alias or name}` | {_json_type(field.annotation, models)} "
+            f"| {_cell(field.description or '')} |"
+        )
+    return _block(lines)
+
+
+def report_table(name: str) -> str:
+    """
+    The table of one model of apiguard_report.json (report-schema.md).
+
+    Args:
+        name: The model's class name (ReportData, TestResultRow, ...).
+
+    Returns:
+        Markdown: one row per field; a field holding another model of the
+        report links to its section.
+    """
+    return _fields_table(_REPORT_MODELS[name], _REPORT_MODELS)
+
+
+# The models of evidence.json, each with its section in evidence-format.md.
+_EVIDENCE_MODELS: dict[str, type[BaseModel]] = {
+    model.__name__: model for model in (EvidenceFile, EvidenceRecord)
+}
+
+
+def evidence_table(name: str) -> str:
+    """One model of evidence.json (evidence-format.md): EvidenceFile or EvidenceRecord."""
+    return _fields_table(_EVIDENCE_MODELS[name], _EVIDENCE_MODELS)
+
+
+def exit_codes_table() -> str:
+    """The exit codes of apiguard run (exit-codes.md), from their single definition (EXIT_CODES)."""
+    lines = ["| Code | Label | Meaning |", "|---|---|---|"]
+    for code, info in EXIT_CODES.items():
+        meaning = info.meaning[0].upper() + info.meaning[1:]
+        lines.append(f"| `{code}` | {info.label} | {_cell(meaning)}. |")
+    return _block(lines)
+
+
+def domain_names_table() -> str:
+    """The domains of the methodology, as the report names them (DOMAIN_NAMES)."""
+    lines = ["| `domain` | `domain_name` |", "|---|---|"]
+    lines += [f"| {number} | {name} |" for number, name in sorted(DOMAIN_NAMES.items())]
+    return _block(lines)
+
+
+# ---------------------------------------------------------------------------
+# Developer guides: the code a contributor uses
+# ---------------------------------------------------------------------------
+
+# The tests' source folders, searched for the tests that call a gateway concept.
+_TEST_SOURCES: tuple[Path, ...] = (_ROOT / "src" / "tests", _ROOT / "src" / "external_tests")
+_TEST_ID_IN_SOURCE: re.Pattern[str] = re.compile(r'TestInfo\(\s*id="([^"]+)"')
+_CONNECTOR_BASE_NAME: str = "BaseConnector"
+
+
+def _resolve(target: str) -> Any:  # noqa: ANN401 -- a class, a function or a method
+    """The object at 'module:Name' or 'module:Class.attribute'."""
+    module_name, _, path = target.partition(":")
+    found: Any = importlib.import_module(module_name)
+    for part in path.split("."):
+        found = getattr(found, part)
+    return found
+
+
+def _summary(obj: object) -> str:
+    """The first paragraph of an object's docstring, on one line."""
+    doc = inspect.getdoc(obj) or ""
+    return " ".join(doc.split("\n\n", 1)[0].split())
+
+
+def _signature(func: Any, typed: bool) -> str:  # noqa: ANN401 -- any callable
+    """A call as a contributor writes it: name(arg, key=default); with types when typed."""
+    signature = inspect.signature(func)
+    parts: list[str] = []
+    keyword_only_marked = False
+    for parameter in signature.parameters.values():
+        if parameter.name == "self":
+            continue
+        if parameter.kind is parameter.KEYWORD_ONLY and not keyword_only_marked:
+            parts.append("*")
+            keyword_only_marked = True
+        text = parameter.name
+        if typed and parameter.annotation is not parameter.empty:
+            text += f": {parameter.annotation}"
+        if parameter.default is not parameter.empty:
+            text += f" = {parameter.default!r}" if typed else f"={parameter.default!r}"
+        parts.append(text)
+    returned = signature.return_annotation
+    suffix = f" -> {returned}" if typed and returned is not signature.empty else ""
+    return f"{func.__name__}({', '.join(parts)}){suffix}"
+
+
+def methods_table(header: Sequence[str], *calls: str | tuple[str, str], typed: bool = False) -> str:
+    """
+    The table of some methods or functions: their call and the first paragraph of their docstring.
+
+    Args:
+        header: The two column titles.
+        calls:  'module:Class.method' (or 'module:function'), or (prefix, that) to write the call
+                with its receiver, e.g. ('store.', 'src.core.evidence:EvidenceStore.pin_evidence').
+        typed:  Whether the calls show the types (for the methods a subclass implements).
+
+    Returns:
+        Markdown: one row per call, in the given order.
+    """
+    lines = [f"| {header[0]} | {header[1]} |", "|---|---|"]
+    for call in calls:
+        prefix, target = call if isinstance(call, tuple) else ("", call)
+        func = _resolve(target)
+        lines.append(f"| `{prefix}{_signature(func, typed)}` | {_cell(_summary(func))} |")
+    return _block(lines)
+
+
+def _tests_calling(method: str) -> str:
+    """The IDs of the tests whose source calls .method(, sorted."""
+    ids: set[str] = set()
+    for folder in _TEST_SOURCES:
+        for source in folder.rglob("*.py"):
+            text = source.read_text(encoding="utf-8")
+            if f".{method}(" in text:
+                ids.update(_TEST_ID_IN_SOURCE.findall(text))
+    return ", ".join(sorted(ids, key=_id_key)) or "-"
+
+
+def gateway_concepts_table() -> str:
+    """The concepts a gateway adapter answers: reader, method to implement, items, users."""
+    adapter = _resolve("src.core.gateway.base:BaseGatewayAdapter")
+    lines = ["| Reader | Implement | Items | Used by |", "|---|---|---|---|"]
+    for name, func in inspect.getmembers(adapter, inspect.isfunction):
+        hook = f"_read_{name}"
+        if name.startswith("_") or not hasattr(adapter, hook):
+            continue
+        item = (
+            str(inspect.signature(func).return_annotation).removeprefix("ConceptRead[").rstrip("]")
+        )
+        lines.append(f"| `{name}()` | `{hook}()` | `{item}` | {_tests_calling(name)} |")
+    return _block(lines)
+
+
+def connector_bases_table() -> str:
+    """The connector bases: what each is for, the class attributes a connector declares."""
+    lines = ["| Base | For | Declares | Optional (default) |", "|---|---|---|---|"]
+    for name in ("BaseSubprocessConnector", "BaseLibraryConnector"):
+        base = _resolve(f"src.connectors.base:{name}")
+        required: list[str] = []
+        optional: list[str] = []
+        for klass in reversed(base.__mro__):
+            if klass.__name__ not in (_CONNECTOR_BASE_NAME, name) and klass is not base:
+                continue
+            for attribute, annotation in klass.__dict__.get("__annotations__", {}).items():
+                if "ClassVar" not in str(annotation):
+                    continue
+                if attribute in klass.__dict__:
+                    optional.append(f"`{attribute}` ({klass.__dict__[attribute]!r})")
+                else:
+                    required.append(f"`{attribute}`")
+        declares = ", ".join(required)
+        defaults = ", ".join(optional) or "-"
+        lines.append(f"| `{name}` | {_cell(_summary(base))} | {declares} | {defaults} |")
+    return _block(lines)
+
+
+# The exceptions of the tool, by module, in the order of the pipeline.
+_EXCEPTIONS: tuple[str, ...] = (
+    "src.core.exceptions:ConfigurationError",
+    "src.core.exceptions:TestDefinitionError",
+    "src.core.exceptions:OpenAPILoadError",
+    "src.core.exceptions:DAGCycleError",
+    "src.core.exceptions:SecurityClientError",
+    "src.core.exceptions:AuthenticationSetupError",
+    "src.core.exceptions:ExternalToolError",
+    "src.core.gateway.base:GatewayAdapterError",
+    "src.core.exceptions:TeardownError",
+    "src.discovery.seed_generator:SeedGeneratorFetchError",
+    "src.discovery.seed_generator:SeedGeneratorParseError",
+)
+
+
+def exceptions_table() -> str:
+    """The tool's exceptions: their fields and when they are raised, with what follows."""
+    lines = ["| Exception | Fields | Raised, and what follows |", "|---|---|---|"]
+    for target in _EXCEPTIONS:
+        exception = _resolve(target)
+        fields = [
+            f"`{name}`"
+            for name in inspect.signature(exception.__init__).parameters
+            if name not in ("self", "message")
+        ]
+        module = target.partition(":")[0].replace(".", "/") + ".py"
+        lines.append(
+            f"| `{exception.__name__}` (`{module}`) | {', '.join(fields) or '-'} "
+            f"| {_cell(_summary(exception))} |"
+        )
+    return _block(lines)
+
+
+# ---------------------------------------------------------------------------
+# CLI: cli.md
+# ---------------------------------------------------------------------------
+
+# The program name, as the user types it.
+_PROGRAM: str = "apiguard"
+
+
+def _command(name: str) -> TyperCommand:
+    """A command of the CLI, as Typer builds it from src/cli.py."""
+    command = typer.main.get_command(cli_app).commands[name]  # type: ignore[attr-defined]
+    if not isinstance(command, TyperCommand):
+        raise TypeError(f"{name}: not a Typer command")
+    return command
+
+
+def _parameters(command: TyperCommand) -> list[TyperArgument | TyperOption]:
+    """The arguments and options of a command, in declaration order (without --help)."""
+    return [
+        p for p in command.params if isinstance(p, TyperArgument | TyperOption) and p.name != "help"
+    ]
+
+
+def _value(parameter: TyperArgument | TyperOption, command: TyperCommand) -> str:
+    """What a parameter takes: its values, a file, a number range; '' for a flag."""
+    if isinstance(parameter, TyperArgument) or (
+        isinstance(parameter, TyperOption) and parameter.is_flag
+    ):
+        return ""
+    choices = getattr(parameter.type, "choices", None)
+    if choices:
+        return " \\| ".join(f"`{choice}`" for choice in choices)
+    low, high = getattr(parameter.type, "min", None), getattr(parameter.type, "max", None)
+    if low is not None or high is not None:
+        kind = "number" if parameter.type.name.startswith("float") else "int"
+        return f"{kind} {_number(low)}-{_number(high)}"
+    metavar = parameter.make_metavar(
+        command.make_context(command.name or "", [], resilient_parsing=True)
+    )
+    return metavar.strip("<>").upper() if metavar else ""
+
+
+def _names(parameter: TyperArgument | TyperOption) -> str:
+    """The parameter as typed: --config, -c; --banner / --no-banner; SPEC."""
+    if isinstance(parameter, TyperArgument):
+        return f"`{parameter.human_readable_name.upper()}`"
+    names = ", ".join(f"`{name}`" for name in parameter.opts)
+    if parameter.secondary_opts:
+        names += " / " + ", ".join(f"`{name}`" for name in parameter.secondary_opts)
+    return names
+
+
+def _option_default(parameter: TyperArgument | TyperOption) -> str:
+    """The default of a parameter for a table cell (its show_default text when it has one)."""
+    if isinstance(parameter, TyperOption) and isinstance(parameter.show_default, str):
+        return parameter.show_default
+    value = parameter.default
+    if isinstance(parameter, TyperOption) and parameter.is_flag:
+        if parameter.secondary_opts:
+            return f"`{parameter.opts[0] if value else parameter.secondary_opts[0]}`"
+        return "off" if not value else "on"
+    if isinstance(value, Enum):
+        value = value.value
+    if isinstance(value, Path):
+        value = str(value)
+    return _default_cell(value)
+
+
+def cli_synopsis(name: str) -> str:
+    """
+    The syntax line of a command: every argument and option, as the user types them.
+
+    Args:
+        name: The command (run, validate-config, ...).
+
+    Returns:
+        Markdown: a code block with the syntax.
+    """
+    command = _command(name)
+    parts = [_PROGRAM, name]
+    for parameter in _parameters(command):
+        if isinstance(parameter, TyperArgument):
+            word = parameter.human_readable_name.upper()
+            parts.append(word if parameter.required else f"[{word}]")
+            continue
+        value = _value(parameter, command)
+        flag = parameter.opts[0] + (
+            f"|{parameter.secondary_opts[0]}" if parameter.secondary_opts else ""
+        )
+        value = (
+            value.replace("`", "")
+            .replace(" \\| ", "|")
+            .removeprefix("number ")
+            .removeprefix("int ")
+        )
+        shown = f"{flag} {value}" if value else flag
+        parts.append(f"[{shown}]")
+    return "\n```\n" + " ".join(parts) + "\n```\n"
+
+
+def cli_options(name: str) -> str:
+    """
+    The table of a command's arguments and options, with their help text.
+
+    Args:
+        name: The command (run, validate-config, ...).
+
+    Returns:
+        Markdown: one row per argument or option.
+    """
+    command = _command(name)
+    lines = ["| Option | Value | Default | Description |", "|---|---|---|---|"]
+    for parameter in _parameters(command):
+        help_text = (
+            parameter.help
+            if isinstance(parameter, TyperOption)
+            else (getattr(parameter, "help", None) or "")
+        )
+        lines.append(
+            f"| {_names(parameter)} | {_value(parameter, command)} | {_option_default(parameter)} "
+            f"| {_cell(help_text or '')} |"
+        )
+    return _block(lines)
 
 
 def generated_files() -> list[str]:

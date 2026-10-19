@@ -104,7 +104,6 @@ alternative usable where the shell script cannot run.
 
 - The methodology requires TLS 1.2+ only; the sslyze oracle does not fail on TLS 1.0/1.1.
 - `ext.1.5.sslyze` depends on an AGPL v3 library (Q-11).
-- The module docstring still mentions a `testssl_binary_path` setting of test 1.5 that no longer exists.
 
 ## See also
 

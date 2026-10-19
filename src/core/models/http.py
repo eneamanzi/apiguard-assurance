@@ -71,6 +71,8 @@ from src.core.redaction import (
 # Maximum length of response body stored in EvidenceRecord, in characters.
 # Consistent with the value documented in SecurityClient (client.py).
 _EVIDENCE_RECORD_BODY_MAX_CHARS: int = 10_000
+# Appended to a body cut to its limit (evidence records and transaction summaries).
+_TRANSACTION_TRUNCATION_SUFFIX: str = "... [TRUNCATED]"
 
 
 class EvidenceRecord(BaseModel):
@@ -102,47 +104,60 @@ class EvidenceRecord(BaseModel):
     model_config = {"frozen": True}
 
     record_id: str = Field(
-        description="Unique identifier. Format: '{test_id}_{sequence}', e.g. '1.2_001'."
+        description=(
+            "Unique ID. HTTP records: `{test_id}_{NNN}` (e.g. `1.1_005`), a counter per "
+            "test. Tool outputs: `artifact-{test_id}-{label}-{HHMMSSffffff}`."
+        )
     )
-    timestamp_utc: datetime = Field(description="UTC timestamp when the request was dispatched.")
-    request_method: str = Field(description="HTTP method, uppercase.")
-    request_url: str = Field(description="Full URL. Must not embed credentials.")
+    timestamp_utc: datetime = Field(description="When the request was dispatched.")
+    request_method: str = Field(
+        description=(
+            "HTTP method, uppercase. For a tool output: its label uppercased, the external "
+            "test's ID (e.g. `EXT.0.1.NUCLEI`)."
+        )
+    )
+    request_url: str = Field(
+        description="Full URL. For a tool output: `external://{test_id}/{label}`."
+    )
     request_headers: dict[str, str] = Field(
         default_factory=dict,
         description=(
-            "Request headers (lowercase keys). Authorization, Cookie and secret values "
-            "replaced with typed placeholders (src/core/redaction.py)."
+            "Lowercase header names; `authorization`, cookie values and the registered "
+            "secrets replaced with typed placeholders (see Sensitive data below)."
         ),
     )
     request_body: str | None = Field(
         default=None,
-        description="Request body as sent (not sanitized); None if no body.",
+        description=(
+            "The JSON body as sent, with the registered secrets replaced; null when the "
+            "request carried no JSON body."
+        ),
     )
-    response_status_code: int = Field(description="HTTP status code.")
+    response_status_code: int = Field(description="HTTP status; `0` for a tool output.")
     response_headers: dict[str, str] = Field(
-        default_factory=dict, description="Response headers (lowercase keys)."
+        default_factory=dict, description="Lowercase header names."
     )
     response_body: str | None = Field(
         default=None,
-        description="Response body, truncated to 10,000 chars.",
+        description=(
+            f"Body truncated to {_EVIDENCE_RECORD_BODY_MAX_CHARS:,} characters + "
+            f"`{_TRANSACTION_TRUNCATION_SUFFIX}`; an undecodable body becomes "
+            "`[Binary or undecodable response body]`. For a tool output: the tool's raw output "
+            "as JSON, credentials removed, truncated the same way (the full output is in "
+            "`tools/<label>_output.json`)."
+        ),
     )
     is_pinned: bool = Field(
         default=False,
-        description="True if explicitly marked as key evidence by the test.",
+        description=(
+            "`true` for a transaction a test marked as key context and for a tool output; "
+            "`false` for FAIL evidence."
+        ),
     )
     elapsed_ms: float | None = Field(
         default=None,
         description=(
-            "Wall-clock duration of the HTTP transaction in milliseconds, measured "
-            "by SecurityClient.request() using time.monotonic() across the full "
-            "attempt sequence (including retry waits). "
-            "Populated by SecurityClient._build_evidence_record() before the "
-            "record is returned to the test. "
-            "TransactionSummary.from_evidence_record() inherits this value "
-            "automatically — tests do not need to pass duration_ms to "
-            "BaseTest._log_transaction(). "
-            "None only when the record is constructed outside SecurityClient "
-            "(e.g., in test fixtures or teardown helpers)."
+            "Duration (ms) of the HTTP transaction, retry waits included; null for a tool output."
         ),
     )
 
@@ -195,14 +210,36 @@ class EvidenceRecord(BaseModel):
 # TransactionSummary — hybrid audit trail entry (metadata + airbag previews)
 # ---------------------------------------------------------------------------
 
+
 # Airbag truncation limits for TransactionSummary body preview fields.
 # These constants bound the HTML report size to a safe maximum even when
 # individual endpoints return multi-megabyte responses or large request
 # payloads. Full content is always available in EvidenceRecord / evidence.json
 # for every FAIL transaction.
+class EvidenceFile(BaseModel):
+    """
+    The content of evidence.json, as written in Phase 7 (EvidenceStore.merge_and_finalize).
+
+    The one definition of the file's top level (docs/reference/evidence-format.md
+    is generated from it).
+    """
+
+    model_config = {"frozen": True}
+
+    tool_version: str = Field(
+        description="APIGuard version that wrote the file: the version of this format."
+    )
+    generated_at_utc: str = Field(
+        description="When the file was written (Phase 7), ISO 8601 in UTC with `+00:00` offset."
+    )
+    record_count: int = Field(ge=0, description="Number of records.")
+    records: list[EvidenceRecord] = Field(
+        description="Records sorted by `timestamp_utc`; empty when no evidence was collected."
+    )
+
+
 _TRANSACTION_REQUEST_BODY_MAX_CHARS: int = 2_000
 _TRANSACTION_RESPONSE_PREVIEW_MAX_CHARS: int = 1_000
-_TRANSACTION_TRUNCATION_SUFFIX: str = "... [TRUNCATED]"
 
 
 class TransactionSummary(BaseModel):
@@ -253,82 +290,49 @@ class TransactionSummary(BaseModel):
 
     record_id: str = Field(
         description=(
-            "Identifier matching EvidenceRecord.record_id for the same transaction "
-            "when is_fail_evidence=True. Format: '{test_id}_{sequence}'. "
-            "Cross-reference to the full transaction in evidence.json."
+            "`{test_id}_{NNN}`; matches a record in `evidence.json` when `is_fail_evidence` "
+            "is `true`."
         )
     )
-    timestamp_utc: datetime = Field(
-        description="UTC timestamp when the HTTP request was dispatched."
-    )
-    request_method: str = Field(description="HTTP method, uppercase (e.g., 'GET', 'POST').")
-    request_url: str = Field(
-        description=(
-            "Full URL of the request. Credentials are never embedded — "
-            "the Authorization header is not stored in this summary."
-        )
-    )
-    response_status_code: int = Field(description="HTTP status code received from the server.")
+    timestamp_utc: datetime = Field(description="Dispatch time.")
+    request_method: str = Field(description="HTTP method of the request.")
+    request_url: str = Field(description=("Full URL of the request."))
+    response_status_code: int = Field(description="HTTP status of the response.")
     oracle_state: str | None = Field(
         default=None,
         description=(
-            "Semantic label assigned by the test to classify the oracle outcome "
-            "of this transaction. Set at the call site after evaluating the response. "
-            "Examples: 'ENFORCED' (401/403), 'BYPASS' (2xx on protected path), "
-            "'RATE_LIMIT_HIT' (429), 'SUNSET_MISSING', 'BACKEND_LEAKED', "
-            "'INCONCLUSIVE_PARAMETRIC', 'CORRECTLY_DENIED'. "
-            "Provides richer diagnostic context than the status code alone. "
-            "None when the test does not assign an explicit semantic label."
+            "Test-specific classification of the response (e.g. `ENFORCED`, `BYPASS`, "
+            "`RATE_LIMIT_HIT`, `INCONCLUSIVE_PARAMETRIC`). Free-form: each test defines its "
+            "own values."
         ),
     )
     duration_ms: float | None = Field(
         default=None,
-        description=(
-            "Wall-clock time for this individual HTTP transaction in milliseconds. "
-            "Inherited automatically from EvidenceRecord.elapsed_ms by "
-            "from_evidence_record() when not overridden by the caller. "
-            "SecurityClient populates EvidenceRecord.elapsed_ms via time.monotonic() "
-            "before returning the record, so this field is non-None for all "
-            "transactions dispatched through SecurityClient.request(). "
-            "An explicit override is accepted for tests that measure timing "
-            "independently of the raw HTTP call (e.g., end-to-end retry sequence)."
-        ),
+        description=("Duration of the request."),
     )
     is_fail_evidence: bool = Field(
         default=False,
-        description=(
-            "True if store.add_fail_evidence(record) was also called for this "
-            "transaction. The HTML report highlights these entries and notes that "
-            "the full EvidenceRecord is available in evidence.json."
-        ),
+        description=("The transaction is FAIL evidence: the full record is in `evidence.json`."),
     )
     request_headers: dict[str, str] = Field(
         default_factory=dict,
         description=(
-            "Full request headers dict (lowercase keys). "
-            "The Authorization value is always '[REDACTED]', inherited from the "
-            "EvidenceRecord.headers_must_be_lowercase validator at creation time. "
-            "Enables generation of a valid cURL command in the HTML report "
-            "Audit Trail modal without opening evidence.json."
+            "Lowercase names; `authorization` and cookie values redacted with typed "
+            "placeholders (see the evidence format)."
         ),
     )
     request_body: str | None = Field(
         default=None,
         description=(
-            "Request body truncated to _TRANSACTION_REQUEST_BODY_MAX_CHARS chars. "
-            "None if the original request carried no body. "
-            "Populated by TransactionSummary.from_evidence_record() via airbag "
-            "truncation. Enables payload inspection in the HTML Audit Trail modal."
+            f"Request body, truncated to {_TRANSACTION_REQUEST_BODY_MAX_CHARS:,} characters; "
+            "null without a body."
         ),
     )
     response_body_preview: str | None = Field(
         default=None,
         description=(
-            "Response body truncated to _TRANSACTION_RESPONSE_PREVIEW_MAX_CHARS chars. "
-            "None if the response carried no body. "
-            "Populated by TransactionSummary.from_evidence_record() via airbag "
-            "truncation. Enables rapid triage of server error messages in the HTML "
-            "report without opening evidence.json."
+            f"Response body, truncated to {_TRANSACTION_RESPONSE_PREVIEW_MAX_CHARS:,} "
+            "characters; null without a body."
         ),
     )
 

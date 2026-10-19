@@ -20,7 +20,7 @@ tool decision in [`decisions.it.md`](../../knowledge/tools/decisions.it.md), and
 |---|---|---|---|
 | 1 | `src/tests/domain_<D>/__init__.py` | new domain | empty file (a test module outside a package stops the run) |
 | 2 | `src/tests/domain_<D>/test_<D>_<N>_<name>.py` | always | the test: its declaration (`info`), its parameter model if it has parameters, its code |
-| 3 | `docs/tests/<domain>/<test>.md` | always | the test page: its prose, and under the title the header marker `<!-- [[[cog import generate_docs as g; cog.out(g.test_header("<D>.<N>", page=cog.inFile)) ]]] -->` followed by `<!-- [[[end]]] -->` |
+| 3 | `docs/tests/<domain>/<test>.md` | always | the test page: its prose, and under the title the two lines of the header marker, copied from any test page (e.g. `docs/tests/domain-1/1-4-token-revocation.md`) with the ID in `test_header("<D>.<N>", page=cog.inFile)` changed |
 
 Then `hatch run dev:gen` writes what repeats the code: the page header, the catalogue row (`docs/tests/README.md`),
 the tests by strategy and priority (`docs/architecture/assessment-model.md`), the parameter table
@@ -183,13 +183,17 @@ self._log_transaction(record, oracle_state=_STATE_RBAC_ENFORCED)
 **Result helpers** (`src/core/assessment_test.py`, shared with external tests). They copy the declaration and the
 transaction log into the `TestResult`:
 
+<!-- [[[cog import generate_docs as g; cog.out(g.methods_table(('Helper', 'Use'), 'src.core.assessment_test:AssessmentTest._make_pass', 'src.core.assessment_test:AssessmentTest._make_fail', 'src.core.assessment_test:AssessmentTest._make_fail_multi', 'src.core.assessment_test:AssessmentTest._make_skip', 'src.core.assessment_test:AssessmentTest._make_error')) ]]] -->
+
 | Helper | Use |
 |---|---|
-| `_make_pass(message, notes=None)` | guarantee holds |
-| `_make_fail(message, detail, evidence_record_id=None, additional_references=None, notes=None)` | one consolidated finding built from the test's own name and CWE |
-| `_make_fail_multi(message, findings, notes=None)` | one finding per violation (preferred: each finding names the endpoint) |
-| `_make_skip(reason, notes=None)` | missing precondition |
-| `_make_error(exc, message=None)` | unexpected failure; keeps the transactions logged so far |
+| `_make_pass(message, notes=None)` | Return a PASS result: the guarantee holds; notes may add context that is not a violation. |
+| `_make_fail(message, detail, evidence_record_id=None, additional_references=None, notes=None)` | Return a FAIL result with one finding, titled with the test's name, with its CWE as first reference. |
+| `_make_fail_multi(message, findings, notes=None)` | Return a FAIL result with the caller's findings, one per violation (preferred: each finding names the endpoint). |
+| `_make_skip(reason, notes=None)` | Return a SKIP result naming the missing precondition. |
+| `_make_error(exc, message=None)` | Return an ERROR result from an exception, keeping the transactions logged so far. |
+
+<!-- [[[end]]] -->
 
 **Needs, not guards.** What a test needs from the configuration is declared, not checked in `execute()`:
 `TestInfo(needs=(Need.USER_ACCOUNT,))` (the vocabulary is `Need` in `src/core/test_metadata.py`: `ADMIN_ACCOUNT`,
@@ -201,11 +205,15 @@ stays a SKIP inside the test. `_requires_attack_surface(target)` remains for the
 
 **Evidence and audit trail:**
 
+<!-- [[[cog import generate_docs as g; cog.out(g.methods_table(('Call', 'When'), ('self.', 'src.tests.base:BaseTest._log_transaction'), ('store.', 'src.core.evidence:EvidenceStore.add_fail_evidence'), ('store.', 'src.core.evidence:EvidenceStore.pin_evidence'))) ]]] -->
+
 | Call | When |
 |---|---|
-| `self._log_transaction(record, oracle_state=..., is_fail=False)` | after **every** `client.request()` |
-| `store.add_fail_evidence(record)` | each transaction that proves a FAIL, before `_log_transaction(..., is_fail=True)` |
-| `store.pin_evidence(record)` | a non-failing transaction that is key evidence |
+| `self._log_transaction(record, *, oracle_state=None, is_fail=False, duration_ms=None)` | Add a request to the test's audit trail (transaction_log in the report): call it after every client.request(). |
+| `store.add_fail_evidence(record)` | Store a transaction that proves a FAIL in evidence.json; log it with _log_transaction(..., is_fail=True). |
+| `store.pin_evidence(record)` | Store in evidence.json a transaction that is key context but proves no FAIL. |
+
+<!-- [[[end]]] -->
 
 Oracle-state labels are free strings in `SCREAMING_SNAKE_CASE`, defined as module constants and documented on the
 test page.
@@ -235,8 +243,8 @@ sends on purpose as `Authorization` (e.g. a malformed token) is not a secret: de
 **Payload data** (`src/tests/data/`): `auth_payloads.py`, `inspector_patterns.py`, `shadow_wordlists.py`,
 `ssrf_payloads.py`. Put reusable payload lists there, not in the test.
 
-**Gateway configuration** (WHITE_BOX audits): guard with `_requires_admin_api(target)`, then read the neutral
-concepts you need (`target.gateway.backend_timeouts()`, `health_checks()`, `signing_policies()`, ...; [add a gateway
+**Gateway configuration** (WHITE_BOX audits): declare `needs=(Need.GATEWAY,)` in `info` (without a gateway the
+engine records SKIP before `execute()`), then read the neutral concepts you need (`target.gateway.backend_timeouts()`, `health_checks()`, `signing_policies()`, ...; [add a gateway
 adapter](add-a-gateway-adapter.md)). Store each answer with `self._record_gateway_concept(target, store, CONCEPT_...,
 answer)` and use the returned id as the findings' `evidence_ref`; when the answer is not READ, return
 `self._skip_for_concept(...)`, or add an InfoNote if the test can still judge another part.

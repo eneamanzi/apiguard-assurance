@@ -67,17 +67,24 @@ that are not valid JSON. `validate-config` also prints its result message as pla
 
 ## `run`
 
-```
-apiguard run [--config PATH] [--log-format console|json] [--log-level LEVEL] [--banner|--no-banner]
-```
+<!-- [[[cog import generate_docs as g; cog.out(g.cli_synopsis("run")) ]]] -->
 
-| Option | Default | Description |
-|---|---|---|
-| `--config`, `-c` | `config.yaml` | Path to the configuration file. Resolved to an absolute path. |
-| `--log-format` | `console` | `console`: human-readable, coloured. `json`: one JSON object per line. Case-insensitive. |
-| `--log-level` | `warning` | Level of the technical log shown below the interface: `error` only failures of the tool; `warning` also problems the user should know (configuration, cleanup, network, external tools); `info` also the steps of the run and each test result; `debug` also every HTTP transaction, third-party loggers (httpx, httpcore, prance, openapi_spec_validator, urllib3, chardet) and library warnings. |
-| `--banner` / `--no-banner` | `--banner` | Show the header and the final summary of the interface (console format only; the test lines are always shown). |
-| `--env-file` | `.env` in the working directory | Environment file to load ([Environment and `.env`](#environment-and-env)). Must exist. |
+```
+apiguard run [--config FILE] [--log-format console|json] [--log-level debug|info|warning|error] [--banner|--no-banner] [--env-file FILE]
+```
+<!-- [[[end]]] -->
+
+<!-- [[[cog import generate_docs as g; cog.out(g.cli_options("run")) ]]] -->
+
+| Option | Value | Default | Description |
+|---|---|---|---|
+| `--config`, `-c` | FILE | `config.yaml` | Path to the config.yaml file, resolved to an absolute path. Its ${VAR} placeholders are resolved from the environment (after the .env file is loaded). |
+| `--log-format` | `console` \| `json` | `console` | Log format: console (human-readable, coloured) or json (one JSON object per line). Case-insensitive. |
+| `--log-level` | `debug` \| `info` \| `warning` \| `error` | `warning` | Level of the technical log shown below the interface: error, only failures of the tool; warning, also problems the user should know (configuration, cleanup, network, external tools); info, also the steps of the run and each test result; debug, also every HTTP transaction, third-party loggers and library warnings. |
+| `--banner` / `--no-banner` |  | `--banner` | Show the header and the final summary of the interface (console format only; the test lines are always shown). |
+| `--env-file` | FILE | '.env' in the working directory | Load environment variables from this file, which must exist, instead of '.env' in the current working directory. Variables already set in the environment take precedence. |
+
+<!-- [[[end]]] -->
 
 Outputs are written to `output.directory` (see [`report-schema.md`](report-schema.md),
 [`evidence-format.md`](evidence-format.md)). Exit codes: [`exit-codes.md`](exit-codes.md).
@@ -90,9 +97,12 @@ apiguard run --log-level debug
 
 ## `validate-config`
 
+<!-- [[[cog import generate_docs as g; cog.out(g.cli_synopsis("validate-config")) ]]] -->
+
 ```
-apiguard validate-config [--config PATH] [--log-format console|json] [--env-file PATH] [--show-config]
+apiguard validate-config [--config FILE] [--log-format console|json] [--env-file FILE] [--show-config]
 ```
+<!-- [[[end]]] -->
 
 Runs Phase 1 (reads the YAML, resolves `${VAR}` placeholders, validates the schema) and the test checks: every
 test module loads and every test class is declared correctly (`Test definitions invalid: ...`, listing every
@@ -101,12 +111,16 @@ problem with its module) and every
 specification (download or local file, as the run does), to check where the credentials are sent; it never
 contacts the gateway or sends a request to the API. A filter combination that selects no test is detected only by `run` (Phase 4).
 
-| Option | Default | Description |
-|---|---|---|
-| `--config`, `-c` | `config.yaml` | Path to the configuration file. |
-| `--log-format` | `console` | As for `run`. Log level is fixed to `warning`. |
-| `--env-file` | `.env` in the working directory | As for `run`. |
-| `--show-config` | off | Print on stdout the configuration a run would use, as `config_used.yaml` ([details](configuration.md#the-configuration-a-run-used-config_usedyaml)); the other messages go to stderr, so `validate-config --show-config > used.yaml` writes the file. |
+<!-- [[[cog import generate_docs as g; cog.out(g.cli_options("validate-config")) ]]] -->
+
+| Option | Value | Default | Description |
+|---|---|---|---|
+| `--config`, `-c` | FILE | `config.yaml` | Path to the config.yaml file to validate. |
+| `--log-format` | `console` \| `json` | `console` | Log format: console (human-readable, coloured) or json (one JSON object per line). Case-insensitive. The log level is fixed to warning. |
+| `--env-file` | FILE | '.env' in the working directory | Load environment variables from this file, which must exist, instead of '.env' in the current working directory. Variables already set in the environment take precedence. |
+| `--show-config` |  | off | Print on stdout the configuration a run would use (config_used.yaml: every key, specified or default); the other messages go to stderr, so the output can be redirected to a file. |
+
+<!-- [[[end]]] -->
 
 On success prints `Configuration valid. Target: <base_url>` (then the credential placement and the resources,
 when configured, and `N of the M selected tests will SKIP (what they need is not configured):` with one line per
@@ -116,20 +130,33 @@ unresolved `${VAR}`, invalid values, violated cross-field rules, unknown or miss
 [`configuration.md`](configuration.md#validation-rules)). Every schema error is listed, one per line, with its
 dotted path.
 
+With `--show-config` it also prints, on stdout only, the configuration a run would use, as `config_used.yaml`
+([details](configuration.md#the-configuration-a-run-used-config_usedyaml)): `apiguard validate-config --show-config > used.yaml`
+writes the file.
+
 ## `list-tests`
 
+<!-- [[[cog import generate_docs as g; cog.out(g.cli_synopsis("list-tests")) ]]] -->
+
 ```
-apiguard list-tests [--config PATH] [--json] [--env-file PATH]
+apiguard list-tests [--config FILE] [--json] [--env-file FILE]
 ```
+<!-- [[[end]]] -->
 
 Lists every test, native and external, from the tests' own declarations (`TestInfo` and the parameter model in
 each test module). Does not contact the target.
 
-| Option | Default | Description |
-|---|---|---|
-| `--config`, `-c` | none | Also say, for this configuration, whether the run selects each test (`execution.*` filters, external tools' switches) and why it would SKIP for an unmet need. The configuration is checked as by `validate-config` (exit `10` if invalid). |
-| `--json` | off | Print `{"tests": [...]}` on stdout instead of the text list. |
-| `--env-file` | `.env` in the working directory | As for `run`; read only with `--config`. |
+<!-- [[[cog import generate_docs as g; cog.out(g.cli_options("list-tests")) ]]] -->
+
+| Option | Value | Default | Description |
+|---|---|---|---|
+| `--config`, `-c` | FILE | none | Also say, for this config.yaml, whether the run selects each test (the execution filters, the external tools' switches) and why it would SKIP for an unmet need. The configuration, the test declarations and the tests section are checked; the certificates and the specification are not read. |
+| `--json` |  | off | Print {"tests": [...]} on stdout instead of the text list, for programs. |
+| `--env-file` | FILE | '.env' in the working directory | Load environment variables from this file, which must exist, instead of '.env' in the current working directory. Variables already set in the environment take precedence. |
+
+<!-- [[[end]]] -->
+
+`--env-file` is read only with `--config`.
 
 Text output: one line per test (`ID  P<n>  STRATEGY  name  [needs ...]`); with `--config` a second line, `runs`,
 `not selected` or `SKIP: <reasons>`.
@@ -157,20 +184,29 @@ apiguard list-tests -c config.yaml --json
 
 ## `generate-seed`
 
+<!-- [[[cog import generate_docs as g; cog.out(g.cli_synopsis("generate-seed")) ]]] -->
+
 ```
-apiguard generate-seed SPEC [--output PATH] [--timeout SECONDS] [--log-format console|json]
+apiguard generate-seed [SPEC] [--config FILE] [--env-file FILE] [--output FILE] [--timeout 1-120] [--log-format console|json]
 ```
+<!-- [[[end]]] -->
 
 Extracts every unique path-parameter name (`{owner}`, `{id}`, …) from the specification and produces a YAML
 template with each value set to `FILL_ME`. Replace the placeholders with identifiers of real resources on the
 target and paste the `path_seed:` block under `target:` in `config.yaml`.
 
-| Argument / option | Default | Description |
-|---|---|---|
-| `SPEC` (required) | - | HTTP/HTTPS URL or local file path of the specification. Read as-is, without `$ref` dereferencing. |
-| `--output`, `-o` | stdout | Write the template to this file (parent directories are created). |
-| `--timeout` | `30.0` | Fetch timeout in seconds for URLs, range 1-120. Ignored for local files. |
-| `--log-format` | `console` | As for `run`. |
+<!-- [[[cog import generate_docs as g; cog.out(g.cli_options("generate-seed")) ]]] -->
+
+| Option | Value | Default | Description |
+|---|---|---|---|
+| `SPEC` |  | none | The OpenAPI specification: an HTTP/HTTPS URL or a local file path, read as-is, without $ref dereferencing. Instead of --config. |
+| `--config`, `-c` | FILE | none | Take the specification from this config.yaml: its source, its timeout and its certificate settings (specification.tls). Instead of the SPEC argument. |
+| `--env-file` | FILE | '.env' in the working directory | Load environment variables from this file, which must exist, instead of '.env' in the current working directory. Variables already set in the environment take precedence. |
+| `--output`, `-o` | FILE | stdout | Write the template to this file (parent directories are created) instead of stdout. |
+| `--timeout` | number 1-120 | `30.0` | Fetch timeout (s) for a URL; ignored for a local file. |
+| `--log-format` | `console` \| `json` | `console` | Log format: console (human-readable, coloured) or json (one JSON object per line). Case-insensitive. |
+
+<!-- [[[end]]] -->
 
 Without `--output` the template is printed to stdout and everything else to stderr, so both
 `generate-seed SPEC -o seed.yaml` and `generate-seed SPEC > seed.yaml` produce the same valid file.
@@ -189,9 +225,12 @@ Exit codes: `0` success, `1` fetch or parse error.
 
 ## `version`
 
+<!-- [[[cog import generate_docs as g; cog.out(g.cli_synopsis("version")) ]]] -->
+
 ```
 apiguard version
 ```
+<!-- [[[end]]] -->
 
 Prints `APIGuard Assurance version <x.y.z>`. The version is read from the installed package metadata
 (`pyproject.toml`).

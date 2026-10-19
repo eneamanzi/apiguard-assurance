@@ -134,55 +134,46 @@ class TargetConfig(BaseModel):
 
     base_url: AnyHttpUrl = Field(
         description=(
-            "Base URL of the target API as exposed through the API Gateway proxy. "
-            "Example: https://api.example.com"
+            "Base URL of the API as exposed through the gateway proxy, e.g. "
+            "https://api.example.com."
         )
     )
     connect_timeout: Annotated[float, Field(ge=TIMEOUT_CONNECT_MIN, le=TIMEOUT_CONNECT_MAX)] = (
         Field(
             default=TIMEOUT_CONNECT_DEFAULT,
-            description=(
-                f"TCP connection timeout in seconds for the requests to the API. "
-                f"Default: {TIMEOUT_CONNECT_DEFAULT}s."
-            ),
+            description="TCP connect timeout (s) for requests to the API.",
         )
     )
     read_timeout: Annotated[float, Field(ge=TIMEOUT_READ_MIN, le=TIMEOUT_READ_MAX)] = Field(
         default=TIMEOUT_READ_DEFAULT,
-        description=(
-            f"HTTP read timeout in seconds for the requests to the API. "
-            f"Default: {TIMEOUT_READ_DEFAULT}s."
-        ),
+        description="Read timeout (s) for requests to the API.",
     )
     max_retry_attempts: Annotated[
         int, Field(ge=RETRY_MAX_ATTEMPTS_MIN, le=RETRY_MAX_ATTEMPTS_MAX)
     ] = Field(
         default=RETRY_MAX_ATTEMPTS_DEFAULT,
         description=(
-            f"Maximum attempts (initial + retries) of a request to the API after a "
-            f"transport failure. Default: {RETRY_MAX_ATTEMPTS_DEFAULT}."
+            "Total attempts (initial + retries). Only transport errors are retried, never "
+            "HTTP status codes and never a TLS failure."
         ),
     )
     tls: TlsSettings | None = Field(
         default=None,
         description=(
-            "Certificate settings of this connection (verify, ca_bundle, client_cert, "
-            "client_key); absent: the system's authorities plus certifi's list."
+            "Certificate settings of the API connection, also used by the HTTP-redirect "
+            "probe of test 1.5 and given to the external TLS tests (`ca_bundle`)."
         ),
     )
     path_seed: dict[str, str] = Field(
         default_factory=dict,
         description=(
-            "Optional mapping of OpenAPI path parameter names to real resource "
-            "identifiers on the target deployment. Used by the path resolver to "
-            'substitute parametric path segments (e.g. "{owner}") with values that '
-            "route to real resources, ensuring probes reach the authentication "
-            "middleware instead of receiving a 404 at the routing layer. "
-            "Example: {owner: 'mario_rossi', repo: 'my-repo', id: '1'}. "
-            "Parameters absent from this dict fall back to the test's default "
-            "placeholder (typically '1'). "
-            "Run 'apiguard generate-seed' to auto-generate a template with all "
-            "parameter names found in the OpenAPI specification."
+            'Real values for OpenAPI path parameters (`{owner}` → `"alice"`). Unlisted '
+            "parameters fall back to the test's placeholder (typically `1`; "
+            "`apiguard-probe` in a DELETE, so that it matches no real resource). Generate "
+            "with `apiguard generate-seed`. **Use only test resources you can lose:** the "
+            "values are used for every request, including `DELETE` and writes sent without "
+            "credentials (test 1.1); on an API without protection on those endpoints they "
+            "are deleted or changed."
         ),
     )
 
@@ -211,23 +202,17 @@ class SpecificationConfig(BaseModel):
     url: AnyHttpUrl | None = Field(
         default=None,
         description=(
-            "URL from which the OpenAPI specification is fetched at runtime. "
-            "Mutually exclusive with path: set exactly one. "
-            "Example: https://api.example.com/openapi.json"
+            "Downloaded by the tool at runtime (Phase 2), redirects followed, with the "
+            "settings of `tls`. Exactly one of `url` and `path`."
         ),
     )
     path: Path | None = Field(
         default=None,
         description=(
-            "Absolute or relative filesystem path to a locally stored OpenAPI "
-            "specification file (JSON or YAML). "
-            "Mutually exclusive with url: set exactly one. "
-            "Relative paths are resolved against the working directory of the process. "
-            "prance resolves intra-file $ref pointers normally; remote $ref entries "
-            "inside a local spec still require network access. "
-            "The file's existence is checked when the specification is loaded, so that "
-            "the error message names the resolved absolute path. "
-            "Example: ./specs/openapi.json"
+            "Local file (JSON or YAML), relative to the working directory. Exactly one of "
+            "`url` and `path`. Its existence is checked when the specification is loaded "
+            "(Phase 2; `validate-config` only when credentials are configured). Remote "
+            "`$ref` entries inside it still need network access."
         ),
     )
     timeout: Annotated[
@@ -236,18 +221,18 @@ class SpecificationConfig(BaseModel):
     ] = Field(
         default=OPENAPI_FETCH_TIMEOUT_DEFAULT,
         description=(
-            "Timeout in seconds for loading the specification (download from url and "
-            "$ref dereferencing). Only relevant with url; local files load well within "
-            f"it. Range: [{OPENAPI_FETCH_TIMEOUT_MIN}, {OPENAPI_FETCH_TIMEOUT_MAX}]. "
-            f"Default: {OPENAPI_FETCH_TIMEOUT_DEFAULT}s."
+            "Timeout (s) of the download (the connection and each read), and, separately, "
+            "the limit of the `$ref` dereferencing as a whole. When one expires the run "
+            "stops with exit `10`, also if the server accepts the connection and never "
+            "answers."
         ),
     )
 
     tls: TlsSettings | None = Field(
         default=None,
         description=(
-            "Certificate settings of this connection (verify, ca_bundle, client_cert, "
-            "client_key); absent: the system's authorities plus certifi's list."
+            "Certificate settings of the download; ignored (with a warning) for an "
+            "`http://` URL, unused for `path`."
         ),
     )
 
@@ -310,17 +295,18 @@ class GatewayAdminConfig(BaseModel):
 
     url: AnyHttpUrl = Field(
         description=(
-            "URL of the gateway Admin API, read by the configuration audits (3.3, 4.2, "
-            "4.3, 6.4 sub-test B). Example: https://gw-admin.internal:8444"
+            "The gateway's Admin API, read with GET requests only by the configuration "
+            "audits (3.3, 4.2, 4.3, 6.4 sub-test B)."
         ),
     )
     headers: dict[str, str] = Field(
         default_factory=dict,
         description=(
-            "Headers sent on every Admin API request, for a gateway that protects it: "
-            "e.g. APISIX 'X-API-KEY', Kong Enterprise 'Kong-Admin-Token'. Write the values "
-            "as ${VAR} placeholders: they are registered as secrets and masked in logs and "
-            "reports. Default: none."
+            "Headers sent on every Admin API request, for a gateway that protects it: e.g. "
+            "`X-API-KEY` (APISIX; a key of role `viewer`, GET only, is enough), "
+            "`Kong-Admin-Token` (Kong Enterprise). Names and values not empty. Never sent "
+            "to `health.url`. Write the values as `${VAR}`: they are registered as secrets "
+            "and masked in logs and reports."
         ),
         json_schema_extra=SECRET_VALUE,
     )
@@ -329,30 +315,21 @@ class GatewayAdminConfig(BaseModel):
         Field(ge=ADMIN_CONNECT_TIMEOUT_MIN, le=ADMIN_CONNECT_TIMEOUT_MAX),
     ] = Field(
         default=ADMIN_CONNECT_TIMEOUT_DEFAULT,
-        description=(
-            "TCP connection timeout in seconds for the Admin API and the health API. "
-            "The default (5 s) is short: the Admin API is usually a local endpoint. "
-            f"Range: [{ADMIN_CONNECT_TIMEOUT_MIN}, {ADMIN_CONNECT_TIMEOUT_MAX}]. "
-            f"Default: {ADMIN_CONNECT_TIMEOUT_DEFAULT} s."
-        ),
+        description=("TCP connect timeout (s) for the Admin API and the health interface."),
     )
     read_timeout: Annotated[
         float,
         Field(ge=ADMIN_READ_TIMEOUT_MIN, le=ADMIN_READ_TIMEOUT_MAX),
     ] = Field(
         default=ADMIN_READ_TIMEOUT_DEFAULT,
-        description=(
-            "HTTP read timeout in seconds for the Admin API and the health API. "
-            f"Range: [{ADMIN_READ_TIMEOUT_MIN}, {ADMIN_READ_TIMEOUT_MAX}]. "
-            f"Default: {ADMIN_READ_TIMEOUT_DEFAULT} s."
-        ),
+        description=("Read timeout (s) for the Admin API and the health interface."),
     )
 
     tls: TlsSettings | None = Field(
         default=None,
         description=(
-            "Certificate settings of this connection (verify, ca_bundle, client_cert, "
-            "client_key); absent: the system's authorities plus certifi's list."
+            "Certificate settings of the Admin API connection (e.g. the client certificate "
+            "APISIX's `admin_api_mtls` requires)."
         ),
     )
 
@@ -378,17 +355,18 @@ class GatewayHealthConfig(BaseModel):
 
     url: AnyHttpUrl = Field(
         description=(
-            "URL of the gateway interface that reports the live health of the backends, "
-            "for a gateway that keeps it outside the Admin API (APISIX: Control API). "
-            "Read by test 4.3; the Admin API headers are not sent to it. Not used by "
-            "Kong, whose Admin API reports it. Example: http://127.0.0.1:9090"
+            "Interface reporting the live health of the backends, for a gateway that keeps "
+            "it outside the Admin API: the APISIX Control API (e.g. "
+            "`http://127.0.0.1:9090`). Read by test 4.3 (observability), without the "
+            "`admin.headers`. Not used by Kong. Absent on APISIX: the live health is "
+            "reported as not accessible, the rest of the audits still run."
         ),
     )
     tls: TlsSettings | None = Field(
         default=None,
         description=(
-            "Certificate settings of this connection (verify, ca_bundle, client_cert, "
-            "client_key); absent: the system's authorities plus certifi's list."
+            "Certificate settings of the health interface (APISIX's Control API has no TLS: "
+            "leave it out)."
         ),
     )
 
@@ -405,8 +383,9 @@ class GatewayConfig(BaseModel):
 
     adapter: str = Field(
         description=(
-            "Gateway adapter: the keys of GATEWAY_ADAPTERS (src/core/gateway/__init__.py), "
-            "today 'kong' and 'apisix'."
+            "How the gateway's configuration is read: "
+            + ", ".join(f"`{name}`" for name in GATEWAY_ADAPTERS)
+            + "."
         ),
     )
     admin: GatewayAdminConfig = Field(description="The gateway's Admin API.")
@@ -440,8 +419,8 @@ class ExecutionConfig(BaseModel):
     min_priority: Annotated[int, Field(ge=PRIORITY_MIN, le=PRIORITY_MAX)] = Field(
         default=PRIORITY_MAX,
         description=(
-            "Maximum priority level (inclusive) of tests to execute. "
-            "0=P0 only. 3=all tests (default)."
+            "**Highest** priority level included (the name is historical): `0` = P0 only, "
+            "`3` = all."
         ),
     )
     strategies: list[TestStrategy] = Field(
@@ -450,20 +429,23 @@ class ExecutionConfig(BaseModel):
             TestStrategy.GREY_BOX,
             TestStrategy.WHITE_BOX,
         ],
-        description="Execution strategies to include: BLACK_BOX, GREY_BOX, WHITE_BOX.",
+        description=(
+            "Tests, native and external, whose strategy is not listed are excluded (ignored "
+            "when `test_ids` is set). Not empty."
+        ),
     )
     fail_fast: bool = Field(
         default=False,
-        description="Abort immediately when a P0 test returns FAIL or ERROR.",
+        description="Stop after the first P0 test returning FAIL or ERROR.",
     )
     test_ids: list[str] = Field(
         default_factory=list,
         description=(
-            "If non-empty, run ONLY the tests whose test_id is in this list. "
-            "Overrides min_priority and strategies filters entirely. "
-            "Intended for development and targeted verification. "
-            "Example: ['4.1'] runs only Test 4.1. "
-            "Leave empty (default) for normal priority+strategy filtering."
+            "Not empty: run **only** the listed tests, native (`X.Y`) or external "
+            "(`ext.X.Y.tool`); `min_priority` and `strategies` are then ignored. It chooses "
+            "only among available tests: an ID that does not exist, or an external test "
+            "whose tool is disabled (`external_tools`), stops the tool at startup (exit "
+            "`10`) with the reason and, for an unknown ID, the closest existing ID."
         ),
     )
 
@@ -532,8 +514,9 @@ class OutputConfig(BaseModel):
     directory: Path = Field(
         default=Path(OUTPUT_DIRECTORY_DEFAULT),
         description=(
-            "Directory where assessment outputs are written. "
-            f"Default: '{OUTPUT_DIRECTORY_DEFAULT}/' (relative to working directory)."
+            "Destination of `evidence.json`, `assessment_report.html`, "
+            "`apiguard_report.json`, `config_used.yaml`, `tools/` and the temporary "
+            "`evidence_tmp/`, relative to the working directory. Created if missing."
         ),
     )
 

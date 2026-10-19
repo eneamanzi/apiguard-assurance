@@ -68,8 +68,9 @@ class ToolBaseError(Exception):
 
 class ConfigurationError(ToolBaseError):
     """
-    Raised when config.yaml is invalid or a required environment variable
-    is missing during Phase 1 (Configuration Loading).
+    The configuration cannot be used: config.yaml invalid, an environment variable unset, a
+    certificate file unusable, credentials that do not determine where they are sent, or no
+    test selected. Raised before any test (Phases 1-4); the run stops with exit 10.
 
     This exception is fatal: it blocks pipeline startup before any test
     runs. The rationale is that proceeding with a partial or incorrect
@@ -121,8 +122,8 @@ class ConfigurationError(ToolBaseError):
 
 class OpenAPILoadError(ToolBaseError):
     """
-    Raised when the OpenAPI specification cannot be fetched, dereferenced,
-    or validated during Phase 2 (OpenAPI Discovery).
+    The specification cannot be downloaded, read, dereferenced or validated (Phase 2); the
+    run stops with exit 10.
 
     This exception is fatal: without a valid and fully dereferenced spec,
     the AttackSurface cannot be built and no test has a reliable target.
@@ -170,8 +171,7 @@ class OpenAPILoadError(ToolBaseError):
 
 class DAGCycleError(ToolBaseError):
     """
-    Raised when a circular dependency is detected among test depends_on
-    declarations during Phase 4 (Test Discovery and Scheduling).
+    A circular dependency among the tests' depends_on (Phase 4); the run stops with exit 10.
 
     This exception is fatal: a dependency cycle is a design error in the
     test suite, not a runtime condition. Proceeding with a cyclic graph
@@ -209,7 +209,9 @@ class DAGCycleError(ToolBaseError):
 
 class TestDefinitionError(ToolBaseError):
     """
-    Raised during test discovery when a test class is declared incorrectly.
+    A test declared incorrectly (an invalid or missing info, a duplicate ID, an unknown
+    prerequisite, a module that cannot be imported or is outside a package). Raised when the
+    tests are discovered, right after Phase 1; the run stops with exit 10.
 
     An invalid or missing declaration (``info = TestInfo(...)``,
     src/core/test_metadata.py), a test ID used by two classes, a prerequisite
@@ -270,24 +272,23 @@ def raise_for_test_definition_problems(problems: list[str]) -> None:
 
 class SecurityClientError(ToolBaseError):
     """
-    Raised by SecurityClient when an HTTP request fails in a non-recoverable
-    way during Phase 5 (Test Execution).
+    A request to the API failed: a TLS failure, or a transport error after every attempt
+    (target.max_retry_attempts); an HTTP status never raises it. Caught in the test, which
+    returns ERROR.
 
-    Non-recoverable conditions include: connection refused, DNS resolution
-    failure, SSL handshake error, or exhaustion of the retry policy defined
-    by tenacity. Transient errors (connection reset, 503) are retried
-    transparently by SecurityClient before raising this exception.
+    A TLS failure is raised at once (retrying cannot fix it). Connection
+    errors, timeouts and protocol errors are retried first
+    (RETRYABLE_EXCEPTIONS in src/core/client.py). An HTTP status, of any
+    value, is a response the test must see: it is never retried and never
+    raises this exception.
 
     This exception is NEVER propagated to the engine. The contract defined
     in BaseTest.execute() requires that every test catches SecurityClientError
     internally and converts it to TestResult(status=ERROR, message=str(exc)).
     The engine only sees TestResult objects, never raw exceptions.
 
-    The status_code field is None when the failure occurs at the transport
-    layer (connection refused, timeout) before any HTTP response is received.
-    When the request completed but the response indicates a non-recoverable
-    condition (e.g., 502 Bad Gateway after all retries), status_code carries
-    the final HTTP status code for structured logging.
+    The status_code field is None: every failure happens before a response
+    is received.
     """
 
     def __init__(
@@ -335,13 +336,13 @@ class SecurityClientError(ToolBaseError):
 
 class AuthenticationSetupError(ToolBaseError):
     """
-    Raised by src/tests/helpers/auth.py when the target API rejects the
-    configured credentials during token acquisition.
+    A role's credential could not be obtained: the login request failed (a status not 2xx)
+    or its response has no credential value. Caught in the test, which returns ERROR.
 
     This exception is semantically distinct from SecurityClientError:
         - SecurityClientError  -> transport-layer failure (no response received)
-        - AuthenticationSetupError -> valid HTTP response received, but the
-          credentials were rejected (HTTP 401) or forbidden (HTTP 403).
+        - AuthenticationSetupError -> the API answered, but the login request
+          got a status that is not 2xx, or its response lacks the credential.
 
     When this exception reaches a test's execute() method, the test must
     catch it and return TestResult(status=ERROR) with a message that
@@ -388,8 +389,9 @@ class AuthenticationSetupError(ToolBaseError):
 
 class TeardownError(ToolBaseError):
     """
-    Raised when a DELETE request for a test-created resource fails during
-    Phase 6 (Teardown).
+    Deleting a resource a test created failed (Phase 6). Logged as a warning
+    (teardown_resource_deletion_failed, manual_cleanup_required=True), never propagated: the
+    resource must be removed by hand.
 
     This exception is intentionally NOT propagated beyond the teardown loop
     in the engine. A cleanup failure does not invalidate the assessment
@@ -445,15 +447,16 @@ class TeardownError(ToolBaseError):
 
 class ExternalToolError(ToolBaseError):
     """
-    Raised by BaseConnector.run() when the external binary is present but
-    its execution fails in a non-recoverable way.
+    An external tool is present but its run failed (an exit code the connector treats as a
+    failure, a timeout with timed_out, output that cannot be read). Caught in the external
+    test, which returns ERROR.
 
     Non-recoverable conditions include:
         - The subprocess exits with a non-zero code that the connector
           interprets as an unrecoverable failure (as opposed to a tool-specific
           "no findings" code, which varies per tool).
         - The subprocess output cannot be parsed as valid JSON when JSON output
-          is expected (e.g., testssl.sh --jsonfile, nuclei -json, ffuf -json).
+          is expected (e.g., testssl.sh --jsonfile, nuclei -je).
         - The subprocess.TimeoutExpired exception is raised because the wall-
           clock limit passed as timeout_seconds to run() was exceeded.
 

@@ -19,7 +19,25 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
   (catalogue, test page headers, tests by strategy and priority, tests chapter of `configuration.md`, tests section
   of `config.example.yaml`). Left for block 9: the rest of `reference/` (CLI from the Typer app, the other
   configuration sections from `ToolConfig`), and where the check is enforced beyond `dev:check` (CI, Q-16).
-- Resolution:
+- Progress (2026-10-19, block 9, owner): principle "facts generated, explanations written by hand in the same
+  page"; existing tools evaluated and left out (docdantic: no descriptions nor ranges, Python-Markdown only, last
+  release 2024-01; settings-doc: `BaseSettings` only; json-schema-for-humans: 291 lines for the 6 keys of `target`,
+  whole pages; MkDocs and Sphinx plugins: a site, D8). Composition kept: Cog (insertion and check), Pydantic
+  `model_fields` and Typer's `get_docs_for_click` (the facts), our functions (the table). Done: every section table
+  of `configuration.md` (`configuration_table`, `tls_block_table`), descriptions moved into the code. Next: `cli.md`,
+  `report-schema.md`, `evidence-format.md`, `exit-codes.md` (group A); developer guides (group B) evaluated after;
+  usage guides (group C) link to the reference instead of repeating facts.
+- Progress (2026-10-19): group A done (configuration, CLI, report, evidence, exit codes), every generated description
+  checked against the code (corrections in CHANGELOG); group B done (developer tables from `inspect` and docstrings).
+  Left: group C, the usage guides.
+- Resolution (proposed 2026-10-19): facts generated from the code, explanations written by hand in the same page;
+  Cog inserts and checks the blocks (`scripts/generate_docs.py`, `--check` in `dev:check` and on GitHub), the facts
+  come from Pydantic (`model_fields`), Typer (`get_command`) and `inspect`, our functions only write the tables.
+  Generated: the reference (configuration, CLI, report, evidence, exit codes), the developer tables (result helpers,
+  evidence calls, connectors, gateway concepts, exceptions), with the tests' parts done in block 10b: 29 files. Every
+  generated description was checked against the code that does what it says, and the wrong ones were corrected
+  (CHANGELOG). The usage guides state a fact once and link to its page. Not generated: `compatibility.md` (facts
+  verified on the labs, not in the code).
 
 ### Q-05 - Licence
 - Status: deferred
@@ -41,21 +59,6 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Owner (2026-10-07): the distribution model of the product (internal use, distributed to customers, online service) is not known yet; the owner will ask. Interim: sslyze stays an optional extra; the integration guide (step 2.2) must say not to install `[sslyze]` in a product until the licence is checked. Fallback if unclear: leave sslyze out (options otherwise: run sslyze as a separate program, or remove it). Decide together with Q-05.
 - Resolution:
 
-### Q-16 - No CI and no pre-commit
-- Status: open
-- Source: no `.github/workflows/`, `.gitlab-ci.yml` or `.pre-commit-config.yaml` in the repo (verified 2026-10-05); quality scripts exist only as `hatch run dev:lint|audit|check` in `pyproject.toml`
-- Question: Add a CI pipeline and/or pre-commit hooks (lint, mypy, bandit, docs drift check from Q-04, link check)? Which platform hosts the repo (GitHub, GitLab)?
-- How to verify: decision with user; separate task after the documentation restructuring.
-- Evidence found: remote `origin` = `https://github.com/eneamanzi/apiguard-assurance` → GitHub Actions is the natural option.
-- Resolution (proposed 2026-10-19): `.github/workflows/check.yml`, on every push and pull request (owner: no
-  scheduled dependency audit): `hatch run dev:check` on Python 3.11 and 3.14, and a package job (`hatch build -t
-  wheel dist`, the wheel in an empty environment, `apiguard version` and `apiguard list-tests` outside the
-  repository). Verified locally as GitHub would run it: a copy with only the tracked files, Hatch 1.16.5 installed
-  fresh, isolated Hatch data: `dev:check` exit 0 on 3.11.14 and 3.14.0; the 3.11 wheel installed and listed the same
-  18 tests as the repository; `actionlint` 1.7.12 found nothing. Actions `checkout` and `setup-python` v7
-  (2026-07-20). Pre-commit: deferred by the owner (the same `dev:check`, about 7 s; to reconsider after some commits
-  with the CI).
-
 ### Q-24 - Config fields accepted but without effect
 - Status: sslyze part done (2026-10-07, block 2); `ssrf_request_timeout_ms` pending (7.2 review)
 - Source: `external_tools.sslyze.extra_flags` (never read by `src/connectors/sslyze.py` or `ext_test_1_5_tls_analysis.py`); `tests.domain_7.test_7_2.ssrf_request_timeout_ms` (description: "reserved for future… currently the global execution.read_timeout governs all requests"; only passed through `src/engine.py:496`).
@@ -68,6 +71,9 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
   nuclei, but the timeout of each TLS connection, clamped to 20 s (`src/connectors/sslyze.py`, `network_timeout=min(
   timeout_seconds, 20)`): the same key means two things. Rename it for sslyze (e.g. a per-connection timeout key) or
   make it the run's limit, in the review.
+- Evidence (2026-10-19, verification of the generated descriptions): the key has **no effect at all**: its range is
+  30-300 and the connector uses `min(timeout_seconds, 20)`, so every TLS connection of sslyze times out after 20 s
+  whatever the value. It breaks the owner's rule above (no option without effect); the description says so meanwhile.
 - Resolution:
 
 ### Q-29 - Lenient or weak oracles

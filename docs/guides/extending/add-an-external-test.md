@@ -30,21 +30,29 @@ note or noise.
 
 Copy `_template_connector.py`. Pick the base class:
 
-| Base | For | Class attributes |
-|---|---|---|
-| `BaseSubprocessConnector` | a binary (nuclei, testssl.sh) | `TOOL_NAME`, `BINARY_NAME`, `DEFAULT_TIMEOUT_SECONDS`, `LOCAL_TOOLS_SUBDIR` |
-| `BaseLibraryConnector` | a Python library (sslyze) | `TOOL_NAME`, `LIBRARY_MODULE` |
+<!-- [[[cog import generate_docs as g; cog.out(g.connector_bases_table()) ]]] -->
+
+| Base | For | Declares | Optional (default) |
+|---|---|---|---|
+| `BaseSubprocessConnector` | Base of a connector for a tool run as a program (nuclei, testssl.sh). | `TOOL_NAME`, `BINARY_NAME` | `DEFAULT_TIMEOUT_SECONDS` (120), `LOCAL_TOOLS_SUBDIR` ('') |
+| `BaseLibraryConnector` | Base of a connector for a tool used as a Python library (sslyze). | `TOOL_NAME`, `LIBRARY_MODULE` | - |
+
+<!-- [[[end]]] -->
 
 Implement `run(self, target_url: str, timeout_seconds: int, ...) -> ConnectorResult`. Helpers provided by
 `BaseSubprocessConnector`:
 
+<!-- [[[cog import generate_docs as g; cog.out(g.methods_table(('Helper', 'Purpose'), 'src.connectors.base:BaseSubprocessConnector._resolve_binary_path', 'src.connectors.base:BaseSubprocessConnector._build_reproducible_commands', 'src.connectors.base:BaseSubprocessConnector._run_subprocess', 'src.connectors.base:BaseSubprocessConnector._parse_jsonl_output', 'src.connectors.base:BaseSubprocessConnector._sanitize_paths_in_findings')) ]]] -->
+
 | Helper | Purpose |
 |---|---|
-| `_resolve_binary_path()` | `./tools/<LOCAL_TOOLS_SUBDIR>/<BINARY_NAME>` (relative to the working directory), else `PATH` |
-| `_build_reproducible_commands(cmd_prefix, scan_target, json_output_args)` | the `command` / `command_json` display strings, with local paths normalised |
-| `_run_subprocess(cmd, timeout_seconds, tool_name)` | runs an argument list (no shell), returns `(stdout, exit_code)`, raises `ExternalToolError` on timeout |
-| `_parse_jsonl_output(raw_stdout, tool_name)` | JSON Lines parsing |
-| `_sanitize_paths_in_findings(findings, path_keys)` | normalises file paths inside results |
+| `_resolve_binary_path()` | Return the binary's path: ./tools/<LOCAL_TOOLS_SUBDIR>/<BINARY_NAME> (relative to the working directory), else the one on PATH, else None. |
+| `_build_reproducible_commands(cmd_prefix, scan_target, json_output_args)` | Build the command and command_json display strings of the raw output, with local paths normalised. |
+| `_run_subprocess(cmd, timeout_seconds, tool_name)` | Run an argument list (no shell) and return (stdout, exit_code); a timeout raises ExternalToolError with timed_out=True. |
+| `_parse_jsonl_output(raw_stdout, tool_name, *, skip_invalid_lines=True)` | Parse the JSON Lines output of a tool. |
+| `_sanitize_paths_in_findings(findings, path_keys)` | Make the local file paths inside the tool's results relative (with _relativize_display_path). |
+
+<!-- [[[end]]] -->
 
 `raw_output` must contain exactly these four keys (`ConnectorRawOutput`); a missing key turns the test into
 `ERROR`:
@@ -127,21 +135,32 @@ empty.
 
 **Three methods to implement:**
 
+<!-- [[[cog import generate_docs as g; cog.out(g.methods_table(('Method', 'Rule'), 'src.external_tests.base:ExternalToolTest._build_connector', 'src.external_tests.base:ExternalToolTest._invoke_connector', 'src.external_tests.base:ExternalToolTest._evaluate', typed=True)) ]]] -->
+
 | Method | Rule |
 |---|---|
-| `_build_connector(self) -> BaseConnector` | construct the connector only: no I/O. The registry uses it to check availability once per tool and injects one shared instance into all tests of that tool. |
-| `_invoke_connector(self, connector, target, target_url) -> ConnectorResult` | call `connector.run(...)` with `target.external_tools.<tool>.timeout_seconds` and tool options. `target_url` comes from `target.endpoint_base_url()`. |
-| `_evaluate(self, result, artifact_ref) -> TestResult` | apply the oracle to `result.raw_output["results"]`; put `artifact_ref` in each Finding's `evidence_ref`. Return only through the helpers below. |
+| `_build_connector() -> BaseConnector` | Construct the connector only, no I/O: the registry calls it once per tool to check availability and injects the instance into the tool's tests. |
+| `_invoke_connector(connector: BaseConnector, target: TargetContext, target_url: str) -> ConnectorResult` | Call connector.run(...) with the tool's timeout_seconds and the test's own parameters; target_url is target.endpoint_base_url(). |
+| `_evaluate(result: ConnectorResult, artifact_ref: str) -> TestResult` | Apply the oracle to result.raw_output['results'] and return the TestResult; put artifact_ref in each finding's evidence_ref. |
+
+<!-- [[[end]]] -->
 
 **Result helpers** (`src/core/assessment_test.py`, the same as native tests):
 
-| Helper | Note |
+<!-- [[[cog import generate_docs as g; cog.out(g.methods_table(('Helper', 'Use'), 'src.core.assessment_test:AssessmentTest._make_pass', 'src.core.assessment_test:AssessmentTest._make_fail', 'src.core.assessment_test:AssessmentTest._make_fail_multi', 'src.core.assessment_test:AssessmentTest._make_skip', 'src.core.assessment_test:AssessmentTest._make_error')) ]]] -->
+
+| Helper | Use |
 |---|---|
-| `_make_pass(message, notes=None)` | |
-| `_make_fail_multi(message, findings, notes=None)` | one finding per tool result above the threshold (the usual case) |
-| `_make_fail(message, detail, evidence_record_id=None, additional_references=None, notes=None)` | one finding built from the test's name and CWE |
-| `_make_skip(reason, notes=None)` | |
-| `_make_error(exc, message=None)` | normally not needed: tool errors are handled by the base class |
+| `_make_pass(message, notes=None)` | Return a PASS result: the guarantee holds; notes may add context that is not a violation. |
+| `_make_fail(message, detail, evidence_record_id=None, additional_references=None, notes=None)` | Return a FAIL result with one finding, titled with the test's name, with its CWE as first reference. |
+| `_make_fail_multi(message, findings, notes=None)` | Return a FAIL result with the caller's findings, one per violation (preferred: each finding names the endpoint). |
+| `_make_skip(reason, notes=None)` | Return a SKIP result naming the missing precondition. |
+| `_make_error(exc, message=None)` | Return an ERROR result from an exception, keeping the transactions logged so far. |
+
+<!-- [[[end]]] -->
+
+`_make_fail_multi` is the usual case (one finding per tool result above the threshold); `_make_error` is normally not
+needed, since the base class turns tool errors into ERROR. `_evaluate` returns only through these helpers.
 
 Never build `TestResult(...)` directly: the helpers copy the declaration (name, domain, priority, tool) into the
 result; without them the report shows empty fields.

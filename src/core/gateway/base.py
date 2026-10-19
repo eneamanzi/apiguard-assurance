@@ -132,14 +132,15 @@ ItemT = TypeVar(
 
 class GatewayAdapterError(ToolBaseError):
     """
-    Raised when a gateway admin API request fails or returns an unexpected status.
+    A request to the gateway's Admin API or health interface failed (transport error or
+    unexpected status). Caught by the adapter's concept readers, which answer "not
+    accessible": the audits then SKIP or add a note.
 
     Covers transport failures (connection refused, timeout) and application-level
     errors (non-200 responses) from the gateway admin endpoint.
 
-    WHITE_BOX tests that call gateway adapter methods must catch this and
-    return TestResult(status=ERROR) or TestResult(status=SKIP) depending on
-    whether the admin API is simply unavailable or erroring unexpectedly.
+    Tests never see it: the concept readers (backend_timeouts(), ...) catch it
+    and return a ConceptRead that is not accessible, with the reason.
     """
 
     def __init__(

@@ -120,16 +120,18 @@ To run part of the tests (a subset, by priority or strategy): [Select tests](../
 
 ## 5. Exit codes
 
-| Code | Meaning | What your program should do |
-|---|---|---|
-| `0` | every executed test passed (SKIPs do not count) | read `not_run` and the SKIPs to know what was not checked |
-| `1` | at least one security guarantee is violated | read the findings |
-| `2` | invalid invocation: nothing ran | fix the command line |
-| `3` | no violation found, but at least one test could not complete | read the ERROR messages, fix, run again |
-| `10` | the assessment did not run (configuration, certificates, specification, test selection) | read the reason: the `Reason` line on the console, or `detail` of the log event `assessment_pipeline_infrastructure_failure` with `--log-format json` (complete) |
-| `130`, `143` | interrupted (Ctrl+C, SIGTERM) after cleaning the target | no report: run again |
+What each code means: [exit codes](../../reference/exit-codes.md). What your program should do with it:
 
-Full reference: [exit codes](../../reference/exit-codes.md). A script that keeps the code even with `set -e`:
+| Code | What your program should do |
+|---|---|
+| `0` | read `not_run` and the SKIPs to know what was not checked |
+| `1` | read the findings |
+| `2` | fix the command line |
+| `3` | read the ERROR messages and their findings, fix, run again |
+| `10` | read the reason: the `Reason` line on the console, or `detail` of the log event `assessment_pipeline_infrastructure_failure` with `--log-format json` (complete) |
+| `130`, `143` | no report: run again |
+
+A script that keeps the code even with `set -e`:
 
 ```bash
 #!/usr/bin/env bash
@@ -159,10 +161,10 @@ the tool's own code (`143` after SIGTERM); without it `timeout` returns its own 
 
 ## 6. Read the results
 
-Four files in the output directory: `apiguard_report.json` (results, the file to read),
-`evidence.json` (the HTTP transactions that prove the findings), `assessment_report.html` (for people) and
-`config_used.yaml` (every configuration value the run used: keep it with the results to repeat the run).
-Fields: [report schema](../../reference/report-schema.md), [evidence format](../../reference/evidence-format.md).
+A program reads `apiguard_report.json` ([report schema](../../reference/report-schema.md)); the proof of each finding
+is in `evidence.json` ([evidence format](../../reference/evidence-format.md)). Every file of the output directory
+and what it is for: [read the report](../usage/read-the-report.md). Keep `config_used.yaml` with the results: it
+repeats the run.
 
 ```bash
 cd runs/r1
@@ -195,8 +197,8 @@ audits 3.3, 4.2 and 4.3; the transactions of 4.1 and 7.2 are in the test's `tran
 ## 7. Stop a run
 
 Send SIGTERM (or SIGINT) and give the tool a few seconds: it removes what the tests created on the target, then
-exits with `143` (`130` for SIGINT), without reports; the output directory keeps only `evidence_tmp/` (partial
-files). Repeated signals do not interrupt the cleanup. **Never SIGKILL** (`kill -9`): the cleanup does not run and
+exits with `143` (`130` for SIGINT), without reports; the output directory keeps `config_used.yaml` and, when the tests
+had started, `evidence_tmp/` (partial files). Repeated signals do not interrupt the cleanup. **Never SIGKILL** (`kill -9`): the cleanup does not run and
 tokens or repositories stay on the target. `timeout --kill-after=30s` sends SIGKILL only if the tool is still
 running 30 seconds after SIGTERM; on the lab the cleanup takes about one second. Details:
 [stopping a run](../../reference/exit-codes.md#stopping-a-run).

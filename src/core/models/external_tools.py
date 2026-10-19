@@ -72,22 +72,15 @@ class BaseExternalToolConfig(BaseModel):
     )
     expected_version: str | None = Field(
         default=None,
-        description=(
-            "Pinned version string for this tool binary (e.g. '3.8.0'). "
-            "When set, ExternalToolTest._warn_if_version_mismatch() compares "
-            "this value against the binary's --version output at runtime. "
-            "A mismatch emits a structured WARNING; the test is NOT skipped. "
-            "Must match TOOL_VERSION in install_tools.sh."
-        ),
+        description=("Expected tool version; a mismatch logs a WARNING and the test still runs."),
     )
     dev_mode: bool = Field(
         default=False,
         description=(
-            "Development mode for faster iteration on _evaluate() oracle logic. "
-            "When True and a cached artifact file exists at "
-            "outputs/tools/<label>_output.json, ExternalToolTest._run() loads "
-            "the file and skips the subprocess entirely. "
-            "WARNING: never set to True in production assessments."
+            "Development only: reuse the output a previous run saved "
+            "(`<output.directory>/tools/<label>_output.json`) instead of running the tool; "
+            "without that file the tool runs and saves it. Never enable in a real "
+            "assessment."
         ),
     )
 
@@ -119,22 +112,22 @@ class TestsslConfig(BaseExternalToolConfig):
 
     enabled: bool = Field(
         default=False,
-        description=("Enable the testssl.sh connector.  When True, timeout_seconds is mandatory."),
+        description=("Enable testssl.sh; `timeout_seconds` is then required."),
     )
     timeout_seconds: int | None = Field(
         default=None,
         ge=30,
         description=(
-            "Wall-clock limit of one testssl.sh execution in seconds: it only stops a tool that "
-            "hangs, so set it to 2-3 times the duration seen on the target (no upper bound; a run "
-            "ending after more than 70% of it is warned about). Mandatory when enabled=True."
+            "**Required with `enabled: true`.** Wall-clock limit (s) of one execution, "
+            "which only stops a tool that hangs: set it to 2-3 times the duration seen on "
+            "your target; a run that ends after more than 70% of it logs the warning "
+            "`external_tool_near_time_limit` with the value to raise."
         ),
     )
     extra_flags: str = Field(
         default="--quiet --color 0",
         description=(
-            "Additional CLI flags appended to the testssl.sh invocation, verbatim. "
-            "Default disables interactive output for machine parsing."
+            "Flags appended verbatim to the testssl.sh command line. Must not contain secrets."
         ),
     )
 
@@ -144,56 +137,47 @@ class NucleiConfig(BaseExternalToolConfig):
 
     enabled: bool = Field(
         default=False,
-        description=("Enable the nuclei connector.  When True, timeout_seconds is mandatory."),
+        description=("Enable nuclei; `timeout_seconds` is then required."),
     )
     timeout_seconds: int | None = Field(
         default=None,
         ge=60,
         description=(
-            "Wall-clock limit of one nuclei execution in seconds: it only stops a tool that hangs, "
-            "so set it to 2-3 times the duration seen on the target (it grows with the templates, "
-            "the endpoints and the request rate; no upper bound; a run ending after more than 70% "
-            "of it is warned about). Mandatory when enabled=True."
+            "**Required with `enabled: true`.** Wall-clock limit (s) of one execution, "
+            "which only stops a tool that hangs: set it to 2-3 times the duration seen on "
+            "your target (it grows with the templates, the endpoints and the request rate); "
+            "a run that ends after more than 70% of it logs the warning "
+            "`external_tool_near_time_limit` with the value to raise."
         ),
     )
     extra_flags: str = Field(
         default="",
         description=(
-            "Additional CLI flags appended verbatim to the nuclei invocation. "
-            "Must not contain credentials or secrets."
+            "Flags appended verbatim to the nuclei command line. Must not contain secrets."
         ),
     )
     template_dir: str = Field(
         default="./tools/nuclei-templates",
         description=(
-            "Path to the pinned nuclei-templates directory, relative to CWD. "
-            "Must match the directory populated by install_tools.sh."
+            "Template directory, relative to the working directory (`install_tools.sh` "
+            "fills the default one)."
         ),
     )
     tags: list[str] = Field(
         default_factory=lambda: ["api", "exposure", "misconfig", "panel"],
-        description=(
-            "nuclei template tags to include in the scan (-tags flag). "
-            "Default covers shadow API discovery."
-        ),
+        description=("Template tags selected (`-tags`)."),
     )
     per_request_timeout: int = Field(
         default=10,
         ge=5,
         le=60,
-        description=(
-            "Per-request timeout in seconds passed to nuclei via -timeout. "
-            "Default 10s is appropriate for local targets."
-        ),
+        description=("Timeout (s) of each request, passed as `-timeout`."),
     )
     rate_limit_rps: int = Field(
         default=30,
         ge=1,
         le=150,
-        description=(
-            "Maximum HTTP requests per second passed to nuclei via -rl. "
-            "Default 30 rps avoids triggering the target's own rate limiter."
-        ),
+        description=("Requests per second, passed as `-rl`."),
     )
 
 
@@ -211,9 +195,8 @@ class SslyzeConfig(BaseExternalToolConfig):
     enabled: bool = Field(
         default=False,
         description=(
-            "Enable the sslyze connector.  When True, timeout_seconds is mandatory.  "
-            "Requires sslyze>=6.0 to be installed "
-            "('pip install apiguard-assurance[sslyze]')."
+            "Enable sslyze; `timeout_seconds` is then required. Needs the `sslyze` extra "
+            '(`pip install "apiguard-assurance[sslyze]"`).'
         ),
     )
     timeout_seconds: int | None = Field(
@@ -221,10 +204,9 @@ class SslyzeConfig(BaseExternalToolConfig):
         ge=30,
         le=300,
         description=(
-            "Per-connection network timeout for each sslyze TLS check in seconds. "
-            "Mandatory when enabled=True.  Recommended: 60.  "
-            "sslyze runs multiple checks in parallel; this timeout applies to each "
-            "individual TCP connection attempt, not to the total scan duration."
+            "**Required with `enabled: true`.** Today it has no effect: each TLS connection "
+            "sslyze opens times out after 20 s whatever the value "
+            "(`src/connectors/sslyze.py`; Q-24)."
         ),
     )
 
@@ -252,8 +234,8 @@ class ExternalToolsConfig(BaseModel):
     enabled: bool = Field(
         default=True,
         description=(
-            "Master switch for all external tool tests.  "
-            "False disables every ExternalToolTest regardless of per-tool settings."
+            "Master switch: `false` removes all external tests from the run, whatever the "
+            "settings of each tool."
         ),
     )
     testssl: TestsslConfig = Field(

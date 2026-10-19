@@ -16,7 +16,7 @@ What it never contains is a value from the environment or a secret:
       it (quoted or not), never resolved: the tool cannot know whether the
       value of a variable is a secret (a key in a body), and the same
       environment (.env) resolves it again on the re-run;
-    - a field marked SECRET_VALUE (credentials, Admin API header values)
+    - a field marked SECRET_VALUE (passwords, tokens, Admin API header values)
       written in clear becomes a placeholder named after its key
       (``${APIGUARD_CREDENTIALS_ADMIN_PASSWORD}``), with a note: the re-run
       stops naming the variable until it is exported;

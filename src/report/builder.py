@@ -43,6 +43,7 @@ from src.core.models import (
     TlsSettings,
     TransactionSummary,
 )
+from src.core.models.enums import exit_code_text
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -92,98 +93,82 @@ class TestResultRow(BaseModel):
 
     model_config = {"frozen": True}
 
-    test_id: str = Field(description="Test identifier, e.g. '1.2'.")
-    test_name: str = Field(description="Human-readable test name.")
-    domain: int = Field(description="Domain number (0-7).")
-    domain_name: str = Field(description="Human-readable domain name.")
-    priority: int = Field(description="Priority level (0-3).")
-    priority_label: str = Field(description="Human-readable priority label.")
-    strategy: str = Field(description="Strategy value string.")
-    status: str = Field(description="Status value string (PASS/FAIL/SKIP/ERROR).")
-    message: str = Field(description="One-line outcome summary.")
+    test_id: str = Field(description="`X.Y` (native) or `ext.X.Y.tool` (external).")
+    test_name: str = Field(description="Human-readable name.")
+    domain: int = Field(description="Methodology domain, 0-7.")
+    domain_name: str = Field(description="Name of the domain.")
+    priority: int = Field(description="Priority, 0-3.")
+    priority_label: str = Field(description="Label of the priority (as `min_priority_label`).")
+    strategy: str = Field(description="`BLACK_BOX`, `GREY_BOX` or `WHITE_BOX`.")
+    status: str = Field(
+        description="`PASS`, `FAIL`, `SKIP` or `ERROR` (see Status semantics below)."
+    )
+    message: str = Field(description="One-line outcome.")
     skip_reason: str | None = Field(
         default=None,
-        description="Skip reason, populated only for SKIP results.",
+        description="Set only for `SKIP`: the missing precondition.",
     )
     duration_ms: float | None = Field(
         default=None,
-        description="Execution time in milliseconds.",
+        description="Execution time of the test.",
     )
     finding_count: int = Field(
         default=0,
-        description="Number of Finding objects in this result.",
+        description="Length of `findings`.",
     )
     findings: list[Finding] = Field(
         default_factory=list,
-        description="Finding objects, non-empty only for FAIL results.",
+        description=(
+            "At least one for `FAIL`, none for `PASS` (both enforced by the model); an "
+            "`ERROR` result may carry findings collected before the error."
+        ),
     )
     tags: list[str] = Field(
         default_factory=list,
-        description="Tags from the BaseTest class declaration.",
+        description="Test tags (e.g. `OWASP-API9:2023`).",
     )
     cwe_id: str = Field(
         default="",
-        description="Primary CWE identifier from the BaseTest class declaration.",
+        description="Primary CWE (e.g. `CWE-306`).",
     )
     transaction_log: list[TransactionSummary] = Field(
         default_factory=list,
-        description=(
-            "Complete ordered audit trail of all HTTP transactions performed during "
-            "this test execution. Sourced from TestResult.transaction_log. "
-            "Embedded in REPORT_DATA JSON for lazy rendering via the HTML audit trail "
-            "section. Body content is absent by design — only metadata fields."
-        ),
+        description=("Every HTTP request of the test, PASS included."),
     )
     notes: list[InfoNote] = Field(
         default_factory=list,
         description=(
-            "Informational annotations sourced from TestResult.notes. "
-            "Present only on PASS results that carry architectural context or "
-            "compensating-control documentation. Rendered in blue in the HTML report."
+            "Informational context that is not a violation (e.g. a compensating control), "
+            "on any status."
         ),
     )
     # --- Origin and external tool data ---
     # source is read directly from TestResult.source; drives the Domain-Centric Split.
     source: Literal["native", "external"] = Field(
         default="native",
-        description=(
-            "Result origin: 'native' (Python BaseTest) or 'external' (binary wrapper). "
-            "Used by the template to render separate native/external sub-sections per domain."
-        ),
+        description=("`native` or `external`."),
     )
     tool_name: str = Field(
         default="",
-        description=(
-            "Name of the external binary (e.g. 'testssl.sh', 'nuclei', 'ffuf'). "
-            "Non-empty only for source='external' rows. "
-            "Rendered in the 'Tool' column of the External Tool Tests sub-table."
-        ),
+        description=("External tool name (e.g. `nuclei`); empty for native tests."),
     )
     tool_artifact: dict[str, Any] | None = Field(
         default=None,
         description=(
-            "Raw tool output from ConnectorResult.raw_output. "
-            "Present only when source='external'. "
-            "Embedded in REPORT_DATA JSON for the Tool Output modal."
+            "External tests only: the tool's raw output (`command`, `command_json`, "
+            "`results`, `all_count`, plus `_apiguard_meta_*` keys)."
         ),
     )
     tool_artifact_label: str | None = Field(
         default=None,
         description=(
-            "Label passed to EvidenceStore.pin_artifact() for this tool's output. "
-            "Format: '{test_id}_{tool_name_safe}' (e.g. 'ext.0.1_nuclei'). "
-            "Used by the HTML report's download button to reconstruct the on-disk "
-            "filename (<label_safe>_output.json) so browser download and disk file "
-            "have identical names. None for source='native' rows."
+            "External tests only: label of the tool output, the external test's ID (e.g. "
+            "`ext.0.1.nuclei`)."
         ),
     )
     tool_artifact_record_id: str | None = Field(
         default=None,
-        description=(
-            "Record ID returned by EvidenceStore.pin_artifact() for this artifact. "
-            "Embedded in the JSON download envelope to cross-reference with "
-            "evidence.json. None for source='native' rows."
-        ),
+        description=("External tests only: `record_id` of the tool output in `evidence.json`."),
     )
 
 
@@ -197,26 +182,36 @@ class DomainSummary(BaseModel):
 
     model_config = {"frozen": True}
 
-    domain: int = Field(description="Domain number (0-7).")
-    domain_name: str = Field(description="Human-readable domain name.")
+    domain: int = Field(description="Methodology domain, 0-7.")
+    domain_name: str = Field(description="Name of the domain (see Domain names below).")
     rows: list[TestResultRow] = Field(
-        description="Ordered list of test result rows for this domain.",
+        description="The results of this domain.",
     )
-    pass_count: Annotated[int, Field(ge=0)] = Field(default=0)
-    fail_count: Annotated[int, Field(ge=0)] = Field(default=0)
-    skip_count: Annotated[int, Field(ge=0)] = Field(default=0)
-    error_count: Annotated[int, Field(ge=0)] = Field(default=0)
-    total_finding_count: Annotated[int, Field(ge=0)] = Field(default=0)
+    pass_count: Annotated[int, Field(ge=0)] = Field(
+        default=0, description="Results with status PASS."
+    )
+    fail_count: Annotated[int, Field(ge=0)] = Field(
+        default=0, description="Results with status FAIL."
+    )
+    skip_count: Annotated[int, Field(ge=0)] = Field(
+        default=0, description="Results with status SKIP."
+    )
+    error_count: Annotated[int, Field(ge=0)] = Field(
+        default=0, description="Results with status ERROR."
+    )
+    total_finding_count: Annotated[int, Field(ge=0)] = Field(
+        default=0, description="Findings of the results of this domain."
+    )
     # Domain-Centric Split (docs/knowledge/archive/implementation-chapter.it.md §4.10).
     # native_rows and external_rows partition rows by source for template rendering.
     # They are a derived subset of rows (same objects, different references).
     native_rows: list[TestResultRow] = Field(
         default_factory=list,
-        description="Subset of rows where source='native'. Used for the Native Controls sub-table.",
+        description="`rows` of the native tests.",
     )
     external_rows: list[TestResultRow] = Field(
         default_factory=list,
-        description="Subset of rows where source='external'. Used for the External Tool Tests sub-table.",  # noqa: E501
+        description="`rows` of the external tests.",  # noqa: E501
     )
 
     @property
@@ -237,37 +232,46 @@ class ExecutiveSummary(BaseModel):
 
     model_config = {"frozen": True}
 
-    scheduled_tests: Annotated[int, Field(ge=0)] = Field(
-        description="Total number of tests scheduled by the engine "
-        "(PASS + FAIL + ERROR + SKIP). The 'total' figure for the run."
-    )
+    scheduled_tests: Annotated[int, Field(ge=0)] = Field(description="PASS + FAIL + ERROR + SKIP.")
     executed_tests: Annotated[int, Field(ge=0)] = Field(
-        description="Number of tests that produced a verdict against the target "
-        "(PASS + FAIL + ERROR). Excludes SKIP -- a SKIP means the test did not "
-        "run because a precondition was not satisfied (e.g. missing external tool)."
+        description="PASS + FAIL + ERROR (SKIP excluded)."
     )
-    pass_count: Annotated[int, Field(ge=0)] = Field(default=0)
-    fail_count: Annotated[int, Field(ge=0)] = Field(default=0)
-    skip_count: Annotated[int, Field(ge=0)] = Field(default=0)
-    error_count: Annotated[int, Field(ge=0)] = Field(default=0)
+    pass_count: Annotated[int, Field(ge=0)] = Field(
+        default=0, description="Results with status PASS."
+    )
+    fail_count: Annotated[int, Field(ge=0)] = Field(
+        default=0, description="Results with status FAIL."
+    )
+    skip_count: Annotated[int, Field(ge=0)] = Field(
+        default=0, description="Results with status SKIP."
+    )
+    error_count: Annotated[int, Field(ge=0)] = Field(
+        default=0, description="Results with status ERROR."
+    )
     not_run_count: Annotated[int, Field(ge=0)] = Field(
         default=0,
-        description="Number of tests of the tool not executed in this run (see not_run).",
+        description="Number of entries in `not_run`.",
     )
     total_finding_count: Annotated[int, Field(ge=0)] = Field(
-        description="Total number of Finding objects across all FAIL results.",
+        description="Findings of every result: FAIL results, and ERROR results that carry some.",
         default=0,
     )
-    exit_code: int = Field(description="Process exit code computed from the ResultSet.")
-    exit_code_label: str = Field(description="Human-readable label for the exit code.")
+    exit_code: int = Field(description="Same value as the process exit code.")
+    exit_code_label: str = Field(
+        description=(
+            "Label and meaning of the exit code (exit-codes.md), e.g. "
+            f"`{exit_code_text(ExitCode.FAIL)}`."
+        )
+    )
     pass_rate_pct: float = Field(
-        description="Percentage of executed tests (excluding SKIP) that passed. "
-        "Range: 0.0 to 100.0.",
+        description=(
+            "`pass_count / executed_tests × 100`, one decimal; `0.0` when nothing executed."
+        ),
         default=0.0,
     )
     assessment_duration_seconds: float | None = Field(
         default=None,
-        description="Total wall-clock duration of the assessment in seconds.",
+        description="Wall-clock duration of the run.",
     )
 
 
@@ -276,20 +280,25 @@ class ConnectionTrust(BaseModel):
 
     model_config = {"frozen": True}
 
-    name: str = Field(description="target, specification, gateway.admin or gateway.health.")
-    url: str = Field(description="The connection's URL, or the specification's file path.")
+    name: str = Field(description="`target`, `specification`, `gateway.admin` or `gateway.health`.")
+    url: str = Field(
+        description=(
+            "The connection's URL (the API's with a trailing `/`), or the specification's "
+            "absolute file path."
+        )
+    )
     certificate_check: Literal[
         "verified_system", "verified_ca_bundle", "not_verified", "plain_http", "local_file"
     ] = Field(
         description=(
-            "verified_system: verified with the system's authorities plus certifi's list; "
-            "verified_ca_bundle: verified with the configured ca_bundle only; not_verified: "
-            "verify false, the tool did not know whether it talked to the right server; "
-            "plain_http: no TLS; local_file: the specification was read from a file."
+            "`verified_system` (the system's authorities plus certifi's list), "
+            "`verified_ca_bundle` (only the configured `ca_bundle`), `not_verified` "
+            "(`verify: false`: the run did not know whether it talked to the right server), "
+            "`plain_http` (no TLS), `local_file` (the specification was read from a file)."
         )
     )
     client_certificate: bool = Field(
-        description="True when the tool presented a client certificate (mutual TLS)."
+        description="`true` when the tool presented a client certificate (mutual TLS)."
     )
 
 
@@ -305,55 +314,54 @@ class ReportData(BaseModel):
     model_config = {"frozen": True}
 
     tool_version: str = Field(
-        description="Version of the APIGuard binary that produced this report. The only "
-        "version of the output formats (docs/reference/compatibility.md): a breaking change "
-        "to this file raises its major (its minor before 1.0.0). Read from the package "
-        "metadata at report-generation time."
+        description=(
+            "APIGuard version that produced the report: the version of this format (see "
+            "Versioning above)."
+        )
     )
-    run_id: str = Field(description="Unique run identifier from the engine.")
+    run_id: str = Field(description="Identifier of the run: `apiguard-YYYYMMDD-HHMMSS-ffffff`.")
     generated_at_utc: str = Field(
-        description="ISO 8601 UTC timestamp of report generation (+00:00 offset)."
+        description=(
+            "Generation time, ISO 8601 in UTC with `+00:00` offset (e.g. "
+            "`2026-10-08T09:12:57.870747+00:00`), like `generated_at_utc` in "
+            "`evidence.json`. The HTML report shows it in the reader's local time zone (UTC "
+            "value in the tooltip)."
+        )
     )
-    target_base_url: str = Field(description="Base URL of the assessed API.")
-    spec_title: str = Field(description="OpenAPI spec title from the AttackSurface.")
-    spec_version: str = Field(description="OpenAPI spec version from the AttackSurface.")
+    target_base_url: str = Field(description="`target.base_url` of the configuration.")
+    spec_title: str = Field(description="`info.title` of the OpenAPI specification.")
+    spec_version: str = Field(description="`info.version` of the OpenAPI specification.")
     min_priority_label: str = Field(
-        description="Human-readable label for the configured min_priority."
+        description=(
+            "Label of `execution.min_priority`: one of "
+            + ", ".join(f"`{label}`" for label in PRIORITY_LABELS.values())
+            + "."
+        )
     )
-    strategies_label: str = Field(description="Comma-separated list of enabled strategy names.")
+    strategies_label: str = Field(
+        description="Enabled strategies, comma-separated (`BLACK_BOX, GREY_BOX, WHITE_BOX`)."
+    )
     connections: list[ConnectionTrust] = Field(
         default_factory=list,
         description="How the certificate of each connection of the tool was checked.",
     )
-    executive_summary: ExecutiveSummary = Field(
-        description="High-level statistics for the report header."
-    )
+    executive_summary: ExecutiveSummary = Field(description="Counts and verdict of the run.")
     domains: list[DomainSummary] = Field(
-        description="Per-domain breakdown, ordered by domain number. "
-        "Domains with no active tests are excluded."
+        description=(
+            "The results by methodology domain, ordered by domain; domains without active "
+            "tests are omitted."
+        )
     )
     all_rows: list[TestResultRow] = Field(
-        description="Flat list of all TestResultRow objects, ordered by test_id. "
-        "Used for the full results table in the report appendix."
+        description="Every test result, ordered by `test_id` as text."
     )
     not_run: list[NotRunEntry] = Field(
         default_factory=list,
-        description="Tests of the tool not executed in this run, with the reason "
-        "(priority, strategy, not_in_test_ids, tool_disabled, fail_fast), ordered by "
-        "test_id. all_rows + not_run = every test of the tool.",
+        description=(
+            "The tests of the tool not executed in this run, ordered by `test_id` as text. "
+            "`all_rows` + `not_run` = every test of the tool."
+        ),
     )
-
-
-# ---------------------------------------------------------------------------
-# Exit code label mapping
-# ---------------------------------------------------------------------------
-
-_EXIT_CODE_LABELS: dict[int, str] = {
-    ExitCode.CLEAN: "CLEAN — No violations detected",
-    ExitCode.FAIL: "FAIL — At least one security guarantee violated",
-    ExitCode.ERROR: "ERROR — At least one verification incomplete",
-    ExitCode.INFRASTRUCTURE: "INFRASTRUCTURE ERROR — Assessment did not complete",
-}
 
 
 # ---------------------------------------------------------------------------
@@ -648,7 +656,7 @@ def _build_executive_summary(
         not_run_count=len(result_set.not_run),
         total_finding_count=total_findings,
         exit_code=exit_code,
-        exit_code_label=_EXIT_CODE_LABELS.get(exit_code, f"Exit code {exit_code}"),
+        exit_code_label=exit_code_text(exit_code),
         pass_rate_pct=pass_rate,
         assessment_duration_seconds=result_set.duration_seconds,
     )

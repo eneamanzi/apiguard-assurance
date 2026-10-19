@@ -408,8 +408,8 @@ def _collect_param_names(
 
 class SeedGeneratorFetchError(ToolBaseError):
     """
-    Raised when the OpenAPI specification cannot be retrieved by the
-    ``apiguard generate-seed`` CLI helper.
+    apiguard generate-seed cannot retrieve the specification (network failure, HTTP error
+    status, missing local file). Caught by the command, which exits with 1.
 
     Covers network failures, HTTP error statuses, and missing local files.
 
@@ -436,8 +436,8 @@ class SeedGeneratorFetchError(ToolBaseError):
 
 class SeedGeneratorParseError(ToolBaseError):
     """
-    Raised when the retrieved specification text cannot be parsed into a valid
-    dict by the ``apiguard generate-seed`` CLI helper.
+    apiguard generate-seed cannot parse the retrieved specification (JSON or YAML error, no
+    paths, a root that is not a mapping). Caught by the command, which exits with 1.
 
     Covers JSON/YAML parse failures and structural issues (missing ``paths``
     key, non-mapping root).
