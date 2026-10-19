@@ -1,0 +1,49 @@
+# Checks every push and pull request (Q-16):
+#   - dev-check: `hatch run dev:check` on the lowest and the highest Python of
+#     requires-python (pyproject.toml), from a clean checkout;
+#   - package:   the wheel as a user installs it, in an empty environment, runs.
+# The same commands run locally: docs/project/maintainer-commands.md.
+name: check
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  dev-check:
+    name: dev:check (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install hatch==1.16.5
+      - run: hatch run dev:check
+
+  package:
+    name: package installs and runs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install hatch==1.16.5
+      - run: hatch build -t wheel dist
+      - name: Install the wheel in an empty environment
+        run: |
+          python -m venv "$RUNNER_TEMP/installed"
+          "$RUNNER_TEMP/installed/bin/pip" install dist/*.whl
+      - name: Run the installed tool (outside the repository, so the sources are not imported)
+        working-directory: ${{ runner.temp }}
+        run: |
+          "$RUNNER_TEMP/installed/bin/apiguard" version
+          "$RUNNER_TEMP/installed/bin/apiguard" list-tests

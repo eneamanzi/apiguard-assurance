@@ -41,21 +41,20 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 - Owner (2026-10-07): the distribution model of the product (internal use, distributed to customers, online service) is not known yet; the owner will ask. Interim: sslyze stays an optional extra; the integration guide (step 2.2) must say not to install `[sslyze]` in a product until the licence is checked. Fallback if unclear: leave sslyze out (options otherwise: run sslyze as a separate program, or remove it). Decide together with Q-05.
 - Resolution:
 
-### Q-13 - Existing `hatch run dev:docs` script
-- Status: deferred to block 9 with Q-04 (owner, 2026-10-07)
-- Source: `pyproject.toml` `[tool.hatch.envs.dev.scripts] docs` (pydoc-markdown → `docs/API_REFERENCE.md`, file not present in repo)
-- Question: Keep, remove, or replace it as part of Q-04?
-- How to verify: decide together with Q-04.
-- Evidence (2026-10-07): `hatch run dev:docs` works and writes `docs/API_REFERENCE.md` (about 80 KB, pydoc-markdown output of selected modules); the file is not kept in the repository (removed after the test). Owner: handle with Q-04 in block 9.
-- Resolution:
-
 ### Q-16 - No CI and no pre-commit
 - Status: open
 - Source: no `.github/workflows/`, `.gitlab-ci.yml` or `.pre-commit-config.yaml` in the repo (verified 2026-10-05); quality scripts exist only as `hatch run dev:lint|audit|check` in `pyproject.toml`
 - Question: Add a CI pipeline and/or pre-commit hooks (lint, mypy, bandit, docs drift check from Q-04, link check)? Which platform hosts the repo (GitHub, GitLab)?
 - How to verify: decision with user; separate task after the documentation restructuring.
 - Evidence found: remote `origin` = `https://github.com/eneamanzi/apiguard-assurance` → GitHub Actions is the natural option.
-- Resolution:
+- Resolution (proposed 2026-10-19): `.github/workflows/check.yml`, on every push and pull request (owner: no
+  scheduled dependency audit): `hatch run dev:check` on Python 3.11 and 3.14, and a package job (`hatch build -t
+  wheel dist`, the wheel in an empty environment, `apiguard version` and `apiguard list-tests` outside the
+  repository). Verified locally as GitHub would run it: a copy with only the tracked files, Hatch 1.16.5 installed
+  fresh, isolated Hatch data: `dev:check` exit 0 on 3.11.14 and 3.14.0; the 3.11 wheel installed and listed the same
+  18 tests as the repository; `actionlint` 1.7.12 found nothing. Actions `checkout` and `setup-python` v7
+  (2026-07-20). Pre-commit: deferred by the owner (the same `dev:check`, about 7 s; to reconsider after some commits
+  with the CI).
 
 ### Q-24 - Config fields accepted but without effect
 - Status: sslyze part done (2026-10-07, block 2); `ssrf_request_timeout_ms` pending (7.2 review)

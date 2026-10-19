@@ -13,6 +13,9 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
 ### Added
 
+- Continuous integration on GitHub (`.github/workflows/check.yml`, Q-16): on every push and pull request,
+  `hatch run dev:check` on Python 3.11 and 3.14, and the built wheel installed in an empty environment runs
+  `apiguard version` and `apiguard list-tests`.
 - `config_used.yaml` among the outputs of every run (Q-70): every key of the configuration, the parameters of every
   test included, each marked `# specified` or `# default`; `apiguard run --config config_used.yaml` repeats the run
   (verified on the lab: identical report). Placeholders stay as written; a credential or Admin API header written in
@@ -153,6 +156,8 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
 ### Removed
 
+- `hatch run dev:docs` and the `pydoc-markdown` development dependency (Q-13): its output, `docs/API_REFERENCE.md`
+  (the docstrings of a fixed list of modules), was not kept in the repository nor used; the docstrings stay in the code.
 - The lab's committed self-signed certificate and private key (`test-environments/forgejo-kong/certs/`) and
   `gen-certs.sh`: no private key is in the repository; the labs generate their certificates (see Added).
 - `TargetContext.effective_base_url` and the `<TOOL>_SERVICE_URL` tool discovery: both were never functional.

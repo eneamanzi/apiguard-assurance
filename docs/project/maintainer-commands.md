@@ -233,6 +233,12 @@ ruff check src/
 mypy src/
 ```
 
+**On GitHub** (`.github/workflows/check.yml`), on every push and pull request: `hatch run dev:check` on Python 3.11
+and 3.14 (the range of `requires-python`), and the package job: `hatch build -t wheel dist`, the wheel installed in
+an empty environment, `apiguard version` and `apiguard list-tests` run outside the repository. The result is on the
+repository's Actions tab and next to each commit. To check the workflow file itself:
+`pip install actionlint-py && actionlint .github/workflows/check.yml`.
+
 
 ## Kong Configuration Changes
 

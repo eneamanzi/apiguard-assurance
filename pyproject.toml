@@ -294,9 +294,6 @@ dependencies = [
     # Run by: hatch run dev:check
     "import-linter>=2.15,<3",
 
-    # Documentation generator for context building
-    "pydoc-markdown",
-
     # Writes the generated parts of the documentation between markers in the
     # files, run by scripts/generate_docs.py: hatch run dev:gen writes them, dev:check
     # checks them (block 10b, docs/architecture/design-decisions.md, D8).
@@ -314,7 +311,6 @@ dependencies = [
 #   hatch run dev:audit  → bandit + vulture        (slower, run before push)
 #   hatch run dev:check  → full suite in sequence  (CI gate)
 #   hatch run dev:deps   → pip-audit               (run before any release)
-#   hatch run dev:docs   → pydoc-markdown          (run before creating the zip archive)
 #   hatch run dev:gen    → generate_docs.py (cog)  (rewrite the generated documentation)
 #
 # The generated parts (test catalogue, test page headers, tests by strategy and
@@ -351,10 +347,6 @@ gen = [
 ]
 deps = [
     "echo '--- PIP-AUDIT ---' && pip-audit --desc on",
-]
-
-docs = [
-    "pydoc-markdown -I . -m src.engine -m src.core.models.runtime -m src.config.tests_section -m src.core.client -m src.tests.base -m src.core.models.results -m src.core.models.enums -p src.tests.helpers > docs/API_REFERENCE.md"
 ]
 
 # ---------------------------------------------------------------------------

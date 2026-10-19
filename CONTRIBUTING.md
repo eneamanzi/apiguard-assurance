@@ -35,8 +35,11 @@ about security behaviour. Until then a change is verified by hand against the la
    hatch run dev:check
    ```
 
-   It runs `ruff check`, `ruff format --check`, `mypy src/` (strict), `bandit` (medium severity), `vulture` and
-   `lint-imports` (the dependency rules between packages). To fix the formatting: `hatch run dev:ruff format .`.
+   It runs `ruff check`, `ruff format --check`, `mypy src/ scripts/` (strict), `bandit` (medium severity), `vulture`,
+   `lint-imports` (the dependency rules between packages), the check of `config.example.yaml` and the check of the
+   generated documentation; what each step checks: [maintainer commands](docs/project/maintainer-commands.md#static-analysis).
+   To fix the formatting: `hatch run dev:ruff format .`. GitHub runs the same on every push and pull request
+   (`.github/workflows/check.yml`, Python 3.11 and 3.14), and checks that the built package installs and runs.
 
 2. Run the affected tests only, not the full assessment: copy the lab's configuration (`test-environments/forgejo-kong/config.yaml`), set `execution.test_ids` and turn off
    the external tools if you do not need them ([select tests](docs/guides/usage/select-tests.md)). Compare the
