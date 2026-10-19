@@ -49,18 +49,63 @@ Dependency rule:
 from __future__ import annotations
 
 import structlog
+from pydantic import BaseModel, Field
 
+from src.core.assessment_test import NEEDED_TO_RUN
 from src.core.auth_placement import RequestAuthParts
 from src.core.client import SecurityClient
 from src.core.context import ROLE_USER_A, TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.exceptions import AuthenticationSetupError, SecurityClientError
 from src.core.models import Finding, TestResult, TestStrategy
-from src.core.test_metadata import TestInfo
+from src.core.test_metadata import Need, TestInfo
 from src.tests.base import BaseTest
 from src.tests.helpers.auth import acquire_tokens, auth_parts
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Parameters: tests.domain_2.test_2_1 in config.yaml
+# ---------------------------------------------------------------------------
+
+# Default HTTP method for the admin endpoint probe.
+TEST_21_ADMIN_ENDPOINT_METHOD_DEFAULT: str = "GET"
+
+
+class Test21Params(BaseModel):
+    """
+    Tuning parameters for Test 2.1 (Only Authorized Users Access Privileged Endpoints).
+
+    The test probes each path in admin_endpoint_paths using a non-privileged
+    ROLE_USER_A token and expects 403 Forbidden.  A 2xx response indicates
+    broken function-level authorization (OWASP API5:2023, BFLA).
+
+    References: OWASP API5:2023, OWASP ASVS v5.0.0 V8.3.1+V8.2.2,
+    NIST SP 800-53 Rev.5 AC-3.
+    """
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    admin_endpoint_paths: tuple[str, ...] = Field(
+        default=(),
+        examples=[["/api/admin/users"]],
+        json_schema_extra=NEEDED_TO_RUN,
+        description=(
+            "Admin-only endpoint paths of the target to probe with a non-privileged "
+            "token (OWASP ASVS v5.0.0 V8.3.1), each starting with '/'. No default: "
+            "the admin paths depend on the API, and a path the API does not have "
+            "would answer 404 and pass. Empty: the test returns SKIP. "
+            "Example (Forgejo): ['/api/v1/admin/users']."
+        ),
+    )
+    admin_endpoint_method: str = Field(
+        default=TEST_21_ADMIN_ENDPOINT_METHOD_DEFAULT,
+        description=(
+            "HTTP method to use when probing each admin endpoint.  "
+            f"Default: '{TEST_21_ADMIN_ENDPOINT_METHOD_DEFAULT}'."
+        ),
+    )
+
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -91,7 +136,7 @@ _REFERENCES: list[str] = [
 ]
 
 
-class Test21RbacEnforcement(BaseTest):
+class Test21RbacEnforcement(BaseTest[Test21Params]):
     """
     Verify that admin-only endpoints reject non-privileged authenticated requests.
 
@@ -116,6 +161,7 @@ class Test21RbacEnforcement(BaseTest):
             "OWASP-ASVS-V8.3.1",
             "NIST-SP-800-53-AC-3",
         ),
+        needs=(Need.USER_ACCOUNT,),
     )
 
     def execute(
@@ -135,23 +181,11 @@ class Test21RbacEnforcement(BaseTest):
 
         Returns:
             TestResult: PASS if all endpoints return 403/404; FAIL if any
-            returns 2xx; SKIP if no admin path or no credentials is configured; ERROR on unexpected
-            exception.
+            returns 2xx; ERROR on unexpected exception. Without the user_a
+            credentials or admin_endpoint_paths the engine records SKIP before
+            running it (info.needs, NEEDED_TO_RUN).
         """
         try:
-            if not target.tests_config.test_2_1.admin_endpoint_paths:
-                return self._make_skip(
-                    reason=(
-                        "No admin endpoint configured: set "
-                        "tests.domain_2.test_2_1.admin_endpoint_paths to the admin-only "
-                        "paths of the target."
-                    )
-                )
-
-            guard = self._requires_credentials(target)
-            if guard is not None:
-                return guard
-
             try:
                 acquire_tokens(
                     target,
@@ -162,12 +196,8 @@ class Test21RbacEnforcement(BaseTest):
             except (AuthenticationSetupError, SecurityClientError) as exc:
                 return self._make_error(exc)
 
-            skip = self._requires_token(context, ROLE_USER_A)
-            if skip is not None:
-                return skip
-
             user_a_auth = auth_parts(target, context, ROLE_USER_A)
-            cfg = target.tests_config.test_2_1
+            cfg = self.params(target)
 
             log.info(
                 "test_2_1_starting",

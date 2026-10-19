@@ -67,7 +67,10 @@ EvidenceStore policy:
 
 from __future__ import annotations
 
+from typing import Annotated
+
 import structlog
+from pydantic import BaseModel, Field
 
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
@@ -75,11 +78,69 @@ from src.core.evidence import EvidenceStore
 from src.core.gateway.base import CONCEPT_BACKEND_TIMEOUTS
 from src.core.gateway.concepts import BackendTimeout, ConceptScope, ConceptStatus
 from src.core.models import Finding, TestResult, TestStrategy
-from src.core.test_metadata import TestInfo
-from src.test_config.domain_4 import Test42AuditConfig
+from src.core.test_metadata import Need, TestInfo
 from src.tests.base import BaseTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Parameters: tests.domain_4.test_4_2 in config.yaml
+# ---------------------------------------------------------------------------
+
+# Oracle thresholds from methodology section 4.2 (NIST SP 800-204A Section 4.3).
+# Thresholds in milliseconds; test 4.2 converts the backend timeouts the adapter
+# reads (seconds).
+TEST_42_MAX_CONNECT_TIMEOUT_MS_DEFAULT: int = 5_000
+
+TEST_42_MAX_READ_TIMEOUT_MS_DEFAULT: int = 30_000
+
+TEST_42_MAX_WRITE_TIMEOUT_MS_DEFAULT: int = 30_000
+
+
+class Test42Params(BaseModel):
+    """
+    Tuning parameters for Test 4.2 (Timeout Configuration Audit).
+
+    Oracle thresholds are taken directly from the methodology (section 4.2,
+    NIST SP 800-204A Section 4.3):
+        connect_timeout  <= 5 000 ms  (5 s)
+        read_timeout     <= 30 000 ms (30 s)
+        write_timeout    <= 30 000 ms (30 s)
+
+    Thresholds in milliseconds; the backend timeouts the adapter reads are in
+    seconds and test 4.2 converts them.
+    Adjust these only when the target gateway is intentionally configured
+    with different timeouts and the deviation is accepted as a documented risk.
+    """
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    max_connect_timeout_ms: Annotated[int, Field(ge=1)] = Field(
+        default=TEST_42_MAX_CONNECT_TIMEOUT_MS_DEFAULT,
+        description=(
+            "Maximum acceptable backend connect timeout of a gateway service, in milliseconds. "
+            "Methodology oracle: connect_timeout <= 5 000 ms (NIST SP 800-204A Section 4.3). "
+            "Services with a higher value will produce a FAIL finding."
+        ),
+    )
+    max_read_timeout_ms: Annotated[int, Field(ge=1)] = Field(
+        default=TEST_42_MAX_READ_TIMEOUT_MS_DEFAULT,
+        description=(
+            "Maximum acceptable backend read timeout of a gateway service, in milliseconds. "
+            "Methodology oracle: read_timeout <= 30 000 ms (NIST SP 800-204A Section 4.3). "
+            "Services with a higher value will produce a FAIL finding."
+        ),
+    )
+    max_write_timeout_ms: Annotated[int, Field(ge=1)] = Field(
+        default=TEST_42_MAX_WRITE_TIMEOUT_MS_DEFAULT,
+        description=(
+            "Maximum acceptable backend write (send) timeout of a gateway service, "
+            "in milliseconds. "
+            "Methodology oracle: write_timeout <= 30 000 ms. "
+            "Services with a higher value will produce a FAIL finding."
+        ),
+    )
+
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -115,7 +176,7 @@ _REFERENCES: tuple[str, ...] = (
 )
 
 
-class Test42TimeoutConfigAudit(BaseTest):
+class Test42TimeoutConfigAudit(BaseTest[Test42Params]):
     """
     Test 4.2 -- Timeout Configuration Audit: Prevention of Resource Lock.
 
@@ -144,6 +205,7 @@ class Test42TimeoutConfigAudit(BaseTest):
             "white-box",
             "OWASP-API4",
         ),
+        needs=(Need.GATEWAY,),
     )
 
     # ------------------------------------------------------------------
@@ -161,7 +223,8 @@ class Test42TimeoutConfigAudit(BaseTest):
         Audit the timeouts towards the backends through the gateway adapter.
 
         Execution flow:
-            1. Guard: requires a gateway adapter (_requires_admin_api).
+            1. A gateway adapter is configured (Need.GATEWAY: the engine skips
+               the test otherwise).
             2. Read the concept "backend timeouts" and store it as evidence.
             3. Not supported or not accessible: SKIP with the reason.
             4. No backend: SKIP (nothing to audit).
@@ -173,14 +236,10 @@ class Test42TimeoutConfigAudit(BaseTest):
             TestResult with status PASS, FAIL, SKIP, or ERROR.
         """
         try:
-            skip_guard = self._requires_admin_api(target)
-            if skip_guard is not None:
-                return skip_guard
-
             gateway = target.gateway
-            assert gateway is not None  # noqa: S101
+            assert gateway is not None  # noqa: S101 -- Need.GATEWAY, checked by the engine
 
-            cfg = target.tests_config.test_4_2
+            cfg = self.params(target)
 
             log.info(
                 "test_4_2_starting",
@@ -241,7 +300,7 @@ class Test42TimeoutConfigAudit(BaseTest):
     def _audit_timeouts(
         self,
         items: tuple[BackendTimeout, ...],
-        cfg: Test42AuditConfig,
+        cfg: Test42Params,
         evidence_ref: str,
     ) -> list[Finding]:
         """
@@ -249,7 +308,7 @@ class Test42TimeoutConfigAudit(BaseTest):
 
         Args:
             items:        The backend timeouts read from the gateway.
-            cfg:          Test42AuditConfig carrying the oracle thresholds.
+            cfg:          Test42Params carrying the oracle thresholds.
             evidence_ref: Evidence record of the concept read.
 
         Returns:

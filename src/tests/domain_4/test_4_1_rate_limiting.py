@@ -86,8 +86,10 @@ from __future__ import annotations
 
 import secrets
 import time
+from typing import Annotated
 
 import structlog
+from pydantic import BaseModel, Field
 
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
@@ -103,6 +105,70 @@ from src.core.test_metadata import TestInfo
 from src.tests.base import BaseTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Parameters: tests.domain_4.test_4_1 in config.yaml
+# ---------------------------------------------------------------------------
+
+TEST_41_MAX_REQUESTS_DEFAULT: int = 150
+
+TEST_41_MAX_REQUESTS_MIN: int = 10
+
+TEST_41_MAX_REQUESTS_MAX: int = 500
+
+TEST_41_INTERVAL_MS_DEFAULT: int = 50
+
+TEST_41_INTERVAL_MS_MIN: int = 10
+
+TEST_41_INTERVAL_MS_MAX: int = 5_000
+
+
+class Test41Params(BaseModel):
+    """
+    Tuning parameters for Test 4.1 (Rate Limiting -- Resource Exhaustion Prevention).
+
+    Controls the empirical rate-limit discovery probe: how many requests to
+    send and at what interval before concluding that rate limiting is absent.
+
+    Design note -- conservative defaults:
+        The defaults (150 requests, 50 ms interval) are deliberately conservative
+        to avoid triggering security alerts or filling audit logs on the target.
+        The test sends requests in a tight loop; a 50 ms interval means the full
+        probe takes at most 7.5 seconds -- acceptable for an automated assessment.
+        Increase max_requests only on targets with very high rate-limit thresholds
+        (e.g. 1000 req/min) that the default budget would not reach.
+    """
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    max_requests: Annotated[
+        int,
+        Field(ge=TEST_41_MAX_REQUESTS_MIN, le=TEST_41_MAX_REQUESTS_MAX),
+    ] = Field(
+        default=TEST_41_MAX_REQUESTS_DEFAULT,
+        description=(
+            "Maximum probe requests sent before concluding rate limiting is absent. "
+            f"Range: [{TEST_41_MAX_REQUESTS_MIN}, {TEST_41_MAX_REQUESTS_MAX}]. "
+            f"Default: {TEST_41_MAX_REQUESTS_DEFAULT}."
+        ),
+    )
+    request_interval_ms: Annotated[
+        int,
+        Field(ge=TEST_41_INTERVAL_MS_MIN, le=TEST_41_INTERVAL_MS_MAX),
+    ] = Field(
+        default=TEST_41_INTERVAL_MS_DEFAULT,
+        description=(
+            "Interval in milliseconds between consecutive probe requests. "
+            f"Range: [{TEST_41_INTERVAL_MS_MIN}, {TEST_41_INTERVAL_MS_MAX}]. "
+            f"Default: {TEST_41_INTERVAL_MS_DEFAULT} ms."
+        ),
+    )
+
+    @property
+    def request_interval_seconds(self) -> float:
+        """Convert request_interval_ms to seconds for use in time.sleep() calls."""
+        return self.request_interval_ms / 1000.0
+
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -135,7 +201,7 @@ _REFERENCES: tuple[str, ...] = (
 )
 
 
-class Test41RateLimiting(BaseTest):
+class Test41RateLimiting(BaseTest[Test41Params]):
     """
     Test 4.1 -- Rate Limiting: Resource Exhaustion Prevention.
 
@@ -199,7 +265,7 @@ class Test41RateLimiting(BaseTest):
 
             probe_path: str = probe_endpoint.path
             probe_method: str = probe_endpoint.method
-            cfg = target.tests_config.test_4_1
+            cfg = self.params(target)
 
             log.info(
                 "test_4_1_starting",
@@ -288,7 +354,7 @@ class Test41RateLimiting(BaseTest):
         and 429 arrives as expected -- no Finding.
 
         Args:
-            target:  Frozen TargetContext providing tests_config.test_4_1.
+            target:  Frozen TargetContext providing this test's parameters.
             client:  SecurityClient for sending HTTP requests.
             store:   EvidenceStore for pinning the first 429.
             path:    Probe endpoint path.
@@ -299,7 +365,7 @@ class Test41RateLimiting(BaseTest):
             Finding is non-None only when 429 was NOT received (vulnerability).
             The EvidenceRecord is non-None when 429 WAS received (pinned proof).
         """
-        cfg = target.tests_config.test_4_1
+        cfg = self.params(target)
         log.info(
             "test_4_1_spoofing_resistance_started",
             max_requests=cfg.max_requests,
@@ -389,7 +455,7 @@ class Test41RateLimiting(BaseTest):
         a valid PASS for enforcement: rate limiting is present and functional.
 
         Args:
-            target:  Frozen TargetContext providing tests_config.test_4_1.
+            target:  Frozen TargetContext providing this test's parameters.
             client:  SecurityClient for sending HTTP requests.
             store:   EvidenceStore for pinning the first 429.
             path:    Probe endpoint path.
@@ -400,7 +466,7 @@ class Test41RateLimiting(BaseTest):
             Finding is non-None only when 429 was NOT received.
             The EvidenceRecord is non-None when 429 WAS received (pinned proof).
         """
-        cfg = target.tests_config.test_4_1
+        cfg = self.params(target)
         log.info(
             "test_4_1_enforcement_started",
             max_requests=cfg.max_requests,

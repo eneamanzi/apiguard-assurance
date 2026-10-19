@@ -111,9 +111,10 @@ test_id = "1.1", depends_on = [].
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 import structlog
+from pydantic import BaseModel, Field
 
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
@@ -129,6 +130,42 @@ from src.tests.helpers.path_resolver import (
 )
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Parameters: tests.domain_1.test_1_1 in config.yaml
+# ---------------------------------------------------------------------------
+
+TEST_11_MAX_ENDPOINTS_CAP_DEFAULT: int = 0
+
+TEST_11_MAX_ENDPOINTS_CAP_MIN: int = 0
+
+
+class Test11Params(BaseModel):
+    """
+    Tuning parameters for Test 1.1 (Authentication Required).
+
+    Controls how many protected endpoints Test 1.1 will probe in a single
+    assessment run. The default value of 0 signals 'probe all endpoints',
+    which is the academically complete behaviour. A positive integer caps
+    the scan when the target enforces strict rate limiting that would cause
+    429 responses during a full run, or when a time-bounded assessment is
+    required.
+    """
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    max_endpoints_cap: Annotated[int, Field(ge=TEST_11_MAX_ENDPOINTS_CAP_MIN)] = Field(
+        default=TEST_11_MAX_ENDPOINTS_CAP_DEFAULT,
+        description=(
+            "Maximum number of protected endpoints that Test 1.1 will probe. "
+            "0 means test ALL protected endpoints declared in the OpenAPI spec "
+            "(recommended for complete academic coverage). "
+            "Set to a positive integer only when the target API enforces strict "
+            "rate limiting that would cause 429 responses during a full scan, "
+            "or when the operator requires a time-bounded assessment."
+        ),
+    )
+
 
 # ---------------------------------------------------------------------------
 # Oracle outcome labels
@@ -193,7 +230,7 @@ _NORMALIZATION_ACCEPTABLE_CODES: frozenset[int] = frozenset({401, 403, 404, 405,
 # ---------------------------------------------------------------------------
 
 
-class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
+class Test_1_1_AuthenticationRequired(BaseTest[Test11Params]):  # noqa: N801
     """
     Verify that all documented protected endpoints enforce authentication.
 
@@ -263,7 +300,7 @@ class Test_1_1_AuthenticationRequired(BaseTest):  # noqa: N801
                 )
 
             # Apply configurable cap. Default 0 = probe all protected endpoints.
-            cap = target.tests_config.test_1_1.max_endpoints_cap
+            cap = self.params(target).max_endpoints_cap
             candidates: list[EndpointRecord] = protected if cap == 0 else protected[:cap]
 
             log.info(

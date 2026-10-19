@@ -178,7 +178,8 @@ Add the tool block under `external_tools` with `enabled`, `timeout_seconds`, `ex
    keys; the artefact in `evidence.json` and `outputs/tools/`.
 4. Disable the tool and check the test disappears from the report; enable it with the binary missing and check it
    returns SKIP.
-5. `hatch run dev:check`; write the page in `docs/tests/external/domain-<D>/`.
+5. Write the page in `docs/tests/external/domain-<D>/` with its header marker (as for a native test:
+   `g.test_header("ext.<D>.<N>.<tool>", page=cog.inFile)`), then `hatch run dev:gen` and `hatch run dev:check`.
 
 ## Common errors
 

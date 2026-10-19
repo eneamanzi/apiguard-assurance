@@ -4,15 +4,21 @@
 > [`src/tests/domain_4/test_4_1_rate_limiting.py`](../../../src/tests/domain_4/test_4_1_rate_limiting.py) ·
 > **Verified:** 2026-10-05
 
-| | |
+<!-- [[[cog import generate_docs as g; cog.out(g.test_header("4.1", page=cog.inFile)) ]]] -->
+
+|  |  |
 |---|---|
 | Test ID | `4.1` |
 | Name | Rate Limiting -- Resource Exhaustion Prevention |
 | Domain | 4 - Availability and Resilience |
 | Priority / strategy | P0 / BLACK_BOX |
 | CWE | CWE-400 |
-| Depends on | none |
-| Configuration | [`tests.domain_4.test_4_1`](../../reference/configuration.md#testsdomain_4test_4_1---rate-limiting) |
+| Tags | `availability`, `rate-limiting`, `dos-prevention`, `OWASP-API4` |
+| Prerequisites | none |
+| Needs | - |
+| Parameters | [`tests.domain_4.test_4_1`](../../reference/configuration.md#testsdomain_4test_4_1) |
+
+<!-- [[[end]]] -->
 
 ## What it checks
 

@@ -20,11 +20,11 @@ Concrete adapter implementations live in src/core/gateway/ (e.g.
 KongGatewayAdapter in src/core/gateway/kong.py) and are instantiated by
 engine.py Phase 3 based on the gateway.adapter config field.
 
-Tests that require gateway access guard with::
+Tests that require gateway access declare it, and the engine records SKIP
+without a gateway::
 
-    guard = self._requires_admin_api(target)  # SKIP when target.gateway is None
-    if guard is not None:
-        return guard
+    info = TestInfo(..., needs=(Need.GATEWAY,))
+    ...
     timeouts = target.gateway.backend_timeouts()
 
 Neutral concepts
@@ -55,7 +55,7 @@ policy of target API calls. The interfaces are a separate trust boundary from
 the proxy, and a dedicated short-lived httpx client keeps the two explicit.
 
 Dependency rule: this module imports only from stdlib, httpx, structlog,
-src.core.exceptions, src.core.gateway.concepts and src.test_config. It must
+src.core.exceptions, src.core.gateway.concepts and src.core.tls. It must
 never import from config/, tests/, external_tests/, connectors/, or report/.
 """
 
@@ -89,8 +89,6 @@ from src.core.tls import (
     certificate_answer,
     certificate_failure,
 )
-from src.test_config.domain_3 import Test33Config
-from src.test_config.domain_4 import Test43AuditConfig
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -206,8 +204,6 @@ class BaseGatewayAdapter(ABC):
         read_timeout: float,
         admin_headers: Mapping[str, str] | None = None,
         health_api_url: str | None = None,
-        signing_config: Test33Config | None = None,
-        breaker_config: Test43AuditConfig | None = None,
         admin_tls_context: ssl.SSLContext | None = None,
         health_tls_context: ssl.SSLContext | None = None,
     ) -> None:
@@ -223,12 +219,6 @@ class BaseGatewayAdapter(ABC):
             health_api_url:  Base URL of the interface reporting the live
                              health of the backends, for a gateway that keeps
                              it outside the Admin API; None when not set.
-            signing_config:  Test 3.3 configuration: which plugin names are a
-                             request signing policy and the names of their
-                             fields; the defaults when None.
-            breaker_config:  Test 4.3 configuration: which plugin names are a
-                             circuit breaker, in priority order; the defaults
-                             when None.
             admin_tls_context:  TLS context of gateway.admin.tls (src/core/tls.py);
                                 None for the default trust.
             health_tls_context: TLS context of gateway.health.tls; None for the
@@ -241,8 +231,6 @@ class BaseGatewayAdapter(ABC):
         self._health_api_url: str | None = (
             health_api_url.rstrip("/") if health_api_url is not None else None
         )
-        self._signing: Test33Config = signing_config or Test33Config()
-        self._breaker: Test43AuditConfig = breaker_config or Test43AuditConfig()
         self._admin_tls: ssl.SSLContext = admin_tls_context or build_ssl_context(
             None, GATEWAY_ADMIN_TLS
         )

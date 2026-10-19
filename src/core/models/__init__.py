@@ -29,7 +29,7 @@ Symbol inventory by source module:
     results.py         Finding, InfoNote, TestResult, ResultSet, NotRunEntry
 
     runtime.py         RuntimeCredentials, SendAs, AuthType, CredentialLocation
-                       (per-test parameters: src/test_config/)
+                       (per-test parameters: in each test's module)
 
     resources.py       ResourceConfig, CreateRequest, DeleteRequest, ResourceAuth,
                        CREDENTIAL_VALUE, FIXED_PLACEHOLDERS, PLACEHOLDER_USERNAME,

@@ -7,7 +7,7 @@ A test declares who it is in one TestInfo (``info``, src/core/test_metadata.py)
 and returns one TestResult. This base copies the declaration into every
 result and builds the results (_make_pass, _make_fail, _make_fail_multi,
 _make_skip, _make_error), written once for both kinds of test
-(docs/project/tests-design.md, 6.5). The two subclasses keep what is theirs:
+(docs/architecture/design-decisions.md, D8). The two subclasses keep what is theirs:
 
     BaseTest (src/tests/base.py)                  the HTTP client contract and
                                                   the transaction log;
@@ -32,20 +32,34 @@ Result helpers, when to use which:
                              block: the exception becomes the result, it never
                              reaches the engine.
 
-Dependency rule: imports only from the standard library, structlog and
-src.core.
+Parameters (docs/architecture/design-decisions.md, D8): a test with tunable values
+names its parameter model in its class declaration,
+``class Test21...(BaseTest[Test21Params])``; a test without parameters writes
+``BaseTest`` alone. The engine validates ``tests.domain_<D>.test_<D>_<N>``
+against that model once per run and the test reads its own values with
+``self.params(target)``, typed as its model.
+
+Dependency rule: imports only from the standard library, pydantic,
+typing_extensions, structlog and src.core.
 """
 
 from __future__ import annotations
 
 import traceback
 from abc import ABC
-from typing import ClassVar, Literal
+from typing import TYPE_CHECKING, ClassVar, Generic, Literal, cast, get_args, get_origin
 
 import structlog
+from pydantic import BaseModel, ConfigDict
+from pydantic.config import JsonDict
+from pydantic.fields import FieldInfo
+from typing_extensions import TypeVar
 
 from src.core.models import Finding, InfoNote, TestResult, TestStatus, TransactionSummary
 from src.core.test_metadata import TestInfo
+
+if TYPE_CHECKING:
+    from src.core.context import TargetContext
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -55,9 +69,52 @@ _ERROR_MESSAGE_MAX_CHARS: int = 500
 _ERROR_TRUNCATION_SUFFIX: str = "... [TRUNCATED]"
 
 
-class AssessmentTest(ABC):
+class NoParams(BaseModel):
+    """The parameters of a test that has none: any key under it is unknown."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+
+# Key of the validation context of the tests' parameters holding
+# config.resources (name -> ResourceConfig), for a parameter model that checks
+# its values against the prepared resources (test 7.2): set by
+# src/config/tests_section.py, absent when a model is built from defaults.
+PARAMS_CONTEXT_RESOURCES: str = "resources"
+
+# Marks a parameter whose value names a prepared resource (resources:), as
+# Field(json_schema_extra=REFERS_TO_RESOURCE): validate-config lists the test as
+# a user of that resource without the engine knowing the test.
+REFERS_TO_RESOURCE: JsonDict = {"refers_to": "resources"}
+
+# Marks a parameter the test cannot run without, as
+# Field(json_schema_extra=NEEDED_TO_RUN): unset (None or empty), the engine
+# records the test as SKIP naming the key, without running it
+# (src/core/test_needs.py). Markers combine: json_schema_extra={**A, **B}.
+NEEDED_TO_RUN: JsonDict = {"needed_to_run": True}
+
+
+def has_marker(field: FieldInfo, marker: JsonDict) -> bool:
     """
-    Base of every test: its declaration and the construction of its results.
+    True when a parameter field carries a marker (REFERS_TO_RESOURCE, NEEDED_TO_RUN).
+
+    Args:
+        field:  A field of a parameter model.
+        marker: The marker.
+
+    Returns:
+        Whether every item of the marker is in the field's json_schema_extra.
+    """
+    extra = field.json_schema_extra
+    return isinstance(extra, dict) and all(extra.get(k) == v for k, v in marker.items())
+
+
+# The parameter model of a test; NoParams when the class names none.
+ParamsT = TypeVar("ParamsT", bound=BaseModel, default=NoParams)
+
+
+class AssessmentTest(ABC, Generic[ParamsT]):
+    """
+    Base of every test: its declaration, its parameters and its results.
 
     Subclasses (BaseTest, ExternalToolTest) set ``source``; every concrete
     test sets ``info``. Test discovery (src/core/test_discovery.py) checks
@@ -66,9 +123,36 @@ class AssessmentTest(ABC):
 
     info: ClassVar[TestInfo]
 
+    # The model named in the class declaration (BaseTest[Test21Params]);
+    # None for a test without parameters. Set by __init_subclass__.
+    params_model: ClassVar[type[BaseModel] | None] = None
+
     # Origin of the results, fixed by the two subclasses: the report builder
     # partitions results by it.
     source: ClassVar[Literal["native", "external"]]
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        """Record the parameter model named in the class declaration, if any."""
+        super().__init_subclass__(**kwargs)
+        for base in getattr(cls, "__orig_bases__", ()):
+            origin = get_origin(base)
+            if isinstance(origin, type) and issubclass(origin, AssessmentTest):
+                model = next(iter(get_args(base)), None)
+                if isinstance(model, type) and issubclass(model, BaseModel):
+                    cls.params_model = None if model is NoParams else model
+
+    def params(self, target: TargetContext) -> ParamsT:
+        """
+        This test's parameters, validated from tests.domain_<D>.test_<D>_<N>.
+
+        Args:
+            target: The run's TargetContext, which holds every test's parameters.
+
+        Returns:
+            The instance of the model named in the class declaration (its
+            defaults when config.yaml sets nothing).
+        """
+        return cast(ParamsT, target.test_params[self.info.id])
 
     # ------------------------------------------------------------------
     # Hooks of the subclasses

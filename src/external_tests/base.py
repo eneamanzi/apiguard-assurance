@@ -77,7 +77,7 @@ from typing import Any, ClassVar, Literal
 import structlog
 
 from src.connectors.base import BaseConnector, ConnectorResult
-from src.core.assessment_test import AssessmentTest
+from src.core.assessment_test import AssessmentTest, ParamsT
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.exceptions import ExternalToolError
@@ -124,7 +124,7 @@ _DEV_CACHE_UNSAFE_CHARS: str = "./\\ "
 # ---------------------------------------------------------------------------
 
 
-class ExternalToolTest(AssessmentTest):
+class ExternalToolTest(AssessmentTest[ParamsT]):
     """
     Abstract base class for security tests that delegate to an external binary.
 
@@ -822,7 +822,7 @@ class ExternalToolTest(AssessmentTest):
 
         Args:
             connector:   The connector returned by _build_connector().
-            target:      Frozen TargetContext (for reading tests_config parameters).
+            target:      Frozen TargetContext (for reading the test's parameters).
             target_url:  String URL for the tool's CLI target argument.
 
         Returns:

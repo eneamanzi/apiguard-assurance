@@ -4,7 +4,7 @@ src/core/test_metadata.py
 TestInfo: the declaration of a test (who it is), native and external alike.
 
 Every test class declares one TestInfo as its ``info`` class attribute
-(docs/project/tests-design.md, 6.1). It is a frozen Pydantic model, validated
+(docs/architecture/design-decisions.md, D8). It is a frozen Pydantic model, validated
 when the test module is imported: an invalid declaration makes the import
 fail, and test discovery (src/core/test_discovery.py) reports it as a
 TestDefinitionError naming the module, so the run stops instead of dropping
@@ -20,6 +20,7 @@ Dependency rule: imports only from the standard library, pydantic and src.core.m
 from __future__ import annotations
 
 import re
+from enum import StrEnum
 from typing import Annotated
 
 from pydantic import (
@@ -98,6 +99,58 @@ def is_external_test_id(test_id: str) -> bool:
     return test_id.startswith(EXTERNAL_TEST_ID_PREFIX)
 
 
+# Keys of a test's parameters in config.yaml: tests.<domain key>.<test key>.
+_DOMAIN_KEY: str = "domain_{domain}"
+_NATIVE_KEY_PREFIX: str = "test_"
+_EXTERNAL_KEY_PREFIX: str = "ext_"
+
+
+def section_keys(test_id: str) -> tuple[str, str]:
+    """
+    The keys of a test's parameters in the tests section.
+
+    Args:
+        test_id: A valid test ID ("2.1" or "ext.1.5.testssl").
+
+    Returns:
+        (domain key, test key), e.g. ("domain_2", "test_2_1").
+    """
+    external = is_external_test_id(test_id)
+    parts = test_id.removeprefix(EXTERNAL_TEST_ID_PREFIX).split(".")
+    prefix = _EXTERNAL_KEY_PREFIX if external else _NATIVE_KEY_PREFIX
+    return _DOMAIN_KEY.format(domain=parts[0]), prefix + "_".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Needs
+# ---------------------------------------------------------------------------
+
+
+class Need(StrEnum):
+    """
+    What a test needs from the configuration to run at all.
+
+    Only what the configuration tells before any contact with the target: a
+    test whose need is not met is recorded as SKIP by the engine, with the
+    need's reason, without running (src/core/test_needs.py, which holds the
+    check of each need). What only the target can reveal (no deprecated
+    operation in the specification, no session cookie) stays a SKIP inside
+    the test. A new need is a member here and its check there.
+    """
+
+    ADMIN_ACCOUNT = "ADMIN_ACCOUNT"
+    """The credentials of the admin role."""
+
+    USER_ACCOUNT = "USER_ACCOUNT"
+    """The credentials of the user_a role (an ordinary account)."""
+
+    GATEWAY = "GATEWAY"
+    """A gateway section: adapter and Admin API."""
+
+    REVOCABLE_LOGIN = "REVOCABLE_LOGIN"
+    """A login method that can revoke a credential (login with a delete request)."""
+
+
 # ---------------------------------------------------------------------------
 # TestInfo
 # ---------------------------------------------------------------------------
@@ -170,6 +223,13 @@ class TestInfo(BaseModel):
     tool: _NonEmptyText | None = Field(
         default=None,
         description="External tests only: the external_tools key of the wrapped tool.",
+    )
+    needs: tuple[Need, ...] = Field(
+        default=(),
+        description=(
+            "What the test needs from the configuration to run at all; when one is not "
+            "met the engine records SKIP without running it (src/core/test_needs.py)."
+        ),
     )
 
     @model_validator(mode="after")

@@ -478,12 +478,15 @@ def validate_config(
         build_connection_contexts,
         check_credentials,
         check_tests,
+        configuration_facts,
         describe_resources,
+        select_tests,
+        unmet_needs_by_test,
     )
 
     try:
         tool_config = load_config(config)
-        check_tests(tool_config)
+        test_params = check_tests(tool_config)
         build_connection_contexts(tool_config)
         placement = check_credentials(tool_config)
         _console_out.print(
@@ -498,7 +501,16 @@ def validate_config(
                 f"{placement.location.value} '{placement.name}' ({placement.source})."
             )
         if tool_config.resources:
-            _console_out.print(f"Resources: {describe_resources(tool_config)}.")
+            _console_out.print(f"Resources: {describe_resources(tool_config, test_params)}.")
+        selected, _ = select_tests(tool_config)
+        unmet = unmet_needs_by_test(selected, test_params, configuration_facts(tool_config))
+        if unmet:
+            _console_out.print(
+                f"{len(unmet)} of the {len(selected)} selected tests will SKIP "
+                "(what they need is not configured):"
+            )
+            for test_id, reasons in unmet.items():
+                _console_out.print(f"  {test_id}: {' '.join(reasons)}", markup=False)
         raise typer.Exit(code=0)
     except ConfigurationError as exc:
         log.error(
@@ -524,6 +536,80 @@ def validate_config(
         log.error("test_definitions_invalid", detail=exc.message)
         _console_err.print(f"[bold red]Test definitions invalid:[/bold red] {exc.message}")
         raise typer.Exit(code=ExitCode.INFRASTRUCTURE) from None
+
+
+@app.command(name="list-tests")
+def list_tests(
+    config: Annotated[
+        Path | None,
+        typer.Option(
+            "--config",
+            "-c",
+            help=(
+                "Also say, for this config.yaml, which tests the run selects and which "
+                "will SKIP because what they need is not configured."
+            ),
+            exists=False,
+            file_okay=True,
+            dir_okay=False,
+            resolve_path=True,
+        ),
+    ] = None,
+    as_json: Annotated[
+        bool,
+        typer.Option("--json", help="Print the list as JSON on stdout, for programs."),
+    ] = False,
+    env_file: EnvFileOption = None,
+) -> None:
+    """
+    List the tests with their declaration, needs and parameters.
+
+    Every test, native and external: ID, name, domain, priority, strategy,
+    CWE, tags, prerequisites, tool, what it needs from the configuration and
+    the JSON Schema of its parameters (docs/reference/cli.md, "list-tests").
+    With --config, also whether the run selects it and why it would SKIP.
+    Does not contact the target.
+
+    Exit codes:
+        0   Listed.
+        10  A test cannot be used, or the configuration is invalid.
+    """
+    import json
+
+    from src.config.loader import load_config
+    from src.core.exceptions import ConfigurationError, TestDefinitionError
+    from src.core.models.enums import ExitCode
+    from src.engine import describe_tests
+
+    _configure_logging(log_format=LogFormat.CONSOLE, log_level=LogLevel.WARNING)
+    try:
+        tool_config = None
+        if config is not None:
+            _load_env_file(env_file)
+            tool_config = load_config(config)
+        tests = describe_tests(tool_config)
+    except (ConfigurationError, TestDefinitionError) as exc:
+        _console_err.print(f"[bold red]Cannot list the tests:[/bold red] {exc}")
+        raise typer.Exit(code=ExitCode.INFRASTRUCTURE) from None
+    if as_json:
+        sys.stdout.write(json.dumps({"tests": tests}, indent=2) + "\n")
+        raise typer.Exit(code=0)
+    width = max(len(test["id"]) for test in tests)
+    for test in tests:
+        needs = [*test["needs"], *test["needed_parameters"]]
+        line = f"{test['id']:<{width}}  P{test['priority']}  {test['strategy']:<9}  {test['name']}"
+        if needs:
+            line += f"  [needs {', '.join(needs)}]"
+        _console_out.print(Text(line))
+        if tool_config is not None:
+            if not test["selected"]:
+                status = "not selected"
+            elif test["unmet_needs"]:
+                status = "SKIP: " + " ".join(test["unmet_needs"])
+            else:
+                status = "runs"
+            _console_out.print(Text(f"{'':<{width}}  {status}", style="dim"))
+    raise typer.Exit(code=0)
 
 
 @app.command(name="generate-seed")

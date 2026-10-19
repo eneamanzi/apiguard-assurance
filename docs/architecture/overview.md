@@ -33,7 +33,7 @@ What each test needs from the target is in [compatibility](../reference/compatib
 
 | Phase | What happens | Code | On failure |
 |---|---|---|---|
-| 1 Initialization | Read YAML, resolve `${VAR}`, validate with Pydantic → frozen `ToolConfig`; build the TLS context of each connection (`engine.build_connection_contexts`); then check every test declaration (`src/core/test_metadata.py`) and the `test_ids` entries (`engine.check_tests`) | `src/config/loader.py`, `src/config/schema/`, `src/core/tls.py`, `src/engine.py` | `ConfigurationError` or `TestDefinitionError` → exit 10 |
+| 1 Initialization | Read YAML, resolve `${VAR}`, validate with Pydantic → frozen `ToolConfig`; build the TLS context of each connection (`engine.build_connection_contexts`); then discover the tests and check every declaration (`src/core/test_discovery.py`), the `test_ids` entries and the `tests` section against the parameter models the tests declare (`engine.check_tests`, `src/config/tests_section.py`) | `src/config/loader.py`, `src/config/schema/`, `src/config/tests_section.py`, `src/core/tls.py`, `src/engine.py` | `ConfigurationError` or `TestDefinitionError` → exit 10 |
 | 2 OpenAPI discovery | Download (with the specification's TLS context) or read the spec, dereference `$ref` (prance, in a worker thread), detect dialect, validate, build `AttackSurface` | `src/discovery/download.py`, `openapi.py`, `surface.py` | `OpenAPILoadError` → exit 10 |
 | 3 Context construction | Resolve where and how credentials are sent (credentials + the spec's security schemes); build `TargetContext` (config + surface + credentials + placement + per-test config + gateway adapter), `TestContext`, `EvidenceStore` | `src/engine.py`, `src/core/auth_placement.py`, `src/core/context.py`, `src/core/evidence.py` | `ConfigurationError` (placement not determined) → exit 10 |
 | 4 Discovery and scheduling | Discover native and external tests, filter, build dependency batches | `src/tests/registry.py`, `src/external_tests/registry.py`, `src/core/dag.py` | `DAGCycleError` → exit 10 |
@@ -84,10 +84,11 @@ Phase 7 does not run after an interruption. Exit codes:
 
 ```
 src/
-├── cli.py              Typer CLI: run, validate-config, generate-seed, version
+├── cli.py              Typer CLI: run, validate-config, list-tests, generate-seed, version
 ├── cli_console.py      Console interface of `run`: implements engine.RunObserver (test lines, summary)
 ├── engine.py           AssessmentEngine: orchestrates the seven phases
-├── config/             Phase 1: loader + Pydantic schema of config.yaml (ToolConfig)
+├── config/             Phase 1: loader + Pydantic schema of config.yaml (ToolConfig); tests_section.py checks
+│                       `tests:` against the parameter models the tests declare
 ├── discovery/          Phase 2: spec download and loading, AttackSurface builder, path_seed generator
 ├── core/               Shared vocabulary and infrastructure
 │   ├── models/         Pydantic models (results, evidence, surface, credentials, tool config)
@@ -99,48 +100,48 @@ src/
 │   ├── dag.py          DAGScheduler
 │   ├── gateway/        BaseGatewayAdapter + KongGatewayAdapter, ApisixGatewayAdapter
 │   ├── test_metadata.py TestInfo: the declaration of a test (ID formats, priority and domain ranges)
-│   ├── assessment_test.py AssessmentTest: base of native and external tests (declaration, result helpers)
+│   ├── assessment_test.py AssessmentTest: base of native and external tests (declaration, parameters,
+│   │                   result helpers)
 │   ├── test_discovery.py Finds the test classes of a package; any test that cannot be used stops the run
 │   └── exceptions.py   Exception hierarchy
 ├── connectors/         Wrappers around external tools (nuclei, testssl.sh, sslyze)
 ├── tests/              Native tests (domain_0 … domain_7), helpers/ (incl. the authentication methods), data/
 ├── external_tests/     Tests that run an external tool through a connector
-├── report/             Phase 7: ReportData builder, Jinja2 HTML renderer, template
-└── test_config/        Per-test parameter models (one per test, by domain) + RuntimeTestsConfig
+└── report/             Phase 7: ReportData builder, Jinja2 HTML renderer, template
 ```
 
-Actual import graph (computed from the source, 2026-10-15; tests and core modules 2026-10-16):
+Actual import graph (computed from the source, 2026-10-17):
 
 ```
-cli                -> cli_console, config, connectors, core/exceptions, core/models, discovery, engine
-cli_console        -> connectors, core/models (engine for types only)
-engine             -> config, core/*, discovery, external_tests, report, test_config, tests
-config             -> core/exceptions, core/gateway (the adapter names), core/models, core/templating,
-                      core/test_metadata, test_config
-discovery          -> core/exceptions, core/models, core/tls
-tests              -> core/assessment_test, core/auth_placement, core/client, core/context, core/evidence,
-                      core/exceptions, core/gateway, core/models, core/templating, core/test_discovery,
-                      core/test_metadata, test_config
-external_tests     -> connectors, core/assessment_test, core/context, core/evidence, core/exceptions, core/models,
-                      core/test_discovery, core/test_metadata
-connectors         -> core/exceptions
-report             -> config, core/models, core/redaction
-core/gateway       -> core/exceptions, core/tls, test_config
-core/context       -> core/auth_placement, core/gateway, core/models, core/redaction, test_config (only to type
-                      TargetContext.tests_config)
-core/client        -> core/exceptions, core/models, core/redaction, core/tls
-core/tls           -> core/exceptions, core/models
-core/test_metadata -> core/models
-core/assessment_test -> core/models, core/test_metadata
-core/test_discovery -> core/assessment_test, core/exceptions, core/test_metadata
-test_config        -> nothing from src/
+cli                  -> cli_console, config, connectors, core/exceptions, core/models, discovery, engine
+cli_console          -> connectors, core/models (engine for types only)
+engine               -> config, core/*, discovery, external_tests, report, tests
+config               -> core/assessment_test, core/exceptions, core/gateway (the adapter names), core/models,
+                        core/test_metadata
+discovery            -> core/exceptions, core/models, core/tls
+tests                -> core/assessment_test, core/auth_placement, core/client, core/context, core/evidence,
+                        core/exceptions, core/gateway, core/models, core/templating, core/test_discovery,
+                        core/test_metadata
+external_tests       -> connectors, core/assessment_test, core/context, core/evidence, core/exceptions,
+                        core/models, core/test_discovery, core/test_metadata
+connectors           -> core/exceptions
+report               -> config, core/models, core/redaction
+core/gateway         -> core/exceptions, core/tls
+core/context         -> core/auth_placement, core/gateway, core/models, core/redaction
+core/client          -> core/exceptions, core/models, core/redaction, core/tls
+core/tls             -> core/exceptions, core/models
+core/test_metadata   -> core/models
+core/assessment_test -> core/models, core/test_metadata (core/context for types only)
+core/test_discovery  -> core/assessment_test, core/exceptions, core/test_metadata
 ```
 
-Rules that hold today: nothing imports `engine`; `test_config/` is the lowest layer and imports nothing from
-`src/`; `tests/` never imports `config/`, `discovery/`, `report/`,
-`connectors/` or `external_tests/`; `connectors/` depend only on `core/exceptions`. Native tests must not start
-subprocesses: running external binaries is the job of connectors used by external tests. The main rules are
-checked automatically by `lint-imports` in `hatch run dev:check` (`[tool.importlinter]` in `pyproject.toml`).
+Rules that hold today: nothing imports `engine`; `core/` imports nothing outside `core/` and knows no test (the
+packages to scan are named by the registries, the parameters reach `TargetContext` by test ID); `tests/` never
+imports `config/`, `discovery/`, `report/`, `connectors/` or `external_tests/`; `config/` never imports `tests/`
+(the tests' parameter models are passed to it by the engine); `connectors/` depend only on `core/exceptions`.
+Native tests must not start subprocesses: running external binaries is the job of connectors used by external
+tests. The main rules are checked automatically by `lint-imports` in `hatch run dev:check` (`[tool.importlinter]`
+in `pyproject.toml`).
 
 ## Components
 

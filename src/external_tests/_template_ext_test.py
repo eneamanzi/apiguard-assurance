@@ -17,7 +17,7 @@ Steps to add a new ExternalToolTest:
 
 Timeout access pattern:
     Read timeout from target.external_tools.<tool>.timeout_seconds.
-    This is the canonical source; do NOT read from tests_config domain fields.
+    This is the canonical source; do NOT read it from the test's parameters.
 
     Example:
         timeout_seconds = target.external_tools.testssl.timeout_seconds
@@ -144,7 +144,7 @@ class TemplateExtTest(ExternalToolTest):
         Returns:
             ConnectorResult: Parsed tool output.
         """
-        # Read timeout from external_tools, not from tests_config domain fields.
+        # Read timeout from external_tools, not from the test's parameters.
         # Replace "testssl" with the actual tool name (nuclei, ffuf, ...).
         # timeout_seconds is guaranteed non-None here because Phase 1 validation
         # rejects enabled=True with timeout_seconds=None (ConfigurationError).

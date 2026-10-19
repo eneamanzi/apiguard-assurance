@@ -46,9 +46,11 @@ Check it:
 hatch run apiguard validate-config -c my-api.yaml
 ```
 
-Expected: `Configuration valid. Target: https://api.example.com/`, preceded by three `config_coherence_warning`
-lines saying that there is no gateway, no administrator account and no user account. They are warnings, not errors; steps 3 and 5 remove
-them.
+Expected: `Configuration valid. Target: https://api.example.com/`, followed by `6 of the 15 selected tests will SKIP
+(what they need is not configured):` and one line per test with its reason (1.4 needs the admin account, 2.1 and 7.2
+a user account and their parameters, 3.3, 4.2 and 4.3 a gateway). They are not errors: the next steps give the
+tests what they need, and `apiguard list-tests -c my-api.yaml` shows the same for every test (verified
+2026-10-17).
 
 `validate-config` checks the file and the certificate files of the `tls` blocks: it does not contact the API and does
 not check that the specification exists (that happens when the run starts).
@@ -138,7 +140,7 @@ Every message and what to do: [TLS errors](../../reference/configuration.md#tls-
 plain-HTTP address for its HTTP-to-HTTPS redirect probe: it sends plain HTTP to the HTTPS port and reports a FAIL
 that is not real (on the lab: `GET http://localhost:8443/` → `400`, finding `HTTP Port Accessible Without HTTPS
 Redirect`). Set the address explicitly
-([`tests.domain_1.test_1_5.http_probe_url`](../../reference/configuration.md#testsdomain_1test_1_5---credentials-over-insecure-channels)),
+([`tests.domain_1.test_1_5.http_url`](../../reference/configuration.md#testsdomain_1test_1_5)),
 e.g. `http://api.example.com:8000/`.
 
 ## 3. Credentials
@@ -314,10 +316,10 @@ Some test defaults are written for the lab. On another target review them:
 
 | Test | Setting | What to do on another target |
 |---|---|---|
-| 7.2 | no injection endpoint by default: SKIP until configured | set `injection_path_template` and `injection_body_template` (with `"{ssrf_url}"`) to an endpoint of your API that accepts a URL; if the endpoint belongs to an object that must exist first, add a [prepared resource](../../reference/configuration.md#resources) and name it in `injection_resource` ([reference](../../reference/configuration.md#testsdomain_7test_7_2---ssrf-prevention)) |
+| 7.2 | no endpoint that accepts a URL by default: SKIP until configured | set `url_accepting_endpoint` (its `path`, and its `body` with `"{ssrf_url}"`) to an endpoint of your API that accepts a URL; if the endpoint belongs to an object that must exist first, add a [prepared resource](../../reference/configuration.md#resources) and name it in the endpoint's `resource` ([reference](../../reference/configuration.md#testsdomain_7test_7_2)) |
 | 2.1 | no admin path by default: SKIP until configured | list admin-only endpoints of your API; a path your API does not have answers `404`, counted as enforced, so the test can PASS without testing anything |
-| 1.4 | needs `auth_type: login` with a login resource that has a delete request, and `verify_request` | SKIP "Not applicable" otherwise; SKIP without `verify_request` |
-| 0.2, 6.4 | Kong-specific server identifiers and block message | review [`tests.domain_0.test_0_2`](../../reference/configuration.md#testsdomain_0test_0_2---deny-by-default) and [`tests.domain_6.test_6_4`](../../reference/configuration.md#testsdomain_6test_6_4---hardcoded-credentials-audit) |
+| 1.4 | needs `auth_type: login` with a login resource that has a delete request, and `protected_endpoint` (an endpoint that requires authentication) | SKIP otherwise, naming what is missing |
+| 0.2, 6.4 | Kong-specific server identifiers and block message | review [`tests.domain_0.test_0_2`](../../reference/configuration.md#testsdomain_0test_0_2) and [`tests.domain_6.test_6_4`](../../reference/configuration.md#testsdomain_6test_6_4) |
 
 Measured on cRAPI on 2026-10-06 (no gateway, `jwt_login`, now a `login` resource, 7.2 posting to a fixed path): 0.1, 0.2, 0.3, 1.1, 1.5, 1.6, 4.1, 6.2 and
 6.4 ran normally, 7.2 worked, 2.1 passed only because the Forgejo admin paths do not exist there, 1.4 returned ERROR,
@@ -335,7 +337,7 @@ The tool is not read-only. Before the first run on a system that matters, know w
 | 1.4 | creates a credential with the login resource on the admin account and revokes it |
 | 2.1 | sends the configured method with a `user_a` token (default `GET`, read-only) |
 | 4.1 | up to 300 requests in a burst against one endpoint: it can trip the rate limit for the tool's IP |
-| 7.2 | up to 73 `POST` requests with a valid token. With `injection_resource` the resource is deleted at teardown, and objects created under it usually go with it (Forgejo webhooks); without it, on a vulnerable API each request may create an object that is **not removed** afterwards |
+| 7.2 | up to 73 `POST` requests with a valid token. With the endpoint's `resource` the resource is deleted at teardown, and objects created under it usually go with it (Forgejo webhooks); without it, on a vulnerable API each request may create an object that is **not removed** afterwards |
 
 ## 7. First run
 
@@ -373,5 +375,5 @@ assessment.
 - Next: [Select tests](select-tests.md), to run only part of the assessment.
 
 - [Configuration reference](../../reference/configuration.md): every key, default and constraint.
-- [CLI reference](../../reference/cli.md): `run`, `validate-config`, `generate-seed`, `.env` loading.
+- [CLI reference](../../reference/cli.md): `run`, `validate-config`, `list-tests`, `generate-seed`, `.env` loading.
 - [Test catalogue](../../tests/README.md): what each test needs and checks.

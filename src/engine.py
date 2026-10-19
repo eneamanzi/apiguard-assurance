@@ -73,9 +73,10 @@ from __future__ import annotations
 
 import ssl
 import time
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 import structlog
 from pydantic import BaseModel, Field
@@ -83,6 +84,8 @@ from pydantic import BaseModel, Field
 from src import __version__
 from src.config.loader import closest_match, load_config
 from src.config.schema import ToolConfig
+from src.config.tests_section import validate_tests_section
+from src.core.assessment_test import NEEDED_TO_RUN, REFERS_TO_RESOURCE, AssessmentTest, has_marker
 from src.core.auth_placement import CredentialPlacement, resolve_placement
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
@@ -108,7 +111,8 @@ from src.core.models import (
     TestStatus,
 )
 from src.core.redaction import SecretRegistry
-from src.core.test_metadata import is_external_test_id
+from src.core.test_metadata import is_external_test_id, section_keys
+from src.core.test_needs import ConfigurationFacts, unmet_needs
 from src.core.tls import (
     GATEWAY_ADMIN_TLS,
     GATEWAY_HEALTH_TLS,
@@ -125,7 +129,6 @@ from src.external_tests.base import ExternalToolTest
 from src.external_tests.registry import ExternalTestRegistry
 from src.report.builder import ReportData, build_report_data
 from src.report.renderer import render_html_report
-from src.test_config.runtime import RuntimeTestsConfig
 from src.tests.base import BaseTest
 from src.tests.registry import TestRegistry
 
@@ -244,12 +247,12 @@ def _preflight(client: SecurityClient, store: EvidenceStore) -> None:
         )
 
 
-def check_tests(config: ToolConfig) -> None:
+def check_tests(config: ToolConfig) -> dict[str, BaseModel]:
     """
-    Check the test declarations and the execution.test_ids entries.
+    Check the test declarations, execution.test_ids and the tests section.
 
     Called by the engine right after Phase 1, before any contact with the
-    target, and by ``apiguard validate-config``. Two checks, in order:
+    target, and by ``apiguard validate-config``. Three checks, in order:
 
     1. Test declarations (src/core/test_discovery.py): both registries are
        scanned, native and external (even with external tools disabled), and
@@ -260,13 +263,21 @@ def check_tests(config: ToolConfig) -> None:
        (with the closest ID as a suggestion), or when it is an external test
        whose tool is disabled (master switch or per-tool switch): test_ids
        chooses among available tests and never enables a tool.
+    3. The tests section, against the parameter model each test declares
+       (src/config/tests_section.py): an unknown test or parameter, or a
+       value out of range, is rejected like any configuration key.
 
     Args:
         config: The validated configuration.
 
+    Returns:
+        Test ID -> validated parameters, for every test that declares a model
+        (TargetContext.test_params).
+
     Raises:
         TestDefinitionError: Listing every declaration problem.
-        ConfigurationError: Listing every rejected test_ids entry.
+        ConfigurationError: Listing every rejected test_ids entry, or every
+            problem of the tests section.
     """
     definition_problems: list[str] = []
     native_tests: list[BaseTest] = []
@@ -296,6 +307,204 @@ def check_tests(config: ToolConfig) -> None:
                     )
     raise_for_test_definition_problems(definition_problems)
 
+    _check_test_ids(config, native_ids, external_tools)
+    models = {t.info.id: type(t).params_model for t in [*native_tests, *external_tests]}
+    return validate_tests_section(config.tests, models, config.resources)
+
+
+def select_tests(
+    config: ToolConfig,
+) -> tuple[list[BaseTest | ExternalToolTest], list[NotRunEntry]]:
+    """
+    The tests the run executes, and those the filters exclude.
+
+    Applies execution.test_ids, or else min_priority and strategies, and the
+    external tools' switches, as Phase 4 does (also for validate-config).
+
+    Args:
+        config: The validated configuration.
+
+    Returns:
+        (selected tests, native then external; tests excluded by the filters,
+        by test ID).
+    """
+    # --- Split execution.test_ids by registry ---
+    # None: no test_ids, normal filters. A set (possibly empty): run only
+    # these IDs; an empty part means no test of that kind.
+    native_allowed_ids: set[str] | None = None
+    external_allowed_ids: set[str] | None = None
+    if config.execution.test_ids:
+        requested_ids = set(config.execution.test_ids)
+        external_allowed_ids = {tid for tid in requested_ids if is_external_test_id(tid)}
+        native_allowed_ids = requested_ids - external_allowed_ids
+
+    # --- Native test discovery ---
+    registry = TestRegistry()
+    native_tests: list[BaseTest] = registry.discover(
+        min_priority=config.execution.min_priority,
+        enabled_strategies=set(config.execution.strategies),
+        allowed_ids=native_allowed_ids,
+    )
+
+    # --- External test discovery ---
+    ext_registry = ExternalTestRegistry()
+    external_tests: list[ExternalToolTest] = ext_registry.discover(
+        external_tools_config=config.external_tools,
+        min_priority=config.execution.min_priority,
+        enabled_strategies=set(config.execution.strategies),
+        allowed_ids=external_allowed_ids,
+    )
+
+    # --- Merge both lists ---
+    selected: list[BaseTest | ExternalToolTest] = [*native_tests, *external_tests]
+    not_run = sorted([*registry.not_run, *ext_registry.not_run], key=lambda e: e.test_id)
+    return selected, not_run
+
+
+def configuration_facts(config: ToolConfig) -> ConfigurationFacts:
+    """
+    What the tests' needs are checked against, from the configuration.
+
+    Args:
+        config: The validated configuration.
+
+    Returns:
+        The facts (credentials, gateway, resources).
+    """
+    return ConfigurationFacts(
+        credentials=config.credentials,
+        gateway_configured=config.gateway is not None,
+        resources=config.resources,
+    )
+
+
+def target_facts(target: TargetContext) -> ConfigurationFacts:
+    """
+    The same facts as configuration_facts, from the run's TargetContext.
+
+    Args:
+        target: The run's TargetContext.
+
+    Returns:
+        The facts (credentials, gateway, resources).
+    """
+    return ConfigurationFacts(
+        credentials=target.credentials,
+        gateway_configured=target.gateway is not None,
+        resources=target.resources,
+    )
+
+
+def unmet_needs_by_test(
+    tests: Sequence[AssessmentTest[Any]],
+    test_params: Mapping[str, BaseModel],
+    facts: ConfigurationFacts,
+) -> dict[str, list[str]]:
+    """
+    The tests that cannot run with the configuration, with the reasons.
+
+    Args:
+        tests:       The tests to check.
+        test_params: Every test's validated parameters (check_tests).
+        facts:       The configuration facts.
+
+    Returns:
+        Test ID -> reasons (src/core/test_needs.py), only for the tests that
+        have an unmet need, in ID order.
+    """
+    unmet: dict[str, list[str]] = {}
+    for test in sorted(tests, key=lambda t: t.info.id):
+        reasons = unmet_needs(test.info, test_params.get(test.info.id), facts)
+        if reasons:
+            unmet[test.info.id] = reasons
+    return unmet
+
+
+def describe_tests(config: ToolConfig | None = None) -> list[dict[str, Any]]:
+    """
+    Every test with its declaration, for ``apiguard list-tests``.
+
+    Without a configuration: what each test is (its TestInfo), what it needs,
+    and the JSON Schema of its parameters. With one (already loaded and
+    valid): also whether the run selects it and, if it cannot run, why.
+
+    Args:
+        config: A validated configuration, or None.
+
+    Returns:
+        One JSON-ready mapping per test, native then external, in ID order.
+
+    Raises:
+        TestDefinitionError: When a test cannot be used.
+        ConfigurationError: When the configuration's test selection or tests
+            section is invalid (as check_tests).
+    """
+    tests = sorted(
+        [*TestRegistry().list_tests(), *ExternalTestRegistry().list_tests()],
+        key=lambda t: (t.info.is_external, t.info.id),
+    )
+    selected_ids: set[str] = set()
+    unmet: dict[str, list[str]] = {}
+    if config is not None:
+        test_params = check_tests(config)
+        selected, _ = select_tests(config)
+        selected_ids = {t.info.id for t in selected}
+        unmet = unmet_needs_by_test(tests, test_params, configuration_facts(config))
+    described: list[dict[str, Any]] = []
+    for test in tests:
+        info = test.info
+        model = type(test).params_model
+        domain_key, test_key = section_keys(info.id)
+        entry: dict[str, Any] = {
+            **info.model_dump(mode="json"),
+            "domain": info.domain,
+            "source": test.source,
+            "parameters_key": f"tests.{domain_key}.{test_key}" if model is not None else None,
+            "needed_parameters": [
+                name
+                for name, field in (model.model_fields.items() if model is not None else ())
+                if has_marker(field, NEEDED_TO_RUN)
+            ],
+            "parameters_schema": model.model_json_schema() if model is not None else None,
+        }
+        if config is not None:
+            entry["selected"] = info.id in selected_ids
+            entry["unmet_needs"] = unmet.get(info.id, [])
+        described.append(entry)
+    return described
+
+
+def test_parameter_models() -> dict[str, type[BaseModel] | None]:
+    """
+    The parameter model of every test, native and external, by test ID.
+
+    For tools that need the complete configuration schema (the tests section
+    is known only from the tests: scripts/check_config_keys.py).
+
+    Returns:
+        Test ID -> its parameter model (None: the test has none).
+
+    Raises:
+        TestDefinitionError: When a test cannot be used (as check_tests).
+    """
+    tests = [*TestRegistry().list_tests(), *ExternalTestRegistry().list_tests()]
+    return {t.info.id: type(t).params_model for t in tests}
+
+
+def _check_test_ids(
+    config: ToolConfig, native_ids: set[str], external_tools: dict[str, str]
+) -> None:
+    """
+    Reject an execution.test_ids entry that names no test or a disabled tool.
+
+    Args:
+        config:         The validated configuration.
+        native_ids:     IDs of the native tests.
+        external_tools: ID -> tool of the external tests.
+
+    Raises:
+        ConfigurationError: Listing every rejected entry.
+    """
     requested = config.execution.test_ids
     if not requested:
         return
@@ -383,12 +592,38 @@ def specification_connection(config: ToolConfig) -> tuple[str, float, ssl.SSLCon
     )
 
 
-def describe_resources(config: ToolConfig) -> str:
+def _resource_references(params: BaseModel) -> list[str]:
+    """
+    The resource names a test's parameters refer to (fields marked REFERS_TO_RESOURCE).
+
+    Nested parameter models are searched too (7.2's url_accepting_endpoint.resource).
+
+    Args:
+        params: A test's validated parameters, or one of their nested models.
+
+    Returns:
+        The names set, in field order.
+    """
+    names: list[str] = []
+    for name, field in type(params).model_fields.items():
+        value = getattr(params, name)
+        if isinstance(value, BaseModel):
+            names += _resource_references(value)
+        elif has_marker(field, REFERS_TO_RESOURCE) and isinstance(value, str):
+            names.append(value)
+    return names
+
+
+def describe_resources(config: ToolConfig, test_params: dict[str, BaseModel]) -> str:
     """
     Describe the prepared resources and who uses them, for validate-config.
 
+    A test uses a resource when one of its parameters marked REFERS_TO_RESOURCE
+    (src/core/assessment_test.py), at any depth, names it.
+
     Args:
-        config: The validated configuration.
+        config:      The validated configuration.
+        test_params: Every test's validated parameters (check_tests).
 
     Returns:
         E.g. "repository (tests.domain_7.test_7_2), forgejo-token (credentials,
@@ -397,9 +632,11 @@ def describe_resources(config: ToolConfig) -> str:
     users: dict[str, list[str]] = {name: [] for name in config.resources}
     if config.credentials.login_resource in users:
         users[config.credentials.login_resource].append("credentials, login")
-    injection = config.tests.domain_7.test_7_2.injection_resource
-    if injection in users:
-        users[injection].append("tests.domain_7.test_7_2")
+    for test_id, params in sorted(test_params.items()):
+        domain_key, test_key = section_keys(test_id)
+        for value in _resource_references(params):
+            if value in users:
+                users[value].append(f"tests.{domain_key}.{test_key}")
     return ", ".join(
         f"{name} ({'; '.join(used) if used else 'not used'})" for name, used in users.items()
     )
@@ -555,14 +792,17 @@ class AssessmentEngine:
         them to ExitCode.INFRASTRUCTURE. Phases 5-7 are non-blocking.
         """
         config, connections = self._phase_1_initialize()
-        check_tests(config)
+        test_params = check_tests(config)
         attack_surface = self._phase_2_openapi_discovery(config, connections)
         target, context, store = self._phase_3_build_contexts(
             config=config,
             attack_surface=attack_surface,
             connections=connections,
+            test_params=test_params,
         )
-        scheduled_batches, active_tests, not_run = self._phase_4_discover_and_schedule(config)
+        scheduled_batches, active_tests, not_run = self._phase_4_discover_and_schedule(
+            config, test_params
+        )
         if self._observer is not None:
             self._observer.run_planned(
                 RunPlan(
@@ -758,6 +998,7 @@ class AssessmentEngine:
         config: ToolConfig,
         attack_surface: AttackSurface,
         connections: ConnectionContexts,
+        test_params: dict[str, BaseModel],
     ) -> tuple[TargetContext, TestContext, EvidenceStore]:
         """
         Construct the three shared state objects for the pipeline run.
@@ -778,15 +1019,16 @@ class AssessmentEngine:
                        outputs are directly inspectable without parsing
                        evidence.json.
 
+        Args:
+            config:         The validated configuration.
+            attack_surface: The AttackSurface built in Phase 2.
+            connections:    The TLS contexts built in Phase 1.
+            test_params:    Every test's validated parameters (check_tests).
+
         Returns:
             Tuple of (TargetContext, TestContext, EvidenceStore).
         """
         log.info("pipeline_phase_3_context_construction_started")
-
-        # One model per test: the validated models of config.tests are collected
-        # by name (no copy, no hand-written wiring; all models are frozen).
-        # A test declared on one side only stops the run here (see from_domains).
-        tests_config = RuntimeTestsConfig.from_domains(config.tests)
 
         # Instantiate the gateway adapter when configured.
         # Injected into TargetContext so that WHITE_BOX tests access the admin plane
@@ -795,8 +1037,8 @@ class AssessmentEngine:
         # (src/core/gateway/__init__.py). It receives the Admin API headers, the
         # address of a separate health interface (gateway.health.url, for a
         # gateway that keeps live backend health outside the Admin API) and the
-        # configuration of tests 3.3 and 4.3 (which plugin and field names are a
-        # signing policy or a circuit breaker on gateways that need it).
+        # TLS contexts; which plugins hold a concept is the adapter's own
+        # knowledge (no test parameter reaches it).
         gateway = None
         gateway_config = config.gateway
         if gateway_config is not None:
@@ -809,8 +1051,6 @@ class AssessmentEngine:
                 health_api_url=(
                     str(gateway_config.health.url) if gateway_config.health is not None else None
                 ),
-                signing_config=config.tests.domain_3.test_3_3,
-                breaker_config=config.tests.domain_4.test_4_3,
                 admin_tls_context=connections.admin,
                 health_tls_context=connections.health,
             )
@@ -848,7 +1088,7 @@ class AssessmentEngine:
             credentials=config.credentials,
             resources=dict(config.resources),
             credential_placement=credential_placement,
-            tests_config=tests_config,
+            test_params=test_params,
             path_seed=dict(config.target.path_seed),
             tls_ca_bundle=config.target.tls.ca_bundle if config.target.tls is not None else None,
             tls_context=connections.target,
@@ -888,6 +1128,7 @@ class AssessmentEngine:
     def _phase_4_discover_and_schedule(
         self,
         config: ToolConfig,
+        test_params: dict[str, BaseModel],
     ) -> tuple[list[ScheduledBatch], list[BaseTest | ExternalToolTest], list[NotRunEntry]]:
         """
         Discover active tests (native + external) and build the topological schedule.
@@ -923,36 +1164,7 @@ class AssessmentEngine:
         """
         log.info("pipeline_phase_4_discovery_and_scheduling_started")
 
-        # --- Split execution.test_ids by registry ---
-        # None: no test_ids, normal filters. A set (possibly empty): run only
-        # these IDs; an empty part means no test of that kind.
-        native_allowed_ids: set[str] | None = None
-        external_allowed_ids: set[str] | None = None
-        if config.execution.test_ids:
-            requested_ids = set(config.execution.test_ids)
-            external_allowed_ids = {tid for tid in requested_ids if is_external_test_id(tid)}
-            native_allowed_ids = requested_ids - external_allowed_ids
-
-        # --- Native test discovery ---
-        registry = TestRegistry()
-        native_tests: list[BaseTest] = registry.discover(
-            min_priority=config.execution.min_priority,
-            enabled_strategies=set(config.execution.strategies),
-            allowed_ids=native_allowed_ids,
-        )
-
-        # --- External test discovery ---
-        ext_registry = ExternalTestRegistry()
-        external_tests: list[ExternalToolTest] = ext_registry.discover(
-            external_tools_config=config.external_tools,
-            min_priority=config.execution.min_priority,
-            enabled_strategies=set(config.execution.strategies),
-            allowed_ids=external_allowed_ids,
-        )
-
-        # --- Merge both lists ---
-        all_tests: list[BaseTest | ExternalToolTest] = [*native_tests, *external_tests]
-        not_run = sorted([*registry.not_run, *ext_registry.not_run], key=lambda e: e.test_id)
+        all_tests, not_run = select_tests(config)
 
         # A run that checks nothing must not end CLEAN (exit 0): stop with
         # INFRASTRUCTURE (no verdict). With test_ids every entry was already
@@ -982,11 +1194,17 @@ class AssessmentEngine:
             active_test_ids=active_test_ids,
         )
 
+        # Tests whose needs the configuration does not meet: said before any test
+        # runs; Phase 5 records them as SKIP with the same reason.
+        unmet = unmet_needs_by_test(all_tests, test_params, configuration_facts(config))
+        for test_id, reasons in unmet.items():
+            log.warning("test_will_skip_unmet_needs", test_id=test_id, reason=" ".join(reasons))
+
         total_scheduled = sum(b.size for b in scheduled_batches)
         log.info(
             "pipeline_phase_4_discovery_and_scheduling_completed",
-            native_tests=len(native_tests),
-            external_tests=len(external_tests),
+            native_tests=sum(1 for t in all_tests if not t.info.is_external),
+            external_tests=sum(1 for t in all_tests if t.info.is_external),
             total_active=len(all_tests),
             batch_count=len(scheduled_batches),
             total_scheduled=total_scheduled,
@@ -1072,6 +1290,11 @@ class AssessmentEngine:
                     requires_pass=list(test.info.requires_pass),
                     statuses={r.test_id: r.status for r in result_set.results},
                 )
+                if skip_reason is None:
+                    needs = unmet_needs(
+                        test.info, target.test_params.get(test_id), target_facts(target)
+                    )
+                    skip_reason = " ".join(needs) if needs else None
                 if skip_reason is not None:
                     result = test._make_skip(skip_reason)  # noqa: SLF001
                     log.info(

@@ -4,15 +4,21 @@
 > [`src/tests/domain_0/test_0_3_deprecated_api_enforcement.py`](../../../src/tests/domain_0/test_0_3_deprecated_api_enforcement.py) ·
 > **Verified:** 2026-10-05
 
-| | |
+<!-- [[[cog import generate_docs as g; cog.out(g.test_header("0.3", page=cog.inFile)) ]]] -->
+
+|  |  |
 |---|---|
 | Test ID | `0.3` |
 | Name | Deprecated APIs Are Disabled or Under Enhanced Monitoring |
 | Domain | 0 - API Discovery and Inventory Management |
 | Priority / strategy | P0 / BLACK_BOX |
 | CWE | CWE-1059 |
-| Depends on | none |
-| Configuration | none |
+| Tags | `deprecated-api`, `lifecycle`, `OWASP-API9:2023`, `RFC-8594` |
+| Prerequisites | none |
+| Needs | - |
+| Parameters | none |
+
+<!-- [[[end]]] -->
 
 ## What it checks
 

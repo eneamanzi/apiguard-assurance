@@ -1,8 +1,8 @@
 # Design Decisions
 
 > **Audience:** contributors, maintainers · **Status:** decisions in force · **Source of truth:** the code cited in
-> each decision; the decisions were taken with the project owner point by point (2026-10-11 to 2026-10-15) ·
-> **Verified:** 2026-10-15 (each consequence checked on the three labs)
+> each decision; the decisions were taken with the project owner point by point (2026-10-11 to 2026-10-17) ·
+> **Verified:** 2026-10-15 (each consequence checked on the three labs); D8 2026-10-17
 
 Why the tool is built the way it is, where the reason is not visible in the code: the problem, the decision, the
 alternatives left out and why, the consequences. What the tool does is described in [overview](overview.md) and in
@@ -16,6 +16,7 @@ git show 49f6e12:docs/project/connections-design.md   # D1-D4
 git show 49f6e12:docs/project/auth-survey.md          # D5
 git show 49f6e12:docs/project/resources-design.md     # D6
 git show 49f6e12:docs/project/gateway-concepts.md     # D7 (also gateway-survey.md, agnosticism-analysis.md)
+git log -- docs/project/tests-design.md                # D8: the last commit before its removal holds it
 ```
 
 | | Decision | Since |
@@ -27,6 +28,7 @@ git show 49f6e12:docs/project/gateway-concepts.md     # D7 (also gateway-survey.
 | [D5](#d5-a-credential-is-obtained-and-sent-separately) | A credential is obtained and sent separately | 2026-10-11 |
 | [D6](#d6-prepared-resources) | Prepared resources | 2026-10-14 |
 | [D7](#d7-neutral-gateway-concepts) | Neutral gateway concepts | 2026-10-11 |
+| [D8](#d8-a-test-is-self-contained) | A test is self-contained | 2026-10-17 |
 
 ## D1. Configuration organised by connection
 
@@ -38,8 +40,8 @@ adding certificate settings would have repeated the prefix once more for each pa
 **Decision.** One section per party, with the same shape: its address, its timeouts, its `tls` block, and what that
 party needs. `target` is the API, `specification` the OpenAPI document, `gateway` the gateway (`adapter`, `admin`,
 `health`). `execution` keeps only what the run does (`min_priority`, `strategies`, `test_ids`, `fail_fast`). The
-previous keys are rejected at startup with a message naming their new place (`src/config/schema/tool_config.py`,
-`_MOVED_TARGET_KEYS`, `_MOVED_EXECUTION_KEYS`).
+previous keys are unknown keys (the messages naming their new place were removed in block 10b: the tool has no
+users of the earlier structure; the CHANGELOG lists the moves).
 
 **Alternatives left out.** Adding `tls` keys with prefixes under `target` (`admin_api_ca_bundle`, ...): fewer changes
 for existing configurations, but the same idea written in a different way for each party, and the prefixes grow with
@@ -184,7 +186,7 @@ request, values taken from its JSON response, and an optional delete request sen
   (`credential`, `basic`, `none`); the role that created a resource deletes it.
 - **Login on top of it:** `auth_type: login` with `login_resource`: the credential is the response value
   `credential`; a delete request, when present, deletes it at the end and lets 1.4 revoke one. 1.4 takes its check
-  request from the configuration (`verify_request`); random names (`apiguard-{random}`) mean two runs never collide.
+  request from the configuration (`protected_endpoint`); random names (`apiguard-{random}`) mean two runs never collide.
 - **Secrets:** what gives access to the target (the value `credential`, passwords, Basic values) is masked; what
   explains what the tool created (names, ids) stays readable.
 - **Checked at startup** (exit 10): a resource used but not defined, an unknown placeholder, a response value used
@@ -239,6 +241,65 @@ Sources: [Kong Admin API entities](https://developer.konghq.com/gateway/entities
 [Kong health checks and circuit breakers](https://developer.konghq.com/gateway/traffic-control/health-checks-circuit-breakers/),
 [APISIX Admin API](https://apisix.apache.org/docs/apisix/admin-api/),
 [APISIX Control API](https://apisix.apache.org/docs/apisix/control-api/).
+
+## D8. A test is self-contained
+
+**Problem.** Adding a test meant touching up to ten places (a parameter model in `src/test_config/`, a copy of it in
+`RuntimeTestsConfig`, nine class attributes checked by a hand-written validator, a block in `config.example.yaml`,
+the catalogue row, the page header, the parameter table, the strategy and priority lists, ...), six of which
+nothing checked, and the copies had already drifted (the catalogue named Forgejo and Kong where the tests no longer
+did). A forgotten copy gave a valid `validate-config` and a run stopped by a raw Pydantic error. The engine and the
+gateway adapters knew tests 3.3, 4.3 and 7.2 by name.
+
+**Decision.** Every fact about a test is written once, in its module, and the rest is derived from it:
+
+- **Declaration:** one frozen `TestInfo` (`src/core/test_metadata.py`): `id`, `name`, `priority`, `strategy`,
+  `cwe`, `tags`, `depends_on`, `requires_pass`, `tool` (external tests), `needs`; the domain is the first number of
+  the ID. Results keep their report names (`test_id`, `test_name`, `cwe_id`, ...).
+- **Parameters:** the model lives in the test module and is named in the class, `BaseTest[Test21Params]`; the test
+  reads `self.params(target)`, typed (mypy checks every name) and only its own. The `tests:` section is validated
+  after test discovery against the declared models, with the same messages as any key
+  (`src/config/tests_section.py`); the keys stay `tests.domain_<D>.test_<D>_<N>.<param>`, derived from the ID
+  (YAML reads `2.10` as `2.1`, so IDs cannot be keys). A model checks its values against the rest of the
+  configuration through the validation context (7.2 and `resources`).
+- **One base, one discovery:** `AssessmentTest` (`src/core/assessment_test.py`) holds the declaration, the
+  parameters and the result helpers for native and external tests; one discovery (`src/core/test_discovery.py`)
+  stops the run for any test that cannot be used (a module that cannot be imported or is outside a package, a
+  missing or invalid declaration, a duplicate ID): a test left out silently would read as a guarantee that holds.
+- **Needs:** what a test needs from the configuration (`Need`: `ADMIN_ACCOUNT`, `USER_ACCOUNT`, `GATEWAY`,
+  `REVOCABLE_LOGIN`; a parameter marked `NEEDED_TO_RUN`) is declared; the engine checks it in one place
+  (`src/core/test_needs.py`), records SKIP before the test runs with a uniform reason and warns before the first
+  test; what only the target can reveal stays a SKIP inside the test.
+- **Generated documentation:** catalogue, page headers, tests by strategy and priority, the tests chapter of
+  `configuration.md` and the tests section of `config.example.yaml` are written by `scripts/generate_docs.py`
+  between Cog markers (`hatch run dev:gen`); `dev:check` fails when one is out of date or a test has no page.
+- **Gateway knowledge:** the plugin and field names of a gateway are its adapter's constants (Kong's `hmac-auth`,
+  its breaker plugins), not test parameters; the engine passes no test parameter to an adapter.
+- **Integration:** `apiguard list-tests [--config] [--json]` gives every declaration, the parameters' JSON Schema
+  and, for a configuration, which tests run and why the others SKIP.
+- **Names:** a parameter the user gives about the target is named by what it is, not by what the test does with it
+  (owner): `protected_endpoint` (1.4, an endpoint that requires authentication), `url_accepting_endpoint` (7.2, an
+  endpoint that accepts a URL, with its `path`, `body` and `resource` together), `http_url` (1.5),
+  `session_cookie_paths` (1.6). Thresholds and probe settings may describe the test's behaviour (`max_requests`).
+
+**Alternatives left out.** Checks comparing the hand-written copies (nine places still written by hand); generating
+only the documentation (the copy in `RuntimeTestsConfig` and the coupling stay); a decorator on the class (Bandit's
+style: the same facts, less visible); a YAML file per test (Nuclei's style: two files again, and the tests' logic is
+code); plugin names as gateway options (a name without the adapter knowing the plugin's fields reads nothing);
+documentation built only in a site (MkDocs, Sphinx: the files on GitHub incomplete); a marker parser of our own
+(what Cog does).
+
+**Consequences.** A new test is its module and its page; everything else is generated or checked (trial
+2026-10-17: two tests, four hand-written files, both ran on the lab). Tests written outside the tool must use
+`TestInfo` and the parameter model (Breaking, CHANGELOG). Prior art with the same shape: ESLint rules (`meta` with
+the options' schema), Ruff (rule pages generated), Bandit (`@test_id`, `@takes_config`), Pylint
+(`--generate-toml-config`), Nuclei (`info` block).
+
+Sources: [Cog, running cog](https://cog.readthedocs.io/en/latest/running.html),
+[PEP 696, type parameter defaults](https://peps.python.org/pep-0696/),
+[Pydantic validation context](https://docs.pydantic.dev/latest/concepts/validators/#validation-context),
+[Kong hmac-auth schema 3.9.0](https://github.com/Kong/kong/blob/3.9.0/kong/plugins/hmac-auth/schema.lua),
+[APISIX hmac-auth 3.13.0](https://github.com/apache/apisix/blob/3.13.0/apisix/plugins/hmac-auth.lua).
 
 ## See also
 

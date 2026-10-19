@@ -8,7 +8,9 @@
 
 How to run the tool from another program and use what it produces. Every command on this page was run as written.
 What to configure on the target side is in [Configure a target](../usage/configure-a-target.md); what each test
-does is in the [test catalogue](../../tests/README.md).
+does is in the [test catalogue](../../tests/README.md). A program that needs the list of tests, their parameters
+(as JSON Schema) and which of them can run with a given configuration reads it from `apiguard list-tests --json`
+([CLI reference](../../reference/cli.md#list-tests)).
 
 ## 1. What you integrate
 

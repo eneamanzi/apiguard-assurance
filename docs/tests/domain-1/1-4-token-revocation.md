@@ -3,17 +3,24 @@
 > **Audience:** analysts, contributors · **Status:** implemented (v0.1.0) · **Source of truth:**
 > [`src/tests/domain_1/test_1_4_token_revocation.py`](../../../src/tests/domain_1/test_1_4_token_revocation.py),
 > [`src/tests/helpers/auth_login.py`](../../../src/tests/helpers/auth_login.py) · **Verified:** 2026-10-14 (login
-> resource and `verify_request` on the Forgejo labs), 2026-10-05
+> resource and `protected_endpoint` on the Forgejo labs), 2026-10-05
 
-| | |
+<!-- [[[cog import generate_docs as g; cog.out(g.test_header("1.4", page=cog.inFile)) ]]] -->
+
+|  |  |
 |---|---|
 | Test ID | `1.4` |
 | Name | Revoked Token Rejected After Deletion |
 | Domain | 1 - Identity and Authentication |
-| Priority / strategy | P2 / WHITE_BOX (the API's administrator account) |
+| Priority / strategy | P2 / WHITE_BOX |
 | CWE | CWE-613 |
-| Depends on | none |
-| Configuration | [`tests.domain_1.test_1_4`](../../reference/configuration.md#testsdomain_1test_1_4---token-revocation), admin credentials |
+| Tags | `authentication`, `token-revocation`, `OWASP-API2:2023`, `RFC-7009`, `OWASP-ASVS-V7.4` |
+| Prerequisites | none |
+| Needs | `ADMIN_ACCOUNT`, `REVOCABLE_LOGIN`, `protected_endpoint` |
+| Parameters | [`tests.domain_1.test_1_4`](../../reference/configuration.md#testsdomain_1test_1_4) |
+
+<!-- [[[end]]] -->
+
 
 ## What it checks
 
@@ -30,11 +37,11 @@ case gives SKIP "Not applicable".
    deletion is registered for teardown as a safety net.
 2. The method revokes it: the resource's delete request, sent at once (Forgejo:
    `DELETE /api/v1/users/{username}/tokens/{id}`).
-3. Re-use the revoked credential: `tests.domain_1.test_1_4.verify_request` (Forgejo labs: `GET /api/v1/user`), sent
+3. Re-use the revoked credential: `tests.domain_1.test_1_4.protected_endpoint` (Forgejo labs: `GET /api/v1/user`), sent
    as the run's credential placement says (on the Forgejo labs `Authorization: token <value>`).
 4. Oracle on step 3: `2xx` → FAIL; any other status → PASS.
 
-No path is written in the test: the token API comes from the login resource, the check from `verify_request`. The
+No path is written in the test: the token API comes from the login resource, the check from `protected_endpoint`. The
 test does not check that the credential worked before the revocation (Q-29).
 
 ## Outcomes
@@ -43,7 +50,7 @@ test does not check that the credential worked before the revocation (Q-29).
 |---|---|
 | PASS | The revoked token was not accepted (step 3 returned a non-`2xx` status). |
 | FAIL | The revoked token was accepted (`2xx`). |
-| SKIP | No API credentials configured; the authentication method cannot revoke a credential ("Not applicable: the authentication method '<auth_type>' cannot revoke a credential ..."); no `verify_request` configured; no admin account configured. |
+| SKIP | Recorded by the engine before the test runs, one reason per missing need: no admin account ("Needs ADMIN_ACCOUNT: ..."), an authentication method that cannot revoke a credential ("Needs REVOCABLE_LOGIN: ..."), no `protected_endpoint` ("Needs tests.domain_1.test_1_4.protected_endpoint: not set ..."). |
 | ERROR | Creation or revocation of the temporary credential failed (the message names the resource and the status), or an unexpected exception. |
 
 References: CWE-613, OWASP-API2:2023, RFC-7009, OWASP-ASVS-v5.0.0-V7.4, NIST-SP-800-63B-4-S5.1.
@@ -60,7 +67,7 @@ References: CWE-613, OWASP-API2:2023, RFC-7009, OWASP-ASVS-v5.0.0-V7.4, NIST-SP-
 ## Prerequisites and effects on the target
 
 - Admin username and password (`credentials.admin_*`), `auth_type: login` with a login resource that has a delete
-  request, and `verify_request`.
+  request, and `protected_endpoint`.
 - **Creates and revokes a credential** on the admin account (Forgejo: an API token). If the run is interrupted
   between steps 1 and 2, teardown (Phase 6) deletes it.
 

@@ -6,15 +6,22 @@
 > [`src/tests/helpers/resources.py`](../../../src/tests/helpers/resources.py) · **Verified:** 2026-10-14 (injection
 > endpoint and prepared resource), 2026-10-05
 
-| | |
+<!-- [[[cog import generate_docs as g; cog.out(g.test_header("7.2", page=cog.inFile)) ]]] -->
+
+|  |  |
 |---|---|
 | Test ID | `7.2` |
 | Name | Server-Side Request Forgery (SSRF) Prevention |
 | Domain | 7 - Business Logic and Sensitive Flows |
-| Priority / strategy | P0 / GREY_BOX (the only P0 test that needs credentials) |
+| Priority / strategy | P0 / GREY_BOX |
 | CWE | CWE-918 |
-| Depends on | none |
-| Configuration | [`tests.domain_7.test_7_2`](../../reference/configuration.md#testsdomain_7test_7_2---ssrf-prevention), `user_a` credentials |
+| Tags | `ssrf`, `business-logic`, `OWASP-API7:2023`, `CWE-918` |
+| Prerequisites | none |
+| Needs | `USER_ACCOUNT`, `url_accepting_endpoint` |
+| Parameters | [`tests.domain_7.test_7_2`](../../reference/configuration.md#testsdomain_7test_7_2) |
+
+<!-- [[[end]]] -->
+
 
 ## What it checks
 
@@ -26,8 +33,8 @@ addresses, ambiguous URLs.
 
 1. Obtain the `user_a` credential with the configured authentication method (`credentials.auth_type`); every
    request sends it as the run's credential placement says.
-2. Prepare the injection endpoint (`injection_path_template` and `injection_body_template`; no default: unset, the
-   test returns SKIP). With `injection_resource`, the [prepared resource](../../reference/configuration.md#resources)
+2. Prepare the endpoint that accepts a URL (`url_accepting_endpoint`: its `path` and `body`; no default: unset,
+   the test returns SKIP). With its `resource`, the [prepared resource](../../reference/configuration.md#resources)
    is created once for `user_a` (deletion registered for teardown) and its values fill the placeholders of the path
    and the body. On the Forgejo labs it is a repository and the path is `/api/v1/repos/{owner}/{repo}/hooks`;
    webhooks are created inactive and go with the repository. Without it the path is used as written (crAPI).
@@ -67,15 +74,15 @@ Oracle per response:
 |---|---|
 | PASS | Every payload rejected. InfoNotes for timeouts and for the skipped redirect sub-test. |
 | FAIL | At least one payload accepted. The result carries **one consolidated finding** stating how many payloads were accepted; per-payload detail is in the transaction log and `evidence.json`. |
-| SKIP | No injection endpoint configured (the default); no API credentials or no `user_a` credential; no payload category enabled. |
-| ERROR | Token acquisition failed; the `injection_resource` could not be created (the message names the resource, the request and the status); or unexpected exception. |
+| SKIP | Recorded by the engine before the test runs: no `user_a` credentials ("Needs USER_ACCOUNT: ...") or no `url_accepting_endpoint` (the default; "Needs tests.domain_7.test_7_2.url_accepting_endpoint: not set ..."). By the test: no payload category enabled. |
+| ERROR | Token acquisition failed; the endpoint's `resource` could not be created (the message names the resource, the request and the status); or unexpected exception. |
 
 References: OWASP-API7:2023, CWE-918, OWASP-ASVS-v5.0.0-V1.3.6, NIST-SP-800-204-S3.2.2.
 
 ## Prerequisites and effects on the target
 
 - `user_a` username and password.
-- With `injection_resource` (Forgejo labs): creates one resource, a repository, and up to 73 inactive webhooks on
+- With the endpoint's `resource` (Forgejo labs): creates one resource, a repository, and up to 73 inactive webhooks on
   it; teardown deletes the repository, and the webhooks with it.
 - Without it: **nothing is registered for teardown**. On a vulnerable target each accepted payload may create a
   persistent object (the request is a real `POST` with a valid token); remove them manually.
@@ -88,8 +95,8 @@ References: OWASP-API7:2023, CWE-918, OWASP-ASVS-v5.0.0-V1.3.6, NIST-SP-800-204-
 
 ## Configuration
 
-Set `injection_path_template` and `injection_body_template` (with `"{ssrf_url}"`), and `injection_resource` when the
-endpoint belongs to an object that must exist first, for the target's URL-accepting endpoint: Forgejo webhooks on the
+Set `url_accepting_endpoint` to the target's endpoint that accepts a URL: its `path`, its `body` (with
+`"{ssrf_url}"`), and its `resource` when the endpoint belongs to an object that must exist first: Forgejo webhooks on the
 resource `repository` in [`test-environments/forgejo-kong/config.yaml`](../../../test-environments/forgejo-kong/config.yaml),
 cRAPI's fixed path in [`test-environments/crapi-kong/config.yaml`](../../../test-environments/crapi-kong/config.yaml). Adjust the keyword lists to the target's error messages so
 that rejections are classified precisely. `ssrf_request_timeout_ms` has no effect (Q-24).

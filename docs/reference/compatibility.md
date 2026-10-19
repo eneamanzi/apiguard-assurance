@@ -37,12 +37,12 @@ return SKIP with a reason naming what is missing; 0.2 and 6.4 run anyway, with t
 | 0.1, 1.1, 1.5, 4.1, 6.2 | the specification and the target URL only | - | ran | ran | ran |
 | 0.2 | the gateway's server identifiers (`gateway_server_identifiers`; default includes Kong's) | a 404 with another gateway's `Server` header is reported as coming from the backend (false finding) | ran | ran | ran (set to `apisix`) |
 | 0.3 | operations marked `deprecated` in the specification, without path parameters | SKIP | SKIP (all have path parameters) | SKIP (none marked) | SKIP (as Forgejo + Kong) |
-| 1.4 | `auth_type: login` with a login resource that has a delete request, and `verify_request` | SKIP "Not applicable", or SKIP naming `verify_request` | ran | SKIP (no revocation) | ran |
+| 1.4 | `auth_type: login` with a login resource that has a delete request, and `protected_endpoint` | SKIP naming what is missing | ran | SKIP (no revocation) | ran |
 | 1.6 | session cookies set by the target (`session_cookie_names`) | SKIP | SKIP | SKIP | SKIP |
 | 2.1 | credentials and `admin_endpoint_paths` | SKIP naming the key | ran | SKIP (not configured) | ran |
 | 3.3, 4.2, 4.3 | a gateway adapter (`kong` or `apisix`) and access to its Admin API | SKIP with the reason (no adapter, not supported, not accessible) | ran | ran | ran |
 | 6.4 | sub-test A: the gateway's block message (`gateway_block_body_fragment`; default is Kong's); sub-test B: a gateway adapter | without the message, a blocked endpoint is labelled blocked by the application, not by the gateway (same verdict); without an adapter, sub-test B gives a note and sub-test A still runs | ran | ran | ran (message set) |
-| 7.2 | credentials and the injection endpoint keys (and `injection_resource` when the endpoint belongs to an object) | SKIP naming the keys | ran (resource `repository`) | ran (fixed path) | ran (resource `repository`) |
+| 7.2 | credentials and `url_accepting_endpoint` (with its `resource` when the endpoint belongs to an object) | SKIP naming what is missing | ran (resource `repository`) | ran (fixed path) | ran (resource `repository`) |
 | ext.0.1.nuclei, ext.1.5.testssl, ext.1.5.sslyze | the tool installed | SKIP | ran | ran | ran |
 
 "Ran" means the test reached a verdict (PASS or FAIL), not that the verdict is right: verdict correctness is the

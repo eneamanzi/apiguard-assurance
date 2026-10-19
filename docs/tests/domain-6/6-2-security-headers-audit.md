@@ -4,15 +4,21 @@
 > [`src/tests/domain_6/test_6_2_security_headers_audit.py`](../../../src/tests/domain_6/test_6_2_security_headers_audit.py),
 > [`src/tests/helpers/response_inspector.py`](../../../src/tests/helpers/response_inspector.py) · **Verified:** 2026-10-05
 
-| | |
+<!-- [[[cog import generate_docs as g; cog.out(g.test_header("6.2", page=cog.inFile)) ]]] -->
+
+|  |  |
 |---|---|
 | Test ID | `6.2` |
 | Name | Security Headers Configured Appropriately |
 | Domain | 6 - Configuration and Hardening |
-| Priority / strategy | P3 / BLACK_BOX (network access only; the methodology calls it a configuration audit) |
+| Priority / strategy | P3 / BLACK_BOX |
 | CWE | CWE-16 |
-| Depends on | none |
-| Configuration | [`tests.domain_6.test_6_2`](../../reference/configuration.md#testsdomain_6test_6_2---security-headers-audit) |
+| Tags | `hardening`, `headers`, `OWASP-API8`, `ASVS-V3.4`, `hsts`, `csp` |
+| Prerequisites | none |
+| Needs | - |
+| Parameters | [`tests.domain_6.test_6_2`](../../reference/configuration.md#testsdomain_6test_6_2) |
+
+<!-- [[[end]]] -->
 
 ## What it checks
 

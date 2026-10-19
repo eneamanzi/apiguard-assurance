@@ -184,12 +184,12 @@ tests:
   domain_1:
     test_1_4:
       # Sent with the revoked token: Forgejo's profile of the authenticated user.
-      verify_request:
+      protected_endpoint:
         method: GET
         path: /api/v1/user
     test_1_5:
       # The lab's HTTP listener (APISIX, host port 10000) redirects to HTTPS.
-      http_probe_url: "http://localhost:10000/api/v1/version"
+      http_url: "http://localhost:10000/api/v1/version"
   domain_2:
     test_2_1:
       # Forgejo admin-only endpoint, as in the Forgejo + Kong lab.
@@ -217,18 +217,19 @@ tests:
   domain_7:
     test_7_2:
       # Forgejo webhooks, as in the Forgejo + Kong lab: the resource 'repository' is created first.
-      injection_resource: repository
-      injection_path_template: "/api/v1/repos/{owner}/{repo}/hooks"
-      injection_body_template:
-        type: "forgejo"
-        config:
-          url: "{ssrf_url}"
-          content_type: "json"
-          secret: "{random_secret}"
-        events:
-          - "push"
-        active: false
-        branch_filter: "*"
+      url_accepting_endpoint:
+        resource: repository
+        path: "/api/v1/repos/{owner}/{repo}/hooks"
+        body:
+          type: "forgejo"
+          config:
+            url: "{ssrf_url}"
+            content_type: "json"
+            secret: "{random_secret}"
+          events:
+            - "push"
+          active: false
+          branch_filter: "*"
 
 # External tools (installed by install_tools.sh): all three, about 5 minutes more.
 external_tools:

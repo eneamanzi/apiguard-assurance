@@ -1,7 +1,8 @@
 # CLI Reference
 
 > **Audience:** users, integrators · **Status:** stable · **Source of truth:** `src/cli.py` (Typer app) ·
-> **Verified:** 2026-10-05, v0.1.0 (`--help` output and test invocations); `.env` and `--env-file` 2026-10-08
+> **Verified:** 2026-10-05, v0.1.0 (`--help` output and test invocations); `.env` and `--env-file` 2026-10-08; `list-tests` and the
+> SKIP lines of `validate-config` 2026-10-17
 
 ```
 apiguard [COMMAND] [OPTIONS]
@@ -14,6 +15,7 @@ The entry point is installed as `apiguard`. From a source checkout without insta
 |---|---|
 | [`run`](#run) | Run the assessment against the configured target. |
 | [`validate-config`](#validate-config) | Validate `config.yaml` (Phase 1 and the test checks) without contacting the target. |
+| [`list-tests`](#list-tests) | List the tests with their declaration, needs and parameters; with a configuration, which run and which SKIP. |
 | [`generate-seed`](#generate-seed) | Generate a `path_seed` template from an OpenAPI specification. |
 | [`version`](#version) | Print the tool version. |
 
@@ -103,11 +105,52 @@ contact the target or the gateway. A filter combination that selects no test is 
 | `--log-format` | `console` | As for `run`. Log level is fixed to `warning`. |
 | `--env-file` | `.env` in the working directory | As for `run`. |
 
-On success prints `Configuration valid. Target: <base_url>` and exits `0`. On failure prints
+On success prints `Configuration valid. Target: <base_url>` (then the credential placement and the resources,
+when configured, and `N of the M selected tests will SKIP (what they need is not configured):` with one line per
+such test and its reason) and exits `0`. On failure prints
 `Configuration invalid: <reason>` on stderr and exits `10`. Detected failures include: file not found,
 unresolved `${VAR}`, invalid values, violated cross-field rules, unknown or misspelled keys (see
 [`configuration.md`](configuration.md#validation-rules)). Every schema error is listed, one per line, with its
 dotted path.
+
+## `list-tests`
+
+```
+apiguard list-tests [--config PATH] [--json] [--env-file PATH]
+```
+
+Lists every test, native and external, from the tests' own declarations (`TestInfo` and the parameter model in
+each test module). Does not contact the target.
+
+| Option | Default | Description |
+|---|---|---|
+| `--config`, `-c` | none | Also say, for this configuration, whether the run selects each test (`execution.*` filters, external tools' switches) and why it would SKIP for an unmet need. The configuration is checked as by `validate-config` (exit `10` if invalid). |
+| `--json` | off | Print `{"tests": [...]}` on stdout instead of the text list. |
+| `--env-file` | `.env` in the working directory | As for `run`; read only with `--config`. |
+
+Text output: one line per test (`ID  P<n>  STRATEGY  name  [needs ...]`); with `--config` a second line, `runs`,
+`not selected` or `SKIP: <reasons>`.
+
+JSON output, one object per test (native first, then external, by ID):
+
+| Field | Type | Meaning |
+|---|---|---|
+| `id`, `name`, `priority`, `strategy`, `cwe`, `tags`, `depends_on`, `requires_pass`, `tool` | as in `TestInfo` | the declaration (`tool` is `null` for a native test) |
+| `needs` | list of strings | `ADMIN_ACCOUNT`, `USER_ACCOUNT`, `GATEWAY`, `REVOCABLE_LOGIN` ([configuration](configuration.md#tests)) |
+| `domain` | int | the methodology domain (first number of the ID) |
+| `source` | string | `native` or `external` |
+| `parameters_key` | string \| null | the test's section in `config.yaml` (`tests.domain_2.test_2_1`), `null` when it has no parameters |
+| `needed_parameters` | list of strings | parameters the test cannot run without |
+| `parameters_schema` | object \| null | JSON Schema of the parameters (Pydantic `model_json_schema()`: types, ranges, defaults, descriptions) |
+| `selected` | bool | with `--config` only: the run selects the test |
+| `unmet_needs` | list of strings | with `--config` only: why it would SKIP (empty when it can run) |
+
+Exit codes: `0` listed, `10` a test cannot be used or the configuration is invalid.
+
+```bash
+apiguard list-tests
+apiguard list-tests -c config.yaml --json
+```
 
 ## `generate-seed`
 

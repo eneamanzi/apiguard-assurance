@@ -5,9 +5,8 @@ RuntimeCredentials: the credentials section of config.yaml. It is the one
 model of that section: Phase 1 validates config.yaml with it, and the engine
 puts the same object into TargetContext (target.credentials) in Phase 3.
 
-The per-test parameters are not here: they live in src/test_config/ (one
-model per test, the same model that validates config.yaml) and reach the
-tests through TargetContext.tests_config (src/test_config/runtime.py).
+The per-test parameters are not here: each test declares its own model in
+its module (BaseTest[Test21Params]) and reads it with self.params(target).
 
 Authentication is decided in two parts (docs/architecture/design-decisions.md, D5):
     auth_type      how a credential is obtained (the method);
@@ -47,20 +46,6 @@ class CredentialLocation(StrEnum):
     QUERY = "query"
     COOKIE = "cookie"
 
-
-# auth_type values replaced by 'login' with a prepared resource (Phase E,
-# docs/architecture/design-decisions.md D6): v0.1.0 had jwt_login and forgejo_token,
-# json_login existed only before the Phase E release. Rejected with the new form.
-_REPLACED_AUTH_TYPES: frozenset[str] = frozenset({"jwt_login", "json_login", "forgejo_token"})
-# Keys of json_login replaced by the login resource's create request and values.
-_REPLACED_LOGIN_KEYS: frozenset[str] = frozenset(
-    {"login_endpoint", "username_body_field", "password_body_field", "token_response_path"}
-)
-_LOGIN_FORM_HINT: str = (
-    "use auth_type: login with credentials.login_resource naming a prepared resource "
-    "(resources:) whose create request logs in and whose value 'credential' is the token; "
-    "see config.example.yaml"
-)
 
 # Roles, as (role, username field, password field, token field). The role
 # names are the ROLE_* constants of src/core/context.py, not imported here to
@@ -203,21 +188,6 @@ class RuntimeCredentials(BaseModel):
     # ------------------------------------------------------------------
     # Validation
     # ------------------------------------------------------------------
-
-    @model_validator(mode="before")
-    @classmethod
-    def reject_replaced_auth_type(cls, data: object) -> object:
-        """Reject the auth_type values and keys replaced by 'login', showing the new form."""
-        if isinstance(data, dict):
-            old = data.get("auth_type")
-            if isinstance(old, str) and old in _REPLACED_AUTH_TYPES:
-                raise ValueError(f"auth_type '{old}' was replaced: {_LOGIN_FORM_HINT}.")
-            replaced = sorted(_REPLACED_LOGIN_KEYS & set(data))
-            if replaced:
-                raise ValueError(
-                    f"credentials.{', credentials.'.join(replaced)} replaced: {_LOGIN_FORM_HINT}."
-                )
-        return data
 
     @model_validator(mode="after")
     def validate_credentials(self) -> RuntimeCredentials:

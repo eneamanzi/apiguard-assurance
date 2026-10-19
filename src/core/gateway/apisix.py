@@ -102,6 +102,10 @@ _ETCD_KEY_ROUTE: str = "/apisix/routes/{id}"
 _ETCD_KEY_SERVICE: str = "/apisix/services/{id}"
 
 _PLUGIN_SIGNING: str = "hmac-auth"
+# hmac-auth checks the request's date only when clock_skew > 0
+# (apisix/plugins/hmac-auth.lua: "if conf.clock_skew and conf.clock_skew > 0");
+# 3.13.0 rejects 0 in its schema (minimum = 1), earlier versions allowed it.
+_SIGNING_NO_DATE_CHECK: float = 0.0
 _PLUGIN_BREAKER: str = "api-breaker"
 
 # Control API node states (APISIX health check documentation: the "mostly"
@@ -273,6 +277,8 @@ class ApisixGatewayAdapter(BaseGatewayAdapter):
         for instance in self._plugin_instances(_PLUGIN_SIGNING):
             algorithms = instance.config.get("allowed_algorithms")
             body = instance.config.get("validate_request_body")
+            window = _number_or_none(instance.config.get("clock_skew"))
+            unlimited = window is not None and window <= _SIGNING_NO_DATE_CHECK
             items.append(
                 SigningPolicy(
                     scope=instance.scope,
@@ -281,7 +287,8 @@ class ApisixGatewayAdapter(BaseGatewayAdapter):
                     algorithms=(
                         tuple(str(a) for a in algorithms) if isinstance(algorithms, list) else None
                     ),
-                    replay_window_seconds=_number_or_none(instance.config.get("clock_skew")),
+                    replay_window_seconds=None if unlimited else window,
+                    replay_unlimited=unlimited,
                     required_signed_headers=tuple(
                         str(h) for h in instance.config.get("signed_headers") or ()
                     ),

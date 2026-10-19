@@ -24,7 +24,7 @@ applicable"):
     1. Create a temporary credential under the admin account (registered as
        a secret and for teardown by the method).
     2. Revoke it.
-    3. Send tests.domain_1.test_1_4.verify_request with it, as the credential
+    3. Send it to tests.domain_1.test_1_4.protected_endpoint, as the credential
        placement of the run says (no request configured: SKIP).
     4. Oracle: 401/403 → PASS; 2xx → FAIL.
 
@@ -48,18 +48,97 @@ Dependency rule:
 from __future__ import annotations
 
 import structlog
+from pydantic import BaseModel, Field, field_validator
 
+from src.core.assessment_test import NEEDED_TO_RUN
 from src.core.auth_placement import RequestAuthParts
 from src.core.client import SecurityClient
 from src.core.context import ROLE_ADMIN, TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.exceptions import AuthenticationSetupError
 from src.core.models import TestResult, TestStrategy
-from src.core.test_metadata import TestInfo
+from src.core.test_metadata import Need, TestInfo
 from src.tests.base import BaseTest
 from src.tests.helpers.auth import credential_parts, revocation_capability
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Parameters: tests.domain_1.test_1_4 in config.yaml
+# ---------------------------------------------------------------------------
+
+# Methods of the protected endpoint the revoked credential is sent to.
+TEST_14_PROTECTED_ENDPOINT_METHODS: tuple[str, ...] = ("GET", "POST", "PUT", "PATCH", "DELETE")
+
+TEST_14_PROTECTED_ENDPOINT_METHOD_DEFAULT: str = "GET"
+
+
+class Test14ProtectedEndpoint(BaseModel):
+    """An endpoint of the API that requires authentication (method and path)."""
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    method: str = Field(
+        default=TEST_14_PROTECTED_ENDPOINT_METHOD_DEFAULT,
+        description=f"HTTP method. Default {TEST_14_PROTECTED_ENDPOINT_METHOD_DEFAULT}.",
+    )
+    path: str = Field(
+        min_length=1,
+        description=(
+            "Path of an endpoint that requires authentication and answers 2xx to a valid "
+            "credential, e.g. '/api/v1/user'."
+        ),
+    )
+
+    @field_validator("method", mode="after")
+    @classmethod
+    def method_allowed(cls, value: str) -> str:
+        """Accept the usual HTTP methods, in any case; store uppercase."""
+        method = value.upper()
+        if method not in TEST_14_PROTECTED_ENDPOINT_METHODS:
+            raise ValueError(
+                f"method '{value}' is not supported: use one of "
+                f"{', '.join(TEST_14_PROTECTED_ENDPOINT_METHODS)}."
+            )
+        return method
+
+    @field_validator("path", mode="after")
+    @classmethod
+    def path_absolute(cls, value: str) -> str:
+        """Require a path starting with '/'."""
+        if not value.startswith("/"):
+            raise ValueError(f"path '{value}' must start with '/'.")
+        return value
+
+
+class Test14Params(BaseModel):
+    """
+    Tuning parameters for Test 1.4 (Revoked Token Rejected After Deletion).
+
+    The test creates a temporary credential for the admin account with the
+    authentication method (auth_type login: a new instance of the login
+    resource), revokes it (the resource's delete request), then sends it to
+    protected_endpoint: the revoked credential must be rejected (401/403).
+    Without protected_endpoint, or with a method that cannot revoke, the
+    engine records SKIP (NEEDED_TO_RUN, Need.REVOCABLE_LOGIN).
+
+    Reference: OWASP API2:2023, RFC 7009, OWASP ASVS v5.0.0 V7.4+V9,
+    NIST SP 800-63B-4 Section 5.1.
+    """
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    protected_endpoint: Test14ProtectedEndpoint | None = Field(
+        default=None,
+        examples=[{"method": "GET", "path": "/api/me"}],
+        json_schema_extra=NEEDED_TO_RUN,
+        description=(
+            "An endpoint of the API that requires authentication: method (default GET) and "
+            "path. The test sends the revoked credential to it, which must be rejected. No "
+            "default: unset, the test returns SKIP."
+        ),
+    )
+
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -85,13 +164,13 @@ _REFERENCES: list[str] = [
 ]
 
 
-class Test14TokenRevocation(BaseTest):
+class Test14TokenRevocation(BaseTest[Test14Params]):
     """
     Verify that a revoked API token is immediately rejected by the gateway.
 
     Creates a temporary token under the admin account, revokes it via the
     authentication method (login: the login resource's delete request), then
-    sends verify_request with it.
+    sends it to protected_endpoint.
     PASS if the gateway returns 401/403; FAIL if the revoked token is still
     accepted (2xx).
 
@@ -113,6 +192,7 @@ class Test14TokenRevocation(BaseTest):
             "RFC-7009",
             "OWASP-ASVS-V7.4",
         ),
+        needs=(Need.ADMIN_ACCOUNT, Need.REVOCABLE_LOGIN),
     )
 
     def execute(
@@ -129,45 +209,24 @@ class Test14TokenRevocation(BaseTest):
             1. create_temporary_credential: a credential for the admin account
                (registered as a secret and for teardown by the method).
             2. revoke_credential: revoke it now.
-            3. _verify_revocation: send verify_request with it, apply the oracle.
+            3. _verify_revocation: send it to protected_endpoint, apply the oracle.
 
         Returns:
             TestResult: PASS if the revoked token gets 401/403; FAIL if 2xx;
-            SKIP if credentials, the revocation capability or verify_request
-            are missing; ERROR on unexpected exception.
+            ERROR on unexpected exception. Without the admin credentials, a
+            method that can revoke or protected_endpoint the engine records SKIP
+            before running it (info.needs, NEEDED_TO_RUN).
         """
         try:
-            guard = self._requires_credentials(target)
-            if guard is not None:
-                return guard
-
+            # Needs ADMIN_ACCOUNT and REVOCABLE_LOGIN, protected_endpoint NEEDED_TO_RUN:
+            # the engine skips the test when one is missing.
             method = revocation_capability(target)
-            if method is None:
-                return self._make_skip(
-                    reason=(
-                        "Not applicable: the authentication method "
-                        f"'{target.credentials.auth_type}' cannot revoke a credential "
-                        "(auth_type login with a login resource that has a delete request can)."
-                    )
-                )
-            verify = target.tests_config.test_1_4.verify_request
-            if verify is None:
-                return self._make_skip(
-                    reason=(
-                        "No verification request configured: set "
-                        "tests.domain_1.test_1_4.verify_request to an endpoint that requires "
-                        "authentication (method and path)."
-                    )
-                )
-            if not target.credentials.has_admin():
-                return self._make_skip(
-                    reason=(
-                        f"No credentials for role '{ROLE_ADMIN}': the temporary credential is "
-                        "created under the admin account."
-                    )
-                )
+            endpoint = self.params(target).protected_endpoint
+            assert method is not None and endpoint is not None  # noqa: S101
 
-            log.info("test_1_4_starting", verify_method=verify.method, verify_path=verify.path)
+            log.info(
+                "test_1_4_starting", endpoint_method=endpoint.method, endpoint_path=endpoint.path
+            )
 
             try:
                 credential = method.create_temporary_credential(
@@ -193,8 +252,8 @@ class Test14TokenRevocation(BaseTest):
                 client=client,
                 store=store,
                 credential_auth=credential_parts(target, credential.value),
-                verify_method=verify.method,
-                verify_path=verify.path,
+                verify_method=endpoint.method,
+                verify_path=endpoint.path,
                 revoke_status=outcome.status_code,
             )
 

@@ -4,16 +4,24 @@
 > [`src/tests/domain_1/test_1_5_insecure_credential_transport.py`](../../../src/tests/domain_1/test_1_5_insecure_credential_transport.py) ·
 > **Verified:** 2026-10-05
 
-| | |
+<!-- [[[cog import generate_docs as g; cog.out(g.test_header("1.5", page=cog.inFile)) ]]] -->
+
+|  |  |
 |---|---|
 | Test ID | `1.5` |
 | Name | Credentials Not Transmitted via Insecure Channels |
 | Domain | 1 - Identity and Authentication |
-| Priority / strategy | P2 / BLACK_BOX (network access only; the methodology calls it a configuration audit) |
+| Priority / strategy | P2 / BLACK_BOX |
 | CWE | CWE-319 |
-| Depends on | none |
-| Configuration | [`tests.domain_1.test_1_5`](../../reference/configuration.md#testsdomain_1test_1_5---credentials-over-insecure-channels), `target.tls` |
-| Companion tests | [`ext.1.5.testssl`, `ext.1.5.sslyze`](../external/domain-1/ext-1-5-tls-analysis.md) (TLS protocols and ciphers) |
+| Tags | `transport-security`, `tls`, `hsts`, `OWASP-API2:2023`, `NIST-SP-800-52` |
+| Prerequisites | none |
+| Needs | - |
+| Parameters | [`tests.domain_1.test_1_5`](../../reference/configuration.md#testsdomain_1test_1_5) |
+
+<!-- [[[end]]] -->
+
+**Also uses:** `target.tls` (the trust of the HTTPS connection).
+**Companion tests:** [`ext.1.5.testssl`, `ext.1.5.sslyze`](../external/domain-1/ext-1-5-tls-analysis.md) (TLS protocols and ciphers).
 
 ## What it checks
 
@@ -26,10 +34,10 @@ compliant `Strict-Transport-Security` header. TLS protocol and cipher analysis i
 **Plain-HTTP target.** If `target.base_url` does not start with `https://`, the test returns FAIL immediately
 (no TLS at all) and does not run the sub-tests.
 
-**Sub-test 1, HTTP redirect** (if `http_probe_enabled`). URL: `http_probe_url` if set, otherwise `base_url`
+**Sub-test 1, HTTP redirect** (if `http_probe_enabled`). URL: `http_url` if set, otherwise `base_url`
 with `https://` replaced by `http://`. One `GET` without following redirects, sent directly with httpx (not through
 the tool's HTTP client, so it does not appear in the audit trail or in `evidence.json`), with the TLS context of
-`target.tls` (an `http_probe_url` given as `https://` is checked as the API's certificate is).
+`target.tls` (an `http_url` given as `https://` is checked as the API's certificate is).
 
 | Result | Verdict |
 |---|---|
@@ -72,7 +80,7 @@ Two read-only requests, no credentials, no Admin API.
 
 | Key | Effect |
 |---|---|
-| `http_probe_url` | Needed when HTTPS runs on a non-standard port: e.g. `https://localhost:8443` derives `http://localhost:8443/`, which hits the TLS listener and returns `400` (reported as a finding). Set the real HTTP listener, on a path the gateway routes, e.g. `http://localhost:8000/api/v1/version` (the labs redirect HTTP to HTTPS on API paths only, as Kong's `https_redirect_status_code` does). |
+| `http_url` | Needed when HTTPS runs on a non-standard port: e.g. `https://localhost:8443` derives `http://localhost:8443/`, which hits the TLS listener and returns `400` (reported as a finding). Set the real HTTP listener, on a path the gateway routes, e.g. `http://localhost:8000/api/v1/version` (the labs redirect HTTP to HTTPS on API paths only, as Kong's `https_redirect_status_code` does). |
 | `http_probe_enabled` | `false` skips sub-test 1. |
 | `expected_redirect_status_codes`, `http_probe_timeout_seconds`, `hsts_min_max_age_seconds` | Oracle tuning. |
 

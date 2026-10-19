@@ -4,15 +4,23 @@
 > [`src/tests/domain_6/test_6_4_hardcoded_credentials_audit.py`](../../../src/tests/domain_6/test_6_4_hardcoded_credentials_audit.py) ·
 > **Verified:** 2026-10-05
 
-| | |
+<!-- [[[cog import generate_docs as g; cog.out(g.test_header("6.4", page=cog.inFile)) ]]] -->
+
+|  |  |
 |---|---|
 | Test ID | `6.4` |
 | Name | Service Credentials Not Hardcoded or Exposed |
 | Domain | 6 - Configuration and Hardening |
-| Priority / strategy | P2 / WHITE_BOX (sub-test A works without Admin API; sub-test B needs it) |
+| Priority / strategy | P2 / WHITE_BOX |
 | CWE | CWE-798 |
-| Depends on | none |
-| Configuration | [`tests.domain_6.test_6_4`](../../reference/configuration.md#testsdomain_6test_6_4---hardcoded-credentials-audit), optionally `gateway.adapter` and `gateway.admin.url` |
+| Tags | `hardcoded-credentials`, `secret-management`, `configuration-audit`, `CWE-798`, `OWASP-API8:2023` |
+| Prerequisites | none |
+| Needs | - |
+| Parameters | [`tests.domain_6.test_6_4`](../../reference/configuration.md#testsdomain_6test_6_4) |
+
+<!-- [[[end]]] -->
+
+**Also uses:** `gateway.adapter` and `gateway.admin.url`, when configured (sub-test B; without them the test runs sub-test A only).
 
 ## What it checks
 

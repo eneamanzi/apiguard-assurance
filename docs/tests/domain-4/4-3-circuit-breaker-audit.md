@@ -4,15 +4,22 @@
 > [`src/tests/domain_4/test_4_3_circuit_breaker_audit.py`](../../../src/tests/domain_4/test_4_3_circuit_breaker_audit.py) ·
 > **Verified:** 2026-10-05
 
-| | |
+<!-- [[[cog import generate_docs as g; cog.out(g.test_header("4.3", page=cog.inFile)) ]]] -->
+
+|  |  |
 |---|---|
 | Test ID | `4.3` |
 | Name | Circuit Breaker Audit -- Dual-Check a 3 Livelli |
 | Domain | 4 - Availability and Resilience |
-| Priority / strategy | P1 / WHITE_BOX (gateway Admin API) |
+| Priority / strategy | P1 / WHITE_BOX |
 | CWE | CWE-400 |
-| Depends on | none |
-| Configuration | [`tests.domain_4.test_4_3`](../../reference/configuration.md#testsdomain_4test_4_3---circuit-breaker-audit), `gateway.adapter` and `gateway.admin.url` |
+| Tags | `availability`, `resilience`, `circuit-breaker`, `cascading-failure`, `passive-healthcheck`, `white-box`, `OWASP-API4` |
+| Prerequisites | none |
+| Needs | `GATEWAY` |
+| Parameters | [`tests.domain_4.test_4_3`](../../reference/configuration.md#testsdomain_4test_4_3) |
+
+<!-- [[[end]]] -->
+
 
 ## What it checks
 
@@ -24,8 +31,9 @@ does not exhaust the gateway and cause a cascading outage.
 No request is sent to the target API. Three levels, evaluated in order through the gateway adapter, plus an
 independent observability check. Kong OSS has no native circuit-breaker plugin, hence the fallback levels.
 
-**Level 1, native plugin.** Look for an installed plugin named in `accepted_cb_plugin_names` (default
-`circuit-breaker`). If found, the result is decided here:
+**Level 1, native plugin.** Read the gateway's circuit breakers: which plugins are circuit breakers is the adapter's
+knowledge (Kong: the third-party `circuit-breaker`, Kong OSS has none; APISIX: `api-breaker`). If one is found, the
+result is decided here:
 
 | Plugin state | Finding |
 |---|---|

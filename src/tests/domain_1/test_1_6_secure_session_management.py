@@ -22,7 +22,7 @@ Strategy: BLACK_BOX -- network access only (the methodology classifies it as a
     the tester has).
     Sends unauthenticated GET requests to the configured probe paths and
     inspects Set-Cookie response headers.  No Kong Admin API access is
-    required.  The _requires_admin_api guard is intentionally NOT applied.
+    required: the test declares no need.
 
 Priority: P3 -- Compliance and static best-practice.
     A missing cookie attribute is a defence-in-depth gap.  REST APIs that
@@ -32,7 +32,7 @@ Priority: P3 -- Compliance and static best-practice.
 Sub-tests:
 --------------------------------------------------------------------------
 Sub-test 1 -- Cookie attribute discovery
-    For each path in cookie_probe_paths, sends a GET without an
+    For each path in session_cookie_paths, sends a GET without an
     Authorization header.  Collects all Set-Cookie headers.  Filters to
     cookies whose names match session_cookie_names (case-insensitive).
     If no session cookies are found on any probe path, returns SKIP.
@@ -66,16 +66,119 @@ from __future__ import annotations
 import http.cookies
 
 import structlog
+from pydantic import BaseModel, Field, field_validator
 
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.models import EvidenceRecord, Finding, InfoNote, TestResult, TestStrategy
 from src.core.test_metadata import TestInfo
-from src.test_config.domain_1 import Test16Config
 from src.tests.base import BaseTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Parameters: tests.domain_1.test_1_6 in config.yaml
+# ---------------------------------------------------------------------------
+
+# Well-known session cookie names across common web frameworks.
+# The test inspects only cookies whose names appear in this list.
+TEST_16_SESSION_COOKIE_NAMES_DEFAULT: list[str] = [
+    "session",
+    "sid",
+    "PHPSESSID",
+    "JSESSIONID",
+    "connect.sid",
+    "_session",
+    "auth_session",
+    "user_session",
+]
+
+
+class Test16Params(BaseModel):
+    """
+    Tuning parameters for Test 1.6 (Secure Session Management).
+
+    Methodology reference: docs/knowledge/methodology/methodology.it.md Section 1.6.
+    Strategy: WHITE_BOX — Configuration Audit (P3).
+
+    The test probes the configured paths for Set-Cookie response headers
+    and audits each session cookie (identified by name) for the mandatory
+    security attributes: HttpOnly, Secure, and SameSite.
+
+    If no session cookies are found on any probed path, the test returns
+    SKIP with an info note that the API appears to use stateless token-based
+    authentication — which is the expected and compliant state for a REST API.
+
+    Session fixation empirical sub-test:
+        The full session fixation test requires a browser-level login flow
+        that is highly target-specific and cannot be implemented generically
+        in a config-driven tool.  It is therefore not implemented in this
+        version.  The test documents this gap via an InfoNote on PASS results.
+        Operators should perform the session fixation check manually following
+        the procedure in docs/knowledge/methodology/methodology.it.md Section 1.6.
+    """
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    session_cookie_paths: tuple[str, ...] = Field(
+        default_factory=lambda: ("/",),
+        description=(
+            "Paths of the API that set session cookies, read with a GET to collect them. "
+            "The test sends a GET to each path (unauthenticated) and collects "
+            "all Set-Cookie headers. "
+            "Extend this list to cover login pages or API roots that issue cookies. "
+            "Default: ['/']."
+        ),
+    )
+    session_cookie_names: tuple[str, ...] = Field(
+        default_factory=lambda: tuple(TEST_16_SESSION_COOKIE_NAMES_DEFAULT),
+        description=(
+            "Case-insensitive cookie names treated as session identifiers. "
+            "Cookies whose name appears in this list are subject to the "
+            "HttpOnly / Secure / SameSite attribute audit. "
+            "Default: well-known session cookie names across common web frameworks."
+        ),
+    )
+    check_samesite: bool = Field(
+        default=True,
+        description=(
+            "If True, validate the SameSite attribute on session cookies. "
+            "OWASP ASVS v5.0.0 V3.2.3 requires SameSite to prevent CSRF. "
+            "Set False only when the application legitimately requires cross-site "
+            "cookies and the risk is documented and accepted. Default: True."
+        ),
+    )
+    expected_samesite_value: str = Field(
+        default="Strict",
+        description=(
+            "Expected value for the SameSite cookie attribute (case-insensitive). "
+            "Accepted: 'Strict' (recommended, ASVS V3.2.3), 'Lax' (acceptable for "
+            "applications that require cross-origin GET requests). "
+            "'None' is never acceptable for a session cookie. Default: 'Strict'."
+        ),
+    )
+
+    @field_validator("session_cookie_names")
+    @classmethod
+    def session_cookie_names_not_empty(cls, v: tuple[str, ...]) -> tuple[str, ...]:
+        """
+        Reject an empty session_cookie_names list at configuration load time.
+
+        An empty list causes the test to silently SKIP on every target because
+        no cookie will ever match the empty set — masking real cookie attribute
+        violations.  Operators who want to skip the test entirely should use
+        the priority filter or strategy filter, not an empty name list.
+        """
+        if not v:
+            raise ValueError(
+                "session_cookie_names must contain at least one cookie name. "
+                "An empty list causes the test to SKIP on every target, silently "
+                "masking cookie attribute violations.  To skip this test, use the "
+                "min_priority filter instead of clearing this list."
+            )
+        return v
+
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -103,7 +206,7 @@ _REFERENCES: tuple[str, ...] = (
 _SAMESITE_FORBIDDEN_VALUE: str = "none"
 
 
-class Test16SecureSessionManagement(BaseTest):
+class Test16SecureSessionManagement(BaseTest[Test16Params]):
     """Test 1.6 -- Secure Session Management in Distributed Architectures."""
 
     info = TestInfo(
@@ -130,7 +233,7 @@ class Test16SecureSessionManagement(BaseTest):
         """
         Audit session cookie security attributes across configured probe paths.
 
-        Probes each path in cfg.cookie_probe_paths and inspects Set-Cookie
+        Probes each path in cfg.session_cookie_paths and inspects Set-Cookie
         response headers.  Filters to cookies whose names match
         cfg.session_cookie_names.  Audits HttpOnly, Secure, and SameSite on
         each found session cookie.
@@ -142,7 +245,7 @@ class Test16SecureSessionManagement(BaseTest):
             ERROR on unexpected exception.
         """
         try:
-            cfg = target.tests_config.test_1_6
+            cfg = self.params(target)
             session_cookie_names_lower: frozenset[str] = frozenset(
                 n.lower() for n in cfg.session_cookie_names
             )
@@ -150,7 +253,7 @@ class Test16SecureSessionManagement(BaseTest):
             # Collect (record, cookie_name, cookie_attrs) tuples across all paths.
             all_session_cookies: list[tuple[EvidenceRecord, str, dict[str, str]]] = []
 
-            for probe_path in cfg.cookie_probe_paths:
+            for probe_path in cfg.session_cookie_paths:
                 log.info(
                     "test_1_6_probing_path",
                     path=probe_path,
@@ -198,14 +301,14 @@ class Test16SecureSessionManagement(BaseTest):
             if not all_session_cookies:
                 log.info(
                     "test_1_6_no_session_cookies_found",
-                    probed_paths=list(cfg.cookie_probe_paths),
+                    probed_paths=list(cfg.session_cookie_paths),
                     watched_names=list(cfg.session_cookie_names),
                 )
                 return self._make_skip(
                     reason=(
                         f"No session cookies matching {list(cfg.session_cookie_names)} "
                         f"were found on any of the probed paths: "
-                        f"{list(cfg.cookie_probe_paths)}.  "
+                        f"{list(cfg.session_cookie_paths)}.  "
                         "This is expected for REST APIs that use stateless JWT bearer "
                         "tokens.  Test 1.5 covers transport-layer enforcement for "
                         "bearer token confidentiality."
@@ -344,7 +447,7 @@ class Test16SecureSessionManagement(BaseTest):
         cookie_name: str,
         attrs: dict[str, str],
         store: EvidenceStore,
-        cfg: Test16Config,
+        cfg: Test16Params,
     ) -> list[Finding]:
         """
         Audit a single session cookie's attributes and return Findings for violations.
@@ -360,7 +463,7 @@ class Test16SecureSessionManagement(BaseTest):
             cookie_name: The cookie name (for human-readable Finding titles).
             attrs: Parsed attribute dictionary (lowercase keys) from _parse_set_cookie.
             store: EvidenceStore for recording FAIL evidence.
-            cfg: Test16Config carrying the check parameters.
+            cfg: Test16Params carrying the check parameters.
 
         Returns:
             List of Finding objects.  Empty if all attributes are compliant.

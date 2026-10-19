@@ -66,8 +66,20 @@ _KONG_TARGET_STATES: dict[str, TargetState] = {
     "HEALTHY": TargetState.HEALTHY,
     "UNHEALTHY": TargetState.UNHEALTHY,
 }
-# Kong OSS ships no circuit breaker: these field names of third-party breaker
-# plugins are tried in order (moved from test 4.3).
+# Request signing: Kong's own hmac-auth plugin and the fields of its schema
+# (https://developer.konghq.com/plugins/hmac-auth/reference/; source:
+# kong/plugins/hmac-auth/schema.lua). Kong requires clock_skew > 0 (gt = 0), so
+# a Kong policy always has a replay window.
+_SIGNING_PLUGINS: frozenset[str] = frozenset({"hmac-auth"})
+_SIGNING_FIELD_ALGORITHMS: str = "algorithms"
+_SIGNING_FIELD_REPLAY_WINDOW: str = "clock_skew"
+_SIGNING_FIELD_BODY: str = "validate_request_body"
+_SIGNING_FIELD_HEADERS: str = "enforce_headers"
+# Kong OSS ships no circuit breaker (its documented circuit breakers are the
+# passive health checks): the third-party breaker plugins recognised, in
+# priority order, and their field names, tried in order. A new plugin is added
+# here, its name together with its fields (docs/architecture/design-decisions.md, D8).
+_BREAKER_PLUGINS: tuple[str, ...] = ("circuit-breaker",)
 _BREAKER_THRESHOLD_FIELDS: tuple[str, ...] = (
     "failure_threshold",
     "consecutive_errors",
@@ -200,16 +212,16 @@ class KongGatewayAdapter(BaseGatewayAdapter):
 
     def _read_circuit_breakers(self) -> ConceptRead[CircuitBreaker]:
         """
-        Map the plugins named in test 4.3's configuration to circuit breakers.
+        Map the third-party breaker plugins Kong is known to run to circuit breakers.
 
         Kong OSS has no breaker plugin; third-party ones are recognised by
-        name, in the configured priority order, first instance of each name.
+        name (_BREAKER_PLUGINS, in priority order), first instance of each name.
         """
         first_by_name: dict[str, dict[str, Any]] = {}
         for plugin in self._fetch_paginated(_PATH_PLUGINS):
             first_by_name.setdefault(str(plugin.get("name", "")), plugin)
         items: list[CircuitBreaker] = []
-        for candidate in self._breaker.accepted_cb_plugin_names:
+        for candidate in _BREAKER_PLUGINS:
             breaker = first_by_name.get(candidate)
             if breaker is None:
                 continue
@@ -230,16 +242,15 @@ class KongGatewayAdapter(BaseGatewayAdapter):
         return ConceptRead[CircuitBreaker].read(tuple(items))
 
     def _read_signing_policies(self) -> ConceptRead[SigningPolicy]:
-        """Map the plugins named in test 3.3's configuration to signing policies."""
-        names = {n.lower() for n in self._signing.plugin_names}
+        """Map every hmac-auth plugin to a signing policy."""
         items: list[SigningPolicy] = []
         for plugin in self._fetch_paginated(_PATH_PLUGINS):
-            if str(plugin.get("name", "")).lower() not in names:
+            if str(plugin.get("name", "")).lower() not in _SIGNING_PLUGINS:
                 continue
             config: dict[str, Any] = plugin.get("config") or {}
-            algorithms = config.get(self._signing.field_algorithms)
-            skew = config.get(self._signing.field_clock_skew)
-            body = config.get(self._signing.field_validate_body)
+            algorithms = config.get(_SIGNING_FIELD_ALGORITHMS)
+            skew = config.get(_SIGNING_FIELD_REPLAY_WINDOW)
+            body = config.get(_SIGNING_FIELD_BODY)
             scope, name = self._plugin_scope(plugin)
             items.append(
                 SigningPolicy(
@@ -250,7 +261,8 @@ class KongGatewayAdapter(BaseGatewayAdapter):
                     if algorithms is not None
                     else None,
                     replay_window_seconds=float(skew) if skew is not None else None,
-                    required_signed_headers=tuple(config.get("enforce_headers") or ()),
+                    replay_unlimited=False,
+                    required_signed_headers=tuple(config.get(_SIGNING_FIELD_HEADERS) or ()),
                     body_signed=bool(body) if body is not None else None,
                     source=f"plugin {plugin.get('name')} (id: {plugin.get('id', '<unknown>')})",
                 )

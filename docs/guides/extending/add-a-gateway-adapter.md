@@ -60,7 +60,6 @@ Rules:
   | `admin_headers` | `gateway.admin.headers` | `_admin_headers` |
   | `health_api_url` | `gateway.health.url` (a separate interface for live health) | `_health_api_url` |
   | `admin_tls_context`, `health_tls_context` | the TLS contexts of `gateway.admin.tls` and `gateway.health.tls` (`src/core/tls.py`) | `_admin_tls`, `_health_tls` |
-  | `signing_config`, `breaker_config` | test 3.3 and 4.3 configuration (plugin and field names, for a gateway without such plugins of its own) | `_signing`, `_breaker` |
 
 - **HTTP reads**: `_get_json_object(url, path)` and `_get_json_array(url, path)`, one GET without redirects, with
   the interface's TLS context; pass `HEALTH_API_INTERFACE` as third argument for the health interface (no Admin API
@@ -74,7 +73,9 @@ Rules:
 
 1. **Implement** `src/core/gateway/<name>.py`, subclassing `BaseGatewayAdapter` (no constructor of its own), with
    `adapter_name` and the `_read_<concept>()` methods; `src/core/gateway/kong.py` and `src/core/gateway/apisix.py`
-   are the references.
+   are the references. What the gateway calls things (plugin names, field names, special values such as "0 means no
+   limit") is the adapter's knowledge, kept as named constants with a link to the gateway's documentation: no test
+   parameter reaches the adapter (block 10b, decision 6.6).
 2. **Register** it in `GATEWAY_ADAPTERS` (`src/core/gateway/__init__.py`): the configuration schema accepts its name
    and the engine builds it from there.
 3. **Document:** `docs/reference/configuration.md` (`gateway.adapter` values), `docs/reference/compatibility.md`,
@@ -88,8 +89,8 @@ Rules:
 | health checks | `GET /upstreams` | `healthchecks.passive` / `.active` |
 | live target health | `GET /upstreams/{name}/health` | `HEALTHY` / `UNHEALTHY`, else unknown |
 | routes | `GET /routes` (+ `/services` for names) | |
-| circuit breakers | `GET /plugins` | plugins named in `tests.domain_4.test_4_3.accepted_cb_plugin_names`, in that order |
-| signing policies | `GET /plugins` | plugins named in `tests.domain_3.test_3_3.plugin_names`, with its field names |
+| circuit breakers | `GET /plugins` | the third-party breaker plugins the adapter knows (`_BREAKER_PLUGINS`, today `circuit-breaker`), in that order, first instance of each; Kong OSS has none |
+| signing policies | `GET /plugins` | every `hmac-auth` plugin, fields `clock_skew`, `algorithms`, `validate_request_body`, `enforce_headers` (Kong's schema; Kong requires `clock_skew` > 0) |
 | configuration values | `GET /services`, `GET /plugins` | service `url` (absent in DB-less), plugin configuration strings |
 
 Paginated (`next`), no redirects, with the context of `gateway.admin.tls`. Tested against Kong 3.9.3 in DB-less
@@ -107,7 +108,7 @@ Admin API under `<gateway.admin.url>/apisix/admin` (the path is added when missi
 | live target health | Control API `GET /v1/healthcheck` | `mostly_healthy` / `mostly_unhealthy` classed as healthy / unhealthy; empty until the first request through APISIX; not accessible without `gateway.health` |
 | routes | `GET /routes` | `uri` / `uris`, `methods`, `status`; backend from `upstream`, `upstream_id` or the service's upstream |
 | circuit breakers | `api-breaker` | in global rules, routes, their plugin configs and services |
-| signing policies | `hmac-auth` | as above |
+| signing policies | `hmac-auth` | as above; `clock_skew: 0` (no date check, accepted before APISIX 3.13) is reported as no replay window (`replay_unlimited`) |
 | configuration values | upstream node addresses; plugin configurations; consumer plugins (client credentials) | |
 
 A plugin applies to a route from the route, else its plugin config, else its service (the first found wins): a

@@ -215,7 +215,7 @@ The lab needs ports 8000, 8001, 8443 and 8444. If another program holds one of t
 the **left** number of the matching line in the `ports:` section of
 `test-environments/forgejo-kong/docker-compose.yml` (for example `"18443:8443"`, or `"127.0.0.1:18444:8444"`), change
 the same port in the URLs of `config.yaml` (`target.base_url`, `specification.url`, `gateway.admin.url`,
-`tests.domain_1.test_1_5.http_probe_url`) and in the `curl` commands.
+`tests.domain_1.test_1_5.http_url`) and in the `curl` commands.
 Both files are tracked by git: restore them with `git checkout` when you no longer need the change.
 
 ## If you regenerate the certificates

@@ -18,67 +18,59 @@ tool decision in [`decisions.it.md`](../../knowledge/tools/decisions.it.md), and
 
 | # | File | When | What |
 |---|---|---|---|
-| 1 | `src/test_config/domain_<D>.py` | always | `Test<DN>Config` model (empty if the test has no parameters) + field in `TestDomain<D>Config` |
-| 2 | `src/config/schema/tests_config.py` | new domain | field `domain_<D>` in `TestsConfig` (imported from `src.test_config.domain_<D>`) |
-| 3 | `src/config/schema/__init__.py` | optional | re-export the new classes (convention; nothing imports them from here) |
-| 4 | `src/test_config/runtime.py` | always | field `test_<D>_<N>: Test<DN>Config` (with `default_factory`) in `RuntimeTestsConfig` |
-| 5 | `src/tests/domain_<D>/__init__.py` | new domain | empty file |
-| 6 | `src/tests/domain_<D>/test_<D>_<N>_<name>.py` | always | the test |
-| 7 | `config.yaml` | test has parameters | documented `tests.domain_<D>.test_<D>_<N>` block |
+| 1 | `src/tests/domain_<D>/__init__.py` | new domain | empty file (a test module outside a package stops the run) |
+| 2 | `src/tests/domain_<D>/test_<D>_<N>_<name>.py` | always | the test: its declaration (`info`), its parameter model if it has parameters, its code |
+| 3 | `docs/tests/<domain>/<test>.md` | always | the test page: its prose, and under the title the header marker `<!-- [[[cog import generate_docs as g; cog.out(g.test_header("<D>.<N>", page=cog.inFile)) ]]] -->` followed by `<!-- [[[end]]] -->` |
 
-The engine wires steps 1 and 4 by itself (`RuntimeTestsConfig.from_domains(config.tests)` in Phase 3): there is
-no line to add in `engine.py`.
+Then `hatch run dev:gen` writes what repeats the code: the page header, the catalogue row (`docs/tests/README.md`),
+the tests by strategy and priority (`docs/architecture/assessment-model.md`), the parameter table
+(`docs/reference/configuration.md`) and the parameter block of `config.example.yaml` (`scripts/generate_docs.py`,
+written by Cog between markers). `hatch run dev:check` fails when one of them is out of date, showing the
+difference, and when a test has no page. Still by hand: the page's prose, the "Test portability" row of
+`docs/reference/compatibility.md` (a measurement on the labs) and `docs/project/roadmap.md`.
 
-Notes from the current code:
+Nothing else declares a test: no list of tests, no configuration container, no line in `engine.py`. The test is
+discovered by its module name, its parameters are checked against the model it declares (the user's keys are
+`tests.domain_<D>.test_<D>_<N>.<param>`, derived from the ID), and a mistake in either stops the run at startup with
+a message naming the test (verified 2026-10-17).
 
-- **Step 5 cannot be forgotten.** A test module in a directory without `__init__.py` stops the run (exit `10`,
-  "not in a package, so never loaded: add an __init__.py to ..."), as does a test module that cannot be imported
-  (verified 2026-10-16).
-- **Steps 1 and 4 must match.** A model in the domain without the field in `RuntimeTestsConfig`, or the
-  opposite, stops every run at Phase 3 (exit `10`) with a message naming the test (verified 2026-10-07): the
-  mistake cannot pass unnoticed.
-- **Every native test has a model**, empty when it has no parameters (e.g. `Test03Config`).
+## 1. Parameters
 
-## 1. Configuration (steps 1 to 4, 7)
-
-One model per test, in `src/test_config/`: the same model validates `config.yaml` and is what the test receives
-(`target.tests_config.test_<D>_<N>`). See [data model](../../architecture/data-model.md#test-parameters-one-model-per-test).
-
-**Model** (`src/test_config/domain_2.py`): a frozen model with named constants for defaults and bounds, and a
-field in the domain aggregator.
+A test with tunable values declares **one** frozen model in its own module, named `Test<D><N>Params`, with named
+constants for defaults and bounds, and names it in its class declaration. See
+[data model](../../architecture/data-model.md#test-parameters-declared-by-the-test).
 
 ```python
-class Test21Config(BaseModel):
-    model_config = {"frozen": True}
+TEST_21_ADMIN_ENDPOINT_METHOD_DEFAULT: str = "GET"
 
-    admin_endpoint_paths: Annotated[list[str], Field(min_length=1)] = Field(
-        default_factory=lambda: list(TEST_21_ADMIN_ENDPOINT_PATHS_DEFAULT),
-        description="...",
-    )
+
+class Test21Params(BaseModel):
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    admin_endpoint_paths: tuple[str, ...] = Field(default=(), description="...")
     admin_endpoint_method: str = Field(default=TEST_21_ADMIN_ENDPOINT_METHOD_DEFAULT, description="...")
 
 
-class TestDomain2Config(BaseModel):
-    model_config = {"frozen": True}
-
-    test_2_1: Test21Config = Field(default_factory=Test21Config, description="...")
+class Test21RbacEnforcement(BaseTest[Test21Params]):
+    ...
+    def execute(self, target, context, client, store):
+        cfg = self.params(target)            # Test21Params: mypy checks every name
 ```
 
-Every field needs a `description`: it is the source of [`reference/configuration.md`](../../reference/configuration.md).
+- Every field needs a `description`: it is the source of
+  [`reference/configuration.md`](../../reference/configuration.md). Its first sentence must stand on its own: the
+  generated `config.example.yaml` shows only that, `configuration.md` the whole description.
+- A test without parameters writes `class Test03...(BaseTest)` and declares no model; a key under its section is
+  rejected as unknown.
+- A check of a parameter against the rest of the configuration uses the validation context: test 7.2's model
+  checks its templates against `resources` (`PARAMS_CONTEXT_RESOURCES`, `src/core/assessment_test.py`); a parameter
+  that names a prepared resource is marked `json_schema_extra=REFERS_TO_RESOURCE`, so that `validate-config`
+  lists the test among the resource's users.
+- A test reads only its own parameters.
 
-**Container** (`src/test_config/runtime.py`): a field `test_2_1: Test21Config` with `default_factory=Test21Config`
-in `RuntimeTestsConfig`.
+**Naming:** the test ID uses a dot (`"2.1"`); config keys use underscores (`test_2_1`).
 
-**Engine wiring:** automatic. In Phase 3 `RuntimeTestsConfig.from_domains(config.tests)` collects every
-`test_<D>_<N>` of every domain by name and passes the validated model as it is (no copy).
-
-To type a helper that receives the parameters, import the model: `from src.test_config.domain_2 import
-Test21Config` (tests may import `src/test_config/`, see the dependency rule in
-[overview](../../architecture/overview.md#module-structure-and-dependencies)).
-
-**Naming:** `test_id` uses a dot (`"2.1"`); config keys and fields use underscores (`test_2_1`).
-
-## 2. The test module (step 6)
+## 2. The test module
 
 **File name:** `test_<D>_<N>_<description>.py` in `src/tests/domain_<D>/`. Only modules whose name starts with
 `test_` are imported by the registry.
@@ -137,25 +129,21 @@ files) → `WHITE_BOX` ([strategies](../../architecture/assessment-model.md#stra
 uses, `requires_pass` the tests that must pass for this test to be meaningful; both `[]` otherwise, and not for
 tokens, which `acquire_tokens()` shares ([dependencies between tests](../../architecture/assessment-model.md#dependencies-between-tests)).
 
-**`execute()`** must always return a `TestResult` and never raise. Structure: guards, setup, probes in private
-helpers, verdict, and a catch-all:
+**`execute()`** must always return a `TestResult` and never raise. Structure: setup, probes in private helpers,
+verdict, and a catch-all:
 
 ```python
 def execute(self, target: TargetContext, context: TestContext,
             client: SecurityClient, store: EvidenceStore) -> TestResult:
     try:
-        guard = self._requires_credentials(target)
-        if guard is not None:
-            return guard
+        # info.needs=(Need.USER_ACCOUNT,) and admin_endpoint_paths NEEDED_TO_RUN:
+        # the engine has already recorded SKIP if either is missing.
         try:
             acquire_tokens(target, context, client, required_roles=frozenset({ROLE_USER_A}))
         except (AuthenticationSetupError, SecurityClientError) as exc:
             return self._make_error(exc)
-        skip = self._requires_token(context, ROLE_USER_A)
-        if skip is not None:
-            return skip
 
-        cfg = target.tests_config.test_2_1
+        cfg = self.params(target)
         findings: list[Finding] = []
         for path in cfg.admin_endpoint_paths:
             finding = self._probe_admin_endpoint(client=client, store=store, ...)
@@ -203,8 +191,13 @@ transaction log into the `TestResult`:
 | `_make_skip(reason, notes=None)` | missing precondition |
 | `_make_error(exc, message=None)` | unexpected failure; keeps the transactions logged so far |
 
-**Guards** (return a SKIP result or `None`): `_requires_attack_surface(target)`,
-`_requires_credentials(target)`, `_requires_token(context, role)`, `_requires_admin_api(target)`.
+**Needs, not guards.** What a test needs from the configuration is declared, not checked in `execute()`:
+`TestInfo(needs=(Need.USER_ACCOUNT,))` (the vocabulary is `Need` in `src/core/test_metadata.py`: `ADMIN_ACCOUNT`,
+`USER_ACCOUNT`, `GATEWAY`, `REVOCABLE_LOGIN`) and, for a parameter the test cannot run without,
+`Field(..., json_schema_extra=NEEDED_TO_RUN)`. The engine records SKIP before `execute()` when one is missing, with
+a uniform reason, and warns before the first test (`src/core/test_needs.py`, where a new need is one entry). What
+only the target can reveal (no deprecated operation, no session cookie, a gateway that does not support a concept)
+stays a SKIP inside the test. `_requires_attack_surface(target)` remains for the attack surface.
 
 **Evidence and audit trail:**
 
@@ -236,7 +229,7 @@ sends on purpose as `Authorization` (e.g. a malformed token) is not a secret: de
 |---|---|
 | `auth.py` | `acquire_tokens(target, context, client, required_roles=...)`: obtains each role's credential with the method of `credentials.auth_type` (`auth_static.py`: `basic`, `static_token`; `auth_login.py`: `login`, from a prepared resource) and stores it in `TestContext`. `auth_parts(target, context, role)`: the headers and query parameters that carry it, as the run's credential placement says; never write `Authorization: Bearer` in a test. `revocation_capability(target)`: the method when, as configured, it can revoke a credential (test 1.4), else `None` |
 | `path_resolver.py` | `resolve_path_with_seed(path, seed, fallback)`, `extract_param_names_from_path(path)`; constants `PATH_PARAM_FALLBACK_DEFAULT` (`"1"`), `PATH_PARAM_FALLBACK_SAFE_DELETE` (`"apiguard-probe"`) |
-| `resources.py` | `create_resource(target, context, client, name, role, test_id)`: creates a [prepared resource](../../reference/configuration.md#resources) of `config.yaml` for a role, reads its values, registers its deletion for teardown and the credential as a secret; `delete_resource(...)`: sends its delete request at once. A test that needs an object on the target takes a resource name from its configuration (as 7.2's `injection_resource`), never a path written in the code |
+| `resources.py` | `create_resource(target, context, client, name, role, test_id)`: creates a [prepared resource](../../reference/configuration.md#resources) of `config.yaml` for a role, reads its values, registers its deletion for teardown and the credential as a secret; `delete_resource(...)`: sends its delete request at once. A test that needs an object on the target takes a resource name from its configuration (as 7.2's `url_accepting_endpoint.resource`), never a path written in the code |
 | `response_inspector.py` | `contains_stack_trace`, `contains_sensitive_fields`, `extract_debug_fields`, `check_security_headers`, `find_missing_security_headers`, `find_invalid_security_headers`, `find_leaky_headers`, `auth_errors_are_uniform` |
 
 **Payload data** (`src/tests/data/`): `auth_payloads.py`, `inspector_patterns.py`, `shadow_wordlists.py`,
@@ -255,13 +248,14 @@ answer)` and use the returned id as the findings' `evidence_ref`; when the answe
 
 There is no automated test suite yet (planned: Q-51). Verify against the lab target:
 
-1. `apiguard validate-config` - the new parameters load.
+1. `apiguard validate-config` - the declaration and the new parameters load.
 2. Run only the new test: in a copy of `config.yaml` set `execution.test_ids: ["<D>.<N>"]`, then
    `apiguard run -c <copy> --log-level debug`.
 3. Check in the run's `apiguard_report.json` (`outputs/forgejo/` with the lab configuration) that the test appears with the expected status, findings and oracle
    states, and that FAIL evidence is in `evidence.json`.
-4. `hatch run dev:check` (ruff, ruff format, mypy, bandit, vulture, lint-imports) - see [`coding-rules.md`](coding-rules.md).
-5. Write the test page in [`docs/tests/`](../../tests/README.md) and add the row to the catalogue.
+4. Write the test page in [`docs/tests/`](../../tests/README.md), then `hatch run dev:gen`.
+5. `hatch run dev:check` (ruff, ruff format, mypy, bandit, vulture, lint-imports, the configuration keys, the
+   generated documentation) - see [`coding-rules.md`](coding-rules.md).
 
 ## Common errors
 
@@ -269,8 +263,7 @@ There is no automated test suite yet (planned: Q-51). Verify against the lab tar
 |---|---|
 | Test missing from the report, no error | module name not starting with `test_`; class name starting with `_`; or filtered out by `min_priority` / `strategies` / `test_ids` (the report lists the filtered tests under "not run") |
 | `Test definitions invalid: ...`, exit 10 | an invalid `info`, a class without `info`, a duplicate ID, an unknown prerequisite, a module that cannot be imported or that is outside a package (the message names the module or class and the field) |
-| Every run stops at Phase 3 with `extra_forbidden` on `test_<D>_<N>` | the model is in the domain container but the field is missing in `RuntimeTestsConfig` |
-| Every run stops at Phase 3: "declares tests that no domain container provides" | the field is in `RuntimeTestsConfig` but the model is missing in the domain container |
+| `tests.domain_<D>.test_<D>_<N>.<param>: unknown key`, exit 10 | a parameter the model does not declare (the closest name is suggested), or a parameter given to a test without a model |
 | Pydantic error when building the result | FAIL without findings, PASS with findings, or SKIP without reason |
 | FAIL finding without evidence link | `add_fail_evidence()` not called, or `evidence_ref` not set |
 

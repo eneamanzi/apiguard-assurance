@@ -60,9 +60,9 @@ from typing import Any, ClassVar, Literal
 
 import structlog
 
-from src.core.assessment_test import AssessmentTest
+from src.core.assessment_test import AssessmentTest, ParamsT
 from src.core.client import SecurityClient
-from src.core.context import ROLE_ADMIN, ROLE_USER_A, ROLE_USER_B, TargetContext, TestContext
+from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.gateway.concepts import ConceptRead, ConceptStatus
 from src.core.models import EvidenceRecord, TestResult, TransactionSummary
@@ -73,19 +73,13 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # (e.g. "gateway_backend_timeouts").
 _GATEWAY_CONCEPT_LABEL_PREFIX: str = "gateway_"
 
-_ROLE_DISPLAY_NAMES: dict[str, str] = {
-    ROLE_ADMIN: "admin",
-    ROLE_USER_A: "user_a",
-    ROLE_USER_B: "user_b",
-}
-
 
 # ---------------------------------------------------------------------------
 # BaseTest
 # ---------------------------------------------------------------------------
 
 
-class BaseTest(AssessmentTest):
+class BaseTest(AssessmentTest[ParamsT]):
     """
     Abstract base class of the native tests.
 
@@ -256,40 +250,6 @@ class BaseTest(AssessmentTest):
     # Guard clauses — early SKIP returns for precondition failures
     # ------------------------------------------------------------------
 
-    def _requires_token(
-        self,
-        context: TestContext,
-        role: str,
-    ) -> TestResult | None:
-        """
-        Guard clause: return a SKIP result if the required token is absent.
-
-        Canonical usage:
-            skip = self._requires_token(context, ROLE_USER_A)
-            if skip is not None:
-                return skip
-            user_a_auth = auth_parts(target, context, ROLE_USER_A)
-
-        Args:
-            context: The current TestContext.
-            role:    The role whose token is required. Use ROLE_* constants.
-
-        Returns:
-            None if the token is present (test may proceed).
-            TestResult(status=SKIP) if the token is absent.
-        """
-        if context.has_token(role):
-            return None
-
-        role_display = _ROLE_DISPLAY_NAMES.get(role, role)
-        return self._make_skip(
-            reason=(
-                f"No token available for role '{role_display}' in TestContext "
-                f"after acquire_tokens(): the credentials of this role are not "
-                f"configured."
-            )
-        )
-
     def _requires_attack_surface(self, target: TargetContext) -> TestResult | None:
         """
         Guard clause: return a SKIP result if the AttackSurface is absent.
@@ -311,63 +271,6 @@ class BaseTest(AssessmentTest):
                 "successfully before this test was invoked. "
                 "This is an infrastructure error; the pipeline should have been "
                 "aborted during Phase 2."
-            )
-        )
-
-    def _requires_credentials(self, target: TargetContext) -> TestResult | None:
-        """
-        Guard clause: return a SKIP result if no API credentials are configured.
-
-        Distinguishes 'no credentials configured' (SKIP) from 'credentials present
-        but login failed' (ERROR). Called at the top of the execute() methods of
-        tests that log in to the API, before any token acquisition attempt; the
-        role-specific check follows with _requires_token().
-
-        Args:
-            target: The current TargetContext.
-
-        Returns:
-            None if at least one role has complete credentials.
-            TestResult(status=SKIP) if no credentials are configured.
-        """
-        if target.credentials.has_any_credentials():
-            return None
-
-        return self._make_skip(
-            reason=(
-                "No API credentials configured: no role has the credentials its "
-                "authentication method needs (credentials.auth_type with username "
-                "and password, or <role>_token for static_token). Configure at least "
-                "one role to run the tests that log in to the API."
-            )
-        )
-
-    def _requires_admin_api(self, target: TargetContext) -> TestResult | None:
-        """
-        Guard clause: return a SKIP result if no gateway adapter is configured.
-
-        Used by the tests that query the gateway admin plane (Admin API).
-        A gateway without admin access is often an intentional security choice,
-        not a gap — SKIP communicates this honestly.
-
-        Args:
-            target: The current TargetContext.
-
-        Returns:
-            None if a gateway adapter is configured (target.gateway is not None).
-            TestResult(status=SKIP) if target.gateway is None.
-        """
-        if target.admin_api_available:
-            return None
-
-        return self._make_skip(
-            reason=(
-                "Gateway adapter not configured: the gateway section is absent "
-                "from config.yaml. This WHITE_BOX test requires read access to the "
-                "gateway admin API to perform configuration audit. "
-                "Set gateway.adapter (e.g. 'kong') and gateway.admin.url "
-                "(e.g. https://localhost:8444) to enable. "
-                "If the gateway does not expose an admin API, this SKIP is expected."
             )
         )
 

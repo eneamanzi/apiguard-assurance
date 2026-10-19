@@ -56,8 +56,7 @@ Strategy: BLACK_BOX -- network access only.
     tester has, and any external observer can read response headers.
     The actual mechanism is a regular GET request to each sampled endpoint,
     with no authentication header, so that the Gateway returns a 401 or
-    public response whose headers are inspectable.  The _requires_admin_api
-    guard is intentionally NOT applied.
+    public response whose headers are inspectable.  The test declares no need.
 
 Priority: P3 -- compliance and static best-practice (methodology matrix).
     A missing security header is a defence-in-depth gap, not an immediately
@@ -115,8 +114,10 @@ EvidenceStore policy:
 from __future__ import annotations
 
 import re
+from typing import Annotated
 
 import structlog
+from pydantic import BaseModel, Field
 
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
@@ -139,6 +140,100 @@ from src.tests.helpers.response_inspector import (
 )
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Parameters: tests.domain_6.test_6_2 in config.yaml
+# ---------------------------------------------------------------------------
+
+# ASVS V3.4.1: HSTS max-age must be at least 1 year (31 536 000 seconds).
+TEST_62_HSTS_MIN_MAX_AGE_SECONDS_DEFAULT: int = 31_536_000
+
+TEST_62_HSTS_MIN_MAX_AGE_SECONDS_MIN: int = 1
+
+# How many endpoints to sample for cross-endpoint header consistency check.
+# 0 = all endpoints (complete coverage, slower on large specs).
+# Any positive integer caps the sample.
+TEST_62_ENDPOINT_SAMPLE_SIZE_DEFAULT: int = 5
+
+TEST_62_ENDPOINT_SAMPLE_SIZE_MIN: int = 0
+
+
+class Test62Params(BaseModel):
+    """
+    Tuning parameters for Test 6.2 (Security Header Configuration Audit).
+
+    The test verifies the presence and correctness of HTTP security headers
+    that constitute defense-in-depth against client-side attacks, as defined
+    by OWASP ASVS v5.0.0 V3.4 and Mozilla Observatory Security Headers Best
+    Practices (methodology section 6.2).
+
+    Checked headers and their oracles:
+        Strict-Transport-Security  -- must contain 'max-age=' with value >=
+                                      hsts_min_max_age_seconds (ASVS V3.4.1).
+        X-Content-Type-Options     -- must be 'nosniff' (ASVS V3.4.4).
+        X-Frame-Options            -- must be 'DENY' or 'SAMEORIGIN'; the
+                                      deprecated 'ALLOW-FROM' value is a FAIL
+                                      (ASVS V3.4.6).
+        Content-Security-Policy    -- must be present and must NOT contain
+                                      'default-src *' (ASVS V3.4.3).
+        Permissions-Policy         -- must be present (any non-empty value).
+
+    Leaky headers that must be absent (or version-free):
+        X-Powered-By               -- always leaky.
+        Server                     -- leaky only when it includes a version
+                                      string (e.g. 'nginx/1.18.0').
+
+    Consistency check:
+        Headers are verified on a sample of endpoints.  Any endpoint whose
+        header set differs from the reference (first sampled endpoint)
+        produces an additional FAIL finding documenting the inconsistency.
+
+    Design note -- why WHITE_BOX at P3:
+        Security headers are static Gateway configuration.  They are not
+        empirically testable in a meaningful security sense (presence of an
+        HSTS header does not prove it was served under HTTPS, only that it
+        was configured).  The methodology classifies them as P3 because a
+        missing header is a compliance gap, not an exploitable vulnerability
+        in the same sense as a missing auth check (P0) or a BOLA vector (P1).
+
+    Design note -- no Admin API required:
+        Unlike tests 4.2 and 4.3, this test does NOT require Admin API
+        access.  It performs regular GET requests to the target's public
+        endpoints and inspects the response headers, which anyone outside
+        can read: BLACK_BOX (the methodology calls it a configuration audit,
+        WHITE_BOX).  It declares no need.
+    """
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    hsts_min_max_age_seconds: Annotated[
+        int,
+        Field(ge=TEST_62_HSTS_MIN_MAX_AGE_SECONDS_MIN),
+    ] = Field(
+        default=TEST_62_HSTS_MIN_MAX_AGE_SECONDS_DEFAULT,
+        description=(
+            "Minimum acceptable max-age value in the Strict-Transport-Security header. "
+            "ASVS V3.4.1 requires max-age >= 31 536 000 (one year). "
+            "An HSTS header present but with a lower max-age is flagged as a FAIL. "
+            f"Default: {TEST_62_HSTS_MIN_MAX_AGE_SECONDS_DEFAULT} seconds (1 year)."
+        ),
+    )
+    endpoint_sample_size: Annotated[
+        int,
+        Field(ge=TEST_62_ENDPOINT_SAMPLE_SIZE_MIN),
+    ] = Field(
+        default=TEST_62_ENDPOINT_SAMPLE_SIZE_DEFAULT,
+        description=(
+            "Number of endpoints to sample for cross-endpoint header consistency check. "
+            "0 = all endpoints in the AttackSurface (complete coverage). "
+            "Any positive integer caps the sample at that count, using the first N "
+            "endpoints returned by the AttackSurface iterator. "
+            "The consistency check compares each sampled endpoint's security headers "
+            "against the reference set obtained from the first endpoint. "
+            f"Default: {TEST_62_ENDPOINT_SAMPLE_SIZE_DEFAULT}."
+        ),
+    )
+
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -190,7 +285,7 @@ _REFERENCES_CONSISTENCY: list[str] = [
 # ---------------------------------------------------------------------------
 
 
-class Test62SecurityHeadersAudit(BaseTest):
+class Test62SecurityHeadersAudit(BaseTest[Test62Params]):
     """
     Test 6.2 -- Security Header Configuration Audit (BLACK_BOX, P3).
 
@@ -278,7 +373,7 @@ class Test62SecurityHeadersAudit(BaseTest):
                 )
 
             reference_endpoint = all_get_endpoints[0]
-            sample_size = target.tests_config.test_6_2.endpoint_sample_size
+            sample_size = self.params(target).endpoint_sample_size
 
             # Build the consistency sample: up to sample_size additional endpoints
             # beyond the reference (index 0).  If sample_size == 0, include all.
@@ -474,7 +569,7 @@ class Test62SecurityHeadersAudit(BaseTest):
             headers=headers,
             endpoint=endpoint,
             record=record,
-            hsts_min_max_age_seconds=target.tests_config.test_6_2.hsts_min_max_age_seconds,
+            hsts_min_max_age_seconds=self.params(target).hsts_min_max_age_seconds,
         )
         if hsts_finding is not None:
             is_fail = True

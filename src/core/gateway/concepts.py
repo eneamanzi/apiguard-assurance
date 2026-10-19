@@ -266,7 +266,17 @@ class SigningPolicy(BaseModel):
         )
     )
     replay_window_seconds: float | None = Field(
-        ge=0, description="Allowed clock difference against replay; None: not stated."
+        ge=0,
+        description=(
+            "Allowed clock difference against replay; None: not stated, or no window at "
+            "all (replay_unlimited)."
+        ),
+    )
+    replay_unlimited: bool = Field(
+        description=(
+            "True when the gateway does not check the request's date at all, so a captured "
+            "signed request can be replayed at any time (e.g. APISIX with clock_skew 0)."
+        )
     )
     required_signed_headers: tuple[str, ...] = Field(
         description="Headers the client must include in the signature."

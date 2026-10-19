@@ -15,14 +15,15 @@ Strategy: GREY_BOX (P0)
 
 Priority: P0 (OWASP API7:2023 — critical infrastructure risk)
 
-Injection vector (tests.domain_7.test_7_2, no default):
-    POST injection_path_template with injection_body_template, where
+The endpoint that accepts a URL (tests.domain_7.test_7_2.url_accepting_endpoint,
+no default):
+    POST its path with its body, where
     "{ssrf_url}" is replaced by each payload URL and "{random_secret}" by a
     fresh random value (registered as a secret). A 2xx response means the
     application accepted the URL without validation; a 4xx that it was
     rejected at validation time.
 
-    With injection_resource, a prepared resource (resources: in config.yaml)
+    With its resource, a prepared resource (resources: in config.yaml)
     is created once for user A before the probes (src/tests/helpers/
     resources.py, teardown registered by it); its values fill the path and
     the body. On the Forgejo labs it is a repository, and the probes create
@@ -70,11 +71,17 @@ from __future__ import annotations
 
 import secrets
 from collections.abc import Sequence
-from typing import NamedTuple
+from typing import Annotated, NamedTuple
 from urllib.parse import urlparse
 
 import structlog
+from pydantic import BaseModel, Field, ValidationInfo, model_validator
 
+from src.core.assessment_test import (
+    NEEDED_TO_RUN,
+    PARAMS_CONTEXT_RESOURCES,
+    REFERS_TO_RESOURCE,
+)
 from src.core.auth_placement import RequestAuthParts
 from src.core.client import SecurityClient
 from src.core.context import ROLE_USER_A, TargetContext, TestContext
@@ -86,18 +93,415 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
-from src.core.templating import render
-from src.core.test_metadata import TestInfo
-from src.test_config.domain_7 import (
-    TEST_72_PLACEHOLDER_RANDOM_SECRET,
-    TEST_72_PLACEHOLDER_SSRF_URL,
+from src.core.templating import (
+    names_in,
+    occurrences,
+    placeholder_names,
+    render,
+    unquoted_placeholders,
 )
+from src.core.test_metadata import Need, TestInfo
 from src.tests.base import BaseTest
 from src.tests.data.ssrf_payloads import ALL_SSRF_PAYLOADS
 from src.tests.helpers.auth import acquire_tokens, auth_parts
 from src.tests.helpers.resources import create_resource
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Parameters: tests.domain_7.test_7_2 in config.yaml
+# ---------------------------------------------------------------------------
+
+# All six payload categories available in ssrf_payloads.ALL_SSRF_PAYLOADS.
+# The category strings must exactly match the third element of each
+# ALL_SSRF_PAYLOADS tuple.  The operator can restrict the probe to a subset
+# by overriding this list in config.yaml.
+TEST_72_ALL_PAYLOAD_CATEGORIES: list[str] = [
+    "cloud_metadata",
+    "private_ip",
+    "encoding_bypass",
+    "forbidden_protocol",
+    "dns_bypass",
+    "url_parser_confusion",
+]
+
+# Keywords that, when found in a non-2xx response body, confirm that the
+# application rejected the SSRF URL through explicit validation rather than
+# some other error path.
+#
+# Methodology ref: Garanzia 7.2 -- oracle classification.
+TEST_72_BLOCK_RESPONSE_KEYWORDS_DEFAULT: list[str] = [
+    "invalid host",
+    "not allowed",
+    "forbidden",
+    "scheme not supported",
+    "scheme not allowed",
+    "host not allowed",
+    "private",
+    "loopback",
+    "blocked",
+    "disallowed",
+    "restricted",
+]
+
+# Keywords that, when found in a non-2xx response body, indicate the URL was
+# rejected because it is syntactically invalid to the application's HTTP
+# client or URL parser -- NOT because of an explicit SSRF defence.
+#
+# These keywords are checked BEFORE ssrf_block_response_keywords.  A match
+# produces oracle state SSRF_BLOCKED_AS_MALFORMED_URL; the distinction
+# prevents overstating the application's defensive posture in the report.
+#
+# Example: Go's net/url rejects "http://%31%32%37%2e%30%2e%30%2e%31"
+# with "invalid character" (RFC 3986 forbids percent-encoded octets in
+# host components), which Forgejo propagates as a 422.  This is a parser
+# side-effect, not an SSRF-aware block.
+#
+# Methodology ref: Garanzia 7.2 -- oracle classification note.
+TEST_72_MALFORMED_URL_KEYWORDS_DEFAULT: list[str] = [
+    "invalid character",
+    "invalid url",
+    "url malformed",
+    "malformed url",
+    "parse error",
+    "url parse",
+    "could not parse",
+    "bad url",
+]
+
+# Keywords that, when found in a non-2xx response body, indicate the URL was
+# rejected because its scheme (protocol) is not supported by the application --
+# NOT because the URL is syntactically malformed and NOT because of an explicit
+# SSRF IP/range defence.
+#
+# This is a third classification level checked AFTER ssrf_malformed_url_keywords
+# and BEFORE ssrf_block_response_keywords.  A match produces oracle state
+# SSRF_BLOCKED_UNSUPPORTED_SCHEME.
+#
+# The distinction matters for report accuracy:
+#   - file:///etc/passwd is syntactically VALID (RFC 3986 compliant), but
+#     Forgejo rejects it with "Invalid url" because Go's net/http only dials
+#     http/https schemes.  Classifying this as SSRF_BLOCKED_AS_MALFORMED_URL
+#     is technically wrong -- the URL is well-formed, the scheme is just not
+#     accepted.
+#   - Separating this state makes the Audit Trail honest: the protocol was
+#     blocked, but not because of SSRF-aware IP range validation.
+#
+# In Forgejo, the response body for unsupported schemes is the same "Invalid url"
+# as for malformed URLs (both come from Go's net/url validator).  To distinguish
+# them, the test checks the *injected URL's scheme* directly (see
+# _classify_blocked_state in test_7_2_ssrf_prevention.py) rather than relying
+# solely on keyword matching.  These keywords serve as a fallback for other
+# application stacks that emit more descriptive error messages.
+#
+# Methodology ref: Garanzia 7.2 -- oracle classification, level 2 (new).
+TEST_72_UNSUPPORTED_SCHEME_KEYWORDS_DEFAULT: list[str] = [
+    "scheme not supported",
+    "scheme not allowed",
+    "unsupported scheme",
+    "unsupported protocol",
+    "invalid scheme",
+    "only http",
+    "only https",
+    "protocol not allowed",
+]
+
+# The endpoint that accepts a URL (url_accepting_endpoint). No default: it
+# depends on the API, so the test returns SKIP until it is set.
+#
+# Placeholders the test fills in its body (src/core/templating.py):
+#   {ssrf_url}       each payload URL (required, exactly once)
+#   {random_secret}  32 random hexadecimal characters, fresh per request
+TEST_72_PLACEHOLDER_SSRF_URL: str = "ssrf_url"
+
+TEST_72_PLACEHOLDER_RANDOM_SECRET: str = "random_secret"  # noqa: S105 -- a placeholder name
+
+
+# Default intended timeout for individual SSRF probe requests (milliseconds).
+# Reserved for future per-request timeout override in SecurityClient.
+# Currently the global target.read_timeout governs all requests.
+# NIST SP 800-204 S3.2.2 recommends tight timeouts on outbound connections.
+TEST_72_REQUEST_TIMEOUT_MS_DEFAULT: int = 10_000
+
+TEST_72_REQUEST_TIMEOUT_MS_MIN: int = 1_000
+
+
+class Test72UrlAcceptingEndpoint(BaseModel):
+    """
+    An endpoint of the API that accepts a URL and makes the server call it.
+
+    The test POSTs the body to the path once per payload URL, written where the
+    body has "{ssrf_url}". With resource, a prepared resource is created first
+    for user A, its values fill the path and the body, and it is deleted at
+    teardown. Checked against config.resources through the validation context
+    (src/config/tests_section.py); without it (defaults) only the shape is.
+    """
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    path: str = Field(
+        min_length=1,
+        description=(
+            "Path of the endpoint (POST). With resource it may hold the resource's values, "
+            "e.g. '/api/v1/repos/{owner}/{repo}/hooks'."
+        ),
+    )
+    body: dict[str, object] = Field(
+        description=(
+            'JSON body of the request. Must contain "{ssrf_url}" exactly once, replaced by '
+            'each payload URL; may contain "{random_secret}" (32 random hexadecimal '
+            "characters) and, with resource, the resource's values. Placeholders in quotes."
+        ),
+    )
+    resource: str | None = Field(
+        default=None,
+        min_length=1,
+        json_schema_extra=REFERS_TO_RESOURCE,
+        description=(
+            "Name of a prepared resource (resources: in config.yaml) created for user A before "
+            "probing; its values fill the placeholders of path and body, and it is deleted at "
+            "teardown. Optional: without it the path is used as written."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def placeholders_known(self, info: ValidationInfo) -> Test72UrlAcceptingEndpoint:
+        """
+        Check the path and the body against the resource, when the resources are known.
+
+        resource must name a resource of config.yaml; the path may use its
+        values; the body must hold {ssrf_url} exactly once and may use
+        {random_secret} and the resource's values, in quotes
+        (docs/architecture/design-decisions.md, D6).
+        """
+        resources = (info.context or {}).get(PARAMS_CONTEXT_RESOURCES)
+        if resources is None:
+            return self
+        values: frozenset[str] = frozenset()
+        if self.resource is not None:
+            known_resource = resources.get(self.resource)
+            if known_resource is None:
+                defined = ", ".join(sorted(resources)) or "none"
+                raise ValueError(
+                    f"resource: '{self.resource}' is not defined in resources (defined: {defined})."
+                )
+            values = frozenset(known_resource.values)
+        unknown = placeholder_names(self.path) - values
+        if unknown:
+            raise ValueError(
+                "path: unknown placeholder(s) "
+                f"{', '.join(f'{{{n}}}' for n in sorted(unknown))}; known: the values of "
+                "resource."
+            )
+        known = values | {TEST_72_PLACEHOLDER_SSRF_URL, TEST_72_PLACEHOLDER_RANDOM_SECRET}
+        unquoted = unquoted_placeholders(self.body, known)
+        if unquoted:
+            raise ValueError(
+                "body: write the placeholders in quotes, e.g. "
+                f'"{{{sorted(unquoted)[0]}}}": unquoted, YAML reads them as a mapping.'
+            )
+        unknown = names_in(self.body) - known
+        if unknown:
+            raise ValueError(
+                "body: unknown placeholder(s) "
+                f"{', '.join(f'{{{n}}}' for n in sorted(unknown))}; known: "
+                f"{', '.join(f'{{{n}}}' for n in sorted(known))}."
+            )
+        count = occurrences(self.body, TEST_72_PLACEHOLDER_SSRF_URL)
+        if count != 1:
+            raise ValueError(
+                f'body must contain "{{{TEST_72_PLACEHOLDER_SSRF_URL}}}" exactly once, where '
+                f"the SSRF URL goes (found {count})."
+            )
+        return self
+
+
+class Test72Params(BaseModel):
+    """
+    Tuning parameters for Test 7.2 (SSRF Prevention).
+
+    The test verifies that the system blocks Server-Side Request Forgery by
+    rejecting user-controlled URLs that target internal infrastructure, as
+    defined by OWASP API7:2023 and methodology section 7.2.
+
+    The endpoint that accepts a URL (config-driven, no default):
+        url_accepting_endpoint, an endpoint of the target that accepts a URL,
+        sent as POST: its path and body (with "{ssrf_url}" where the URL
+        goes); without it the test returns SKIP. When the endpoint belongs to
+        an object that must exist first, its resource names a prepared
+        resource created for user A, whose values fill the path and the body.
+        Forgejo example (test-environments/forgejo-kong/config.yaml): resource
+        'repository', POST
+        /api/v1/repos/{owner}/{repo}/hooks with the URL in config.url.
+
+    Sub-tests:
+        A (cloud_metadata):       Cloud IMDS endpoints (AWS EC2, AWS ECS,
+                                  GCP, Azure, DigitalOcean).
+                                  Oracle: 4xx -> PASS; 2xx -> FAIL.
+        B (private_ip):           RFC-1918 and loopback IP URLs.
+                                  Oracle: 4xx -> PASS; 2xx -> FAIL.
+        C (encoding_bypass):      Obfuscated loopback/IMDS variants (decimal,
+                                  hex, octal, IPv4-mapped IPv6, URL-encoded).
+                                  Oracle: 4xx -> PASS; 2xx -> FAIL.
+        D (forbidden_protocol):   Non-HTTP protocol URLs.
+                                  Oracle: 4xx -> PASS; 2xx -> FAIL.
+        E (dns_bypass):           nip.io / sslip.io wildcard DNS hostnames
+                                  resolving to private IPs.
+                                  Oracle: 4xx -> PASS; 2xx -> FAIL.
+        F (url_parser_confusion): @ authority ambiguity and backslash exploits
+                                  (Orange Tsai, BlackHat 2017).
+                                  Oracle: 4xx -> PASS; 2xx -> FAIL.
+        G (redirect):             Open-redirect chain via operator-controlled
+                                  server. Executed only when
+                                  ssrf_redirect_server_url is non-empty.
+                                  Oracle: 4xx -> PASS; 2xx -> FAIL; SKIP
+                                  otherwise.
+
+    EvidenceStore policy:
+        Every 2xx (FAIL) response is stored via store.add_fail_evidence().
+        Non-2xx (PASS) and SecurityClientError (timeout) responses are logged
+        via _log_transaction() only; not stored in EvidenceStore.
+
+    Design note -- GREY_BOX at P0:
+        The injection endpoints of the labs (Forgejo webhooks, crAPI
+        contact_mechanic) require authentication. SSRF is OWASP API7:2023 P0 regardless of the
+        authentication prerequisite; an authenticated attacker can still
+        pivot to internal infrastructure. GREY_BOX reflects the auth
+        prerequisite, not a lower risk classification.
+    """
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    # -- Payload categories --
+
+    payload_categories: tuple[str, ...] = Field(
+        default_factory=lambda: tuple(TEST_72_ALL_PAYLOAD_CATEGORIES),
+        description=(
+            "Payload categories to include in the SSRF probe. "
+            "Valid values: 'cloud_metadata', 'private_ip', 'encoding_bypass', "
+            "'forbidden_protocol', 'dns_bypass', 'url_parser_confusion'. "
+            "Removing a category reduces coverage; the omitted sub-test is not "
+            "reported as SKIP -- the category is simply not probed. "
+            f"Default: all six categories {TEST_72_ALL_PAYLOAD_CATEGORIES}."
+        ),
+    )
+
+    # -- The endpoint that accepts a URL (config-driven, no default) --
+
+    url_accepting_endpoint: Test72UrlAcceptingEndpoint | None = Field(
+        default=None,
+        examples=[
+            {
+                "path": "/api/repos/{repo_id}/hooks",
+                "body": {"callback_url": "{ssrf_url}"},
+                "resource": "repository",
+            }
+        ],
+        json_schema_extra=NEEDED_TO_RUN,
+        description=(
+            "An endpoint of the API that accepts a URL from the client and makes the server "
+            "call it (a webhook, an import from a URL): path, body and, optionally, a prepared "
+            "resource. The test sends the SSRF payload URLs to it. No default: unset, the test "
+            "returns SKIP."
+        ),
+    )
+
+    # -- Redirect sub-test (sub-test G) --
+
+    ssrf_redirect_server_url: str = Field(
+        default="",
+        description=(
+            "URL of an operator-controlled public server that responds with "
+            "302 Location pointing to an internal SSRF target "
+            "(e.g. http://169.254.169.254/...). "
+            "When non-empty, sub-test G (redirect following) is executed: "
+            "the injection URL is set to this server and the oracle checks "
+            "whether the application re-validates the redirected target URL. "
+            "When empty (default), sub-test G is SKIPPED with an InfoNote "
+            "documenting the gap. "
+            "This server must be reachable from the test runner's network "
+            "and must be under your control. "
+            "Default: '' (empty -- redirect sub-test skipped)."
+        ),
+    )
+
+    # -- Oracle classification keywords --
+
+    ssrf_block_response_keywords: tuple[str, ...] = Field(
+        default_factory=lambda: tuple(TEST_72_BLOCK_RESPONSE_KEYWORDS_DEFAULT),
+        description=(
+            "Case-insensitive substrings checked against the response body of "
+            "non-2xx SSRF probe responses. "
+            "A match classifies the oracle state as SSRF_BLOCKED_BY_VALIDATION "
+            "(explicit URL rejection). No match produces SSRF_BLOCKED_UNKNOWN "
+            "(URL rejected for an unspecified reason). "
+            "Both states produce no Finding. "
+            "Override with gateway- or application-specific error message "
+            "fragments for more precise Audit Trail classification. "
+            f"Default: {TEST_72_BLOCK_RESPONSE_KEYWORDS_DEFAULT}."
+        ),
+    )
+
+    ssrf_malformed_url_keywords: tuple[str, ...] = Field(
+        default_factory=lambda: tuple(TEST_72_MALFORMED_URL_KEYWORDS_DEFAULT),
+        description=(
+            "Case-insensitive substrings that, when found in a non-2xx SSRF "
+            "probe response body, indicate the URL was rejected because it is "
+            "syntactically invalid to the HTTP parser -- NOT because of an "
+            "explicit SSRF defence and NOT because the scheme is unsupported. "
+            "Checked FIRST (Level 1). "
+            "A match produces oracle state SSRF_BLOCKED_AS_MALFORMED_URL. "
+            "No Finding is generated; the distinction only affects the Audit "
+            "Trail column of the HTML report. "
+            "Example: Go's net/url rejects 'http://%31%32%37...' with "
+            "'invalid character'; this is a parser side-effect, not an "
+            "SSRF-aware block. "
+            f"Default: {TEST_72_MALFORMED_URL_KEYWORDS_DEFAULT}."
+        ),
+    )
+
+    ssrf_unsupported_scheme_keywords: tuple[str, ...] = Field(
+        default_factory=lambda: tuple(TEST_72_UNSUPPORTED_SCHEME_KEYWORDS_DEFAULT),
+        description=(
+            "Case-insensitive substrings that, when found in a non-2xx SSRF "
+            "probe response body, indicate the URL was rejected because its "
+            "scheme (protocol) is not accepted by the application -- NOT "
+            "because the URL is syntactically malformed and NOT because of an "
+            "explicit SSRF IP/range defence. "
+            "Checked SECOND (Level 2), after ssrf_malformed_url_keywords. "
+            "A match produces oracle state SSRF_BLOCKED_UNSUPPORTED_SCHEME. "
+            "No Finding is generated. "
+            "Important: in Forgejo/Go, 'file://', 'gopher://', 'dict://' etc. "
+            "are rejected with the same 'Invalid url' message as malformed URLs. "
+            "The test therefore also checks the injected URL's scheme directly "
+            "when the response body gives no clear signal -- these keywords "
+            "serve as a fallback for application stacks with more descriptive "
+            "error messages. "
+            f"Default: {TEST_72_UNSUPPORTED_SCHEME_KEYWORDS_DEFAULT}."
+        ),
+    )
+
+    # -- Probe timeout --
+
+    ssrf_request_timeout_ms: Annotated[
+        int,
+        Field(ge=TEST_72_REQUEST_TIMEOUT_MS_MIN),
+    ] = Field(
+        default=TEST_72_REQUEST_TIMEOUT_MS_DEFAULT,
+        description=(
+            "Intended timeout in milliseconds for individual SSRF probe requests. "
+            "Reserved for future per-request timeout override support in "
+            "SecurityClient. Currently the global target.read_timeout "
+            "governs all requests; this field documents the operator's intent "
+            "and will be honoured automatically once SecurityClient supports "
+            "per-request timeout overrides. "
+            "NIST SP 800-204 Section 3.2.2 recommends tight timeouts on "
+            "outbound connections from API servers. "
+            f"Default: {TEST_72_REQUEST_TIMEOUT_MS_DEFAULT} ms (10 s). "
+            f"Minimum: {TEST_72_REQUEST_TIMEOUT_MS_MIN} ms."
+        ),
+    )
+
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -195,7 +599,7 @@ class _SSRFPayloadEntry(NamedTuple):
 # ---------------------------------------------------------------------------
 
 
-class Test72SSRFPrevention(BaseTest):
+class Test72SSRFPrevention(BaseTest[Test72Params]):
     """
     Test 7.2 — The System Prevents Server-Side Request Forgery (SSRF).
 
@@ -217,6 +621,7 @@ class Test72SSRFPrevention(BaseTest):
             "OWASP-API7:2023",
             "CWE-918",
         ),
+        needs=(Need.USER_ACCOUNT,),
     )
 
     def execute(
@@ -245,36 +650,24 @@ class Test72SSRFPrevention(BaseTest):
                               timed out with no successful acceptance.
             TestResult(FAIL)  if one or more SSRF URLs were accepted (2xx).
                               Each acceptance produces one Finding.
-            TestResult(SKIP)  if no injection endpoint is configured, no Grey Box
-                              credentials are configured or the user_a token
-                              is unavailable.
+            TestResult(SKIP)  if no payload category is enabled (without the
+                              user_a credentials or the injection endpoint
+                              the engine records SKIP before running it:
+                              info.needs, NEEDED_TO_RUN).
             TestResult(ERROR) on unexpected infrastructure failure.
         """
         try:
-            cfg = target.tests_config.test_7_2
-            path_template = cfg.injection_path_template
-            body_template = cfg.injection_body_template
-            if path_template is None or body_template is None:
-                return self._make_skip(
-                    reason=(
-                        "No SSRF injection endpoint configured: set "
-                        "tests.domain_7.test_7_2.injection_path_template and "
-                        "injection_body_template to an endpoint of the target that accepts a URL."
-                    )
-                )
-
-            guard = self._requires_credentials(target)
-            if guard is not None:
-                return guard
+            cfg = self.params(target)
+            endpoint = cfg.url_accepting_endpoint
+            # NEEDED_TO_RUN: the engine skips the test when it is unset.
+            assert endpoint is not None  # noqa: S101
+            path_template = endpoint.path
+            body_template = endpoint.body
 
             try:
                 acquire_tokens(target, context, client, required_roles=frozenset({ROLE_USER_A}))
             except (AuthenticationSetupError, SecurityClientError) as exc:
                 return self._make_error(exc)
-
-            skip = self._requires_token(context, ROLE_USER_A)
-            if skip is not None:
-                return skip
 
             user_a_auth = auth_parts(target, context, ROLE_USER_A)
 
@@ -296,20 +689,20 @@ class Test72SSRFPrevention(BaseTest):
                 redirect_server_configured=bool(cfg.ssrf_redirect_server_url),
             )
 
-            # The injection endpoint: with injection_resource, the resource is
+            # The endpoint that accepts a URL: with a resource, the resource is
             # created once for user A (its teardown registered) and its values
             # fill the path and the body; without it, the path is used as written.
             resource_values: dict[str, str] = {}
-            if cfg.injection_resource is not None:
+            if endpoint.resource is not None:
                 prepared = create_resource(
-                    target, context, client, cfg.injection_resource, ROLE_USER_A, self.info.id
+                    target, context, client, endpoint.resource, ROLE_USER_A, self.info.id
                 )
                 resource_values = dict(prepared.values)
             webhook_path = str(render(path_template, resource_values))
 
             log.info(
                 "test_7_2_injection_endpoint_resolved",
-                injection_resource=cfg.injection_resource,
+                resource=endpoint.resource,
                 webhook_path=webhook_path,
             )
 
@@ -461,7 +854,7 @@ class Test72SSRFPrevention(BaseTest):
                                    bodies are not discriminant (e.g. Forgejo).
             cfg_body_template:     Operator-configured request body template.
                                    Filled by _build_webhook_body on each probe.
-            resource_values:       Values of injection_resource ({} without it).
+            resource_values:       Values of the endpoint's resource ({} without it).
             client:                Centralized HTTP client.
             store:                 Evidence store for FAIL transactions.
 
@@ -621,7 +1014,7 @@ class Test72SSRFPrevention(BaseTest):
             cfg_malformed_keywords: URL-parser-error keywords; checked first.
             cfg_scheme_keywords:   Unsupported-scheme keywords; checked second.
             body_template:         Operator-configured request body template.
-            resource_values:       Values of injection_resource ({} without it).
+            resource_values:       Values of the endpoint's resource ({} without it).
             client:                Centralized HTTP client.
             store:                 Evidence store for FAIL transactions.
             findings:              Mutable list; findings are appended in-place.
@@ -731,14 +1124,14 @@ class Test72SSRFPrevention(BaseTest):
         Fills every placeholder (src/core/templating.py) at any depth:
             {ssrf_url}        -> ssrf_url (the payload URL to inject)
             {random_secret}   -> secrets.token_hex(16), fresh per call
-            resource values   -> the values of injection_resource
+            resource values   -> the values of the endpoint's resource
         Non-string values are preserved. The configuration schema checked the
         names at startup.
 
         Args:
             ssrf_url:        The SSRF candidate URL to inject.
-            body_template:   cfg.injection_body_template.
-            resource_values: Values of injection_resource ({} without it).
+            body_template:   the endpoint's body.
+            resource_values: Values of the endpoint's resource ({} without it).
             context:         The run's TestContext: the generated secret is
                              registered there, so it is redacted in the evidence.
 

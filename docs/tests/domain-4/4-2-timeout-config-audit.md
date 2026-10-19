@@ -4,15 +4,22 @@
 > [`src/tests/domain_4/test_4_2_timeout_config_audit.py`](../../../src/tests/domain_4/test_4_2_timeout_config_audit.py) ·
 > **Verified:** 2026-10-12
 
-| | |
+<!-- [[[cog import generate_docs as g; cog.out(g.test_header("4.2", page=cog.inFile)) ]]] -->
+
+|  |  |
 |---|---|
 | Test ID | `4.2` |
 | Name | Timeout Configuration Audit -- Prevention of Resource Lock |
 | Domain | 4 - Availability and Resilience |
-| Priority / strategy | P1 / WHITE_BOX (gateway Admin API) |
+| Priority / strategy | P1 / WHITE_BOX |
 | CWE | CWE-400 |
-| Depends on | none |
-| Configuration | [`tests.domain_4.test_4_2`](../../reference/configuration.md#testsdomain_4test_4_2---timeout-configuration-audit), `gateway.adapter` and `gateway.admin.url` |
+| Tags | `availability`, `timeout`, `resource-lock`, `white-box`, `OWASP-API4` |
+| Prerequisites | none |
+| Needs | `GATEWAY` |
+| Parameters | [`tests.domain_4.test_4_2`](../../reference/configuration.md#testsdomain_4test_4_2) |
+
+<!-- [[[end]]] -->
+
 
 ## What it checks
 

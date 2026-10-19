@@ -5,17 +5,25 @@
 > [`src/external_tests/ext_test_0_1_shadow_api_nuclei.py`](../../../../src/external_tests/ext_test_0_1_shadow_api_nuclei.py),
 > [`src/connectors/nuclei.py`](../../../../src/connectors/nuclei.py) · **Verified:** 2026-10-05
 
-| | |
+<!-- [[[cog import generate_docs as g; cog.out(g.test_header("ext.0.1.nuclei", page=cog.inFile)) ]]] -->
+
+|  |  |
 |---|---|
 | Test ID | `ext.0.1.nuclei` |
 | Name | Shadow API Discovery via nuclei (template-based exposure detection) |
 | Domain | 0 - API Discovery and Inventory Management |
 | Priority / strategy | P0 / BLACK_BOX |
 | CWE | CWE-200 |
-| Depends on | none |
-| Tool | nuclei 3.8.0 with nuclei-templates 10.4.3 (pinned by `install_tools.sh`) |
-| Configuration | [`external_tools.nuclei`](../../../reference/configuration.md#external_tools) |
-| Companion test | [`0.1`](../../domain-0/0-1-shadow-api-discovery.md) |
+| Tags | `shadow-api`, `discovery`, `exposure`, `OWASP-API9`, `nuclei` |
+| Prerequisites | none |
+| Needs | - |
+| Parameters | none |
+| Tool | `nuclei` ([`external_tools.nuclei`](../../../reference/configuration.md#external_tools)) |
+
+<!-- [[[end]]] -->
+
+**Tool version:** nuclei 3.8.0 with nuclei-templates 10.4.3 (pinned by `install_tools.sh`).
+**Companion test:** [`0.1`](../../domain-0/0-1-shadow-api-discovery.md).
 
 ## What it checks
 

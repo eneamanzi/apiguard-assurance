@@ -4,15 +4,21 @@
 > [`src/tests/domain_0/test_0_2_deny_by_default.py`](../../../src/tests/domain_0/test_0_2_deny_by_default.py) ·
 > **Verified:** 2026-10-05
 
-| | |
+<!-- [[[cog import generate_docs as g; cog.out(g.test_header("0.2", page=cog.inFile)) ]]] -->
+
+|  |  |
 |---|---|
 | Test ID | `0.2` |
 | Name | Gateway Deny-by-Default on Unregistered Paths |
 | Domain | 0 - API Discovery and Inventory Management |
 | Priority / strategy | P0 / BLACK_BOX |
 | CWE | CWE-284 |
-| Depends on | none |
-| Configuration | [`tests.domain_0.test_0_2`](../../reference/configuration.md#testsdomain_0test_0_2---deny-by-default) |
+| Tags | `deny-by-default`, `gateway`, `OWASP-API9:2023`, `NIST-SP-800-204-S4.1` |
+| Prerequisites | none |
+| Needs | - |
+| Parameters | [`tests.domain_0.test_0_2`](../../reference/configuration.md#testsdomain_0test_0_2) |
+
+<!-- [[[end]]] -->
 
 ## What it checks
 

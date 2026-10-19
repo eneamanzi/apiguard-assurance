@@ -34,7 +34,8 @@ This test follows a three-level fallback strategy specifically designed for
 Kong OSS, which does not ship a native circuit-breaker plugin.
 
 LEVEL 1 -- Native circuit-breaker plugin (Full Guarantee)
-    Searches the Kong plugin registry for any plugin in accepted_cb_plugin_names.
+    Reads the gateway's circuit breakers (which plugins are breakers is the
+    adapter's knowledge: src/core/gateway/kong.py, apisix.py).
     'response-ratelimiting' is intentionally excluded: it shapes request volumes
     but does NOT implement the CB state machine, does NOT detect downstream
     failures, and does NOT prevent cascading failure.
@@ -77,9 +78,9 @@ FINDING SEPARATO -- Observability (always runs, independent of levels)
 
 Gateway access:
     The levels read the gateway concepts circuit breakers, health checks and
-    live target health (src/core/gateway/concepts.py) through the adapter;
-    which Kong plugin names count as circuit breakers comes from
-    accepted_cb_plugin_names, passed to the Kong adapter. A health checks
+    live target health (src/core/gateway/concepts.py) through the adapter,
+    which knows which plugins are circuit breakers (block 10b,
+    docs/architecture/design-decisions.md, D8). A health checks
     concept not supported or not accessible gives SKIP; circuit breakers not
     accessible give SKIP when the verdict would be Level 3 (absence not
     proven), a note when Level 2 holds.
@@ -100,10 +101,11 @@ Kong OSS DB-less expected outcome:
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass, field
+from typing import Annotated
 
 import structlog
+from pydantic import BaseModel, Field, model_validator
 
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
@@ -126,11 +128,151 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
-from src.core.test_metadata import TestInfo
-from src.test_config.domain_4 import Test43AuditConfig
+from src.core.test_metadata import Need, TestInfo
 from src.tests.base import BaseTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Parameters: tests.domain_4.test_4_3 in config.yaml
+# ---------------------------------------------------------------------------
+
+# Methodology range for circuit-breaker parameter validation (Martin Fowler CB Pattern).
+TEST_43_FAILURE_THRESHOLD_MIN_DEFAULT: int = 3
+
+TEST_43_FAILURE_THRESHOLD_MAX_DEFAULT: int = 10
+
+TEST_43_TIMEOUT_DURATION_MIN_SECONDS_DEFAULT: int = 30
+
+TEST_43_TIMEOUT_DURATION_MAX_SECONDS_DEFAULT: int = 120
+
+# Passive healthcheck compensating control thresholds (Level 2 check).
+TEST_43_PASSIVE_HC_MAX_HTTP_FAILURES_DEFAULT: int = 10
+
+TEST_43_PASSIVE_HC_MAX_TCP_FAILURES_DEFAULT: int = 10
+
+TEST_43_PASSIVE_HC_MAX_TIMEOUTS_DEFAULT: int = 10
+
+
+class Test43Params(BaseModel):
+    """
+    Tuning parameters for Test 4.3 (Circuit Breaker Configuration Audit).
+
+    The test implements a Dual-Check a 3 Livelli strategy to handle the Kong OSS
+    constraint (no native circuit-breaker plugin):
+
+        LEVEL 1 -- Native circuit breaker check.
+            Reads the gateway's circuit breakers (concept CircuitBreaker): which
+            plugins are circuit breakers is the adapter's knowledge (Kong:
+            src/core/gateway/kong.py; APISIX: api-breaker). On Kong OSS DB-less
+            the expected Level 1 result is 'none found'; execution continues to
+            Level 2.
+
+        LEVEL 2 -- Compensating control via upstream passive healthchecks.
+            If no native plugin is found, the test inspects all Kong upstreams
+            for a configured passive healthcheck (healthchecks.passive.unhealthy
+            with at least one non-zero failure counter). A properly configured
+            passive healthcheck allows Kong to remove a degrading backend from
+            the upstream pool, approximating circuit-breaker behaviour at the
+            load-balancer layer. The test returns PASS with an informational
+            Finding documenting the compensating control.
+
+        LEVEL 3 -- Vulnerable.
+            Neither native plugin nor upstream passive healthcheck found.
+            Returns FAIL with a gap-documenting Finding.
+
+        Observability (always runs, independent).
+            Checks /status for circuit-breaker metrics. Always produces an
+            informational Finding on Kong OSS (these metrics are absent).
+
+    failure_threshold_* and timeout_duration_* parameters govern Level 1
+    parameter validation. passive_hc_max_* parameters govern Level 2.
+    """
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    # ------------------------------------------------------------------
+    # Level 1 -- native CB plugin
+    # ------------------------------------------------------------------
+
+    failure_threshold_min: Annotated[int, Field(ge=1)] = Field(
+        default=TEST_43_FAILURE_THRESHOLD_MIN_DEFAULT,
+        description=(
+            "Minimum acceptable failure threshold to open the circuit. "
+            "Methodology range: [3, 10] consecutive failures. "
+            "A threshold below this minimum is too sensitive (alert fatigue)."
+        ),
+    )
+    failure_threshold_max: Annotated[int, Field(ge=1)] = Field(
+        default=TEST_43_FAILURE_THRESHOLD_MAX_DEFAULT,
+        description=(
+            "Maximum acceptable failure threshold to open the circuit. "
+            "Methodology range: [3, 10] consecutive failures. "
+            "A threshold above this maximum leaves the system exposed too long."
+        ),
+    )
+    timeout_duration_min_seconds: Annotated[int, Field(ge=1)] = Field(
+        default=TEST_43_TIMEOUT_DURATION_MIN_SECONDS_DEFAULT,
+        description=(
+            "Minimum acceptable Open-state duration in seconds before Half-Open probe. "
+            "Methodology range: [30, 120] s (Martin Fowler Circuit Breaker Pattern). "
+            "A shorter window may not allow the downstream service to recover."
+        ),
+    )
+    timeout_duration_max_seconds: Annotated[int, Field(ge=1)] = Field(
+        default=TEST_43_TIMEOUT_DURATION_MAX_SECONDS_DEFAULT,
+        description=(
+            "Maximum acceptable Open-state duration in seconds before Half-Open probe. "
+            "Methodology range: [30, 120] s. "
+            "A longer window unnecessarily degrades availability."
+        ),
+    )
+
+    # ------------------------------------------------------------------
+    # Level 2 -- passive healthcheck compensating control thresholds
+    # ------------------------------------------------------------------
+
+    passive_hc_max_http_failures: Annotated[int, Field(ge=1)] = Field(
+        default=TEST_43_PASSIVE_HC_MAX_HTTP_FAILURES_DEFAULT,
+        description=(
+            "Maximum acceptable value for unhealthy.http_failures in an upstream's "
+            "passive healthcheck. A passive HC is considered active when this counter "
+            "is > 0 (0 disables it). Acceptable range: [1, this value]. "
+            "Values above the maximum indicate an overly permissive threshold."
+        ),
+    )
+    passive_hc_max_tcp_failures: Annotated[int, Field(ge=1)] = Field(
+        default=TEST_43_PASSIVE_HC_MAX_TCP_FAILURES_DEFAULT,
+        description=(
+            "Maximum acceptable value for unhealthy.tcp_failures in an upstream's "
+            "passive healthcheck. Same semantics as passive_hc_max_http_failures "
+            "but for TCP-level connection failures."
+        ),
+    )
+    passive_hc_max_timeouts: Annotated[int, Field(ge=1)] = Field(
+        default=TEST_43_PASSIVE_HC_MAX_TIMEOUTS_DEFAULT,
+        description=(
+            "Maximum acceptable value for unhealthy.timeouts in an upstream's "
+            "passive healthcheck. Same semantics as passive_hc_max_http_failures "
+            "but for upstream response timeouts."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_threshold_range_coherence(self) -> Test43Params:
+        """Ensure min <= max for Level 1 parameter ranges."""
+        if self.failure_threshold_min > self.failure_threshold_max:
+            raise ValueError(
+                f"failure_threshold_min ({self.failure_threshold_min}) must be "
+                f"<= failure_threshold_max ({self.failure_threshold_max})."
+            )
+        if self.timeout_duration_min_seconds > self.timeout_duration_max_seconds:
+            raise ValueError(
+                f"timeout_duration_min_seconds ({self.timeout_duration_min_seconds}) must be "
+                f"<= timeout_duration_max_seconds ({self.timeout_duration_max_seconds})."
+            )
+        return self
+
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -192,7 +334,7 @@ class _Level1Result:
     """Outcome of the Level 1 native plugin check."""
 
     plugin_found: bool
-    """True if any plugin from accepted_cb_plugin_names was found (enabled or not)."""
+    """True if the gateway reported a circuit breaker (enabled or not)."""
     plugin_name: str
     """Matched plugin name if found; empty string otherwise."""
     findings: list[Finding]
@@ -224,7 +366,7 @@ class _Level2Result:
 # ---------------------------------------------------------------------------
 
 
-class Test43CircuitBreakerAudit(BaseTest):
+class Test43CircuitBreakerAudit(BaseTest[Test43Params]):
     """
     Test 4.3 -- Circuit Breaker Configuration Audit: Graceful Degradation.
 
@@ -251,6 +393,7 @@ class Test43CircuitBreakerAudit(BaseTest):
             "white-box",
             "OWASP-API4",
         ),
+        needs=(Need.GATEWAY,),
     )
 
     # ------------------------------------------------------------------
@@ -283,19 +426,11 @@ class Test43CircuitBreakerAudit(BaseTest):
             TestResult with status PASS, FAIL, SKIP, or ERROR.
         """
         try:
-            skip_guard = self._requires_admin_api(target)
-            if skip_guard is not None:
-                return skip_guard
-
             gateway = target.gateway
-            assert gateway is not None  # noqa: S101
+            assert gateway is not None  # noqa: S101 -- Need.GATEWAY, checked by the engine
 
-            cfg = target.tests_config.test_4_3
-            log.info(
-                "test_4_3_starting",
-                gateway_adapter=gateway.adapter_name,
-                accepted_cb_plugin_names=cfg.accepted_cb_plugin_names,
-            )
+            cfg = self.params(target)
+            log.info("test_4_3_starting", gateway_adapter=gateway.adapter_name)
 
             breakers = gateway.circuit_breakers()
             breakers_ref = self._record_gateway_concept(
@@ -334,7 +469,6 @@ class Test43CircuitBreakerAudit(BaseTest):
 
             log.info(
                 "test_4_3_level1_no_match_proceeding_to_level2",
-                accepted_names=cfg.accepted_cb_plugin_names,
                 breakers_status=breakers.status.value,
             )
 
@@ -372,7 +506,7 @@ class Test43CircuitBreakerAudit(BaseTest):
 
             level3_findings: list[Finding] = [
                 self._build_level3_finding(
-                    accepted_plugin_names=cfg.accepted_cb_plugin_names,
+                    adapter_name=gateway.adapter_name,
                     upstream_count=len(checks.items),
                     evidence_ref=checks_ref,
                 )
@@ -426,26 +560,25 @@ class Test43CircuitBreakerAudit(BaseTest):
     def _check_level1_plugin(
         self,
         breakers: tuple[CircuitBreaker, ...],
-        cfg: Test43AuditConfig,
+        cfg: Test43Params,
         evidence_ref: str,
     ) -> _Level1Result:
         """
         Take the first circuit breaker read and validate it.
 
-        The adapter returns the breakers in the configured priority order
-        (accepted_cb_plugin_names on Kong), first instance of each, so the
-        first item is the one the test judges.
+        The adapter returns the breakers in its priority order, first
+        instance of each, so the first item is the one the test judges.
 
         Args:
             breakers:     Circuit breakers read from the gateway.
-            cfg:          Test43AuditConfig with the oracle ranges.
+            cfg:          Test43Params with the oracle ranges.
             evidence_ref: Evidence record of the concept read.
 
         Returns:
             _Level1Result with plugin_found=False if there is none.
         """
         if not breakers:
-            log.debug("test_4_3_level1_no_match", searched=cfg.accepted_cb_plugin_names)
+            log.debug("test_4_3_level1_no_match")
             return _Level1Result(plugin_found=False, plugin_name="", findings=[])
         breaker = breakers[0]
         log.info("test_4_3_level1_plugin_matched", plugin=breaker.source, enabled=breaker.enabled)
@@ -464,7 +597,7 @@ class Test43CircuitBreakerAudit(BaseTest):
     def _validate_plugin_parameters(
         self,
         breaker: CircuitBreaker,
-        cfg: Test43AuditConfig,
+        cfg: Test43Params,
         evidence_ref: str,
     ) -> list[Finding]:
         """
@@ -472,7 +605,7 @@ class Test43CircuitBreakerAudit(BaseTest):
 
         Args:
             breaker:      The circuit breaker read from the gateway.
-            cfg:          Test43AuditConfig with Level 1 oracle ranges.
+            cfg:          Test43Params with Level 1 oracle ranges.
             evidence_ref: Evidence record of the concept read.
 
         Returns:
@@ -630,7 +763,7 @@ class Test43CircuitBreakerAudit(BaseTest):
     def _check_level2_passive_hc(
         self,
         upstreams: tuple[HealthCheck, ...],
-        cfg: Test43AuditConfig,
+        cfg: Test43Params,
     ) -> _Level2Result:
         """
         Inspect all Kong upstreams for a configured passive healthcheck.
@@ -642,7 +775,7 @@ class Test43CircuitBreakerAudit(BaseTest):
 
         Args:
             upstreams: Health checks of each backend, read from the gateway.
-            cfg:       Test43AuditConfig with Level 2 oracle thresholds.
+            cfg:       Test43Params with Level 2 oracle thresholds.
 
         Returns:
             _Level2Result indicating whether a valid compensating control exists.
@@ -705,7 +838,7 @@ class Test43CircuitBreakerAudit(BaseTest):
     def _evaluate_upstream_passive_hc(
         self,
         upstream: HealthCheck,
-        cfg: Test43AuditConfig,
+        cfg: Test43Params,
     ) -> _PassiveHcSummary:
         """
         Evaluate the passive healthcheck configuration of a single Kong upstream.
@@ -716,7 +849,7 @@ class Test43CircuitBreakerAudit(BaseTest):
 
         Args:
             upstream: Health checks of one backend.
-            cfg:      Test43AuditConfig with passive_hc_max_* thresholds.
+            cfg:      Test43Params with passive_hc_max_* thresholds.
 
         Returns:
             _PassiveHcSummary describing the upstream's passive HC state.
@@ -870,7 +1003,7 @@ class Test43CircuitBreakerAudit(BaseTest):
 
     def _build_level3_finding(
         self,
-        accepted_plugin_names: Sequence[str],
+        adapter_name: str,
         upstream_count: int,
         evidence_ref: str,
     ) -> Finding:
@@ -880,22 +1013,20 @@ class Test43CircuitBreakerAudit(BaseTest):
         Called when both Level 1 and Level 2 find no protection.
 
         Args:
-            accepted_plugin_names: CB plugin names that were searched for.
-            upstream_count:        Number of upstreams inspected at Level 2.
-            evidence_ref:          Evidence record of the health checks read.
+            adapter_name:   The gateway adapter's name, for the finding.
+            upstream_count: Number of upstreams inspected at Level 2.
+            evidence_ref:   Evidence record of the health checks read.
 
         Returns:
             FAIL Finding with remediation options.
         """
-        names_quoted = ", ".join(f"'{n}'" for n in accepted_plugin_names)
         return Finding(
             title="Level 3 (Vulnerable): No Circuit-Breaker Protection Detected",
             detail=(
                 "The Dual-Check a 3 Livelli found no cascading-failure protection "
                 "on this gateway.\n\n"
-                "Level 1 result: the gateway reports no enabled circuit-breaker plugin "
-                f"(Kong adapter: the names in accepted_cb_plugin_names, {names_quoted}; "
-                "APISIX adapter: 'api-breaker').\n\n"
+                "Level 1 result: the gateway reports no enabled circuit breaker "
+                f"(gateway adapter: {adapter_name}).\n\n"
                 f"Level 2 result: {upstream_count} upstream(s) inspected; none have "
                 "a passive healthcheck with at least one failure counter > 0 "
                 "(a counter of 0 disables it).\n\n"
@@ -914,8 +1045,8 @@ class Test43CircuitBreakerAudit(BaseTest):
                 "  3. Service mesh layer: Istio DestinationRule with "
                 "trafficPolicy.outlierDetection (consecutive5xxErrors, interval, "
                 "baseEjectionTime).\n"
-                "  4. A custom plugin implementing the CB state machine (Kong: add its "
-                "name to accepted_cb_plugin_names in config.yaml)."
+                "  4. A custom plugin implementing the CB state machine (the gateway "
+                "adapter must then learn its name and fields: src/core/gateway/)."
             ),
             references=_REFERENCES_CB,
             evidence_ref=evidence_ref,

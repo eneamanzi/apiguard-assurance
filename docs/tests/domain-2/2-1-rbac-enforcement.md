@@ -4,15 +4,22 @@
 > [`src/tests/domain_2/test_2_1_rbac_enforcement.py`](../../../src/tests/domain_2/test_2_1_rbac_enforcement.py) ·
 > **Verified:** 2026-10-05
 
-| | |
+<!-- [[[cog import generate_docs as g; cog.out(g.test_header("2.1", page=cog.inFile)) ]]] -->
+
+|  |  |
 |---|---|
 | Test ID | `2.1` |
 | Name | Only Authorized Users Access Privileged Endpoints |
 | Domain | 2 - Authorization and Access Control |
 | Priority / strategy | P2 / GREY_BOX |
 | CWE | CWE-285 |
-| Depends on | none |
-| Configuration | [`tests.domain_2.test_2_1`](../../reference/configuration.md#testsdomain_2test_2_1---rbac), `user_a` credentials |
+| Tags | `authorization`, `rbac`, `OWASP-API5:2023`, `OWASP-ASVS-V8.3.1`, `NIST-SP-800-53-AC-3` |
+| Prerequisites | none |
+| Needs | `USER_ACCOUNT`, `admin_endpoint_paths` |
+| Parameters | [`tests.domain_2.test_2_1`](../../reference/configuration.md#testsdomain_2test_2_1) |
+
+<!-- [[[end]]] -->
+
 
 ## What it checks
 

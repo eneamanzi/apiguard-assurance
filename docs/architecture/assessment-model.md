@@ -24,23 +24,38 @@ v0.1.0 implements 15 native and 3 external tests covering 15 of the 29 guarantee
 The strategy says what the tester has. Each test is labelled with the access it needs to run in full
 (`src/core/models/enums.py`, `TestStrategy`).
 
-| Strategy | Tester has | Tests |
-|---|---|---|
-| `BLACK_BOX` | an external user: network access and the OpenAPI specification only, no credentials | 0.1, 0.2, 0.3, 1.1, 1.5, 1.6, 4.1, 6.2, `ext.0.1.nuclei`, `ext.1.5.testssl`, `ext.1.5.sslyze` |
-| `GREY_BOX` | a normal user: credentials of an ordinary account (`user_a`) | 2.1, 7.2 |
-| `WHITE_BOX` | a super user: the API's administrator account (`admin`), or internal access (gateway Admin API, files, internal systems) | 1.4 (admin account); 3.3, 4.2, 4.3, 6.4 (gateway Admin API; 6.4 sub-test A needs only the network) |
+| Strategy | Tester has |
+|---|---|
+| `BLACK_BOX` | an external user: network access and the OpenAPI specification only, no credentials |
+| `GREY_BOX` | a normal user: credentials of an ordinary account (`user_a`) |
+| `WHITE_BOX` | a super user: the API's administrator account (`admin`), or internal access (gateway Admin API, files, internal systems) |
+
+Among the WHITE_BOX tests, 1.4 needs the admin account; 3.3, 4.2, 4.3 and 6.4 the gateway Admin API (6.4 sub-test A
+needs only the network). The tests by strategy and priority are in the table under [Priorities](#priorities).
 
 The methodology classifies 1.5, 1.6 and 6.2 as WHITE_BOX by their nature (configuration audits); the tool labels
 them by what the tester needs, and anyone outside can read TLS settings, cookies and response headers (Q-33).
 
 ## Priorities
 
-| Priority | Methodology criterion | Implemented tests |
-|---|---|---|
-| P0 Critical | native gateway function, fully automatable, OWASP top risks | 0.1, `ext.0.1.nuclei`, 0.2, 0.3, 1.1, 4.1, 7.2 |
-| P1 High | partly gateway, automatable with setup, business-critical | 4.2, 4.3 |
-| P2 Medium | application-level or complex, partial automation | 1.4, 1.5, `ext.1.5.*`, 2.1, 6.4 |
-| P3 Low | static configuration, best practice | 1.6, 3.3, 6.2 |
+| Priority | Methodology criterion |
+|---|---|
+| P0 Critical | native gateway function, fully automatable, OWASP top risks |
+| P1 High | partly gateway, automatable with setup, business-critical |
+| P2 Medium | application-level or complex, partial automation |
+| P3 Low | static configuration, best practice |
+
+The implemented tests by strategy and priority (generated from the tests' declarations):
+
+<!-- [[[cog import generate_docs as g; cog.out(g.strategy_matrix()) ]]] -->
+
+| Strategy | P0 | P1 | P2 | P3 |
+|---|---|---|---|---|
+| `BLACK_BOX` | `0.1`, `0.2`, `0.3`, `1.1`, `4.1`, `ext.0.1.nuclei` | - | `1.5`, `ext.1.5.sslyze`, `ext.1.5.testssl` | `1.6`, `6.2` |
+| `GREY_BOX` | `7.2` | - | `2.1` | - |
+| `WHITE_BOX` | - | `4.2`, `4.3` | `1.4`, `6.4` | `3.3` |
+
+<!-- [[[end]]] -->
 
 **Priority and strategy are independent.** The priority says how serious a violation of the guarantee is
 (methodology criteria above); the strategy says what the tester needs to run the test. A critical test can need
@@ -58,9 +73,11 @@ Configured in `execution` ([`reference/configuration.md`](../reference/configura
 4. Prerequisites (`depends_on`, `requires_pass`) order the run; a test whose prerequisite is not met, including
    one left out by the selection, returns SKIP ([dependencies between tests](#dependencies-between-tests)).
 
-Without the `user_a` credentials GREY_BOX tests return SKIP; without the `admin` credentials 1.4 returns SKIP;
-without `gateway` (`adapter` + `admin.url`) the Admin API tests return SKIP (6.4 skips sub-test B). Phase 1 warns
-about each situation when the strategy concerned is selected.
+A test declares what it needs from the configuration (`TestInfo.needs`: `ADMIN_ACCOUNT`, `USER_ACCOUNT`, `GATEWAY`,
+`REVOCABLE_LOGIN`; and its parameters marked needed to run). When one is missing the engine records the test as
+SKIP before running it, with the reason (`src/core/test_needs.py`), and warns about it before the first test; 6.4
+needs no gateway and skips its sub-test B without one. The strategy says who the tester is; the needs say what the
+configuration must hold.
 
 ## Dependencies between tests
 

@@ -1,7 +1,8 @@
 # Configuration Reference (`config.yaml`)
 
 > **Audience:** users, integrators · **Status:** stable · **Source of truth:** `src/config/schema/tool_config.py`,
-> `src/test_config/domain_*.py`, `src/core/models/external_tools.py`, `src/core/models/resources.py`,
+> the parameter models in the test modules (`src/tests/domain_*/test_*.py`, `src/config/tests_section.py`),
+> `src/core/models/external_tools.py`, `src/core/models/resources.py`,
 > `src/config/loader.py`, `src/core/models/tls.py` · **Verified:** 2026-10-15 (connections: `target`, `specification`,
 > `gateway`, `tls`), 2026-10-14 (credentials, resources), 2026-10-12 (gateway keys), 2026-10-05, v0.1.0 (field list extracted from the Pydantic models; behaviours tested with
 > `apiguard validate-config`)
@@ -46,8 +47,8 @@ specification:
 
 With this configuration the tests that log in to the API return SKIP (no `credentials`), tests that read the gateway
 configuration return SKIP or skip that part (no `gateway`), and external tools are not scheduled (disabled by
-default). Which tests are affected is stated on each test page ([`tests/`](../tests/README.md)). Phase 1 logs a
-`config_coherence_warning` for the missing credentials and gateway; they are warnings, not errors. Every certificate
+default). Which tests are affected is stated on each test page ([`tests/`](../tests/README.md)); `validate-config` lists the
+selected tests that will SKIP and why, and the run logs one `test_will_skip_unmet_needs` warning per test. Every certificate
 is checked against the system's authorities ([`tls`](#tls-certificates-of-a-connection)).
 
 The configuration is organised by **connection**: each place the tool connects to has its own section with its address,
@@ -158,26 +159,6 @@ The report states how each connection was trusted (`connections` in the [JSON re
 checks" in the HTML report): `verified_system`, `verified_ca_bundle`, `not_verified`, `plain_http`, `local_file`, and
 whether a client certificate was used.
 
-### Keys moved in this version
-
-Keys of the previous structure are rejected (exit `10`) with a message naming their new place:
-
-| Previous key | New key |
-|---|---|
-| `target.openapi_spec_url` | `specification.url` |
-| `target.openapi_spec_path` | `specification.path` |
-| `execution.openapi_fetch_timeout_seconds` | `specification.timeout` |
-| `target.gateway_adapter` | `gateway.adapter` |
-| `target.admin_api_url` | `gateway.admin.url` |
-| `target.admin_api_headers` | `gateway.admin.headers` |
-| `target.admin_connect_timeout_seconds` | `gateway.admin.connect_timeout` |
-| `target.admin_read_timeout_seconds` | `gateway.admin.read_timeout` |
-| `target.health_api_url` | `gateway.health.url` |
-| `target.verify_tls` | `target.tls.verify` |
-| `execution.connect_timeout` | `target.connect_timeout` |
-| `execution.read_timeout` | `target.read_timeout` |
-| `execution.max_retry_attempts` | `target.max_retry_attempts` |
-
 ## `credentials`
 
 Accounts used by the tests that log in to the API: `user_a` (a normal user) by the GREY_BOX tests, `admin` (the
@@ -185,12 +166,12 @@ API's administrator account) by the WHITE_BOX test 1.4. Always provide values th
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `auth_type` | string \| null | `null` | How a credential is obtained. **Required** when an account or a token is configured. `basic` (HTTP Basic with username and password, RFC 7617), `static_token` (the `<role>_token` values), `login` (the [prepared resource](#resources) `login_resource` is created for each role: its value `credential` is the token; its delete request, if any, deletes the token at the end of the run and lets test 1.4 revoke one). `forgejo_token` and `jwt_login` (v0.1.0) are rejected with a message showing the `login` form. |
+| `auth_type` | string \| null | `null` | How a credential is obtained. **Required** when an account or a token is configured. `basic` (HTTP Basic with username and password, RFC 7617), `static_token` (the `<role>_token` values), `login` (the [prepared resource](#resources) `login_resource` is created for each role: its value `credential` is the token; its delete request, if any, deletes the token at the end of the run and lets test 1.4 revoke one). |
 | `admin_username`, `admin_password` | string \| null | `null` | Administrator role (`basic`, `login`). |
 | `user_a_username`, `user_a_password` | string \| null | `null` | First non-privileged role. |
 | `user_b_username`, `user_b_password` | string \| null | `null` | Second non-privileged role. |
 | `admin_token`, `user_a_token`, `user_b_token` | string \| null | `null` | `static_token` only: the token of each role. |
-| `login_resource` | string \| null | `null` | `login` only, **required** there: the name of a resource of [`resources`](#resources) whose create request logs in for a role (`auth: basic` or `none`) and whose values include `credential`, the dotted path of the token in the response. The v0.1.0 keys `login_endpoint`, `username_body_field`, `password_body_field`, `token_response_path` are rejected with a message showing this form. |
+| `login_resource` | string \| null | `null` | `login` only, **required** there: the name of a resource of [`resources`](#resources) whose create request logs in for a role (`auth: basic` or `none`) and whose values include `credential`, the dotted path of the token in the response. |
 | `security_scheme` | string \| null | `null` | Name of the specification's security scheme the credential is sent with. **Required** when the specification declares more than one scheme that can carry a token (e.g. Forgejo: `AuthorizationHeaderToken`). Not with `basic`. |
 | `send_as` | map \| null | `null` | Where and how the credential is sent: `in` (`header`, `query`, `cookie`), `name`, `prefix` (written before the credential, spaces included). Every field left out comes from the specification's scheme; with no usable scheme `in` and `name` are required. With a declared `apiKey` scheme only `prefix` may be set (Forgejo: `prefix: "token "`). Not with `basic`. |
 
@@ -223,7 +204,7 @@ configured, and prints where the credentials will be sent.
 ## `resources`
 
 Prepared resources: what the tool creates on the target and deletes at the end of the run, by name (letters, digits,
-`_`, `-`). Used by `credentials.login_resource` and by `tests.domain_7.test_7_2.injection_resource`; the test or the
+`_`, `-`). Used by `credentials.login_resource` and by `tests.domain_7.test_7_2.url_accepting_endpoint.resource`; the test or the
 login chooses the role a resource is created for. None by default. Design: [D6](../architecture/design-decisions.md#d6-prepared-resources).
 
 | Key | Type | Default | Description |
@@ -269,134 +250,160 @@ The timeouts and retries of the API connection are in [`target`](#target), the s
 ## `tests`
 
 Per-test tuning. Defaults produce a complete assessment; set only what you need to change. Structure:
-`tests.domain_<D>.test_<D>_<N>.<key>`. Every native test has a section; 0.3 has no parameters.
-Schema per domain: `src/test_config/domain_<D>.py`.
+`tests.domain_<D>.test_<D>_<N>.<key>`, derived from the test ID. Each test declares its parameter model in its own
+module (`src/tests/domain_<D>/test_<D>_<N>_*.py`, the class `Test<D><N>Params`); 0.3 and the external tests have
+none. The section is checked right after the rest of the configuration, once the tests are discovered (also by
+`validate-config`): an unknown test or parameter is reported like any unknown key, with the closest name.
 
-### `tests.domain_0.test_0_1` - Shadow API discovery
+The tables below are generated from the parameter models (`scripts/generate_docs.py`); the full default lists
+are in [`config.example.yaml`](../../config.example.yaml).
 
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `method_probe_sample_size` | int 1-100 | `10` | Number of documented endpoints, in spec order, taken by the undeclared-method sub-check; the parametric ones among them are skipped. Each receives up to about five undeclared methods. |
+<!-- [[[cog import generate_docs as g; cog.out(g.configuration_tests()) ]]] -->
 
-### `tests.domain_0.test_0_2` - Deny-by-default
+### `tests.domain_0.test_0_1`
 
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `gateway_server_identifiers` | list (≥1) | `kong, nginx, openresty, apache, caddy, traefik, envoy` | Case-insensitive substrings of the `Server` header that identify a response generated by the gateway rather than the backend. APISIX answers `Server: APISIX`: add `apisix`. |
-
-### `tests.domain_1.test_1_1` - Authentication required
+Test [0.1](../tests/domain-0/0-1-shadow-api-discovery.md), All Exposed Endpoints Are Documented and Authorized.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `max_endpoints_cap` | int ≥0 | `0` | Maximum protected endpoints probed. `0` = all. Set a positive cap only if the target's rate limiting would interfere or a time bound is needed. |
+| `method_probe_sample_size` | int 1-100 | `10` | Number of documented endpoints (in spec order) used by the undeclared-method sub-check; parametric ones among them are skipped. Each receives up to about five undeclared methods. Range 1-100, default 10. |
 
-### `tests.domain_1.test_1_4` - Token revocation
+### `tests.domain_0.test_0_2`
 
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `verify_request.method` | `GET` `POST` `PUT` `PATCH` `DELETE` | `GET` | Method of the request sent with the revoked credential. |
-| `verify_request.path` | string | none | Path of an endpoint that requires authentication and answers `2xx` to a valid credential (Forgejo: `/api/v1/user`). No `verify_request`: the test returns SKIP. |
-
-The temporary credential is a new instance of the login resource for the `admin` role, revoked by its delete request;
-1.4 runs only with `auth_type: login` and a login resource that has a delete request (otherwise SKIP "Not
-applicable"). `token_name` (v0.1.0) is rejected: names now come from the resource (`apiguard-{random}` on the labs).
-
-### `tests.domain_1.test_1_5` - Credentials over insecure channels
+Test [0.2](../tests/domain-0/0-2-deny-by-default.md), Gateway Deny-by-Default on Unregistered Paths.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `hsts_min_max_age_seconds` | int ≥86400 | `31536000` | Minimum acceptable `Strict-Transport-Security` max-age. |
-| `http_probe_enabled` | bool | `true` | Probe the HTTP URL for HTTP→HTTPS redirect. |
-| `http_probe_url` | string | `""` | Explicit HTTP URL to probe. Empty → derived from `base_url`. Needed when HTTPS uses a non-standard port (e.g. `https://localhost:8443` → set `http://localhost:8000/api/v1/version`, a path the gateway routes). |
-| `http_probe_timeout_seconds` | float ≥1 | `5.0` | Timeout for the redirect probe. |
-| `expected_redirect_status_codes` | list of int | `301, 308` | Status codes accepted as a valid redirect. |
+| `gateway_server_identifiers` | list | 7 values (`kong`, `nginx`, …) | Substrings matched case-insensitively against the 'Server' response header to classify a response as generated by the API Gateway layer (not the backend). A response whose Server header does NOT contain any of these substrings is flagged as a deny-by-default violation: the request reached the backend. Default: ['kong', 'nginx', 'openresty', 'apache', 'caddy', 'traefik', 'envoy']. Extend when deploying gateways not in this list (HAProxy, Tyk, APISIX). Never add application server names (Gunicorn, uWSGI): that defeats the check. |
 
-### `tests.domain_1.test_1_6` - Session management
+### `tests.domain_1.test_1_1`
+
+Test [1.1](../tests/domain-1/1-1-authentication-required.md), Only Authenticated Requests Access Protected Resources.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `cookie_probe_paths` | list | `/` | Paths requested to collect `Set-Cookie` headers. |
-| `session_cookie_names` | list (non-empty) | `session, sid, PHPSESSID, JSESSIONID, connect.sid, _session, auth_session, user_session` | Case-insensitive names treated as session cookies. |
-| `check_samesite` | bool | `true` | Validate the `SameSite` attribute. |
-| `expected_samesite_value` | string | `Strict` | Expected `SameSite` value (case-insensitive). |
+| `max_endpoints_cap` | int ≥0 | `0` | Maximum number of protected endpoints that Test 1.1 will probe. 0 means test ALL protected endpoints declared in the OpenAPI spec (recommended for complete academic coverage). Set to a positive integer only when the target API enforces strict rate limiting that would cause 429 responses during a full scan, or when the operator requires a time-bounded assessment. |
 
-### `tests.domain_2.test_2_1` - RBAC
+### `tests.domain_1.test_1_4`
 
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `admin_endpoint_paths` | list | empty | Admin-only paths of the target probed with a non-privileged token. No default (a path the target does not have answers `404`, counted as enforced): empty, the test returns SKIP. Forgejo: `/api/v1/admin/users`. |
-| `admin_endpoint_method` | string | `GET` | HTTP method used for the probes. |
-
-### `tests.domain_3.test_3_3` - HMAC configuration audit
+Test [1.4](../tests/domain-1/1-4-token-revocation.md), Revoked Token Rejected After Deletion.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `max_clock_skew_seconds` | int ≥1 | `300` | Maximum acceptable `clock_skew` of the HMAC plugin. |
-| `forbidden_algorithms` | list | `hmac-sha1, hmac-md5` | Algorithms whose presence is a finding. |
-| `plugin_names` | list | `hmac-auth` | Gateway plugin names implementing HMAC authentication. Read by the Kong adapter; the APISIX adapter reads its own `hmac-auth` plugin. |
-| `field_clock_skew` | string | `clock_skew` | Plugin config field holding the replay window. |
-| `field_algorithms` | string | `algorithms` | Plugin config field listing allowed algorithms. |
-| `field_validate_body` | string | `validate_request_body` | Plugin config field enabling body signing. The three `field_*` keys: Kong adapter only. |
-| `clock_skew_unconfigured_value` | int | `0` | Value meaning "no limit configured". |
+| `protected_endpoint` | object \| null | none, **needed to run** | An endpoint of the API that requires authentication: method (default GET) and path. The test sends the revoked credential to it, which must be rejected. No default: unset, the test returns SKIP. |
+| `protected_endpoint.method` | string | `GET` | HTTP method. Default GET. |
+| `protected_endpoint.path` | string | required | Path of an endpoint that requires authentication and answers 2xx to a valid credential, e.g. '/api/v1/user'. |
 
-### `tests.domain_4.test_4_1` - Rate limiting
+### `tests.domain_1.test_1_5`
+
+Test [1.5](../tests/domain-1/1-5-insecure-credential-transport.md), Credentials Not Transmitted via Insecure Channels.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `max_requests` | int 10-500 | `150` | Requests sent before concluding that rate limiting is absent. |
-| `request_interval_ms` | int 10-5000 | `50` | Interval between probe requests. |
+| `hsts_min_max_age_seconds` | int ≥86400 | `31536000` | Minimum acceptable max-age value (seconds) in the Strict-Transport-Security header. NIST SP 800-52 Rev.2, OWASP ASVS v5.0.0 V12.1.1. Default: 31536000 (1 year). |
+| `http_probe_enabled` | bool | `true` | If True, probe the HTTP base URL for redirect enforcement (sub-test 1). Set False only if port 80 is filtered at the network level and any connection attempt would block for the full timeout. Default: True. |
+| `http_url` | string | `""` | A URL of the API in plain HTTP, checked for a redirect to HTTPS (sub-test 1). When non-empty, this URL is used directly instead of deriving the HTTP counterpart from the HTTPS base URL. Use in non-standard port lab setups where the HTTPS base URL uses a port other than 443 (e.g. https://localhost:8443 -> derive produces http://localhost:8443/ which hits the gateway's TLS listener and returns 400). Example: 'http://localhost:8000/' to probe the gateway's HTTP listener. Empty string (default) falls back to the derived URL. |
+| `http_probe_timeout_seconds` | number ≥1.0 | `5.0` | Connect + read timeout (seconds) for the HTTP redirect probe. Keep short: a TCP RST is returned immediately for refused connections. Default: 5.0. |
+| `expected_redirect_status_codes` | list | `301`, `308` | HTTP status codes that satisfy the redirect oracle in sub-test 1. RFC 9110 permanent redirects: 301 (Moved Permanently) and 308 (Permanent Redirect). Temporary redirects 302/307 are NOT accepted: they allow MITM-driven downgrade attacks. Default: [301, 308]. |
 
-### `tests.domain_4.test_4_2` - Timeout configuration audit
+### `tests.domain_1.test_1_6`
 
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `max_connect_timeout_ms` | int ≥1 | `5000` | Maximum acceptable gateway service `connect_timeout`. |
-| `max_read_timeout_ms` | int ≥1 | `30000` | Maximum acceptable `read_timeout`. |
-| `max_write_timeout_ms` | int ≥1 | `30000` | Maximum acceptable `write_timeout`. |
-
-### `tests.domain_4.test_4_3` - Circuit breaker audit
+Test [1.6](../tests/domain-1/1-6-secure-session-management.md), Secure Session Management in Distributed Architectures.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `accepted_cb_plugin_names` | list | `circuit-breaker` | Plugin names accepted as a circuit breaker. Read by the Kong adapter; the APISIX adapter reads its own `api-breaker` plugin. |
-| `failure_threshold_min` / `failure_threshold_max` | int ≥1 | `3` / `10` | Acceptable failure-threshold range (min ≤ max enforced). |
-| `timeout_duration_min_seconds` / `timeout_duration_max_seconds` | int ≥1 | `30` / `120` | Acceptable open-state duration range (min ≤ max enforced). |
-| `passive_hc_max_http_failures` | int ≥1 | `10` | Maximum acceptable `unhealthy.http_failures` in upstream passive health checks. |
-| `passive_hc_max_tcp_failures` | int ≥1 | `10` | Maximum acceptable `unhealthy.tcp_failures`. |
-| `passive_hc_max_timeouts` | int ≥1 | `10` | Maximum acceptable `unhealthy.timeouts`. |
+| `session_cookie_paths` | list | `/` | Paths of the API that set session cookies, read with a GET to collect them. The test sends a GET to each path (unauthenticated) and collects all Set-Cookie headers. Extend this list to cover login pages or API roots that issue cookies. Default: ['/']. |
+| `session_cookie_names` | list | 8 values (`session`, `sid`, …) | Case-insensitive cookie names treated as session identifiers. Cookies whose name appears in this list are subject to the HttpOnly / Secure / SameSite attribute audit. Default: well-known session cookie names across common web frameworks. |
+| `check_samesite` | bool | `true` | If True, validate the SameSite attribute on session cookies. OWASP ASVS v5.0.0 V3.2.3 requires SameSite to prevent CSRF. Set False only when the application legitimately requires cross-site cookies and the risk is documented and accepted. Default: True. |
+| `expected_samesite_value` | string | `Strict` | Expected value for the SameSite cookie attribute (case-insensitive). Accepted: 'Strict' (recommended, ASVS V3.2.3), 'Lax' (acceptable for applications that require cross-origin GET requests). 'None' is never acceptable for a session cookie. Default: 'Strict'. |
 
-### `tests.domain_6.test_6_2` - Security headers audit
+### `tests.domain_2.test_2_1`
 
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `hsts_min_max_age_seconds` | int ≥1 | `31536000` | Minimum acceptable HSTS max-age. |
-| `endpoint_sample_size` | int ≥0 | `5` | Endpoints sampled for the cross-endpoint consistency check. `0` = all. |
-
-### `tests.domain_6.test_6_4` - Hardcoded credentials audit
+Test [2.1](../tests/domain-2/2-1-rbac-enforcement.md), Only Authorized Users Access Privileged Endpoints.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `debug_endpoint_paths` | list | 10 paths (`/actuator/env`, `/debug/vars`, `/api/config`, …; full list in `src/test_config/domain_6.py`) | Paths probed for exposed debug/actuator endpoints. |
-| `gateway_block_body_fragment` | string | `no Route matched with those values` | Body substring identifying a deny-by-default reply generated by the gateway (the default is Kong's message; APISIX: `404 Route Not Found`). |
+| `admin_endpoint_paths` | list | empty, **needed to run** | Admin-only endpoint paths of the target to probe with a non-privileged token (OWASP ASVS v5.0.0 V8.3.1), each starting with '/'. No default: the admin paths depend on the API, and a path the API does not have would answer 404 and pass. Empty: the test returns SKIP. Example (Forgejo): ['/api/v1/admin/users']. |
+| `admin_endpoint_method` | string | `GET` | HTTP method to use when probing each admin endpoint. Default: 'GET'. |
 
-### `tests.domain_7.test_7_2` - SSRF prevention
+### `tests.domain_3.test_3_3`
+
+Test [3.3](../tests/domain-3/3-3-hmac-config-audit.md), HMAC Authentication Configuration Does Not Allow Replay or Weak Algorithms.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `payload_categories` | list | `cloud_metadata, private_ip, encoding_bypass, forbidden_protocol, dns_bypass, url_parser_confusion` | Payload families sent. |
-| `injection_path_template` | string \| null | `null` | Endpoint receiving the injected URL (`POST`). No default: unset (with the body), the test returns SKIP. With `injection_resource` it may use the resource's values (Forgejo: `/api/v1/repos/{owner}/{repo}/hooks`). |
-| `injection_body_template` | object \| null | `null` | Request body; **required** with the path. Must contain `"{ssrf_url}"` exactly once (each payload URL); may contain `"{random_secret}"` (32 random hexadecimal characters, masked as a secret) and the resource's values. Checked at startup. Forgejo webhook body: `test-environments/forgejo-kong/config.yaml`. |
-| `injection_resource` | string \| null | `null` | A [prepared resource](#resources) created for `user_a` before the probes (once per run), whose values fill the path and the body; deleted at teardown (Forgejo: `repository`). Without it the path is used as written (crAPI). A resource that cannot be created gives ERROR. |
+| `max_clock_skew_seconds` | int ≥1 | `300` | Maximum acceptable replay window (in seconds) of a signing policy (the allowed difference between the request's date and the gateway's clock). A larger window increases the replay-attack surface: an attacker who captures a signed request can replay it until the window expires. NIST SP 800-107 Rev. 1 Section 5.3.2 recommends <= 300 s (5 minutes). Default: 300. |
+| `forbidden_algorithms` | list | `hmac-sha1`, `hmac-md5` | HMAC algorithms whose presence in a signing policy's allowed list constitutes a security finding. 'hmac-md5': cryptographically broken (RFC 6151); must never be used. 'hmac-sha1': deprecated per NIST SP 800-131A Rev. 2 and PCI-DSS v4 Requirement 12.3.3; acceptable to remove from this list only if the deployment has a documented exception. Default: ['hmac-sha1', 'hmac-md5']. |
 
-`injection_mode` and `injection_url_field` (v0.1.0) are rejected with a message showing the new form; `$SSRF_URL$`
-and `$RANDOM_SECRET$` are now `{ssrf_url}` and `{random_secret}`.
-| `ssrf_redirect_server_url` | string | `""` | Operator-controlled server answering `302` to an internal address. Empty → the redirect sub-test is skipped and documented with an InfoNote. |
-| `ssrf_block_response_keywords` | list | 11 keywords | Body substrings identifying an explicit SSRF block. |
-| `ssrf_malformed_url_keywords` | list | 8 keywords | Body substrings identifying a URL rejected as syntactically invalid. |
-| `ssrf_unsupported_scheme_keywords` | list | 8 keywords | Body substrings identifying a rejected URL scheme. |
-| `ssrf_request_timeout_ms` | int ≥1000 | `10000` | **No effect in v0.1.0** - reserved; `execution.read_timeout` applies (Q-24). |
+### `tests.domain_4.test_4_1`
 
-Keyword defaults: `src/test_config/domain_7.py`.
+Test [4.1](../tests/domain-4/4-1-rate-limiting.md), Rate Limiting -- Resource Exhaustion Prevention.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `max_requests` | int 10-500 | `150` | Maximum probe requests sent before concluding rate limiting is absent. Range: [10, 500]. Default: 150. |
+| `request_interval_ms` | int 10-5000 | `50` | Interval in milliseconds between consecutive probe requests. Range: [10, 5000]. Default: 50 ms. |
+
+### `tests.domain_4.test_4_2`
+
+Test [4.2](../tests/domain-4/4-2-timeout-config-audit.md), Timeout Configuration Audit -- Prevention of Resource Lock.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `max_connect_timeout_ms` | int ≥1 | `5000` | Maximum acceptable backend connect timeout of a gateway service, in milliseconds. Methodology oracle: connect_timeout <= 5 000 ms (NIST SP 800-204A Section 4.3). Services with a higher value will produce a FAIL finding. |
+| `max_read_timeout_ms` | int ≥1 | `30000` | Maximum acceptable backend read timeout of a gateway service, in milliseconds. Methodology oracle: read_timeout <= 30 000 ms (NIST SP 800-204A Section 4.3). Services with a higher value will produce a FAIL finding. |
+| `max_write_timeout_ms` | int ≥1 | `30000` | Maximum acceptable backend write (send) timeout of a gateway service, in milliseconds. Methodology oracle: write_timeout <= 30 000 ms. Services with a higher value will produce a FAIL finding. |
+
+### `tests.domain_4.test_4_3`
+
+Test [4.3](../tests/domain-4/4-3-circuit-breaker-audit.md), Circuit Breaker Audit -- Dual-Check a 3 Livelli.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `failure_threshold_min` | int ≥1 | `3` | Minimum acceptable failure threshold to open the circuit. Methodology range: [3, 10] consecutive failures. A threshold below this minimum is too sensitive (alert fatigue). |
+| `failure_threshold_max` | int ≥1 | `10` | Maximum acceptable failure threshold to open the circuit. Methodology range: [3, 10] consecutive failures. A threshold above this maximum leaves the system exposed too long. |
+| `timeout_duration_min_seconds` | int ≥1 | `30` | Minimum acceptable Open-state duration in seconds before Half-Open probe. Methodology range: [30, 120] s (Martin Fowler Circuit Breaker Pattern). A shorter window may not allow the downstream service to recover. |
+| `timeout_duration_max_seconds` | int ≥1 | `120` | Maximum acceptable Open-state duration in seconds before Half-Open probe. Methodology range: [30, 120] s. A longer window unnecessarily degrades availability. |
+| `passive_hc_max_http_failures` | int ≥1 | `10` | Maximum acceptable value for unhealthy.http_failures in an upstream's passive healthcheck. A passive HC is considered active when this counter is > 0 (0 disables it). Acceptable range: [1, this value]. Values above the maximum indicate an overly permissive threshold. |
+| `passive_hc_max_tcp_failures` | int ≥1 | `10` | Maximum acceptable value for unhealthy.tcp_failures in an upstream's passive healthcheck. Same semantics as passive_hc_max_http_failures but for TCP-level connection failures. |
+| `passive_hc_max_timeouts` | int ≥1 | `10` | Maximum acceptable value for unhealthy.timeouts in an upstream's passive healthcheck. Same semantics as passive_hc_max_http_failures but for upstream response timeouts. |
+
+### `tests.domain_6.test_6_2`
+
+Test [6.2](../tests/domain-6/6-2-security-headers-audit.md), Security Headers Configured Appropriately.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `hsts_min_max_age_seconds` | int ≥1 | `31536000` | Minimum acceptable max-age value in the Strict-Transport-Security header. ASVS V3.4.1 requires max-age >= 31 536 000 (one year). An HSTS header present but with a lower max-age is flagged as a FAIL. Default: 31536000 seconds (1 year). |
+| `endpoint_sample_size` | int ≥0 | `5` | Number of endpoints to sample for cross-endpoint header consistency check. 0 = all endpoints in the AttackSurface (complete coverage). Any positive integer caps the sample at that count, using the first N endpoints returned by the AttackSurface iterator. The consistency check compares each sampled endpoint's security headers against the reference set obtained from the first endpoint. Default: 5. |
+
+### `tests.domain_6.test_6_4`
+
+Test [6.4](../tests/domain-6/6-4-hardcoded-credentials-audit.md), Service Credentials Not Hardcoded or Exposed.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `debug_endpoint_paths` | list | 10 values (`/actuator/env`, `/actuator/configprops`, …) | List of paths to probe for debug / actuator endpoint exposure. Each path is probed with an unauthenticated GET request. A 2xx response whose body contains credential-like patterns is a FAIL. Extend this list with stack-specific debug paths in config.yaml (e.g. Laravel Telescope: '/_ignition/health-check', Django Silk: '/silk/summary/'). Removing paths from the default list narrows coverage. Default: ['/actuator/env', '/actuator/configprops', '/actuator/health', '/debug/vars', '/debug/pprof', '/api/config', '/admin/config', '/_debug', '/api/debug/users', '/api/debug/config']. |
+| `gateway_block_body_fragment` | string | `no Route matched with those values` | A substring present in the response body of a non-2xx reply produced by the Gateway itself (deny-by-default), as opposed to a reply forwarded to and rejected by the upstream application. Used to distinguish oracle states ENDPOINT_BLOCKED (Gateway) from ENDPOINT_BLOCKED_BY_APP (application) in the audit trail. Default is specific to Kong DB-less 3.x. Override for other gateways: Traefik: '404 page not found' AWS API Gateway: 'Missing Authentication Token' Nginx: '<title>404 Not Found</title>' HAProxy: '503 Service Unavailable'. Set to an empty string to disable the distinction entirely (all non-2xx responses will be classified as ENDPOINT_BLOCKED). |
+
+### `tests.domain_7.test_7_2`
+
+Test [7.2](../tests/domain-7/7-2-ssrf-prevention.md), Server-Side Request Forgery (SSRF) Prevention.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `payload_categories` | list | 6 values (`cloud_metadata`, `private_ip`, …) | Payload categories to include in the SSRF probe. Valid values: 'cloud_metadata', 'private_ip', 'encoding_bypass', 'forbidden_protocol', 'dns_bypass', 'url_parser_confusion'. Removing a category reduces coverage; the omitted sub-test is not reported as SKIP -- the category is simply not probed. Default: all six categories ['cloud_metadata', 'private_ip', 'encoding_bypass', 'forbidden_protocol', 'dns_bypass', 'url_parser_confusion']. |
+| `url_accepting_endpoint` | object \| null | none, **needed to run** | An endpoint of the API that accepts a URL from the client and makes the server call it (a webhook, an import from a URL): path, body and, optionally, a prepared resource. The test sends the SSRF payload URLs to it. No default: unset, the test returns SKIP. |
+| `url_accepting_endpoint.path` | string | required | Path of the endpoint (POST). With resource it may hold the resource's values, e.g. '/api/v1/repos/{owner}/{repo}/hooks'. |
+| `url_accepting_endpoint.body` | object | required | JSON body of the request. Must contain "{ssrf_url}" exactly once, replaced by each payload URL; may contain "{random_secret}" (32 random hexadecimal characters) and, with resource, the resource's values. Placeholders in quotes. |
+| `url_accepting_endpoint.resource` | string \| null | none | Name of a prepared resource (resources: in config.yaml) created for user A before probing; its values fill the placeholders of path and body, and it is deleted at teardown. Optional: without it the path is used as written. |
+| `ssrf_redirect_server_url` | string | `""` | URL of an operator-controlled public server that responds with 302 Location pointing to an internal SSRF target (e.g. http://169.254.169.254/...). When non-empty, sub-test G (redirect following) is executed: the injection URL is set to this server and the oracle checks whether the application re-validates the redirected target URL. When empty (default), sub-test G is SKIPPED with an InfoNote documenting the gap. This server must be reachable from the test runner's network and must be under your control. Default: '' (empty -- redirect sub-test skipped). |
+| `ssrf_block_response_keywords` | list | 11 values (`invalid host`, `not allowed`, …) | Case-insensitive substrings checked against the response body of non-2xx SSRF probe responses. A match classifies the oracle state as SSRF_BLOCKED_BY_VALIDATION (explicit URL rejection). No match produces SSRF_BLOCKED_UNKNOWN (URL rejected for an unspecified reason). Both states produce no Finding. Override with gateway- or application-specific error message fragments for more precise Audit Trail classification. Default: ['invalid host', 'not allowed', 'forbidden', 'scheme not supported', 'scheme not allowed', 'host not allowed', 'private', 'loopback', 'blocked', 'disallowed', 'restricted']. |
+| `ssrf_malformed_url_keywords` | list | 8 values (`invalid character`, `invalid url`, …) | Case-insensitive substrings that, when found in a non-2xx SSRF probe response body, indicate the URL was rejected because it is syntactically invalid to the HTTP parser -- NOT because of an explicit SSRF defence and NOT because the scheme is unsupported. Checked FIRST (Level 1). A match produces oracle state SSRF_BLOCKED_AS_MALFORMED_URL. No Finding is generated; the distinction only affects the Audit Trail column of the HTML report. Example: Go's net/url rejects 'http://%31%32%37...' with 'invalid character'; this is a parser side-effect, not an SSRF-aware block. Default: ['invalid character', 'invalid url', 'url malformed', 'malformed url', 'parse error', 'url parse', 'could not parse', 'bad url']. |
+| `ssrf_unsupported_scheme_keywords` | list | 8 values (`scheme not supported`, `scheme not allowed`, …) | Case-insensitive substrings that, when found in a non-2xx SSRF probe response body, indicate the URL was rejected because its scheme (protocol) is not accepted by the application -- NOT because the URL is syntactically malformed and NOT because of an explicit SSRF IP/range defence. Checked SECOND (Level 2), after ssrf_malformed_url_keywords. A match produces oracle state SSRF_BLOCKED_UNSUPPORTED_SCHEME. No Finding is generated. Important: in Forgejo/Go, 'file://', 'gopher://', 'dict://' etc. are rejected with the same 'Invalid url' message as malformed URLs. The test therefore also checks the injected URL's scheme directly when the response body gives no clear signal -- these keywords serve as a fallback for application stacks with more descriptive error messages. Default: ['scheme not supported', 'scheme not allowed', 'unsupported scheme', 'unsupported protocol', 'invalid scheme', 'only http', 'only https', 'protocol not allowed']. |
+| `ssrf_request_timeout_ms` | int ≥1000 | `10000` | Intended timeout in milliseconds for individual SSRF probe requests. Reserved for future per-request timeout override support in SecurityClient. Currently the global target.read_timeout governs all requests; this field documents the operator's intent and will be honoured automatically once SecurityClient supports per-request timeout overrides. NIST SP 800-204 Section 3.2.2 recommends tight timeouts on outbound connections from API servers. Default: 10000 ms (10 s). Minimum: 1000 ms. |
+
+<!-- [[[end]]] -->
 
 ## `external_tools`
 
@@ -446,15 +453,14 @@ Phase 1 rejects the configuration (exit `10`) when:
 
 | Rule | Fields |
 |---|---|
-| A key of the previous structure (table [Keys moved](#keys-moved-in-this-version)) | `target.*`, `execution.*` |
 | Exactly one specification source | `specification.url`, `specification.path` |
 | With `gateway`: `adapter` (`kong` or `apisix`) and `admin.url`; with `health`: `health.url` | `gateway.*` |
 | `tls` blocks: files exist; `client_cert` with `client_key`; not `verify: false` with `ca_bundle`; PEM files, key matching the certificate, key not encrypted | `*.tls` |
-| `auth_type` set when credentials are configured, supported value (`forgejo_token`, `jwt_login`, `json_login` and the v0.1.0 login keys rejected with the `login` form); `login` needs `login_resource`, only `login` takes it; each method's own credential keys only; `basic` without `security_scheme` / `send_as` | `credentials.*` |
+| `auth_type` set when credentials are configured, supported value; `login` needs `login_resource`, only `login` takes it; each method's own credential keys only; `basic` without `security_scheme` / `send_as` | `credentials.*` |
 | The login resource exists, has the value `credential`, and its create request does not use `auth: credential` | `credentials.login_resource`, `resources` |
 | Resource names (letters, digits, `_`, `-`); paths start with `/`; methods `GET` `POST` `PUT` `PATCH` `DELETE`; placeholders well formed, known where used (no response value in `create`), quoted in YAML; value names not `username` / `password` / `random` | `resources.*` |
-| 7.2: path and body together; `injection_resource` defined; path and body placeholders known; `{ssrf_url}` exactly once | `tests.domain_7.test_7_2` |
-| 1.4: `verify_request` path starts with `/`, supported method | `tests.domain_1.test_1_4` |
+| 7.2: `url_accepting_endpoint` has `path` and `body`; its `resource` is defined; path and body placeholders known; `{ssrf_url}` exactly once (checked with the tests section, against `resources`) | `tests.domain_7.test_7_2.url_accepting_endpoint` |
+| 1.4: `protected_endpoint` path starts with `/`, supported method | `tests.domain_1.test_1_4.protected_endpoint` |
 | Username and password set together per role | `credentials.*` |
 | The credentials determine where they are sent (`security_scheme`, `send_as` against the specification's schemes; checked after the specification is read) | `credentials.security_scheme`, `credentials.send_as` |
 | `strategies` not empty | `execution.strategies` |
@@ -465,13 +471,16 @@ Phase 1 rejects the configuration (exit `10`) when:
 | min ≤ max ranges | `tests.domain_4.test_4_3` |
 | Numeric ranges and types in the tables above | all |
 
-Phase 1 **warns** (does not fail) when a selected strategy has tests that will SKIP for lack of access: WHITE_BOX
-without `gateway` (gateway configuration audits), WHITE_BOX without the `admin` credentials (1.4), GREY_BOX
-without the `user_a` credentials (2.1, 7.2). Log event `config_coherence_warning`, field `condition`.
+A test that needs something the configuration does not give (`Needs` in the [test catalogue](../tests/README.md):
+the credentials of a role, a gateway, a login that can revoke a credential, or a parameter marked **needed to run**
+in the tables above) is not an error: the engine records it as SKIP without running it, naming what is missing
+("Needs USER_ACCOUNT: the credentials of the user_a role are not configured (credentials.user_a_*)."). The run
+**warns** before the first test (log event `test_will_skip_unmet_needs`, fields `test_id` and `reason`);
+`validate-config` and `list-tests --config` say the same without contacting the target.
 
 ## See also
 
-- [`cli.md`](cli.md) - `validate-config`, `generate-seed`
+- [`cli.md`](cli.md) - `validate-config`, `list-tests`, `generate-seed`
 - [`exit-codes.md`](exit-codes.md)
 - [`config.example.yaml`](../../config.example.yaml) - every key, with description and default
 - [`test-environments/forgejo-kong/config.yaml`](../../test-environments/forgejo-kong/config.yaml) - configuration of the Forgejo + Kong lab

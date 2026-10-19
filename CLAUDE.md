@@ -23,7 +23,7 @@ in `docs/reference/compatibility.md` (Test portability).
 | What is implemented, milestones | `docs/project/roadmap.md` (single source of truth) |
 | Pipeline, modules, dependencies, components | `docs/architecture/overview.md` |
 | Data models, assessment model, security model | `docs/architecture/data-model.md`, `assessment-model.md`, `security-model.md` |
-| Why a design choice was made (decisions D1-D7) | `docs/architecture/design-decisions.md` |
+| Why a design choice was made (decisions D1-D8) | `docs/architecture/design-decisions.md` |
 | Coding rules (English) | `docs/guides/extending/coding-rules.md` |
 | Adding a native test / external test / gateway adapter | `docs/guides/extending/add-a-native-test.md`, `add-an-external-test.md`, `add-a-gateway-adapter.md` |
 | What each test does, its oracle, its effects on the target | `docs/tests/` (index `docs/tests/README.md`) |
@@ -38,10 +38,11 @@ in `docs/reference/compatibility.md` (Test portability).
 
 ```
 src/
-├── cli.py            # Entry point (Typer): run, validate-config, generate-seed, version
+├── cli.py            # Entry point (Typer): run, validate-config, list-tests, generate-seed, version
 ├── cli_console.py    # Console interface of `run` (engine RunObserver): test lines, summary
 ├── engine.py         # Orchestrator, the only module with full visibility
-├── config/           # Phase 1: loader (YAML + ${VAR} interpolation) + ToolConfig schema
+├── config/           # Phase 1: loader (YAML + ${VAR} interpolation) + ToolConfig schema;
+│                     #   tests_section (the tests: section, checked against the tests' models)
 ├── discovery/        # Phase 2: OpenAPI fetch/dereference, AttackSurface, seed generator
 ├── core/             # Shared infrastructure, zero test logic: client, context, evidence, dag,
 │                     #   gateway/ (BaseGatewayAdapter + Kong, APISIX), auth_placement,
@@ -50,23 +51,24 @@ src/
 │                     #   assessment_test (base of every test), test_discovery
 ├── connectors/       # External tool wrappers, zero test logic (nuclei, testssl, sslyze)
 ├── external_tests/   # ExternalToolTest hierarchy, parallel to tests/ (both on core's AssessmentTest)
-├── tests/            # BaseTest, registry, helpers/, domain_0 … domain_7
-├── report/           # Phase 7: builder, renderer, templates/report.html
-└── test_config/      # Per-test parameter models (one per test, single definition) + RuntimeTestsConfig
+├── tests/            # BaseTest, registry, helpers/, domain_0 … domain_7 (each test module holds its
+│                     #   declaration, TestInfo, and its parameter model)
+└── report/           # Phase 7: builder, renderer, templates/report.html
 ```
 
 Module-level detail and the actual import graph: `docs/architecture/overview.md`.
 
 **Dependency direction (absolute):**
-`test_config/` ← `core/` ← `connectors/` ← `tests/` and `external_tests/` ← `engine.py`
-No lateral, no upward, no circular imports. `test_config/` is the lowest layer: it imports nothing from `src/`
-(`core/` uses it only to type `TargetContext.tests_config`; `config/` and tests import it). `core/`, `connectors/`, `tests/` and `external_tests/` never import
+`core/` ← `connectors/` ← `tests/` and `external_tests/` ← `engine.py`
+No lateral, no upward, no circular imports. `core/` knows no test; `config/` never imports `tests/` (the engine
+passes it the tests' parameter models). `core/`, `connectors/`, `tests/` and `external_tests/` never import
 `config/`, `discovery/`, `report/` or `cli`; native tests never import `connectors/`.
 Checked automatically by `lint-imports` in `hatch run dev:check` (`[tool.importlinter]` in `pyproject.toml`).
 
 **Gateway adapter pattern:**
 WHITE_BOX tests access the gateway admin plane via `target.gateway` (a `BaseGatewayAdapter`
-injected by engine.py Phase 3). Tests guard with `if target.gateway is None: return SKIP`.
+injected by engine.py Phase 3). Tests declare `needs=(Need.GATEWAY,)` in their `TestInfo`: without a gateway the
+engine records them as SKIP before they run.
 The ABC and all concrete implementations live in `src/core/gateway/` (currently: `KongGatewayAdapter`,
 `ApisixGatewayAdapter`).
 The adapter type is configured via `gateway.adapter` (`kong` or `apisix`) in `config.yaml`, with the Admin API in
@@ -93,8 +95,9 @@ If a request conflicts with any of these, **stop and flag it before proceeding.*
   That responsibility belongs exclusively to `ExternalToolTest` subclasses via connectors.
 
 ### Configuration
-Every tunable parameter lives in `config.yaml` under `tests.domain_X.test_X_Y.<param>`,
-accessed via `TargetContext` or `TestContext`.
+Every tunable parameter of a test lives in `config.yaml` under `tests.domain_X.test_X_Y.<param>`: the test
+declares its model in its own module (`class TestXY...(BaseTest[TestXYParams])`) and reads it with
+`self.params(target)`.
 **Before adding a new config param: stop, flag it, wait for confirmation.**
 
 ### Types and Documentation
@@ -169,4 +172,5 @@ Missing external tool → `TestResult(SKIP)` via `_skip_reason_from_registry`. N
 4. Write one file. Explain internal logic and rationale.
 5. Verify against the lab with only the affected tests (`execution.test_ids` in a copy of `test-environments/forgejo-kong/config.yaml`), not the
    full assessment.
-6. After completing a test, update `docs/project/roadmap.md`, the test page in `docs/tests/` and `CHANGELOG.md`.
+6. After completing a test, update `docs/project/roadmap.md`, the test page in `docs/tests/` and `CHANGELOG.md`, then
+   `hatch run dev:gen` (the generated documentation: catalogue, page headers, parameter tables, `config.example.yaml`).

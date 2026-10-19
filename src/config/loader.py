@@ -38,8 +38,8 @@ Loading pipeline (three sequential, non-overlapping phases):
         Convert Pydantic ValidationError to ConfigurationError listing every
         error (an unknown key with the closest declared key, if any), with
         config_path extracted from the first error location.
-        Emit structured warnings for coherence conditions detected by
-        ToolConfig.model_validator (a selected strategy whose tests will SKIP).
+    (Which tests will SKIP for an unmet need is said by the engine, once the
+    tests are discovered: src/core/test_needs.py.)
 
 Dependency rule:
     This module imports from stdlib, PyYAML, structlog, pydantic,
@@ -150,9 +150,6 @@ def load_config(config_path: Path) -> ToolConfig:
 
     # Phase C: YAML parsing and Pydantic validation.
     config = _parse_and_validate(interpolated_content, absolute_path)
-
-    # Post-validation: emit structured warnings for coherence conditions.
-    _emit_coherence_warnings(config)
 
     log.info(
         "config_loading_completed",
@@ -386,11 +383,7 @@ def _parse_and_validate(interpolated_content: str, config_path: Path) -> ToolCon
         # Pydantic v2 errors() returns a list of TypedDict with 'loc' as a
         # tuple of (str | int) representing the path into the model.
         errors = exc.errors(include_url=False)
-        lines = [_describe_validation_error(error) for error in errors]
-        listed = lines[:_MAX_LISTED_VALIDATION_ERRORS]
-        not_listed = len(lines) - len(listed)
-        if not_listed:
-            listed.append(f"... and {not_listed} more")
+        listed = describe_validation_errors(exc, ToolConfig)
         first_path = ".".join(str(part) for part in errors[0]["loc"])
 
         raise ConfigurationError(
@@ -428,51 +421,82 @@ def closest_match(value: str, candidates: list[str], cutoff: float) -> str | Non
     return matches[0] if matches else None
 
 
-def _describe_validation_error(error: ErrorDetails) -> str:
+def describe_validation_errors(
+    exc: ValidationError, root: type[BaseModel], prefix: str = ""
+) -> list[str]:
+    """
+    Render the errors of a validation as '<dotted.path>: <message>' lines.
+
+    The single rendering of configuration errors: ToolConfig, and the tests
+    section validated after test discovery (src/config/tests_section.py).
+    At most _MAX_LISTED_VALIDATION_ERRORS lines, then "... and N more".
+
+    Args:
+        exc:    The validation error.
+        root:   The model that was validated (for the "did you mean" keys).
+        prefix: Dotted key of that model in config.yaml ('' for the root).
+
+    Returns:
+        One line per error.
+    """
+    lines = [
+        _describe_validation_error(error, root, prefix) for error in exc.errors(include_url=False)
+    ]
+    listed = lines[:_MAX_LISTED_VALIDATION_ERRORS]
+    not_listed = len(lines) - len(listed)
+    if not_listed:
+        listed.append(f"... and {not_listed} more")
+    return listed
+
+
+def _describe_validation_error(error: ErrorDetails, root: type[BaseModel], prefix: str) -> str:
     """
     Render one Pydantic validation error as '<dotted.path>: <message>'.
 
     An unknown key (extra="forbid") is reported as 'unknown key', with the
     closest key declared at the same level when one is similar enough. An
-    error of the whole configuration (a check across sections) has no path:
-    its message names the keys.
+    error of the whole model (a check across sections) has no path: its
+    message names the keys.
 
     Args:
-        error: One entry of ValidationError.errors().
+        error:  One entry of ValidationError.errors().
+        root:   The model that was validated.
+        prefix: Dotted key of that model in config.yaml ('' for the root).
 
     Returns:
         A single-line description of the error.
     """
     loc: tuple[str | int, ...] = tuple(error["loc"])
-    dotted_path = ".".join(str(part) for part in loc)
+    dotted_path = prefix + ".".join(str(part) for part in loc)
     if not loc:
-        return str(error["msg"])
+        return f"{prefix.rstrip('.')}: {error['msg']}" if prefix else str(error["msg"])
     if error["type"] != _PYDANTIC_EXTRA_FORBIDDEN:
         return f"{dotted_path}: {error['msg']}"
 
-    suggestion = closest_match(str(loc[-1]), _known_keys_at(loc[:-1]), _KEY_SUGGESTION_CUTOFF)
+    suggestion = closest_match(str(loc[-1]), _known_keys_at(loc[:-1], root), _KEY_SUGGESTION_CUTOFF)
     if suggestion is not None:
         return f"{dotted_path}: unknown key (did you mean '{suggestion}'?)"
     return f"{dotted_path}: unknown key"
 
 
-def _known_keys_at(loc: tuple[str | int, ...]) -> list[str]:
+def _known_keys_at(loc: tuple[str | int, ...], root: type[BaseModel]) -> list[str]:
     """
     Return the keys the schema declares at a location of config.yaml.
 
-    Walks ToolConfig field by field along loc. In a mapping of names to a
+    Walks the root model field by field along loc. In a mapping of names to a
     model (resources), the name is chosen by the user and the walk continues
     in the model. Returns an empty list when the location is not a model
     (e.g. a free-form mapping such as path_seed).
 
     Args:
-        loc: Location of the mapping, as in a Pydantic error 'loc'.
+        loc:  Location of the mapping, as in a Pydantic error 'loc'.
+        root: The model loc is relative to.
 
     Returns:
         The declared keys at that location, as written in config.yaml (a
         field's alias when it has one, e.g. 'in' for send_as.location).
     """
-    model: type[BaseModel] | None = ToolConfig
+    model: type[BaseModel] | None = root
     # Model of the entries when the previous part was a name -> model mapping.
     entry_model: type[BaseModel] | None = None
     for part in loc:
@@ -534,72 +558,3 @@ def _model_in_annotation(annotation: object) -> type[BaseModel] | None:
         if model is not None:
             return model
     return None
-
-
-# ---------------------------------------------------------------------------
-# Post-validation coherence warnings
-# ---------------------------------------------------------------------------
-
-
-def _emit_coherence_warnings(config: ToolConfig) -> None:
-    """
-    Emit structured warnings for configuration coherence conditions.
-
-    These conditions are not validation errors: the tool will run and produce
-    results. However, the results will include many SKIP entries that might
-    surprise the user if they did not anticipate the coherence issue.
-
-    Emitting warnings here — at load time, before Phase 2 begins — gives the
-    user the opportunity to reconfigure and restart rather than discovering
-    the issue in the final report.
-
-    The conditions are detected by ToolConfig.model_validator and stored as
-    private attributes accessed via property methods.
-
-    Args:
-        config: The fully validated ToolConfig instance.
-    """
-    warned = False
-    if config.white_box_without_gateway:
-        warned = True
-        log.warning(
-            "config_coherence_warning",
-            condition="white_box_without_gateway",
-            detail=(
-                "execution.strategies includes WHITE_BOX but the gateway section is "
-                "not configured. The tests that read the gateway configuration "
-                "through the Admin API will return SKIP (or skip that part). "
-                "Set gateway.adapter and gateway.admin.url to run them."
-            ),
-        )
-
-    if config.white_box_without_admin_credentials:
-        warned = True
-        log.warning(
-            "config_coherence_warning",
-            condition="white_box_without_admin_credentials",
-            detail=(
-                "execution.strategies includes WHITE_BOX but the admin credentials "
-                "are not configured. The tests that use the API's administrator "
-                "account will return SKIP. Set credentials.admin_username and "
-                "credentials.admin_password (credentials.admin_token with static_token), "
-                "through environment variables, to run them."
-            ),
-        )
-
-    if config.grey_box_without_user_credentials:
-        warned = True
-        log.warning(
-            "config_coherence_warning",
-            condition="grey_box_without_user_credentials",
-            detail=(
-                "execution.strategies includes GREY_BOX but the user_a credentials "
-                "are not configured. The tests that use a normal user account will "
-                "return SKIP. Set credentials.user_a_username and "
-                "credentials.user_a_password (credentials.user_a_token with static_token), "
-                "through environment variables, to run them."
-            ),
-        )
-
-    if not warned:
-        log.debug("config_coherence_check_passed")

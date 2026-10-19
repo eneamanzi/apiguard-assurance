@@ -6,22 +6,11 @@ Pydantic v2 models for the tool-level (infrastructure) configuration.
 This module owns the configuration that describes the tool itself and its
 runtime environment: where to find the target, what credentials to use,
 how to execute the pipeline, and where to write output. It does NOT contain
-per-test tuning parameters -- those live in domain_N.py files aggregated by
-tests_config.py.
+the tests' parameters: each test declares its own model, and the tests
+section is checked once the tests are discovered
+(src/config/tests_section.py); here it is kept as written.
 
 Design notes preserved from the original schema.py:
-
-    PrivateAttr for computed coherence flags
-    -----------------------------------------
-    ToolConfig uses three PrivateAttr fields (_white_box_without_gateway,
-    _white_box_without_admin_credentials, _grey_box_without_user_credentials)
-    to store boolean flags computed by the
-    model_validator. Declaring them as PrivateAttr with default=False makes
-    them first-class Pydantic citizens that survive model_copy() calls without
-    loss and are excluded from model_dump() output. The assignment in
-    model_validator uses self._flag = True, routed by Pydantic v2 through
-    __pydantic_private__ which is the only mutable slot on a frozen model by
-    design.
 
     Configuration by connection (docs/architecture/design-decisions.md, D1)
     ----------------------------------------------------------------
@@ -30,13 +19,10 @@ Design notes preserved from the original schema.py:
         specification  the OpenAPI document (url or path, exactly one; timeout);
         gateway        optional, for the configuration audits (adapter,
                        admin: url, headers, timeouts; health: url).
-    Keys moved there from target and execution are rejected with their new
-    place.
 
 Dependency rule: imports from pydantic, the stdlib, src.core.models (for
 TestStrategy, RuntimeCredentials, ResourceConfig), src.core.templating (to
-check placeholders), src.test_config (placeholder names of test 7.2) and
-src.config.schema.tests_config. Must never import from engine.py, tests/,
+check placeholders). Must never import from engine.py, tests/,
 discovery/, or report/.
 """
 
@@ -44,18 +30,16 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import (
     AnyHttpUrl,
     BaseModel,
     Field,
-    PrivateAttr,
     field_validator,
     model_validator,
 )
 
-from src.config.schema.tests_config import TestsConfig
 from src.core.gateway import GATEWAY_ADAPTERS
 from src.core.models import (
     CREDENTIAL_VALUE,
@@ -66,12 +50,7 @@ from src.core.models import (
     TlsSettings,
 )
 from src.core.models.external_tools import ExternalToolsConfig
-from src.core.templating import names_in, occurrences, placeholder_names, unquoted_placeholders
 from src.core.test_metadata import PRIORITY_MAX, PRIORITY_MIN, is_valid_test_id
-from src.test_config.domain_7 import (
-    TEST_72_PLACEHOLDER_RANDOM_SECRET,
-    TEST_72_PLACEHOLDER_SSRF_URL,
-)
 
 # ---------------------------------------------------------------------------
 # Constants -- HTTP client timeouts and retries
@@ -87,42 +66,6 @@ TIMEOUT_READ_MAX: float = 120.0
 RETRY_MAX_ATTEMPTS_DEFAULT: int = 3
 RETRY_MAX_ATTEMPTS_MIN: int = 1
 RETRY_MAX_ATTEMPTS_MAX: int = 10
-
-# Test 7.2's URL placeholder before Phase E, named in the error that rejects it.
-_FORMER_SSRF_SENTINEL: str = "$SSRF_URL$"
-
-# Keys moved by the configuration by connection (docs/architecture/design-decisions.md,
-# D1), rejected with their new place.
-_MOVED_TARGET_KEYS: dict[str, str] = {
-    "openapi_spec_url": "specification.url",
-    "openapi_spec_path": "specification.path",
-    "gateway_adapter": "gateway.adapter",
-    "admin_api_url": "gateway.admin.url",
-    "admin_api_headers": "gateway.admin.headers",
-    "admin_connect_timeout_seconds": "gateway.admin.connect_timeout",
-    "admin_read_timeout_seconds": "gateway.admin.read_timeout",
-    "health_api_url": "gateway.health.url",
-    "verify_tls": "target.tls.verify",
-}
-_MOVED_EXECUTION_KEYS: dict[str, str] = {
-    "connect_timeout": "target.connect_timeout",
-    "read_timeout": "target.read_timeout",
-    "max_retry_attempts": "target.max_retry_attempts",
-    "openapi_fetch_timeout_seconds": "specification.timeout",
-}
-
-
-def _reject_moved_keys(data: object, section: str, moved: dict[str, str]) -> object:
-    """Raise ValueError naming the new place of a key moved out of a section."""
-    if isinstance(data, dict):
-        found = [key for key in moved if key in data]
-        if found:
-            raise ValueError(
-                "; ".join(f"{section}.{key} moved: use {moved[key]}" for key in found)
-                + " (configuration by connection, see config.example.yaml)."
-            )
-    return data
-
 
 # Name of a prepared resource (resources:), referred to by other keys.
 RESOURCE_NAME_PATTERN: re.Pattern[str] = re.compile(r"[A-Za-z0-9_-]+")
@@ -240,12 +183,6 @@ class TargetConfig(BaseModel):
             "parameter names found in the OpenAPI specification."
         ),
     )
-
-    @model_validator(mode="before")
-    @classmethod
-    def reject_moved_keys(cls, data: object) -> object:
-        """Reject the keys moved to specification and gateway, naming their new place."""
-        return _reject_moved_keys(data, "target", _MOVED_TARGET_KEYS)
 
     @field_validator("base_url", mode="before")
     @classmethod
@@ -527,12 +464,6 @@ class ExecutionConfig(BaseModel):
         ),
     )
 
-    @model_validator(mode="before")
-    @classmethod
-    def reject_moved_keys(cls, data: object) -> object:
-        """Reject the connection settings moved to target and specification."""
-        return _reject_moved_keys(data, "execution", _MOVED_EXECUTION_KEYS)
-
     @field_validator("strategies", mode="before")
     @classmethod
     def strategies_must_not_be_empty(cls, value: object) -> object:
@@ -640,17 +571,7 @@ class ToolConfig(BaseModel):
     """
     Root configuration model for the APIGuard Assurance tool.
 
-    Frozen after construction. PrivateAttr fields store cross-submodel
-    coherence flags computed by the model_validator -- they survive
-    model_copy() and are excluded from model_dump().
-
-    Migration note (rate_limit_probe removal):
-        The former top-level 'rate_limit_probe' field has been removed.
-        Rate-limit probe parameters are now nested under
-        'tests.domain_4.test_4_1' in config.yaml and live in
-        Test41ProbeConfig (domain_4.py). This corrects the architectural
-        error of treating test-specific tuning as tool-level infrastructure.
-        engine.py Phase 3 reads from config.tests.domain_4.test_4_1.
+    Frozen after construction.
     """
 
     model_config = {"frozen": True, "extra": "forbid"}
@@ -687,11 +608,12 @@ class ToolConfig(BaseModel):
         default_factory=OutputConfig,
         description="Output file configuration.",
     )
-    tests: TestsConfig = Field(
-        default_factory=TestsConfig,
+    tests: dict[str, Any] = Field(
+        default_factory=dict,
         description=(
-            "Per-domain test tuning parameters. "
-            "Default values produce a complete assessment without operator intervention."
+            "Each test's parameters, as tests.domain_<D>.test_<D>_<N>.<param>. Checked "
+            "against the models the tests declare once they are discovered "
+            "(src/config/tests_section.py); every parameter has a default."
         ),
     )
     external_tools: ExternalToolsConfig = Field(
@@ -704,10 +626,6 @@ class ToolConfig(BaseModel):
             "raises ConfigurationError."
         ),
     )
-
-    _white_box_without_gateway: bool = PrivateAttr(default=False)
-    _white_box_without_admin_credentials: bool = PrivateAttr(default=False)
-    _grey_box_without_user_credentials: bool = PrivateAttr(default=False)
 
     @field_validator("resources", mode="after")
     @classmethod
@@ -751,107 +669,3 @@ class ToolConfig(BaseModel):
                 "auth: credential (the credential is what it obtains): use 'basic' or 'none'."
             )
         return self
-
-    @model_validator(mode="after")
-    def test_7_2_injection_placeholders(self) -> ToolConfig:
-        """
-        Check test 7.2's injection endpoint against the resources.
-
-        injection_resource must name a resource; the path may use its values;
-        the body must hold {ssrf_url} exactly once and may use {random_secret}
-        and the resource's values, in quotes (docs/architecture/design-decisions.md,
-        D6).
-        """
-        cfg = self.tests.domain_7.test_7_2
-        where = "tests.domain_7.test_7_2"
-        values: frozenset[str] = frozenset()
-        if cfg.injection_resource is not None:
-            resource = self.resources.get(cfg.injection_resource)
-            if resource is None:
-                defined = ", ".join(sorted(self.resources)) or "none"
-                raise ValueError(
-                    f"{where}.injection_resource: resource '{cfg.injection_resource}' is not "
-                    f"defined in resources (defined: {defined})."
-                )
-            values = frozenset(resource.values)
-        if cfg.injection_path_template is not None:
-            unknown = placeholder_names(cfg.injection_path_template) - values
-            if unknown:
-                raise ValueError(
-                    f"{where}.injection_path_template: unknown placeholder(s) "
-                    f"{', '.join(f'{{{n}}}' for n in sorted(unknown))}; known: the values of "
-                    "injection_resource."
-                )
-        body = cfg.injection_body_template
-        if body is None:
-            return self
-        known = values | {TEST_72_PLACEHOLDER_SSRF_URL, TEST_72_PLACEHOLDER_RANDOM_SECRET}
-        unquoted = unquoted_placeholders(body, known)
-        if unquoted:
-            raise ValueError(
-                f"{where}.injection_body_template: write the placeholders in quotes, e.g. "
-                f'"{{{sorted(unquoted)[0]}}}": unquoted, YAML reads them as a mapping.'
-            )
-        unknown = names_in(body) - known
-        if unknown:
-            raise ValueError(
-                f"{where}.injection_body_template: unknown placeholder(s) "
-                f"{', '.join(f'{{{n}}}' for n in sorted(unknown))}; known: "
-                f"{', '.join(f'{{{n}}}' for n in sorted(known))}."
-            )
-        count = occurrences(body, TEST_72_PLACEHOLDER_SSRF_URL)
-        if count != 1:
-            hint = (
-                " The former '$SSRF_URL$' and '$RANDOM_SECRET$' are now "
-                '"{ssrf_url}" and "{random_secret}".'
-                if _FORMER_SSRF_SENTINEL in str(body)
-                else ""
-            )
-            raise ValueError(
-                f"{where}.injection_body_template must contain "
-                f'"{{{TEST_72_PLACEHOLDER_SSRF_URL}}}" exactly once, where the SSRF URL goes '
-                f"(found {count}).{hint}"
-            )
-        return self
-
-    @model_validator(mode="after")
-    def validate_cross_submodel_coherence(self) -> ToolConfig:
-        """
-        Detect selected strategies whose tests will SKIP for lack of access.
-
-        Each rule mirrors the exact SKIP condition of the tests concerned:
-            Rule 1: WHITE_BOX without a gateway section: no gateway adapter
-                    is created, so the gateway configuration audits SKIP.
-            Rule 2: WHITE_BOX without admin credentials: the tests that use
-                    the API's administrator account SKIP.
-            Rule 3: GREY_BOX without user_a credentials: the tests that use a
-                    normal user account (role user_a) SKIP.
-
-        They produce loader.py WARNINGs, not validation errors, because
-        scoped assessments without some kinds of access are legitimate.
-        """
-        if TestStrategy.WHITE_BOX in self.execution.strategies:
-            if self.gateway is None:
-                self._white_box_without_gateway = True
-            if not self.credentials.has_admin():
-                self._white_box_without_admin_credentials = True
-
-        if TestStrategy.GREY_BOX in self.execution.strategies and not self.credentials.has_user_a():
-            self._grey_box_without_user_credentials = True
-
-        return self
-
-    @property
-    def white_box_without_gateway(self) -> bool:
-        """True if WHITE_BOX is selected but no gateway adapter is configured."""
-        return self._white_box_without_gateway
-
-    @property
-    def white_box_without_admin_credentials(self) -> bool:
-        """True if WHITE_BOX is selected but the admin credentials are absent."""
-        return self._white_box_without_admin_credentials
-
-    @property
-    def grey_box_without_user_credentials(self) -> bool:
-        """True if GREY_BOX is selected but the user_a credentials are absent."""
-        return self._grey_box_without_user_credentials

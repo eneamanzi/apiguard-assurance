@@ -69,7 +69,7 @@ def acquire_tokens(
     Obtain the credential of each configured role that has none yet.
 
     Roles are taken in the order admin, user_a, user_b. A role without
-    credentials is skipped (the calling test checks it with _requires_token).
+    credentials is skipped (a test that needs the role declares it: info.needs).
     The role's password and configured token are registered as secrets
     before any request, so they are masked in every output.
 

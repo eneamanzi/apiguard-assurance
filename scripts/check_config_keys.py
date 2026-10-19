@@ -6,18 +6,20 @@ Check that config.example.yaml lists every configuration key, and nothing else.
 config.example.yaml is the one complete configuration of the repository: every
 key of the schema, with its description. The lab configurations hold only
 what each lab needs. This script walks the configuration schema (ToolConfig,
-the models of src/config/schema/ and src/test_config/) and the YAML keys of
+with its tests section built from the parameter models the tests declare,
+src/config/tests_section.py) and the YAML keys of
 the example, and fails when a schema key is missing from the example or the
 example has a key the schema does not know. Run by `hatch run dev:check`.
 
 Keys are compared as written in config.yaml (a field's alias when it has one,
 e.g. 'in' for credentials.send_as). A field whose value is a free mapping
-(path_seed, gateway.admin.headers, injection_body_template) is a leaf: its keys
+(path_seed, gateway.admin.headers, url_accepting_endpoint.body) is a leaf: its keys
 belong to the user. A mapping of names to a model (resources) is checked
 field by field: the names are the user's and count as '*', so every field of
 the model must appear in at least one entry (e.g. resources.*.create.path).
 
-A key may be listed commented out, for the alternatives that cannot be active
+A section with no key (the tests section of a test without parameters) need
+not be listed. A key may be listed commented out, for the alternatives that cannot be active
 together in a valid file (specification.url or specification.path, tokens or
 passwords): a line '<indent># <key>: ...' whose key is lowercase snake_case
 counts as the key '<key>' at that indentation. Prose comments start with an
@@ -31,15 +33,20 @@ Exit codes: 0 aligned, 1 not aligned, 2 file unreadable.
 
 from __future__ import annotations
 
+import logging
 import re
 import sys
 import types
 import typing
 from pathlib import Path
+from typing import Any
 
+import structlog
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, create_model
 from src.config.schema.tool_config import ToolConfig
+from src.config.tests_section import TESTS_SECTION, tests_section_model
+from src.engine import test_parameter_models
 
 _DEFAULT_PATH: Path = Path("config.example.yaml")
 _EXIT_ALIGNED: int = 0
@@ -95,12 +102,14 @@ def schema_keys(model: type[BaseModel], prefix: str = "") -> set[str]:
     keys: set[str] = set()
     for name, field in model.model_fields.items():
         key = f"{prefix}{field.alias or name}"
+        nested = _model_in(field.annotation)
+        if nested is not None and not nested.model_fields:
+            continue  # a section with no key (a test without parameters): nothing to list
         keys.add(key)
         entry = _entry_model(field.annotation)
         if entry is not None:
             keys |= schema_keys(entry, f"{key}.{_ANY_NAME}.")
             continue
-        nested = _model_in(field.annotation)
         if nested is not None:
             keys |= schema_keys(nested, f"{key}.")
     return keys
@@ -127,8 +136,11 @@ def file_keys(data: object, model: type[BaseModel], prefix: str = "") -> set[str
     fields = {field.alias or name: field for name, field in model.model_fields.items()}
     for raw_key, value in data.items():
         key = f"{prefix}{raw_key}"
-        keys.add(key)
         field = fields.get(str(raw_key))
+        keyless = _model_in(field.annotation) if field is not None else None
+        if keyless is not None and not keyless.model_fields:
+            continue  # a section with no key, written empty: allowed, not listed
+        keys.add(key)
         entry = _entry_model(field.annotation) if field is not None else None
         if entry is not None:
             if isinstance(value, dict):
@@ -141,6 +153,13 @@ def file_keys(data: object, model: type[BaseModel], prefix: str = "") -> set[str
     return keys
 
 
+def complete_schema() -> type[BaseModel]:
+    """ToolConfig with its tests section as the tool checks it (one model per test)."""
+    section = tests_section_model(test_parameter_models())
+    fields: dict[str, Any] = {TESTS_SECTION: (section, Field(default_factory=section))}
+    return create_model("CompleteConfig", __base__=ToolConfig, **fields)
+
+
 def main(argv: list[str]) -> int:
     """
     Compare the keys of a configuration file with the schema.
@@ -151,14 +170,17 @@ def main(argv: list[str]) -> int:
     Returns:
         The exit code.
     """
+    # The test discovery logs each test at debug level: keep the output to the result.
+    structlog.configure(wrapper_class=structlog.make_filtering_bound_logger(logging.WARNING))
     path = Path(argv[1]) if len(argv) > 1 else _DEFAULT_PATH
     try:
         data = yaml.safe_load(uncomment_keys(path.read_text(encoding="utf-8")))
     except (OSError, yaml.YAMLError) as exc:
         sys.stderr.write(f"{path}: cannot read: {exc}\n")
         return _EXIT_UNREADABLE
-    expected = schema_keys(ToolConfig)
-    found = file_keys(data, ToolConfig)
+    schema = complete_schema()
+    expected = schema_keys(schema)
+    found = file_keys(data, schema)
     missing = sorted(expected - found)
     unknown = sorted(found - expected)
     for key in missing:

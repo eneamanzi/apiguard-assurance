@@ -13,6 +13,26 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
 ### Added
 
+- What a test needs from the configuration is declared (block 10b, `docs/architecture/design-decisions.md`, D8): `TestInfo.needs`
+  (`ADMIN_ACCOUNT`, `USER_ACCOUNT`, `GATEWAY`, `REVOCABLE_LOGIN`; `src/core/test_needs.py`, where a new need is one
+  entry) and the parameters a test cannot run without (`Field(json_schema_extra=NEEDED_TO_RUN)`). `validate-config`
+  lists the selected tests that will SKIP and why; the run warns before the first test (`test_will_skip_unmet_needs`);
+  the catalogue has a generated "Needs" column, the test pages a "Needs" row, the parameter tables "needed to run".
+- `apiguard list-tests [--config PATH] [--json]`: every test with its declaration, needs and the JSON Schema of its
+  parameters; with a configuration, whether the run selects it and why it would SKIP (block 10b, 6.7;
+  `docs/reference/cli.md`).
+
+- Generated documentation (block 10b, `docs/architecture/design-decisions.md`, D8): what repeats the tests' declarations is
+  built from them by `scripts/generate_docs.py` and written by Cog between markers in the files: the test catalogue
+  (`docs/tests/README.md`), the header of each test page, the tests by strategy and priority
+  (`docs/architecture/assessment-model.md`), the tests chapter of `docs/reference/configuration.md` (one table per
+  test, every parameter with type, range, default and description) and the `tests` section of
+  `config.example.yaml` (every parameter with its default and the first sentence of its description; example values
+  from the models). `hatch run dev:gen` writes them; `hatch run dev:check` fails when one is out of date, or when a
+  test has no page. Development dependency: `cogapp`. The catalogue's "Needs" column is replaced by a link to "Test
+  portability"; the headings of the tests chapter of `configuration.md` are the keys alone (anchors such as
+  `#testsdomain_2test_2_1`).
+
 - Certificate settings for every connection of the tool (`docs/architecture/design-decisions.md`, D2): an optional `tls`
   block on `target`, `specification`, `gateway.admin` and `gateway.health` with `verify`, `ca_bundle` (the authorities
   to trust, instead of the default ones, as `curl --cacert`), `client_cert` and `client_key` (mutual TLS). A private
@@ -112,11 +132,54 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
 ### Changed
 
+- **Breaking:** parameters a user gives about the target are named by what they are, not by what the test does
+  (block 10b, owner): 1.4 `verify_request` is `protected_endpoint` (an endpoint that requires authentication: method
+  and path); 1.5 `http_probe_url` is `http_url`; 1.6 `cookie_probe_paths` is `session_cookie_paths`; 7.2
+  `injection_path_template`, `injection_body_template` and `injection_resource` are one key, `url_accepting_endpoint`,
+  with `path`, `body` and `resource` (an endpoint of the API that accepts a URL and makes the server call it; `path`
+  and `body` required inside it). The former keys are unknown keys.
+
+- **Changed results**, SKIP reasons (statuses unchanged): a test whose needs the configuration does not meet is
+  recorded as SKIP by the engine, before it runs, with one reason per unmet need, e.g. "Needs USER_ACCOUNT: the
+  credentials of the user_a role are not configured (credentials.user_a_*)." or "Needs
+  tests.domain_2.test_2_1.admin_endpoint_paths: not set (the test cannot run without it)."; the tests no longer
+  check these themselves (`_requires_credentials`, `_requires_token`, `_requires_admin_api` removed from
+  `BaseTest`). The startup warnings per strategy (`config_coherence_warning`) are replaced by one warning per test
+  that will SKIP.
+
+- **Breaking** (for tests written outside the tool): a test declares its parameters in its own module and names the
+  model in its class, `class Test21...(BaseTest[Test21Params])`, and reads them with `self.params(target)` (typed:
+  mypy checks every name); a test without parameters writes `BaseTest` alone (block 10b,
+  `docs/architecture/design-decisions.md`, D8). `src/test_config/` (the per-domain models, their containers and
+  `RuntimeTestsConfig`) and `src/config/schema/tests_config.py` are removed; `TargetContext.tests_config` is
+  `TargetContext.test_params` (by test ID). The user's keys are unchanged (`tests.domain_<D>.test_<D>_<N>.<param>`).
+  The `tests` section is checked right after the rest of the configuration, once the tests are discovered (also by
+  `validate-config`), with the same messages as any key (an unknown test or parameter, with the closest name); test
+  7.2's checks against `resources` moved into its own model.
+- A key of an earlier configuration structure (the keys moved by the configuration by connection, the `auth_type`
+  values `jwt_login`, `json_login`, `forgejo_token` and their keys, 1.4 `token_name`, 7.2 `injection_mode`,
+  `injection_url_field`, the `$SSRF_URL$` placeholder) is now an unknown key or value like any other: the messages
+  naming its replacement are removed (the tool has no users of those versions).
+- `typing-extensions` is a declared dependency (it was already required by pydantic): a test without parameters
+  writes `BaseTest` alone thanks to a type variable with a default (PEP 696), in `typing` only from Python 3.13.
+
+- **Breaking:** the gateway adapters know their gateway's plugins: six test keys that described Kong's plugins are
+  removed (block 10b, `docs/architecture/design-decisions.md`, D8): `tests.domain_3.test_3_3.plugin_names`, `field_clock_skew`,
+  `field_algorithms`, `field_validate_body`, `clock_skew_unconfigured_value` and
+  `tests.domain_4.test_4_3.accepted_cb_plugin_names`. The Kong adapter reads `hmac-auth` with the fields of Kong's schema and recognises the third-party
+  `circuit-breaker` plugin; the APISIX adapter reports `clock_skew: 0` (no date check) as no replay window
+  (`SigningPolicy.replay_unlimited`), the case the removed `clock_skew_unconfigured_value` described (Kong itself
+  rejects `clock_skew: 0`). No test parameter reaches the adapters any more.
+- **Changed results**, report texts of 3.3 and 4.3 (statuses and finding counts unchanged on the three labs): they
+  no longer name Kong's fields or the removed keys, e.g. `HMAC 'clock_skew' Field Absent` is now
+  `HMAC Replay Window Not Stated`, `HMAC 'algorithms' Field Absent` is `HMAC Allowed Algorithms Not Stated`, the
+  body note is `HMAC Body Signed` / `HMAC Body Not Signed`; 3.3 no longer has the SKIP for an empty `plugin_names`.
+
 - **Breaking** (for tests written outside the tool): a test declares who it is in one object,
   `info = TestInfo(id=..., name=..., priority=..., strategy=..., cwe=..., tags=..., depends_on=..., requires_pass=...)`
   (external tests also `tool=...`), instead of nine class attributes (`test_id`, `test_name`, `domain`, `priority`,
   `strategy`, `depends_on`, `requires_pass`, `tags`, `cwe_id`, and `tool_name`); the domain is taken from the ID
-  (block 10b, `docs/project/tests-design.md` 6.1). The declaration is a Pydantic model, checked when the module is
+  (block 10b, `docs/architecture/design-decisions.md`, D8). The declaration is a Pydantic model, checked when the module is
   imported (also the CWE form `CWE-<number>`). Native and external tests share one base (`src/core/assessment_test.py`)
   with the same result helpers: an external test's FAIL with a list of findings is `_make_fail_multi` (it was
   `_make_fail`), `_make_error(exc, message=...)` replaces `message_override`. Results and reports keep their field
@@ -131,8 +194,8 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 - **Breaking:** the configuration is organised by connection (`docs/architecture/design-decisions.md`, D1): `target` is
   the API (address, `tls`, `connect_timeout`, `read_timeout`, `max_retry_attempts`, `path_seed`), `specification` the
   OpenAPI document (`url` or `path`, `timeout`, `tls`), `gateway` the gateway (`adapter`, `admin` with `url`,
-  `headers`, `connect_timeout`, `read_timeout`, `tls`, and `health` with `url`, `tls`). The previous keys are rejected
-  at startup with their new place: `target.openapi_spec_url` / `openapi_spec_path` → `specification.url` / `path`,
+  `headers`, `connect_timeout`, `read_timeout`, `tls`, and `health` with `url`, `tls`). The previous keys moved:
+  `target.openapi_spec_url` / `openapi_spec_path` → `specification.url` / `path`,
   `execution.openapi_fetch_timeout_seconds` → `specification.timeout`, `target.gateway_adapter` →
   `gateway.adapter`, `target.admin_api_url` → `gateway.admin.url`, `target.admin_connect_timeout_seconds` /
   `admin_read_timeout_seconds` → `gateway.admin.connect_timeout` / `read_timeout`, `execution.connect_timeout` /
@@ -157,7 +220,7 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
   `user_a_token` / `user_b_token`), `login` (new, replaces `forgejo_token` and `jwt_login`: the request that logs
   in is a prepared resource named in `credentials.login_resource`, see the next entry). `forgejo_token`, `jwt_login`
   and the `jwt_login` keys `login_endpoint`, `username_body_field`, `password_body_field`, `token_response_path`
-  are rejected with a message showing the `login` form. How the credential is sent comes from the security schemes the
+  are removed. How the credential is sent comes from the security schemes the
   specification declares: one scheme is used as is, several need `credentials.security_scheme`, none needs
   `credentials.send_as` (`in`, `name`, `prefix`); `send_as.prefix` also completes a declared `apiKey` scheme whose
   prefix is described only in words (Forgejo: `security_scheme: AuthorizationHeaderToken`, `send_as: {prefix:
@@ -170,16 +233,16 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
   values read from its JSON response, an optional delete request sent at teardown; placeholders `{username}`,
   `{password}`, `{random}` and the values, checked at startup). The last Forgejo code is gone
   (`src/tests/helpers/auth_forgejo.py`, `auth_json_login.py`, `forgejo_resources.py`); the Forgejo labs declare the
-  resources `forgejo-token` (login) and `repository` (7.2), crAPI `crapi-login`. Test 7.2: `injection_resource`
-  names a resource created for `user_a` whose values fill the path and the body; `injection_mode` and
-  `injection_url_field` are removed (rejected with the new form); the body placeholders `$SSRF_URL$` and
+  resources `forgejo-token` (login) and `repository` (7.2), crAPI `crapi-login`. Test 7.2: the `resource` of its
+  `url_accepting_endpoint` names a resource created for `user_a` whose values fill the path and the body; `injection_mode` and
+  `injection_url_field` are removed; the body placeholders `$SSRF_URL$` and
   `$RANDOM_SECRET$` are now `{ssrf_url}` and `{random_secret}`. Test 1.4: the temporary credential comes from the
-  login resource and is revoked by its delete request; `verify_request` (method and path, no default: SKIP) replaces
-  the `/api/v1/user` path written in the test; `token_name` is removed (rejected). `validate-config` shows the login
+  login resource and is revoked by its delete request; `protected_endpoint` (method and path, no default: SKIP) replaces
+  the `/api/v1/user` path written in the test; `token_name` is removed. `validate-config` shows the login
   resource and who uses each resource. `config.example.yaml` documents every field of a resource, checked by
   `scripts/check_config_keys.py`.
 - **Breaking:** tests 2.1 and 7.2 have no Forgejo defaults (block 7+8 phase D). 2.1 `admin_endpoint_paths` is empty
-  by default (was `/api/v1/admin/users`); 7.2 `injection_path_template` and `injection_body_template` are unset by
+  by default (was `/api/v1/admin/users`); 7.2 `url_accepting_endpoint` (path and body) is unset by
   default (were the Forgejo webhook ones). Unconfigured, the tests return SKIP naming the keys to set; a path without
   a body, or a body without `{ssrf_url}` exactly once, stops the run at startup. The Forgejo labs set the previous
   values explicitly.
@@ -192,7 +255,7 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
   cannot revoke a credential ..." (crAPI: was ERROR). The SKIP reason for missing credentials no longer mentions
   Forgejo.
 - **Changed results**, prepared resources (block 7+8 phase E): the three labs give the same results. Test 7.2 returns
-  ERROR, naming the resource, the request and the status, when its `injection_resource` cannot be created (was SKIP
+  ERROR, naming the resource, the request and the status, when the resource of its endpoint cannot be created (was SKIP
   "not applicable" for the Forgejo mode). The temporary token of 1.4 has the scopes of the login token (it was
   `read:user` only), and the cleanup of a token left with the fixed name by an interrupted run is gone (names are
   random). Report texts of 4.3 (circuit breaker notes and finding), 6.4 (configuration audit notes) and 7.2 (accepted
@@ -217,7 +280,7 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
   Results unchanged.
 - Test labs: HTTP-to-HTTPS redirect done with Kong's own mechanism (API routes HTTPS-only with
   `https_redirect_status_code: 301`) instead of a catch-all redirect route, which also answered 301 over HTTPS to
-  every unknown path (Q-65); `http_probe_url` of the lab configurations points to an API path. **Changed results**
+  every unknown path (Q-65); `tests.domain_1.test_1_5.http_url` of the lab configurations points to an API path. **Changed results**
   on the labs (tool unchanged): Forgejo 0.1 16 -> 2 findings, 0.2 FAIL -> PASS, 1.5 PASS -> FAIL (Kong's own 404
   carries no HSTS; the earlier PASS came from the removed route); crAPI 0.1 49 -> 12, 0.2 FAIL -> PASS, 1.5 PASS ->
   FAIL.

@@ -42,8 +42,10 @@ from __future__ import annotations
 
 import urllib.parse
 from collections.abc import Sequence
+from typing import Annotated
 
 import structlog
+from pydantic import BaseModel, Field
 
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
@@ -54,6 +56,44 @@ from src.tests.base import BaseTest
 from src.tests.data.shadow_wordlists import SHADOW_API_WORDLIST
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Parameters: tests.domain_0.test_0_1 in config.yaml
+# ---------------------------------------------------------------------------
+
+# Number of documented endpoints taken (in spec order) by the undeclared-method
+# sub-check; parametric endpoints among them are skipped. Each sampled endpoint
+# receives up to about five undeclared methods, so 10 means about 50 requests.
+# Bounds are safety rails: below 1 the sub-check would do nothing, above 100 a
+# typo would send a burst of hundreds of requests. 10 is the v0.1.0 behaviour.
+TEST_01_METHOD_PROBE_SAMPLE_SIZE_DEFAULT: int = 10
+
+TEST_01_METHOD_PROBE_SAMPLE_SIZE_MIN: int = 1
+
+TEST_01_METHOD_PROBE_SAMPLE_SIZE_MAX: int = 100
+
+
+class Test01Params(BaseModel):
+    """
+    Configuration for Test 0.1 (Shadow API Discovery).
+
+    Path in config.yaml: tests.domain_0.test_0_1
+    """
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    method_probe_sample_size: Annotated[
+        int,
+        Field(ge=TEST_01_METHOD_PROBE_SAMPLE_SIZE_MIN, le=TEST_01_METHOD_PROBE_SAMPLE_SIZE_MAX),
+    ] = Field(
+        default=TEST_01_METHOD_PROBE_SAMPLE_SIZE_DEFAULT,
+        description=(
+            "Number of documented endpoints (in spec order) used by the undeclared-method "
+            "sub-check; parametric ones among them are skipped. Each receives up to about "
+            "five undeclared methods. Range 1-100, default 10."
+        ),
+    )
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -94,7 +134,7 @@ _PROBE_METHODS: tuple[str, ...] = ("GET", "POST", "PUT", "PATCH", "DELETE")
 # ---------------------------------------------------------------------------
 
 
-class Test_0_1_ShadowApiDiscovery(BaseTest):  # noqa: N801
+class Test_0_1_ShadowApiDiscovery(BaseTest[Test01Params]):  # noqa: N801
     """
     Verify that all active endpoints are documented in the OpenAPI specification.
 
@@ -176,7 +216,7 @@ class Test_0_1_ShadowApiDiscovery(BaseTest):  # noqa: N801
             # Sub-check 2: HTTP method discovery on documented endpoints.
             # Sample a bounded number of documented endpoints to avoid excessive
             # requests (tests.domain_0.test_0_1.method_probe_sample_size).
-            sample_size = target.tests_config.test_0_1.method_probe_sample_size
+            sample_size = self.params(target).method_probe_sample_size
             sample_endpoints = list(surface.endpoints)[:sample_size]
             findings.extend(
                 self._probe_undeclared_methods(

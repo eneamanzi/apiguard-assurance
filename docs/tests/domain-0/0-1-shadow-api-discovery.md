@@ -4,16 +4,23 @@
 > [`src/tests/domain_0/test_0_1_shadow_api_discovery.py`](../../../src/tests/domain_0/test_0_1_shadow_api_discovery.py) ·
 > **Verified:** 2026-10-05
 
-| | |
+<!-- [[[cog import generate_docs as g; cog.out(g.test_header("0.1", page=cog.inFile)) ]]] -->
+
+|  |  |
 |---|---|
 | Test ID | `0.1` |
 | Name | All Exposed Endpoints Are Documented and Authorized |
 | Domain | 0 - API Discovery and Inventory Management |
 | Priority / strategy | P0 / BLACK_BOX |
-| CWE / tags | CWE-1059 / `shadow-api`, `inventory`, `OWASP-API9:2023` |
-| Depends on | none |
-| Configuration | `tests.domain_0.test_0_1.method_probe_sample_size` (default 10, see [configuration](../../reference/configuration.md#testsdomain_0test_0_1---shadow-api-discovery)) |
-| Companion test | [`ext.0.1.nuclei`](../external/domain-0/ext-0-1-nuclei.md) |
+| CWE | CWE-1059 |
+| Tags | `shadow-api`, `inventory`, `OWASP-API9:2023` |
+| Prerequisites | none |
+| Needs | - |
+| Parameters | [`tests.domain_0.test_0_1`](../../reference/configuration.md#testsdomain_0test_0_1) |
+
+<!-- [[[end]]] -->
+
+**Companion test:** [`ext.0.1.nuclei`](../external/domain-0/ext-0-1-nuclei.md).
 
 ## What it checks
 

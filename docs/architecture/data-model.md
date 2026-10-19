@@ -78,7 +78,7 @@ Built in Phase 2 from the specification (`src/discovery/surface.py`):
 | `credentials` | `RuntimeCredentials` (never to be logged) |
 | `resources` | the prepared resources of `resources`, by name |
 | `credential_placement` | where and how credentials are sent (`src/core/auth_placement.py`), or `None` without credentials |
-| `tests_config` | `RuntimeTestsConfig` (`src/test_config/runtime.py`): one `Test<XY>Config` per configurable test |
+| `test_params` | every test's validated parameters, by test ID (the instance of the model its class names); a test reads its own with `self.params(target)` |
 | `path_seed` | from `target.*` |
 | `tls_context` | the `ssl.SSLContext` of the API connection, built at startup from `target.tls` (`src/core/tls.py`); the same trust as `SecurityClient`, for a test that opens its own connection (1.5's HTTP probe) |
 | `tls_ca_bundle` | the path of `target.tls.ca_bundle`, or `None`: given to the external TLS tools |
@@ -96,27 +96,29 @@ Helpers: `endpoint_base_url()` and `admin_endpoint_base_url()` (string URLs with
 | Teardown | `register_resource_for_teardown(method, path, headers)`, `drain_resources()`, `registered_resource_count` | LIFO; drained in Phase 6 |
 | Shared data | `set_shared(key, value)`, `get_shared`, `has_shared`, `shared_keys` | convention `"{test_id}.{name}"` |
 
-## Test parameters: one model per test
+## Test parameters: declared by the test
 
-Every native test has **one** model, `Test<XY>Config`, in `src/test_config/domain_<D>.py` (frozen, with its
-constraints and validators; empty when the test has no parameters). The same model:
+A test with tunable values declares **one** model in its own module, `Test<D><N>Params` (frozen, with its
+constraints and validators), and names it in its class declaration: `class Test21RbacEnforcement(BaseTest[Test21Params])`
+(`src/core/assessment_test.py`, block 10b decision 6.2). A test without parameters writes `BaseTest` alone. The
+same model:
 
-1. validates the `tests.domain_<D>.test_<D>_<N>` section of `config.yaml` (through `TestsConfig` in
-   `src/config/schema/tests_config.py`);
-2. reaches the test unchanged: in Phase 3 `RuntimeTestsConfig.from_domains(config.tests)`
-   (`src/test_config/runtime.py`) collects every `test_<D>_<N>` of every domain by name, with no copy and no
-   hand-written wiring, and the container is stored in `TargetContext.tests_config`; tests read
-   `target.tests_config.test_<D>_<N>.<param>`. A test present in a domain but not in `RuntimeTestsConfig`, or
-   the opposite, stops the run at Phase 3.
+1. validates the `tests.domain_<D>.test_<D>_<N>` section of `config.yaml`: once the tests are discovered, right
+   after Phase 1 (`engine.check_tests`, also run by `validate-config`), `src/config/tests_section.py` builds one
+   model of the whole section from the declared models and validates it, so an unknown test or parameter is
+   reported like any unknown key, with the closest name. A model may check its values against the prepared
+   resources, which it receives in the validation context (test 7.2);
+2. reaches the test unchanged: the validated instances are stored by test ID in `TargetContext.test_params`, and
+   the test reads its own with `self.params(target)`, typed as its model (mypy checks every parameter name). A
+   test cannot read another test's parameters through it.
 
-`src/test_config/` is the lowest layer of the tool: it imports nothing from `src/`, so both `config/` and the
-tests can use it, and `core/` imports it only to type `TargetContext.tests_config`. All models are frozen: a test
-cannot reassign a parameter. List parameters are tuples (`config.yaml` still uses YAML lists), so their content
-cannot change either; test helpers receive them as `Sequence[...]`. The only container left mutable is
-`test_7_2.injection_body_template` (a dict): test 7.2 only ever uses a copy of it.
+All models are frozen: a test cannot reassign a parameter. List parameters are tuples (`config.yaml` still uses
+YAML lists), so their content cannot change either; test helpers receive them as `Sequence[...]`. The only
+container left mutable is `test_7_2.url_accepting_endpoint.body` (a dict): test 7.2 only ever uses a copy of it.
 
-Until 2026-10 every parameter was defined twice (a configuration model plus a `RuntimeTest<XY>Config` copy in
-`src/core/models/runtime.py`, filled field by field by the engine); the copies were removed.
+Before block 10b the models lived apart from the tests, in `src/test_config/` (and before 2026-10 every parameter was
+defined twice); the parameters of tests 3.3 and 4.3 that described Kong's plugins are now the Kong adapter's
+knowledge (decision 6.6).
 External-tool models live in `src/core/models/external_tools.py`, on purpose: they configure the tools (the
 `external_tools` section: switches, timeouts, binary flags), not the parameters of a single test, and they are used
 by `core` (`TargetContext`), the connectors and the external registry (owner decision 2026-10-09, Q-63).

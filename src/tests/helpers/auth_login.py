@@ -36,6 +36,7 @@ from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.exceptions import AuthenticationSetupError
 from src.core.models import CREDENTIAL_VALUE, AuthType
+from src.core.test_needs import login_can_revoke
 from src.tests.helpers.auth_base import (
     RevocableAuthMethod,
     RevocationOutcome,
@@ -99,10 +100,8 @@ class LoginAuthMethod(RevocableAuthMethod):
         )
 
     def can_revoke(self, target: TargetContext) -> bool:
-        """True when the login resource has a delete request."""
-        name = target.credentials.login_resource
-        resource = target.resources.get(name) if name is not None else None
-        return resource is not None and resource.delete is not None
+        """True when the login resource has a delete request (the need REVOCABLE_LOGIN)."""
+        return login_can_revoke(target.credentials, target.resources)
 
     def create_temporary_credential(
         self,

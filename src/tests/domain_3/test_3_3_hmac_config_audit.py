@@ -39,10 +39,10 @@ Sub-test A -- Plugin Discovery
 Sub-test B -- Clock Skew Validation
     Checks the plugin's 'clock_skew' field against the oracle threshold
     (config.tests.domain_3.test_3_3.max_clock_skew_seconds, default 300 s).
-    Oracle:
-        clock_skew in (0, max_clock_skew_seconds]  -> compliant
-        clock_skew == 0 or absent                  -> Finding: not configured
-        clock_skew > max_clock_skew_seconds         -> Finding: window too wide
+    Oracle (on the concept's replay window, whatever the gateway calls it):
+        window in (0, max_clock_skew_seconds]      -> compliant
+        no date check (replay_unlimited) or absent -> Finding: not configured
+        window > max_clock_skew_seconds             -> Finding: window too wide
 
 Sub-test C -- Algorithm Audit
     Checks the plugin's 'algorithms' list against the operator-configured
@@ -85,11 +85,11 @@ Sub-test D -- Body Validation Observability
 
 Gateway access:
     The sub-tests read the gateway concepts "request signing policies" and
-    "routes" (src/core/gateway/concepts.py) through the adapter; on Kong, the
-    plugins named in plugin_names and the field names of this test's
-    configuration are passed to the Kong adapter. Policies not supported or
-    not accessible give SKIP; routes not readable give a degraded coverage
-    note. The descriptions above use Kong's terms for the original design.
+    "routes" (src/core/gateway/concepts.py) through the adapter, which knows
+    which plugins hold a policy and how their fields are named (block 10b,
+    docs/architecture/design-decisions.md, D8). Policies not supported or not
+    accessible give SKIP; routes not readable give a degraded coverage note.
+    The descriptions above use Kong's terms for the original design.
 
 EvidenceStore policy:
     No HTTP request is made to the target API. The concepts read are stored
@@ -100,7 +100,10 @@ EvidenceStore policy:
 
 from __future__ import annotations
 
+from typing import Annotated
+
 import structlog
+from pydantic import BaseModel, Field
 
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
@@ -119,11 +122,82 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
-from src.core.test_metadata import TestInfo
-from src.test_config.domain_3 import Test33Config
+from src.core.test_metadata import Need, TestInfo
 from src.tests.base import BaseTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Parameters: tests.domain_3.test_3_3 in config.yaml
+# ---------------------------------------------------------------------------
+
+TEST_33_MAX_CLOCK_SKEW_SECONDS_DEFAULT: int = 300
+
+TEST_33_MAX_CLOCK_SKEW_SECONDS_MIN: int = 1
+
+# Default algorithms treated as forbidden.
+# hmac-md5: cryptographically broken (MD5 collision attacks, RFC 6151).
+# hmac-sha1: deprecated per NIST SP 800-131A Rev. 2 (2019) for signature use;
+#   not broken in the HMAC construction, but excluded from modern TLS cipher
+#   suites and flagged by PCI-DSS v4 Requirement 12.3.3.
+_TEST_33_FORBIDDEN_ALGORITHMS_DEFAULT: list[str] = ["hmac-sha1", "hmac-md5"]
+
+
+class Test33Params(BaseModel):
+    """
+    Tuning parameters for Test 3.3 (HMAC Authentication Configuration Audit).
+
+    Audits the gateway's request signing (HMAC) policies, read through the
+    gateway adapter's neutral concept (SigningPolicy), for replay-attack
+    exposure (replay window oracle) and weak algorithm usage
+    (forbidden_algorithms oracle). Which plugins and fields hold a policy is
+    the adapter's knowledge, not a parameter of the test.
+
+    References:
+        - NIST SP 800-107 Rev. 1 Section 5.3.2: clock-skew window for HMAC-based
+          timestamp validation should not exceed 5 minutes (300 seconds).
+        - RFC 2104 Section 3: HMAC security does not degrade over time, but
+          replay prevention is the caller's responsibility.
+        - NIST SP 800-131A Rev. 2 (2019): SHA-1 deprecated for digital signatures;
+          HMAC-SHA1 still provides integrity but is excluded from modern profiles.
+        - RFC 6151: MD5 considered broken for cryptographic use; HMAC-MD5 must not
+          be used in new security-sensitive applications.
+        - OWASP ASVS v5.0.0 V2.9.1: HMAC keys must be generated using a CSPRNG,
+          minimum 128 bits; weak algorithms prohibited.
+    """
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    # --- Oracle thresholds (security policy) --------------------------------
+
+    max_clock_skew_seconds: Annotated[
+        int,
+        Field(ge=TEST_33_MAX_CLOCK_SKEW_SECONDS_MIN),
+    ] = Field(
+        default=TEST_33_MAX_CLOCK_SKEW_SECONDS_DEFAULT,
+        description=(
+            "Maximum acceptable replay window (in seconds) of a signing policy "
+            "(the allowed difference between the request's date and the gateway's clock). "
+            "A larger window increases the replay-attack surface: an attacker who "
+            "captures a signed request can replay it until the window expires. "
+            "NIST SP 800-107 Rev. 1 Section 5.3.2 recommends <= 300 s (5 minutes). "
+            f"Default: {TEST_33_MAX_CLOCK_SKEW_SECONDS_DEFAULT}."
+        ),
+    )
+
+    forbidden_algorithms: tuple[str, ...] = Field(
+        default_factory=lambda: tuple(_TEST_33_FORBIDDEN_ALGORITHMS_DEFAULT),
+        description=(
+            "HMAC algorithms whose presence in a signing policy's allowed list "
+            "constitutes a security finding. "
+            "'hmac-md5': cryptographically broken (RFC 6151); must never be used. "
+            "'hmac-sha1': deprecated per NIST SP 800-131A Rev. 2 and PCI-DSS v4 "
+            "Requirement 12.3.3; acceptable to remove from this list only if the "
+            "deployment has a documented exception. "
+            "Default: ['hmac-sha1', 'hmac-md5']."
+        ),
+    )
+
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -176,7 +250,7 @@ _ALGORITHM_SEVERITY_NOTE_DEFAULT: str = (
 )
 
 
-class Test33HMACConfigAudit(BaseTest):
+class Test33HMACConfigAudit(BaseTest[Test33Params]):
     """
     Test 3.3 -- HMAC Authentication Configuration Audit.
 
@@ -204,6 +278,7 @@ class Test33HMACConfigAudit(BaseTest):
             "OWASP-API2:2023",
             "CWE-326",
         ),
+        needs=(Need.GATEWAY,),
     )
 
     # ------------------------------------------------------------------
@@ -221,9 +296,10 @@ class Test33HMACConfigAudit(BaseTest):
         Audit the request signing (HMAC) policy through the gateway adapter.
 
         Execution flow:
-            1. Guard: requires a gateway adapter (_requires_admin_api).
-            2. Read the concept "request signing policies" (on Kong: the
-               plugins named in plugin_names) and store it as evidence; not
+            1. A gateway adapter is configured (Need.GATEWAY: the engine skips
+               the test otherwise).
+            2. Read the concept "request signing policies" (the adapter knows
+               which plugins hold one) and store it as evidence; not
                supported or not accessible: SKIP with the reason.
             3. No policy, or the first one disabled: SKIP with an InfoNote.
             4. Audit the first policy: replay window (Sub-test B), algorithms
@@ -236,33 +312,17 @@ class Test33HMACConfigAudit(BaseTest):
             TestResult with status PASS, FAIL, SKIP, or ERROR.
         """
         try:
-            skip_guard = self._requires_admin_api(target)
-            if skip_guard is not None:
-                return skip_guard
-
             gateway = target.gateway
-            assert gateway is not None  # noqa: S101
+            assert gateway is not None  # noqa: S101 -- Need.GATEWAY, checked by the engine
 
-            cfg = target.tests_config.test_3_3
-            plugin_names: list[str] = list(cfg.plugin_names)
+            cfg = self.params(target)
 
             log.info(
                 "test_3_3_starting",
                 gateway_adapter=gateway.adapter_name,
-                plugin_names=plugin_names,
                 max_clock_skew_seconds=cfg.max_clock_skew_seconds,
                 forbidden_algorithms=cfg.forbidden_algorithms,
             )
-
-            if not plugin_names:
-                log.warning("test_3_3_plugin_names_empty")
-                return self._make_skip(
-                    reason=(
-                        "plugin_names is empty in config.tests.domain_3.test_3_3. "
-                        "No HMAC plugin names configured to search for. "
-                        "Add at least one plugin name (e.g. 'hmac-auth') to enable this audit."
-                    )
-                )
 
             policies = gateway.signing_policies()
             evidence_ref = self._record_gateway_concept(
@@ -272,22 +332,19 @@ class Test33HMACConfigAudit(BaseTest):
                 return self._skip_for_concept(CONCEPT_SIGNING_POLICIES, policies, evidence_ref)
 
             if not policies.items:
-                log.info("test_3_3_plugin_not_found", searched_names=plugin_names)
-                return self._make_skip_with_note(plugin_names=plugin_names)
+                log.info("test_3_3_plugin_not_found", gateway_adapter=gateway.adapter_name)
+                return self._make_skip_with_note()
 
             policy = policies.items[0]
             if not policy.enabled:
                 log.info("test_3_3_plugin_disabled", policy=policy.source)
-                return self._make_skip_with_note(
-                    plugin_names=plugin_names,
-                    plugin_id=policy.source,
-                    disabled=True,
-                )
+                return self._make_skip_with_note(plugin_id=policy.source, disabled=True)
 
             log.info(
                 "test_3_3_plugin_found",
                 policy=policy.source,
                 replay_window_seconds=policy.replay_window_seconds,
+                replay_unlimited=policy.replay_unlimited,
                 algorithms=policy.algorithms,
                 body_signed=policy.body_signed,
             )
@@ -298,7 +355,7 @@ class Test33HMACConfigAudit(BaseTest):
                 findings.append(clock_finding)
             findings.extend(self._audit_algorithms(policy, cfg, evidence_ref))
 
-            body_note = self._build_body_validation_note(policy, cfg.field_validate_body)
+            body_note = self._build_body_validation_note(policy)
             routes = gateway.routes()
             routes_ref = self._record_gateway_concept(target, store, CONCEPT_ROUTES, routes)
             coverage_note = self._audit_coverage_scope(policies.items, routes, routes_ref)
@@ -319,7 +376,7 @@ class Test33HMACConfigAudit(BaseTest):
             return self._make_pass(
                 message=(
                     f"HMAC policy ({policy.source}) configuration is compliant: "
-                    f"clock_skew <= {cfg.max_clock_skew_seconds} s and no forbidden "
+                    f"replay window <= {cfg.max_clock_skew_seconds} s and no forbidden "
                     "algorithms are configured."
                 ),
                 notes=notes,
@@ -331,39 +388,35 @@ class Test33HMACConfigAudit(BaseTest):
 
     def _make_skip_with_note(
         self,
-        plugin_names: list[str],
         plugin_id: str | None = None,
         disabled: bool = False,
     ) -> TestResult:
         """
         Build a SKIP TestResult with an InfoNote explaining HMAC semantics.
 
-        Called when no HMAC plugin was found (disabled=False, plugin_id=None)
-        or when a matching plugin exists but is disabled (disabled=True).
+        Called when the gateway has no request signing policy (disabled=False,
+        plugin_id=None) or when its policy exists but is disabled (disabled=True).
         The InfoNote documents what HMAC authentication is and what an analyst
         should verify manually if HMAC is in use outside of the gateway plugin
         system (e.g. at the application layer).
 
         Args:
-            plugin_names: Names that were searched for in the plugin list.
-            plugin_id:    Gateway plugin id if the plugin was found but disabled.
+            plugin_id:    Source of the policy (plugin and id) if found but disabled.
             disabled:     True if the plugin exists but is disabled.
 
         Returns:
             TestResult with status=SKIP, skip_reason, and a single InfoNote.
         """
-        searched: str = ", ".join(f"'{n}'" for n in plugin_names)
-
         if disabled:
             skip_reason = (
-                f"HMAC plugin (id: {plugin_id}) matching {searched} is installed "
+                f"The HMAC signing policy ({plugin_id}) is installed "
                 "but disabled on this Gateway instance. "
                 "No active HMAC authentication configuration to audit. "
                 "If the plugin was intentionally disabled, this SKIP is expected. "
                 "If HMAC is expected to be active, verify plugin configuration."
             )
             note_detail = (
-                f"A gateway HMAC plugin (id: {plugin_id}, searched names: {searched}) "
+                f"A gateway HMAC signing policy ({plugin_id}) "
                 "is installed on this Gateway instance but is currently disabled. "
                 "HMAC authentication is therefore not enforced by the gateway for "
                 "any route or service.\n\n"
@@ -372,28 +425,27 @@ class Test33HMACConfigAudit(BaseTest):
                 "bearer tokens provide: each request is signed with a shared secret, making "
                 "it infeasible for an attacker to modify in transit without invalidating the "
                 "signature. When active, the key security parameters to audit are:\n"
-                "  - clock_skew: the replay-attack window (smaller is safer; oracle: <= 300 s)\n"
-                "  - algorithms: the HMAC algorithms clients may use (hmac-md5 and hmac-sha1 "
-                "are deprecated or broken and should not appear in this list)\n"
-                "  - validate_request_body: whether the request body is included in the "
+                "  - the replay window: how far the request's date may be from the "
+                "gateway's clock (smaller is safer; oracle: <= 300 s)\n"
+                "  - the allowed algorithms: hmac-md5 and hmac-sha1 "
+                "are deprecated or broken and should not be allowed\n"
+                "  - body signing: whether the request body is included in the "
                 "signature (recommended for POST/PUT/PATCH endpoints)\n\n"
                 "Re-enable the plugin to resume coverage of this control, or mark this "
                 "SKIP as accepted if HMAC is intentionally not used."
             )
         else:
             skip_reason = (
-                f"No HMAC plugin matching {searched} is installed on this Gateway instance. "
+                "No HMAC request signing policy is configured on this Gateway instance. "
                 "HMAC authentication is not in use; no configuration to audit. "
                 "If HMAC is implemented at the application layer rather than the Gateway, "
-                "manual verification of the application's HMAC configuration is required. "
-                "To search for a different plugin name, update "
-                "config.tests.domain_3.test_3_3.plugin_names."
+                "manual verification of the application's HMAC configuration is required."
             )
             note_detail = (
-                f"No gateway plugin matching {searched} is registered on this Gateway "
-                "instance. This test audits the HMAC plugin's security-critical parameters "
-                "(clock_skew, algorithms, validate_request_body) and cannot proceed "
-                "without an active plugin configuration.\n\n"
+                "No HMAC request signing policy is configured on this Gateway "
+                "instance. This test audits a signing policy's security-critical parameters "
+                "(replay window, allowed algorithms, body signing) and cannot proceed "
+                "without an active policy.\n\n"
                 "HMAC-based request authentication (RFC 2104 / draft-cavage-http-signatures) "
                 "adds an integrity and authenticity guarantee to API requests beyond what "
                 "bearer tokens provide: each request is signed with a shared secret, making "
@@ -407,8 +459,8 @@ class Test33HMACConfigAudit(BaseTest):
                 "hmac-sha1 (deprecated, NIST SP 800-131A Rev. 2)\n"
                 "  - Body integrity: signature should cover the request body for "
                 "state-mutating methods (POST, PUT, PATCH) to prevent body-swap attacks\n\n"
-                "If a different plugin name is used by this gateway, update "
-                "config.tests.domain_3.test_3_3.plugin_names accordingly."
+                "If the gateway signs requests with a plugin its adapter does not "
+                "recognise, the adapter must learn it (src/core/gateway/)."
             )
 
         return self._make_skip(
@@ -584,69 +636,63 @@ class Test33HMACConfigAudit(BaseTest):
     def _audit_clock_skew(
         self,
         policy: SigningPolicy,
-        cfg: Test33Config,
+        cfg: Test33Params,
         evidence_ref: str,
     ) -> Finding | None:
         """
         Validate the replay window against the oracle threshold.
 
         Three conditions produce a Finding:
-            1. The gateway does not state the replay window.
-            2. It equals cfg.clock_skew_unconfigured_value (unlimited window).
-            3. It exceeds cfg.max_clock_skew_seconds (window too wide).
+            1. The gateway does not check the request's date at all
+               (replay_unlimited: a captured request can be replayed forever).
+            2. The gateway does not state the replay window.
+            3. The window exceeds cfg.max_clock_skew_seconds (too wide).
 
         Args:
             policy:       The signing policy audited.
-            cfg:          Test33Config with the oracle threshold.
+            cfg:          Test33Params with the oracle threshold.
             evidence_ref: Evidence record of the concept read.
 
         Returns:
             Finding if the replay window is non-compliant, None if compliant.
         """
-        field_name: str = cfg.field_clock_skew
         ident = policy.source
+        oracle = (
+            f"Oracle: the replay window must be set and <= {cfg.max_clock_skew_seconds} s "
+            "(NIST SP 800-107 Rev. 1 Section 5.3.2, 5-minute window)."
+        )
+
+        if policy.replay_unlimited:
+            log.info("test_3_3_clock_skew_unconfigured", policy=ident)
+            return Finding(
+                title=f"HMAC Replay Window Unlimited on '{ident}'",
+                detail=(
+                    f"The HMAC policy {ident} does not check the request's date, which "
+                    "disables timestamp-based replay protection. An attacker who captures a "
+                    "valid HMAC-signed request can replay it indefinitely: the gateway will "
+                    "continue accepting it as authentic regardless of how much time has "
+                    f"elapsed. {oracle} Recommended action: set the replay window to a value "
+                    f"between 60 and {cfg.max_clock_skew_seconds} seconds in the gateway "
+                    "configuration."
+                ),
+                references=list(_REFERENCES),
+                evidence_ref=evidence_ref,
+            )
 
         if policy.replay_window_seconds is None:
             log.info("test_3_3_clock_skew_absent", policy=ident)
             return Finding(
-                title=f"HMAC '{field_name}' Field Absent on '{ident}'",
+                title=f"HMAC Replay Window Not Stated on '{ident}'",
                 detail=(
-                    f"The gateway does not state the replay window ('{field_name}') of the "
-                    f"HMAC policy {ident}. Without it, replay-attack protection posture for "
-                    "HMAC authentication cannot be audited. "
-                    f"Oracle: '{field_name}' must be > {cfg.clock_skew_unconfigured_value} "
-                    f"and <= {cfg.max_clock_skew_seconds} s "
-                    "(NIST SP 800-107 Rev. 1 Section 5.3.2)."
+                    f"The gateway does not state the replay window of the HMAC policy {ident}. "
+                    "Without it, replay-attack protection posture for HMAC authentication "
+                    f"cannot be audited. {oracle}"
                 ),
                 references=list(_REFERENCES),
                 evidence_ref=evidence_ref,
             )
 
         value_s = int(policy.replay_window_seconds)
-
-        if value_s == cfg.clock_skew_unconfigured_value:
-            log.info("test_3_3_clock_skew_unconfigured", policy=ident, value=value_s)
-            return Finding(
-                title=(
-                    f"HMAC Replay Window Unlimited: '{field_name}' = "
-                    f"{cfg.clock_skew_unconfigured_value} on '{ident}'"
-                ),
-                detail=(
-                    f"The HMAC policy {ident} has '{field_name}' = "
-                    f"{cfg.clock_skew_unconfigured_value}, which disables "
-                    "timestamp-based replay protection. An attacker who captures a valid "
-                    "HMAC-signed request can replay it indefinitely — the gateway will "
-                    "continue accepting it as authentic regardless of how much time has "
-                    "elapsed. "
-                    f"Oracle: '{field_name}' must be > {cfg.clock_skew_unconfigured_value} "
-                    f"and <= {cfg.max_clock_skew_seconds} s "
-                    "(NIST SP 800-107 Rev. 1 Section 5.3.2, 5-minute window). "
-                    "Recommended action: set the field to a value between 60 and "
-                    f"{cfg.max_clock_skew_seconds} seconds in the gateway configuration."
-                ),
-                references=list(_REFERENCES),
-                evidence_ref=evidence_ref,
-            )
 
         if value_s > cfg.max_clock_skew_seconds:
             log.info(
@@ -656,16 +702,16 @@ class Test33HMACConfigAudit(BaseTest):
                 oracle_max_seconds=cfg.max_clock_skew_seconds,
             )
             return Finding(
-                title=f"HMAC Replay Window Too Wide: '{field_name}' = {value_s} s on '{ident}'",
+                title=f"HMAC Replay Window Too Wide: {value_s} s on '{ident}'",
                 detail=(
-                    f"The HMAC policy {ident} has '{field_name}' = {value_s} s "
+                    f"The HMAC policy {ident} has a replay window of {value_s} s "
                     f"({value_s / 60:.1f} min), which exceeds the oracle threshold of "
                     f"{cfg.max_clock_skew_seconds} s ({cfg.max_clock_skew_seconds / 60:.0f} min) "
                     "from NIST SP 800-107 Rev. 1 Section 5.3.2. "
                     f"A {value_s}-second window means an attacker who captures a signed "
                     f"request can replay it for up to {value_s / 60:.1f} minutes before the "
                     "gateway rejects it. "
-                    f"Recommended action: reduce '{field_name}' to "
+                    "Recommended action: reduce the replay window to "
                     f"<= {cfg.max_clock_skew_seconds} s in the gateway configuration."
                 ),
                 references=list(_REFERENCES),
@@ -682,7 +728,7 @@ class Test33HMACConfigAudit(BaseTest):
     def _audit_algorithms(
         self,
         policy: SigningPolicy,
-        cfg: Test33Config,
+        cfg: Test33Params,
         evidence_ref: str,
     ) -> list[Finding]:
         """
@@ -694,22 +740,21 @@ class Test33HMACConfigAudit(BaseTest):
 
         Args:
             policy:       The signing policy audited.
-            cfg:          Test33Config with the forbidden_algorithms list.
+            cfg:          Test33Params with the forbidden_algorithms list.
             evidence_ref: Evidence record of the concept read.
 
         Returns:
             List of Findings. Empty if clean.
         """
-        field_name: str = cfg.field_algorithms
         ident = policy.source
 
         if policy.algorithms is None:
             log.info("test_3_3_algorithms_field_absent", policy=ident)
             return [
                 Finding(
-                    title=f"HMAC '{field_name}' Field Absent on '{ident}'",
+                    title=f"HMAC Allowed Algorithms Not Stated on '{ident}'",
                     detail=(
-                        f"The gateway does not state the allowed algorithms ('{field_name}') "
+                        "The gateway does not state the allowed algorithms "
                         f"of the HMAC policy {ident}. The active set then defaults to the "
                         "gateway's built-in list, which historically includes 'hmac-sha1' "
                         "and 'hmac-md5'. Configure the list explicitly to restrict it to "
@@ -751,16 +796,14 @@ class Test33HMACConfigAudit(BaseTest):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _build_body_validation_note(policy: SigningPolicy, field_validate_body: str) -> InfoNote:
+    def _build_body_validation_note(policy: SigningPolicy) -> InfoNote:
         """
         Build an InfoNote describing whether the body is covered by the signature.
 
         This sub-test never fails: the correct value depends on the API's usage.
 
         Args:
-            policy:              The signing policy audited.
-            field_validate_body: The gateway's field name, for the note (from
-                                 cfg.field_validate_body).
+            policy: The signing policy audited.
 
         Returns:
             InfoNote documenting the body validation posture.
@@ -769,7 +812,7 @@ class Test33HMACConfigAudit(BaseTest):
         ident = policy.source
         if validate_body:
             detail = (
-                f"The HMAC policy {ident} has '{field_validate_body}' = true. "
+                f"The HMAC policy {ident} signs the request body. "
                 "The HMAC signature covers the full request body in addition to the headers, "
                 "preventing body-swap attacks where an attacker intercepts a signed request "
                 "and replaces the body with a malicious payload. This is the recommended "
@@ -778,12 +821,12 @@ class Test33HMACConfigAudit(BaseTest):
             )
         else:
             body_field_note = (
-                f"(field '{field_validate_body}' not stated -- gateway defaults to false)"
+                "does not state whether it signs the request body (the gateway default: not signed)"
                 if policy.body_signed is None
-                else f"'{field_validate_body}' = false"
+                else "does not sign the request body"
             )
             detail = (
-                f"The HMAC policy {ident} has {body_field_note}. "
+                f"The HMAC policy {ident} {body_field_note}. "
                 "The HMAC signature covers only the request headers (method, path, date, "
                 "Authorization), not the body. An attacker who intercepts a signed request "
                 "could replace the body with a malicious payload and the gateway would "
@@ -791,12 +834,12 @@ class Test33HMACConfigAudit(BaseTest):
                 "Whether this is acceptable depends on the API's usage pattern:\n"
                 "  - GET-only APIs: body validation is irrelevant (no body to protect).\n"
                 "  - POST/PUT/PATCH APIs handling sensitive operations: enabling "
-                f"'{field_validate_body}' is strongly recommended.\n"
+                "body signing is strongly recommended.\n"
                 "This note is informational. Enable body validation in the gateway "
                 "configuration if body integrity is a requirement of your security policy."
             )
         return InfoNote(
-            title=f"HMAC Body Validation: '{field_validate_body}' = {validate_body} on '{ident}'",
+            title=f"HMAC Body {'Signed' if validate_body else 'Not Signed'} on '{ident}'",
             detail=detail,
             references=[
                 "RFC-2104",

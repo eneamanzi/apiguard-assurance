@@ -4,15 +4,21 @@
 > [`src/tests/domain_1/test_1_6_secure_session_management.py`](../../../src/tests/domain_1/test_1_6_secure_session_management.py) ·
 > **Verified:** 2026-10-05
 
-| | |
+<!-- [[[cog import generate_docs as g; cog.out(g.test_header("1.6", page=cog.inFile)) ]]] -->
+
+|  |  |
 |---|---|
 | Test ID | `1.6` |
 | Name | Secure Session Management in Distributed Architectures |
 | Domain | 1 - Identity and Authentication |
-| Priority / strategy | P3 / BLACK_BOX (network access only; the methodology calls it a configuration audit) |
+| Priority / strategy | P3 / BLACK_BOX |
 | CWE | CWE-614 |
-| Depends on | none |
-| Configuration | [`tests.domain_1.test_1_6`](../../reference/configuration.md#testsdomain_1test_1_6---session-management) |
+| Tags | `session-management`, `cookies`, `OWASP-API2:2023`, `OWASP-ASVS-V3.2` |
+| Prerequisites | none |
+| Needs | - |
+| Parameters | [`tests.domain_1.test_1_6`](../../reference/configuration.md#testsdomain_1test_1_6) |
+
+<!-- [[[end]]] -->
 
 ## What it checks
 
@@ -20,7 +26,7 @@ Session cookies issued by the API must carry `HttpOnly`, `Secure` and an appropr
 
 ## How it works
 
-1. `GET` (no credentials) each path in `cookie_probe_paths` (default `/`) and collect `Set-Cookie` headers.
+1. `GET` (no credentials) each path in `session_cookie_paths` (default `/`) and collect `Set-Cookie` headers.
 2. Keep only cookies whose name matches `session_cookie_names` (case-insensitive; default `session`, `sid`,
    `PHPSESSID`, `JSESSIONID`, `connect.sid`, `_session`, `auth_session`, `user_session`).
 3. For each session cookie:
@@ -55,7 +61,7 @@ Read-only `GET`s without credentials. Cookies set only after login are not seen.
 
 ## Configuration
 
-`cookie_probe_paths` (add the paths that set cookies, e.g. a login page), `session_cookie_names` (must not be
+`session_cookie_paths` (add the paths that set cookies, e.g. a login page), `session_cookie_names` (must not be
 empty), `check_samesite`, `expected_samesite_value`.
 
 ## Coverage against the methodology

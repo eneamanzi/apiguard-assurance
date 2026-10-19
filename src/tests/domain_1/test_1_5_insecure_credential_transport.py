@@ -80,20 +80,117 @@ from __future__ import annotations
 
 import re
 import ssl
+from typing import Annotated
 from urllib.parse import urlparse
 
 import httpx
 import structlog
+from pydantic import BaseModel, Field
 
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.models import Finding, TestResult, TestStrategy
 from src.core.test_metadata import TestInfo
-from src.test_config.domain_1 import Test15Config
 from src.tests.base import BaseTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Parameters: tests.domain_1.test_1_5 in config.yaml
+# ---------------------------------------------------------------------------
+
+# HSTS max-age threshold: NIST SP 800-52 Rev.2, OWASP ASVS v5.0.0 V12.1.1.
+# 31 536 000 s = 1 year (recommended minimum).
+TEST_15_HSTS_MIN_MAX_AGE_DEFAULT: int = 31_536_000
+
+TEST_15_HSTS_MIN_MAX_AGE_MIN: int = 86_400  # 1 day — absolute floor
+
+# HTTP redirect probe timeout: intentionally short; a refused connection is
+# immediate.  5 s accommodates slow firewalls that return TCP RST after a
+# brief delay rather than immediately.
+TEST_15_HTTP_PROBE_TIMEOUT_DEFAULT: float = 5.0
+
+TEST_15_HTTP_PROBE_TIMEOUT_MIN: float = 1.0
+
+
+class Test15Params(BaseModel):
+    """
+    Tuning parameters for Test 1.5 (Credentials Not Transmitted via Insecure Channels).
+
+    Governs two sub-tests executed against the target:
+
+    Sub-test 1 -- HTTP redirect enforcement (empirical, RFC 9110):
+        Sends a GET to the HTTP version of the target base URL.
+        Oracle: connection refused (port 80 closed) or 301/308 permanent
+        redirect.  Any 2xx or other 3xx response is a FAIL.
+
+    Sub-test 2 -- HSTS header validation (NIST SP 800-52 Rev.2,
+        OWASP ASVS v5.0.0 V12.1.1):
+        Sends a GET to the HTTPS base URL and inspects the
+        Strict-Transport-Security response header.
+        Oracle: header present, max-age >= hsts_min_max_age_seconds,
+        includeSubDomains present.
+
+    TLS cipher-suite audit is handled exclusively by ext_test_1_5_tls_analysis.py
+    via the TestsslConnector.  Enable external_tools.testssl in config.yaml.
+    """
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    hsts_min_max_age_seconds: Annotated[
+        int,
+        Field(ge=TEST_15_HSTS_MIN_MAX_AGE_MIN),
+    ] = Field(
+        default=TEST_15_HSTS_MIN_MAX_AGE_DEFAULT,
+        description=(
+            "Minimum acceptable max-age value (seconds) in the Strict-Transport-Security "
+            "header.  NIST SP 800-52 Rev.2, OWASP ASVS v5.0.0 V12.1.1. "
+            f"Default: {TEST_15_HSTS_MIN_MAX_AGE_DEFAULT} (1 year)."
+        ),
+    )
+    http_probe_enabled: bool = Field(
+        default=True,
+        description=(
+            "If True, probe the HTTP base URL for redirect enforcement (sub-test 1). "
+            "Set False only if port 80 is filtered at the network level and "
+            "any connection attempt would block for the full timeout. Default: True."
+        ),
+    )
+    http_url: str = Field(
+        default="",
+        description=(
+            "A URL of the API in plain HTTP, checked for a redirect to HTTPS (sub-test 1). "
+            "When non-empty, this URL is used directly instead of deriving the "
+            "HTTP counterpart from the HTTPS base URL. "
+            "Use in non-standard port lab setups where the HTTPS base URL uses a "
+            "port other than 443 (e.g. https://localhost:8443 -> derive produces "
+            "http://localhost:8443/ which hits the gateway's TLS listener and returns 400). "
+            "Example: 'http://localhost:8000/' to probe the gateway's HTTP listener. "
+            "Empty string (default) falls back to the derived URL."
+        ),
+    )
+    http_probe_timeout_seconds: Annotated[
+        float,
+        Field(ge=TEST_15_HTTP_PROBE_TIMEOUT_MIN),
+    ] = Field(
+        default=TEST_15_HTTP_PROBE_TIMEOUT_DEFAULT,
+        description=(
+            "Connect + read timeout (seconds) for the HTTP redirect probe. "
+            "Keep short: a TCP RST is returned immediately for refused connections. "
+            f"Default: {TEST_15_HTTP_PROBE_TIMEOUT_DEFAULT}."
+        ),
+    )
+    expected_redirect_status_codes: tuple[int, ...] = Field(
+        default_factory=lambda: (301, 308),
+        description=(
+            "HTTP status codes that satisfy the redirect oracle in sub-test 1. "
+            "RFC 9110 permanent redirects: 301 (Moved Permanently) and "
+            "308 (Permanent Redirect).  Temporary redirects 302/307 are NOT "
+            "accepted: they allow MITM-driven downgrade attacks. Default: [301, 308]."
+        ),
+    )
+
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -130,7 +227,7 @@ _REFERENCES: tuple[str, ...] = (
 _HSTS_PROBE_PATH: str = "/"
 
 
-class Test15InsecureCredentialTransport(BaseTest):
+class Test15InsecureCredentialTransport(BaseTest[Test15Params]):
     """Test 1.5 -- Credentials Not Transmitted via Insecure Channels."""
 
     info = TestInfo(
@@ -175,7 +272,7 @@ class Test15InsecureCredentialTransport(BaseTest):
         Never returns SKIP: every reachable target has a deterministic result.
         """
         try:
-            cfg = target.tests_config.test_1_5
+            cfg = self.params(target)
             base_url = target.endpoint_base_url()
             tls_context = target.tls_context
 
@@ -293,7 +390,7 @@ class Test15InsecureCredentialTransport(BaseTest):
     def _run_http_redirect_probe(
         self,
         https_base_url: str,
-        cfg: Test15Config,
+        cfg: Test15Params,
         tls_context: ssl.SSLContext,
     ) -> Finding | None:
         """
@@ -308,7 +405,7 @@ class Test15InsecureCredentialTransport(BaseTest):
 
         Args:
             https_base_url: HTTPS target base URL from TargetContext.
-            cfg: Test15Config instance with probe parameters.
+            cfg: Test15Params instance with probe parameters.
             tls_context: TargetContext.tls_context (built from target.tls).
 
         Returns:
@@ -319,10 +416,10 @@ class Test15InsecureCredentialTransport(BaseTest):
         # This handles non-standard port lab setups where the derived URL
         # (e.g. http://localhost:8443/) hits the TLS listener and returns 400
         # instead of the redirect that the real HTTP listener (8000) would serve.
-        if cfg.http_probe_url:
-            probe_url = cfg.http_probe_url
+        if cfg.http_url:
+            probe_url = cfg.http_url
             log.info(
-                "test_1_5_http_probe_url_override",
+                "test_1_5_http_url_override",
                 derived_url=f"{http_url}/",
                 override_url=probe_url,
             )
@@ -395,7 +492,7 @@ class Test15InsecureCredentialTransport(BaseTest):
         self,
         client: SecurityClient,
         store: EvidenceStore,
-        cfg: Test15Config,
+        cfg: Test15Params,
     ) -> list[Finding]:
         """
         Send a GET to the HTTPS root and validate the HSTS response header.
@@ -403,7 +500,7 @@ class Test15InsecureCredentialTransport(BaseTest):
         Args:
             client: SecurityClient bound to the HTTPS base URL.
             store: EvidenceStore for recording FAIL transactions.
-            cfg: Test15Config instance.
+            cfg: Test15Params instance.
 
         Returns:
             List of Finding objects.  Empty if HSTS is compliant.

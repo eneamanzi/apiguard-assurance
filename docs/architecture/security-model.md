@@ -45,7 +45,7 @@ Treat all output files as sensitive: response bodies can carry the target's data
   Summary and open decisions: Q-30.
 - Test 4.1 sends a burst of up to 300 requests (default) and exhausts the rate-limit budget of the tool's IP.
 - Resources created by tests and the login method (prepared resources with a delete request) are registered for
-  teardown and deleted in Phase 6, also after Ctrl+C. Test 7.2 without `injection_resource` registers nothing.
+  teardown and deleted in Phase 6, also after Ctrl+C. Test 7.2 without `url_accepting_endpoint.resource` registers nothing.
 
 ## TLS
 

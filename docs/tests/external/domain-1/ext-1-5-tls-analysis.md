@@ -7,15 +7,25 @@
 
 Two independent tests in the same module, same oracle, different tools. Both appear in the report.
 
-| | `ext.1.5.testssl` | `ext.1.5.sslyze` |
+<!-- [[[cog import generate_docs as g; cog.out(g.test_header("ext.1.5.testssl", "ext.1.5.sslyze", page=cog.inFile)) ]]] -->
+
+|  |  |  |
 |---|---|---|
+| Test ID | `ext.1.5.testssl` | `ext.1.5.sslyze` |
 | Name | TLS Stack Analysis (testssl.sh) | TLS Stack Analysis (sslyze) |
-| Domain | 1 - Identity and Authentication | same |
-| Priority / strategy | P2 / BLACK_BOX (network access only) | same |
-| CWE | CWE-326 | same |
-| Tool | testssl.sh 3.2.3 (subprocess, `./tools/testssl/` or `PATH`) | sslyze `>=6.3,<7` (Python library, extra `[sslyze]`, AGPL v3) |
-| Configuration | [`external_tools.testssl`](../../../reference/configuration.md#external_tools) | [`external_tools.sslyze`](../../../reference/configuration.md#external_tools) |
-| Companion test | [`1.5`](../../domain-1/1-5-insecure-credential-transport.md) (HTTP redirect, HSTS) | same |
+| Domain | 1 - Identity and Authentication | 1 - Identity and Authentication |
+| Priority / strategy | P2 / BLACK_BOX | P2 / BLACK_BOX |
+| CWE | CWE-326 | CWE-326 |
+| Tags | `transport-security`, `tls`, `cipher-suite`, `protocol-version`, `testssl`, `OWASP-API2:2023`, `NIST-SP-800-52` | `transport-security`, `tls`, `cipher-suite`, `protocol-version`, `sslyze`, `OWASP-API2:2023`, `NIST-SP-800-52` |
+| Prerequisites | none | none |
+| Needs | - | - |
+| Parameters | none | none |
+| Tool | `testssl` ([`external_tools.testssl`](../../../reference/configuration.md#external_tools)) | `sslyze` ([`external_tools.sslyze`](../../../reference/configuration.md#external_tools)) |
+
+<!-- [[[end]]] -->
+
+**Tool version:** `ext.1.5.testssl`: testssl.sh 3.2.3 (subprocess, `./tools/testssl/` or `PATH`); `ext.1.5.sslyze`: sslyze `>=6.3,<7` (Python library, extra `[sslyze]`, AGPL v3).
+**Companion test:** [`1.5`](../../domain-1/1-5-insecure-credential-transport.md) (HTTP redirect, HSTS).
 
 ## What it checks
 

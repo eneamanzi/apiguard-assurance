@@ -22,8 +22,8 @@ Rendering never calls str.format: format strings can read attributes
 ('{x.__class__}'); the text is rebuilt piece by piece instead.
 
 Where the names are checked: the models of src/core/models (resources) and
-the configuration schema (src/config/schema, which also checks the test
-parameters: src/test_config cannot import src.core).
+the parameter models of the tests that use templates (test 7.2, against the
+resources it receives in the validation context).
 
 TemplateError is a ValueError, so that inside a Pydantic validator it becomes
 a validation error, and the run stops with exit 10 (ConfigurationError).

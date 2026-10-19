@@ -4,15 +4,22 @@
 > [`src/tests/domain_3/test_3_3_hmac_config_audit.py`](../../../src/tests/domain_3/test_3_3_hmac_config_audit.py) ·
 > **Verified:** 2026-10-05
 
-| | |
+<!-- [[[cog import generate_docs as g; cog.out(g.test_header("3.3", page=cog.inFile)) ]]] -->
+
+|  |  |
 |---|---|
 | Test ID | `3.3` |
 | Name | HMAC Authentication Configuration Does Not Allow Replay or Weak Algorithms |
 | Domain | 3 - Data Integrity |
-| Priority / strategy | P3 / WHITE_BOX (gateway Admin API) |
+| Priority / strategy | P3 / WHITE_BOX |
 | CWE | CWE-326 |
-| Depends on | none |
-| Configuration | [`tests.domain_3.test_3_3`](../../reference/configuration.md#testsdomain_3test_3_3---hmac-configuration-audit), `gateway.adapter` and `gateway.admin.url` |
+| Tags | `authentication`, `cryptography`, `hmac`, `replay-protection`, `white-box`, `OWASP-API2:2023`, `CWE-326` |
+| Prerequisites | none |
+| Needs | `GATEWAY` |
+| Parameters | [`tests.domain_3.test_3_3`](../../reference/configuration.md#testsdomain_3test_3_3) |
+
+<!-- [[[end]]] -->
+
 
 ## What it checks
 
@@ -22,26 +29,28 @@ replay (unlimited or too wide `clock_skew`) and must not accept weak algorithms 
 ## How it works
 
 No request is sent to the target API: the test reads the gateway concepts "request signing policies" and "routes"
-through the adapter (`target.gateway`, [gateway concepts](../../architecture/design-decisions.md#d7-neutral-gateway-concepts)). On Kong the policies
-are the plugins whose name is in `plugin_names` (default `hmac-auth`), read with the field names of this test's
-configuration; `<policy>` below is the policy's reference, on Kong `plugin <name> (id: <id>)`.
+through the adapter (`target.gateway`, [gateway concepts](../../architecture/design-decisions.md#d7-neutral-gateway-concepts)). Which plugins hold a
+policy and how their fields are named is the adapter's knowledge (Kong and APISIX: the `hmac-auth` plugin, see
+[add a gateway adapter](../../guides/extending/add-a-gateway-adapter.md)); `<policy>` below is the policy's
+reference, on Kong `plugin <name> (id: <id>)`.
 
 1. **Policy discovery.** Take the **first** policy.
-2. **Replay window** (field `field_clock_skew`, default `clock_skew`):
+2. **Replay window** (on Kong and APISIX the plugin's `clock_skew`):
 
 | Value | Finding |
 |---|---|
-| not stated by the gateway | `HMAC '<field>' Field Absent on '<policy>'` |
-| equals `clock_skew_unconfigured_value` (default `0`) | `HMAC Replay Window Unlimited: …` |
-| greater than `max_clock_skew_seconds` (default 300) | `HMAC Replay Window Too Wide: …` |
+| the gateway does not check the request's date at all (APISIX `clock_skew: 0`) | `HMAC Replay Window Unlimited on '<policy>'` |
+| not stated by the gateway | `HMAC Replay Window Not Stated on '<policy>'` |
+| greater than `max_clock_skew_seconds` (default 300) | `HMAC Replay Window Too Wide: <n> s on '<policy>'` |
 
-3. **Algorithms** (field `field_algorithms`): one finding per value in `forbidden_algorithms` that the policy
+3. **Algorithms**: one finding per value in `forbidden_algorithms` that the policy
    allows: `Forbidden HMAC Algorithm '<alg>' Allowed on '<policy>'`. Algorithms not stated by the gateway are also a
-   finding; an empty list is not.
+   finding (`HMAC Allowed Algorithms Not Stated on '<policy>'`); an empty list is not.
 4. **Coverage scope** (InfoNote, never a finding): global policy, or which backends and routes are and are not
    covered, by name (backends from the routes concept; a backend-scope policy covers the routes that send to it).
    Routes not readable: a note listing the policy scopes only.
-5. **Body validation** (InfoNote, never a finding): value of `validate_request_body`.
+5. **Body signing** (InfoNote, never a finding): whether the signature covers the request body
+   (`HMAC Body Signed on '<policy>'` or `HMAC Body Not Signed on '<policy>'`).
 
 ## Outcomes
 
@@ -49,7 +58,7 @@ configuration; `<policy>` below is the policy's reference, on Kong `plugin <name
 |---|---|
 | PASS | Plugin found and enabled, no finding. Carries the coverage and body-validation InfoNotes. |
 | FAIL | At least one finding (InfoNotes attached too). |
-| SKIP | No gateway adapter configured; `plugin_names` empty; the signing policies not supported or not readable ("Not applicable to this gateway: ..." / "Not verifiable: no access to ..."); no policy; or the first policy disabled (InfoNote `HMAC Authentication Not Active: Manual Verification Recommended`). |
+| SKIP | No gateway adapter configured; the signing policies not supported or not readable ("Not applicable to this gateway: ..." / "Not verifiable: no access to ..."); no policy; or the first policy disabled (InfoNote `HMAC Authentication Not Active: Manual Verification Recommended`). |
 | ERROR | Unexpected exception. |
 
 References: OWASP-API2:2023, CWE-326, NIST-SP-800-107-Rev1-S5.3.2, NIST-SP-800-131A-Rev2-2019, RFC-2104, RFC-6151,
@@ -62,9 +71,8 @@ to the signing policies read (`evidence_ref`), the coverage note names the route
 
 ## Configuration
 
-`max_clock_skew_seconds`, `forbidden_algorithms`, `plugin_names`, and the field-name keys
-(`field_clock_skew`, `field_algorithms`, `field_validate_body`, `clock_skew_unconfigured_value`) which adapt the
-audit to a plugin with a different schema.
+`max_clock_skew_seconds`, `forbidden_algorithms`. Which plugins hold a signing policy, and their field names, are
+the gateway adapter's knowledge: a signing plugin with another schema is taught to the adapter.
 
 ## Coverage against the methodology
 

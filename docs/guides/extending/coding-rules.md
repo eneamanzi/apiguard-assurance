@@ -36,8 +36,8 @@ Rules every change must follow. Where the current code deviates, the deviation i
 
 ## Architecture
 
-- Dependency direction: `test_config/` ← `core/` ← `connectors/` ← `tests/`, `external_tests/` ← `engine.py`.
-  Nothing imports `engine.py`; `test_config/` imports nothing from `src/`; tests never import `config/`,
+- Dependency direction: `core/` ← `connectors/` ← `tests/`, `external_tests/` ← `engine.py`.
+  Nothing imports `engine.py`; `core/` knows no test; tests never import `config/`,
   `discovery/`, `report/` or `connectors/`
   ([overview](../../architecture/overview.md#module-structure-and-dependencies)).
 - All requests to the target API go through `SecurityClient.request()`; do not import `httpx` in tests. (Test 1.5
@@ -85,17 +85,19 @@ security behaviour. Changes are verified by running the affected tests against t
 ## Before submitting
 
 ```bash
-hatch run dev:check   # ruff check, ruff format --check, mypy src/, bandit (medium), vulture (80), lint-imports
+hatch run dev:check   # ruff check, ruff format --check, mypy src/, bandit (medium), vulture (80), lint-imports,
+                      # config.example.yaml keys, generated documentation up to date (cog --check)
+hatch run dev:gen     # rewrite the generated documentation (scripts/generate_docs.py)
 hatch run dev:deps    # pip-audit, before a release
 ```
 
 `lint-imports` enforces the dependency rules written in `pyproject.toml` (`[tool.importlinter]`): the layer
-direction test_config <- core <- connectors <- tests/external_tests <- engine; `test_config` imports nothing
-from `src/`; core, connectors and tests never import `config`, `discovery`, `report`, `cli`; native tests never
-use connectors. To fix formatting: `hatch run dev:ruff format .`.
+direction core <- connectors <- tests/external_tests <- engine; core, connectors and tests never import
+`config`, `discovery`, `report`, `cli`; native tests never use connectors. To fix formatting: `hatch run dev:ruff format .`.
 
-Update the documentation in the same change: the test page in `docs/tests/`, the catalogue row,
-`reference/configuration.md` for new parameters, and `docs/project/roadmap.md`.
+Update the documentation in the same change: the test page in `docs/tests/`, then `hatch run dev:gen` (catalogue,
+page headers, parameter tables and `config.example.yaml` are generated from the code), and
+`docs/project/roadmap.md`.
 
 ## See also
 

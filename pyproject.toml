@@ -103,6 +103,10 @@ dependencies = [
     # TargetContext uses model_config = {"frozen": True}.
     "pydantic>=2.12,<3",
     "pydantic-settings>=2.13,<3",
+    # TypeVar with a default (PEP 696, in typing only from Python 3.13): a test
+    # without parameters writes BaseTest alone (src/core/assessment_test.py).
+    # Already required by pydantic (>=4.14.1).
+    "typing-extensions>=4.14.1,<5",
 
     # YAML parsing for config.yaml loading.
     "PyYAML>=6.0,<7",
@@ -291,7 +295,12 @@ dependencies = [
     "import-linter>=2.15,<3",
 
     # Documentation generator for context building
-    "pydoc-markdown"
+    "pydoc-markdown",
+
+    # Writes the generated parts of the documentation between markers in the
+    # files (scripts/generate_docs.py): hatch run dev:gen; dev:check runs
+    # cog --check (block 10b, docs/architecture/design-decisions.md, D8).
+    "cogapp>=3.6,<4",
 ]
 
 # ---------------------------------------------------------------------------
@@ -306,6 +315,13 @@ dependencies = [
 #   hatch run dev:check  → full suite in sequence  (CI gate)
 #   hatch run dev:deps   → pip-audit               (run before any release)
 #   hatch run dev:docs   → pydoc-markdown          (run before creating the zip archive)
+#   hatch run dev:gen    → cog                     (rewrite the generated documentation)
+#
+# The generated parts (test catalogue, test page headers, tests by strategy and
+# priority, the tests chapter of configuration.md, the tests section of
+# config.example.yaml) are built by scripts/generate_docs.py from the tests'
+# declarations. Cog runs with an empty bytecode cache: a stale .pyc of a test
+# module (an edit of the same size in the same second) would hide a change.
 #
 # Note on bandit: the -c pyproject.toml flag is mandatory. Without it bandit
 # ignores [tool.bandit] entirely and runs with defaults, producing spurious
@@ -328,13 +344,17 @@ check = [
     "vulture src/ --min-confidence 80",
     "lint-imports",
     "python scripts/check_config_keys.py",
+    "PYTHONPYCACHEPREFIX=$(mktemp -d) cog --check --diff -I scripts docs/tests/README.md docs/tests/*/*.md docs/tests/external/*/*.md docs/architecture/assessment-model.md docs/reference/configuration.md config.example.yaml",
+]
+gen = [
+    "PYTHONPYCACHEPREFIX=$(mktemp -d) cog -r -I scripts docs/tests/README.md docs/tests/*/*.md docs/tests/external/*/*.md docs/architecture/assessment-model.md docs/reference/configuration.md config.example.yaml",
 ]
 deps = [
     "echo '--- PIP-AUDIT ---' && pip-audit --desc on",
 ]
 
 docs = [
-    "pydoc-markdown -I . -m src.engine -m src.core.models.runtime -m src.config.schema.tests_config -m src.core.client -m src.tests.base -m src.core.models.results -m src.core.models.enums -p src.tests.helpers > docs/API_REFERENCE.md"
+    "pydoc-markdown -I . -m src.engine -m src.core.models.runtime -m src.config.tests_section -m src.core.client -m src.tests.base -m src.core.models.results -m src.core.models.enums -p src.tests.helpers > docs/API_REFERENCE.md"
 ]
 
 # ---------------------------------------------------------------------------
@@ -427,14 +447,13 @@ show_error_codes = true
 root_package = "src"
 
 [[tool.importlinter.contracts]]
-name = "Dependency direction: test_config <- core <- connectors <- tests/external_tests <- engine"
+name = "Dependency direction: core <- connectors <- tests/external_tests <- engine"
 type = "layers"
 layers = [
     "src.engine",
     "src.tests | src.external_tests",
     "src.connectors",
     "src.core",
-    "src.test_config",
 ]
 
 [[tool.importlinter.contracts]]
@@ -442,15 +461,6 @@ name = "core, connectors and tests never import config, discovery, report, cli"
 type = "forbidden"
 source_modules = ["src.core", "src.connectors", "src.tests", "src.external_tests"]
 forbidden_modules = ["src.config", "src.discovery", "src.report", "src.cli"]
-
-[[tool.importlinter.contracts]]
-name = "test_config is the lowest layer: it imports nothing from the tool"
-type = "forbidden"
-source_modules = ["src.test_config"]
-forbidden_modules = [
-    "src.core", "src.connectors", "src.tests", "src.external_tests", "src.engine",
-    "src.config", "src.discovery", "src.report", "src.cli",
-]
 
 [[tool.importlinter.contracts]]
 name = "Native tests never use connectors (no external tools)"

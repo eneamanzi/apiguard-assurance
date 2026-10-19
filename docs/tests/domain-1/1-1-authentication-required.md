@@ -4,15 +4,23 @@
 > [`src/tests/domain_1/test_1_1_authentication_required.py`](../../../src/tests/domain_1/test_1_1_authentication_required.py) ·
 > **Verified:** 2026-10-05
 
-| | |
+<!-- [[[cog import generate_docs as g; cog.out(g.test_header("1.1", page=cog.inFile)) ]]] -->
+
+|  |  |
 |---|---|
 | Test ID | `1.1` |
 | Name | Only Authenticated Requests Access Protected Resources |
 | Domain | 1 - Identity and Authentication |
 | Priority / strategy | P0 / BLACK_BOX |
 | CWE | CWE-306 |
-| Depends on | none |
-| Configuration | [`tests.domain_1.test_1_1`](../../reference/configuration.md#testsdomain_1test_1_1---authentication-required), [`target.path_seed`](../../reference/configuration.md#target) |
+| Tags | `authentication`, `OWASP-API2:2023`, `NIST-SP-800-63B-4-S4.3.1`, `OWASP-ASVS-V6.3`, `CIS-API-Gateway-Controls-2.1` |
+| Prerequisites | none |
+| Needs | - |
+| Parameters | [`tests.domain_1.test_1_1`](../../reference/configuration.md#testsdomain_1test_1_1) |
+
+<!-- [[[end]]] -->
+
+**Also uses:** [`target.path_seed`](../../reference/configuration.md#target) (values for path parameters).
 
 ## What it checks
 

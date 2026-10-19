@@ -38,7 +38,7 @@ Ctrl+C (SIGINT) and SIGTERM are handled alike during `apiguard run`:
 Do not use SIGKILL (`kill -9`): it cannot be intercepted, so teardown does not run and the resources the tests
 created on the target are left behind. Leave the tool a few seconds to clean up: `docker stop` sends SIGKILL 10
 seconds after SIGTERM by default; teardown took about half a second on the lab. Other commands
-(`validate-config`, `generate-seed`, `version`) keep Python's default behaviour.
+(`validate-config`, `list-tests`, `generate-seed`, `version`) keep Python's default behaviour.
 
 **Fail-fast:** with `execution.fail_fast: true`, the run stops after the first P0 test that returns FAIL **or
 ERROR**. Teardown and report generation still run; the exit code follows the precedence rule on the results

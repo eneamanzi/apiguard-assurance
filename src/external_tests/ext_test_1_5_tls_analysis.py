@@ -354,7 +354,7 @@ class ExtTest15TlsAnalysis(ExternalToolTest):
             target.external_tools.testssl.timeout_seconds is the authoritative
             source for the testssl.sh runtime timeout.  This replaces the
             previous pattern of reading from
-            target.tests_config.test_1_5.testssl_timeout_seconds, which was a
+            a parameter of test 1.5 (testssl_timeout_seconds), which was a
             semantically incorrect location left over from when testssl.sh was
             part of the native test.  With ExternalToolsConfig on TargetContext,
             every ExternalToolTest uses the same uniform access pattern:

@@ -43,6 +43,7 @@ report/ to avoid circular dependencies.
 from __future__ import annotations
 
 import ssl
+from collections.abc import Mapping
 from pathlib import Path
 
 import structlog
@@ -53,7 +54,6 @@ from src.core.gateway.base import BaseGatewayAdapter
 from src.core.models import AttackSurface, ResourceConfig, RuntimeCredentials
 from src.core.models.external_tools import ExternalToolsConfig
 from src.core.redaction import SecretRegistry
-from src.test_config.runtime import RuntimeTestsConfig
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -129,8 +129,8 @@ class TargetContext(BaseModel):
         default=None,
         description=(
             "URL of the gateway Admin API, required by the tests that read the gateway "
-            "configuration. If None, those tests return SKIP with the reason "
-            "'Gateway adapter not configured: ...' (BaseTest._requires_admin_api). "
+            "configuration. If None, those tests (Need.GATEWAY) are recorded as SKIP by "
+            "the engine. "
             "Example: https://localhost:8444"
         ),
     )
@@ -167,10 +167,13 @@ class TargetContext(BaseModel):
             "schemes. None when no credentials are configured."
         ),
     )
-    tests_config: RuntimeTestsConfig = Field(
-        default_factory=RuntimeTestsConfig,
+    test_params: Mapping[str, BaseModel] = Field(
+        default_factory=dict,
         description=(
-            "Immutable per-test tuning parameters populated from config.yaml. Never log this field."
+            "Every test's parameters by test ID: the instance of the model its class names "
+            "(BaseTest[Test21Params]), validated once from tests.domain_<D>.test_<D>_<N> "
+            "(src/config/tests_section.py). Tests read their own with self.params(target). "
+            "Never log this field."
         ),
     )
     tls_ca_bundle: Path | None = Field(
@@ -212,10 +215,10 @@ class TargetContext(BaseModel):
     #     target.external_tools.ffuf.timeout_seconds
     #
     # Before this field existed, ext_test_1_5_tls_analysis.py read its timeout
-    # from `target.tests_config.test_1_5.testssl_timeout_seconds` -- a residual
+    # from the test parameters of 1.5 (testssl_timeout_seconds) -- a residual
     # field left over from when testssl was part of the native test.  That worked
     # for testssl only because the field already existed; for any new tool
-    # (nuclei, ffuf) no equivalent field existed in tests_config, forcing
+    # (nuclei, ffuf) no equivalent field existed in the test parameters, forcing
     # developers to add tool-specific fields in semantically wrong domain configs.
     # This field makes the pattern uniform for all current and future tools.
     #
