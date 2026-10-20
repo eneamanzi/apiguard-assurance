@@ -272,7 +272,7 @@ class Test72UrlAcceptingEndpoint(BaseModel):
         resource must name a resource of config.yaml; the path may use its
         values; the body must hold {ssrf_url} exactly once and may use
         {random_secret} and the resource's values, in quotes
-        (docs/architecture/design-decisions.md, D6).
+        (docs/04-architecture/05-design-decisions.md, D6).
         """
         resources = (info.context or {}).get(PARAMS_CONTEXT_RESOURCES)
         if resources is None:

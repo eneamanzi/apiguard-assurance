@@ -4,7 +4,7 @@ src/core/models/resources.py
 Prepared resources: the resources section of config.yaml.
 
 A resource is something the tool creates on the target and deletes at the end
-of the run (docs/architecture/design-decisions.md, D6): a create request, values taken
+of the run (docs/04-architecture/05-design-decisions.md, D6): a create request, values taken
 from its JSON response, an optional delete request. Tests and the login method
 use a resource by its name; the test chooses the role it is created for, the
 resource says how each request authenticates.

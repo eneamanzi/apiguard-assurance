@@ -7,7 +7,7 @@ A test declares who it is in one TestInfo (``info``, src/core/test_metadata.py)
 and returns one TestResult. This base copies the declaration into every
 result and builds the results (_make_pass, _make_fail, _make_fail_multi,
 _make_skip, _make_error), written once for both kinds of test
-(docs/architecture/design-decisions.md, D8). The two subclasses keep what is theirs:
+(docs/04-architecture/05-design-decisions.md, D8). The two subclasses keep what is theirs:
 
     BaseTest (src/tests/base.py)                  the HTTP client contract and
                                                   the transaction log;
@@ -32,7 +32,7 @@ Result helpers, when to use which:
                              block: the exception becomes the result, it never
                              reaches the engine.
 
-Parameters (docs/architecture/design-decisions.md, D8): a test with tunable values
+Parameters (docs/04-architecture/05-design-decisions.md, D8): a test with tunable values
 names its parameter model in its class declaration,
 ``class Test21...(BaseTest[Test21Params])``; a test without parameters writes
 ``BaseTest`` alone. The engine validates ``tests.domain_<D>.test_<D>_<N>``

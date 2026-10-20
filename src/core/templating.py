@@ -3,7 +3,7 @@ src/core/templating.py
 
 Placeholders: the values the tool fills in configuration strings.
 
-One syntax for every place (docs/architecture/design-decisions.md, D6):
+One syntax for every place (docs/04-architecture/05-design-decisions.md, D6):
 a name between braces, '{owner}', in a path or in a string of a JSON body.
 Names are identifiers (letters, digits, underscore); '{{' and '}}' are literal
 braces. Python's other format forms are rejected: '{a.b}', '{a[0]}',

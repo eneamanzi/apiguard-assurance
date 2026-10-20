@@ -4,7 +4,7 @@ src/config/tests_section.py
 The ``tests:`` section of config.yaml, checked against the tests that exist.
 
 Each test declares its own parameter model in its class
-(``class Test21...(BaseTest[Test21Params])``, docs/architecture/design-decisions.md,
+(``class Test21...(BaseTest[Test21Params])``, docs/04-architecture/05-design-decisions.md,
 D8), so the section can only be checked once the tests are discovered: the
 engine collects the models (``engine.check_tests``, right after Phase 1 and
 in ``apiguard validate-config``) and passes them here. The keys are derived

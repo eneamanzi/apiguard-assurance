@@ -3,7 +3,7 @@ src/tests/helpers/auth.py
 
 Public entry point of authentication for the tests that log in to the API.
 
-Two separate questions (docs/architecture/design-decisions.md, D5):
+Two separate questions (docs/04-architecture/05-design-decisions.md, D5):
     how a credential is obtained   the method of credentials.auth_type
                                    (AUTH_METHODS below; one class per method);
     how it is sent                 TargetContext.credential_placement, resolved

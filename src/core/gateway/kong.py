@@ -78,7 +78,7 @@ _SIGNING_FIELD_HEADERS: str = "enforce_headers"
 # Kong OSS ships no circuit breaker (its documented circuit breakers are the
 # passive health checks): the third-party breaker plugins recognised, in
 # priority order, and their field names, tried in order. A new plugin is added
-# here, its name together with its fields (docs/architecture/design-decisions.md, D8).
+# here, its name together with its fields (docs/04-architecture/05-design-decisions.md, D8).
 _BREAKER_PLUGINS: tuple[str, ...] = ("circuit-breaker",)
 _BREAKER_THRESHOLD_FIELDS: tuple[str, ...] = (
     "failure_threshold",
@@ -120,7 +120,7 @@ class KongGatewayAdapter(BaseGatewayAdapter):
         return "kong"
 
     # ------------------------------------------------------------------
-    # Neutral concepts (docs/architecture/design-decisions.md, D7)
+    # Neutral concepts (docs/04-architecture/05-design-decisions.md, D7)
     # ------------------------------------------------------------------
 
     def _read_backend_timeouts(self) -> ConceptRead[BackendTimeout]:

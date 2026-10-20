@@ -498,20 +498,101 @@ What the review decides for the documentation is collected here and applied afte
 - Out of scope, stated: supply chain (OWASP Top 10:2025 A03), except the version disclosed in headers (6.2) and known
   CVEs found by nuclei. Idea, not planned: controls fail closed when a dependency fails (Top 10:2025 A10).
 
-### Still to plan
+### Priorities and strategies (owner, 2026-10-20; revisable in each test's review)
 
-The guarantees of
-[`methodology.it.md`](../knowledge/methodology/methodology.it.md) and the [roadmap](roadmap.md) against the
-standards of topic 8 (completeness, split, numbering, candidate external tools and their versions; section D
-above). The methodology is being translated in another conversation (step 2 of `plan.md`): decide there which
-conversation writes it.
+Criterion of `docs/knowledge/methodology/framework.md` (Priorities): the OWASP Risk Rating factors used by the API
+Security Top 10 2023. Official ratings read from the source pages (OWASP/API-Security, editions/2023): API1 easy,
+widespread, easy, moderate; API2 easy, common, easy, severe; API3 easy, common, easy, moderate; API4 average,
+widespread, easy, severe; API5 easy, common, easy, severe; API6 easy, widespread, average, moderate; API7 easy,
+common, easy, moderate; API8 easy, widespread, easy, severe; API9 easy, widespread, average, moderate; API10 easy,
+common, average, severe (exploitability, prevalence, detectability, technical impact).
+
+| Guarantee | Before | Now | Why |
+|---|---|---|---|
+| 2.2 BOLA | P1 | P0 | API1, the top risk (easiest, most widespread, easiest to detect) |
+| 2.1 function level (with 2.3) | P2 (2.3 P1) | P1 | API5 severe; needs a valid credential, so not P0 |
+| 2.5 object properties (with mass assignment) | P2 | P1 | the write side (mass assignment) changes data a user must not change |
+| 3.1 input validation | P2 | P1 | SQL and NoSQL injection, severe impact (crAPI 12, 13; Top 10:2025 A05) |
+| 0.4 backend only through the gateway (new) | - | P0 | perimeter control: bypassing it bypasses every gateway control |
+| 1.7 brute force and enumeration (new) | - | P1 | API2 severe; partly mitigated by 4.1 (P0) |
+| 4.4 size limits (new) | - | P1 | API4, as 4.2 |
+
+Unchanged: P0 0.1, 0.2, 0.3, 1.1, 1.2, 1.3, 4.1, 7.2 (SSRF kept P0: in a cloud it reaches the instance metadata and
+its keys); P1 2.4, 4.2, 4.3, 5.1, 6.3; P2 1.4, 1.5, 5.2, 6.1, 6.4, 7.1, 7.3, 7.4 (7.4 kept P2: another control,
+the third-party service, stands in front); P3 1.6, 3.3, 6.2.
+
+Strategies (owner's rule: BLACK_BOX external user, GREY_BOX user with credentials, WHITE_BOX internal access): 0.4
+WHITE_BOX (backend addresses read from the gateway); 1.7 BLACK_BOX; 1.4 WHITE_BOX today (admin account), GREY_BOX
+if user_a revokes its own credential: decided in the 1.4 review.
+
+### External tools (read 2026-10-20 from the GitHub releases and PyPI)
+
+| Tool | Roadmap version | Latest (date) | Note |
+|---|---|---|---|
+| nuclei | 3.8.0 | 3.11.1 (2026-08-08) | in use |
+| nuclei-templates | 10.4.3 | 10.5.0 (2026-10-05) | in use |
+| testssl.sh | 3.2.x | 3.2.4 (2026-07-12) | in use |
+| sslyze | 6.3.1 | 6.3.1 (2026-03-29) | in use |
+| jwt_tool | 2.3.0 | 2.3.0 (2025-05-01) | last push 2025-05-01: check maintenance before relying on it for 1.2 |
+| ffuf | 2.1.0 | 2.3.0 (2026-09-09) | |
+| katana | 1.6.1 | 1.8.0 (2026-10-05) | |
+| vegeta | 12.13.0 | 12.13.0 (2025-10-31) | |
+| interactsh | 1.3.1 | 1.4.1 (2026-09-30) | |
+| schemathesis | 4.18.1 | 4.32.2 (2026-10-20) | |
+
+None archived. Updating the pinned versions and whether each tool is still needed: decided when the test that uses
+it is designed or reviewed.
+
+## Phase 0c: how the common part is built (2026-10-20)
+
+### Method
+
+The new version is built on a **new branch in a separate folder** (`git worktree`), not alongside the old code
+(owner, 2026-10-20: nothing old carried along).
+
+- The current folder (`main`) stays as it is: the old tool, working, used as the comparison on the labs
+  (`scripts/compare_reports.py`, old report against new).
+- The new folder (e.g. `apiguard-assurance-review/`, branch e.g. `test-review`) starts as an identical copy; there
+  every file is changed in place, keeping what is useful, with **no backward compatibility**: an old function or rule
+  goes as soon as nothing uses it.
+- Each test is rewritten **once**, directly on the new base, when it is reviewed (phase 1) or designed (phase 2);
+  until then it does not run in the new folder (the old tool runs it in the other one).
+- When every test is rewritten and verified on the labs, the branch is merged into `main`; the old version stays only
+  in the git history.
+- The owner creates the branch and the folder (Claude gives the command) after the documentation work of the other
+  conversation is committed, so the branch starts from a clean base.
+- Considered and not adopted: files named `*.new.py` (not importable; the tool would find every test twice and stop
+  on duplicate IDs; two copies of everything in one codebase); converting every test at once (each test would be
+  touched twice, before and during its review, and a change that large cannot be checked step by step);
+  building piece by piece in `main` with backward compatibility (old and new together for weeks).
+
+### Order of the common pieces
+
+Each piece rests on the ones before it; for each, the detailed plan (files, contract changes, lab check, done when)
+is written when it starts.
+
+| # | Piece | From | Contract change |
+|---|---|---|---|
+| 1 | Categories, outcomes `OUTCOME/DETAIL`, sub-tests, computed status, complete and partial PASS | topic 3 | status `INCONCLUSIVE` (report schema), sub-test counters in the result |
+| 2 | Transport errors recorded as transactions | topic 3 | a transaction without a response |
+| 3 | Reference responses: calibration and positive control, `ref_...` evidence, report section | topics 1, 2, 5 | new report section, new evidence records |
+| 4 | `supporting_refs` and confidence in findings | topic 5 | two finding fields |
+| 5 | Declared effect and the new test order | topic 6 | order of the results |
+| 6 | Login artefacts kept (memory and evidence) | 7c | new evidence records |
+| 7 | Derived knowledge: the mechanism only (rules come with the tests that use them) | topic 4 | `AttackSurface` fields, report section |
+| 8 | One format for standard references, checked in `dev:check` | topic 8 | reference strings |
+| 9 | Lab gateway variants written as differences | topic 9 | none (labs) |
+| 10 | External tests on the four outcomes: proof runs on the labs, then the mapping | topic 5 (provisional) | none expected |
+
+Every piece is checked with `hatch run dev:check` and on the labs with the tests already rewritten; piece 10 runs
+the external tools only with the owner's go.
 
 ## Phases 1 and 2: order
 
 - **Phase 1** (implemented), by domain, each external test after its native one: 0.1, ext.0.1.nuclei, 0.2, 0.3,
   1.1, 1.4, 1.5, ext.1.5.testssl and ext.1.5.sslyze, 1.6, 2.1, 3.3, 4.1, 4.2, 4.3, 6.2, 6.4, 7.2.
-- **Phase 2** (missing): the list comes out of phase 0b; today 1.2, 1.3, 2.2, 2.3, 2.4, 2.5, 3.1, 5.1, 5.2, 6.1,
-  6.3, 7.1, 7.3, 7.4, the gateway bypass idea (roadmap, Ideas) and the planned external tests.
+- **Phase 2** (missing, after phase 0b): 0.4, 1.2, 1.3, 1.7, 2.2, 2.4, 2.5, 3.1, 4.4, 5.1, 5.2, 6.1, 6.3, 7.1,
+  7.3, 7.4 (2.3 merged into 2.1) and the planned external tests.
 
 ## Progress
 
@@ -527,6 +608,7 @@ conversation writes it.
 | Phase 0a topic 8 | done (2026-10-20) | standards with versions, one format, ASVS L2, references verified in each review (above) |
 | Phase 0a topic 9 | done (2026-10-20) | three situations per test; variants as differences inside the labs (above) |
 | Phase 0a topic 10 | done (2026-10-20) | page template updated with topics 1-9; common rules in `assessment-model.md` (above) |
-| Phase 0b | to do | |
+| Phase 0b | done (2026-10-20) | catalogue against API Top 10 2023 (3 new, 2 merges, 2.4 redefined), tools' versions, priorities (above); the catalogue text is edited after its translation |
+| Phase 0c | planned (2026-10-20) | new branch in a separate folder, no backward compatibility; 10 pieces in order (above) |
 | Phase 1 | to do | |
 | Phase 2 | to do | |

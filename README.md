@@ -12,7 +12,7 @@ authorization, data integrity, availability, visibility, configuration, business
 
 **Use it only against systems you are allowed to test.** The tool sends requests without credentials, with
 invalid tokens and with SSRF payloads, and some tests create objects on the target
-([effects on the target](docs/guides/usage/configure-a-target.md#effects-on-the-target)).
+([effects on the target](docs/02-guides/01-usage/01-configure-a-target.md#effects-on-the-target)).
 
 ## Status
 
@@ -20,7 +20,7 @@ Version 0.1.0, developed and tested on Linux. It works on any API described by S
 unreleased version is tested on three labs (Forgejo behind Kong, OWASP crAPI behind Kong, Forgejo behind Apache
 APISIX), reads the gateway configuration of Kong and APISIX, and authenticates with HTTP Basic, a static token, a
 JSON login or the Forgejo token API, sending the credential as the specification declares. Some tests still
-assume Forgejo ([compatibility](docs/reference/compatibility.md)). The interfaces other than the JSON report are
+assume Forgejo ([compatibility](docs/03-reference/06-compatibility.md)). The interfaces other than the JSON report are
 not versioned yet.
 
 ## Quick start
@@ -34,10 +34,10 @@ hatch run apiguard version
 ./install_tools.sh
 ```
 
-Then follow [First assessment](docs/getting-started/first-assessment.md): it starts a local lab (Forgejo + Kong in
+Then follow [First assessment](docs/01-getting-started/02-first-assessment.md): it starts a local lab (Forgejo + Kong in
 Docker), runs the tool against it and shows how to read the result, in about 10 minutes.
 
-Full installation steps, including how to clean up a previous setup: [Installation](docs/getting-started/installation.md).
+Full installation steps, including how to clean up a previous setup: [Installation](docs/01-getting-started/01-installation.md).
 
 ## Everyday commands
 
@@ -50,7 +50,7 @@ Full installation steps, including how to clean up a previous setup: [Installati
 | List the path parameters of a specification | `hatch run apiguard generate-seed <spec-url-or-file>` |
 
 Exit codes: `0` no violation, `1` at least one violation, `3` a check could not complete, `10` the assessment did not
-run ([details](docs/reference/exit-codes.md)).
+run ([details](docs/03-reference/03-exit-codes.md)).
 
 ## Documentation
 
@@ -58,12 +58,12 @@ Start at the [documentation map](docs/index.md). The main entry points:
 
 | I want to… | Read |
 |---|---|
-| Try the tool | [Installation](docs/getting-started/installation.md), [First assessment](docs/getting-started/first-assessment.md) |
-| Run it on my API | [Configure a target](docs/guides/usage/configure-a-target.md), [Select tests](docs/guides/usage/select-tests.md), [Read the report](docs/guides/usage/read-the-report.md) |
-| Integrate it into another product or a pipeline | [Integrate APIGuard Assurance](docs/guides/integration/integrate-apiguard.md) |
-| Know what each test checks | [Test catalogue](docs/tests/README.md) |
-| Look up a parameter, command or file format | [Configuration](docs/reference/configuration.md), [CLI](docs/reference/cli.md), [Report schema](docs/reference/report-schema.md), [Exit codes](docs/reference/exit-codes.md) |
-| Understand how it works | [Architecture](docs/architecture/overview.md) |
-| Add a test or support another gateway | [Add a native test](docs/guides/extending/add-a-native-test.md), [Add an external test](docs/guides/extending/add-an-external-test.md), [Add a gateway adapter](docs/guides/extending/add-a-gateway-adapter.md) |
+| Try the tool | [Installation](docs/01-getting-started/01-installation.md), [First assessment](docs/01-getting-started/02-first-assessment.md) |
+| Run it on my API | [Configure a target](docs/02-guides/01-usage/01-configure-a-target.md), [Select tests](docs/02-guides/01-usage/02-select-tests.md), [Read the report](docs/02-guides/01-usage/03-read-the-report.md) |
+| Integrate it into another product or a pipeline | [Integrate APIGuard Assurance](docs/02-guides/02-integration/01-integrate-apiguard.md) |
+| Know what each test checks | [Test catalogue](docs/05-tests/README.md) |
+| Look up a parameter, command or file format | [Configuration](docs/03-reference/01-configuration.md), [CLI](docs/03-reference/02-cli.md), [Report schema](docs/03-reference/04-report-schema.md), [Exit codes](docs/03-reference/03-exit-codes.md) |
+| Understand how it works | [Architecture](docs/04-architecture/01-overview.md) |
+| Add a test or support another gateway | [Add a native test](docs/02-guides/03-extending/02-add-a-native-test.md), [Add an external test](docs/02-guides/03-extending/03-add-an-external-test.md), [Add a gateway adapter](docs/02-guides/03-extending/04-add-a-gateway-adapter.md) |
 
 To work on the tool itself: [CONTRIBUTING.md](CONTRIBUTING.md). Changes between versions: [CHANGELOG.md](CHANGELOG.md).

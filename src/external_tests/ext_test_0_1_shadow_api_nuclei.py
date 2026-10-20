@@ -23,7 +23,7 @@ Relationship with Test 0.1 (native):
           OpenAPI spec.  The two approaches are complementary: native catches
           spec drift; nuclei catches known-bad exposure patterns.
 
-    The split follows the HYBRID pattern (docs/architecture/assessment-model.md):
+    The split follows the HYBRID pattern (docs/04-architecture/03-assessment-model.md):
         Native part   -> spec-diff-based shadow API discovery
         External part -> template-based known-exposure detection (this file)
 

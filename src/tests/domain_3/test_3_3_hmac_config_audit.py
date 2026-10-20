@@ -87,7 +87,7 @@ Gateway access:
     The sub-tests read the gateway concepts "request signing policies" and
     "routes" (src/core/gateway/concepts.py) through the adapter, which knows
     which plugins hold a policy and how their fields are named (block 10b,
-    docs/architecture/design-decisions.md, D8). Policies not supported or not
+    docs/04-architecture/05-design-decisions.md, D8). Policies not supported or not
     accessible give SKIP; routes not readable give a degraded coverage note.
     The descriptions above use Kong's terms for the original design.
 

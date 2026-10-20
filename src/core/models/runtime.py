@@ -8,7 +8,7 @@ puts the same object into TargetContext (target.credentials) in Phase 3.
 The per-test parameters are not here: each test declares its own model in
 its module (BaseTest[Test21Params]) and reads it with self.params(target).
 
-Authentication is decided in two parts (docs/architecture/design-decisions.md, D5):
+Authentication is decided in two parts (docs/04-architecture/05-design-decisions.md, D5):
     auth_type      how a credential is obtained (the method);
     security_scheme / send_as
                    where and how it is sent; completed with the schemes the

@@ -32,7 +32,7 @@ Discovery pipeline:
     Output:
         A list of BaseTest instances, one per discovered and filtered test.
         The list is ordered by test_id lexicographically for deterministic
-        output (reproducibility: docs/architecture/overview.md, "Pipeline").
+        output (reproducibility: docs/04-architecture/01-overview.md, "Pipeline").
 
 Dependency rule:
     This module imports from structlog, src.core and src.tests.base only.
@@ -115,7 +115,7 @@ class TestRegistry:
 
         The returned list is sorted by test_id lexicographically. This produces
         a deterministic output regardless of filesystem directory traversal order,
-        satisfying the reproducibility constraint (docs/architecture/overview.md).
+        satisfying the reproducibility constraint (docs/04-architecture/01-overview.md).
 
         Args:
             min_priority: Maximum priority level (inclusive) to include.

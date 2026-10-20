@@ -13,7 +13,7 @@ run, after the specification is loaded, from:
     credentials.send_as          what the scheme leaves out (a prefix), or the
                                  whole placement when no scheme is declared.
 
-Rules (docs/architecture/design-decisions.md, D5):
+Rules (docs/04-architecture/05-design-decisions.md, D5):
     - basic always sends 'Authorization: Basic <base64>' (RFC 7617);
     - token methods use a scheme that can carry a token: apiKey, http bearer,
       oauth2, openIdConnect (the last three as 'Authorization: Bearer', RFC

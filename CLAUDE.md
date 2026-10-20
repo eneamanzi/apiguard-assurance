@@ -11,7 +11,7 @@ reference), OWASP crAPI behind Kong (`crapi-kong/`), Forgejo behind Apache APISI
 configuration holds only its own values; every key is in `config.example.yaml` (checked by `dev:check`).
 The tool is agnostic of the target API and gateway (OpenAPI spec + `config.yaml`, including the prepared resources:
 login and objects a test creates); gateways through adapters (`kong`, `apisix`). What each test needs from a target is
-in `docs/reference/compatibility.md` (Test portability).
+in `docs/03-reference/06-compatibility.md` (Test portability).
 
 ## Where things are
 
@@ -21,17 +21,17 @@ in `docs/reference/compatibility.md` (Test portability).
 | Current work: what to do next, step by step | `docs/project/plan.md` |
 | Open doubts, with evidence (closed **only** by the owner) | `OPEN_QUESTIONS.md` |
 | What is implemented, milestones | `docs/project/roadmap.md` (single source of truth) |
-| Pipeline, modules, dependencies, components | `docs/architecture/overview.md` |
-| Data models, assessment model, security model | `docs/architecture/data-model.md`, `assessment-model.md`, `security-model.md` |
-| Why a design choice was made (decisions D1-D9) | `docs/architecture/design-decisions.md` |
-| Coding rules (English) | `docs/guides/extending/coding-rules.md` |
-| Adding a native test / external test / gateway adapter | `docs/guides/extending/add-a-native-test.md`, `add-an-external-test.md`, `add-a-gateway-adapter.md` |
-| What each test does, its oracle, its effects on the target | `docs/tests/` (index `docs/tests/README.md`) |
-| Verified facts: configuration, CLI, exit codes, report and evidence formats, compatibility | `docs/reference/` (check here before answering "what does X do") |
-| Methodology framework (gradient, priorities) | `docs/knowledge/methodology/framework.md` |
-| Methodology catalogue of the guarantees (oracles, test logic; translated, not yet aligned with the tool) | `docs/knowledge/methodology/guarantees.md` |
+| Pipeline, modules, dependencies, components | `docs/04-architecture/01-overview.md` |
+| Data models, assessment model, security model | `docs/04-architecture/02-data-model.md`, `assessment-model.md`, `security-model.md` |
+| Why a design choice was made (decisions D1-D9) | `docs/04-architecture/05-design-decisions.md` |
+| Coding rules (English) | `docs/02-guides/03-extending/01-coding-rules.md` |
+| Adding a native test / external test / gateway adapter | `docs/02-guides/03-extending/02-add-a-native-test.md`, `add-an-external-test.md`, `add-a-gateway-adapter.md` |
+| What each test does, its oracle, its effects on the target | `docs/05-tests/` (index `docs/05-tests/README.md`) |
+| Verified facts: configuration, CLI, exit codes, report and evidence formats, compatibility | `docs/03-reference/` (check here before answering "what does X do") |
+| Methodology framework (gradient, priorities) | `docs/06-knowledge/03-methodology.md` |
+| Methodology catalogue of the guarantees (oracles, test logic; translated, not yet aligned with the tool) | `docs/06-knowledge/04-guarantees.md` |
 
-No Italian source is left in the repository (the originals are recoverable: `docs/knowledge/README.md`). The guarantees catalogue is a translation of the thesis text, to be aligned with the tool in the test review (block 6, phase 0b).
+No Italian source is left in the repository (the originals are recoverable: `docs/06-knowledge/README.md`). The guarantees catalogue is a translation of the thesis text, to be aligned with the tool in the test review (block 6, phase 0b).
 
 ## Directory Layout
 
@@ -56,7 +56,7 @@ src/
 └── report/           # Phase 7: builder, renderer, templates/report.html
 ```
 
-Module-level detail and the actual import graph: `docs/architecture/overview.md`.
+Module-level detail and the actual import graph: `docs/04-architecture/01-overview.md`.
 
 **Dependency direction (absolute):**
 `core/` ← `connectors/` ← `tests/` and `external_tests/` ← `engine.py`
@@ -166,11 +166,11 @@ Missing external tool → `TestResult(SKIP)` via `_skip_reason_from_registry`. N
 
 1. Read `docs/project/plan.md` to see the current step; check `OPEN_QUESTIONS.md` for the questions it involves.
 2. For code work, check `docs/project/roadmap.md` and read the relevant files from "Where things are":
-   - implementing a test: the matching guide in `docs/guides/extending/`, then the methodology;
-   - touching infrastructure: `docs/architecture/overview.md`.
+   - implementing a test: the matching guide in `docs/02-guides/extending/`, then the methodology;
+   - touching infrastructure: `docs/04-architecture/01-overview.md`.
 3. State the file you are about to write. Wait for confirmation.
 4. Write one file. Explain internal logic and rationale.
 5. Verify against the lab with only the affected tests (`execution.test_ids` in a copy of `test-environments/forgejo-kong/config.yaml`), not the
    full assessment.
-6. After completing a test, update `docs/project/roadmap.md`, the test page in `docs/tests/` and `CHANGELOG.md`, then
+6. After completing a test, update `docs/project/roadmap.md`, the test page in `docs/05-tests/` and `CHANGELOG.md`, then
    `hatch run dev:gen` (the generated documentation: catalogue, page headers, parameter tables, `config.example.yaml`).

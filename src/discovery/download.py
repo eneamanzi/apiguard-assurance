@@ -2,7 +2,7 @@
 src/discovery/download.py
 
 Download of the OpenAPI specification over HTTP/HTTPS, with the connection
-settings of config.yaml `specification` (docs/architecture/design-decisions.md,
+settings of config.yaml `specification` (docs/04-architecture/05-design-decisions.md,
 D3): its TLS context (system store plus certifi, ca_bundle, mutual TLS) and
 its timeout. Used by Phase 2 (src/discovery/openapi.py) and by the
 generate-seed command (src/discovery/seed_generator.py), which wrap the error

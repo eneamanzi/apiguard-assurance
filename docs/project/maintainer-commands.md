@@ -1,7 +1,7 @@
 # APIGuard Assurance - Maintainer Cheat Sheet
 
 > **Audience:** project owner · Personal commands for maintaining the repository. Product commands are
-> documented in [`reference/cli.md`](../reference/cli.md) and [`CONTRIBUTING.md`](../../CONTRIBUTING.md); this page
+> documented in [`reference/cli.md`](../03-reference/02-cli.md) and [`CONTRIBUTING.md`](../../CONTRIBUTING.md); this page
 > repeats them only as a quick reminder.
 
 - [Export Utility](#export-utility)
@@ -165,7 +165,7 @@ assessment instead of generic placeholders.
 
 `0` clean, `1` violation, `2` invalid invocation, `3` a check did not complete, `10` the assessment did not run,
 `130` interrupted (Ctrl+C), `143` terminated (SIGTERM).
-Details: [`reference/exit-codes.md`](../reference/exit-codes.md).
+Details: [`reference/exit-codes.md`](../03-reference/03-exit-codes.md).
 
 
 ## Building the Package
@@ -185,10 +185,10 @@ hatch build --target wheel   # wheel only (faster: use for install testing)
 | `dist/apiguard_assurance-X.Y.Z.tar.gz` | Source distribution: contains only the public surface (see below) |
 
 **What the sdist includes** (whitelist in `pyproject.toml`, checked with `hatch build -t sdist` on 2026-10-06):
-`src/`, `docs/` except `docs/knowledge/` and `docs/project/`, `README.md`, `pyproject.toml`, `.env.example`,
+`src/`, `docs/` except `docs/06-knowledge/` and `docs/project/`, `README.md`, `pyproject.toml`, `.env.example`,
 `.gitignore`, `install_tools.sh`. No configuration file: the lab configurations are in `test-environments/`.
 
-**What the sdist excludes**: `docs/knowledge/`, `docs/project/`, `CLAUDE.md`, `CONTRIBUTING.md`, `CHANGELOG.md`,
+**What the sdist excludes**: `docs/06-knowledge/`, `docs/project/`, `CLAUDE.md`, `CONTRIBUTING.md`, `CHANGELOG.md`,
 `OPEN_QUESTIONS.md`, `test-environments/`, `outputs/`, `tools/`, `.claude/`, `.env`.
 
 **Cold-install test** (verifies the wheel works in a clean environment):
@@ -266,7 +266,7 @@ docker compose --env-file ../../.env restart apisix && docker compose --env-file
 ## Test Labs
 
 Three labs, same steps. Each has its own ports, so they can run at the same time. Versions and design:
-[compatibility](../reference/compatibility.md#test-lab). Every `docker compose` command runs from the lab folder
+[compatibility](../03-reference/06-compatibility.md#test-lab). Every `docker compose` command runs from the lab folder
 with `--env-file ../../.env`: compose looks for `.env` only in the folder it runs from, and the credentials are in
 the `.env` of the repository root.
 

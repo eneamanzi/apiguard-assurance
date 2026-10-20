@@ -3,7 +3,7 @@ src/tests/domain_1/test_1_6_secure_session_management.py
 
 Test 1.6 -- Secure Session Management in Distributed Architectures.
 
-Guarantee (docs/knowledge/methodology/guarantees.md, Section 1.6):
+Guarantee (docs/06-knowledge/04-guarantees.md, Section 1.6):
     Session cookies emitted by the API must carry the mandatory security
     attributes: HttpOnly, Secure, and SameSite.  Without HttpOnly, JavaScript
     running in a compromised page can exfiltrate the session token.  Without
@@ -52,7 +52,7 @@ Session fixation empirical sub-test -- NOT implemented (documented gap):
     login flow with a browser-level session cookie exchange that cannot be
     implemented generically in a config-driven agnostic tool.  This gap is
     documented via an InfoNote on PASS results so that the analyst can
-    perform the check manually following docs/knowledge/methodology/guarantees.md Section 1.6.
+    perform the check manually following docs/06-knowledge/04-guarantees.md Section 1.6.
 
 EvidenceStore policy:
     FAIL transactions from client.request() are passed to
@@ -99,7 +99,7 @@ class Test16Params(BaseModel):
     """
     Tuning parameters for Test 1.6 (Secure Session Management).
 
-    Methodology reference: docs/knowledge/methodology/guarantees.md Section 1.6.
+    Methodology reference: docs/06-knowledge/04-guarantees.md Section 1.6.
     Strategy: WHITE_BOX — Configuration Audit (P3).
 
     The test probes the configured paths for Set-Cookie response headers
@@ -116,7 +116,7 @@ class Test16Params(BaseModel):
         in a config-driven tool.  It is therefore not implemented in this
         version.  The test documents this gap via an InfoNote on PASS results.
         Operators should perform the session fixation check manually following
-        the procedure in docs/knowledge/methodology/guarantees.md Section 1.6.
+        the procedure in docs/06-knowledge/04-guarantees.md Section 1.6.
     """
 
     model_config = {"frozen": True, "extra": "forbid"}
@@ -349,7 +349,7 @@ class Test16SecureSessionManagement(BaseTest[Test16Params]):
                             "target-specific browser-level login flow outside the "
                             "scope of a config-driven agnostic tool.  "
                             "Perform this check manually following "
-                            "docs/knowledge/methodology/guarantees.md Section 1.6: "
+                            "docs/06-knowledge/04-guarantees.md Section 1.6: "
                             "capture the pre-login cookie, authenticate, and verify the "
                             "cookie value differs "
                             "post-authentication."

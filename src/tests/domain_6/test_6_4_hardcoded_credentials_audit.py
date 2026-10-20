@@ -3,7 +3,7 @@ src/tests/domain_6/test_6_4_hardcoded_credentials_audit.py
 
 Test 6.4 -- Hardcoded Credentials Audit.
 
-Guarantee (docs/knowledge/methodology/guarantees.md, Section 6.4):
+Guarantee (docs/06-knowledge/04-guarantees.md, Section 6.4):
     Service credentials used by the Gateway (database passwords, API keys,
     TLS private keys) must be managed via a dedicated Secret Manager and must
     NOT be hardcoded in configuration files, environment variables exposed via

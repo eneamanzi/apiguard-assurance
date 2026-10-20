@@ -4,8 +4,8 @@
 # Copy it, keep what your target needs, and run:
 #   apiguard validate-config -c my-config.yaml
 #   apiguard run -c my-config.yaml
-# A key left out takes its default. Reference: docs/reference/configuration.md; guided setup:
-# docs/guides/usage/configure-a-target.md. The test labs hold only their own values
+# A key left out takes its default. Reference: docs/03-reference/01-configuration.md; guided setup:
+# docs/02-guides/01-usage/01-configure-a-target.md. The test labs hold only their own values
 # (test-environments/*/config.yaml).
 #
 # Values written as ${...} with an uppercase variable name come from environment variables (or the

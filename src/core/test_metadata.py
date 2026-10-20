@@ -4,7 +4,7 @@ src/core/test_metadata.py
 TestInfo: the declaration of a test (who it is), native and external alike.
 
 Every test class declares one TestInfo as its ``info`` class attribute
-(docs/architecture/design-decisions.md, D8). It is a frozen Pydantic model, validated
+(docs/04-architecture/05-design-decisions.md, D8). It is a frozen Pydantic model, validated
 when the test module is imported: an invalid declaration makes the import
 fail, and test discovery (src/core/test_discovery.py) reports it as a
 TestDefinitionError naming the module, so the run stops instead of dropping

@@ -18,7 +18,7 @@ ConceptRead:
 
 The tests never see a gateway's own objects or field names, so the same test
 runs on any gateway that has an adapter. The fields, and how Kong and APISIX
-map onto them, are decided in docs/architecture/design-decisions.md, D7.
+map onto them, are decided in docs/04-architecture/05-design-decisions.md, D7.
 
 Configuration values hold secrets as SecretStr: printed, logged or serialized
 they show as '**********'; a test that scans them asks for the value

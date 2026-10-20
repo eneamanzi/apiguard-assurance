@@ -7,7 +7,7 @@ target, for a role, and registers its deletion for Phase 6 teardown.
     prepared = create_resource(target, context, client, "repository", ROLE_USER_A, "7.2")
     prepared.values["owner"], prepared.values["repo"]
 
-Steps (docs/architecture/design-decisions.md, D6):
+Steps (docs/04-architecture/05-design-decisions.md, D6):
     1. Fill the create request: {username}, {password} from the role's
        account, {random} (8 hexadecimal characters, the same for create and
        delete).

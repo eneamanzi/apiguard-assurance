@@ -220,7 +220,7 @@ class EvidenceFile(BaseModel):
     """
     The content of evidence.json, as written in Phase 7 (EvidenceStore.merge_and_finalize).
 
-    The one definition of the file's top level (docs/reference/evidence-format.md
+    The one definition of the file's top level (docs/03-reference/05-evidence-format.md
     is generated from it).
     """
 

@@ -32,7 +32,7 @@
 #   docker compose --env-file ../../.env down -v                              # full reset (deletes the data volumes)
 #
 # Versions: every image is pinned to an exact version; the pinned versions are listed in
-# docs/reference/compatibility.md ("Test lab"); update both places together.
+# docs/03-reference/06-compatibility.md ("Test lab"); update both places together.
 
 name: forgejo-apisix
 

@@ -598,7 +598,7 @@ def list_tests(
 
     Every test, native and external: ID, name, domain, priority, strategy,
     CWE, tags, prerequisites, tool, what it needs from the configuration and
-    the JSON Schema of its parameters (docs/reference/cli.md, "list-tests").
+    the JSON Schema of its parameters (docs/03-reference/02-cli.md, "list-tests").
     With --config, also whether the run selects it and why it would SKIP.
     Does not contact the target.
 

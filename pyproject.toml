@@ -22,7 +22,7 @@ description = "Automated security assessment tool for REST APIs in Cloud environ
 
 # --- 2. Readme + Python target ---
 readme = "README.md"
-requires-python = ">=3.11,<3.15"  # only versions verified on the lab: docs/reference/compatibility.md
+requires-python = ">=3.11,<3.15"  # only versions verified on the lab: docs/03-reference/06-compatibility.md
 # License intentionally left unspecified — the project is the artefact of a
 # Master's thesis and the IP/licensing question is governed by the university's
 # academic-output regulations rather than a standard open-source license. Once
@@ -80,7 +80,7 @@ classifiers = [
 # ---------------------------------------------
 # Each dependency uses ">=FLOOR,<NEXT_MAJOR" where:
 #   • FLOOR is the version actually used to develop and validate Milestone 1
-#     (see docs/project/audits/2026-05-18-v0.1.0-release.it.md, "Versions matrix" appendix).
+#     (see docs/project/audit-v0.1.0.md, "Versions matrix" appendix).
 #   • NEXT_MAJOR blocks an unintended jump into a major release that may
 #     introduce breaking changes (e.g. pydantic 3.0, rich 16.0).
 # This keeps the package installable side-by-side with other libraries (the
@@ -139,7 +139,7 @@ dependencies = [
     # Retry logic with exponential backoff for SecurityClient.
     "tenacity>=9,<10",
 
-    # Certificate trust of every connection (docs/architecture/design-decisions.md, D2):
+    # Certificate trust of every connection (docs/04-architecture/05-design-decisions.md, D2):
     # the operating system's store through truststore, plus certifi's list (as pip does
     # since 24.2), unless a connection sets its own ca_bundle.
     "truststore>=0.10,<1",
@@ -214,7 +214,7 @@ include = [
     # Source code
     "src/",
 
-    # Documentation (docs/knowledge/ and docs/project/ are internal, excluded below)
+    # Documentation (docs/06-knowledge/ and docs/project/ are internal, excluded below)
     "docs/",
     "README.md",
     "CHANGELOG.md",
@@ -232,7 +232,7 @@ include = [
 ]
 exclude = [
     # Internal documentation (thesis research, roadmap, audits, working notes)
-    "docs/knowledge/",
+    "docs/06-knowledge/",
     "docs/project/",
     # Internal development context (IDE settings, session config)
     ".claude/",
@@ -296,7 +296,7 @@ dependencies = [
 
     # Writes the generated parts of the documentation between markers in the
     # files, run by scripts/generate_docs.py: hatch run dev:gen writes them, dev:check
-    # checks them (block 10b, docs/architecture/design-decisions.md, D8).
+    # checks them (block 10b, docs/04-architecture/05-design-decisions.md, D8).
     "cogapp>=3.6,<4",
 ]
 
@@ -433,7 +433,7 @@ show_error_codes = true
 
 # ---------------------------------------------------------------------------
 # Import-linter: dependency rules between src/ packages (CLAUDE.md "Dependency
-# direction", docs/architecture/overview.md). Checked by: hatch run dev:check
+# direction", docs/04-architecture/01-overview.md). Checked by: hatch run dev:check
 # ---------------------------------------------------------------------------
 [tool.importlinter]
 root_package = "src"

@@ -7,7 +7,7 @@ A test declares what it needs to run at all (``TestInfo.needs``, the Need
 vocabulary of src/core/test_metadata.py) and which of its parameters it
 cannot run without (``Field(json_schema_extra=NEEDED_TO_RUN)``,
 src/core/assessment_test.py). Both are known from the configuration alone, so
-they are checked in one place (docs/architecture/design-decisions.md, D8):
+they are checked in one place (docs/04-architecture/05-design-decisions.md, D8):
 
     - at startup, to warn which selected tests will SKIP and why (engine);
     - before each test runs, to record its SKIP without running it (engine,

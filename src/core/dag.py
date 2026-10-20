@@ -14,9 +14,9 @@ could theoretically run in parallel. In Version 1.0, the engine executes batches
 and the tests within each batch strictly sequentially (no ThreadPoolExecutor).
 
 The batch abstraction preserves the option for future parallelism without
-implementing it now (docs/architecture/overview.md, "Pipeline").
+implementing it now (docs/04-architecture/01-overview.md, "Pipeline").
 
-Two kinds of prerequisite (docs/architecture/assessment-model.md,
+Two kinds of prerequisite (docs/04-architecture/03-assessment-model.md,
 "Dependencies between tests"), both of which also order the run:
     depends_on     data: the test uses something only the prerequisite
                    produces (TestContext shared data). It runs if the
@@ -317,7 +317,7 @@ class DAGScheduler:
         The test_ids within each batch are sorted lexicographically for
         deterministic ordering. graphlib does not guarantee ordering within a level,
         and deterministic output is required by the Reproducibility constraint
-        (docs/architecture/overview.md, "Pipeline").
+        (docs/04-architecture/01-overview.md, "Pipeline").
 
         Stall detection
         ---------------

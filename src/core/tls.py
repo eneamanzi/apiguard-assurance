@@ -2,7 +2,7 @@
 src/core/tls.py
 
 The TLS context of each connection of the tool, built once at startup from
-its TlsSettings (docs/architecture/design-decisions.md, D2).
+its TlsSettings (docs/04-architecture/05-design-decisions.md, D2).
 
 Trust:
     no settings, or no ca_bundle   the operating system's store (truststore)

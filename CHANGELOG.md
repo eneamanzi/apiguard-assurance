@@ -2,7 +2,7 @@
 
 Notable changes to APIGuard Assurance. Format based on [Keep a Changelog](https://keepachangelog.com/); versions
 follow [Semantic Versioning](https://semver.org/). What is a contract, and how changes are versioned, is in
-[compatibility](docs/reference/compatibility.md#interface-stability): a change that breaks a contract is marked
+[compatibility](docs/03-reference/06-compatibility.md#interface-stability): a change that breaks a contract is marked
 **Breaking:**; a change of test oracles, coverage or effects on the target is listed under **Changed results**.
 Before 1.0.0 a breaking change raises the minor version.
 
@@ -27,19 +27,19 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
   with the duration, the limit and the key to raise), for the tools run as a process (testssl.sh, nuclei); the limit
   only stops a tool that hangs (Q-67).
 
-- What a test needs from the configuration is declared (block 10b, `docs/architecture/design-decisions.md`, D8): `TestInfo.needs`
+- What a test needs from the configuration is declared (block 10b, `docs/04-architecture/05-design-decisions.md`, D8): `TestInfo.needs`
   (`ADMIN_ACCOUNT`, `USER_ACCOUNT`, `GATEWAY`, `REVOCABLE_LOGIN`; `src/core/test_needs.py`, where a new need is one
   entry) and the parameters a test cannot run without (`Field(json_schema_extra=NEEDED_TO_RUN)`). `validate-config`
   lists the selected tests that will SKIP and why; the run warns before the first test (`test_will_skip_unmet_needs`);
   the catalogue has a generated "Needs" column, the test pages a "Needs" row, the parameter tables "needed to run".
 - `apiguard list-tests [--config PATH] [--json]`: every test with its declaration, needs and the JSON Schema of its
   parameters; with a configuration, whether the run selects it and why it would SKIP (block 10b, 6.7;
-  `docs/reference/cli.md`).
+  `docs/03-reference/02-cli.md`).
 
-- Generated documentation (block 10b, `docs/architecture/design-decisions.md`, D8): what repeats the tests' declarations is
+- Generated documentation (block 10b, `docs/04-architecture/05-design-decisions.md`, D8): what repeats the tests' declarations is
   built from them by `scripts/generate_docs.py` and written by Cog between markers in the files: the test catalogue
-  (`docs/tests/README.md`), the header of each test page, the tests by strategy and priority
-  (`docs/architecture/assessment-model.md`), the tests chapter of `docs/reference/configuration.md` (one table per
+  (`docs/05-tests/README.md`), the header of each test page, the tests by strategy and priority
+  (`docs/04-architecture/03-assessment-model.md`), the tests chapter of `docs/03-reference/01-configuration.md` (one table per
   test, every parameter with type, range, default and description) and the `tests` section of
   `config.example.yaml` (every parameter with its default and the first sentence of its description; example values
   from the models). `hatch run dev:gen` writes them; `hatch run dev:check` fails when one is out of date, or when a
@@ -47,7 +47,7 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
   portability"; the headings of the tests chapter of `configuration.md` are the keys alone (anchors such as
   `#testsdomain_2test_2_1`).
 
-- Certificate settings for every connection of the tool (`docs/architecture/design-decisions.md`, D2): an optional `tls`
+- Certificate settings for every connection of the tool (`docs/04-architecture/05-design-decisions.md`, D2): an optional `tls`
   block on `target`, `specification`, `gateway.admin` and `gateway.health` with `verify`, `ca_bundle` (the authorities
   to trust, instead of the default ones, as `curl --cacert`), `client_cert` and `client_key` (mutual TLS). A private
   authority, an Admin API over HTTPS with a company certificate and an Admin API that requires a client certificate
@@ -80,7 +80,7 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
   container from `.env`; the crAPI specification is stored in the lab. Its configuration is
   `test-environments/crapi-kong/config.yaml` (it was `config_crapi.yaml`, which pointed to a crAPI without gateway and to a
   specification not in the repository).
-- Integration guide: `docs/guides/integration/integrate-apiguard.md` (install with pip, credentials, one output
+- Integration guide: `docs/02-guides/02-integration/01-integrate-apiguard.md` (install with pip, credentials, one output
   directory per run, exit-code handling, reading the reports with `jq`, stopping a run, versions).
 - Every test of the tool is accounted for: `apiguard_report.json` has a `not_run` section (and
   `executive_summary.not_run_count`) listing each test not executed, with a `reason` (`priority`, `strategy`,
@@ -178,7 +178,7 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 - The developer tables are generated from the code (Q-04): the result helpers and the evidence calls
   (`add-a-native-test.md`), the connector bases, their helpers and the methods an external test implements
   (`add-an-external-test.md`), the gateway concepts with the tests that use them (`add-a-gateway-adapter.md`), the
-  exceptions (`docs/architecture/overview.md`): signatures from `inspect`, the text from the first paragraph of each
+  exceptions (`docs/04-architecture/01-overview.md`): signatures from `inspect`, the text from the first paragraph of each
   docstring, rewritten for the guides and checked against the code. Fixed on the way: the native test guide still
   said to guard with `_requires_admin_api` (removed: a test declares `Need.GATEWAY`); the connector attributes
   `DEFAULT_TIMEOUT_SECONDS` and `LOCAL_TOOLS_SUBDIR` have defaults (the guide listed them as required);
@@ -201,18 +201,18 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
 - **Breaking:** the text of an exit code has one definition (`EXIT_CODES`, `src/core/models/enums.py`), used by the
   report (`executive_summary.exit_code_label`), the console summary, `apiguard run --help` and
-  `docs/reference/exit-codes.md` (generated); before, five places described the codes with different words. The
+  `docs/03-reference/03-exit-codes.md` (generated); before, five places described the codes with different words. The
   label in the JSON report changes, e.g. `FAIL — At least one security guarantee violated` becomes `FAIL - at least
   one security guarantee is violated`; `exit_code` is unchanged. Each meaning checked against the code: exit `3`
   may come with findings (an ERROR result may carry some), exit `10` also follows an unexpected error after the
   tests ran.
-- `docs/reference/evidence-format.md`: the tables of the file and of `EvidenceRecord` are generated (`evidence_table`,
+- `docs/03-reference/05-evidence-format.md`: the tables of the file and of `EvidenceRecord` are generated (`evidence_table`,
   Q-04); the top level of `evidence.json` has a model (`EvidenceFile`, `src/core/models/http.py`) instead of a
   dictionary built by hand, and the file written is the same, character by character. Fixed on the way: the code
   said the request body is not sanitized (the registered secrets are replaced); a tool output stored in
   `evidence.json` is truncated like any body, the full output being in `tools/<label>_output.json`.
 
-- `docs/reference/report-schema.md`: the table of every model of `apiguard_report.json` (`ReportData`,
+- `docs/03-reference/04-report-schema.md`: the table of every model of `apiguard_report.json` (`ReportData`,
   `ConnectionTrust`, `ExecutiveSummary`, `NotRunEntry`, `DomainSummary`, `TestResultRow`, `Finding`, `InfoNote`,
   `TransactionSummary`) and the domain names are generated from the models (`report_table`, `domain_names_table`,
   Q-04); the field descriptions in the code now carry the page's wording (checked against a real report: the JSON has
@@ -220,14 +220,14 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
   `total_finding_count` counts the findings of every result (the page said FAIL only); the code's descriptions of
   `request_headers`, `findings` and `notes` were outdated (typed placeholders, findings on ERROR, notes on any status).
 
-- `docs/reference/cli.md`: the syntax line and the options table of every command are generated from the CLI
+- `docs/03-reference/02-cli.md`: the syntax line and the options table of every command are generated from the CLI
   (`scripts/generate_docs.py`, `cli_synopsis` and `cli_options`, from Typer's command objects, Q-04); the help texts
   in `src/cli.py` now carry the page's wording, so `apiguard <command> --help` says the same. Fixed on the way: the
   syntax of `run` lacked `--env-file`, the syntax of `generate-seed` lacked `--config` and `--env-file`, and its
   `SPEC` argument was given as required (it is optional: `--config` is the alternative). `--env-file` and `--output`
   show their real default in `--help` ("'.env' in the working directory", "stdout").
 
-- The tables of `docs/reference/configuration.md` outside `tests` (`target`, `specification`, `gateway`, `tls`,
+- The tables of `docs/03-reference/01-configuration.md` outside `tests` (`target`, `specification`, `gateway`, `tls`,
   `credentials`, `resources`, `execution`, `output`, `external_tools`) are generated from the configuration schema
   (`scripts/generate_docs.py`, `configuration_table`, Q-04): key, type with its range, default, description; the
   descriptions in the code now carry the page's wording (60 fields). Fixed on the way: `dev_mode` reads
@@ -261,7 +261,7 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 - **Breaking** (for tests written outside the tool): a test declares its parameters in its own module and names the
   model in its class, `class Test21...(BaseTest[Test21Params])`, and reads them with `self.params(target)` (typed:
   mypy checks every name); a test without parameters writes `BaseTest` alone (block 10b,
-  `docs/architecture/design-decisions.md`, D8). `src/test_config/` (the per-domain models, their containers and
+  `docs/04-architecture/05-design-decisions.md`, D8). `src/test_config/` (the per-domain models, their containers and
   `RuntimeTestsConfig`) and `src/config/schema/tests_config.py` are removed; `TargetContext.tests_config` is
   `TargetContext.test_params` (by test ID). The user's keys are unchanged (`tests.domain_<D>.test_<D>_<N>.<param>`).
   The `tests` section is checked right after the rest of the configuration, once the tests are discovered (also by
@@ -275,7 +275,7 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
   writes `BaseTest` alone thanks to a type variable with a default (PEP 696), in `typing` only from Python 3.13.
 
 - **Breaking:** the gateway adapters know their gateway's plugins: six test keys that described Kong's plugins are
-  removed (block 10b, `docs/architecture/design-decisions.md`, D8): `tests.domain_3.test_3_3.plugin_names`, `field_clock_skew`,
+  removed (block 10b, `docs/04-architecture/05-design-decisions.md`, D8): `tests.domain_3.test_3_3.plugin_names`, `field_clock_skew`,
   `field_algorithms`, `field_validate_body`, `clock_skew_unconfigured_value` and
   `tests.domain_4.test_4_3.accepted_cb_plugin_names`. The Kong adapter reads `hmac-auth` with the fields of Kong's schema and recognises the third-party
   `circuit-breaker` plugin; the APISIX adapter reports `clock_skew: 0` (no date check) as no replay window
@@ -290,7 +290,7 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
   `info = TestInfo(id=..., name=..., priority=..., strategy=..., cwe=..., tags=..., depends_on=..., requires_pass=...)`
   (external tests also `tool=...`), instead of nine class attributes (`test_id`, `test_name`, `domain`, `priority`,
   `strategy`, `depends_on`, `requires_pass`, `tags`, `cwe_id`, and `tool_name`); the domain is taken from the ID
-  (block 10b, `docs/architecture/design-decisions.md`, D8). The declaration is a Pydantic model, checked when the module is
+  (block 10b, `docs/04-architecture/05-design-decisions.md`, D8). The declaration is a Pydantic model, checked when the module is
   imported (also the CWE form `CWE-<number>`). Native and external tests share one base (`src/core/assessment_test.py`)
   with the same result helpers: an external test's FAIL with a list of findings is `_make_fail_multi` (it was
   `_make_fail`), `_make_error(exc, message=...)` replaces `message_override`. Results and reports keep their field
@@ -302,7 +302,7 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
   `External tool '<tool>' failed: ...` (it was `[ExternalToolError] ...`); an unexpected exception in an external test
   gives the same message as in a native one (`Unexpected <type> during test execution: ...`, cut at 500 characters).
 
-- **Breaking:** the configuration is organised by connection (`docs/architecture/design-decisions.md`, D1): `target` is
+- **Breaking:** the configuration is organised by connection (`docs/04-architecture/05-design-decisions.md`, D1): `target` is
   the API (address, `tls`, `connect_timeout`, `read_timeout`, `max_retry_attempts`, `path_seed`), `specification` the
   OpenAPI document (`url` or `path`, `timeout`, `tls`), `gateway` the gateway (`adapter`, `admin` with `url`,
   `headers`, `connect_timeout`, `read_timeout`, `tls`, and `health` with `url`, `tls`). The previous keys moved:
@@ -310,7 +310,7 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
   `execution.openapi_fetch_timeout_seconds` → `specification.timeout`, `target.gateway_adapter` →
   `gateway.adapter`, `target.admin_api_url` → `gateway.admin.url`, `target.admin_connect_timeout_seconds` /
   `admin_read_timeout_seconds` → `gateway.admin.connect_timeout` / `read_timeout`, `execution.connect_timeout` /
-  `read_timeout` / `max_retry_attempts` → `target.*`. Table: `docs/reference/configuration.md`, "Keys moved".
+  `read_timeout` / `max_retry_attempts` → `target.*`. Table: `docs/03-reference/01-configuration.md`, "Keys moved".
 - **Breaking:** `target.verify_tls` is replaced by `target.tls.verify`; the Admin API, which was always verified
   against the public authorities only, now follows `gateway.admin.tls`.
 - **Breaking:** by default every connection trusts the operating system's certificate store (through `truststore`)
@@ -325,7 +325,7 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
   OCSP address). The native tests give the same results. The Forgejo labs serve the specification through the gateway
   (`/swagger.v1.json`, test 0.1 excludes it as before), Forgejo publishes no port and its `ROOT_URL` is the gateway's
   address.
-- **Breaking:** authentication is configured in two parts (block 7+8 phase C, `docs/architecture/design-decisions.md` D5).
+- **Breaking:** authentication is configured in two parts (block 7+8 phase C, `docs/04-architecture/05-design-decisions.md` D5).
   `credentials.auth_type` has no default and is required when an account or a token is configured (it was
   `forgejo_token` by default); values `basic` (new, HTTP Basic), `static_token` (new, `admin_token` /
   `user_a_token` / `user_b_token`), `login` (new, replaces `forgejo_token` and `jwt_login`: the request that logs
@@ -339,7 +339,7 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
   `validate-config` checks it too, reading the specification only when credentials are configured, and prints
   where the credentials are sent. Each method accepts only its own kind of credential (tokens or username and
   password). Passwords and configured tokens are registered as secrets.
-- **Breaking:** prepared resources (block 7+8 phase E, `docs/architecture/design-decisions.md` D6): what the tool creates on
+- **Breaking:** prepared resources (block 7+8 phase E, `docs/04-architecture/05-design-decisions.md` D6): what the tool creates on
   the target and how it logs in are configuration, in the new top-level section `resources` (a create request,
   values read from its JSON response, an optional delete request sent at teardown; placeholders `{username}`,
   `{password}`, `{random}` and the values, checked at startup). The last Forgejo code is gone
@@ -411,7 +411,7 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 - **Breaking:** `output_schema_version` removed from `apiguard_report.json` (it was `"1.0"`, set arbitrarily):
   `tool_version` is the only version of the output formats. `evidence.json` now has `tool_version` too. The
   interface contract (what is stable, what is announced, what is free) is in
-  `docs/reference/compatibility.md`.
+  `docs/03-reference/06-compatibility.md`.
 - Secrets are redacted in every output with typed placeholders that keep the meaning: `authorization` says whose
   credential it was (`[REDACTED: user_a token]`, was a bare `[REDACTED]`); the token created by test 1.4 and the
   webhook secrets generated by test 7.2, which were in clear, are replaced (the 1.4 token keeps its last 8
@@ -460,7 +460,7 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 - Supported Python range set to the versions verified on the lab: `>=3.11,<3.15` (3.11, 3.12, 3.13, 3.14);
   previously `>=3.11` with only 3.12 tested.
 - Test lab: Docker images pinned to exact versions (Forgejo 14.0.5, Kong 3.9.3, PostgreSQL 15.19), listed in
-  `docs/reference/compatibility.md`.
+  `docs/03-reference/06-compatibility.md`.
 - `config.yaml`: `path_seed` reads the lab names from `.env`; `sha` is `main` instead of a commit hash that
   changed on every new lab.
 - `external_tools.sslyze.extra_flags` removed: it never had an effect (sslyze is a library, not a command line);
@@ -469,7 +469,7 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
   bypass sub-test).
 - Internal: the gateway adapter interface is made of neutral concepts (`src/core/gateway/concepts.py`, one
   reader per concept, read once per run); the Kong-shaped methods (`get_services`, `get_plugins`, ...) are gone;
-  adapters are registered in `GATEWAY_ADAPTERS`. Guide: `docs/guides/extending/add-a-gateway-adapter.md`.
+  adapters are registered in `GATEWAY_ADAPTERS`. Guide: `docs/02-guides/03-extending/04-add-a-gateway-adapter.md`.
   The constructor, the HTTP reads and the collection of configuration text values are shared by every adapter
   (`BaseGatewayAdapter`); an interface answering with a body that is not JSON is reported as not accessible (it was
   an unhandled error); error messages name the interface and its configuration key.
@@ -493,7 +493,7 @@ First release (Milestone 1).
 - Assessment pipeline in 7 phases: configuration, OpenAPI discovery (Swagger 2.0, OpenAPI 3.x), context, scheduling
   with dependencies, execution, teardown, reports.
 - 15 native tests: 0.1, 0.2, 0.3, 1.1, 1.4, 1.5, 1.6, 2.1, 3.3, 4.1, 4.2, 4.3, 6.2, 6.4, 7.2
-  ([catalogue](docs/tests/README.md)).
+  ([catalogue](docs/05-tests/README.md)).
 - 3 external-tool tests: `ext.0.1.nuclei`, `ext.1.5.testssl`, `ext.1.5.sslyze`; `install_tools.sh` for the binaries.
 - Kong gateway adapter (DB-less Admin API) for configuration-audit tests.
 - Reports: `assessment_report.html`, `apiguard_report.json` (`output_schema_version` 1.0), `evidence.json`.

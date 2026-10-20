@@ -16,7 +16,7 @@ component:
     - What to record:      EvidenceStore (populated by tests)
     - What to report:      report/builder.py + report/renderer.py
 
-Pipeline phases (docs/architecture/overview.md, "Pipeline"):
+Pipeline phases (docs/04-architecture/01-overview.md, "Pipeline"):
 
     Phase 1 -- Initialization:
         Load and validate config.yaml via config/loader.py.
@@ -1266,12 +1266,12 @@ class AssessmentEngine:
         Each test is located by test_id in the active_tests list, then
         executed via test.execute(). The TestResult is added to result_set.
 
-        Prerequisites (docs/architecture/assessment-model.md, "Dependencies
+        Prerequisites (docs/04-architecture/03-assessment-model.md, "Dependencies
         between tests"): before a test runs, its depends_on and requires_pass
         are checked against the results so far; an unmet prerequisite gives a
         SKIP result with the reason, and the test is not executed.
 
-        Fail-fast condition (docs/architecture/assessment-model.md, "Fail-fast"):
+        Fail-fast condition (docs/04-architecture/03-assessment-model.md, "Fail-fast"):
             If config.execution.fail_fast is True and a P0 test returns
             FAIL or ERROR, execution stops immediately.
         """

@@ -4,7 +4,7 @@ scripts/generate_docs.py
 The parts of the documentation that repeat the code, built from the test declarations.
 
 Each test declares who it is (``info = TestInfo(...)``) and its parameters
-(``BaseTest[Test21Params]``) once, in its module (docs/architecture/design-decisions.md,
+(``BaseTest[Test21Params]``) once, in its module (docs/04-architecture/05-design-decisions.md,
 D8). The documentation shows the same facts in several places; these
 functions build those parts, and Cog (cogapp, a development tool) writes them
 into the files between markers, leaving everything else as written:
@@ -21,11 +21,11 @@ The files with generated parts are listed once, in GENERATED_FILES.
 
 Generated parts:
 
-    catalogue()             docs/tests/README.md, one row per test, by domain
+    catalogue()             docs/05-tests/README.md, one row per test, by domain
     test_header(*ids, page) the table at the top of each test page
-    strategy_matrix()       docs/architecture/assessment-model.md, tests by
+    strategy_matrix()       docs/04-architecture/03-assessment-model.md, tests by
                             strategy and priority
-    configuration_tests()   docs/reference/configuration.md, the tests chapter:
+    configuration_tests()   docs/03-reference/01-configuration.md, the tests chapter:
                             one table per test with every parameter
     example_tests()         config.example.yaml, the tests section: every
                             parameter with its default and the first sentence
@@ -98,25 +98,25 @@ structlog.configure(wrapper_class=structlog.make_filtering_bound_logger(logging.
 _ROOT: Path = Path(__file__).resolve().parent.parent
 # The files with generated parts, relative to the repository root (glob patterns).
 GENERATED_FILES: tuple[str, ...] = (
-    "docs/tests/README.md",
-    "docs/tests/*/*.md",
-    "docs/tests/external/*/*.md",
-    "docs/architecture/assessment-model.md",
-    "docs/reference/configuration.md",
-    "docs/reference/cli.md",
-    "docs/reference/report-schema.md",
-    "docs/reference/exit-codes.md",
-    "docs/reference/evidence-format.md",
-    "docs/guides/extending/add-a-native-test.md",
-    "docs/guides/extending/add-an-external-test.md",
-    "docs/guides/extending/add-a-gateway-adapter.md",
-    "docs/architecture/overview.md",
+    "docs/05-tests/README.md",
+    "docs/05-tests/*/*.md",
+    "docs/05-tests/external/*/*.md",
+    "docs/04-architecture/03-assessment-model.md",
+    "docs/03-reference/01-configuration.md",
+    "docs/03-reference/02-cli.md",
+    "docs/03-reference/04-report-schema.md",
+    "docs/03-reference/03-exit-codes.md",
+    "docs/03-reference/05-evidence-format.md",
+    "docs/02-guides/03-extending/02-add-a-native-test.md",
+    "docs/02-guides/03-extending/03-add-an-external-test.md",
+    "docs/02-guides/03-extending/04-add-a-gateway-adapter.md",
+    "docs/04-architecture/01-overview.md",
     "config.example.yaml",
 )
 _EXIT_OUT_OF_DATE: int = 1
-_TEST_PAGES: Path = _ROOT / "docs" / "tests"
-_CONFIGURATION_PAGE: Path = _ROOT / "docs" / "reference" / "configuration.md"
-_PORTABILITY: str = "../reference/compatibility.md#test-portability"
+_TEST_PAGES: Path = _ROOT / "docs" / "05-tests"
+_CONFIGURATION_PAGE: Path = _ROOT / "docs" / "03-reference" / "01-configuration.md"
+_PORTABILITY: str = "../03-reference/06-compatibility.md#test-portability"
 _HEADER_MARKER: re.Pattern[str] = re.compile(r"test_header\(([^)]*)\)")
 _QUOTED: re.Pattern[str] = re.compile(r"""["']([^"']+)["']""")
 # The first sentence of a description ends at a period followed by a space and
@@ -218,7 +218,7 @@ def _config_anchor(test: _Test) -> str:
 
 def catalogue() -> str:
     """
-    The test catalogue of docs/tests/README.md: one row per test, by domain.
+    The test catalogue of docs/05-tests/README.md: one row per test, by domain.
 
     Returns:
         A Markdown table.
@@ -231,7 +231,7 @@ def catalogue() -> str:
     missing = [t.info.id for t in tests if t.info.id not in pages]
     if missing:
         raise ValueError(
-            f"tests without a page in docs/tests/ (a page with a test_header marker): {missing}"
+            f"tests without a page in docs/05-tests/ (a page with a test_header marker): {missing}"
         )
     readme = _TEST_PAGES / "README.md"
     native = sum(1 for t in tests if not t.info.is_external)
@@ -314,7 +314,7 @@ def test_header(*test_ids: str, page: str) -> str:
 
 def strategy_matrix() -> str:
     """
-    The tests by strategy and priority (docs/architecture/assessment-model.md).
+    The tests by strategy and priority (docs/04-architecture/03-assessment-model.md).
 
     Returns:
         A Markdown table: one row per strategy, one column per priority.

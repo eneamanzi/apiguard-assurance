@@ -3,7 +3,7 @@ src/tests/domain_4/test_4_3_circuit_breaker_audit.py
 
 Test 4.3 -- Circuit Breaker Configuration Audit: Graceful Degradation.
 
-Guarantee (docs/knowledge/methodology/guarantees.md, Section 4.3):
+Guarantee (docs/06-knowledge/04-guarantees.md, Section 4.3):
     The Circuit Breaker pattern prevents cascading failure when a downstream
     service degrades. A correctly configured Gateway implements three states:
 
@@ -80,7 +80,7 @@ Gateway access:
     The levels read the gateway concepts circuit breakers, health checks and
     live target health (src/core/gateway/concepts.py) through the adapter,
     which knows which plugins are circuit breakers (block 10b,
-    docs/architecture/design-decisions.md, D8). A health checks
+    docs/04-architecture/05-design-decisions.md, D8). A health checks
     concept not supported or not accessible gives SKIP; circuit breakers not
     accessible give SKIP when the verdict would be Level 3 (absence not
     proven), a note when Level 2 holds.

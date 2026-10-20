@@ -12,7 +12,7 @@ section is checked once the tests are discovered
 
 Design notes preserved from the original schema.py:
 
-    Configuration by connection (docs/architecture/design-decisions.md, D1)
+    Configuration by connection (docs/04-architecture/05-design-decisions.md, D1)
     ----------------------------------------------------------------
     Every party the tool talks to is a section with its own settings:
         target         the API under test (base_url, timeouts, retries);
@@ -127,7 +127,7 @@ class TargetConfig(BaseModel):
 
     The requests of every test go to base_url. Connection settings (timeouts,
     retries, certificate check) are those of this connection only
-    (docs/architecture/design-decisions.md, D1).
+    (docs/04-architecture/05-design-decisions.md, D1).
     """
 
     model_config = {"frozen": True, "extra": "forbid"}
@@ -588,7 +588,7 @@ class ToolConfig(BaseModel):
             "Prepared resources: what the tool creates on the target and deletes at the end "
             "of the run, by name (letters, digits, '_', '-'). Each has a create request, values "
             "taken from its JSON response and an optional delete request "
-            "(src/core/models/resources.py, docs/architecture/design-decisions.md D6)."
+            "(src/core/models/resources.py, docs/04-architecture/05-design-decisions.md D6)."
         ),
     )
     execution: ExecutionConfig = Field(
@@ -637,7 +637,7 @@ class ToolConfig(BaseModel):
 
         It must be defined, have the value 'credential' (the token) and not
         authenticate its create request with the credential it obtains
-        (docs/architecture/design-decisions.md, D6).
+        (docs/04-architecture/05-design-decisions.md, D6).
         """
         name = self.credentials.login_resource
         if name is None:

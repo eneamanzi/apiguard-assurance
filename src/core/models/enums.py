@@ -24,7 +24,7 @@ class TestStatus(StrEnum):
 
     Inherits from str so values serialize natively to JSON strings.
 
-    Semantic contract (docs/architecture/assessment-model.md, "Outcomes"):
+    Semantic contract (docs/04-architecture/03-assessment-model.md, "Outcomes"):
         PASS  -- Control executed, security guarantee satisfied.
         FAIL  -- Control executed, guarantee NOT satisfied. Requires a Finding.
         SKIP  -- Not executed for an explicit, documented reason. Not a failure.
@@ -41,12 +41,12 @@ class TestStatus(StrEnum):
 
 class ExitCode(IntEnum):
     """
-    Process exit codes of ``apiguard run`` (docs/reference/exit-codes.md).
+    Process exit codes of ``apiguard run`` (docs/03-reference/03-exit-codes.md).
 
     The single definition of every code: the ResultSet, the engine, the CLI
     summary and the report all use these members. What each code means is in
     EXIT_CODES below, the one text of the report, the console, `run --help`
-    and docs/reference/exit-codes.md. USAGE is emitted by Typer before the
+    and docs/03-reference/03-exit-codes.md. USAGE is emitted by Typer before the
     tool starts; it is listed so that no other outcome reuses the code.
 
     130 (Ctrl+C) and 143 (SIGTERM) are not members: after teardown the tool
@@ -137,7 +137,7 @@ class NotRunReason(StrEnum):
 
 class TestStrategy(StrEnum):
     """
-    What the tester has, to run a test (docs/architecture/assessment-model.md,
+    What the tester has, to run a test (docs/04-architecture/03-assessment-model.md,
     "Strategies"). A test is labelled with the access it needs to run in full.
 
     BLACK_BOX -- An external user: network access and the OpenAPI

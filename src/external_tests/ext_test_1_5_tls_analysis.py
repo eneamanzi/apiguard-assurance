@@ -25,7 +25,7 @@ Relationship with Test 1.5 (native):
         cipher suite weaknesses, certificate chain, forward secrecy,
         HSTS headers at TLS level, and CVE-tagged vulnerabilities.
 
-    The split follows the HYBRID pattern (docs/architecture/assessment-model.md):
+    The split follows the HYBRID pattern (docs/04-architecture/03-assessment-model.md):
         Native part   -> handles HTTP-level checks (redirects, HSTS headers)
         External part -> handles TLS-level checks (protocols, ciphers, CVEs)
 
@@ -263,7 +263,7 @@ def _configured_authority_notes(target: TargetContext) -> list[InfoNote]:
 
     Without it the tools judge the certificate as anyone on the Internet would;
     with it, as a client of the organisation that configured that authority.
-    The reader must know which (docs/architecture/design-decisions.md, D2).
+    The reader must know which (docs/04-architecture/05-design-decisions.md, D2).
 
     Args:
         target: The run's TargetContext.
@@ -417,7 +417,7 @@ class ExtTest15TlsAnalysis(ExternalToolTest):
         """
         Apply the oracle to ConnectorResult and return a TestResult.
 
-        Oracle (Section 1.5 of docs/knowledge/methodology/guarantees.md, NIST SP 800-52 Rev.2):
+        Oracle (Section 1.5 of docs/06-knowledge/04-guarantees.md, NIST SP 800-52 Rev.2):
 
             FAIL bucket (CRITICAL / HIGH):
                 Each qualifying finding becomes a separate Finding object.

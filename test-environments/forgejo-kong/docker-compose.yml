@@ -16,7 +16,7 @@
 #
 # Versions: every image is pinned to an exact version, so that the lab (and the
 # results of an assessment on it) does not change when a new image is published.
-# The pinned versions are listed in docs/reference/compatibility.md ("Test lab");
+# The pinned versions are listed in docs/03-reference/06-compatibility.md ("Test lab");
 # update both places together, then verify the lab from scratch.
 #
 # TLS: the one-shot service "pki" runs ../pki/gen-pki.sh before Kong starts: it
