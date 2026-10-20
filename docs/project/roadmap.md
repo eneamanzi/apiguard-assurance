@@ -119,7 +119,7 @@ No new test. Infrastructure for production use and integration (details: `CHANGE
 
 **Scope.** Tests selected for architectural property demonstration value.
 Selection criterion: which test provides the most concrete and verifiable evidence for the
-architectural claims in `docs/knowledge/design-properties.it.md`. Security coverage is secondary.
+architectural claims in `docs/knowledge/design-properties.md`. Security coverage is secondary.
 
 ### Domain 0 - API Discovery & Inventory
 

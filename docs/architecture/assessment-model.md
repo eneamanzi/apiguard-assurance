@@ -3,13 +3,13 @@
 > **Audience:** analysts, integrators, contributors · **Status:** v0.1.0 · **Source of truth:** test class metadata
 > (`src/tests/`, `src/external_tests/`), `src/config/schema/tool_config.py` (`ExecutionConfig`), `src/engine.py`,
 > `src/core/models/results.py`; methodology concepts from
-> [`knowledge/methodology/methodology.it.md`](../knowledge/methodology/methodology.it.md) · **Verified:** 2026-10-05
+> [`knowledge/methodology/framework.md`](../knowledge/methodology/framework.md) · **Verified:** 2026-10-20
 
 How the tool organises, selects and judges its checks. Per-test details: [`tests/`](../tests/README.md).
 
 ## Guarantees, domains, tests
 
-The methodology defines **29 security guarantees in 8 domains** (0 API discovery and inventory, 1 identity and
+The methodology ([framework](../knowledge/methodology/framework.md)) defines **29 security guarantees in 8 domains** (0 API discovery and inventory, 1 identity and
 authentication, 2 authorization, 3 data integrity, 4 availability and resilience, 5 visibility and auditing,
 6 configuration and hardening, 7 business logic and sensitive flows). A test verifies one guarantee:
 
@@ -21,8 +21,10 @@ v0.1.0 implements 15 native and 3 external tests covering 15 of the 29 guarantee
 
 ## Strategies (knowledge and privilege of the tester)
 
-The strategy says what the tester has. Each test is labelled with the access it needs to run in full
-(`src/core/models/enums.py`, `TestStrategy`).
+The strategy says what the tester has, and so what a test may use: only a `WHITE_BOX` test reads the gateway
+configuration or acts as administrator; the others observe responses (the gradient and its rationale:
+[framework](../knowledge/methodology/framework.md#knowledge-and-privilege-gradient)). Each test is labelled with the
+access it needs to run in full (`src/core/models/enums.py`, `TestStrategy`).
 
 | Strategy | Tester has |
 |---|---|
@@ -33,17 +35,17 @@ The strategy says what the tester has. Each test is labelled with the access it 
 Among the WHITE_BOX tests, 1.4 needs the admin account; 3.3, 4.2, 4.3 and 6.4 the gateway Admin API (6.4 sub-test A
 needs only the network). The tests by strategy and priority are in the table under [Priorities](#priorities).
 
-The methodology classifies 1.5, 1.6 and 6.2 as WHITE_BOX by their nature (configuration audits); the tool labels
-them by what the tester needs, and anyone outside can read TLS settings, cookies and response headers (Q-33).
-
 ## Priorities
 
-| Priority | Methodology criterion |
+A guarantee's priority says how important it is: how serious a violation is for an API in general (the criterion,
+after the OWASP risk rating: [framework](../knowledge/methodology/framework.md#priorities)).
+
+| Priority | Importance |
 |---|---|
-| P0 Critical | native gateway function, fully automatable, OWASP top risks |
-| P1 High | partly gateway, automatable with setup, business-critical |
-| P2 Medium | application-level or complex, partial automation |
-| P3 Low | static configuration, best practice |
+| P0 Critical | the top risks of the OWASP API Security Top 10, and the perimeter controls every gateway must enforce |
+| P1 High | business-critical controls |
+| P2 Medium | application logic and defence in depth |
+| P3 Low | best practice and compliance |
 
 The implemented tests by strategy and priority (generated from the tests' declarations):
 
@@ -58,7 +60,7 @@ The implemented tests by strategy and priority (generated from the tests' declar
 <!-- [[[end]]] -->
 
 **Priority and strategy are independent.** The priority says how serious a violation of the guarantee is
-(methodology criteria above); the strategy says what the tester needs to run the test. A critical test can need
+(criterion above); the strategy says what the tester needs to run the test. A critical test can need
 credentials (7.2 is P0 and GREY_BOX) and a configuration audit can be important (4.2 and 4.3 are P1 and WHITE_BOX).
 
 ## Selecting tests
@@ -139,7 +141,7 @@ reporting still run; tests not yet started are listed in the report's `not_run` 
 
 ## Native, hybrid and external tools
 
-The tool research classifies each guarantee and each candidate tool ([`knowledge/tools/`](../knowledge/tools/decisions.it.md)):
+The tool research classifies each guarantee and each candidate tool ([`knowledge/tools/`](../knowledge/tools/decisions.md)):
 
 | Term | Meaning |
 |---|---|

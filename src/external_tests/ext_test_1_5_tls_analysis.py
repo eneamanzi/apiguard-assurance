@@ -417,7 +417,7 @@ class ExtTest15TlsAnalysis(ExternalToolTest):
         """
         Apply the oracle to ConnectorResult and return a TestResult.
 
-        Oracle (Section 1.5 of docs/knowledge/methodology/methodology.it.md, NIST SP 800-52 Rev.2):
+        Oracle (Section 1.5 of docs/knowledge/methodology/guarantees.md, NIST SP 800-52 Rev.2):
 
             FAIL bucket (CRITICAL / HIGH):
                 Each qualifying finding becomes a separate Finding object.

@@ -3,13 +3,13 @@ src/tests/domain_0/test_0_1_shadow_api_discovery.py
 
 Test 0.1 -- All Exposed Endpoints Are Documented and Authorized.
 
-Guarantee (docs/knowledge/methodology/methodology.it.md, Section 0.1):
+Guarantee (docs/knowledge/methodology/guarantees.md, Section 0.1):
     Every active endpoint on the Gateway corresponds to an entry in the
     official OpenAPI specification. Endpoints that are active but undocumented
     (Shadow APIs) constitute unknown attack surface: they are not subject to
     security review, rate limiting, or systematic authentication policies.
 
-Methodology (docs/knowledge/methodology/methodology.it.md, Section 0.1):
+Methodology (docs/knowledge/methodology/guarantees.md, Section 0.1):
     - Path Enumeration via Fuzzing: scan with standard wordlist of common
       undocumented paths and compare responses against documented endpoints.
     - HTTP Method Discovery: for each documented endpoint, send OPTIONS and

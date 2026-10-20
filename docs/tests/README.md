@@ -70,4 +70,4 @@ configuration, coverage against the methodology, why it exists, limitations.
 
 - [`../reference/configuration.md`](../reference/configuration.md#tests) - per-test parameters
 - [`../reference/report-schema.md`](../reference/report-schema.md) - how results are serialised
-- [`../knowledge/methodology/methodology.it.md`](../knowledge/methodology/methodology.it.md) - the full methodology
+- [`../knowledge/methodology/guarantees.md`](../knowledge/methodology/guarantees.md) - the full methodology

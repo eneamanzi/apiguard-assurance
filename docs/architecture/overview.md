@@ -26,6 +26,25 @@ What each test needs from the target is in [compatibility](../reference/compatib
 **Unidirectional dependencies.** Shared vocabulary in `core/`; everything else depends on it, nothing depends on
 `engine.py`.
 
+**Sequential execution.** Tests run one at a time, in a deterministic order. Parallel execution is deliberately not
+supported: it keeps the state of `TestContext`, `EvidenceStore` and the result set coherent without locks, and keeps
+a run predictable and repeatable. The batches of the dependency graph are the natural unit if it is ever added
+([design properties D2.P2](../knowledge/design-properties.md)).
+
+**The constraints the design answers to** (from the thesis, checked against today's code):
+
+| Constraint | What it means | Where it holds |
+|---|---|---|
+| Agnosticism | Works on any REST API with an OpenAPI specification without touching the source. | D1.P1; the three labs |
+| Traceability | A FAIL of an HTTP test points to the transaction that proves it (`evidence_ref`). The rule is decided; 4.1 and 7.2 do not follow it yet (Q-50). | D4.P1, D5.P1 |
+| Prioritisation | A run can be limited to the most important tests (`execution.min_priority`), or stop at the first critical failure (`execution.fail_fast`). | [assessment model](assessment-model.md#priorities) |
+| Robustness | A test that raises an exception does not stop the others: it returns ERROR. | D4.P3 |
+| Cleanliness | What a test creates on the target is removed at the end (teardown, in reverse order). | D4.P6 |
+| Reproducibility | The same configuration on the same unchanged target gives the same results. | D3.P4 |
+
+No database or external service is needed at runtime: all state is in memory or in local files
+([D3.P5](../knowledge/design-properties.md)).
+
 ## Pipeline
 
 `AssessmentEngine.run()` executes seven sequential phases. One engine instance serves exactly one run

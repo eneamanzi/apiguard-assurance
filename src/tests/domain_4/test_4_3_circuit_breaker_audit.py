@@ -3,7 +3,7 @@ src/tests/domain_4/test_4_3_circuit_breaker_audit.py
 
 Test 4.3 -- Circuit Breaker Configuration Audit: Graceful Degradation.
 
-Guarantee (docs/knowledge/methodology/methodology.it.md, Section 4.3):
+Guarantee (docs/knowledge/methodology/guarantees.md, Section 4.3):
     The Circuit Breaker pattern prevents cascading failure when a downstream
     service degrades. A correctly configured Gateway implements three states:
 

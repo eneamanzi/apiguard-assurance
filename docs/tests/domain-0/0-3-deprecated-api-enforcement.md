@@ -70,7 +70,7 @@ References: CWE-1059, OWASP-API9:2023, RFC-8594, NIST-SP-800-204-S3.1.3.
 
 ## Coverage against the methodology
 
-Source: [`methodology.it.md` §0.3](../../knowledge/methodology/methodology.it.md).
+Source: [`guarantees.md` §0.3](../../knowledge/methodology/guarantees.md).
 
 | Methodology sub-test | Status |
 |---|---|
@@ -84,7 +84,7 @@ OWASP API9:2023, NIST SP 800-204 §3.1.3. Deprecated endpoints get less patching
 reachable: a vulnerability fixed in v2 but not backported to v1, or a `Sunset` date announced and never enforced
 ("zombie API").
 
-Tooling decision ([`decisions.it.md` §0.3](../../knowledge/tools/decisions.it.md)): native test; oasdiff is an
+Tooling decision ([`decisions.md` §0.3](../../knowledge/tools/decisions.md)): native test; oasdiff is an
 optional Cat B complement (spec version diff), not implemented.
 
 ## Limitations

@@ -2,7 +2,7 @@
 
 > **Status: restructuring in progress.** This map lists only pages that exist today.
 > Sections marked *planned* are part of the target structure and will be filled in order.
-> Pages with the `.it.md` suffix are Italian sources awaiting translation or reorganisation.
+> The guarantee catalogue is a translation of the thesis text and is rewritten in the test review.
 > Folders marked *repository only* are not included in the source package: read them on the repository.
 
 ## By role

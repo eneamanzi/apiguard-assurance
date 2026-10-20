@@ -76,7 +76,7 @@ the gateway adapter's knowledge: a signing plugin with another schema is taught 
 
 ## Coverage against the methodology
 
-Source: [`methodology.it.md` §3.3](../../knowledge/methodology/methodology.it.md).
+Source: [`guarantees.md` §3.3](../../knowledge/methodology/guarantees.md).
 
 | Methodology item | Status |
 |---|---|

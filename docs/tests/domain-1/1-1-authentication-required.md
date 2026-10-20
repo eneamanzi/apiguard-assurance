@@ -106,7 +106,7 @@ If no non-parametric endpoint answered `401`/`403`, phases B to C are skipped.
 
 ## Coverage against the methodology
 
-Source: [`methodology.it.md` §1.1](../../knowledge/methodology/methodology.it.md).
+Source: [`guarantees.md` §1.1](../../knowledge/methodology/guarantees.md).
 
 | Methodology sub-test | Status |
 |---|---|
@@ -119,7 +119,7 @@ Source: [`methodology.it.md` §1.1](../../knowledge/methodology/methodology.it.m
 
 OWASP API2:2023 (Broken Authentication), NIST SP 800-63B-4 §4.3.1, OWASP ASVS v5.0.0 V6.3. It is the foundation
 of the authenticated tests: if authentication is not enforced, the premises of the GREY_BOX tests do not hold.
-Tooling decision ([`decisions.it.md` §1.1](../../knowledge/tools/decisions.it.md)): native only, no external
+Tooling decision ([`decisions.md` §1.1](../../knowledge/tools/decisions.md)): native only, no external
 tool adds value.
 
 ## Limitations

@@ -1,8 +1,8 @@
 # Coding Rules
 
 > **Audience:** contributors · **Status:** v0.1.0 · **Source of truth:** `pyproject.toml` (tool configuration and
-> hatch scripts), the project rules in `CLAUDE.md` and `docs/project/claude-rules.it.md` §5 ·
-> **Verified:** 2026-10-07 (`hatch run dev:check` passes, formatting and import rules included)
+> hatch scripts), the project rules in `CLAUDE.md` ·
+> **Verified:** 2026-10-20 (`hatch run dev:check` passes, formatting and import rules included)
 
 Rules every change must follow. Where the current code deviates, the deviation is stated and tracked in
 `OPEN_QUESTIONS.md`.
@@ -13,6 +13,7 @@ Rules every change must follow. Where the current code deviates, the deviation i
   target values (e.g. an endpoint path) may be in another language.
 - Ruff is the only formatter and linter: `line-length = 100`, `target-version = "py311"`, rule sets
   `E, W, F, I, N, UP, B, S, ANN` (`S101` ignored), double quotes.
+- No wildcard imports (`from module import *`; Ruff rule F403).
 - Comments explain *why*, not *what*. No `TODO`, `FIXME`, `HACK`, no emoji. No `pass` placeholders; `...` only as
   the body of an `@abstractmethod`.
 

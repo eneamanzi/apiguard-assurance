@@ -28,11 +28,10 @@ in `docs/reference/compatibility.md` (Test portability).
 | Adding a native test / external test / gateway adapter | `docs/guides/extending/add-a-native-test.md`, `add-an-external-test.md`, `add-a-gateway-adapter.md` |
 | What each test does, its oracle, its effects on the target | `docs/tests/` (index `docs/tests/README.md`) |
 | Verified facts: configuration, CLI, exit codes, report and evidence formats, compatibility | `docs/reference/` (check here before answering "what does X do") |
-| Methodology (guarantees, oracles, box gradient), Italian | `docs/knowledge/methodology/methodology.it.md` |
-| Thesis implementation chapter (superseded by `docs/architecture/`), Italian | `docs/knowledge/archive/implementation-chapter.it.md` |
-| Original coding rules and workflow protocol, Italian | `docs/project/claude-rules.it.md` |
+| Methodology framework (gradient, priorities) | `docs/knowledge/methodology/framework.md` |
+| Methodology catalogue of the guarantees (oracles, test logic; translated, not yet aligned with the tool) | `docs/knowledge/methodology/guarantees.md` |
 
-`*.it.md` files are Italian sources pending selective translation.
+No Italian source is left in the repository (the originals are recoverable: `docs/knowledge/README.md`). The guarantees catalogue is a translation of the thesis text, to be aligned with the tool in the test review (block 6, phase 0b).
 
 ## Directory Layout
 

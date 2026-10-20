@@ -79,7 +79,7 @@ stored in `evidence.json` even on PASS, as proof that the limit triggered.
 
 ## Coverage against the methodology
 
-Source: [`methodology.it.md` §4.1](../../knowledge/methodology/methodology.it.md).
+Source: [`guarantees.md` §4.1](../../knowledge/methodology/guarantees.md).
 
 | Methodology sub-test | Status |
 |---|---|
@@ -93,7 +93,7 @@ Source: [`methodology.it.md` §4.1](../../knowledge/methodology/methodology.it.m
 
 OWASP API4:2023 (Unrestricted Resource Consumption), OWASP ASVS v5.0.0 V2.4.1, NIST SP 800-204 §4.5. Without rate
 limiting a login endpoint allows unlimited brute force and an expensive endpoint can be saturated. Tooling decision
-([`decisions.it.md` §4.1](../../knowledge/tools/decisions.it.md)): native implementation in M1; vegeta (precise
+([`decisions.md` §4.1](../../knowledge/tools/decisions.md)): native implementation in M1; vegeta (precise
 load) is a planned Cat A connector.
 
 ## Limitations

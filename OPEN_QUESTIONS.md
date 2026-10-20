@@ -9,36 +9,6 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 
 ---
 
-### Q-04 - Generated reference documentation
-- Status: open
-- Source: `src/cli.py` (Typer app), `src/config/schema/*.py` (Pydantic fields, most with `description=`), `src/tests/base.py:189-196` and `src/external_tests/base.py:195-199` (test ClassVars)
-- Question: Adopt a script that generates `reference/` tables and the `tests/` index from code, with a `--check` mode to detect drift? Where is the check enforced? The repo has no CI and no pre-commit config (verified 2026-10-05).
-- How to verify: decision with user; separate task after the inventory.
-- Progress (2026-10-17, block 10b step 4): the mechanism is decided and in place for the tests' parts: Cog
-  markers, functions in `scripts/generate_docs.py`, `hatch run dev:gen`, `cog --check --diff` in `dev:check`
-  (catalogue, test page headers, tests by strategy and priority, tests chapter of `configuration.md`, tests section
-  of `config.example.yaml`). Left for block 9: the rest of `reference/` (CLI from the Typer app, the other
-  configuration sections from `ToolConfig`), and where the check is enforced beyond `dev:check` (CI, Q-16).
-- Progress (2026-10-19, block 9, owner): principle "facts generated, explanations written by hand in the same
-  page"; existing tools evaluated and left out (docdantic: no descriptions nor ranges, Python-Markdown only, last
-  release 2024-01; settings-doc: `BaseSettings` only; json-schema-for-humans: 291 lines for the 6 keys of `target`,
-  whole pages; MkDocs and Sphinx plugins: a site, D8). Composition kept: Cog (insertion and check), Pydantic
-  `model_fields` and Typer's `get_docs_for_click` (the facts), our functions (the table). Done: every section table
-  of `configuration.md` (`configuration_table`, `tls_block_table`), descriptions moved into the code. Next: `cli.md`,
-  `report-schema.md`, `evidence-format.md`, `exit-codes.md` (group A); developer guides (group B) evaluated after;
-  usage guides (group C) link to the reference instead of repeating facts.
-- Progress (2026-10-19): group A done (configuration, CLI, report, evidence, exit codes), every generated description
-  checked against the code (corrections in CHANGELOG); group B done (developer tables from `inspect` and docstrings).
-  Left: group C, the usage guides.
-- Resolution (proposed 2026-10-19): facts generated from the code, explanations written by hand in the same page;
-  Cog inserts and checks the blocks (`scripts/generate_docs.py`, `--check` in `dev:check` and on GitHub), the facts
-  come from Pydantic (`model_fields`), Typer (`get_command`) and `inspect`, our functions only write the tables.
-  Generated: the reference (configuration, CLI, report, evidence, exit codes), the developer tables (result helpers,
-  evidence calls, connectors, gateway concepts, exceptions), with the tests' parts done in block 10b: 29 files. Every
-  generated description was checked against the code that does what it says, and the wrong ones were corrected
-  (CHANGELOG). The usage guides state a fact once and link to its page. Not generated: `compatibility.md` (facts
-  verified on the labs, not in the code).
-
 ### Q-05 - Licence
 - Status: deferred
 - Source: `pyproject.toml` (licence intentionally unspecified pending university regulations)
@@ -145,14 +115,18 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 ### Q-33 - Inconsistencies inside the knowledge documents
 - Status: open
 - Question:
-  - [ ] `docs/knowledge/methodology/methodology.it.md:312` gives 2.2 priority `[P1]`, while the priority matrix (`:63-79`) lists 2.2 under P2.
+  - [ ] `docs/knowledge/methodology/guarantees.md:312` gives 2.2 priority `[P1]`, while the priority matrix (`:63-79`) lists 2.2 under P2.
   - [ ] `docs/knowledge/tools/decisions.it.md` and `tools/catalog.it.md` list 1.4 and 2.1 as P1; methodology and code say P2.
-  - [ ] `docs/knowledge/target-selection.it.md` lists requirements and candidates but not why Forgejo was chosen; needed for `knowledge/target-selection` when translating.
-  - [ ] `docs/knowledge/methodology/methodology.it.md` (priority/approach table near line 63, and the headings "Grey Box ... P1, P2", "White Box ... P3") presents priority and strategy as linked. Owner decision on the former Q-14 (2026-10-06): they are independent (priority = severity, strategy = what the tester needs). Reword when translating.
+  - [ ] `docs/knowledge/target-selection.md` (adapted from the thesis) lists requirements and candidates but not why Forgejo was chosen over Mattermost and Harbor: the owner does not remember a main reason; the page says the reasons are not recorded. Decide whether to leave it so.
+  - [ ] `docs/knowledge/methodology/guarantees.md` (priority/approach table near line 63, and the headings "Grey Box ... P1, P2", "White Box ... P3") presents priority and strategy as linked. Owner decision on the former Q-14 (2026-10-06): they are independent (priority = severity, strategy = what the tester needs). Reword when translating.
   - [ ] Strategy definitions (owner decision on Q-10, 2026-10-06): BLACK_BOX = external user, GREY_BOX = normal user with credentials, WHITE_BOX = super user with internal access. Align the "Assunzioni e Prerequisiti" approach of **every** guarantee to them, implemented or not; checks the tool performs from outside (TLS, headers, cookies) are not "White Box configuration audit".
   - [ ] `docs/knowledge/design-properties.it.md` D3.P1 and D6.P3 cite `src/core/models/runtime.py` (`RuntimeTest*Config`, "mirror immutabile") and `src/config/schema/domain_N.py`: since block 4 (Q-53) the per-test models live in `src/test_config/` (single definition, all frozen) and `RuntimeTestsConfig` in `src/test_config/runtime.py`. Update when translating.
+  - [ ] `docs/knowledge/tools/catalog.md` gives 2.2 and 6.4 as "HYBRID with B tools"; `tools/decisions.md` and the catalog's confidence matrix give them as NATIVE with optional tools (HYBRID means Cat A tools are needed, and they have only Cat B). Not decidable from the code.
+  - [ ] sslyze is Cat A for 1.5 in `tools/decisions.md`, in the catalog's 1.5 section and appendix A, but Cat B in the catalog's confidence matrix (appendix E). Not decidable from the code (both connectors are implemented).
 - How to verify: decision with user while translating `knowledge/`.
 - Note (2026-10-09, Q-10): the tool now labels tests by what the tester has; the methodology classifies 1.5, 1.6, 6.2 (and the TLS tests) as WHITE_BOX by their nature (configuration audits) and 1.4 as GREY_BOX. Align or explain when translating.
+- Progress (2026-10-20): the design properties are adapted in `docs/knowledge/design-properties.md`, updated to the code (the item above on D3.P1 and D6.P3 is resolved there: per-test models now live in the test modules); the state of the art in `docs/knowledge/background/state-of-the-art.md` (corrections listed) and `background/archive/state-of-the-art-extensive.md`.
+- Progress (2026-10-20, owner decisions in `docs/project/plan.md` log): the methodology framework is adapted in `docs/knowledge/methodology/framework.md` (priority by importance only, strategy decides what a check may use, grey box = ordinary accounts only, prerequisites and effects on the target apart from the strategy); `docs/architecture/assessment-model.md` aligned. Left for block 6 phase 0b, with the catalogue: the per-guarantee priorities (2.2, 1.4, 2.1, each checked against the importance criterion) and the "Assunzioni e Prerequisiti" of every guarantee.
 - Resolution:
 
 ### Q-50 - Some findings have no `evidence_ref`
@@ -168,7 +142,7 @@ Status values: `open` · `verified` (fact confirmed, recorded below) · `resolve
 
 ### Q-51 - E2E test suite against the lab
 - Status: open (decided in principle, to be planned)
-- Source: decision on the former Q-12 (owner, 2026-10-06). The tool has no automated tests (`pyproject.toml` `[tool.pytest.ini_options] testpaths = []`, no test files); `docs/project/claude-rules.it.md` §5.6 planned a `tests_e2e/` suite against the real lab, never built. The dev environment installs `pytest`, `pytest-asyncio` and `pytest-httpx`, all unused; `pytest-httpx` mocks HTTP, which the project rules forbid.
+- Source: decision on the former Q-12 (owner, 2026-10-06). The tool has no automated tests (`pyproject.toml` `[tool.pytest.ini_options] testpaths = []`, no test files); the thesis-time development rules (§5.6, in commit 694f89a, `docs/project/claude-rules.it.md`) planned a `tests_e2e/` suite against the real lab, never built. The dev environment installs `pytest`, `pytest-asyncio` and `pytest-httpx`, all unused; `pytest-httpx` mocks HTTP, which the project rules forbid.
 - Evidence (2026-10-06): the lab created from scratch gives identical results on every run (test 1.1: `AUTH_BYPASS` 78, `INCONCLUSIVE_PARAMETRIC` 63, `ENFORCED` 311 in two independent fresh labs), so expected outcomes can be written down and compared automatically.
 - Question: build the suite as pytest (run the tool on the lab, assert per-test status, finding counts, no ERROR) or as a lighter expected-results file plus a comparison script? Where are the expected values stored, and how are they updated when the lab changes? Remove `pytest-httpx` at the same time. Planned together with CI (Q-16).
 - Owner decision (2026-10-07): not now. Expected values taken from today's output would only freeze current results (regression, not correctness), and block 6 will change them. Build the suite after the test quality review, with each expected result stating its basis: `lab-design` (justified by the lab configuration, e.g. 4.1 FAIL because `rate-limiting` is commented out in `kong.yml:36`; 6.2 PASS because Kong adds the headers and `KONG_HEADERS=off`; 1.5 PASS because port 8000 redirects with 301) or `observed`; ideally prove each test on a secure and a vulnerable lab variant. Meanwhile regressions are checked by comparing two reports with `scripts/compare_reports.py`.

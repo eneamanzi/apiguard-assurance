@@ -81,7 +81,7 @@ stored in `evidence.json` (`artifact-4.3-gateway_...`); findings point to the co
 
 ## Coverage against the methodology
 
-Source: [`methodology.it.md` §4.3](../../knowledge/methodology/methodology.it.md).
+Source: [`guarantees.md` §4.3](../../knowledge/methodology/guarantees.md).
 
 | Methodology item | Status |
 |---|---|

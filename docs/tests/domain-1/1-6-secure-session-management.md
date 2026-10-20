@@ -66,7 +66,7 @@ empty), `check_samesite`, `expected_samesite_value`.
 
 ## Coverage against the methodology
 
-Source: [`methodology.it.md` §1.6](../../knowledge/methodology/methodology.it.md).
+Source: [`guarantees.md` §1.6](../../knowledge/methodology/guarantees.md).
 
 | Methodology item | Status |
 |---|---|

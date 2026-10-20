@@ -84,7 +84,7 @@ extension 2.5.29.15"), which the labs' certificates now have.
 
 ## Coverage against the methodology
 
-Source: [`methodology.it.md` §1.5](../../../knowledge/methodology/methodology.it.md).
+Source: [`guarantees.md` §1.5](../../../knowledge/methodology/guarantees.md).
 
 | Methodology item | Status |
 |---|---|
@@ -96,7 +96,7 @@ Source: [`methodology.it.md` §1.5](../../../knowledge/methodology/methodology.i
 ## Why it exists
 
 Same guarantee as [1.5](../../domain-1/1-5-insecure-credential-transport.md). Tooling decision
-([`decisions.it.md` §1.5](../../../knowledge/tools/decisions.it.md)): reproducing TLS handshake analysis in Python
+([`decisions.md` §1.5](../../../knowledge/tools/decisions.md)): reproducing TLS handshake analysis in Python
 would require hundreds of custom handshakes; testssl.sh is the de facto standard, sslyze is the library-based
 alternative usable where the shell script cannot run.
 

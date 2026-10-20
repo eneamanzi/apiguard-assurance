@@ -10,8 +10,8 @@ A native test is a Python class that checks one methodology guarantee by sending
 client. For a test that runs an external binary or library, see
 [`add-an-external-test.md`](add-an-external-test.md).
 
-Before starting, read the guarantee in [`methodology.it.md`](../../knowledge/methodology/methodology.it.md) and the
-tool decision in [`decisions.it.md`](../../knowledge/tools/decisions.it.md), and the
+Before starting, read the guarantee in [`guarantees.md`](../../knowledge/methodology/guarantees.md) and the
+tool decision in [`decisions.md`](../../knowledge/tools/decisions.md), and the
 [assessment model](../../architecture/assessment-model.md) (strategy, priority, outcomes).
 
 ## Files to touch

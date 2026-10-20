@@ -75,7 +75,7 @@ scan does not interfere with test 4.1), `extra_flags`, `expected_version`, `dev_
 ## Why it exists
 
 Same guarantee as [0.1](../../domain-0/0-1-shadow-api-discovery.md) (OWASP API9:2023). Tooling decision
-([`decisions.it.md` §0.1](../../../knowledge/tools/decisions.it.md)): nuclei is the Cat A tool that turns
+([`decisions.md` §0.1](../../../knowledge/tools/decisions.md)): nuclei is the Cat A tool that turns
 "undocumented endpoint exists" into "known-dangerous exposure". The other planned Cat A tools for 0.1 (ffuf,
 katana) are not implemented: the test is complete, the guarantee is covered only in part
 ([roadmap, guarantee coverage](../../../project/roadmap.md#legend)).

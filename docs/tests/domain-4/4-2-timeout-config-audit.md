@@ -61,7 +61,7 @@ Read-only Admin API calls.
 
 ## Coverage against the methodology
 
-Source: [`methodology.it.md` §4.2](../../knowledge/methodology/methodology.it.md).
+Source: [`guarantees.md` §4.2](../../knowledge/methodology/guarantees.md).
 
 | Methodology item | Status |
 |---|---|

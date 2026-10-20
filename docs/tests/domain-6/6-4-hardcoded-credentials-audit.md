@@ -90,7 +90,7 @@ finding detail and in `evidence.json`: treat the report as sensitive.
 
 ## Coverage against the methodology
 
-Source: [`methodology.it.md` §6.4](../../knowledge/methodology/methodology.it.md).
+Source: [`guarantees.md` §6.4](../../knowledge/methodology/guarantees.md).
 
 | Methodology item | Status |
 |---|---|
@@ -103,7 +103,7 @@ Source: [`methodology.it.md` §6.4](../../knowledge/methodology/methodology.it.m
 
 CWE-798, OWASP API8:2023, OWASP ASVS v5.0.0 V13.3 / V13.4, NIST SP 800-53 IA-5(1). Static credentials cannot be
 rotated without redeployment and, once leaked, give direct backend access that bypasses the gateway. Tooling
-decision ([`decisions.it.md` §6.4](../../knowledge/tools/decisions.it.md)): native in M1; trufflehog, gitleaks and
+decision ([`decisions.md` §6.4](../../knowledge/tools/decisions.md)): native in M1; trufflehog, gitleaks and
 detect-secrets are optional Cat B complements.
 
 ## See also

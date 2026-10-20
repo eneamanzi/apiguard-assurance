@@ -88,7 +88,7 @@ Only the OpenAPI specification. Read-only `GET` requests, no credentials.
 
 ## Coverage against the methodology
 
-Source: [`methodology.it.md` §0.2](../../knowledge/methodology/methodology.it.md).
+Source: [`guarantees.md` §0.2](../../knowledge/methodology/guarantees.md).
 
 | Methodology sub-test | Status |
 |---|---|
@@ -102,7 +102,7 @@ NIST SP 800-204 §4.1, OWASP ASVS v5.0.0 V4.1.1. Typical failures: a catch-all r
 backend; a gateway matching `/api/users` exactly while the backend normalises `/api//users` or `/API/USERS` and
 serves it without authentication.
 
-Tooling decision ([`decisions.it.md` §0.2](../../knowledge/tools/decisions.it.md)): native test; cherrybomb is an
+Tooling decision ([`decisions.md` §0.2](../../knowledge/tools/decisions.md)): native test; cherrybomb is an
 optional Cat B complement (static spec analysis), not implemented.
 
 ## Limitations

@@ -73,7 +73,7 @@ RFC-9110-S9.1.
 
 ## Coverage against the methodology
 
-Source: [`methodology.it.md` §0.1](../../knowledge/methodology/methodology.it.md).
+Source: [`guarantees.md` §0.1](../../knowledge/methodology/guarantees.md).
 
 | Methodology sub-test | Status |
 |---|---|
@@ -88,7 +88,7 @@ OWASP API9:2023 (Improper Inventory Management), NIST SP 800-204 §3.1. Typical 
 methodology: a legacy route left on the gateway after a version migration; a catch-all route forwarding
 undocumented internal paths to the backend; older API versions still active but not documented.
 
-Tooling decision ([`decisions.it.md` §0.1](../../knowledge/tools/decisions.it.md)): HYBRID test. The native part
+Tooling decision ([`decisions.md` §0.1](../../knowledge/tools/decisions.md)): HYBRID test. The native part
 compares responses against the project's own spec; the external part ([`ext.0.1.nuclei`](../external/domain-0/ext-0-1-nuclei.md))
 detects known exposure patterns from community templates. Planned Cat A connectors ffuf (large wordlists) and
 katana (JavaScript crawling) are not implemented ([roadmap](../../project/roadmap.md)).

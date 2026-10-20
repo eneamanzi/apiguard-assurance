@@ -86,7 +86,7 @@ Two read-only requests, no credentials, no Admin API.
 
 ## Coverage against the methodology
 
-Source: [`methodology.it.md` §1.5](../../knowledge/methodology/methodology.it.md).
+Source: [`guarantees.md` §1.5](../../knowledge/methodology/guarantees.md).
 
 | Methodology item | Status |
 |---|---|

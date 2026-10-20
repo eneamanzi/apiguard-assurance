@@ -3,7 +3,7 @@ src/tests/domain_6/test_6_2_security_headers_audit.py
 
 Test 6.2 -- Security Header Configuration Audit.
 
-Guarantee (docs/knowledge/methodology/methodology.it.md, Section 6.2):
+Guarantee (docs/knowledge/methodology/guarantees.md, Section 6.2):
     HTTP security headers constitute defense-in-depth against client-side
     attacks.  Their presence and correctness are a Gateway configuration
     requirement, not an application-level concern.  A missing or misconfigured

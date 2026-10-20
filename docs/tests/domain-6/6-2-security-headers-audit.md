@@ -66,7 +66,7 @@ Read-only `GET`s without credentials: 1 + `endpoint_sample_size` requests.
 
 ## Coverage against the methodology
 
-Source: [`methodology.it.md` §6.2](../../knowledge/methodology/methodology.it.md). The required header list and
+Source: [`guarantees.md` §6.2](../../knowledge/methodology/guarantees.md). The required header list and
 oracles follow the methodology checklist (HSTS, nosniff, frame options, CSP, permissions policy, no leaky
 headers), applied to responses observed from outside rather than to the gateway configuration file.
 

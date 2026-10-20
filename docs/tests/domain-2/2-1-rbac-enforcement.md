@@ -68,7 +68,7 @@ target has: a path it does not have answers `404`, classified as enforced (Q-29)
 
 ## Coverage against the methodology
 
-Source: [`methodology.it.md` §2.1](../../knowledge/methodology/methodology.it.md).
+Source: [`guarantees.md` §2.1](../../knowledge/methodology/guarantees.md).
 
 | Methodology sub-test | Status |
 |---|---|

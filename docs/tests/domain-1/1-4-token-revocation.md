@@ -73,7 +73,7 @@ References: CWE-613, OWASP-API2:2023, RFC-7009, OWASP-ASVS-v5.0.0-V7.4, NIST-SP-
 
 ## Coverage against the methodology
 
-Source: [`methodology.it.md` §1.4](../../knowledge/methodology/methodology.it.md).
+Source: [`guarantees.md` §1.4](../../knowledge/methodology/guarantees.md).
 
 | Methodology sub-test | Status |
 |---|---|
@@ -85,7 +85,7 @@ Source: [`methodology.it.md` §1.4](../../knowledge/methodology/methodology.it.m
 
 OWASP API2:2023, RFC 7009, OWASP ASVS v5.0.0 V7.4, NIST SP 800-63B-4 §5.1. A purely stateless token checked only
 for signature and expiry stays valid after logout or compromise until it expires. Tooling decision
-([`decisions.it.md` §1.4](../../knowledge/tools/decisions.it.md)): native only (stateful login → revoke → replay
+([`decisions.md` §1.4](../../knowledge/tools/decisions.md)): native only (stateful login → revoke → replay
 sequence).
 
 ## Limitations

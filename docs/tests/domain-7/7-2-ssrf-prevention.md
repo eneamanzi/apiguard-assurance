@@ -103,7 +103,7 @@ that rejections are classified precisely. `ssrf_request_timeout_ms` has no effec
 
 ## Coverage against the methodology
 
-Source: [`methodology.it.md` §7.2](../../knowledge/methodology/methodology.it.md).
+Source: [`guarantees.md` §7.2](../../knowledge/methodology/guarantees.md).
 
 | Methodology sub-test | Status |
 |---|---|

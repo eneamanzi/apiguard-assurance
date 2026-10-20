@@ -3,13 +3,13 @@ src/tests/domain_1/test_1_1_authentication_required.py
 
 Test 1.1 -- Only Authenticated Requests Access Protected Resources.
 
-Guarantee (docs/knowledge/methodology/methodology.it.md, Section 1.1):
+Guarantee (docs/knowledge/methodology/guarantees.md, Section 1.1):
     Every endpoint that exposes sensitive data or privileged operations must
     reject requests that carry no credentials before reaching the business
     logic. The enforcement must produce HTTP 401 Unauthorized or 403 Forbidden
     immediately on missing or structurally invalid tokens.
 
-Methodology (docs/knowledge/methodology/methodology.it.md, Section 1.1):
+Methodology (docs/knowledge/methodology/guarantees.md, Section 1.1):
     - Unauthenticated access: probe every protected endpoint using its
       declared HTTP method (never hardcoded GET) with no Authorization header.
     - Empty and malformed token: send structurally broken token values on a
