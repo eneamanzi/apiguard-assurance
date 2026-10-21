@@ -2193,6 +2193,81 @@
       {% endif %}
     </section>
 
+    <!-- REFERENCE RESPONSES: calibration points and positive controls asked by the tests -->
+    {%- set refs = report.references %}
+    <section class="section" id="references-section">
+      <div class="section-header">
+        <h2>Reference Responses ({{ refs.calibration_points | length }} calibration, {{ refs.positive_controls | length }} positive control)</h2>
+      </div>
+      <p style="color:var(--color-muted);padding:0 0 0.75rem;">
+        What the target itself answered, asked to judge the tests' responses: random sibling paths
+        (what "does not exist here" looks like, by sibling pattern, method and credential) and the same
+        requests with a valid credential. A calibration point that is not reliable is never used.
+        Every request is in evidence.json under its <code>ref_</code> ID.
+      </p>
+      {% if refs.calibration_points %}
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Sibling pattern</th>
+              <th>Method</th>
+              <th>Credential</th>
+              <th>Reliable</th>
+              <th>Status</th>
+              <th>Answer shape</th>
+              <th>Records</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for point in refs.calibration_points %}
+            <tr>
+              <td><code>{{ point.pattern }}</code></td>
+              <td>{{ point.method }}</td>
+              <td>{{ point.credential }}</td>
+              <td>{% if point.reliable %}yes{% else %}<span style="color:var(--color-inconclusive);">no</span>: {{ point.reason }}{% endif %}</td>
+              <td>{{ point.fingerprint.status_code if point.fingerprint else "" }}</td>
+              <td style="font-size:0.75rem;"><code>{{ (point.fingerprint.body_shape if point.fingerprint else "") | truncate(80) }}</code></td>
+              <td style="font-size:0.75rem;"><code>{{ point.record_ids | join(", ") }}</code></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+      {% if refs.positive_controls %}
+      <div class="table-wrapper" style="margin-top:0.75rem;">
+        <table>
+          <thead>
+            <tr>
+              <th>Method</th>
+              <th>Path</th>
+              <th>Credential</th>
+              <th>Status</th>
+              <th>Works</th>
+              <th>Record</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for control in refs.positive_controls %}
+            <tr>
+              <td>{{ control.method }}</td>
+              <td><code>{{ control.path }}</code></td>
+              <td>{{ control.credential }}</td>
+              <td>{{ control.status_code if control.status_code is not none else "no response" }}</td>
+              <td>{{ "yes" if control.works else "no" }}</td>
+              <td style="font-size:0.75rem;"><code>{{ control.record_id }}</code></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+      {% if not refs.calibration_points and not refs.positive_controls %}
+      <p style="color:var(--color-muted);padding:1rem 0;">No test of this run asked for a reference response.</p>
+      {% endif %}
+    </section>
+
     <!-- FOOTER -->
     <footer class="page-footer">
       <p>

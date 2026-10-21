@@ -46,6 +46,7 @@ from src.core.models import (
     TransactionSummary,
 )
 from src.core.models.enums import exit_code_text
+from src.core.references import CalibrationPoint, PositiveControl, ReferenceResponses
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -322,6 +323,24 @@ class ConnectionTrust(BaseModel):
     )
 
 
+class ReferencesSummary(BaseModel):
+    """The reference responses of the run (src/core/references.py)."""
+
+    model_config = {"frozen": True}
+
+    calibration_points: list[CalibrationPoint] = Field(
+        default_factory=list,
+        description=(
+            'What "does not exist here" looked like for each sibling pattern, method and '
+            "credential asked; a point not reliable is never used."
+        ),
+    )
+    positive_controls: list[PositiveControl] = Field(
+        default_factory=list,
+        description="Whether each request asked worked with a valid credential.",
+    )
+
+
 class ReportData(BaseModel):
     """
     Complete, pre-computed data structure for the HTML report template.
@@ -382,6 +401,13 @@ class ReportData(BaseModel):
             "`all_rows` + `not_run` = every test of the tool."
         ),
     )
+    references: ReferencesSummary = Field(
+        default_factory=ReferencesSummary,
+        description=(
+            "The reference responses the tests asked for: calibration points and positive "
+            "controls, each with its records (`ref_NNN`) in `evidence.json`."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -395,6 +421,7 @@ def build_report_data(
     config: ToolConfig,
     spec_title: str = "Unknown",
     spec_version: str = "Unknown",
+    references: ReferenceResponses | None = None,
 ) -> ReportData:
     """
     Aggregate a completed ResultSet into a ReportData object for rendering.
@@ -413,6 +440,7 @@ def build_report_data(
                     Defaults to 'Unknown' when not provided.
         spec_version: OpenAPI spec version from AttackSurface.spec_version.
                       Defaults to 'Unknown' when not provided.
+        references: The run's reference responses; None gives an empty section.
 
     Returns:
         Frozen ReportData ready for renderer.py.
@@ -457,6 +485,7 @@ def build_report_data(
         domains=domains,
         all_rows=all_rows,
         not_run=list(result_set.not_run),
+        references=_references_summary(references),
     )
 
     log.info(
@@ -586,6 +615,14 @@ def _build_all_rows(result_set: ResultSet) -> list[TestResultRow]:
 
     rows.sort(key=lambda r: r.test_id)
     return rows
+
+
+def _references_summary(references: ReferenceResponses | None) -> ReferencesSummary:
+    """The references section of the report, from the run's ReferenceResponses."""
+    if references is None:
+        return ReferencesSummary()
+    points, controls = references.summary()
+    return ReferencesSummary(calibration_points=points, positive_controls=controls)
 
 
 def _build_domain_summaries(all_rows: list[TestResultRow]) -> list[DomainSummary]:

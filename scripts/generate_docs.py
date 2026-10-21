@@ -80,6 +80,7 @@ from src.core.models import (
     TransactionSummary,
 )
 from src.core.models.enums import EXIT_CODES
+from src.core.references import CalibrationPoint, Fingerprint, PositiveControl
 from src.core.test_metadata import PRIORITY_MAX, PRIORITY_MIN, TestInfo, section_keys
 from src.external_tests.registry import ExternalTestRegistry
 from src.report.builder import (
@@ -87,6 +88,7 @@ from src.report.builder import (
     ConnectionTrust,
     DomainSummary,
     ExecutiveSummary,
+    ReferencesSummary,
     ReportData,
     TestResultRow,
 )
@@ -712,6 +714,10 @@ _REPORT_MODELS: dict[str, type[BaseModel]] = {
         Finding,
         InfoNote,
         TransactionSummary,
+        ReferencesSummary,
+        CalibrationPoint,
+        Fingerprint,
+        PositiveControl,
     )
 }
 

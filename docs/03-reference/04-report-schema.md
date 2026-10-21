@@ -35,6 +35,7 @@ The file has no format version of its own: `tool_version` is the version of the 
 | `domains` | array of [`DomainSummary`](#domainsummary) | The results by methodology domain, ordered by domain; domains without active tests are omitted. |
 | `all_rows` | array of [`TestResultRow`](#testresultrow) | Every test result, ordered by `test_id` as text. |
 | `not_run` | array of [`NotRunEntry`](#notrunentry) | The tests of the tool not executed in this run, ordered by `test_id` as text. `all_rows` + `not_run` = every test of the tool. |
+| `references` | [`ReferencesSummary`](#referencessummary) | The reference responses the tests asked for: calibration points and positive controls, each with its records (`ref_NNN`) in `evidence.json`. |
 
 <!-- [[[end]]] -->
 
@@ -238,6 +239,64 @@ is, otherwise `SKIP`.
 | `request_headers` | object | Lowercase names; `authorization` and cookie values redacted with typed placeholders (see the evidence format). |
 | `request_body` | string \| null | Request body, truncated to 2,000 characters; null without a body. |
 | `response_body_preview` | string \| null | Response body, truncated to 1,000 characters; null without a body. |
+
+<!-- [[[end]]] -->
+
+## `ReferencesSummary`
+
+The reference responses the tests asked for (calibration and positive control): every request is a record
+`ref_NNN` in `evidence.json`. A calibration point that is not reliable is never used for a judgement.
+
+<!-- [[[cog import generate_docs as g; cog.out(g.report_table("ReferencesSummary")) ]]] -->
+
+| Field | Type | Description |
+|---|---|---|
+| `calibration_points` | array of [`CalibrationPoint`](#calibrationpoint) | What "does not exist here" looked like for each sibling pattern, method and credential asked; a point not reliable is never used. |
+| `positive_controls` | array of [`PositiveControl`](#positivecontrol) | Whether each request asked worked with a valid credential. |
+
+<!-- [[[end]]] -->
+
+## `CalibrationPoint`
+
+<!-- [[[cog import generate_docs as g; cog.out(g.report_table("CalibrationPoint")) ]]] -->
+
+| Field | Type | Description |
+|---|---|---|
+| `pattern` | string | The sibling pattern: the path with `{*}` where a random value was put, e.g. `/api/v1/repos/{*}/{*}` (a template's parameters) or `/api/v1/{*}`. |
+| `method` | string | The HTTP method of the probes (the judged request's). |
+| `credential` | string | The credential label (`none` without one). |
+| `reliable` | bool | Both probes got the same fingerprint, none was spoiled. |
+| `fingerprint` | [`Fingerprint`](#fingerprint) \| null | The common fingerprint, when reliable. |
+| `reason` | string \| null | Why the point is not reliable. |
+| `record_ids` | array of string | The probes' records in evidence.json. |
+
+<!-- [[[end]]] -->
+
+## `Fingerprint`
+
+<!-- [[[cog import generate_docs as g; cog.out(g.report_table("Fingerprint")) ]]] -->
+
+| Field | Type | Description |
+|---|---|---|
+| `status_code` | int \| null | HTTP status; null without a response. |
+| `content_type` | string | Media type, lowercase, without parameters. |
+| `server` | string | The Server header, as sent. |
+| `body_shape` | string | The normalized body (see the module docstring). |
+
+<!-- [[[end]]] -->
+
+## `PositiveControl`
+
+<!-- [[[cog import generate_docs as g; cog.out(g.report_table("PositiveControl")) ]]] -->
+
+| Field | Type | Description |
+|---|---|---|
+| `method` | string | HTTP method. |
+| `path` | string | The concrete path asked. |
+| `credential` | string | The credential label. |
+| `status_code` | int \| null | HTTP status; null without a response. |
+| `works` | bool | The request was served (2xx). |
+| `record_id` | string | The record in evidence.json. |
 
 <!-- [[[end]]] -->
 

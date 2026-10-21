@@ -54,6 +54,7 @@ from src.core.gateway.base import BaseGatewayAdapter
 from src.core.models import AttackSurface, ResourceConfig, RuntimeCredentials
 from src.core.models.external_tools import ExternalToolsConfig
 from src.core.redaction import SecretRegistry
+from src.core.references import ReferenceResponses
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -399,9 +400,14 @@ class TestContext(BaseModel):
        convention is "{test_id}.{data_name}" (e.g. "2.1.owner_repo_full_name")
        to make the producing test explicit and avoid naming collisions.
 
-    All three categories are stored in PrivateAttr fields, which Pydantic v2
-    excludes from serialization, validation, and the public model interface.
-    Tests interact exclusively through the typed methods below.
+    It also holds the run's reference responses (src/core/references.py):
+    the calibration points and positive controls, attached once by the engine
+    and reached through the ``references`` property, in a place of their own
+    rather than in the shared data.
+
+    All these are stored in PrivateAttr fields, which Pydantic v2 excludes
+    from serialization, validation, and the public model interface. Tests
+    interact exclusively through the typed methods below.
     """
 
     __test__ = False
@@ -410,6 +416,37 @@ class TestContext(BaseModel):
     _resources: list[tuple[str, str, dict[str, str]]] = PrivateAttr(default_factory=list)
     _shared_data: dict[str, object] = PrivateAttr(default_factory=dict)
     _secrets: SecretRegistry = PrivateAttr(default_factory=SecretRegistry)
+    _references: ReferenceResponses | None = PrivateAttr(default=None)
+
+    # ------------------------------------------------------------------
+    # Reference responses (calibration and positive control)
+    # ------------------------------------------------------------------
+
+    def attach_references(self, references: ReferenceResponses) -> None:
+        """
+        Attach the run's reference responses; called once by the engine (Phase 3).
+
+        Args:
+            references: The ReferenceResponses of the run.
+
+        Raises:
+            RuntimeError: If references are already attached (a programming error).
+        """
+        if self._references is not None:
+            raise RuntimeError("the reference responses of this run are already attached")
+        self._references = references
+
+    @property
+    def references(self) -> ReferenceResponses:
+        """
+        The run's reference responses (calibration points, positive controls).
+
+        Raises:
+            RuntimeError: If the engine did not attach them (a programming error).
+        """
+        if self._references is None:
+            raise RuntimeError("no reference responses attached to this run's TestContext")
+        return self._references
 
     # ------------------------------------------------------------------
     # Secret interface (redaction in evidence and reports, Q-31)

@@ -112,6 +112,7 @@ from src.core.models import (
     TestStatus,
 )
 from src.core.redaction import SecretRegistry
+from src.core.references import ReferenceResponses
 from src.core.test_metadata import Need, is_external_test_id, section_keys
 from src.core.test_needs import ConfigurationFacts, unmet_needs
 from src.core.tls import (
@@ -862,6 +863,11 @@ class AssessmentEngine:
             # instead of failing every test.
             _preflight(client, store)
 
+            # The run's reference responses (calibration, positive control):
+            # one object, through the run's client and store, reached by the
+            # tests through context.references (src/core/references.py).
+            context.attach_references(ReferenceResponses(client, store))
+
             # Phase 6 (teardown) MUST run even if Phase 5 is interrupted by
             # KeyboardInterrupt (Ctrl+C) or terminated by an unexpected
             # exception.  Tests in Phase 5 register real resources on the
@@ -912,6 +918,7 @@ class AssessmentEngine:
             config=config,
             attack_surface=attack_surface,
             secrets=context.secrets,
+            references=context.references,
         )
 
         exit_code = result_set.compute_exit_code()
@@ -1663,6 +1670,7 @@ class AssessmentEngine:
         config: ToolConfig,
         attack_surface: AttackSurface,
         secrets: SecretRegistry,
+        references: ReferenceResponses,
     ) -> None:
         """
         Serialize evidence and generate the HTML assessment report.
@@ -1710,6 +1718,7 @@ class AssessmentEngine:
                 config=config,
                 spec_title=attack_surface.spec_title,
                 spec_version=attack_surface.spec_version,
+                references=references,
             )
             # Secrets learned after their capture (e.g. a token in the
             # response that creates it) are replaced in the whole report.

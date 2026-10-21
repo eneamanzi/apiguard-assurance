@@ -19,12 +19,13 @@ crAPI enters the code.
   tool in `outputs/baseline/<lab>/` (not in git).
 - **Done:** phase 0a (rules common to every test, topics 1-10), phase 0b (the catalogue against the OWASP API Top 10
   2023, priorities, tool versions), phase 0c pieces 1 (outcomes, categories, computed status, sub-tests; 4.2 back
-  as the pilot), 1b (strategy checked against the needs; the gateway only to the tests that declare it) and 2
-  (a request without a response is recorded and judged NOT_VERIFIABLE).
+  as the pilot), 1b (strategy checked against the needs; the gateway only to the tests that declare it), 2
+  (a request without a response is recorded and judged NOT_VERIFIABLE) and 3 (reference responses: calibration,
+  positive control, `response_facts()`).
 - **On the branch now:** only test 4.2; the other 17 are on `main` and return one at a time, rewritten.
-- **Next:** piece 3 (reference responses: calibration and positive control).
-- **Open, recorded here:** the SSRF listener (7.2 review), the external tests on the four outcomes (piece 10), the
-  role of the positive control (piece 3); the documentation changes listed below.
+- **Next:** piece 4 (`supporting_refs` and confidence in findings).
+- **Open, recorded here:** the SSRF listener (7.2 review), the external tests on the four outcomes (piece 10); the
+  documentation changes listed below.
 
 ## How we work
 
@@ -215,7 +216,7 @@ obtains at run time from the target itself, never from a catalogue of applicatio
   route could match), a point whose two answers differ is not used;
 - the positive control prevails: when it succeeds the endpoint exists; when neither reference can decide, the
   verdict is "not verifiable" and is shown, never counted as enforced;
-- to design: how the right role for the positive control is chosen (specification, configuration, user then admin);
+- the role of the positive control is the test's choice: it gives the credential (piece 3, 2026-10-21);
 - **recorded and auditable** (owner, 2026-10-20): every reference request is kept as evidence, the run's
   references (point, fingerprint, stable or not) are saved with the outputs, and every verdict that depends on a
   reference points to it; where the mechanism lives in the code and its output format: topics 5 and 7.
@@ -362,7 +363,7 @@ configuration, which adds, removes or corrects. Precedence, highest first:
 
 No new engine phase: calibration happens on demand during Phase 5. Considered and not adopted: the client computing
 the category when it receives a response (it would have to know the references and what the test is judging).
-Open, for phase 0c: how the role of the positive control is chosen.
+The role of the positive control: the test's choice (piece 3).
 
 ### Topic 7b: one question, one test (owner, 2026-10-20)
 
@@ -475,6 +476,7 @@ What the review decides for the documentation is collected here and applied afte
 | `docs/02-guides/03-extending/02-add-a-native-test.md`, `03-add-an-external-test.md` | how a test declares effect and sub-tests, records outcomes, uses the references; the example code of the native guide (still `_make_*`, `_log_transaction`, `oracle_state`) and the external guide's "typical oracle"; the generated tables and the sentences next to them are already updated (piece 1) | topics 3, 6, 7 |
 | `docs/02-guides/03-extending/01-coding-rules.md` | the top-level except returns `self._error(exc)` (line 55 still names `_make_error`); a `SecurityClientError` of one probe is judged NOT_VERIFIABLE with `exc.record`, not turned into ERROR | pieces 1, 2 |
 | `docs/04-architecture/02-data-model.md`, `03-assessment-model.md`, `docs/02-guides/01-usage/03-read-the-report.md` | `oracle_state` replaced by `sub_test`, `category`, `outcome`, `detail` (data model "Extra" row, "Oracle states" paragraph, the `jq` example) | piece 1 |
+| `docs/04-architecture/01-overview.md`, `02-data-model.md`, `03-assessment-model.md`, `docs/02-guides/03-extending/02-add-a-native-test.md` | the reference responses (`src/core/references.py`, `TestContext.references`, sibling patterns, `response_facts()`), how a test asks for them, their cost | piece 3 |
 | `docs/04-architecture/01-overview.md`, `02-data-model.md`, `03-assessment-model.md`, `docs/02-guides/03-extending/02-add-a-native-test.md` | the needs fix a minimum strategy (`NEED_MINIMUM_STRATEGY`); the gateway reaches only the tests that declare `Need.GATEWAY` (the `TargetContext` is no longer the same object for every test) | piece 1b |
 
 ## Phase 0b: the base
@@ -696,6 +698,50 @@ the external tools only with the owner's go.
   `tls_error`; each record judged NOT_VERIFIABLE/NO_RESPONSE, the test INCONCLUSIVE ("3 not verifiable"). 4.2
   unchanged on the three labs.
 
+### Piece 3: done (2026-10-21)
+
+- `src/core/references.py` (new): `ReferenceResponses`, one per run, reached through `TestContext.references`:
+  - calibration per (sibling pattern, method, credential label), probed on first use with two random values
+    `zqxv<hex>`. The sibling pattern (`sibling_pattern()`): a path with parameters keeps its template with `{*}` in
+    place of every parameter (`/api/v1/repos/{*}/{*}`: an object that does not exist, on the same route); a path
+    without parameters gets `{*}` as its last segment (`/api/v1/{*}`). Same method as the judged request, no body
+    (a limit). A probe rate limited, unanswered or refused by an unavailable upstream, or two probes that differ,
+    make the point unreliable; a judged response of those kinds is not compared (`UNRELIABLE`);
+  - positive control per (method, path, credential label); the test gives the credential (`Credential`: label,
+    headers, query parameters, built by the test helpers), so the role is the test's choice;
+  - every request a pinned `ref_NNN` record; `summary()` for the report;
+  - `response_facts()`: the category judged and the existence (`PROVEN`, `NOT_PROVEN`, `NOT_CHECKED`) from the
+    status and the references; one correction only, `NOT_FOUND` with a working positive control becomes
+    `UNAUTHENTICATED` (no credential carried) or `FORBIDDEN` (one carried), marked non-standard (crAPI dashboard).
+- `src/core/context.py`: `attach_references()`, `references`. `src/engine.py`: the references created after the
+  TLS preflight, given to the report. `src/report/builder.py`: `ReferencesSummary` in `ReportData.references`;
+  `src/report/templates/report.html`: the "Reference Responses" section (patterns, method, credential, reliable,
+  status, answer shape, records; positive controls). `scripts/generate_docs.py` and
+  `03-reference/04-report-schema.md`: `ReferencesSummary`, `CalibrationPoint`, `Fingerprint`, `PositiveControl`.
+- Correction found by the checks: the first design calibrated a parametric path under its parent
+  (`/api/v1/repos/<random>`), a different route from `/repos/{owner}/{repo}`: a repository that does not exist
+  came out "proven to exist". Replaced by the sibling pattern above.
+- Checked (scripts outside the repository, the class itself, the three labs):
+  - 32/32 properties of `ReferenceResponses`: every sibling pattern of the specifications reliable (258 Forgejo,
+    20 crAPI, GET without credential); the root answered by the gateway itself (Kong's and APISIX's own 404); the
+    12 undeclared-method probes of crAPI 0.1 `SAME_AS_UNKNOWN` (the false findings disappear); Forgejo's wordlist
+    differs only at `/api/internal` (403) and `/api/swagger` (200), the 2 findings of the baseline; crAPI dashboard
+    and vehicles; `/api/v1/user`; nonexistent and real admin paths; GET and DELETE distinct; patterns of different
+    depth distinct; the cache sends no request twice; a closed port unreliable; every request `ref_NNN`, pinned;
+  - `response_facts()`: 312 combinations (13 statuses, 4 comparisons, 3 controls, 2 credential conditions)
+    against the rules written again independently, 0 mismatches, the correction in exactly the 16 expected; 28
+    real cases on the three labs as expected (among them a repository with real values `PROVEN`, with random
+    values `NOT_PROVEN`, the mixed path `/repos/{owner}/{repo}/issues` both ways, the crAPI bypass of challenge 14
+    `SERVED`/`PROVEN`, the crAPI workshop backend's HTML 404 `NOT_PROVEN`, a closed port `NO_RESPONSE`/`NOT_CHECKED`);
+  - a report rendered from real crAPI references shows the section, its patterns and records; 4.2 on the three
+    labs carries an empty references section.
+- Found: crAPI `/workshop/api/management/users/all` answers 200 to user_a (an ordinary account): broken function
+  level authorization, a positive case for 2.1 on crAPI.
+- Cost to measure in the 1.1 review: one calibration (two requests) per sibling pattern judged, once per run;
+  Forgejo's specification has 258 patterns.
+- With the first test that needs it (phase 1): the test helper that builds a `Credential` from the run's
+  placement (`tests/helpers/auth.py`, `auth_parts`).
+
 ## Phases 1 and 2: order
 
 - **Phase 1** (implemented), by domain, each external test after its native one: 0.1, ext.0.1.nuclei, 0.2, 0.3,
@@ -721,6 +767,6 @@ the external tools only with the owner's go.
 | Phase 0a topic 9 | done (2026-10-20) | three situations per test; variants as differences inside the labs (above) |
 | Phase 0a topic 10 | done (2026-10-20) | page template updated with topics 1-9; common rules in `assessment-model.md` (above) |
 | Phase 0b | done (2026-10-20) | catalogue against API Top 10 2023 (3 new, 2 merges, 2.4 redefined), tools' versions, priorities (above); the catalogue text is edited after its translation |
-| Phase 0c | in progress: pieces 1, 1b, 2 done (2026-10-21) | new branch, baseline reports from `main`, no backward compatibility; 10 pieces in order (above) |
+| Phase 0c | in progress: pieces 1, 1b, 2, 3 done (2026-10-21) | new branch, baseline reports from `main`, no backward compatibility; 10 pieces in order (above) |
 | Phase 1 | to do | |
 | Phase 2 | to do | |
