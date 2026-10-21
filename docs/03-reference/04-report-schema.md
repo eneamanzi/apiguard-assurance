@@ -227,7 +227,8 @@ is, otherwise `SKIP`.
 | `timestamp_utc` | string, ISO 8601 UTC | Dispatch time. |
 | `request_method` | string | HTTP method of the request. |
 | `request_url` | string | Full URL of the request. |
-| `response_status_code` | int | HTTP status of the response. |
+| `response_status_code` | int \| null | HTTP status of the response; null when no response arrived. |
+| `transport_error` | string \| null | Why no response arrived (as in the evidence record); null otherwise. |
 | `category` | string \| null | What the response is, common to every test (`SERVED`, `NOT_FOUND`, `UNAUTHENTICATED`, ...). |
 | `sub_test` | string \| null | The sub-test the request belongs to; null for a preparation step. |
 | `outcome` | string \| null | What the response means for the guarantee (`VIOLATION`, `ENFORCED`, `NOT_VERIFIABLE`, `NOT_APPLICABLE`); null when the request is not judged (a login, an object created for the test). |

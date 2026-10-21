@@ -58,7 +58,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from src.core.models.enums import Outcome, ResponseCategory
+from src.core.models.enums import Outcome, ResponseCategory, TransportError
 from src.core.redaction import (
     AUTHORIZATION_HEADER,
     PUBLIC_VALUE_PREFIX,
@@ -135,7 +135,19 @@ class EvidenceRecord(BaseModel):
             "request carried no JSON body."
         ),
     )
-    response_status_code: int = Field(description="HTTP status; `0` for a tool output.")
+    response_status_code: int | None = Field(
+        description=(
+            "HTTP status; `0` for a tool output; null when no response arrived "
+            "(`transport_error` says why)."
+        )
+    )
+    transport_error: TransportError | None = Field(
+        default=None,
+        description=(
+            "Why no response arrived: `timeout`, `connection_failed`, `tls_error`, "
+            "`protocol_error`; null when a response arrived."
+        ),
+    )
     response_headers: dict[str, str] = Field(
         default_factory=dict, description="Lowercase header names."
     )
@@ -168,6 +180,13 @@ class EvidenceRecord(BaseModel):
     def method_must_be_uppercase(cls, value: str) -> str:
         """Normalize HTTP method to uppercase for consistency."""
         return value.upper()
+
+    @model_validator(mode="after")
+    def status_or_transport_error(self) -> EvidenceRecord:
+        """A record has an HTTP status or a transport error, never both or neither."""
+        if (self.response_status_code is None) == (self.transport_error is None):
+            raise ValueError("a record has either a response status or a transport error")
+        return self
 
     @field_validator("request_headers", "response_headers", mode="before")
     @classmethod
@@ -299,7 +318,13 @@ class TransactionSummary(BaseModel):
     timestamp_utc: datetime = Field(description="Dispatch time.")
     request_method: str = Field(description="HTTP method of the request.")
     request_url: str = Field(description=("Full URL of the request."))
-    response_status_code: int = Field(description="HTTP status of the response.")
+    response_status_code: int | None = Field(
+        description="HTTP status of the response; null when no response arrived."
+    )
+    transport_error: TransportError | None = Field(
+        default=None,
+        description="Why no response arrived (as in the evidence record); null otherwise.",
+    )
     category: ResponseCategory | None = Field(
         default=None,
         description=(
@@ -451,6 +476,7 @@ class TransactionSummary(BaseModel):
             request_method=record.request_method,
             request_url=record.request_url,
             response_status_code=record.response_status_code,
+            transport_error=record.transport_error,
             category=category,
             sub_test=sub_test,
             outcome=outcome,

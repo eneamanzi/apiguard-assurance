@@ -2584,8 +2584,12 @@
           var path = tx.request_url || "";
           try { path = new URL(tx.request_url).pathname; } catch (e) { /* keep full URL */ }
 
-          var sc = tx.response_status_code;
-          var scClass = sc >= 500 ? "tx-status-err"
+          // No response (transport error): no status code, the reason instead.
+          var sc = (tx.response_status_code == null)
+            ? "no response (" + (tx.transport_error || "unknown") + ")"
+            : tx.response_status_code;
+          var scClass = (tx.response_status_code == null) ? "tx-status-err"
+            : sc >= 500 ? "tx-status-err"
             : sc >= 400 ? "tx-status-warn"
               : sc >= 300 ? "tx-status-info"
                 : sc >= 200 ? "tx-status-ok"
@@ -2625,7 +2629,7 @@
             "<td class=\"tx-cell\" title=\"" + _escHtml(tx.request_url || "") + "\">" +
             _escHtml(path) + "</td>" +
             // col 5: HTTP status + FAIL badge
-            "<td class=\"tx-cell\"><span class=\"" + scClass + "\">" + sc + "</span>" +
+            "<td class=\"tx-cell\"><span class=\"" + scClass + "\">" + _escHtml(String(sc)) + "</span>" +
             failBadge + "</td>" +
             // col 6: outcome/detail (category) sub-test
             "<td class=\"tx-cell\"><span class=\"tx-oracle-label\">" +
@@ -2984,7 +2988,9 @@
           tx.record_id || "",
           tx.request_method || "",
           path,
-          String(tx.response_status_code),
+          (tx.response_status_code == null
+            ? "no response (" + (tx.transport_error || "unknown") + ")"
+            : String(tx.response_status_code)),
           (tx.outcome ? tx.outcome + "/" + tx.detail : "") +
           (tx.category ? " (" + tx.category + ")" : "") +
           (tx.sub_test ? " " + tx.sub_test : ""),

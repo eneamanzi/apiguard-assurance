@@ -112,7 +112,7 @@ from src.core.models import (
     TestStatus,
 )
 from src.core.redaction import SecretRegistry
-from src.core.test_metadata import is_external_test_id, section_keys
+from src.core.test_metadata import Need, is_external_test_id, section_keys
 from src.core.test_needs import ConfigurationFacts, unmet_needs
 from src.core.tls import (
     GATEWAY_ADMIN_TLS,
@@ -1499,6 +1499,12 @@ class AssessmentEngine:
             source=source,
             **timeout_field,
         )
+
+        # The gateway reaches only the tests that declare it (Need.GATEWAY): what
+        # a test declares is what it can use (docs/project/test-review.md,
+        # phase 0c piece 1b).
+        if Need.GATEWAY not in test.info.needs and target.gateway is not None:
+            target = target.model_copy(update={"gateway": None})
 
         wall_start = time.monotonic()
 

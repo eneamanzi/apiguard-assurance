@@ -47,7 +47,8 @@ The version policy of `tool_version`: [compatibility](06-compatibility.md#interf
 | `request_url` | string | Full URL. For a tool output: `external://{test_id}/{label}`. |
 | `request_headers` | object | Lowercase header names; `authorization`, cookie values and the registered secrets replaced with typed placeholders (see Sensitive data below). |
 | `request_body` | string \| null | The JSON body as sent, with the registered secrets replaced; null when the request carried no JSON body. |
-| `response_status_code` | int | HTTP status; `0` for a tool output. |
+| `response_status_code` | int \| null | HTTP status; `0` for a tool output; null when no response arrived (`transport_error` says why). |
+| `transport_error` | string \| null | Why no response arrived: `timeout`, `connection_failed`, `tls_error`, `protocol_error`; null when a response arrived. |
 | `response_headers` | object | Lowercase header names. |
 | `response_body` | string \| null | Body truncated to 10,000 characters + `... [TRUNCATED]`; an undecodable body becomes `[Binary or undecodable response body]`. For a tool output: the tool's raw output as JSON, credentials removed, truncated the same way (the full output is in `tools/<label>_output.json`). |
 | `is_pinned` | bool | `true` for a transaction a test marked as key context and for a tool output; `false` for FAIL evidence. |

@@ -3,8 +3,8 @@ src/core/models/enums.py
 
 Shared enumerations for the APIGuard Assurance tool.
 
-TestStatus, Coverage, ResponseCategory, Outcome, TestStrategy, SpecDialect and
-NotRunReason inherit from StrEnum so their values serialize natively to JSON strings
+TestStatus, Coverage, ResponseCategory, Outcome, TransportError, TestStrategy,
+SpecDialect and NotRunReason inherit from StrEnum so their values serialize natively to JSON strings
 without extra configuration. ExitCode inherits from IntEnum: its values are process
 exit codes.
 
@@ -123,6 +123,27 @@ class Outcome(StrEnum):
     ENFORCED = "ENFORCED"
     NOT_VERIFIABLE = "NOT_VERIFIABLE"
     NOT_APPLICABLE = "NOT_APPLICABLE"
+
+
+class TransportError(StrEnum):
+    """
+    Why a request got no HTTP response (its record has no status code).
+
+    Set by src/core/client.py from the transport exception, after the retries
+    (a TLS failure is not retried). The response category is NO_RESPONSE.
+
+    TIMEOUT           -- connect, read, write or pool timeout.
+    CONNECTION_FAILED -- the connection could not be opened (refused, name not
+                         resolved, network unreachable).
+    TLS_ERROR         -- the TLS handshake or the certificate check failed.
+    PROTOCOL_ERROR    -- the server closed the connection or broke the HTTP
+                         protocol before a complete response.
+    """
+
+    TIMEOUT = "timeout"
+    CONNECTION_FAILED = "connection_failed"
+    TLS_ERROR = "tls_error"
+    PROTOCOL_ERROR = "protocol_error"
 
 
 class ExitCode(IntEnum):

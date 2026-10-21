@@ -156,6 +156,26 @@ class Need(StrEnum):
     """A login method that can revoke a credential (login with a delete request)."""
 
 
+# The order of the strategies by what the tester has: an external user, a user
+# with credentials, a super user with internal access.
+STRATEGY_RANK: dict[TestStrategy, int] = {
+    TestStrategy.BLACK_BOX: 0,
+    TestStrategy.GREY_BOX: 1,
+    TestStrategy.WHITE_BOX: 2,
+}
+
+# The lowest strategy that grants each need: a test declaring a need must
+# declare at least this strategy (TestInfo checks it), so that its label says
+# what the tester must have. GREY_BOX is an ordinary account; the admin
+# account, the gateway's Admin API and a revocable login are a super user's.
+NEED_MINIMUM_STRATEGY: dict[Need, TestStrategy] = {
+    Need.USER_ACCOUNT: TestStrategy.GREY_BOX,
+    Need.ADMIN_ACCOUNT: TestStrategy.WHITE_BOX,
+    Need.GATEWAY: TestStrategy.WHITE_BOX,
+    Need.REVOCABLE_LOGIN: TestStrategy.WHITE_BOX,
+}
+
+
 # ---------------------------------------------------------------------------
 # TestInfo
 # ---------------------------------------------------------------------------
@@ -247,7 +267,7 @@ class TestInfo(BaseModel):
 
     @model_validator(mode="after")
     def _id_and_kind_coherent(self) -> TestInfo:
-        """Check the ID format, its domain, the tool, the prerequisites and the sub-tests."""
+        """Check the ID, its domain, the tool, the prerequisites, the needs, the sub-tests."""
         native = NATIVE_TEST_ID_PATTERN.match(self.id)
         external = EXTERNAL_TEST_ID_PATTERN.match(self.id)
         match = native or external
@@ -271,6 +291,13 @@ class TestInfo(BaseModel):
                     raise ValueError(f"{field}: {prerequisite!r} is not a test ID")
                 if prerequisite == self.id:
                     raise ValueError(f"{field} lists the test itself ({self.id!r})")
+        for need in self.needs:
+            minimum = NEED_MINIMUM_STRATEGY[need]
+            if STRATEGY_RANK[self.strategy] < STRATEGY_RANK[minimum]:
+                raise ValueError(
+                    f"id {self.id!r}: the need {need.value} requires strategy {minimum.value} or "
+                    f"higher, the test declares {self.strategy.value}"
+                )
         for sub_test in self.sub_tests:
             if not SUB_TEST_NAME_PATTERN.match(sub_test):
                 raise ValueError(

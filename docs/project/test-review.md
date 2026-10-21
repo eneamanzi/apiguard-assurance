@@ -13,6 +13,19 @@ positive case for **categories** of weakness (BOLA, mass assignment, SSRF, ...):
 category, from what the tool knows of any API (the OpenAPI specification and `config.yaml`); nothing specific to
 crAPI enters the code.
 
+## Where we are (updated 2026-10-21)
+
+- **Branch:** `test-review` (from `main` at `4b185f8`, 2026-10-20); `main` keeps the old tool. Baseline of the old
+  tool in `outputs/baseline/<lab>/` (not in git).
+- **Done:** phase 0a (rules common to every test, topics 1-10), phase 0b (the catalogue against the OWASP API Top 10
+  2023, priorities, tool versions), phase 0c pieces 1 (outcomes, categories, computed status, sub-tests; 4.2 back
+  as the pilot), 1b (strategy checked against the needs; the gateway only to the tests that declare it) and 2
+  (a request without a response is recorded and judged NOT_VERIFIABLE).
+- **On the branch now:** only test 4.2; the other 17 are on `main` and return one at a time, rewritten.
+- **Next:** piece 3 (reference responses: calibration and positive control).
+- **Open, recorded here:** the SSRF listener (7.2 review), the external tests on the four outcomes (piece 10), the
+  role of the positive control (piece 3); the documentation changes listed below.
+
 ## How we work
 
 | Phase | Content | Output |
@@ -460,8 +473,9 @@ What the review decides for the documentation is collected here and applied afte
 | the catalogue of the guarantees (`docs/06-knowledge/04-guarantees.md`, translated to English) | the conclusions of phase 0b, applied **from this conversation** once the English version exists (owner, 2026-10-20) | phase 0b |
 | every test page | the new template, when its test is rewritten | phase 1, 2 |
 | `docs/02-guides/03-extending/02-add-a-native-test.md`, `03-add-an-external-test.md` | how a test declares effect and sub-tests, records outcomes, uses the references; the example code of the native guide (still `_make_*`, `_log_transaction`, `oracle_state`) and the external guide's "typical oracle"; the generated tables and the sentences next to them are already updated (piece 1) | topics 3, 6, 7 |
-| `docs/02-guides/03-extending/01-coding-rules.md` | the top-level except returns `self._error(exc)` (line 55 still names `_make_error`) | piece 1 |
+| `docs/02-guides/03-extending/01-coding-rules.md` | the top-level except returns `self._error(exc)` (line 55 still names `_make_error`); a `SecurityClientError` of one probe is judged NOT_VERIFIABLE with `exc.record`, not turned into ERROR | pieces 1, 2 |
 | `docs/04-architecture/02-data-model.md`, `03-assessment-model.md`, `docs/02-guides/01-usage/03-read-the-report.md` | `oracle_state` replaced by `sub_test`, `category`, `outcome`, `detail` (data model "Extra" row, "Oracle states" paragraph, the `jq` example) | piece 1 |
+| `docs/04-architecture/01-overview.md`, `02-data-model.md`, `03-assessment-model.md`, `docs/02-guides/03-extending/02-add-a-native-test.md` | the needs fix a minimum strategy (`NEED_MINIMUM_STRATEGY`); the gateway reaches only the tests that declare `Need.GATEWAY` (the `TargetContext` is no longer the same object for every test) | piece 1b |
 
 ## Phase 0b: the base
 
@@ -617,6 +631,7 @@ is written when it starts.
 | # | Piece | From | Contract change |
 |---|---|---|---|
 | 1 | Categories, outcomes `OUTCOME/DETAIL`, sub-tests, computed status, complete and partial PASS | topic 3 | status `INCONCLUSIVE` (report schema), sub-test counters in the result |
+| 1b | `TestInfo` checks that the declared strategy grants what the needs require (`USER_ACCOUNT` at least `GREY_BOX`; `ADMIN_ACCOUNT`, `GATEWAY`, `REVOCABLE_LOGIN` `WHITE_BOX`; otherwise `TestDefinitionError`); whether the engine gives the gateway only to `WHITE_BOX` tests (6.4 reads it without declaring it) | `plan.md` step 1 ("before any test is touched") | a wrongly declared test stops the start |
 | 2 | Transport errors recorded as transactions | topic 3 | a transaction without a response |
 | 3 | Reference responses: calibration and positive control, `ref_...` evidence, report section | topics 1, 2, 5 | new report section, new evidence records |
 | 4 | `supporting_refs` and confidence in findings | topic 5 | two finding fields |
@@ -652,6 +667,35 @@ the external tools only with the owner's go.
   reference responses, piece 3); checked on the models (`status_from_counts`, `combine_sub_tests`, the validators)
   with every combination of counters.
 
+### Piece 1b: done (2026-10-21)
+
+- `src/core/test_metadata.py`: `STRATEGY_RANK` and `NEED_MINIMUM_STRATEGY` (`USER_ACCOUNT` GREY_BOX;
+  `ADMIN_ACCOUNT`, `GATEWAY`, `REVOCABLE_LOGIN` WHITE_BOX); a declaration below the minimum of one of its needs
+  is rejected (a `TestDefinitionError` at start, naming the test).
+- `src/engine.py`: the gateway reaches only the tests that declare `Need.GATEWAY` (the others get the
+  `TargetContext` with `gateway` set to none). Chosen over "only `WHITE_BOX` tests" (`plan.md`): what a test
+  declares is exactly what it can use. 6.4, which read the gateway without declaring it, is split in its review
+  (the part that reads the gateway becomes a test of its own declaring `GATEWAY`).
+- Checked: the declaration rule on five cases (three rejected, two accepted, script outside the repository); 4.2
+  PASS on the three labs as before. The gateway rule is exercised by the first rewritten test that does not
+  declare `GATEWAY`.
+
+### Piece 2: done (2026-10-21)
+
+- `src/core/models/enums.py`: `TransportError` (`timeout`, `connection_failed`, `tls_error`, `protocol_error`).
+- `src/core/models/http.py`: `EvidenceRecord` and `TransactionSummary` have `response_status_code` null and
+  `transport_error` set when no response arrived (a record has one or the other, checked).
+- `src/core/exceptions.py`: `SecurityClientError.record`, the request as sent without a response.
+- `src/core/client.py`: `transport_error_of()` (the reason from the last exception), `_build_failed_record()`
+  (request side recorded and redacted as for a response); the record attached to every `SecurityClientError`.
+- `src/report/templates/report.html`: "no response (<reason>)" in the status cell of the transaction log and CSV.
+- How a test uses it: `except SecurityClientError as exc: self._judge(exc.record, store, <sub-test>,
+  Outcome.NOT_VERIFIABLE, "NO_RESPONSE")` (category NO_RESPONSE).
+- Checked with the tool's client against real failures (script outside the repository): a closed port of the lab
+  host gives `connection_failed`, a non-routable address `timeout` (1 s), the lab with the system trust only
+  `tls_error`; each record judged NOT_VERIFIABLE/NO_RESPONSE, the test INCONCLUSIVE ("3 not verifiable"). 4.2
+  unchanged on the three labs.
+
 ## Phases 1 and 2: order
 
 - **Phase 1** (implemented), by domain, each external test after its native one: 0.1, ext.0.1.nuclei, 0.2, 0.3,
@@ -677,6 +721,6 @@ the external tools only with the owner's go.
 | Phase 0a topic 9 | done (2026-10-20) | three situations per test; variants as differences inside the labs (above) |
 | Phase 0a topic 10 | done (2026-10-20) | page template updated with topics 1-9; common rules in `assessment-model.md` (above) |
 | Phase 0b | done (2026-10-20) | catalogue against API Top 10 2023 (3 new, 2 merges, 2.4 redefined), tools' versions, priorities (above); the catalogue text is edited after its translation |
-| Phase 0c | in progress: piece 1 done (2026-10-21) | new branch, baseline reports from `main`, no backward compatibility; 10 pieces in order (above) |
+| Phase 0c | in progress: pieces 1, 1b, 2 done (2026-10-21) | new branch, baseline reports from `main`, no backward compatibility; 10 pieces in order (above) |
 | Phase 1 | to do | |
 | Phase 2 | to do | |

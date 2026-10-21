@@ -19,8 +19,8 @@ need to know the internal package layout.
 
 Symbol inventory by source module:
 
-    enums.py           TestStatus, Coverage, ResponseCategory, Outcome, TestStrategy,
-                       SpecDialect, ExitCode, NotRunReason
+    enums.py           TestStatus, Coverage, ResponseCategory, Outcome, TransportError,
+                       TestStrategy, SpecDialect, ExitCode, NotRunReason
 
     http.py            EvidenceFile, EvidenceRecord, TransactionSummary
 
@@ -54,6 +54,7 @@ from src.core.models.enums import (
     SpecDialect,
     TestStatus,
     TestStrategy,
+    TransportError,
 )
 from src.core.models.external_tools import (
     BaseExternalToolConfig,
@@ -99,6 +100,7 @@ __all__ = [
     "Coverage",
     "ResponseCategory",
     "Outcome",
+    "TransportError",
     "TestStrategy",
     "SpecDialect",
     "ExitCode",
