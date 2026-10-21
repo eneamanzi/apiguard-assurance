@@ -6,9 +6,14 @@ Development helper: compare two ``apiguard_report.json`` files test by test.
 Used during refactoring to check that a change did not alter the verdicts: run
 the same tests before and after the change, then compare the two reports.
 The comparison covers, for every test present in either report: status,
-finding count and the counts of ``oracle_state`` values in the transaction
-log; plus the run's exit code. It does not judge whether a result is correct,
-only whether it changed.
+coverage of a PASS, finding count and the counts of the judgements in the
+transaction log (``OUTCOME/DETAIL``); plus the run's exit code. It does not
+judge whether a result is correct, only whether it changed.
+
+Reports of the old tool (before the test review, docs/project/test-review.md)
+label transactions with a free ``oracle_state``; the new ones with ``outcome``
+and ``detail``. When one report uses each, the two vocabularies cannot be
+compared: their counts are shown side by side and not counted as differences.
 
 This file lives in ``scripts/`` (development only): it is excluded from the
 distributed package and from the ruff and mypy checks (``pyproject.toml``).
@@ -63,20 +68,50 @@ def load_rows(path: Path) -> tuple[int | None, dict[str, dict[str, Any]]]:
     return exit_code, {row["test_id"]: row for row in rows}
 
 
+def transaction_label(tx: dict[str, Any]) -> str:
+    """
+    The label of one transaction: ``OUTCOME/DETAIL``, the old ``oracle_state``,
+    or ``STEP`` for a request that is not judged.
+
+    Args:
+        tx: One entry of a transaction log.
+
+    Returns:
+        The label.
+    """
+    if "outcome" in tx or "category" in tx:
+        return f"{tx['outcome']}/{tx['detail']}" if tx.get("outcome") else "STEP"
+    return str(tx.get("oracle_state"))
+
+
+def uses_outcomes(rows: dict[str, dict[str, Any]]) -> bool:
+    """True when a report labels transactions with outcomes (the new format)."""
+    return any(
+        "outcome" in tx or "category" in tx
+        for row in rows.values()
+        for tx in row.get("transaction_log") or []
+    )
+
+
 def oracle_state_counts(row: dict[str, Any] | None) -> Counter[str]:
     """
-    Count the ``oracle_state`` values in a row's transaction log.
+    Count the transaction labels of a row (transaction_label).
 
     Args:
         row: A report row, or None when the test is absent from the report.
 
     Returns:
-        Counter of oracle states (empty for an absent test).
+        Counter of labels (empty for an absent test).
     """
     if row is None:
         return Counter()
     log = row.get("transaction_log") or []
-    return Counter(str(tx.get("oracle_state")) for tx in log)
+    return Counter(transaction_label(tx) for tx in log)
+
+
+def describe_counts(counts: Counter[str]) -> str:
+    """The counts as text, e.g. ``ENFORCED/AUTH_REQUIRED 67, STEP 2``."""
+    return ", ".join(f"{label} {n}" for label, n in sorted(counts.items()))
 
 
 def describe_state_changes(before: Counter[str], after: Counter[str]) -> str:
@@ -130,22 +165,39 @@ def compare(before_path: Path, after_path: Path) -> int:
         console.print(f"[red]Cannot read the reports:[/red] {exc}")
         return EXIT_UNREADABLE
 
+    same_vocabulary = uses_outcomes(rows_before) == uses_outcomes(rows_after)
     table = Table(title=f"{before_path}  ->  {after_path}")
-    for column in ("Test", "Status", "Findings", "Oracle states changed"):
+    states_title = "States changed" if same_vocabulary else "States (old | new, not compared)"
+    for column in ("Test", "Status", "Coverage", "Findings", states_title):
         table.add_column(column)
 
     differences = 0
     for test_id in sorted(set(rows_before) | set(rows_after)):
         old, new = rows_before.get(test_id), rows_after.get(test_id)
         status = (field(old, "status"), field(new, "status"))
+        coverage = (field(old, "coverage"), field(new, "coverage"))
         findings = (field(old, "finding_count"), field(new, "finding_count"))
-        states = describe_state_changes(oracle_state_counts(old), oracle_state_counts(new))
-        changed = status[0] != status[1] or findings[0] != findings[1] or bool(states)
+        if same_vocabulary:
+            states = describe_state_changes(oracle_state_counts(old), oracle_state_counts(new))
+            states_changed = bool(states)
+        else:
+            states = (
+                f"{describe_counts(oracle_state_counts(old))} | "
+                f"{describe_counts(oracle_state_counts(new))}"
+            )
+            states_changed = False
+        changed = (
+            status[0] != status[1]
+            or (same_vocabulary and coverage[0] != coverage[1])
+            or findings[0] != findings[1]
+            or states_changed
+        )
         differences += int(changed)
         style = "red" if changed else ""
         table.add_row(
             test_id,
             status[0] if status[0] == status[1] else f"{status[0]} -> {status[1]}",
+            coverage[1] if coverage[0] == coverage[1] else f"{coverage[0]} -> {coverage[1]}",
             findings[0] if findings[0] == findings[1] else f"{findings[0]} -> {findings[1]}",
             states,
             style=style,
@@ -159,7 +211,9 @@ def compare(before_path: Path, after_path: Path) -> int:
     if differences:
         console.print(f"[red]{differences} difference(s).[/red]")
         return EXIT_DIFFERENT
-    console.print("[green]No differences in tests, statuses, findings, states, exit code.[/green]")
+    console.print(
+        "[green]No differences in tests, statuses, coverage, findings, states, exit code.[/green]"
+    )
     return EXIT_EQUIVALENT
 
 

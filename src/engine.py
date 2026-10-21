@@ -1273,7 +1273,7 @@ class AssessmentEngine:
 
         Fail-fast condition (docs/04-architecture/03-assessment-model.md, "Fail-fast"):
             If config.execution.fail_fast is True and a P0 test returns
-            FAIL or ERROR, execution stops immediately.
+            FAIL, ERROR or INCONCLUSIVE, execution stops immediately.
         """
         log.info(
             "pipeline_phase_5_execution_started",
@@ -1328,7 +1328,7 @@ class AssessmentEngine:
                     )
                     skip_reason = " ".join(needs) if needs else None
                 if skip_reason is not None:
-                    result = test._make_skip(skip_reason)  # noqa: SLF001
+                    result = test._skip(skip_reason)  # noqa: SLF001
                     log.info(
                         "test_skipped_prerequisite_not_met",
                         progress=f"{position}/{total}",
@@ -1382,7 +1382,8 @@ class AssessmentEngine:
                 "pipeline_phase_5_fail_fast_triggered",
                 results_recorded=result_set.total_count,
                 detail=(
-                    "Execution aborted by fail-fast condition. A P0 test returned FAIL or ERROR."
+                    "Execution aborted by fail-fast condition. A P0 test returned FAIL, ERROR "
+                    "or INCONCLUSIVE."
                 ),
             )
 
@@ -1529,13 +1530,18 @@ class AssessmentEngine:
         """
         Determine whether the fail-fast condition is triggered.
 
-        Condition: test has priority P0 AND status is FAIL or ERROR.
-        Both FAIL and ERROR are treated as blocking for P0 tests because
-        an ERROR means the verification of a critical guarantee did not
-        complete -- proceeding would produce an assessment without foundation.
+        Condition: test has priority P0 AND status is FAIL, ERROR or
+        INCONCLUSIVE. All three are blocking for P0 tests: a FAIL violates a
+        critical guarantee, an ERROR or an INCONCLUSIVE means its verification
+        did not complete (the same grouping as exit code 3) -- proceeding would
+        produce an assessment without foundation.
         """
         is_p0 = test.info.priority == 0
-        is_blocking_status = result.status in (TestStatus.FAIL, TestStatus.ERROR)
+        is_blocking_status = result.status in (
+            TestStatus.FAIL,
+            TestStatus.ERROR,
+            TestStatus.INCONCLUSIVE,
+        )
 
         if is_p0 and is_blocking_status:
             log.warning(

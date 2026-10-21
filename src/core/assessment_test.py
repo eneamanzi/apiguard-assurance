@@ -5,9 +5,9 @@ AssessmentTest: what every test has, native and external alike.
 
 A test declares who it is in one TestInfo (``info``, src/core/test_metadata.py)
 and returns one TestResult. This base copies the declaration into every
-result and builds the results (_make_pass, _make_fail, _make_fail_multi,
-_make_skip, _make_error), written once for both kinds of test
-(docs/04-architecture/05-design-decisions.md, D8). The two subclasses keep what is theirs:
+result, collects the test's judgements and computes the result from them,
+written once for both kinds of test (docs/04-architecture/05-design-decisions.md,
+D8; docs/project/test-review.md, topic 3). The two subclasses keep what is theirs:
 
     BaseTest (src/tests/base.py)                  the HTTP client contract and
                                                   the transaction log;
@@ -17,20 +17,29 @@ _make_skip, _make_error), written once for both kinds of test
 The engine calls the two kinds through different execute() signatures, so
 execute() is declared by each subclass, not here.
 
-Result helpers, when to use which:
+How a test ends:
 
-    PASS:                    _make_pass(message, notes=None)
-    FAIL with one finding:   _make_fail(message, detail, evidence_record_id,
-                             additional_references, notes); the finding takes
-                             the test's name as title and its CWE as first
-                             reference.
-    FAIL with several:       _make_fail_multi(message, findings, notes=None),
-                             the caller builds each Finding.
-    SKIP:                    _make_skip(reason, notes=None); notes can still
-                             surface a recommendation (e.g. a manual check).
-    ERROR:                   _make_error(exc, message=None), in an except
-                             block: the exception becomes the result, it never
-                             reaches the engine.
+    _record(sub_test, outcome, detail, finding=None)
+        one judgement: the outcome of one case of a declared sub-test, with
+        the test's detail (UPPER_SNAKE_CASE); a finding exactly when the
+        outcome is VIOLATION. Native tests judge an HTTP response through
+        BaseTest._judge(), which records it here.
+    _finish(notes=None, message=None)
+        the result, computed: per sub-test counters and status, the test's
+        status and coverage (src/core/models/results.py), the findings, a
+        summary message common to every test (the test may add a sentence).
+        Nothing judged that applies: SKIP, "nothing the test applies to".
+    _skip(reason, notes=None)
+        SKIP before the start: something needed is missing.
+    _error(exc, message=None)
+        ERROR, in the test's top-level except block: the exception becomes
+        the result (it never reaches the engine); the judgements made so far
+        are kept.
+
+A test never chooses PASS, FAIL or INCONCLUSIVE. A judgement written wrongly
+(an undeclared sub-test, a VIOLATION without a finding, a malformed detail) is
+a programming error: _record() raises ValueError, which the test's top-level
+except turns into ERROR.
 
 Parameters (docs/04-architecture/05-design-decisions.md, D8): a test with tunable values
 names its parameter model in its class declaration,
@@ -45,8 +54,10 @@ typing_extensions, structlog and src.core.
 
 from __future__ import annotations
 
+import re
 import traceback
 from abc import ABC
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, ClassVar, Generic, Literal, cast, get_args, get_origin
 
 import structlog
@@ -55,7 +66,17 @@ from pydantic.config import JsonDict
 from pydantic.fields import FieldInfo
 from typing_extensions import TypeVar
 
-from src.core.models import Finding, InfoNote, TestResult, TestStatus, TransactionSummary
+from src.core.models import (
+    Coverage,
+    Finding,
+    InfoNote,
+    Outcome,
+    SubTestResult,
+    TestResult,
+    TestStatus,
+    TransactionSummary,
+    combine_sub_tests,
+)
 from src.core.test_metadata import TestInfo
 
 if TYPE_CHECKING:
@@ -67,6 +88,23 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # evidence.json stays bounded; longer messages end with the suffix below.
 _ERROR_MESSAGE_MAX_CHARS: int = 500
 _ERROR_TRUNCATION_SUFFIX: str = "... [TRUNCATED]"
+
+# The detail of a judgement, e.g. "AUTH_BYPASS": uppercase words joined by
+# underscores, read with the outcome as "VIOLATION/AUTH_BYPASS".
+DETAIL_PATTERN: re.Pattern[str] = re.compile(r"^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$")
+
+# The skip reason of a test that ran but found nothing it applies to.
+_NOTHING_TO_APPLY: str = "Nothing the test applies to"
+
+
+@dataclass
+class _SubTestTally:
+    """What one sub-test has judged so far (the counters of a SubTestResult)."""
+
+    violations: int = 0
+    enforced: int = 0
+    not_applicable: int = 0
+    not_verifiable_reasons: dict[str, int] = field(default_factory=dict)
 
 
 class NoParams(BaseModel):
@@ -141,6 +179,13 @@ class AssessmentTest(ABC, Generic[ParamsT]):
                 if isinstance(model, type) and issubclass(model, BaseModel):
                     cls.params_model = None if model is NoParams else model
 
+    def __init__(self) -> None:
+        """Start the test's tally: one empty entry per declared sub-test."""
+        self._tally: dict[str, _SubTestTally] = {
+            name: _SubTestTally() for name in self.info.sub_tests
+        }
+        self._findings: list[Finding] = []
+
     def params(self, target: TargetContext) -> ParamsT:
         """
         This test's parameters, validated from tests.domain_<D>.test_<D>_<N>.
@@ -172,126 +217,112 @@ class AssessmentTest(ABC, Generic[ParamsT]):
     # Result construction
     # ------------------------------------------------------------------
 
-    def _result(
+    def _record(
         self,
-        status: TestStatus,
-        message: str,
-        *,
-        findings: list[Finding] | None = None,
-        notes: list[InfoNote] | None = None,
-        skip_reason: str | None = None,
-    ) -> TestResult:
-        """
-        Build a result carrying this test's declaration.
-
-        Args:
-            status:      The outcome.
-            message:     One-line summary of the outcome.
-            findings:    The violations (FAIL only).
-            notes:       Informational annotations, not findings.
-            skip_reason: Why the test did not run (SKIP only).
-
-        Returns:
-            The TestResult, with the declaration under its report names
-            (test_id, test_name, domain, cwe_id, tool_name).
-        """
-        info = self.info
-        return TestResult(
-            test_id=info.id,
-            status=status,
-            message=message,
-            findings=list(findings) if findings else [],
-            notes=list(notes) if notes else [],
-            skip_reason=skip_reason,
-            transaction_log=self._result_transactions(),
-            test_name=info.name,
-            domain=info.domain,
-            priority=info.priority,
-            strategy=info.strategy.value,
-            tags=list(info.tags),
-            cwe_id=info.cwe,
-            tool_name=info.tool or "",
-            source=self.source,
-        )
-
-    def _make_pass(self, message: str, notes: list[InfoNote] | None = None) -> TestResult:
-        """
-        Return a PASS result: the guarantee holds; notes may add context that is not a
-        violation.
-
-        Args:
-            message: One-line summary of what was verified and confirmed.
-            notes:   Informational annotations (architectural context,
-                     compensating controls, observability gaps); rendered in
-                     the report, never counted as findings.
-
-        Returns:
-            TestResult with status PASS.
-        """
-        return self._result(TestStatus.PASS, message, notes=notes)
-
-    def _make_fail(
-        self,
-        message: str,
+        sub_test: str,
+        outcome: Outcome,
         detail: str,
-        evidence_record_id: str | None = None,
-        additional_references: list[str] | None = None,
-        notes: list[InfoNote] | None = None,
-    ) -> TestResult:
+        finding: Finding | None = None,
+    ) -> None:
         """
-        Return a FAIL result with one finding, titled with the test's name, with its CWE
-        as first reference.
-
-        The finding takes the test's name as title and its CWE as first
-        reference. Store the evidence first (store.add_fail_evidence(record))
-        and pass its record_id, so that the finding points to its proof.
+        Record one judgement: the outcome of one case of a declared sub-test.
 
         Args:
-            message:               One-line summary of the violated guarantee.
-            detail:                Technical description, specific enough to reproduce.
-            evidence_record_id:    record_id of the stored evidence; None for a
-                                   configuration audit finding with no transaction.
-            additional_references: Extra standard references after the CWE.
-            notes:                 Informational annotations below the FAIL threshold.
+            sub_test: A sub-test the test declares (info.sub_tests).
+            outcome:  What the case means for the guarantee.
+            detail:   The test's detail of the outcome, UPPER_SNAKE_CASE (for
+                      NOT_VERIFIABLE it is the reason, counted in the result).
+            finding:  The violation's finding: given exactly when the outcome is
+                      VIOLATION, with its evidence_ref already set by the caller
+                      (BaseTest._judge() sets it for an HTTP response).
 
-        Returns:
-            TestResult with status FAIL and one finding.
+        Raises:
+            ValueError: An undeclared sub-test, a malformed detail, or a finding
+                        given or missing against the outcome (a programming
+                        error of the test, turned into ERROR by its except).
         """
-        references = [self.info.cwe, *(additional_references or [])]
-        finding = Finding(
-            title=self.info.name,
-            detail=detail,
-            references=references,
-            evidence_ref=evidence_record_id,
+        tally = self._tally.get(sub_test)
+        if tally is None:
+            raise ValueError(
+                f"test {self.info.id}: sub-test {sub_test!r} is not declared "
+                f"(info.sub_tests: {list(self.info.sub_tests)})"
+            )
+        if not DETAIL_PATTERN.match(detail):
+            raise ValueError(f"test {self.info.id}: detail {detail!r} must be UPPER_SNAKE_CASE")
+        if (finding is not None) != (outcome == Outcome.VIOLATION):
+            raise ValueError(
+                f"test {self.info.id}: a finding goes with a VIOLATION, and only with it "
+                f"(got {outcome}/{detail} {'with' if finding else 'without'} a finding)"
+            )
+        if outcome == Outcome.VIOLATION:
+            tally.violations += 1
+            self._findings.append(cast(Finding, finding))
+        elif outcome == Outcome.ENFORCED:
+            tally.enforced += 1
+        elif outcome == Outcome.NOT_APPLICABLE:
+            tally.not_applicable += 1
+        else:
+            reasons = tally.not_verifiable_reasons
+            reasons[detail] = reasons.get(detail, 0) + 1
+
+    def _sub_test_results(self) -> list[SubTestResult]:
+        """The result of every declared sub-test, in declaration order."""
+        return [
+            SubTestResult.from_counts(
+                name,
+                violations=tally.violations,
+                enforced=tally.enforced,
+                not_applicable=tally.not_applicable,
+                not_verifiable_reasons=tally.not_verifiable_reasons,
+            )
+            for name, tally in self._tally.items()
+        ]
+
+    @staticmethod
+    def _summary(sub_tests: list[SubTestResult]) -> str:
+        """The common summary of the judgements, e.g. '2 violations, 67 enforced'."""
+        totals = (
+            (sum(s.violations for s in sub_tests), "violation", "violations"),
+            (sum(s.enforced for s in sub_tests), "enforced", "enforced"),
+            (sum(s.not_verifiable for s in sub_tests), "not verifiable", "not verifiable"),
+            (sum(s.not_applicable for s in sub_tests), "not applicable", "not applicable"),
         )
-        return self._result(TestStatus.FAIL, message, findings=[finding], notes=notes)
+        parts = [f"{n} {one if n == 1 else many}" for n, one, many in totals if n]
+        return ", ".join(parts) or "nothing judged"
 
-    def _make_fail_multi(
-        self,
-        message: str,
-        findings: list[Finding],
-        notes: list[InfoNote] | None = None,
+    def _finish(
+        self, notes: list[InfoNote] | None = None, message: str | None = None
     ) -> TestResult:
         """
-        Return a FAIL result with the caller's findings, one per violation (preferred:
-        each finding names the endpoint).
-
-        Precondition: findings is not empty (a FAIL without findings violates
-        the TestResult invariant and raises a ValidationError).
+        The result of a test that ran to the end, computed from its judgements.
 
         Args:
-            message:  One-line summary (e.g. "N violation(s) across M endpoint(s).").
-            findings: One Finding per violation, each with its own evidence_ref.
-            notes:    Informational annotations below the FAIL threshold.
+            notes:   Informational annotations (any status).
+            message: A sentence of the test's own, added after the common summary.
 
         Returns:
-            TestResult with status FAIL and the given findings.
+            TestResult with the computed status (PASS with its coverage, FAIL,
+            INCONCLUSIVE, or SKIP when nothing judged applies), the sub-tests
+            and the findings.
         """
-        return self._result(TestStatus.FAIL, message, findings=findings, notes=notes)
+        sub_tests = self._sub_test_results()
+        status, coverage = combine_sub_tests(sub_tests)
+        summary = self._summary(sub_tests)
+        text = f"{summary}. {message}" if message else f"{summary}."
+        skip_reason = f"{_NOTHING_TO_APPLY}: {text}" if status == TestStatus.SKIP else None
+        return self._result(
+            status,
+            skip_reason or text,
+            findings=self._findings,
+            notes=notes,
+            skip_reason=skip_reason,
+            coverage=coverage,
+            sub_tests=sub_tests,
+        )
 
-    def _make_skip(self, reason: str, notes: list[InfoNote] | None = None) -> TestResult:
+    def _skip(self, reason: str, notes: list[InfoNote] | None = None) -> TestResult:
         """
-        Return a SKIP result naming the missing precondition.
+        SKIP before the start: something the test needs is missing.
 
         Args:
             reason: Why the test did not run, naming what is missing.
@@ -302,14 +333,13 @@ class AssessmentTest(ABC, Generic[ParamsT]):
         """
         return self._result(TestStatus.SKIP, reason, notes=notes, skip_reason=reason)
 
-    def _make_error(self, exc: Exception, message: str | None = None) -> TestResult:
+    def _error(self, exc: Exception, message: str | None = None) -> TestResult:
         """
-        Return an ERROR result from an exception, keeping the transactions logged so
-        far.
+        ERROR from an exception, for the except block of a test.
 
-        For the except blocks of a test: the exception becomes the result and
-        never reaches the engine. The partial transaction log (requests sent
-        before the exception) is kept, to show where the test stopped.
+        The exception becomes the result and never reaches the engine. The
+        judgements made before it are kept (sub-tests and findings), with the
+        partial transaction log, to show where the test stopped.
 
         Args:
             exc:     The exception caught.
@@ -333,6 +363,56 @@ class AssessmentTest(ABC, Generic[ParamsT]):
         return self._result(
             TestStatus.ERROR,
             message or f"Unexpected {exc_type} during test execution: {exc_message}",
+            findings=self._findings,
+            sub_tests=self._sub_test_results(),
+        )
+
+    def _result(
+        self,
+        status: TestStatus,
+        message: str,
+        *,
+        findings: list[Finding] | None = None,
+        notes: list[InfoNote] | None = None,
+        skip_reason: str | None = None,
+        coverage: Coverage | None = None,
+        sub_tests: list[SubTestResult] | None = None,
+    ) -> TestResult:
+        """
+        Build a result carrying this test's declaration.
+
+        Args:
+            status:      The outcome.
+            message:     One-line summary of the outcome.
+            findings:    The violations.
+            notes:       Informational annotations, not findings.
+            skip_reason: Why the test did not run (SKIP only).
+            coverage:    Complete or partial (PASS only).
+            sub_tests:   The sub-tests' results.
+
+        Returns:
+            The TestResult, with the declaration under its report names
+            (test_id, test_name, domain, cwe_id, tool_name).
+        """
+        info = self.info
+        return TestResult(
+            test_id=info.id,
+            status=status,
+            message=message,
+            findings=list(findings) if findings else [],
+            notes=list(notes) if notes else [],
+            skip_reason=skip_reason,
+            coverage=coverage,
+            sub_tests=list(sub_tests) if sub_tests else [],
+            transaction_log=self._result_transactions(),
+            test_name=info.name,
+            domain=info.domain,
+            priority=info.priority,
+            strategy=info.strategy.value,
+            tags=list(info.tags),
+            cwe_id=info.cwe,
+            tool_name=info.tool or "",
+            source=self.source,
         )
 
     def __repr__(self) -> str:

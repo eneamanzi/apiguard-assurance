@@ -73,10 +73,11 @@ Example (Forgejo + APISIX lab):
 
 | Field | Type | Description |
 |---|---|---|
-| `scheduled_tests` | int | PASS + FAIL + ERROR + SKIP. |
-| `executed_tests` | int | PASS + FAIL + ERROR (SKIP excluded). |
+| `scheduled_tests` | int | PASS + FAIL + INCONCLUSIVE + ERROR + SKIP. |
+| `executed_tests` | int | PASS + FAIL + INCONCLUSIVE + ERROR (SKIP excluded). |
 | `pass_count` | int | Results with status PASS. |
 | `fail_count` | int | Results with status FAIL. |
+| `inconclusive_count` | int | Results with status INCONCLUSIVE. |
 | `skip_count` | int | Results with status SKIP. |
 | `error_count` | int | Results with status ERROR. |
 | `not_run_count` | int | Number of entries in `not_run`. |
@@ -116,6 +117,7 @@ precondition, a not-run test was not selected or was stopped (`src/core/models/r
 | `rows` | array of [`TestResultRow`](#testresultrow) | The results of this domain. |
 | `pass_count` | int | Results with status PASS. |
 | `fail_count` | int | Results with status FAIL. |
+| `inconclusive_count` | int | Results with status INCONCLUSIVE. |
 | `skip_count` | int | Results with status SKIP. |
 | `error_count` | int | Results with status ERROR. |
 | `total_finding_count` | int | Findings of the results of this domain. |
@@ -137,12 +139,14 @@ precondition, a not-run test was not selected or was stopped (`src/core/models/r
 | `priority` | int | Priority, 0-3. |
 | `priority_label` | string | Label of the priority (as `min_priority_label`). |
 | `strategy` | string | `BLACK_BOX`, `GREY_BOX` or `WHITE_BOX`. |
-| `status` | string | `PASS`, `FAIL`, `SKIP` or `ERROR` (see Status semantics below). |
+| `status` | string | `PASS`, `FAIL`, `INCONCLUSIVE`, `SKIP` or `ERROR` (see Status semantics below). |
+| `coverage` | string \| null | For a `PASS`: `complete`, or `partial` when cases were not verifiable. |
+| `sub_tests` | array of [`SubTestResult`](#subtestresult) | Every declared sub-test with its counters and status. |
 | `message` | string | One-line outcome. |
 | `skip_reason` | string \| null | Set only for `SKIP`: the missing precondition. |
 | `duration_ms` | number \| null | Execution time of the test. |
 | `finding_count` | int | Length of `findings`. |
-| `findings` | array of [`Finding`](#finding) | At least one for `FAIL`, none for `PASS` (both enforced by the model); an `ERROR` result may carry findings collected before the error. |
+| `findings` | array of [`Finding`](#finding) | At least one for `FAIL`, none for `PASS` and `INCONCLUSIVE` (enforced by the model); an `ERROR` result may carry findings collected before the error. |
 | `tags` | array of string | Test tags (e.g. `OWASP-API9:2023`). |
 | `cwe_id` | string | Primary CWE (e.g. `CWE-306`). |
 | `transaction_log` | array of [`TransactionSummary`](#transactionsummary) | Every HTTP request of the test, PASS included. |
@@ -159,10 +163,34 @@ precondition, a not-run test was not selected or was stopped (`src/core/models/r
 
 | Status | Meaning | Exit-code effect |
 |---|---|---|
-| `PASS` | Guarantee verified. | none |
+| `PASS` | No violation, at least one case verified; `coverage` says whether every applicable case was verified (`complete`) or some could not be (`partial`). | none |
 | `FAIL` | Guarantee violated; at least one finding. | → `1` |
+| `INCONCLUSIVE` | Run to the end, no violation, nothing verified: every judged case was not verifiable (the sub-tests give the reasons). | → `3` if no FAIL |
 | `ERROR` | The verification did not complete (transport failure, rejected credentials, tool failure). Findings may be present. | → `3` if no FAIL |
-| `SKIP` | A precondition is missing (credentials, Admin API, tool disabled, nothing applicable in the spec). `skip_reason` explains which. | none |
+| `SKIP` | A precondition is missing (credentials, Admin API, tool disabled), or nothing the test applies to. `skip_reason` explains which. | none |
+
+`PASS`, `FAIL` and `INCONCLUSIVE` are computed from the sub-tests, never chosen by the test: a sub-test with a
+violation is `FAIL`; otherwise one with a verified case is `PASS`; otherwise one with a case not verifiable is
+`INCONCLUSIVE`; otherwise `SKIP`. The test is `FAIL` if a sub-test is, otherwise `PASS` (partial if another
+sub-test is `INCONCLUSIVE` or a `PASS` sub-test is partial) if a sub-test is, otherwise `INCONCLUSIVE` if a sub-test
+is, otherwise `SKIP`.
+
+## `SubTestResult`
+
+<!-- [[[cog import generate_docs as g; cog.out(g.report_table("SubTestResult")) ]]] -->
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | The sub-test's name, as the test declares it. |
+| `status` | string | `PASS`, `FAIL`, `INCONCLUSIVE` or `SKIP`, computed from the counters. |
+| `coverage` | string \| null | For a PASS: `complete`, or `partial` when cases were not verifiable. |
+| `violations` | int | Cases judged `VIOLATION`. |
+| `enforced` | int | Cases judged `ENFORCED`. |
+| `not_verifiable` | int | Cases judged `NOT_VERIFIABLE`. |
+| `not_applicable` | int | Cases judged `NOT_APPLICABLE`. |
+| `not_verifiable_reasons` | object | Why cases were not verifiable: each detail and how many times. |
+
+<!-- [[[end]]] -->
 
 ## `Finding`
 
@@ -200,7 +228,10 @@ precondition, a not-run test was not selected or was stopped (`src/core/models/r
 | `request_method` | string | HTTP method of the request. |
 | `request_url` | string | Full URL of the request. |
 | `response_status_code` | int | HTTP status of the response. |
-| `oracle_state` | string \| null | Test-specific classification of the response (e.g. `ENFORCED`, `BYPASS`, `RATE_LIMIT_HIT`, `INCONCLUSIVE_PARAMETRIC`). Free-form: each test defines its own values. |
+| `category` | string \| null | What the response is, common to every test (`SERVED`, `NOT_FOUND`, `UNAUTHENTICATED`, ...). |
+| `sub_test` | string \| null | The sub-test the request belongs to; null for a preparation step. |
+| `outcome` | string \| null | What the response means for the guarantee (`VIOLATION`, `ENFORCED`, `NOT_VERIFIABLE`, `NOT_APPLICABLE`); null when the request is not judged (a login, an object created for the test). |
+| `detail` | string \| null | The test's detail of the outcome, e.g. `AUTH_BYPASS`, `PATH_NOT_FOUND`; read with the outcome as `VIOLATION/AUTH_BYPASS`. Null with a null outcome. |
 | `duration_ms` | number \| null | Duration of the request. |
 | `is_fail_evidence` | bool | The transaction is FAIL evidence: the full record is in `evidence.json`. |
 | `request_headers` | object | Lowercase names; `authorization` and cookie values redacted with typed placeholders (see the evidence format). |

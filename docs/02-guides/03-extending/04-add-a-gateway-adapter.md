@@ -17,12 +17,12 @@ concepts](../../04-architecture/05-design-decisions.md#d7-neutral-gateway-concep
 | Reader | Implement | Items | Used by |
 |---|---|---|---|
 | `backend_timeouts()` | `_read_backend_timeouts()` | `BackendTimeout` | 4.2 |
-| `circuit_breakers()` | `_read_circuit_breakers()` | `CircuitBreaker` | 4.3 |
-| `config_values()` | `_read_config_values()` | `ConfigValue` | 6.4 |
-| `health_checks()` | `_read_health_checks()` | `HealthCheck` | 4.3 |
-| `routes()` | `_read_routes()` | `GatewayRoute` | 3.3 |
-| `signing_policies()` | `_read_signing_policies()` | `SigningPolicy` | 3.3 |
-| `target_health()` | `_read_target_health()` | `TargetHealth` | 4.3 |
+| `circuit_breakers()` | `_read_circuit_breakers()` | `CircuitBreaker` | - |
+| `config_values()` | `_read_config_values()` | `ConfigValue` | - |
+| `health_checks()` | `_read_health_checks()` | `HealthCheck` | - |
+| `routes()` | `_read_routes()` | `GatewayRoute` | - |
+| `signing_policies()` | `_read_signing_policies()` | `SigningPolicy` | - |
+| `target_health()` | `_read_target_health()` | `TargetHealth` | - |
 
 <!-- [[[end]]] -->
 

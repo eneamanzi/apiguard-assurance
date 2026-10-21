@@ -68,6 +68,11 @@ PRIVATE_CLASS_PREFIX: str = "_"
 # Primary CWE reference of a test, e.g. "CWE-285".
 CWE_ID_PATTERN: re.Pattern[str] = re.compile(r"^CWE-[1-9][0-9]*$")
 
+# Name of a declared sub-test, e.g. "unauthenticated_access": lowercase words
+# joined by underscores. It is the key of the sub-test in the result and the
+# report, and the row of the "Coverage of the methodology" table of the page.
+SUB_TEST_NAME_PATTERN: re.Pattern[str] = re.compile(r"^[a-z][a-z0-9]*(_[a-z0-9]+)*$")
+
 # ---------------------------------------------------------------------------
 # Test ID format
 # ---------------------------------------------------------------------------
@@ -224,6 +229,14 @@ class TestInfo(BaseModel):
         default=None,
         description="External tests only: the external_tools key of the wrapped tool.",
     )
+    sub_tests: tuple[str, ...] = Field(
+        min_length=1,
+        description=(
+            "The test's sub-tests, at least one: names in lowercase words joined by "
+            "underscores, unique; every judgement the test records belongs to one, and the "
+            "status is computed from them."
+        ),
+    )
     needs: tuple[Need, ...] = Field(
         default=(),
         description=(
@@ -234,7 +247,7 @@ class TestInfo(BaseModel):
 
     @model_validator(mode="after")
     def _id_and_kind_coherent(self) -> TestInfo:
-        """Check the ID format, its domain, the tool and the prerequisites."""
+        """Check the ID format, its domain, the tool, the prerequisites and the sub-tests."""
         native = NATIVE_TEST_ID_PATTERN.match(self.id)
         external = EXTERNAL_TEST_ID_PATTERN.match(self.id)
         match = native or external
@@ -258,6 +271,15 @@ class TestInfo(BaseModel):
                     raise ValueError(f"{field}: {prerequisite!r} is not a test ID")
                 if prerequisite == self.id:
                     raise ValueError(f"{field} lists the test itself ({self.id!r})")
+        for sub_test in self.sub_tests:
+            if not SUB_TEST_NAME_PATTERN.match(sub_test):
+                raise ValueError(
+                    f"sub_tests: {sub_test!r} must be lowercase words joined by underscores, "
+                    f"e.g. 'unauthenticated_access'"
+                )
+        duplicates = sorted({s for s in self.sub_tests if self.sub_tests.count(s) > 1})
+        if duplicates:
+            raise ValueError(f"sub_tests: declared more than once: {duplicates}")
         return self
 
     @property

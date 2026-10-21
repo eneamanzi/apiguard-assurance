@@ -15,6 +15,7 @@
 - [Building the Package](#building-the-package)
 - [Static Analysis](#static-analysis)
 - [Kong Configuration Changes](#kong-configuration-changes)
+- [Git - Large Changes on a Branch](#git---large-changes-on-a-branch)
 - [Git - Clean Up Commit History](#git---clean-up-commit-history)
 - [Git tag + release](#git-tag--release)
 
@@ -374,6 +375,53 @@ hatch run apiguard run -c test-environments/forgejo-kong/config.yaml            
 The three lab configurations run every test, native and external (nuclei, testssl.sh, sslyze: about 5 minutes
 more), with the same commented filters above `execution`: for the native tests only, set
 `external_tools.enabled: false` (a run of one or two minutes); for some tests only, `execution.test_ids`.
+
+## Git - Large Changes on a Branch
+
+For a rewrite that leaves the tool incomplete for a while (e.g. the test review, branch `test-review` created
+2026-10-20 from `main` at `4b185f8`, [`test-review.md`](test-review.md)): `main` keeps the old tool, the branch
+holds the new one, nothing old is kept on the branch for compatibility.
+
+Where you are (the asterisk marks the current branch):
+```bash
+git branch
+```
+
+Start (once, from a clean `main`: `git status` shows nothing to commit):
+```bash
+git switch -c test-review            # create the branch and move onto it
+```
+
+Move between the two (commit first: git refuses to switch with uncommitted changes that would be overwritten):
+```bash
+git switch main                      # the old tool
+git switch test-review               # the new one
+```
+`.env`, `tools/`, the lab certificates and `outputs/` are not in git: they stay as they are when you switch.
+
+Baseline of the old tool (once, before the first change, labs reset before and after): the lab configurations with
+`external_tools.enabled: false` and `output.directory: outputs/baseline/<lab>`, run from `main`. Keep
+`outputs/baseline/` until the merge. Then compare a new run with it:
+```bash
+hatch run python scripts/compare_reports.py outputs/baseline/forgejo-kong/apiguard_report.json outputs/forgejo/apiguard_report.json
+```
+
+Look at a run yourself, in two terminals:
+```bash
+hatch run apiguard run -c test-environments/forgejo-kong/config.yaml      # terminal 1
+cd outputs/forgejo && python3 -m http.server 8080                         # terminal 2, then open assessment_report.html
+```
+([Viewing the Report](#viewing-the-report-vs-code-remote) if the page does not load.)
+
+End: when the branch is complete and verified, bring it into `main`:
+```bash
+git switch main
+git merge test-review                # fast-forward if main did not move meanwhile
+git push
+git branch -d test-review            # the branch is no longer needed (its commits are now in main)
+```
+
+Give up instead: `git switch main` (main is untouched), then `git branch -D test-review` to throw the branch away.
 
 ## Git - Clean Up Commit History
 

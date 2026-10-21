@@ -190,7 +190,7 @@ def _filter_status_badge_class(status: str) -> str:
     Produces class names that the inline CSS in the template styles.
 
     Args:
-        status: Status value string: 'PASS', 'FAIL', 'SKIP', or 'ERROR'.
+        status: Status value string: 'PASS', 'FAIL', 'INCONCLUSIVE', 'SKIP' or 'ERROR'.
 
     Returns:
         CSS class string for the status badge element.
@@ -198,6 +198,7 @@ def _filter_status_badge_class(status: str) -> str:
     mapping: dict[str, str] = {
         "PASS": "badge-pass",
         "FAIL": "badge-fail",
+        "INCONCLUSIVE": "badge-inconclusive",
         "SKIP": "badge-skip",
         "ERROR": "badge-error",
     }

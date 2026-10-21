@@ -6,10 +6,17 @@ Test result models for the APIGuard Assurance tool.
 Contains the complete result hierarchy produced by test executions and
 accumulated by the engine over a pipeline run.
 
-    Finding     -- Unit of technical evidence produced by a FAIL result.
-    InfoNote    -- Informational annotation for PASS results (non-violation context).
-    TestResult  -- Complete outcome of a single BaseTest.execute() call.
-    ResultSet   -- Ordered collection of all TestResult objects for a pipeline run.
+    Finding        -- Unit of technical evidence produced by a FAIL result.
+    InfoNote       -- Informational annotation for PASS results (non-violation context).
+    SubTestResult  -- Counters and status of one declared sub-test.
+    TestResult     -- Complete outcome of a single BaseTest.execute() call.
+    ResultSet      -- Ordered collection of all TestResult objects for a pipeline run.
+
+The status rule lives here, next to the models it constrains
+(docs/project/test-review.md, topic 3): status_from_counts() gives a
+sub-test's status from its counters, combine_sub_tests() gives the test's
+status and coverage from its sub-tests. A test records outcomes; it never
+chooses PASS, FAIL or INCONCLUSIVE.
 
 Dependency rule: this module imports only from pydantic, the stdlib, and
 sibling modules within src.core.models. It must never import from any other
@@ -23,7 +30,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from src.core.models.enums import ExitCode, NotRunReason, TestStatus
+from src.core.models.enums import Coverage, ExitCode, NotRunReason, TestStatus
 from src.core.models.http import TransactionSummary
 
 # ---------------------------------------------------------------------------
@@ -132,6 +139,157 @@ class InfoNote(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# SubTestResult — counters and status of one sub-test, and the status rule
+# ---------------------------------------------------------------------------
+
+# The statuses a finished sub-test or test can have, computed from counters.
+_COMPUTED_STATUSES: frozenset[TestStatus] = frozenset(
+    {TestStatus.PASS, TestStatus.FAIL, TestStatus.INCONCLUSIVE, TestStatus.SKIP}
+)
+
+
+def status_from_counts(violations: int, enforced: int, not_verifiable: int) -> TestStatus:
+    """
+    The status of a finished sub-test, from its counters.
+
+    The first rule that holds decides: a violation gives FAIL; otherwise a
+    verified case gives PASS; otherwise a case that could not be verified gives
+    INCONCLUSIVE; otherwise (only not applicable cases, or none) SKIP.
+
+    Args:
+        violations:     Cases judged VIOLATION.
+        enforced:       Cases judged ENFORCED.
+        not_verifiable: Cases judged NOT_VERIFIABLE.
+
+    Returns:
+        FAIL, PASS, INCONCLUSIVE or SKIP.
+    """
+    if violations > 0:
+        return TestStatus.FAIL
+    if enforced > 0:
+        return TestStatus.PASS
+    if not_verifiable > 0:
+        return TestStatus.INCONCLUSIVE
+    return TestStatus.SKIP
+
+
+class SubTestResult(BaseModel):
+    """
+    The counters and status of one sub-test a test declares.
+
+    Built with from_counts(), which computes the status and the coverage, so
+    that the counters and the status can never disagree. Every sub-test the
+    test declares has one, even when nothing was judged in it (SKIP).
+    """
+
+    model_config = {"frozen": True}
+
+    name: str = Field(description="The sub-test's name, as the test declares it.")
+    status: TestStatus = Field(
+        description="`PASS`, `FAIL`, `INCONCLUSIVE` or `SKIP`, computed from the counters."
+    )
+    coverage: Coverage | None = Field(
+        default=None,
+        description="For a PASS: `complete`, or `partial` when cases were not verifiable.",
+    )
+    violations: int = Field(ge=0, description="Cases judged `VIOLATION`.")
+    enforced: int = Field(ge=0, description="Cases judged `ENFORCED`.")
+    not_verifiable: int = Field(ge=0, description="Cases judged `NOT_VERIFIABLE`.")
+    not_applicable: int = Field(ge=0, description="Cases judged `NOT_APPLICABLE`.")
+    not_verifiable_reasons: dict[str, int] = Field(
+        default_factory=dict,
+        description="Why cases were not verifiable: each detail and how many times.",
+    )
+
+    @classmethod
+    def from_counts(
+        cls,
+        name: str,
+        *,
+        violations: int,
+        enforced: int,
+        not_applicable: int,
+        not_verifiable_reasons: dict[str, int],
+    ) -> SubTestResult:
+        """
+        Build a sub-test's result, computing its status and coverage.
+
+        Args:
+            name:                   The sub-test's declared name.
+            violations:             Cases judged VIOLATION.
+            enforced:               Cases judged ENFORCED.
+            not_applicable:         Cases judged NOT_APPLICABLE.
+            not_verifiable_reasons: The details of the NOT_VERIFIABLE cases
+                                    and their counts.
+
+        Returns:
+            The SubTestResult.
+        """
+        not_verifiable = sum(not_verifiable_reasons.values())
+        status = status_from_counts(violations, enforced, not_verifiable)
+        coverage = None
+        if status == TestStatus.PASS:
+            coverage = Coverage.PARTIAL if not_verifiable else Coverage.COMPLETE
+        return cls(
+            name=name,
+            status=status,
+            coverage=coverage,
+            violations=violations,
+            enforced=enforced,
+            not_verifiable=not_verifiable,
+            not_applicable=not_applicable,
+            not_verifiable_reasons=dict(not_verifiable_reasons),
+        )
+
+    @model_validator(mode="after")
+    def counters_and_status_agree(self) -> SubTestResult:
+        """Reject a status, coverage or reason count that the counters contradict."""
+        expected = status_from_counts(self.violations, self.enforced, self.not_verifiable)
+        if self.status != expected:
+            raise ValueError(
+                f"sub-test {self.name!r}: status {self.status} contradicts its counters "
+                f"(expected {expected})"
+            )
+        if sum(self.not_verifiable_reasons.values()) != self.not_verifiable:
+            raise ValueError(
+                f"sub-test {self.name!r}: the reasons count "
+                f"{sum(self.not_verifiable_reasons.values())} cases, not_verifiable is "
+                f"{self.not_verifiable}"
+            )
+        if (self.coverage is not None) != (self.status == TestStatus.PASS):
+            raise ValueError(f"sub-test {self.name!r}: coverage is set only for a PASS")
+        return self
+
+
+def combine_sub_tests(sub_tests: list[SubTestResult]) -> tuple[TestStatus, Coverage | None]:
+    """
+    The status and coverage of a finished test, from its sub-tests.
+
+    A sub-test FAIL gives FAIL; otherwise a sub-test PASS gives PASS, partial
+    when another sub-test is INCONCLUSIVE or a PASS sub-test is partial;
+    otherwise a sub-test INCONCLUSIVE gives INCONCLUSIVE; otherwise SKIP
+    (nothing the test applies to).
+
+    Args:
+        sub_tests: Every declared sub-test's result.
+
+    Returns:
+        (status, coverage); coverage is None unless the status is PASS.
+    """
+    statuses = {sub.status for sub in sub_tests}
+    if TestStatus.FAIL in statuses:
+        return TestStatus.FAIL, None
+    if TestStatus.PASS in statuses:
+        partial = TestStatus.INCONCLUSIVE in statuses or any(
+            sub.coverage == Coverage.PARTIAL for sub in sub_tests
+        )
+        return TestStatus.PASS, Coverage.PARTIAL if partial else Coverage.COMPLETE
+    if TestStatus.INCONCLUSIVE in statuses:
+        return TestStatus.INCONCLUSIVE, None
+    return TestStatus.SKIP, None
+
+
+# ---------------------------------------------------------------------------
 # TestResult — complete outcome of one test execution
 # ---------------------------------------------------------------------------
 
@@ -145,7 +303,7 @@ class TestResult(BaseModel):
 
     Transaction log (full audit trail):
         transaction_log holds every TransactionSummary accumulated by the
-        test via BaseTest._log_transaction() during execute(). It is embedded
+        test via BaseTest._judge() and _step() during execute(). It is embedded
         in the HTML report as a collapsible table inside the expanded row panel.
 
         NO CAP is applied. The ultra-lightweight TransactionSummary design
@@ -184,6 +342,20 @@ class TestResult(BaseModel):
         default=None,
         description="Why the test was skipped. Populated only for status=SKIP.",
     )
+    coverage: Coverage | None = Field(
+        default=None,
+        description=(
+            "For a PASS: `complete` when every applicable case was verified, `partial` when "
+            "some could not be (a sub-test `INCONCLUSIVE`, or not verifiable cases)."
+        ),
+    )
+    sub_tests: list[SubTestResult] = Field(
+        default_factory=list,
+        description=(
+            "One entry per sub-test the test declares, with its counters and status; empty "
+            "when the test stopped before judging (SKIP before the start, ERROR)."
+        ),
+    )
     duration_ms: float | None = Field(
         default=None,
         description="Wall-clock execution time in milliseconds, set by the engine.",
@@ -195,7 +367,7 @@ class TestResult(BaseModel):
         description=(
             "Complete ordered audit trail of ALL HTTP transactions performed "
             "during this test execution, including successful ones. "
-            "Populated by BaseTest._log_transaction() — no cap applied. "
+            "Populated by BaseTest._judge() and _step(), no cap applied. "
             "Embedded in the HTML report as a collapsible table. "
             "NOT serialized to evidence.json (which stores only EvidenceRecord)."
         ),
@@ -320,32 +492,42 @@ class TestResult(BaseModel):
     @model_validator(mode="after")
     def validate_status_finding_consistency(self) -> TestResult:
         """
-        Enforce the invariant between status and findings list.
+        Enforce the invariants between status, findings, coverage and sub-tests.
 
-        FAIL  -> findings must be non-empty (evidence is mandatory).
-        PASS  -> findings must be empty (no violation detected).
-                 notes (list[InfoNote]) are NOT constrained: a PASS result
-                 may carry informational annotations documenting compensating
-                 controls or architectural gaps without these representing
-                 security violations.
-        SKIP  -> findings empty, skip_reason must be present.
-        ERROR -> findings may be empty or non-empty.
+        FAIL         -> findings must be non-empty (evidence is mandatory).
+        PASS         -> findings must be empty; coverage must be set.
+        INCONCLUSIVE -> findings must be empty (nothing was proven violated).
+        SKIP         -> findings empty, skip_reason must be present.
+        ERROR        -> findings may be empty or non-empty.
+        coverage is set only for a PASS. When sub-tests are present and the
+        status is computed (not ERROR), the status and coverage must be those
+        combine_sub_tests() gives. notes (list[InfoNote]) are never
+        constrained.
         """
         if self.status == TestStatus.FAIL and not self.findings:
             raise ValueError(
                 "A TestResult with status=FAIL must contain at least one Finding. "
                 "A FAIL without evidence is not a valid assessment outcome."
             )
-        if self.status == TestStatus.PASS and self.findings:
+        if self.status in (TestStatus.PASS, TestStatus.INCONCLUSIVE) and self.findings:
             raise ValueError(
-                f"A TestResult with status=PASS must have an empty findings list. "
-                f"Found {len(self.findings)} finding(s). Use status=FAIL instead."
+                f"A TestResult with status={self.status} must have an empty findings list. "
+                f"Found {len(self.findings)} finding(s): a violation makes it FAIL."
             )
         if self.status == TestStatus.SKIP and not self.skip_reason:
             raise ValueError(
                 "A TestResult with status=SKIP must provide a skip_reason. "
                 "SKIP without explanation is indistinguishable from a silent failure."
             )
+        if (self.coverage is not None) != (self.status == TestStatus.PASS):
+            raise ValueError("coverage is set for a PASS, and only for a PASS.")
+        if self.sub_tests and self.status in _COMPUTED_STATUSES:
+            expected = combine_sub_tests(self.sub_tests)
+            if (self.status, self.coverage) != expected:
+                raise ValueError(
+                    f"status {self.status} / coverage {self.coverage} contradict the sub-tests "
+                    f"(expected {expected[0]} / {expected[1]})."
+                )
         return self
 
 
@@ -425,12 +607,14 @@ class ResultSet(BaseModel):
         """
         Compute the process exit code from the current ResultSet state.
 
-        Priority: FAIL (1) > ERROR (3) > CLEAN (0).
-        Exit code 10 (infrastructure error) is handled upstream by the engine.
+        Priority: FAIL (1) > ERROR or INCONCLUSIVE (3) > CLEAN (0): an
+        INCONCLUSIVE test, like an ERROR, is a verification that did not
+        complete. Exit code 10 (infrastructure error) is handled upstream by
+        the engine.
         """
         if any(r.status == TestStatus.FAIL for r in self.results):
             return ExitCode.FAIL
-        if any(r.status == TestStatus.ERROR for r in self.results):
+        if any(r.status in (TestStatus.ERROR, TestStatus.INCONCLUSIVE) for r in self.results):
             return ExitCode.ERROR
         return ExitCode.CLEAN
 
@@ -458,6 +642,11 @@ class ResultSet(BaseModel):
     def error_count(self) -> int:
         """Number of ERROR results."""
         return sum(1 for r in self.results if r.status == TestStatus.ERROR)
+
+    @property
+    def inconclusive_count(self) -> int:
+        """Number of INCONCLUSIVE results."""
+        return sum(1 for r in self.results if r.status == TestStatus.INCONCLUSIVE)
 
     @property
     def total_finding_count(self) -> int:

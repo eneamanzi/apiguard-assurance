@@ -436,7 +436,7 @@ class ExecutionConfig(BaseModel):
     )
     fail_fast: bool = Field(
         default=False,
-        description="Stop after the first P0 test returning FAIL or ERROR.",
+        description="Stop after the first P0 test returning FAIL, ERROR or INCONCLUSIVE.",
     )
     test_ids: list[str] = Field(
         default_factory=list,

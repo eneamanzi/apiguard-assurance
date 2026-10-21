@@ -27,7 +27,7 @@ from rich.table import Table
 from rich.text import Text
 
 from src.connectors.base import BaseSubprocessConnector
-from src.core.models import ExitCode, ResultSet, TestResult, TestStatus
+from src.core.models import Coverage, ExitCode, ResultSet, TestResult, TestStatus
 from src.core.models.enums import exit_code_text
 
 if TYPE_CHECKING:
@@ -56,9 +56,14 @@ ELLIPSIS: str = "…"
 STATUS_STYLES: dict[str, str] = {
     TestStatus.PASS: "green",
     TestStatus.FAIL: "bold red",
+    TestStatus.INCONCLUSIVE: "bold yellow",
     TestStatus.SKIP: "yellow",
     TestStatus.ERROR: "bold magenta",
 }
+# Width of the status column: the longest status (INCONCLUSIVE).
+STATUS_WIDTH: int = max(len(status.value) for status in TestStatus)
+# Shown after a PASS whose coverage is partial (some cases not verifiable).
+PARTIAL_LABEL: str = "partial"
 # Colour of the exit code line; its text is exit_code_text (src/core/models/enums.py).
 EXIT_STYLES: dict[int, str] = {
     ExitCode.CLEAN: "green",
@@ -165,26 +170,40 @@ class ConsoleObserver:
             self._console.print(f"{label} running {limit}")
 
     def test_finished(self, position: int, total: int, result: TestResult) -> None:
-        """Print the test line and, for a FAIL, its findings grouped by kind."""
+        """
+        Print the test line and what follows it.
+
+        FAIL: the finding count, then the findings grouped by kind. PASS: "partial"
+        when some cases were not verifiable, with the summary of the judgements.
+        INCONCLUSIVE: the summary (why nothing could be verified). SKIP: the
+        reason. ERROR: the message.
+        """
         self.stop_live()
         line = Text(self._test_label(position, total, result.test_id, result.test_name) + " ")
-        line.append(f"{result.status.value:<5}", style=STATUS_STYLES.get(result.status, ""))
+        line.append(
+            f"{result.status.value:<{STATUS_WIDTH}}", style=STATUS_STYLES.get(result.status, "")
+        )
         findings = result.findings
+        partial = result.coverage == Coverage.PARTIAL
         timed = result.duration_ms is not None and result.status in (
             TestStatus.PASS,
             TestStatus.FAIL,
+            TestStatus.INCONCLUSIVE,
         )
         if result.status == TestStatus.FAIL:
             line.append(f"  {_plural(len(findings), 'finding'):<12}")
+        elif partial:
+            line.append(f"  {PARTIAL_LABEL:<12}", style="yellow")
         elif timed:
             line.append(" " * FINDINGS_COLUMN_WIDTH)
         if timed and result.duration_ms is not None:
             line.append(f"{result.duration_ms / 1000:.1f}s", style="dim")
         self._console.print(line)
         indent = " " * (len(self._counter(position, total)) + 1 + self._id_width)
-        # SKIP and ERROR: the reason on the next line (first sentence).
+        # SKIP, ERROR, INCONCLUSIVE, partial PASS: the reason on the next line
+        # (first sentence).
         reason = result.skip_reason if result.status == TestStatus.SKIP else None
-        if result.status == TestStatus.ERROR:
+        if result.status in (TestStatus.ERROR, TestStatus.INCONCLUSIVE) or partial:
             reason = result.message
         if reason:
             self._console.print(Text(f"{indent}{_first_sentence(reason)}", style="dim"))
@@ -233,6 +252,7 @@ class ConsoleObserver:
         parts = [
             f"{result_set.pass_count} passed",
             f"{result_set.fail_count} failed",
+            f"{result_set.inconclusive_count} inconclusive",
             f"{result_set.skip_count} skipped",
             f"{result_set.error_count} errors",
             f"{len(result_set.not_run)} not run",

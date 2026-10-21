@@ -46,7 +46,8 @@ Audit trail design rationale (v1.2 — hybrid model):
         _TRANSACTION_TRUNCATION_SUFFIX          = "... [TRUNCATED]"
     Applied transparently in TransactionSummary.from_evidence_record().
 
-Dependency rule: this module imports only from pydantic and the stdlib.
+Dependency rule: this module imports only from pydantic, the stdlib, src.core.redaction and
+sibling modules within src.core.models (enums).
 It must never import from any other src/ module.
 """
 
@@ -55,8 +56,9 @@ from __future__ import annotations
 from datetime import UTC, datetime  # noqa: F401  (UTC used implicitly in dependent modules)
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
+from src.core.models.enums import Outcome, ResponseCategory
 from src.core.redaction import (
     AUTHORIZATION_HEADER,
     PUBLIC_VALUE_PREFIX,
@@ -97,7 +99,7 @@ class EvidenceRecord(BaseModel):
         field via _build_evidence_record() before returning the record to the
         test.  TransactionSummary.from_evidence_record() inherits the value
         automatically, so tests do NOT need to pass duration_ms explicitly
-        to BaseTest._log_transaction().  None only when the record is
+        to BaseTest._judge() or _step().  None only when the record is
         constructed outside SecurityClient.request() (e.g., in unit fixtures).
     """
 
@@ -278,7 +280,7 @@ class TransactionSummary(BaseModel):
     duration_ms inheritance:
         from_evidence_record() auto-populates duration_ms from
         EvidenceRecord.elapsed_ms when the caller does not pass an explicit
-        override. This means tests calling BaseTest._log_transaction() without
+        override. This means tests calling BaseTest._judge() or _step() without
         an explicit duration_ms argument will still have the field populated
         correctly for all transactions dispatched through SecurityClient.
         The explicit override parameter remains available for tests that
@@ -298,12 +300,30 @@ class TransactionSummary(BaseModel):
     request_method: str = Field(description="HTTP method of the request.")
     request_url: str = Field(description=("Full URL of the request."))
     response_status_code: int = Field(description="HTTP status of the response.")
-    oracle_state: str | None = Field(
+    category: ResponseCategory | None = Field(
         default=None,
         description=(
-            "Test-specific classification of the response (e.g. `ENFORCED`, `BYPASS`, "
-            "`RATE_LIMIT_HIT`, `INCONCLUSIVE_PARAMETRIC`). Free-form: each test defines its "
-            "own values."
+            "What the response is, common to every test (`SERVED`, `NOT_FOUND`, "
+            "`UNAUTHENTICATED`, ...)."
+        ),
+    )
+    sub_test: str | None = Field(
+        default=None,
+        description="The sub-test the request belongs to; null for a preparation step.",
+    )
+    outcome: Outcome | None = Field(
+        default=None,
+        description=(
+            "What the response means for the guarantee (`VIOLATION`, `ENFORCED`, "
+            "`NOT_VERIFIABLE`, `NOT_APPLICABLE`); null when the request is not judged "
+            "(a login, an object created for the test)."
+        ),
+    )
+    detail: str | None = Field(
+        default=None,
+        description=(
+            "The test's detail of the outcome, e.g. `AUTH_BYPASS`, `PATH_NOT_FOUND`; read "
+            "with the outcome as `VIOLATION/AUTH_BYPASS`. Null with a null outcome."
         ),
     )
     duration_ms: float | None = Field(
@@ -342,20 +362,32 @@ class TransactionSummary(BaseModel):
         """Normalize HTTP method to uppercase for consistency."""
         return value.upper()
 
+    @model_validator(mode="after")
+    def judgement_complete(self) -> TransactionSummary:
+        """A judged request names its sub-test and detail; an unjudged one has neither."""
+        if self.outcome is not None and (self.sub_test is None or self.detail is None):
+            raise ValueError("a judged transaction (outcome set) needs its sub_test and detail")
+        if self.outcome is None and self.detail is not None:
+            raise ValueError("a detail without an outcome")
+        return self
+
     @classmethod
     def from_evidence_record(
         cls,
         record: EvidenceRecord,
         *,
         is_fail: bool = False,
-        oracle_state: str | None = None,
+        category: ResponseCategory | None = None,
+        sub_test: str | None = None,
+        outcome: Outcome | None = None,
+        detail: str | None = None,
         duration_ms: float | None = None,
     ) -> TransactionSummary:
         """
         Construct a TransactionSummary from a full EvidenceRecord.
 
-        This is the canonical factory method. Tests call this inside
-        BaseTest._log_transaction() after every SecurityClient.request().
+        This is the canonical factory method, called by BaseTest._judge() and
+        BaseTest._step() for every SecurityClient.request() of a test.
 
         Duration inheritance:
             duration_ms is resolved with the following precedence:
@@ -367,7 +399,7 @@ class TransactionSummary(BaseModel):
                    this field, so the resolved value will be non-None for
                    all standard SecurityClient.request() transactions.
 
-            Tests calling BaseTest._log_transaction() without an explicit
+            Tests calling BaseTest._judge() or _step() without an explicit
             duration_ms argument will have the field auto-populated from
             the record. No changes to test code are required.
 
@@ -382,9 +414,15 @@ class TransactionSummary(BaseModel):
             is_fail:      True if store.add_fail_evidence(record) was also
                           called. The HTML report highlights these entries and
                           links them to evidence.json via record_id.
-            oracle_state: Semantic label for this transaction's outcome.
-                          Assign at the call site in the test after evaluating
-                          the response status and business logic.
+            category:     What the response is (src/core/response_category.py),
+                          given by the test base: models compute nothing outside
+                          their package.
+            sub_test:     The sub-test the request belongs to; None for a
+                          preparation step.
+            outcome:      What the response means for the guarantee; None for
+                          a request that is not judged.
+            detail:       The test's detail of the outcome (None with no
+                          outcome).
             duration_ms:  Per-request timing override in milliseconds.
                           When None (the default), the value is inherited from
                           record.elapsed_ms automatically.
@@ -413,7 +451,10 @@ class TransactionSummary(BaseModel):
             request_method=record.request_method,
             request_url=record.request_url,
             response_status_code=record.response_status_code,
-            oracle_state=oracle_state,
+            category=category,
+            sub_test=sub_test,
+            outcome=outcome,
+            detail=detail,
             duration_ms=resolved_duration_ms,
             is_fail_evidence=is_fail,
             request_headers=dict(record.request_headers),

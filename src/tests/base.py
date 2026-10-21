@@ -5,46 +5,35 @@ BaseTest: the base of every native test (a test that sends its own HTTP requests
 
 Every native test is a concrete subclass of BaseTest in
 src/tests/domain_<D>/test_<D>_<N>_<name>.py: it declares who it is in
-``info = TestInfo(...)`` and implements execute(); TestRegistry discovers it,
-nothing else lists it. What every test has (the declaration, the _make_*
-result helpers) comes from AssessmentTest (src/core/assessment_test.py);
-BaseTest adds what is native: the execute() signature with the HTTP client,
-the transaction log, the guard clauses and the gateway concept helpers.
+``info = TestInfo(...)`` (with its sub-tests) and implements execute();
+TestRegistry discovers it, nothing else lists it. What every test has (the
+declaration, the judgements, the computed result) comes from AssessmentTest
+(src/core/assessment_test.py); BaseTest adds what is native: the execute()
+signature with the HTTP client, the transaction log, the judgement of an HTTP
+response, the guard clauses and the gateway concept helpers.
 
 Contract:
 
-    1. execute() must always return a TestResult. It must never raise.
-       Any exception that escapes execute() is a contract violation — the
-       engine is not required to handle it and will abort the pipeline.
+    1. execute() must always return a TestResult. It must never raise: its
+       top-level ``except Exception`` returns self._error(exc).
+    2. Every response the test sends is either judged or a preparation step:
 
-    2. A TestResult(status=FAIL) must contain at least one Finding.
-       Enforced by TestResult's model_validator, not here.
+           response, record = client.request(method, path, test_id=self.info.id)
+           if category_of(record) == ResponseCategory.SERVED:   # the test's oracle
+               self._judge(record, store, "unauthenticated_access",
+                           Outcome.VIOLATION, "AUTH_BYPASS",
+                           finding=Finding(title=..., detail=...))
+           else:
+               self._judge(record, store, "unauthenticated_access",
+                           Outcome.ENFORCED, "AUTH_REQUIRED")
+           ...
+           return self._finish()
 
-    3. Every result carries the declaration (AssessmentTest) and the
-       transaction log: the log accumulates via _log_transaction() during
-       execute() and is included whichever exit path the test takes (PASS,
-       FAIL, SKIP, or ERROR).
-
-_log_transaction() calling convention:
-    After every client.request() call, the test must call _log_transaction()
-    to record the interaction in the audit trail. The method accepts the
-    oracle_state so the test can annotate the semantic meaning of the
-    response (e.g. 'ENFORCED', 'BYPASS', 'RATE_LIMIT_HIT') independently
-    of the HTTP status code.
-
-    Pattern:
-        response, record = client.request(method, path, test_id=self.info.id)
-
-        if response.status_code in BYPASS_CODES:
-            store.add_fail_evidence(record)
-            self._log_transaction(record, oracle_state="BYPASS", is_fail=True)
-            findings.append(Finding(...))
-        else:
-            self._log_transaction(record, oracle_state="ENFORCED")
-
-    The is_fail=True flag links the TransactionSummary to the corresponding
-    EvidenceRecord in evidence.json via record_id, so the HTML report can
-    highlight the entry and provide a cross-reference for the analyst.
+       _judge() stores the evidence of a VIOLATION and points the finding to
+       it; _step(record) logs a request that is not judged (a login, an
+       object created for the test).
+    3. Every result carries the declaration and the transaction log, whichever
+       exit the test takes (_finish, _skip, _error).
 
 Dependency rule:
     This module imports from stdlib, structlog, abc, and src.core only.
@@ -65,13 +54,34 @@ from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.gateway.concepts import ConceptRead, ConceptStatus
-from src.core.models import EvidenceRecord, TestResult, TransactionSummary
+from src.core.models import (
+    EvidenceRecord,
+    Finding,
+    Outcome,
+    ResponseCategory,
+    TestResult,
+    TransactionSummary,
+)
+from src.core.response_category import categorize
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
 # Label prefix of the evidence artifact of a gateway concept read by a test
 # (e.g. "gateway_backend_timeouts").
 _GATEWAY_CONCEPT_LABEL_PREFIX: str = "gateway_"
+
+
+def category_of(record: EvidenceRecord) -> ResponseCategory:
+    """
+    The category of a recorded response (src/core/response_category.py).
+
+    Args:
+        record: The EvidenceRecord returned by SecurityClient.request().
+
+    Returns:
+        Its ResponseCategory, from the HTTP status.
+    """
+    return categorize(record.response_status_code)
 
 
 # ---------------------------------------------------------------------------
@@ -84,41 +94,27 @@ class BaseTest(AssessmentTest[ParamsT]):
     Abstract base class of the native tests.
 
     Concrete subclasses must:
-        1. Declare ``info = TestInfo(...)`` (src/core/test_metadata.py).
+        1. Declare ``info = TestInfo(...)`` (src/core/test_metadata.py), with
+           its sub-tests.
         2. Implement the execute() method.
-        3. Call self._log_transaction() after every SecurityClient.request().
-        4. Ensure execute() never raises — all exceptions must be caught
-           internally and returned as TestResult(status=ERROR).
+        3. Judge every response with self._judge(), or log it as a preparation
+           step with self._step().
+        4. Ensure execute() never raises: all exceptions are caught and
+           returned as self._error(exc).
 
     Instance-level state:
-        __init__ initialises self._transaction_log as an empty list.
-        This is an instance variable — not a ClassVar — so each test instance
-        maintains its own independent audit trail. Since TestRegistry creates
-        each test class exactly once and the engine calls execute() exactly
-        once per instance, no reset mechanism is needed.
-
+        AssessmentTest.__init__ starts the tally of the sub-tests; this
+        __init__ adds the transaction log. Both are instance variables, so each
+        test instance keeps its own; TestRegistry creates each test class once
+        and the engine calls execute() once per instance.
     """
 
     # Origin of the results, fixed: must not be overridden.
     source: ClassVar[Literal["native", "external"]] = "native"
 
     def __init__(self) -> None:
-        """
-        Initialise the per-instance transaction log.
-
-        This is a concrete __init__ on an ABC, which is valid and necessary.
-        Without it, each test subclass would need to explicitly define __init__
-        or the _transaction_log attribute would not exist before execute() runs.
-
-        The list is instance-level (not ClassVar) to ensure that each test
-        instance accumulates its own independent audit trail. A ClassVar would
-        cause all instances of the same class to share one list, which would
-        corrupt the audit trail if the class were instantiated more than once
-        within a single pipeline run.
-
-        No other instance state is initialised here. All data required by
-        execute() arrives via its parameters (target, context, client, store).
-        """
+        """Start the sub-test tally (AssessmentTest) and the transaction log."""
+        super().__init__()
         self._transaction_log: list[TransactionSummary] = []
 
     @abstractmethod
@@ -132,28 +128,8 @@ class BaseTest(AssessmentTest[ParamsT]):
         """
         Execute the security test and return a result.
 
-        INVARIANT: this method must ALWAYS return a TestResult.
-        It must NEVER raise an exception. Use _make_error() in a top-level
-        try/except to catch unexpected exceptions.
-
-        Transaction log usage:
-            Call self._log_transaction(record, oracle_state=...) after every
-            client.request(). The _make_* helpers automatically include the
-            accumulated log in the returned TestResult. Example:
-
-                try:
-                    response, record = client.request(
-                        method="GET", path=path, test_id=self.info.id
-                    )
-                except SecurityClientError as exc:
-                    return self._make_error(exc)
-
-                if response.status_code in BYPASS_CODES:
-                    store.add_fail_evidence(record)
-                    self._log_transaction(record, oracle_state="BYPASS", is_fail=True)
-                    findings.append(Finding(..., evidence_ref=record.record_id))
-                else:
-                    self._log_transaction(record, oracle_state="ENFORCED")
+        INVARIANT: this method must ALWAYS return a TestResult. It must NEVER
+        raise: a top-level ``except Exception`` returns self._error(exc).
 
         Args:
             target:  Immutable knowledge about the target API.
@@ -162,78 +138,89 @@ class BaseTest(AssessmentTest[ParamsT]):
             store:   Evidence buffer for FAIL and pinned transactions.
 
         Returns:
-            A TestResult with status PASS, FAIL, SKIP, or ERROR.
+            self._finish() when the test ran to the end, self._skip(reason)
+            when something it needs is missing, self._error(exc) on an
+            exception.
         """
 
     # ------------------------------------------------------------------
-    # Transaction log — audit trail
+    # Judging responses and logging transactions
     # ------------------------------------------------------------------
 
-    def _log_transaction(
+    def _judge(
         self,
         record: EvidenceRecord,
+        store: EvidenceStore,
+        sub_test: str,
+        outcome: Outcome,
+        detail: str,
+        finding: Finding | None = None,
         *,
-        oracle_state: str | None = None,
-        is_fail: bool = False,
         duration_ms: float | None = None,
     ) -> None:
         """
-        Add a request to the test's audit trail (transaction_log in the report): call it
-        after every client.request().
+        Judge one HTTP response: log it, record the judgement, keep the proof.
 
-        Must be called after every SecurityClient.request() call, regardless
-        of outcome. The accumulated trail is automatically included in the
-        TestResult returned by any _make_* method.
-
-        No entry count cap is applied. The hybrid TransactionSummary model
-        (~860 bytes with airbag body previews) keeps even high-volume test
-        impact bounded: 2000 entries (worst-case Test 4.1) add ~1.7 MB to
-        the HTML report — still safe for all modern browsers.
-
-        TransactionSummary.from_evidence_record() applies airbag truncation
-        transparently: request_body is capped at 2 000 chars and
-        response_body_preview at 1 000 chars. No truncation logic is
-        needed here — the factory method handles it entirely.
-        Full payloads for FAIL transactions remain in EvidenceRecord /
-        evidence.json for every is_fail=True transaction.
+        For a VIOLATION the full record goes to evidence.json and the finding
+        is pointed to it (evidence_ref), so a finding of an HTTP test always
+        has its proof (docs/project/test-review.md, topic 5).
 
         Args:
-            record:       EvidenceRecord returned by SecurityClient.request().
-                          Used as the source for metadata extraction.
-            oracle_state: Semantic label for this transaction's outcome.
-                          Set this to the label that best describes what the
-                          response means for the security control under test.
-                          Examples: 'ENFORCED' (401/403 on protected path),
-                          'BYPASS' (2xx without credentials), 'RATE_LIMIT_HIT'
-                          (429 during probe loop), 'CORRECTLY_DENIED' (404 on
-                          nonexistent path), 'SUNSET_MISSING' (deprecated endpoint
-                          active without Sunset header), 'INCONCLUSIVE_PARAMETRIC'
-                          (404 expected due to placeholder resource ID).
-                          None when no semantic classification applies.
-            is_fail:      True if store.add_fail_evidence(record) was also called
-                          for this transaction. The HTML report highlights these
-                          entries and displays: "Full transaction in evidence.json
-                          → {record_id}". The caller is responsible for calling
-                          store.add_fail_evidence() separately — this method only
-                          updates the audit log.
-            duration_ms:  Per-request timing in milliseconds when relevant
-                          (e.g., timeout enforcement tests). None otherwise.
-        """
-        summary = TransactionSummary.from_evidence_record(
-            record=record,
-            is_fail=is_fail,
-            oracle_state=oracle_state,
-            duration_ms=duration_ms,
-        )
-        self._transaction_log.append(summary)
+            record:      The EvidenceRecord returned by SecurityClient.request().
+            store:       The EvidenceStore of the current test.
+            sub_test:    A declared sub-test (info.sub_tests).
+            outcome:     What the response means for the guarantee.
+            detail:      The test's detail, UPPER_SNAKE_CASE.
+            finding:     The finding of a VIOLATION (title and detail); its
+                         evidence_ref is set here.
+            duration_ms: Per-request timing override in milliseconds; by
+                         default the record's own elapsed time.
 
+        Raises:
+            ValueError: A judgement written wrongly (AssessmentTest._record).
+        """
+        is_violation = outcome == Outcome.VIOLATION
+        if is_violation and finding is not None:
+            store.add_fail_evidence(record)
+            finding = finding.model_copy(update={"evidence_ref": record.record_id})
+        self._record(sub_test, outcome, detail, finding)
+        self._append(
+            TransactionSummary.from_evidence_record(
+                record=record,
+                is_fail=is_violation,
+                category=category_of(record),
+                sub_test=sub_test,
+                outcome=outcome,
+                detail=detail,
+                duration_ms=duration_ms,
+            )
+        )
+
+    def _step(self, record: EvidenceRecord, *, duration_ms: float | None = None) -> None:
+        """
+        Log a request that is not judged: a preparation step of the test.
+
+        Args:
+            record:      The EvidenceRecord returned by SecurityClient.request().
+            duration_ms: Per-request timing override in milliseconds.
+        """
+        self._append(
+            TransactionSummary.from_evidence_record(
+                record=record, category=category_of(record), duration_ms=duration_ms
+            )
+        )
+
+    def _append(self, summary: TransactionSummary) -> None:
+        """Append one entry to the transaction log (no cap: the entries are small)."""
+        self._transaction_log.append(summary)
         log.debug(
             "transaction_logged",
             test_id=self.info.id,
-            record_id=record.record_id,
-            status_code=record.response_status_code,
-            oracle_state=oracle_state,
-            is_fail=is_fail,
+            record_id=summary.record_id,
+            status_code=summary.response_status_code,
+            category=summary.category,
+            outcome=summary.outcome,
+            detail=summary.detail,
             log_size_after=len(self._transaction_log),
         )
 
@@ -242,8 +229,8 @@ class BaseTest(AssessmentTest[ParamsT]):
         The transaction log every result of this test carries (AssessmentTest).
 
         Returns:
-            A copy, so that a later _log_transaction() (a programming error)
-            cannot change a result already returned.
+            A copy, so that a later judgement (a programming error) cannot
+            change a result already returned.
         """
         return list(self._transaction_log)
 
@@ -265,7 +252,7 @@ class BaseTest(AssessmentTest[ParamsT]):
         if target.attack_surface is not None:
             return None
 
-        return self._make_skip(
+        return self._skip(
             reason=(
                 "AttackSurface is not available in TargetContext. "
                 "This indicates Phase 2 (OpenAPI Discovery) did not complete "
@@ -340,4 +327,4 @@ class BaseTest(AssessmentTest[ParamsT]):
             reason = f"Not applicable to this gateway: {concept}: {why}."
         else:
             reason = f"Not verifiable: no access to {concept}: {why}."
-        return self._make_skip(reason=f"{reason} Evidence: {evidence_ref}.")
+        return self._skip(reason=f"{reason} Evidence: {evidence_ref}.")

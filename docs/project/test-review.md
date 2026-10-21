@@ -234,7 +234,7 @@ reported (bypass or specification error, the same fact); the analyst reading the
    | `SERVER_ERROR` | 500, 505-508, 510 |
    | `UPSTREAM_UNAVAILABLE` | 502, 503, 504 |
    | `NO_RESPONSE` | no response: timeout, connection refused, TLS error, connection reset |
-   | `OTHER` | rare codes never decisive alone: 1xx, 304, 402, 408, 418, 451 |
+   | `OTHER` | rare codes never decisive alone: 1xx, 304, 306, 402, 408, 418, 451 (306 and 418 are "Unused" in the registry) |
 
 2. **What it means for the guarantee** (each test): a small table, category → `OUTCOME/DETAIL`; the table is the
    test's oracle and appears in the "Oracle" section of its page. Outcomes, closed: `VIOLATION`, `ENFORCED`,
@@ -459,7 +459,9 @@ What the review decides for the documentation is collected here and applied afte
 | `docs/project/roadmap.md` | 6.1 and 7.1 missing from Milestone 2; strategies in its tables differ from the declarations (1.4, 1.5, 1.6, 6.2, ext.1.5.*) | overview D |
 | the catalogue of the guarantees (`docs/06-knowledge/04-guarantees.md`, translated to English) | the conclusions of phase 0b, applied **from this conversation** once the English version exists (owner, 2026-10-20) | phase 0b |
 | every test page | the new template, when its test is rewritten | phase 1, 2 |
-| `docs/02-guides/03-extending/02-add-a-native-test.md`, `03-add-an-external-test.md` | how a test declares effect and sub-tests, records outcomes, uses the references | topics 3, 6, 7 |
+| `docs/02-guides/03-extending/02-add-a-native-test.md`, `03-add-an-external-test.md` | how a test declares effect and sub-tests, records outcomes, uses the references; the example code of the native guide (still `_make_*`, `_log_transaction`, `oracle_state`) and the external guide's "typical oracle"; the generated tables and the sentences next to them are already updated (piece 1) | topics 3, 6, 7 |
+| `docs/02-guides/03-extending/01-coding-rules.md` | the top-level except returns `self._error(exc)` (line 55 still names `_make_error`) | piece 1 |
+| `docs/04-architecture/02-data-model.md`, `03-assessment-model.md`, `docs/02-guides/01-usage/03-read-the-report.md` | `oracle_state` replaced by `sub_test`, `category`, `outcome`, `detail` (data model "Extra" row, "Oracle states" paragraph, the `jq` example) | piece 1 |
 
 ## Phase 0b: the base
 
@@ -561,6 +563,14 @@ The new version is built on a **new branch** (`test-review`) in the usual folder
   in the git history. Abandoning the branch leaves `main` untouched.
 - The owner creates the branch (Claude gives the command) after the documentation work is committed, so the branch
   starts from a clean base. Work is committed before switching between `main` and the branch.
+- **On the branch, a test not yet rewritten is removed together with its page** (owner, 2026-10-21: `git rm` of the
+  15 native test modules, the 2 external test modules and their 17 pages in `docs/05-tests/`; helpers, data,
+  connectors and the external-test template kept). A test comes back rewritten, starting from its `main` version
+  (`git show main:<path>`), with its page (the draft), its parameters and its "Test portability" row. Meanwhile the
+  lab configurations do not load on the branch (they hold the parameters of absent tests, rejected as unknown keys):
+  checkpoints use scratch copies with the rewritten tests only.
+- **Before the merge into `main`:** the catalogue lists every test again (plus the new ones), the three lab
+  configurations load and run as written, and no document points to a page or test that is not there.
 - Considered and not adopted: a second folder (`git worktree`): the same branch, but untracked files (`.env`,
   `tools/`, lab certificates) and Claude Code's project memory would have to be copied or linked; the baseline
   reports make it unnecessary.
@@ -568,6 +578,36 @@ The new version is built on a **new branch** (`test-review`) in the usual folder
   on duplicate IDs; two copies of everything in one codebase); converting every test at once (each test would be
   touched twice, before and during its review, and a change that large cannot be checked step by step);
   building piece by piece in `main` with backward compatibility (old and new together for weeks).
+
+### Baseline of the old tool (2026-10-20)
+
+Commit 4b185f8 (`main` = `test-review` before any change), native tests only (the lab configurations with
+`external_tools.enabled: false` and `output.directory: outputs/baseline/<lab>`), each lab reset before and after.
+Reports in `outputs/baseline/<lab>/` (not in git: keep the folder until the merge).
+
+| Test | Forgejo + Kong | Forgejo + APISIX | crAPI + Kong |
+|---|---|---|---|
+| 0.1 | FAIL 2 | FAIL 2 | FAIL 12 |
+| 0.2 | PASS | PASS | PASS |
+| 0.3 | SKIP | SKIP | SKIP |
+| 1.1 | FAIL 78 | FAIL 78 | FAIL 2 |
+| 1.4 | PASS | PASS | SKIP |
+| 1.5 | FAIL 1 | FAIL 1 | FAIL 1 |
+| 1.6 | SKIP | SKIP | SKIP |
+| 2.1 | PASS | PASS | SKIP |
+| 3.3 | PASS | PASS | PASS |
+| 4.1 | FAIL 2 | FAIL 2 | FAIL 2 |
+| 4.2 | PASS | PASS | PASS |
+| 4.3 | PASS | PASS | PASS |
+| 6.2 | PASS | PASS | FAIL 1 |
+| 6.4 | PASS | PASS | PASS |
+| 7.2 | FAIL 1 | FAIL 1 | PASS (90 s) |
+| Exit | 1, 84 findings | 1, 84 findings | 1, 18 findings |
+
+Numbers are finding counts. To look at in the reviews: crAPI 0.1's 12 findings are all "undeclared HTTP method
+accepted" with `401` under `/identity/api` (`GET`/`PUT`/`PATCH`/`DELETE` on `reset-password`, `change-email`,
+`verify-email-token`), where crAPI answers `401` to any path, existing or not (topic 1 evidence): false positives
+the reference responses remove; crAPI 7.2 PASS is the probable false PASS of Q-29.
 
 ### Order of the common pieces
 
@@ -590,10 +630,35 @@ is written when it starts.
 Every piece is checked with `hatch run dev:check` and on the labs with the tests already rewritten; piece 10 runs
 the external tools only with the owner's go.
 
+### Piece 1: done (2026-10-21)
+
+- Files: `src/core/models/enums.py` (`INCONCLUSIVE`, `Coverage`, `ResponseCategory`, `Outcome`, exit code texts),
+  `src/core/response_category.py` (new), `src/core/models/results.py` (`SubTestResult`, `status_from_counts`,
+  `combine_sub_tests`, `TestResult.coverage` and `sub_tests`, exit code `3` for INCONCLUSIVE),
+  `src/core/models/http.py` (`oracle_state` replaced by `category`, `sub_test`, `outcome`, `detail`),
+  `src/core/test_metadata.py` (`sub_tests`, at least one), `src/core/assessment_test.py` (`_record`, `_finish`,
+  `_skip`, `_error`; the `_make_*` helpers removed), `src/tests/base.py` (`_judge`, `_step`, `category_of`;
+  `_log_transaction` removed), `src/external_tests/base.py` and `_template_ext_test.py`, `src/engine.py` and
+  `src/core/dag.py` (fail-fast and `depends_on` with INCONCLUSIVE), `src/cli_console.py`, `src/report/builder.py`,
+  `src/report/renderer.py`, `src/report/templates/report.html`, `scripts/compare_reports.py`,
+  `scripts/generate_docs.py` (`SubTestResult` in the schema page); the generated tables of the two "add a test"
+  guides; the "Status semantics" of `03-reference/04-report-schema.md`.
+- Pilot: 4.2 back on the new base (oracle of v0.1.0, three sub-tests), with its `main` page and the oracle sections
+  updated. Checked on the three labs (scratch configurations with 4.2 only): PASS complete as in the baseline
+  (Forgejo + Kong 6 judgements on 2 backends, Forgejo + APISIX 3 on 1, crAPI 12 on 4); with
+  `max_read_timeout_ms: 1`, FAIL with 2 findings on `read_timeout`, exit 1, both findings pointing to the stored
+  concept read.
+- Not exercised on a lab yet: INCONCLUSIVE and partial PASS (no rewritten test can produce them before the
+  reference responses, piece 3); checked on the models (`status_from_counts`, `combine_sub_tests`, the validators)
+  with every combination of counters.
+
 ## Phases 1 and 2: order
 
 - **Phase 1** (implemented), by domain, each external test after its native one: 0.1, ext.0.1.nuclei, 0.2, 0.3,
   1.1, 1.4, 1.5, ext.1.5.testssl and ext.1.5.sslyze, 1.6, 2.1, 3.3, 4.1, 4.2, 4.3, 6.2, 6.4, 7.2.
+- **Native and external tests of the same guarantee are reviewed together** (owner, 2026-10-20): what each covers,
+  where they overlap, whether one should use the other's results, and how the pair is reported (today ext.0.1.nuclei
+  beside 0.1, ext.1.5.testssl and ext.1.5.sslyze beside 1.5).
 - **Phase 2** (missing, after phase 0b): 0.4, 1.2, 1.3, 1.7, 2.2, 2.4, 2.5, 3.1, 4.4, 5.1, 5.2, 6.1, 6.3, 7.1,
   7.3, 7.4 (2.3 merged into 2.1) and the planned external tests.
 
@@ -612,6 +677,6 @@ the external tools only with the owner's go.
 | Phase 0a topic 9 | done (2026-10-20) | three situations per test; variants as differences inside the labs (above) |
 | Phase 0a topic 10 | done (2026-10-20) | page template updated with topics 1-9; common rules in `assessment-model.md` (above) |
 | Phase 0b | done (2026-10-20) | catalogue against API Top 10 2023 (3 new, 2 merges, 2.4 redefined), tools' versions, priorities (above); the catalogue text is edited after its translation |
-| Phase 0c | planned (2026-10-20) | new branch, baseline reports from `main`, no backward compatibility; 10 pieces in order (above) |
+| Phase 0c | in progress: piece 1 done (2026-10-21) | new branch, baseline reports from `main`, no backward compatibility; 10 pieces in order (above) |
 | Phase 1 | to do | |
 | Phase 2 | to do | |

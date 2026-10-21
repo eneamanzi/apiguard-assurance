@@ -9,60 +9,40 @@ Guarantee (docs/06-knowledge/04-guarantees.md, Section 4.2):
     connection pool indefinitely; accumulated blocked threads exhaust the pool
     and prevent the server from accepting new requests.
 
-    This test audits Kong service timeout configuration via the Admin API,
-    verifying that connect_timeout, read_timeout, and write_timeout are all
-    set and within the oracle bounds defined by the methodology:
+    This test audits the gateway's timeouts towards its backends (connect,
+    read, write) against the oracle bounds of the methodology:
 
         connect_timeout  <=  5 000 ms  (NIST SP 800-204A Section 4.3: <= 5 s)
         read_timeout     <= 30 000 ms  (NIST SP 800-204A Section 4.3: <= 30 s)
         write_timeout    <= 30 000 ms
 
-Strategy: WHITE_BOX -- Configuration Audit.
-    The methodology (section 4.2) explicitly prescribes White Box for this
-    control: "Il tester ha accesso in lettura ai file di configurazione del
-    Gateway (Admin API)." Verifying timeout enforcement empirically from the
-    outside would require injecting a mock slow-responding backend -- a
-    significantly more complex and environment-dependent approach that provides
-    no additional security assurance over a direct audit of the Gateway
-    configuration values.
-
+Strategy: WHITE_BOX -- Configuration Audit through the gateway adapter.
 Priority: P1 -- a missing timeout on any upstream service is a resource-lock
     vulnerability that cascades into full pool exhaustion (CWE-400).
 
-Sub-tests (executed in this fixed order):
---------------------------------------------------------------------------
-Sub-test 1 -- Service Enumeration
-    Retrieves all Kong services via Admin API (GET /services).
-    If no services are registered, returns SKIP (nothing to audit).
+Pilot of the test review (docs/project/test-review.md, phase 0c piece 1): the
+oracle is the v0.1.0 one, moved onto the computed result; its review (e.g.
+whether a timeout the gateway does not state is a violation, Q-29) is phase 1.
 
-Sub-test 2 -- Timeout Value Validation (per service)
-    For every service returned, verifies three fields:
-        a. connect_timeout: must be > 0 and <= max_connect_timeout_ms
-        b. read_timeout:    must be > 0 and <= max_read_timeout_ms
-        c. write_timeout:   must be > 0 and <= max_write_timeout_ms
+Sub-tests: connect_timeout, read_timeout, write_timeout. For each backend (or
+route that overrides its backend's timeouts) and each timeout:
 
-    Each violation produces an independent Finding with the service name,
-    field name, observed value, and oracle threshold. A service whose all
-    three timeouts are within bounds contributes zero findings.
-
-    Oracle (per field):
-        value in (0, max_value_ms]  -> compliant
-        value == 0                  -> Finding: "timeout not configured"
-        value > max_value_ms        -> Finding: "timeout exceeds oracle threshold"
+    value in (0, maximum]    -> ENFORCED/WITHIN_LIMIT
+    value > maximum          -> VIOLATION/ABOVE_LIMIT
+    value == 0               -> VIOLATION/NOT_CONFIGURED
+    value not stated (None)  -> VIOLATION/NOT_STATED
 
 Gateway access:
     The test reads the neutral concept "backend timeouts" through the gateway
-    adapter (target.gateway.backend_timeouts(), src/core/gateway/concepts.py):
-    one item per backend, or per route that overrides its backend's timeouts,
+    adapter (target.gateway.backend_timeouts(), src/core/gateway/concepts.py),
     in seconds; the oracle thresholds stay in milliseconds (configuration) and
     the values are converted. A concept not supported or not accessible gives
-    SKIP with the reason (BaseTest._skip_for_concept).
+    SKIP with the reason (BaseTest._skip_for_concept); no backend gives SKIP.
 
 EvidenceStore policy:
     No HTTP request is made to the target API. The concept read is stored as
     an artifact (BaseTest._record_gateway_concept) and every Finding points to
     it through evidence_ref.
---------------------------------------------------------------------------
 """  # noqa: N999
 
 from __future__ import annotations
@@ -77,7 +57,7 @@ from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.gateway.base import CONCEPT_BACKEND_TIMEOUTS
 from src.core.gateway.concepts import BackendTimeout, ConceptScope, ConceptStatus
-from src.core.models import Finding, TestResult, TestStrategy
+from src.core.models import Finding, Outcome, TestResult, TestStrategy
 from src.core.test_metadata import Need, TestInfo
 from src.tests.base import BaseTest
 
@@ -146,8 +126,8 @@ class Test42Params(BaseModel):
 # Module-level constants
 # ---------------------------------------------------------------------------
 
-# The three timeouts, in the words of the findings (the names the gateways
-# commonly use) and the concept's field (seconds).
+# The three timeouts: the sub-test (named as the gateways commonly name the
+# timeout, also the word of the findings) and the concept's field (seconds).
 _TIMEOUT_LABELS: tuple[tuple[str, str], ...] = (
     ("connect_timeout", "connect_seconds"),
     ("read_timeout", "read_seconds"),
@@ -159,6 +139,12 @@ _MS_PER_SECOND: int = 1000
 # 60 000 ms, so a zero should not appear, but it gets a clear finding rather
 # than a confusing comparison.
 _TIMEOUT_UNCONFIGURED: int = 0
+
+# Details of the judgements (the oracle table above).
+_WITHIN_LIMIT: str = "WITHIN_LIMIT"
+_ABOVE_LIMIT: str = "ABOVE_LIMIT"
+_NOT_CONFIGURED: str = "NOT_CONFIGURED"
+_NOT_STATED: str = "NOT_STATED"
 
 # Word for the object a timeout applies to, in the findings.
 _SCOPE_WORDS: dict[ConceptScope, str] = {
@@ -180,17 +166,10 @@ class Test42TimeoutConfigAudit(BaseTest[Test42Params]):
     """
     Test 4.2 -- Timeout Configuration Audit: Prevention of Resource Lock.
 
-    Audits Kong service timeout parameters (connect_timeout, read_timeout,
-    write_timeout) via the Admin API. Produces one Finding per field per
-    service that violates the oracle thresholds defined in the methodology.
-
-    This is a WHITE_BOX configuration audit: no HTTP requests are made to
-    the target API. All evidence is derived from the Admin API response.
+    Judges the connect, read and write timeouts of every backend the gateway
+    states, one sub-test per timeout. A WHITE_BOX configuration audit: no
+    HTTP request is made to the target API; the evidence is the concept read.
     """
-
-    # ------------------------------------------------------------------
-    # BaseTest class-level contract
-    # ------------------------------------------------------------------
 
     info = TestInfo(
         id="4.2",
@@ -206,11 +185,8 @@ class Test42TimeoutConfigAudit(BaseTest[Test42Params]):
             "OWASP-API4",
         ),
         needs=(Need.GATEWAY,),
+        sub_tests=tuple(label for label, _ in _TIMEOUT_LABELS),
     )
-
-    # ------------------------------------------------------------------
-    # execute
-    # ------------------------------------------------------------------
 
     def execute(
         self,
@@ -228,12 +204,11 @@ class Test42TimeoutConfigAudit(BaseTest[Test42Params]):
             2. Read the concept "backend timeouts" and store it as evidence.
             3. Not supported or not accessible: SKIP with the reason.
             4. No backend: SKIP (nothing to audit).
-            5. Validate connect, read and write timeouts of each item against
-               the configured thresholds: PASS, or FAIL with one finding per
-               violation, each pointing to the stored concept.
+            5. Judge connect, read and write timeouts of each item against the
+               configured thresholds; the result is computed (_finish).
 
         Returns:
-            TestResult with status PASS, FAIL, SKIP, or ERROR.
+            TestResult: computed from the judgements, SKIP, or ERROR.
         """
         try:
             gateway = target.gateway
@@ -257,7 +232,7 @@ class Test42TimeoutConfigAudit(BaseTest[Test42Params]):
                 return self._skip_for_concept(CONCEPT_BACKEND_TIMEOUTS, answer, evidence_ref)
 
             if not answer.items:
-                return self._make_skip(
+                return self._skip(
                     reason=(
                         "No backend registered on the gateway: there is nothing to audit "
                         "for timeout configuration. Verify that the gateway has at least "
@@ -266,118 +241,88 @@ class Test42TimeoutConfigAudit(BaseTest[Test42Params]):
                 )
 
             log.info("test_4_2_backends_retrieved", backend_count=len(answer.items))
-
-            findings = self._audit_timeouts(answer.items, cfg, evidence_ref)
-
-            if findings:
-                return self._make_fail_multi(
-                    message=(
-                        f"Timeout audit found {len(findings)} violation(s) across "
-                        f"{len(answer.items)} backend(s). "
-                        "Backends with missing or over-threshold timeouts expose the gateway "
-                        "to resource exhaustion via connection pool starvation."
-                    ),
-                    findings=findings,
-                )
-
-            return self._make_pass(
-                message=(
-                    f"All {len(answer.items)} backend(s) have compliant timeout configuration: "
-                    f"connect_timeout <= {cfg.max_connect_timeout_ms} ms, "
-                    f"read_timeout <= {cfg.max_read_timeout_ms} ms, "
-                    f"write_timeout <= {cfg.max_write_timeout_ms} ms."
-                )
+            self._judge_timeouts(answer.items, cfg, evidence_ref)
+            return self._finish(
+                message=f"{len(answer.items)} backend(s) or route(s) read from the gateway."
             )
 
         except Exception as exc:  # noqa: BLE001
             log.exception("test_4_2_unexpected_error", error=str(exc))
-            return self._make_error(exc)
+            return self._error(exc)
 
     # ------------------------------------------------------------------
-    # Timeout validation
+    # Timeout judgement
     # ------------------------------------------------------------------
 
-    def _audit_timeouts(
+    def _judge_timeouts(
         self,
         items: tuple[BackendTimeout, ...],
         cfg: Test42Params,
         evidence_ref: str,
-    ) -> list[Finding]:
+    ) -> None:
         """
-        Validate the three timeouts of every item of the concept.
+        Judge the three timeouts of every item of the concept.
 
         Args:
             items:        The backend timeouts read from the gateway.
             cfg:          Test42Params carrying the oracle thresholds.
             evidence_ref: Evidence record of the concept read.
-
-        Returns:
-            Flat list of all findings. Empty if all items are compliant.
         """
         thresholds: dict[str, int] = {
             "connect_timeout": cfg.max_connect_timeout_ms,
             "read_timeout": cfg.max_read_timeout_ms,
             "write_timeout": cfg.max_write_timeout_ms,
         }
-        findings: list[Finding] = []
         for item in items:
             subject = f"{_SCOPE_WORDS[item.scope]} '{item.name}'"
             for label, concept_field in _TIMEOUT_LABELS:
                 seconds: float | None = getattr(item, concept_field)
                 value_ms = None if seconds is None else round(seconds * _MS_PER_SECOND)
-                finding = self._check_single_timeout(
+                detail, finding = self._judge_single_timeout(
                     subject=subject,
                     label=label,
                     value_ms=value_ms,
                     max_value_ms=thresholds[label],
                     evidence_ref=evidence_ref,
                 )
-                if finding is not None:
-                    findings.append(finding)
-                    log.info(
-                        "test_4_2_timeout_violation",
-                        subject=subject,
-                        field=label,
-                        observed_ms=value_ms,
-                        oracle_max_ms=thresholds[label],
-                    )
-                else:
-                    log.debug(
-                        "test_4_2_timeout_compliant",
-                        subject=subject,
-                        field=label,
-                        value_ms=value_ms,
-                    )
-        return findings
+                outcome = Outcome.ENFORCED if finding is None else Outcome.VIOLATION
+                self._record(label, outcome, detail, finding)
+                log.debug(
+                    "test_4_2_timeout_judged",
+                    subject=subject,
+                    field=label,
+                    value_ms=value_ms,
+                    oracle_max_ms=thresholds[label],
+                    outcome=outcome,
+                    detail=detail,
+                )
 
-    def _check_single_timeout(
+    def _judge_single_timeout(
         self,
         subject: str,
         label: str,
         value_ms: int | None,
         max_value_ms: int,
         evidence_ref: str,
-    ) -> Finding | None:
+    ) -> tuple[str, Finding | None]:
         """
-        Check one timeout of one backend or route.
+        Judge one timeout of one backend or route.
 
-        Three conditions produce a Finding:
-            1. The timeout is not stated (None).
-            2. It is 0 ("not configured").
-            3. It exceeds max_value_ms (oracle threshold).
+        Three conditions are a violation: the timeout is not stated (None), it
+        is 0 ("not configured"), it exceeds max_value_ms.
 
         Args:
             subject:      "service '<name>'" or "route '<name>'", for the messages.
-            label:        Timeout name for the messages (e.g. 'connect_timeout').
+            label:        Timeout name (the sub-test, e.g. 'connect_timeout').
             value_ms:     The timeout in milliseconds, or None if not stated.
             max_value_ms: Maximum acceptable value in milliseconds.
             evidence_ref: Evidence record of the concept read.
 
         Returns:
-            Finding if the timeout is non-compliant, None if compliant.
+            (detail, finding): the finding is None when the timeout is compliant.
         """
         if value_ms is None:
-            return Finding(
+            return _NOT_STATED, Finding(
                 title=f"Timeout Field Absent: {label} on {subject}",
                 detail=(
                     f"The gateway does not state '{label}' for {subject}. Expected a "
@@ -389,7 +334,7 @@ class Test42TimeoutConfigAudit(BaseTest[Test42Params]):
             )
 
         if value_ms == _TIMEOUT_UNCONFIGURED:
-            return Finding(
+            return _NOT_CONFIGURED, Finding(
                 title=f"Timeout Not Configured: {label} == 0 on {subject}",
                 detail=(
                     f"{subject.capitalize()} has {label} = 0, which indicates the timeout is "
@@ -404,7 +349,7 @@ class Test42TimeoutConfigAudit(BaseTest[Test42Params]):
             )
 
         if value_ms > max_value_ms:
-            return Finding(
+            return _ABOVE_LIMIT, Finding(
                 title=(f"Timeout Exceeds Oracle Threshold: {label} = {value_ms} ms on {subject}"),
                 detail=(
                     f"{subject.capitalize()} has {label} = {value_ms} ms, "
@@ -422,4 +367,4 @@ class Test42TimeoutConfigAudit(BaseTest[Test42Params]):
                 evidence_ref=evidence_ref,
             )
 
-        return None
+        return _WITHIN_LIMIT, None

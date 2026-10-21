@@ -396,9 +396,12 @@ class DAGScheduler:
 # Prerequisite check (Phase 5)
 # ---------------------------------------------------------------------------
 
-# Statuses with which a prerequisite has completed: it ran and reached a
-# verdict, so whatever it produces for its dependents exists.
-_COMPLETED_STATUSES: frozenset[TestStatus] = frozenset({TestStatus.PASS, TestStatus.FAIL})
+# Statuses with which a prerequisite has completed: it ran to the end, so
+# whatever it produces for its dependents exists (INCONCLUSIVE too: it ran to
+# the end, it only could not verify).
+_COMPLETED_STATUSES: frozenset[TestStatus] = frozenset(
+    {TestStatus.PASS, TestStatus.FAIL, TestStatus.INCONCLUSIVE}
+)
 
 
 def prerequisite_skip_reason(
@@ -414,7 +417,7 @@ def prerequisite_skip_reason(
     prerequisite missing from statuses is not in the run.
 
     Rules (one reason per unmet prerequisite, depends_on first):
-        depends_on X:    X must have completed (PASS or FAIL).
+        depends_on X:    X must have completed (PASS, FAIL or INCONCLUSIVE).
         requires_pass X: X must have returned PASS.
 
     Args:

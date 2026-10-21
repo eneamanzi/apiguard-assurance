@@ -22,6 +22,7 @@
       --color-fail: #dc2626;
       --color-skip: #d97706;
       --color-error: #7c3aed;
+      --color-inconclusive: #ea580c;
       --color-bg: #f8fafc;
       --color-surface: #ffffff;
       --color-border: #e2e8f0;
@@ -189,6 +190,10 @@
       color: var(--color-error);
     }
 
+    .stat-inconclusive .stat-value {
+      color: var(--color-inconclusive);
+    }
+
     .stat-neutral .stat-value {
       color: var(--color-accent);
     }
@@ -319,6 +324,11 @@
     .filter-btn[data-value="ERROR"].active {
       background: var(--color-error);
       border-color: var(--color-error);
+    }
+
+    .filter-btn[data-value="INCONCLUSIVE"].active {
+      background: var(--color-inconclusive);
+      border-color: var(--color-inconclusive);
     }
 
     .filter-btn[data-value="0"].active {
@@ -463,6 +473,22 @@
       color: var(--color-error);
     }
 
+    .badge-inconclusive {
+      background: #ffedd5;
+      color: var(--color-inconclusive);
+    }
+
+    /* "partial" next to a PASS whose coverage is partial */
+    .coverage-partial {
+      display: inline-block;
+      margin-left: 0.3rem;
+      font-size: 0.68rem;
+      font-weight: 600;
+      color: var(--color-inconclusive);
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
     .badge-unknown {
       background: #f1f5f9;
       color: var(--color-muted);
@@ -507,6 +533,10 @@
 
     .dot-error {
       background: var(--color-error);
+    }
+
+    .dot-inconclusive {
+      background: var(--color-inconclusive);
     }
 
     .finding-count-badge {
@@ -869,6 +899,38 @@
       color: var(--color-error);
       font-style: italic;
       padding: 0.5rem 0;
+    }
+
+    .detail-inconclusive-msg {
+      font-size: 0.82rem;
+      color: var(--color-inconclusive);
+      font-style: italic;
+      padding: 0.5rem 0;
+    }
+
+    /* Sub-tests table in the detail panel */
+    .subtests-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+      margin: 0.5rem 0 0.75rem;
+    }
+
+    .subtests-table th,
+    .subtests-table td {
+      text-align: left;
+      padding: 0.3rem 0.5rem;
+      border-bottom: 1px solid var(--color-border);
+    }
+
+    .subtests-table th {
+      color: var(--color-muted);
+      font-weight: 600;
+    }
+
+    .subtests-num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
     }
 
     /* ------------------------------------------------------------------ */
@@ -1619,6 +1681,11 @@
           <div class="stat-value">{{ report.executive_summary.fail_count }}</div>
           <div class="stat-label">Failed</div>
         </div>
+        <div class="stat-card stat-inconclusive">
+          <div class="stat-value">{{ report.executive_summary.inconclusive_count }}</div>
+          <div class="stat-label">Inconclusive</div>
+          <div class="stat-sublabel">Run, nothing could be verified</div>
+        </div>
         <div class="stat-card stat-error">
           <div class="stat-value">{{ report.executive_summary.error_count }}</div>
           <div class="stat-label">Errors</div>
@@ -1648,6 +1715,9 @@
           </button>
           <button class="filter-btn" data-filter="status" data-value="FAIL">
             <span class="dot dot-fail"></span>Fail
+          </button>
+          <button class="filter-btn" data-filter="status" data-value="INCONCLUSIVE">
+            <span class="dot dot-inconclusive"></span>Inconclusive
           </button>
           <button class="filter-btn" data-filter="status" data-value="SKIP">
             <span class="dot dot-skip"></span>Skip
@@ -1698,6 +1768,7 @@
           <div class="domain-strip">
             <span><span class="dot dot-pass"></span>{{ domain.pass_count }} pass</span>
             <span><span class="dot dot-fail"></span>{{ domain.fail_count }} fail</span>
+            <span><span class="dot dot-inconclusive"></span>{{ domain.inconclusive_count }} inconclusive</span>
             <span><span class="dot dot-skip"></span>{{ domain.skip_count }} skip</span>
             <span><span class="dot dot-error"></span>{{ domain.error_count }} error</span>
             {% if domain.total_finding_count > 0 %}
@@ -1738,6 +1809,7 @@
         {%- endif %}
         <td>
           <span class="badge {{ row.status | status_badge_class }}">{{ row.status }}</span>
+          {%- if row.coverage == 'partial' %}<span class="coverage-partial" title="Some cases could not be verified: see the sub-tests">partial</span>{%- endif %}
         </td>
         <td class="td-msg">
           <div class="test-name">{{ row.test_name if row.test_name else row.test_id }}</div>
@@ -1869,6 +1941,45 @@
               </div>
               {%- endif %}
             </div>
+            <!-- Sub-tests: counters and status of each declared sub-test -->
+            {% if row.sub_tests %}
+            <div class="detail-section-header">
+              <span class="detail-section-title">Sub-tests ({{ row.sub_tests | length }})</span>
+            </div>
+            <table class="subtests-table">
+              <thead>
+                <tr>
+                  <th>Sub-test</th>
+                  <th>Status</th>
+                  <th class="subtests-num">Violations</th>
+                  <th class="subtests-num">Enforced</th>
+                  <th class="subtests-num">Not verifiable</th>
+                  <th class="subtests-num">Not applicable</th>
+                  <th>Why not verifiable</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for sub in row.sub_tests %}
+                <tr>
+                  <td><code>{{ sub.name }}</code></td>
+                  <td>
+                    <span class="badge {{ sub.status | status_badge_class }}">{{ sub.status }}</span>
+                    {%- if sub.coverage == 'partial' %}<span class="coverage-partial">partial</span>{%- endif %}
+                  </td>
+                  <td class="subtests-num">{{ sub.violations }}</td>
+                  <td class="subtests-num">{{ sub.enforced }}</td>
+                  <td class="subtests-num">{{ sub.not_verifiable }}</td>
+                  <td class="subtests-num">{{ sub.not_applicable }}</td>
+                  <td>
+                    {%- for reason, count in sub.not_verifiable_reasons.items() %}
+                    <code>{{ reason }}</code>&nbsp;{{ count }}{{ ", " if not loop.last }}
+                    {%- endfor %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% endif %}
             <!-- Findings (FAIL) -->
             {% if row.findings %}
             <div class="detail-findings-section">
@@ -1906,7 +2017,15 @@
             </div>
             {% elif row.status == 'PASS' %}
             <div class="detail-pass-msg">
-              &#10003; All checks passed &mdash; no findings for this test.
+              {%- if row.coverage == 'partial' %}
+              &#10003; No violation, but not every case could be verified (partial): {{ row.message }}
+              {%- else %}
+              &#10003; No violation, every applicable case verified: {{ row.message }}
+              {%- endif %}
+            </div>
+            {% elif row.status == 'INCONCLUSIVE' %}
+            <div class="detail-inconclusive-msg">
+              Inconclusive: the test ran, but no case could be verified. {{ row.message }}
             </div>
             {% elif row.status == 'SKIP' %}
             <div class="detail-skip-msg">
@@ -2169,7 +2288,7 @@
               <th class="tx-th" style="width:54px;">Method</th>
               <th class="tx-th">Path</th>
               <th class="tx-th" style="width:58px;">HTTP</th>
-              <th class="tx-th" style="width:140px;">Oracle State</th>
+              <th class="tx-th" style="width:200px;">Outcome (category)</th>
               <th class="tx-th" style="width:82px;">Duration</th>
               <th class="tx-th" style="width:60px;">cURL</th>
             </tr>
@@ -2354,7 +2473,7 @@
     }
 
     // ---------------------------------------------------------------------------
-    // HTML-escape helper — prevents XSS from URL / oracle_state / record_id.
+    // HTML-escape helper — prevents XSS from URL / outcome / record_id.
     // Used by both the modal engine and the copy utilities below.
     // ---------------------------------------------------------------------------
     function _escHtml(str) {
@@ -2472,7 +2591,11 @@
                 : sc >= 200 ? "tx-status-ok"
                   : "tx-status-other";
 
-          var oracle = tx.oracle_state || "\u2014";
+          // Outcome/detail and the response category; a preparation step has
+          // only its category. The sub-test is part of the searchable text.
+          var judged = tx.outcome ? (tx.outcome + "/" + tx.detail) : "\u2014";
+          var oracle = judged + (tx.category ? " (" + tx.category + ")" : "") +
+            (tx.sub_test ? " " + tx.sub_test : "");
           var dur = (tx.duration_ms != null)
             ? tx.duration_ms.toFixed(1) + "\u00a0ms"
             : "\u2014";
@@ -2504,7 +2627,7 @@
             // col 5: HTTP status + FAIL badge
             "<td class=\"tx-cell\"><span class=\"" + scClass + "\">" + sc + "</span>" +
             failBadge + "</td>" +
-            // col 6: oracle state
+            // col 6: outcome/detail (category) sub-test
             "<td class=\"tx-cell\"><span class=\"tx-oracle-label\">" +
             _escHtml(oracle) + "</span></td>" +
             // col 7: duration
@@ -2834,7 +2957,7 @@
         "Method",
         "Path",
         "HTTP Status",
-        "Oracle State",
+        "Outcome (category)",
         "Duration (ms)",
         "Is Fail Evidence",
         "Request Body",
@@ -2862,7 +2985,9 @@
           tx.request_method || "",
           path,
           String(tx.response_status_code),
-          tx.oracle_state || "",
+          (tx.outcome ? tx.outcome + "/" + tx.detail : "") +
+          (tx.category ? " (" + tx.category + ")" : "") +
+          (tx.sub_test ? " " + tx.sub_test : ""),
           dur,
           tx.is_fail_evidence ? "TRUE" : "FALSE",
           reqBody,

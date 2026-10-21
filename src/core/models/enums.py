@@ -3,9 +3,10 @@ src/core/models/enums.py
 
 Shared enumerations for the APIGuard Assurance tool.
 
-TestStatus, TestStrategy, SpecDialect and NotRunReason inherit from StrEnum so their
-values serialize natively to JSON strings without extra configuration.
-ExitCode inherits from IntEnum: its values are process exit codes.
+TestStatus, Coverage, ResponseCategory, Outcome, TestStrategy, SpecDialect and
+NotRunReason inherit from StrEnum so their values serialize natively to JSON strings
+without extra configuration. ExitCode inherits from IntEnum: its values are process
+exit codes.
 
 Dependency rule: this module imports only from the stdlib.
 It must never import from any other src/ module.
@@ -25,18 +26,103 @@ class TestStatus(StrEnum):
     Inherits from str so values serialize natively to JSON strings.
 
     Semantic contract (docs/04-architecture/03-assessment-model.md, "Outcomes"):
-        PASS  -- Control executed, security guarantee satisfied.
-        FAIL  -- Control executed, guarantee NOT satisfied. Requires a Finding.
-        SKIP  -- Not executed for an explicit, documented reason. Not a failure.
-        ERROR -- Unexpected exception. Result uncertain, requires investigation.
+        PASS         -- No violation, and at least one case verified; complete
+                        or partial (Coverage).
+        FAIL         -- At least one violation. Requires a Finding.
+        INCONCLUSIVE -- Run to the end, no violation and nothing verified: only
+                        cases that could not be verified.
+        SKIP         -- Not run (something needed to start is missing), or
+                        nothing the test applies to. Not a failure.
+        ERROR        -- The test broke while running. Result uncertain.
+
+    PASS, FAIL and INCONCLUSIVE are computed from the outcomes the test
+    recorded, never chosen by the test (src/core/assessment_test.py).
     """
 
     __test__ = False
 
     PASS = "PASS"  # noqa: S105
     FAIL = "FAIL"
+    INCONCLUSIVE = "INCONCLUSIVE"
     SKIP = "SKIP"
     ERROR = "ERROR"
+
+
+class Coverage(StrEnum):
+    """
+    How much of what a PASS applies to was verified.
+
+    COMPLETE -- Every applicable case was verified.
+    PARTIAL  -- No violation, but some cases could not be verified (a sub-test
+                INCONCLUSIVE, or not verifiable cases inside a PASS); the
+                report shows it next to the status.
+    """
+
+    COMPLETE = "complete"
+    PARTIAL = "partial"
+
+
+class ResponseCategory(StrEnum):
+    """
+    What a response is, the first step of every judgement, common to all tests.
+
+    Assigned from the HTTP status (RFC 9110 section 15 and the IANA HTTP Status
+    Code registry; an unregistered code counts as the x00 of its class) by
+    src/core/response_category.py; the reference responses of a run can
+    correct a misleading status. Each test then says what a category means for
+    its guarantee (an Outcome).
+
+    SERVED               -- 2xx: the target served the request.
+    REDIRECT             -- 300, 301, 302, 303, 305, 307, 308.
+    UNAUTHENTICATED      -- 401, 407, 511: the caller is not identified.
+    FORBIDDEN            -- 403: identified, but not allowed.
+    NOT_FOUND            -- 404, 410: the path does not exist.
+    METHOD_NOT_ALLOWED   -- 405, 501.
+    INVALID_REQUEST      -- 400, 406, 409, 411-417, 421-426, 428, 431: rejected
+                            because of the request's content or state.
+    RATE_LIMITED         -- 429.
+    SERVER_ERROR         -- 500, 505-508, 510: the application failed.
+    UPSTREAM_UNAVAILABLE -- 502, 503, 504: the gateway could not reach the
+                            backend, or the backend did not answer in time.
+    NO_RESPONSE          -- No HTTP response: timeout, connection refused, TLS
+                            error, connection reset.
+    OTHER                -- Rare codes never decisive alone: 1xx, 304, 306,
+                            402, 408, 418, 451.
+    """
+
+    SERVED = "SERVED"
+    REDIRECT = "REDIRECT"
+    UNAUTHENTICATED = "UNAUTHENTICATED"
+    FORBIDDEN = "FORBIDDEN"
+    NOT_FOUND = "NOT_FOUND"
+    METHOD_NOT_ALLOWED = "METHOD_NOT_ALLOWED"
+    INVALID_REQUEST = "INVALID_REQUEST"
+    RATE_LIMITED = "RATE_LIMITED"
+    SERVER_ERROR = "SERVER_ERROR"
+    UPSTREAM_UNAVAILABLE = "UPSTREAM_UNAVAILABLE"
+    NO_RESPONSE = "NO_RESPONSE"
+    OTHER = "OTHER"
+
+
+class Outcome(StrEnum):
+    """
+    What a judged case means for the guarantee, the second step of a judgement.
+
+    Each test maps the categories to these four values in its oracle table; the
+    detail next to the outcome (e.g. VIOLATION/AUTH_BYPASS) is the test's own.
+    They correspond to the SARIF 2.1.0 result kinds named in brackets.
+
+    VIOLATION      -- The guarantee is violated (fail): it becomes a Finding.
+    ENFORCED       -- The guarantee holds, verified (pass).
+    NOT_VERIFIABLE -- It cannot be established (open), for a reason the detail
+                      states.
+    NOT_APPLICABLE -- The check does not concern this case (notApplicable).
+    """
+
+    VIOLATION = "VIOLATION"
+    ENFORCED = "ENFORCED"
+    NOT_VERIFIABLE = "NOT_VERIFIABLE"
+    NOT_APPLICABLE = "NOT_APPLICABLE"
 
 
 class ExitCode(IntEnum):
@@ -75,14 +161,16 @@ SIGNAL_EXIT_BASE: int = 128
 # signals, with its label and meaning: the one text of every output.
 EXIT_CODES: dict[int, ExitCodeInfo] = {
     ExitCode.CLEAN: ExitCodeInfo(
-        "CLEAN", "no test returned FAIL or ERROR: no violation detected (a SKIP verifies nothing)"
+        "CLEAN",
+        "no test returned FAIL, ERROR or INCONCLUSIVE: no violation detected (a SKIP verifies "
+        "nothing)",
     ),
     ExitCode.FAIL: ExitCodeInfo("FAIL", "at least one security guarantee is violated"),
     ExitCode.USAGE: ExitCodeInfo("USAGE", "invalid invocation: the assessment did not start"),
     ExitCode.ERROR: ExitCodeInfo(
         "ERROR",
-        "at least one verification did not complete and no test returned FAIL; an ERROR "
-        "result may carry findings",
+        "at least one verification did not complete (a test returned ERROR or INCONCLUSIVE) "
+        "and no test returned FAIL; an ERROR result may carry findings",
     ),
     ExitCode.INFRASTRUCTURE: ExitCodeInfo(
         "INFRA", "the assessment did not run or did not complete: no security verdict"

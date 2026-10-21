@@ -6,8 +6,9 @@ ExternalToolTest: abstract base class for tests that wrap an external binary.
 Relationship with tests/base.py (BaseTest):
     ExternalToolTest does NOT inherit from BaseTest: both inherit from
     AssessmentTest (src/core/assessment_test.py), which holds the declaration
-    (``info = TestInfo(...)``, with ``tool`` set) and the _make_* result
-    helpers.  The two stay separate because their execution contracts differ:
+    (``info = TestInfo(...)``, with ``tool`` set and its sub-tests), the
+    judgements (_record) and the computed result (_finish, _skip, _error).
+    The two stay separate because their execution contracts differ:
 
         BaseTest.execute()         -> receives (TargetContext, TestContext,
                                                 SecurityClient, EvidenceStore)
@@ -27,7 +28,8 @@ Responsibility split:
         2. Calling connector.run() with the correct parameters.
         3. Evaluating ConnectorResult against the test oracle (_evaluate).
         4. Calling store.pin_artifact() to persist the raw output.
-        5. Building the correct TestResult (PASS / FAIL / SKIP / ERROR).
+        5. Recording the outcome of each tool result (_record) and returning
+           the computed result (_finish); SKIP and ERROR through _skip and _error.
 
     BaseConnector is responsible for:
         1. Discovering the binary (shutil.which or env var or importlib).
@@ -213,7 +215,7 @@ class ExternalToolTest(AssessmentTest[ParamsT]):
         try:
             result = self._run(target, context, store)
         except Exception as exc:  # noqa: BLE001 -- top-level catch by design
-            result = self._make_error(exc)
+            result = self._error(exc)
         finally:
             store.end_test()
         return result
@@ -278,7 +280,7 @@ class ExternalToolTest(AssessmentTest[ParamsT]):
                 test_id=self.info.id,
                 reason=self._skip_reason_from_registry,
             )
-            return self._make_skip(self._skip_reason_from_registry)
+            return self._skip(self._skip_reason_from_registry)
 
         # --- Get connector (injected or freshly built) ---
         connector = self._get_connector()
@@ -336,16 +338,14 @@ class ExternalToolTest(AssessmentTest[ParamsT]):
                 connector_result = self._invoke_connector(connector, target, target_url)
             except ExternalToolError as exc:
                 if exc.timed_out:
-                    return self._make_error(
+                    return self._error(
                         exc,
                         message=(
                             f"External tool '{exc.tool_name}' timed out. "
                             "Increase timeout_seconds in config.yaml external_tools section."
                         ),
                     )
-                return self._make_error(
-                    exc, message=f"External tool '{exc.tool_name}' failed: {exc}"
-                )
+                return self._error(exc, message=f"External tool '{exc.tool_name}' failed: {exc}")
 
         # --- Step 3b: validate ConnectorRawOutput contract ---
         # Applies to both cache-hit and live-run results.  The cache file was
@@ -803,7 +803,7 @@ class ExternalToolTest(AssessmentTest[ParamsT]):
                 test_id=self.info.id,
                 tool=connector.TOOL_NAME,
             )
-            return self._make_skip(reason)
+            return self._skip(reason)
 
         return None
 
@@ -894,31 +894,27 @@ class ExternalToolTest(AssessmentTest[ParamsT]):
         artifact_ref: str,
     ) -> TestResult:
         """
-        Apply the oracle to result.raw_output['results'] and return the TestResult; put
-        artifact_ref in each finding's evidence_ref.
+        Apply the oracle to result.raw_output['results'] and return the result.
 
-        This is where the security logic lives for external tests.  The subclass
-        inspects result.raw_output, applies the oracle from the methodology, and
-        constructs a TestResult with appropriate Findings.
+        This is where the security logic lives for external tests. For each
+        tool result the subclass records a judgement, self._record(sub_test,
+        outcome, detail, finding), following its oracle table (the outcome a
+        tool result means, on the test page), then returns self._finish(): the
+        status is computed, as for native tests. A finding's evidence_ref is
+        artifact_ref, the record_id returned by store.pin_artifact() in _run(),
+        so the report cross-references it to the raw tool output.
 
-        The artifact_ref is the record_id returned by store.pin_artifact() in
-        _run().  It must be attached to every Finding.evidence_ref so the HTML
-        report can cross-reference findings to the raw tool output.
-
-        Rules (same as BaseTest):
-            - FAIL must include at least one Finding.
-            - PASS has an empty findings list.
-            - SKIP is permitted if the oracle detects an inapplicable condition
-              discovered only after examining the output (not a missing tool --
-              that is handled by _check_and_skip).
+        An inapplicable condition discovered only in the output is recorded as
+        NOT_APPLICABLE; a test with nothing applicable ends as SKIP by itself
+        (a missing tool is handled earlier, by _check_and_skip).
 
         Args:
             result:       ConnectorResult from the connector.
             artifact_ref: Evidence record ID from store.pin_artifact().
 
         Returns:
-            TestResult: PASS, FAIL, or SKIP -- never ERROR (errors are handled
-                        by execute()'s top-level handler).
+            TestResult: self._finish() (errors are handled by execute()'s
+                        top-level handler).
         """
         ...
 

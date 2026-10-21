@@ -53,9 +53,9 @@ The implemented tests by strategy and priority (generated from the tests' declar
 
 | Strategy | P0 | P1 | P2 | P3 |
 |---|---|---|---|---|
-| `BLACK_BOX` | `0.1`, `0.2`, `0.3`, `1.1`, `4.1`, `ext.0.1.nuclei` | - | `1.5`, `ext.1.5.sslyze`, `ext.1.5.testssl` | `1.6`, `6.2` |
-| `GREY_BOX` | `7.2` | - | `2.1` | - |
-| `WHITE_BOX` | - | `4.2`, `4.3` | `1.4`, `6.4` | `3.3` |
+| `BLACK_BOX` | - | - | - | - |
+| `GREY_BOX` | - | - | - | - |
+| `WHITE_BOX` | - | `4.2` | - | - |
 
 <!-- [[[end]]] -->
 

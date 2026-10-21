@@ -10,7 +10,8 @@ Steps to add a new ExternalToolTest:
     1. Copy this file to src/external_tests/ext_test_<tool>_<description>.py.
     2. Replace TemplateExtTest with your test class name.
     3. Fill in the declaration ``info = TestInfo(...)`` (src/core/test_metadata.py):
-       an ID "ext.X.Y.tool" and ``tool`` set to the tool's key in external_tools.
+       an ID "ext.X.Y.tool", ``tool`` set to the tool's key in external_tools,
+       and its sub-tests (at least one).
     4. Implement _build_connector(), _invoke_connector(), and _evaluate().
     A duplicate ID or an invalid declaration stops the run with a message
     naming the test (src/core/test_discovery.py).
@@ -29,7 +30,7 @@ raw_output contract (ConnectorRawOutput):
     keys documented in ConnectorRawOutput (src/connectors/base.py):
         command, command_json, results, all_count.
     Connectors are dumb pipes -- pass ALL findings in results; the oracle in
-    _evaluate() partitions them into FAIL / note / ignore buckets.
+    _evaluate() records the outcome each result means (src/core/assessment_test.py).
     Use self._build_reproducible_commands() in the connector to produce
     command and command_json without reimplementing path normalisation.
 
@@ -48,7 +49,7 @@ from src.connectors.base import BaseConnector, ConnectorResult
 
 # from src.connectors.<toolname> import <ToolnameConnector>
 from src.core.context import TargetContext
-from src.core.models import Finding, InfoNote, TestStrategy
+from src.core.models import Finding, InfoNote, Outcome, TestStrategy
 from src.core.models.results import TestResult
 from src.core.test_metadata import TestInfo
 from src.external_tests.base import ExternalToolTest
@@ -79,7 +80,8 @@ class TemplateExtTest(ExternalToolTest):
     same domain number.>
 
     Oracle:
-        <Describe the PASS/FAIL criteria here.>
+        <The table: which tool result is VIOLATION, ENFORCED, NOT_VERIFIABLE or
+        NOT_APPLICABLE, with the detail of each; the status is computed.>
 
     DAG placement:
         depends_on = [], requires_pass = [] -- no prerequisites (the usual case).
@@ -103,6 +105,7 @@ class TemplateExtTest(ExternalToolTest):
         cwe="CWE-200",
         tags=("template", "external"),
         tool="template",
+        sub_tests=("tool_scan",),
     )
 
     # ------------------------------------------------------------------
@@ -167,46 +170,49 @@ class TemplateExtTest(ExternalToolTest):
         artifact_ref: str,
     ) -> TestResult:
         """
-        Apply the oracle to ConnectorResult and produce a TestResult.
+        Apply the oracle to ConnectorResult: record the outcome of each result.
 
-        ALWAYS use self._make_pass() / self._make_fail_multi() /
-        self._make_skip() to construct the return value.  Building
-        TestResult(...) directly produces a result without the declaration
-        (test_name, domain, priority, strategy, tags, cwe_id, source,
-        tool_name), which only the _make_*() helpers copy from ``info``
-        (src/core/assessment_test.py).  Pydantic will not raise -- it will
-        silently use the default="" values, producing empty cells in the
-        HTML report.
+        For each tool result, self._record(sub_test, outcome, detail, finding);
+        then return self._finish(), which computes the status as for a native
+        test and copies the declaration (test_name, domain, priority, strategy,
+        tags, cwe_id, source, tool_name) into the result. Never build
+        TestResult(...) directly.
+
+        The thresholds below are an example only: how each tool's results map
+        to the four outcomes is decided per tool (docs/project/test-review.md,
+        phase 0c piece 10).
 
         Args:
             result:       ConnectorResult from _invoke_connector().
-            artifact_ref: EvidenceStore record ID from store.pin_artifact().
-                          Include in every Finding.evidence_ref for traceability.
+            artifact_ref: EvidenceStore record ID from store.pin_artifact():
+                          the evidence_ref of every finding.
 
         Returns:
-            TestResult: PASS, FAIL, or SKIP (never ERROR -- that is handled by _run()).
+            TestResult: self._finish() (ERROR is handled by _run()).
         """
-        findings: list[Finding] = []
         notes: list[InfoNote] = []
+        violations = 0
 
         for item in result.raw_output.get("results", []):
             severity = str(item.get("severity", "")).upper()
 
             if severity in {"HIGH", "CRITICAL"}:
-                # FAIL path: build a Finding for each violation.
-                findings.append(
-                    Finding(
+                violations += 1
+                self._record(
+                    "tool_scan",
+                    Outcome.VIOLATION,
+                    "TOOL_FINDING_ABOVE_THRESHOLD",
+                    finding=Finding(
                         title=f"[{severity}] {item.get('id', 'unknown')}",
                         detail=str(item.get("finding", "")),
                         references=list(_REFERENCES),
                         evidence_ref=artifact_ref,
-                    )
+                    ),
                 )
 
             elif severity in {"MEDIUM", "WARN"}:
-                # PASS-with-note path: surface below-threshold items as InfoNote.
-                # InfoNote objects appear as blue cards in the HTML report and do
-                # NOT affect the test status or finding count.
+                # Below the threshold: an InfoNote (a blue card in the HTML
+                # report), not a judgement.
                 notes.append(
                     InfoNote(
                         title=f"[{severity}] Observation: {item.get('id', 'unknown')}",
@@ -215,19 +221,12 @@ class TemplateExtTest(ExternalToolTest):
                     )
                 )
 
-        if findings:
-            return self._make_fail_multi(
-                message=(
-                    f"{len(findings)} finding(s) triggered FAIL oracle. "
-                    f"See evidence artifact '{artifact_ref}' for raw output."
-                ),
-                findings=findings,
-            )
+        if violations == 0:
+            # The scan ran and found nothing above the threshold: verified.
+            self._record("tool_scan", Outcome.ENFORCED, "NO_FINDING_ABOVE_THRESHOLD")
 
-        return self._make_pass(
-            message=(
-                f"No FAIL-grade findings in {result.raw_output.get('all_count', 0)} total result(s)."  # noqa: E501
-                + (f" {len(notes)} informational note(s) below FAIL threshold." if notes else "")
-            ),
+        return self._finish(
             notes=notes,
+            message=f"{result.raw_output.get('all_count', 0)} tool result(s), raw output "
+            f"'{artifact_ref}'.",
         )

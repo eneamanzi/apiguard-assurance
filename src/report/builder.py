@@ -34,11 +34,13 @@ from pydantic import BaseModel, Field
 
 from src.config.schema import ToolConfig
 from src.core.models import (
+    Coverage,
     ExitCode,
     Finding,
     InfoNote,
     NotRunEntry,
     ResultSet,
+    SubTestResult,
     TestStatus,
     TlsSettings,
     TransactionSummary,
@@ -101,7 +103,17 @@ class TestResultRow(BaseModel):
     priority_label: str = Field(description="Label of the priority (as `min_priority_label`).")
     strategy: str = Field(description="`BLACK_BOX`, `GREY_BOX` or `WHITE_BOX`.")
     status: str = Field(
-        description="`PASS`, `FAIL`, `SKIP` or `ERROR` (see Status semantics below)."
+        description=(
+            "`PASS`, `FAIL`, `INCONCLUSIVE`, `SKIP` or `ERROR` (see Status semantics below)."
+        )
+    )
+    coverage: Coverage | None = Field(
+        default=None,
+        description="For a `PASS`: `complete`, or `partial` when cases were not verifiable.",
+    )
+    sub_tests: list[SubTestResult] = Field(
+        default_factory=list,
+        description="Every declared sub-test with its counters and status.",
     )
     message: str = Field(description="One-line outcome.")
     skip_reason: str | None = Field(
@@ -119,8 +131,8 @@ class TestResultRow(BaseModel):
     findings: list[Finding] = Field(
         default_factory=list,
         description=(
-            "At least one for `FAIL`, none for `PASS` (both enforced by the model); an "
-            "`ERROR` result may carry findings collected before the error."
+            "At least one for `FAIL`, none for `PASS` and `INCONCLUSIVE` (enforced by the "
+            "model); an `ERROR` result may carry findings collected before the error."
         ),
     )
     tags: list[str] = Field(
@@ -193,6 +205,9 @@ class DomainSummary(BaseModel):
     fail_count: Annotated[int, Field(ge=0)] = Field(
         default=0, description="Results with status FAIL."
     )
+    inconclusive_count: Annotated[int, Field(ge=0)] = Field(
+        default=0, description="Results with status INCONCLUSIVE."
+    )
     skip_count: Annotated[int, Field(ge=0)] = Field(
         default=0, description="Results with status SKIP."
     )
@@ -232,15 +247,20 @@ class ExecutiveSummary(BaseModel):
 
     model_config = {"frozen": True}
 
-    scheduled_tests: Annotated[int, Field(ge=0)] = Field(description="PASS + FAIL + ERROR + SKIP.")
+    scheduled_tests: Annotated[int, Field(ge=0)] = Field(
+        description="PASS + FAIL + INCONCLUSIVE + ERROR + SKIP."
+    )
     executed_tests: Annotated[int, Field(ge=0)] = Field(
-        description="PASS + FAIL + ERROR (SKIP excluded)."
+        description="PASS + FAIL + INCONCLUSIVE + ERROR (SKIP excluded)."
     )
     pass_count: Annotated[int, Field(ge=0)] = Field(
         default=0, description="Results with status PASS."
     )
     fail_count: Annotated[int, Field(ge=0)] = Field(
         default=0, description="Results with status FAIL."
+    )
+    inconclusive_count: Annotated[int, Field(ge=0)] = Field(
+        default=0, description="Results with status INCONCLUSIVE."
     )
     skip_count: Annotated[int, Field(ge=0)] = Field(
         default=0, description="Results with status SKIP."
@@ -544,6 +564,8 @@ def _build_all_rows(result_set: ResultSet) -> list[TestResultRow]:
             priority_label=PRIORITY_LABELS.get(result.priority, f"P{result.priority}"),
             strategy=result.strategy,
             status=result.status.value,
+            coverage=result.coverage,
+            sub_tests=list(result.sub_tests),
             message=result.message,
             skip_reason=result.skip_reason,
             duration_ms=result.duration_ms,
@@ -593,6 +615,7 @@ def _build_domain_summaries(all_rows: list[TestResultRow]) -> list[DomainSummary
 
         pass_count = sum(1 for r in rows if r.status == TestStatus.PASS.value)
         fail_count = sum(1 for r in rows if r.status == TestStatus.FAIL.value)
+        inconclusive_count = sum(1 for r in rows if r.status == TestStatus.INCONCLUSIVE.value)
         skip_count = sum(1 for r in rows if r.status == TestStatus.SKIP.value)
         error_count = sum(1 for r in rows if r.status == TestStatus.ERROR.value)
         total_finding_count = sum(r.finding_count for r in rows)
@@ -606,6 +629,7 @@ def _build_domain_summaries(all_rows: list[TestResultRow]) -> list[DomainSummary
             rows=rows,
             pass_count=pass_count,
             fail_count=fail_count,
+            inconclusive_count=inconclusive_count,
             skip_count=skip_count,
             error_count=error_count,
             total_finding_count=total_finding_count,
@@ -625,9 +649,10 @@ def _build_executive_summary(
     """
     Compute the executive summary statistics from the ResultSet.
 
-    The pass_rate_pct is computed over executed tests only (PASS + FAIL + ERROR),
-    excluding SKIP. This is the most honest metric: SKIP tests did not contribute
-    to the assessment outcome and should not inflate or deflate the pass rate.
+    The pass_rate_pct is computed over executed tests only (PASS + FAIL +
+    INCONCLUSIVE + ERROR), excluding SKIP. This is the most honest metric: SKIP
+    tests did not contribute to the assessment outcome and should not inflate or
+    deflate the pass rate.
 
     Args:
         result_set: Completed ResultSet.
@@ -637,7 +662,12 @@ def _build_executive_summary(
     Returns:
         Frozen ExecutiveSummary.
     """
-    executed_count = result_set.pass_count + result_set.fail_count + result_set.error_count
+    executed_count = (
+        result_set.pass_count
+        + result_set.fail_count
+        + result_set.inconclusive_count
+        + result_set.error_count
+    )
     scheduled_count = executed_count + result_set.skip_count
 
     pass_rate = (
@@ -651,6 +681,7 @@ def _build_executive_summary(
         executed_tests=executed_count,
         pass_count=result_set.pass_count,
         fail_count=result_set.fail_count,
+        inconclusive_count=result_set.inconclusive_count,
         skip_count=result_set.skip_count,
         error_count=result_set.error_count,
         not_run_count=len(result_set.not_run),

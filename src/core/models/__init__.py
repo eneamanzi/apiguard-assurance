@@ -19,14 +19,16 @@ need to know the internal package layout.
 
 Symbol inventory by source module:
 
-    enums.py           TestStatus, TestStrategy, SpecDialect, ExitCode, NotRunReason
+    enums.py           TestStatus, Coverage, ResponseCategory, Outcome, TestStrategy,
+                       SpecDialect, ExitCode, NotRunReason
 
     http.py            EvidenceFile, EvidenceRecord, TransactionSummary
 
     surface.py         ParameterInfo, EndpointRecord, AttackSurface,
                        SecuritySchemeRecord, SecuritySchemeType
 
-    results.py         Finding, InfoNote, TestResult, ResultSet, NotRunEntry
+    results.py         Finding, InfoNote, SubTestResult, TestResult, ResultSet, NotRunEntry,
+                       status_from_counts, combine_sub_tests
 
     runtime.py         RuntimeCredentials, SendAs, AuthType, CredentialLocation
                        (per-test parameters: in each test's module)
@@ -43,7 +45,16 @@ Symbol inventory by source module:
 
 from __future__ import annotations
 
-from src.core.models.enums import ExitCode, NotRunReason, SpecDialect, TestStatus, TestStrategy
+from src.core.models.enums import (
+    Coverage,
+    ExitCode,
+    NotRunReason,
+    Outcome,
+    ResponseCategory,
+    SpecDialect,
+    TestStatus,
+    TestStrategy,
+)
 from src.core.models.external_tools import (
     BaseExternalToolConfig,
     ExternalToolsConfig,
@@ -62,7 +73,16 @@ from src.core.models.resources import (
     ResourceAuth,
     ResourceConfig,
 )
-from src.core.models.results import Finding, InfoNote, NotRunEntry, ResultSet, TestResult
+from src.core.models.results import (
+    Finding,
+    InfoNote,
+    NotRunEntry,
+    ResultSet,
+    SubTestResult,
+    TestResult,
+    combine_sub_tests,
+    status_from_counts,
+)
 from src.core.models.runtime import AuthType, CredentialLocation, RuntimeCredentials, SendAs
 from src.core.models.surface import (
     AttackSurface,
@@ -76,6 +96,9 @@ from src.core.models.tls import TlsSettings
 __all__ = [
     # enums.py
     "TestStatus",
+    "Coverage",
+    "ResponseCategory",
+    "Outcome",
     "TestStrategy",
     "SpecDialect",
     "ExitCode",
@@ -93,7 +116,10 @@ __all__ = [
     # results.py
     "Finding",
     "InfoNote",
+    "SubTestResult",
     "TestResult",
+    "status_from_counts",
+    "combine_sub_tests",
     "ResultSet",
     "NotRunEntry",
     # runtime.py
