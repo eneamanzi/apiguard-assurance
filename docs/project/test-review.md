@@ -24,8 +24,8 @@ crAPI enters the code.
   positive control, `response_facts()`).
 - **On the branch now:** only test 4.2; the other 17 are on `main` and return one at a time, rewritten.
 - **Next:** piece 4 (`supporting_refs` and confidence in findings).
-- **Open, recorded here:** the SSRF listener (7.2 review), the external tests on the four outcomes (piece 10); the
-  documentation changes listed below.
+- **Open, recorded here:** the SSRF listener (7.2 review), the external tests on the four outcomes (piece 10), the
+  reference probes on a backend that fails with 5xx (1.1 review); the documentation changes listed below.
 
 ## How we work
 
@@ -712,7 +712,8 @@ the external tools only with the owner's go.
   - every request a pinned `ref_NNN` record; `summary()` for the report;
   - `response_facts()`: the category judged and the existence (`PROVEN`, `NOT_PROVEN`, `NOT_CHECKED`) from the
     status and the references; one correction only, `NOT_FOUND` with a working positive control becomes
-    `UNAUTHENTICATED` (no credential carried) or `FORBIDDEN` (one carried), marked non-standard (crAPI dashboard).
+    `UNAUTHENTICATED` (no credential carried) or `FORBIDDEN` (one carried), marked non-standard (crAPI dashboard);
+    existence `PROVEN`, `INDICATED`, `NOT_PROVEN`, `NOT_CHECKED` (self-review below).
 - `src/core/context.py`: `attach_references()`, `references`. `src/engine.py`: the references created after the
   TLS preflight, given to the report. `src/report/builder.py`: `ReferencesSummary` in `ReportData.references`;
   `src/report/templates/report.html`: the "Reference Responses" section (patterns, method, credential, reliable,
@@ -735,6 +736,27 @@ the external tools only with the owner's go.
     `SERVED`/`PROVEN`, the crAPI workshop backend's HTML 404 `NOT_PROVEN`, a closed port `NO_RESPONSE`/`NOT_CHECKED`);
   - a report rendered from real crAPI references shows the section, its patterns and records; 4.2 on the three
     labs carries an empty references section.
+- Self-review of `response_facts()` (owner: "everything depends on that rule"), 2026-10-21. The dangerous direction
+  is a false "exists", which would turn a not verifiable case into a verified one. Two changes:
+  - **random values of the declared type**: the sibling pattern carries the type of each parameter from the
+    specification (`ParameterInfo.schema_type`, `schema_format`): `{*integer}` (13 digits), `{*uuid}`, `{*}` (a
+    string); parameters inside a segment (`v{version}`, `{id}.json`) keep the text around them. Proven needed on
+    crAPI: an order that does not exist (`order_id` integer) answers 500; a string sibling answers 404 (the old
+    design concluded "exists"); integer siblings answer 500, the conclusion is `NOT_PROVEN`;
+  - **two levels of existence**: `PROVEN` (the positive control worked, a direct proof) and `INDICATED` (the answer
+    differs from an unknown sibling's, an indirect proof resting on one assumption), so that a verdict states how
+    strong its basis is (confidence, piece 4: `CERTAIN` against `FIRM`).
+  - Limit, recorded: an API answering 200 with an error page ("soft error") could make a positive control look
+    successful; to handle when a real case shows it.
+- Re-checked: 312 combinations of `response_facts()` (0 mismatches), 8 pattern shapes (typed values, recovered
+  positions), 32 real cases (21 on the two Forgejo labs, 11 on crAPI, among them a nonexistent order, video and
+  vehicle with typed siblings), 32/32 properties of `ReferenceResponses`.
+- **Effect on the target, found by the checks:** a backend that fails on an identifier it does not know (crAPI
+  answers 500 for a missing order) counts the reference probes as failures, and a gateway with passive health
+  checks may exclude the service (Kong excluded crAPI's workshop: every later request answered 503, judged
+  `UNRELIABLE` by the references, as designed). The reference requests belong to the effect `STRESSES_TARGET`
+  when they can hit such endpoints; whether to stop calibrating a backend's patterns after its first 5xx is
+  decided in the 1.1 review. The crAPI lab was reset after the check.
 - Found: crAPI `/workshop/api/management/users/all` answers 200 to user_a (an ordinary account): broken function
   level authorization, a positive case for 2.1 on crAPI.
 - Cost to measure in the 1.1 review: one calibration (two requests) per sibling pattern judged, once per run;

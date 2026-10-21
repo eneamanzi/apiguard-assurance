@@ -10,8 +10,9 @@ reached through TestContext.references):
     calibration       what "does not exist here" looks like: two requests to
                       random siblings of the path being judged (its sibling
                       pattern: a path with parameters keeps its template with
-                      random values in place of the parameters, the answer of
-                      an object that does not exist on the same route; a path
+                      random values in place of the parameters, of the type the
+                      specification declares (integer, UUID, string), the answer
+                      of an object that does not exist on the same route; a path
                       without parameters gets a random last segment), with the
                       same method and the same credential condition as the
                       judged request (none, or a credential the caller gives),
@@ -56,6 +57,8 @@ from __future__ import annotations
 import json
 import re
 import secrets
+import uuid
+from collections.abc import Sequence
 from enum import StrEnum
 
 import structlog
@@ -64,7 +67,7 @@ from pydantic import BaseModel, Field
 from src.core.client import SecurityClient
 from src.core.evidence import EvidenceStore
 from src.core.exceptions import SecurityClientError
-from src.core.models import EvidenceRecord, ResponseCategory
+from src.core.models import EvidenceRecord, ParameterInfo, ResponseCategory
 from src.core.response_category import categorize
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -126,16 +129,24 @@ class Existence(StrEnum):
     """
     Whether the references prove that the judged endpoint exists.
 
-    PROVEN      -- the positive control worked, or the answer differs from what
-                   "does not exist here" looks like.
+    PROVEN      -- the positive control worked: a direct proof.
+    INDICATED   -- the answer differs from what "does not exist here" looks
+                   like: an indirect proof, resting on one assumption (the
+                   random sibling, of the declared type, answers as a missing
+                   object does).
     NOT_PROVEN  -- the answer is the same as an unknown sibling's, or the
                    positive control did not work, and nothing proves the
                    contrary.
     NOT_CHECKED -- no reference to decide (none asked, or the calibration was
                    not reliable).
+
+    A test that counts a case as ENFORCED on INDICATED existence gives its
+    finding-free verdict a lower confidence than on PROVEN (topic 5: FIRM
+    against CERTAIN).
     """
 
     PROVEN = "PROVEN"
+    INDICATED = "INDICATED"
     NOT_PROVEN = "NOT_PROVEN"
     NOT_CHECKED = "NOT_CHECKED"
 
@@ -277,7 +288,7 @@ def response_facts(
     The category and the existence of a judged response, from its status and references.
 
     Existence, the first rule that holds: the positive control worked, PROVEN;
-    the answer differs from an unknown sibling's, PROVEN; it is the same,
+    the answer differs from an unknown sibling's, INDICATED; it is the same,
     NOT_PROVEN; the positive control did not work, NOT_PROVEN; otherwise
     NOT_CHECKED.
 
@@ -301,7 +312,7 @@ def response_facts(
     if works:
         existence = Existence.PROVEN
     elif similarity == Similarity.DIFFERENT:
-        existence = Existence.PROVEN
+        existence = Existence.INDICATED
     elif similarity == Similarity.SAME_AS_UNKNOWN or control is not None:
         existence = Existence.NOT_PROVEN
     else:
@@ -314,43 +325,92 @@ def response_facts(
     return ResponseFacts(category=category, existence=existence, non_standard_status=non_standard)
 
 
-# The random position of a sibling pattern.
+# The random positions of a sibling pattern, by the kind of value they take:
+# "{*}" a string, "{*integer}" an integer, "{*uuid}" a UUID.
 RANDOM_SEGMENT: str = "{*}"
+_KIND_INTEGER: str = "integer"
+_KIND_UUID: str = "uuid"
+_MARKER_PATTERN: re.Pattern[str] = re.compile(r"\{\*(integer|uuid)?\}")
+_TEMPLATE_PARAMETER: re.Pattern[str] = re.compile(r"\{([^}/]+)\}")
+_PATH_LOCATION: str = "path"
+# Integer values: 13 digits, within int64, far from the small identifiers
+# objects usually get.
+_RANDOM_INTEGER_MIN: int = 10**12
+_RANDOM_INTEGER_SPAN: int = 9 * 10**12
+_INTEGER_TYPES: frozenset[str] = frozenset({"integer", "number"})
 
 
-def sibling_pattern(template_path: str) -> str:
+def _marker_for(parameter: ParameterInfo | None) -> str:
+    """The random marker of a parameter, from its declared type and format."""
+    if parameter is not None and parameter.schema_format == _KIND_UUID:
+        return "{*" + _KIND_UUID + "}"
+    if parameter is not None and parameter.schema_type in _INTEGER_TYPES:
+        return "{*" + _KIND_INTEGER + "}"
+    return RANDOM_SEGMENT
+
+
+def _random_value(kind: str | None) -> str:
+    """A random value of a marker's kind (None or "" for a string)."""
+    if kind == _KIND_INTEGER:
+        return str(_RANDOM_INTEGER_MIN + secrets.randbelow(_RANDOM_INTEGER_SPAN))
+    if kind == _KIND_UUID:
+        return str(uuid.uuid4())
+    return _PROBE_PREFIX + secrets.token_hex(_PROBE_RANDOM_BYTES)
+
+
+def sibling_pattern(template_path: str, parameters: Sequence[ParameterInfo] = ()) -> str:
     """
     The pattern of the random siblings of a path.
 
-    A path with parameters keeps its template, with RANDOM_SEGMENT in place of
-    every segment holding a parameter: its siblings are objects that do not
-    exist, on the same route (same depth, same static segments). A path
-    without parameters gets RANDOM_SEGMENT in place of its last segment.
+    A path with parameters keeps its template, with a random marker in place of
+    every parameter, of the kind its declaration says (an integer, a UUID,
+    otherwise a string), and the text around it in the segment: its siblings
+    are objects that do not exist, on the same route. A path without
+    parameters gets RANDOM_SEGMENT in place of its last segment.
 
     Args:
         template_path: The path as the specification writes it, e.g.
                        "/api/v1/repos/{owner}/{repo}" or "/api/v1/user".
+        parameters:    The operation's parameters (EndpointRecord.parameters);
+                       a path parameter not declared counts as a string.
 
     Returns:
-        "/api/v1/repos/{*}/{*}", "/api/v1/{*}"; "/{*}" for a single segment.
+        e.g. "/api/v1/repos/{*}/{*}", "/shop/orders/{*integer}", "/api/v1/{*}".
     """
+    declared = {p.name: p for p in parameters if p.location == _PATH_LOCATION}
+    if _TEMPLATE_PARAMETER.search(template_path):
+        return _TEMPLATE_PARAMETER.sub(
+            lambda m: _marker_for(declared.get(m.group(1))), template_path
+        )
     segments = [segment for segment in template_path.split("/") if segment]
-    if any("{" in segment for segment in segments):
-        return "/" + "/".join(RANDOM_SEGMENT if "{" in seg else seg for seg in segments)
     return "/" + "/".join([*segments[:-1], RANDOM_SEGMENT])
 
 
+def _fill_pattern(pattern: str) -> tuple[str, tuple[str, ...]]:
+    """A concrete path from a pattern: (path, the random values put in it)."""
+    values: list[str] = []
+
+    def fill(match: re.Match[str]) -> str:
+        value = _random_value(match.group(1))
+        values.append(value)
+        return value
+
+    return _MARKER_PATTERN.sub(fill, pattern), tuple(values)
+
+
 def _random_positions(pattern: str, path: str) -> tuple[str, ...]:
-    """The segments of a concrete path at the pattern's random positions."""
-    pattern_segments = [segment for segment in pattern.split("/") if segment]
-    path_segments = [segment for segment in path.split("?", 1)[0].split("/") if segment]
-    if len(pattern_segments) != len(path_segments):
-        return tuple(path_segments[-1:])
-    return tuple(
-        seg
-        for pat, seg in zip(pattern_segments, path_segments, strict=True)
-        if pat == RANDOM_SEGMENT
-    )
+    """The values of a concrete path at the pattern's random positions."""
+    regex = ""
+    last = 0
+    for marker in _MARKER_PATTERN.finditer(pattern):
+        regex += re.escape(pattern[last : marker.start()]) + "([^/]+)"
+        last = marker.end()
+    regex += re.escape(pattern[last:])
+    match = re.fullmatch(regex, path.split("?", 1)[0])
+    if match is None:
+        segments = [segment for segment in path.split("/") if segment]
+        return tuple(segments[-1:])
+    return match.groups()
 
 
 class ReferenceResponses:
@@ -384,6 +444,7 @@ class ReferenceResponses:
         record: EvidenceRecord,
         template_path: str,
         credential: Credential | None = None,
+        parameters: Sequence[ParameterInfo] = (),
     ) -> Similarity:
         """
         Compare a response with what "does not exist here" looks like.
@@ -394,6 +455,8 @@ class ReferenceResponses:
             template_path: Its path as the specification writes it; the pattern
                            of its siblings comes from it (sibling_pattern).
             credential:    The credential the judged request carried, if any.
+            parameters:    The operation's parameters, for the type of the random
+                           values (EndpointRecord.parameters).
 
         Returns:
             SAME_AS_UNKNOWN, DIFFERENT, or UNRELIABLE (the judged response or the
@@ -401,7 +464,7 @@ class ReferenceResponses:
         """
         if categorize(record.response_status_code) in _SPOILING_CATEGORIES:
             return Similarity.UNRELIABLE
-        pattern = sibling_pattern(template_path)
+        pattern = sibling_pattern(template_path, parameters)
         point = self.calibration(pattern, record.request_method, credential)
         if not point.reliable or point.fingerprint is None:
             return Similarity.UNRELIABLE
@@ -416,8 +479,8 @@ class ReferenceResponses:
         The calibration point of a sibling pattern, method and credential, probed on first use.
 
         Args:
-            pattern:    The sibling pattern (sibling_pattern), with RANDOM_SEGMENT
-                        where the random values go.
+            pattern:    The sibling pattern (sibling_pattern), with its random
+                        markers ("{*}", "{*integer}", "{*uuid}").
             method:     The HTTP method of the probes.
             credential: The credential condition of the probes (None: none).
 
@@ -450,19 +513,14 @@ class ReferenceResponses:
         record_ids: list[str] = []
         reason: str | None = None
         for _ in range(_PROBES_PER_POINT):
-            names: list[str] = []
-            path = pattern
-            while RANDOM_SEGMENT in path:
-                name = _PROBE_PREFIX + secrets.token_hex(_PROBE_RANDOM_BYTES)
-                names.append(name)
-                path = path.replace(RANDOM_SEGMENT, name, 1)
+            path, names = _fill_pattern(pattern)
             record = self._send(method, path, credential)
             record_ids.append(record.record_id)
             category = categorize(record.response_status_code)
             if category in _SPOILING_CATEGORIES:
                 reason = f"a probe got {category.value}: the answer says nothing about the path"
                 break
-            fingerprints.append(fingerprint_of(record, tuple(names)))
+            fingerprints.append(fingerprint_of(record, names))
         if reason is None and len(set(fingerprints)) != 1:
             reason = "the two random probes got different answers"
         reliable = reason is None
