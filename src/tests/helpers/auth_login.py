@@ -33,7 +33,7 @@ from __future__ import annotations
 import structlog
 from pydantic import Field
 from src.core.client import SecurityClient
-from src.core.context import TargetContext, TestContext
+from src.core.context import LoginArtefact, TargetContext, TestContext
 from src.core.exceptions import AuthenticationSetupError
 from src.core.models import CREDENTIAL_VALUE, AuthType
 from src.core.test_needs import login_can_revoke
@@ -77,7 +77,8 @@ class LoginAuthMethod(RevocableAuthMethod):
         role: str,
     ) -> None:
         """
-        Create the login resource for the role and store its credential.
+        Create the login resource for the role, store its credential and keep
+        what the login returned (TestContext.set_login_artefact).
 
         Args:
             target:  The current TargetContext (credentials, resources).
@@ -92,6 +93,9 @@ class LoginAuthMethod(RevocableAuthMethod):
         """
         prepared = self._login(target, context, client, role, _AUTH_SETUP_TEST_ID)
         context.set_token(role, prepared.values[CREDENTIAL_VALUE])
+        context.set_login_artefact(
+            LoginArtefact(role=role, resource=prepared.name, record=prepared.create_record)
+        )
         log.info(
             "login_credential_acquired",
             role=role,

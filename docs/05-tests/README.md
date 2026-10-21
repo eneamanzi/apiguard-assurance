@@ -12,24 +12,24 @@ target, and how it relates to the methodology.
 
 1 tests: 1 native, 0 external.
 
-| ID | Name | Pri. | Strategy | CWE | Needs | Page |
-|---|---|---|---|---|---|---|
-| **Domain 0 - API Discovery and Inventory Management** | | | | | | |
-| - | no test implemented | | | | | |
-| **Domain 1 - Identity and Authentication** | | | | | | |
-| - | no test implemented | | | | | |
-| **Domain 2 - Authorization and Access Control** | | | | | | |
-| - | no test implemented | | | | | |
-| **Domain 3 - Data Integrity** | | | | | | |
-| - | no test implemented | | | | | |
-| **Domain 4 - Availability and Resilience** | | | | | | |
-| `4.2` | Timeout Configuration Audit -- Prevention of Resource Lock | P1 | WHITE_BOX | CWE-400 | `GATEWAY` | [4.2](domain-4/4-2-timeout-config-audit.md) |
-| **Domain 5 - Visibility and Auditing** | | | | | | |
-| - | no test implemented | | | | | |
-| **Domain 6 - Configuration and Hardening** | | | | | | |
-| - | no test implemented | | | | | |
-| **Domain 7 - Business Logic and Sensitive Flows** | | | | | | |
-| - | no test implemented | | | | | |
+| ID | Name | Pri. | Strategy | Effect | CWE | Needs | Page |
+|---|---|---|---|---|---|---|---|
+| **Domain 0 - API Discovery and Inventory Management** | | | | | | | |
+| - | no test implemented | | | | | | |
+| **Domain 1 - Identity and Authentication** | | | | | | | |
+| - | no test implemented | | | | | | |
+| **Domain 2 - Authorization and Access Control** | | | | | | | |
+| - | no test implemented | | | | | | |
+| **Domain 3 - Data Integrity** | | | | | | | |
+| - | no test implemented | | | | | | |
+| **Domain 4 - Availability and Resilience** | | | | | | | |
+| `4.2` | Timeout Configuration Audit -- Prevention of Resource Lock | P1 | WHITE_BOX | READ_ONLY | CWE-400 | `GATEWAY` | [4.2](domain-4/4-2-timeout-config-audit.md) |
+| **Domain 5 - Visibility and Auditing** | | | | | | | |
+| - | no test implemented | | | | | | |
+| **Domain 6 - Configuration and Hardening** | | | | | | | |
+| - | no test implemented | | | | | | |
+| **Domain 7 - Business Logic and Sensitive Flows** | | | | | | | |
+| - | no test implemented | | | | | | |
 
 Needs: what the test needs from the configuration (credentials of a role, a gateway, a parameter); without it the engine records SKIP without running the test. What each test needs from a target, measured on the labs: [Test portability](../03-reference/06-compatibility.md#test-portability).
 
@@ -39,8 +39,9 @@ Needs: what the test needs from the configuration (credentials of a role, a gate
 
 No test declares a prerequisite (`depends_on`, `requires_pass`: [dependencies between
 tests](../04-architecture/03-assessment-model.md#dependencies-between-tests)). Tests are scheduled
-with a topological sort over native and external tests together; within a batch the order is lexicographic by
-test ID. Execution is sequential.
+with a topological sort over native and external tests together: among the tests whose prerequisites are done,
+the declared effect decides (`READ_ONLY` first, then `CHANGES_DATA`, then `STRESSES_TARGET`), then the test ID.
+Execution is sequential.
 
 ## Reading the IDs
 

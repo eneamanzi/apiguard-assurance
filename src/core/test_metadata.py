@@ -156,6 +156,34 @@ class Need(StrEnum):
     """A login method that can revoke a credential (login with a delete request)."""
 
 
+class Effect(StrEnum):
+    """
+    What running a test does to the target (docs/project/test-review.md, topic 6).
+
+    Declared by every test; the engine runs READ_ONLY tests first, then
+    CHANGES_DATA, then STRESSES_TARGET, as far as the prerequisites allow, so
+    that a test that changes or degrades the target cannot spoil the ones after
+    it. A GET is not assumed harmless: the test declares what it does.
+    """
+
+    READ_ONLY = "READ_ONLY"
+    """Reads only: no state of the target changes."""
+
+    CHANGES_DATA = "CHANGES_DATA"
+    """Creates, modifies or deletes data on the target."""
+
+    STRESSES_TARGET = "STRESSES_TARGET"
+    """Bursts of requests, or payloads that can degrade the target."""
+
+
+# The run order of the effects (lower first).
+EFFECT_RANK: dict[Effect, int] = {
+    Effect.READ_ONLY: 0,
+    Effect.CHANGES_DATA: 1,
+    Effect.STRESSES_TARGET: 2,
+}
+
+
 # The order of the strategies by what the tester has: an external user, a user
 # with credentials, a super user with internal access.
 STRATEGY_RANK: dict[TestStrategy, int] = {
@@ -248,6 +276,12 @@ class TestInfo(BaseModel):
     tool: _NonEmptyText | None = Field(
         default=None,
         description="External tests only: the external_tools key of the wrapped tool.",
+    )
+    effect: Effect = Field(
+        description=(
+            "What running the test does to the target: READ_ONLY, CHANGES_DATA or "
+            "STRESSES_TARGET; the run order follows it."
+        )
     )
     sub_tests: tuple[str, ...] = Field(
         min_length=1,

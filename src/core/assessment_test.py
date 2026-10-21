@@ -409,6 +409,7 @@ class AssessmentTest(ABC, Generic[ParamsT]):
             domain=info.domain,
             priority=info.priority,
             strategy=info.strategy.value,
+            effect=info.effect.value,
             tags=list(info.tags),
             cwe_id=info.cwe,
             tool_name=info.tool or "",

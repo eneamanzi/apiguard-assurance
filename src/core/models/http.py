@@ -151,6 +151,14 @@ class EvidenceRecord(BaseModel):
     response_headers: dict[str, str] = Field(
         default_factory=dict, description="Lowercase header names."
     )
+    response_set_cookies: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Every `Set-Cookie` of the response, in order, values redacted (names and attributes "
+            "kept). Kept apart from `response_headers`: RFC 6265 forbids folding several "
+            "`Set-Cookie` into one value, and a mapping would keep only the last."
+        ),
+    )
     response_body: str | None = Field(
         default=None,
         description=(

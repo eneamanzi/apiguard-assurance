@@ -50,6 +50,7 @@ The version policy of `tool_version`: [compatibility](06-compatibility.md#interf
 | `response_status_code` | int \| null | HTTP status; `0` for a tool output; null when no response arrived (`transport_error` says why). |
 | `transport_error` | string \| null | Why no response arrived: `timeout`, `connection_failed`, `tls_error`, `protocol_error`; null when a response arrived. |
 | `response_headers` | object | Lowercase header names. |
+| `response_set_cookies` | array of string | Every `Set-Cookie` of the response, in order, values redacted (names and attributes kept). Kept apart from `response_headers`: RFC 6265 forbids folding several `Set-Cookie` into one value, and a mapping would keep only the last. |
 | `response_body` | string \| null | Body truncated to 10,000 characters + `... [TRUNCATED]`; an undecodable body becomes `[Binary or undecodable response body]`. For a tool output: the tool's raw output as JSON, credentials removed, truncated the same way (the full output is in `tools/<label>_output.json`). |
 | `is_pinned` | bool | `true` for a transaction a test marked as key context and for a tool output; `false` for FAIL evidence. |
 | `elapsed_ms` | number \| null | Duration (ms) of the HTTP transaction, retry waits included; null for a tool output. |

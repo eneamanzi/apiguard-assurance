@@ -30,7 +30,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from src.core.models.enums import Coverage, ExitCode, NotRunReason, TestStatus
+from src.core.models.enums import Confidence, Coverage, ExitCode, NotRunReason, TestStatus
 from src.core.models.http import TransactionSummary
 
 # ---------------------------------------------------------------------------
@@ -60,6 +60,20 @@ class Finding(BaseModel):
     evidence_ref: str | None = Field(
         default=None,
         description="`record_id` of the proof in `evidence.json`.",
+    )
+    confidence: Confidence = Field(
+        description=(
+            "How sure the tool is that the violation is real: `CERTAIN` (the observed fact, or "
+            "proven by a positive control), `FIRM` (resting on one stated assumption), "
+            "`TENTATIVE` (a heuristic or an indirect sign). Not a severity."
+        )
+    )
+    supporting_refs: list[str] = Field(
+        default_factory=list,
+        description=(
+            "`record_id`s of the reference responses the verdict rests on (calibration probes, "
+            "positive controls: `ref_NNN` in `evidence.json`)."
+        ),
     )
 
     @field_validator("title", "detail")
@@ -393,6 +407,10 @@ class TestResult(BaseModel):
     strategy: str = Field(
         default="",
         description="Test strategy: 'BLACK_BOX', 'GREY_BOX', or 'WHITE_BOX'.",
+    )
+    effect: str = Field(
+        default="",
+        description="The test's declared effect: 'READ_ONLY', 'CHANGES_DATA' or 'STRESSES_TARGET'.",
     )
     tags: list[str] = Field(
         default_factory=list,

@@ -56,7 +56,7 @@ from tenacity import (
 
 from src.core.exceptions import SecurityClientError
 from src.core.models import EvidenceRecord, TransportError
-from src.core.redaction import SecretRegistry
+from src.core.redaction import SET_COOKIE_HEADER, SecretRegistry
 from src.core.tls import TARGET_TLS, build_ssl_context, certificate_failure
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -85,6 +85,9 @@ DEFAULT_RETRY_JITTER_SECONDS: float = 1.0
 # The authoritative constant is _EVIDENCE_RECORD_BODY_MAX_CHARS in core/models/http.py;
 # truncation is enforced by the EvidenceRecord.truncate_response_body field_validator.
 # The value is documented here only as a cross-reference for readers of this module.
+
+# How httpx folds a repeated header in its mapping (RFC 9110 section 5.3).
+_FOLDED_HEADER_SEPARATOR: str = ", "
 
 # HTTP exceptions that are considered transient and worth retrying.
 # These are all transport-layer failures — the server never sent a response.
@@ -715,6 +718,22 @@ class SecurityClient:
 
         full_url = f"{self._base_url}{path}"
 
+        # Every Set-Cookie redacted one by one (RFC 6265: they cannot be folded
+        # into one value; httpx folds them in its mapping, and redacting the
+        # folded value would hide only the first cookie). The mapping's
+        # set-cookie entry is rebuilt from the redacted list.
+        set_cookies = [
+            self._secrets.redact_header(SET_COOKIE_HEADER, value)
+            for value in response.headers.get_list(SET_COOKIE_HEADER)
+        ]
+        headers = {
+            name: self._secrets.redact_header(name, value)
+            for name, value in response_headers_normalized.items()
+            if name != SET_COOKIE_HEADER
+        }
+        if set_cookies:
+            headers[SET_COOKIE_HEADER] = _FOLDED_HEADER_SEPARATOR.join(set_cookies)
+
         # Redaction at capture (src/core/redaction.py): credential headers and
         # every secret already registered never reach the evidence files.
         # Secrets learned later are redacted again in Phase 7.
@@ -730,10 +749,8 @@ class SecurityClient:
             },
             request_body=redact(request_body_str) if request_body_str is not None else None,
             response_status_code=response.status_code,
-            response_headers={
-                name: self._secrets.redact_header(name, value)
-                for name, value in response_headers_normalized.items()
-            },
+            response_headers=headers,
+            response_set_cookies=set_cookies,
             response_body=redact(response_body_str) if response_body_str is not None else None,
             is_pinned=False,
             elapsed_ms=round(elapsed_ms, 2) if elapsed_ms is not None else None,

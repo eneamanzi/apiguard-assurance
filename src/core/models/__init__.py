@@ -19,7 +19,7 @@ need to know the internal package layout.
 
 Symbol inventory by source module:
 
-    enums.py           TestStatus, Coverage, ResponseCategory, Outcome, TransportError,
+    enums.py           TestStatus, Coverage, ResponseCategory, Outcome, TransportError, Confidence,
                        TestStrategy, SpecDialect, ExitCode, NotRunReason
 
     http.py            EvidenceFile, EvidenceRecord, TransactionSummary
@@ -46,6 +46,7 @@ Symbol inventory by source module:
 from __future__ import annotations
 
 from src.core.models.enums import (
+    Confidence,
     Coverage,
     ExitCode,
     NotRunReason,
@@ -97,6 +98,7 @@ from src.core.models.tls import TlsSettings
 __all__ = [
     # enums.py
     "TestStatus",
+    "Confidence",
     "Coverage",
     "ResponseCategory",
     "Outcome",

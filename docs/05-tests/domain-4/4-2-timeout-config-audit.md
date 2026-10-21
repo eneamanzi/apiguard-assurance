@@ -12,6 +12,7 @@
 | Name | Timeout Configuration Audit -- Prevention of Resource Lock |
 | Domain | 4 - Availability and Resilience |
 | Priority / strategy | P1 / WHITE_BOX |
+| Effect | READ_ONLY |
 | CWE | CWE-400 |
 | Tags | `availability`, `timeout`, `resource-lock`, `white-box`, `OWASP-API4` |
 | Prerequisites | none |

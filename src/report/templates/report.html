@@ -473,6 +473,32 @@
       color: var(--color-error);
     }
 
+    /* Confidence of a finding (not a severity) */
+    .confidence-badge {
+      display: inline-block;
+      margin-left: 0.4rem;
+      padding: 0.1rem 0.45rem;
+      border-radius: 999px;
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+    }
+
+    .confidence-certain {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    .confidence-firm {
+      background: #e0f2fe;
+      color: #075985;
+    }
+
+    .confidence-tentative {
+      background: #f1f5f9;
+      color: var(--color-muted);
+    }
+
     .badge-inconclusive {
       background: #ffedd5;
       color: var(--color-inconclusive);
@@ -1993,6 +2019,8 @@
               <div class="finding-card-expanded">
                 <div class="finding-card-header">
                   <span class="finding-title">{{ finding.title }}</span>
+                  <span class="confidence-badge confidence-{{ finding.confidence | lower }}"
+                    title="How sure the tool is that the violation is real (not a severity)">{{ finding.confidence }}</span>
                   <button class="btn btn-sm" data-action="copy-finding" data-test-id="{{ row.test_id }}"
                     data-idx="{{ loop.index0 }}">
                     Copy
@@ -2010,6 +2038,12 @@
                 <div class="finding-evidence">
                   Evidence ID: <code>{{ finding.evidence_ref }}</code>
                   <span class="evidence-note">&rarr; see evidence.json</span>
+                </div>
+                {% endif %}
+                {% if finding.supporting_refs %}
+                <div class="finding-evidence">
+                  Supporting references: <code>{{ finding.supporting_refs | join(", ") }}</code>
+                  <span class="evidence-note">&rarr; calibration and positive controls in evidence.json</span>
                 </div>
                 {% endif %}
               </div>
@@ -3214,12 +3248,16 @@
     function findingToText(finding) {
       var lines = [];
       lines.push("[FINDING] " + finding.title);
+      lines.push("Confidence: " + finding.confidence);
       lines.push("Detail:   " + finding.detail);
       if (finding.references && finding.references.length > 0) {
         lines.push("Refs:     " + finding.references.join(", "));
       }
       if (finding.evidence_ref) {
         lines.push("Evidence: " + finding.evidence_ref + " (see evidence.json)");
+      }
+      if (finding.supporting_refs && finding.supporting_refs.length > 0) {
+        lines.push("Supporting: " + finding.supporting_refs.join(", ") + " (see evidence.json)");
       }
       return lines.join("\n");
     }

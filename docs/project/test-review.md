@@ -21,9 +21,10 @@ crAPI enters the code.
   2023, priorities, tool versions), phase 0c pieces 1 (outcomes, categories, computed status, sub-tests; 4.2 back
   as the pilot), 1b (strategy checked against the needs; the gateway only to the tests that declare it), 2
   (a request without a response is recorded and judged NOT_VERIFIABLE) and 3 (reference responses: calibration,
-  positive control, `response_facts()`).
+  positive control, `response_facts()`), 4 (finding confidence and supporting references), 5 (declared
+  effect, run order) and 6 (login artefacts, every `Set-Cookie`).
 - **On the branch now:** only test 4.2; the other 17 are on `main` and return one at a time, rewritten.
-- **Next:** piece 4 (`supporting_refs` and confidence in findings).
+- **Next:** piece 7 (derived knowledge: the mechanism only).
 - **Open, recorded here:** the SSRF listener (7.2 review), the external tests on the four outcomes (piece 10), the
   reference probes on a backend that fails with 5xx (1.1 review); the documentation changes listed below.
 
@@ -469,7 +470,9 @@ What the review decides for the documentation is collected here and applied afte
 |---|---|---|
 | `docs/04-architecture/03-assessment-model.md` | the rules common to every test: categories, outcomes, computed status, complete and partial PASS, confidence criteria, reference responses, ordering by effect | topics 1-6, 10 |
 | `docs/04-architecture/02-data-model.md` | `supporting_refs`, outcomes and sub-test counters in the result, derived knowledge on the `AttackSurface`, login artefacts and references in `TestContext`, `TestInfo` effect and sub-tests | topics 3-7 |
-| `docs/03-reference/04-report-schema.md`, `05-evidence-format.md`, `03-exit-codes.md` | status `INCONCLUSIVE` (exit `3`), PASS complete or partial, the references and derived-knowledge sections, `ref_...` records | topics 3, 5 |
+| `docs/03-reference/04-report-schema.md`, `05-evidence-format.md`, `03-exit-codes.md` | status `INCONCLUSIVE` (exit `3`), PASS complete or partial, the references and derived-knowledge sections, `ref_...` records (the generated tables are done; the prose around them, the example of a report) | topics 3, 5 |
+| `CHANGELOG.md` | every piece of phase 0c, among them the security fix of piece 6 (several `Set-Cookie`: only the first value was redacted) | phase 0c |
+| `docs/02-guides/01-usage/03-read-the-report.md` | how to read a finding's confidence and supporting references, the "Reference Responses" section, a partial PASS, INCONCLUSIVE | pieces 1, 3, 4 |
 | `docs/project/roadmap.md` | 6.1 and 7.1 missing from Milestone 2; strategies in its tables differ from the declarations (1.4, 1.5, 1.6, 6.2, ext.1.5.*) | overview D |
 | the catalogue of the guarantees (`docs/06-knowledge/04-guarantees.md`, translated to English) | the conclusions of phase 0b, applied **from this conversation** once the English version exists (owner, 2026-10-20) | phase 0b |
 | every test page | the new template, when its test is rewritten | phase 1, 2 |
@@ -764,6 +767,63 @@ the external tools only with the owner's go.
 - With the first test that needs it (phase 1): the test helper that builds a `Credential` from the run's
   placement (`tests/helpers/auth.py`, `auth_parts`).
 
+### Piece 4: done (2026-10-21)
+
+- `src/core/models/enums.py`: `Confidence` (`CERTAIN`, `FIRM`, `TENTATIVE`, the criteria of topic 5).
+- `src/core/models/results.py`: `Finding.confidence`, required (no default: a test cannot forget it),
+  `Finding.supporting_refs` (the `ref_NNN` records a verdict rests on).
+- `src/core/references.py`: `confidence_of(existence)` (PROVEN `CERTAIN`, INDICATED `FIRM`, otherwise `TENTATIVE`)
+  and `reference_ids()`. `src/tests/base.py`: `_judge(..., references=...)` copies the references' records into
+  the finding's `supporting_refs`.
+- 4.2: every finding `CERTAIN` (a value read from the gateway configuration). The external-test template: `FIRM` as
+  an example, the level per tool decided in piece 10.
+- Report: a confidence badge on each finding card and the supporting references (also in the copied text);
+  `Finding` in the generated schema.
+- Checked: 4.2 unchanged on the three labs, its findings `CERTAIN` with the lowered threshold; a real crAPI finding
+  (order 1 served without a credential, challenge 14) judged through the test base with its references: facts
+  `SERVED`/`PROVEN`, confidence `CERTAIN`, `evidence_ref` and `supporting_refs` (`ref_001`, `ref_002` the typed
+  siblings, `ref_003` the positive control) all stored in `evidence.json`, shown by the HTML report; a finding
+  without confidence rejected.
+
+### Piece 5: done (2026-10-21)
+
+- `src/core/test_metadata.py`: `Effect` (`READ_ONLY`, `CHANGES_DATA`, `STRESSES_TARGET`) and `EFFECT_RANK`;
+  `TestInfo.effect`, required (no default).
+- `src/core/dag.py`: one run order instead of levels: among the tests whose prerequisites are done, the lowest
+  rank (the engine gives the effect's) first, then the test ID; the sequence is then cut into batches where a test
+  depends on one of the current batch (a test's prerequisites are always in earlier batches). Ordering only within
+  a topological level was not enough: a `STRESSES_TARGET` test of an early level would still run before an
+  unrelated `READ_ONLY` test of a later one.
+- `src/engine.py` passes the effect ranks; the effect is carried into `TestResult.effect` and the report row;
+  the catalogue and the page header show it; `docs/05-tests/README.md` states the order.
+- 4.2 `READ_ONLY`; the external-test template `STRESSES_TARGET` (a scanner).
+- Checked (the scheduler itself, script outside the repository): no prerequisites (stress with a low ID, read-only
+  with a high one) runs read-only, changes, stress; a read-only test depending on a data-changing one runs after it
+  and still before the stress test; a realistic set orders `0.1`, `6.2`, `1.1`, `4.1`, `7.2` (today 4.1 runs before
+  6.2 and 7.2); a cycle still stops the start; a declaration without effect is rejected. 4.2 unchanged on the three
+  labs, effect `READ_ONLY` in the report.
+
+### Piece 6: done (2026-10-21)
+
+- `src/core/models/http.py`: `EvidenceRecord.response_set_cookies`, every `Set-Cookie` of a response in order,
+  values redacted (names and attributes kept). RFC 6265 forbids folding several `Set-Cookie` into one value; a
+  mapping kept only one (the Q-50 item "every `Set-Cookie` in 1.6's evidence").
+- `src/core/client.py`: the list filled from `httpx`'s `get_list`; the mapping's `set-cookie` entry rebuilt from
+  the redacted list. **Security fix found by the check:** `httpx` folds the cookies into one string and the
+  redaction redacted only the first, so the values of the second and later cookies reached `evidence.json` in clear
+  (present in v0.1.0; no lab sends two cookies, so it never showed).
+- `src/core/context.py`: `LoginArtefact` (role, login resource, the login request and its response; the credential
+  is not repeated, it stays the role's token), `TestContext.set_login_artefact()` and `login_artefact()`;
+  `src/tests/helpers/auth_login.py` keeps it when it logs in. A finding that rests on it pins the record.
+- Checked (scripts outside the repository): a local HTTP server answering three `Set-Cookie` (a real server, not a
+  mock): all three kept, values redacted, attributes and `Expires` (with its comma) kept, the mapping redacted cookie
+  by cookie; on the three labs, the real engine phases 1-3 and the real login helper for user_a: artefact kept
+  (Forgejo `forgejo-token` 201, crAPI `crapi-login` 200), the body in memory carries the credential, the pinned
+  record in `evidence.json` with the credential redacted, the real teardown removed the Forgejo tokens (none left).
+  No lab answers a login, nor any page, with a session cookie: 1.6 needs a lab variant (topic 9). 4.2 unchanged.
+- During the checks Claude created one token by hand on the Forgejo + Kong lab (a `curl` to see whether token
+  creation sets cookies) without announcing it; it was deleted at once (none left).
+
 ## Phases 1 and 2: order
 
 - **Phase 1** (implemented), by domain, each external test after its native one: 0.1, ext.0.1.nuclei, 0.2, 0.3,
@@ -789,6 +849,6 @@ the external tools only with the owner's go.
 | Phase 0a topic 9 | done (2026-10-20) | three situations per test; variants as differences inside the labs (above) |
 | Phase 0a topic 10 | done (2026-10-20) | page template updated with topics 1-9; common rules in `assessment-model.md` (above) |
 | Phase 0b | done (2026-10-20) | catalogue against API Top 10 2023 (3 new, 2 merges, 2.4 redefined), tools' versions, priorities (above); the catalogue text is edited after its translation |
-| Phase 0c | in progress: pieces 1, 1b, 2, 3 done (2026-10-21) | new branch, baseline reports from `main`, no backward compatibility; 10 pieces in order (above) |
+| Phase 0c | in progress: pieces 1 to 6 done (2026-10-21) | new branch, baseline reports from `main`, no backward compatibility; 10 pieces in order (above) |
 | Phase 1 | to do | |
 | Phase 2 | to do | |

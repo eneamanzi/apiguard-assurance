@@ -49,9 +49,9 @@ from src.connectors.base import BaseConnector, ConnectorResult
 
 # from src.connectors.<toolname> import <ToolnameConnector>
 from src.core.context import TargetContext
-from src.core.models import Finding, InfoNote, Outcome, TestStrategy
+from src.core.models import Confidence, Finding, InfoNote, Outcome, TestStrategy
 from src.core.models.results import TestResult
-from src.core.test_metadata import TestInfo
+from src.core.test_metadata import Effect, TestInfo
 from src.external_tests.base import ExternalToolTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -106,6 +106,9 @@ class TemplateExtTest(ExternalToolTest):
         tags=("template", "external"),
         tool="template",
         sub_tests=("tool_scan",),
+        # What the tool does to the target: a scanner sending many requests is
+        # usually STRESSES_TARGET.
+        effect=Effect.STRESSES_TARGET,
     )
 
     # ------------------------------------------------------------------
@@ -207,6 +210,10 @@ class TemplateExtTest(ExternalToolTest):
                         detail=str(item.get("finding", "")),
                         references=list(_REFERENCES),
                         evidence_ref=artifact_ref,
+                        # The level of each tool result is decided per tool
+                        # (test-review.md, phase 0c piece 10); FIRM here only
+                        # as an example.
+                        confidence=Confidence.FIRM,
                     ),
                 )
 

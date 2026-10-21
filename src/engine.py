@@ -113,7 +113,7 @@ from src.core.models import (
 )
 from src.core.redaction import SecretRegistry
 from src.core.references import ReferenceResponses
-from src.core.test_metadata import Need, is_external_test_id, section_keys
+from src.core.test_metadata import EFFECT_RANK, Need, is_external_test_id, section_keys
 from src.core.test_needs import ConfigurationFacts, unmet_needs
 from src.core.tls import (
     GATEWAY_ADMIN_TLS,
@@ -1231,6 +1231,7 @@ class AssessmentEngine:
         scheduled_batches = scheduler.build_schedule(
             dependencies=dependency_map,
             active_test_ids=active_test_ids,
+            order_rank={t.info.id: EFFECT_RANK[t.info.effect] for t in all_tests},
         )
 
         # Tests whose needs the configuration does not meet: said before any test

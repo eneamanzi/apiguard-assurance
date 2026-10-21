@@ -51,7 +51,7 @@ from pydantic import AnyHttpUrl, BaseModel, Field, PrivateAttr, computed_field, 
 
 from src.core.auth_placement import CredentialPlacement
 from src.core.gateway.base import BaseGatewayAdapter
-from src.core.models import AttackSurface, ResourceConfig, RuntimeCredentials
+from src.core.models import AttackSurface, EvidenceRecord, ResourceConfig, RuntimeCredentials
 from src.core.models.external_tools import ExternalToolsConfig
 from src.core.redaction import SecretRegistry
 from src.core.references import ReferenceResponses
@@ -376,6 +376,28 @@ class TargetContext(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class LoginArtefact(BaseModel):
+    """
+    What a login returned for a role, kept for the tests that judge it.
+
+    Filled by the login helper (tests/helpers/auth_login.py) when it obtains a
+    role's credential through a login resource: the record of the login
+    request and its response (every Set-Cookie, the body where a JWT is), so
+    that a test judging cookies (1.6), a token's validity (1.2) or expiry (1.3)
+    reads the real login answer. The credential itself is not repeated here:
+    it is the role's token (TestContext.get_token). A test whose finding
+    rests on the login pins the record (EvidenceStore.pin_evidence) and points
+    to its record_id. Credential methods without a login (basic, static_token)
+    have none.
+    """
+
+    model_config = {"frozen": True}
+
+    role: str = Field(description="The role (ROLE_* constant).")
+    resource: str = Field(description="The login resource of the configuration.")
+    record: EvidenceRecord = Field(description="The login request and its response.")
+
+
 class TestContext(BaseModel):
     """
     Mutable state container for data discovered or produced during execution.
@@ -417,6 +439,33 @@ class TestContext(BaseModel):
     _shared_data: dict[str, object] = PrivateAttr(default_factory=dict)
     _secrets: SecretRegistry = PrivateAttr(default_factory=SecretRegistry)
     _references: ReferenceResponses | None = PrivateAttr(default=None)
+    _login_artefacts: dict[str, LoginArtefact] = PrivateAttr(default_factory=dict)
+
+    # ------------------------------------------------------------------
+    # Login artefacts (what a login returned, per role)
+    # ------------------------------------------------------------------
+
+    def set_login_artefact(self, artefact: LoginArtefact) -> None:
+        """
+        Keep what a login returned for a role (the login helper calls it).
+
+        Args:
+            artefact: The LoginArtefact; a later login of the same role replaces it.
+        """
+        self._login_artefacts[artefact.role] = artefact
+
+    def login_artefact(self, role: str) -> LoginArtefact | None:
+        """
+        What the login of a role returned.
+
+        Args:
+            role: A ROLE_* constant.
+
+        Returns:
+            The LoginArtefact, or None when the role's credential did not come
+            from a login (or was not obtained yet).
+        """
+        return self._login_artefacts.get(role)
 
     # ------------------------------------------------------------------
     # Reference responses (calibration and positive control)

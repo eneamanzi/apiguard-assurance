@@ -241,20 +241,20 @@ def catalogue() -> str:
     lines = [
         f"{len(tests)} tests: {native} native, {len(tests) - native} external.",
         "",
-        "| ID | Name | Pri. | Strategy | CWE | Needs | Page |",
-        "|---|---|---|---|---|---|---|",
+        "| ID | Name | Pri. | Strategy | Effect | CWE | Needs | Page |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for domain, name in DOMAIN_NAMES.items():
-        lines.append(f"| **Domain {domain} - {name}** | | | | | | |")
+        lines.append(f"| **Domain {domain} - {name}** | | | | | | | |")
         in_domain = [t for t in tests if t.info.domain == domain]
         if not in_domain:
-            lines.append("| - | no test implemented | | | | | |")
+            lines.append("| - | no test implemented | | | | | | |")
         for test in sorted(in_domain, key=lambda t: _id_key(t.info.id.removeprefix("ext."))):
             info = test.info
             link = _relative(pages[info.id], readme.relative_to(_ROOT))
             lines.append(
                 f"| {_id_cell(info)} | {info.name} | {_priority(info)} | {info.strategy.value} "
-                f"| {info.cwe} | {_needs(test)} | [{info.id}]({link}) |"
+                f"| {info.effect.value} | {info.cwe} | {_needs(test)} | [{info.id}]({link}) |"
             )
     lines.append("")
     lines.append(
@@ -291,6 +291,7 @@ def test_header(*test_ids: str, page: str) -> str:
         ("Name", [t.info.name for t in tests]),
         ("Domain", [f"{t.info.domain} - {DOMAIN_NAMES[t.info.domain]}" for t in tests]),
         ("Priority / strategy", [f"{_priority(t.info)} / {t.info.strategy.value}" for t in tests]),
+        ("Effect", [t.info.effect.value for t in tests]),
         ("CWE", [t.info.cwe for t in tests]),
         ("Tags", [", ".join(f"`{tag}`" for tag in t.info.tags) or "none" for t in tests]),
         ("Prerequisites", [_prerequisites(t.info) for t in tests]),

@@ -45,6 +45,7 @@ Dependency rule:
 from __future__ import annotations
 
 from abc import abstractmethod
+from collections.abc import Sequence
 from typing import Any, ClassVar, Literal
 
 import structlog
@@ -62,6 +63,7 @@ from src.core.models import (
     TestResult,
     TransactionSummary,
 )
+from src.core.references import CalibrationPoint, PositiveControl, reference_ids
 from src.core.response_category import categorize
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -156,6 +158,7 @@ class BaseTest(AssessmentTest[ParamsT]):
         detail: str,
         finding: Finding | None = None,
         *,
+        references: Sequence[CalibrationPoint | PositiveControl] = (),
         duration_ms: float | None = None,
     ) -> None:
         """
@@ -171,8 +174,11 @@ class BaseTest(AssessmentTest[ParamsT]):
             sub_test:    A declared sub-test (info.sub_tests).
             outcome:     What the response means for the guarantee.
             detail:      The test's detail, UPPER_SNAKE_CASE.
-            finding:     The finding of a VIOLATION (title and detail); its
+            finding:     The finding of a VIOLATION (title, detail, confidence); its
                          evidence_ref is set here.
+            references:  The reference responses the verdict rests on
+                         (calibration points, positive controls); their records
+                         become the finding's supporting_refs.
             duration_ms: Per-request timing override in milliseconds; by
                          default the record's own elapsed time.
 
@@ -182,7 +188,11 @@ class BaseTest(AssessmentTest[ParamsT]):
         is_violation = outcome == Outcome.VIOLATION
         if is_violation and finding is not None:
             store.add_fail_evidence(record)
-            finding = finding.model_copy(update={"evidence_ref": record.record_id})
+            supporting = [*finding.supporting_refs]
+            supporting += [rid for rid in reference_ids(references) if rid not in supporting]
+            finding = finding.model_copy(
+                update={"evidence_ref": record.record_id, "supporting_refs": supporting}
+            )
         self._record(sub_test, outcome, detail, finding)
         self._append(
             TransactionSummary.from_evidence_record(

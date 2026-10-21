@@ -140,6 +140,7 @@ precondition, a not-run test was not selected or was stopped (`src/core/models/r
 | `priority` | int | Priority, 0-3. |
 | `priority_label` | string | Label of the priority (as `min_priority_label`). |
 | `strategy` | string | `BLACK_BOX`, `GREY_BOX` or `WHITE_BOX`. |
+| `effect` | string | What the test does to the target: `READ_ONLY`, `CHANGES_DATA` or `STRESSES_TARGET`. |
 | `status` | string | `PASS`, `FAIL`, `INCONCLUSIVE`, `SKIP` or `ERROR` (see Status semantics below). |
 | `coverage` | string \| null | For a `PASS`: `complete`, or `partial` when cases were not verifiable. |
 | `sub_tests` | array of [`SubTestResult`](#subtestresult) | Every declared sub-test with its counters and status. |
@@ -203,6 +204,8 @@ is, otherwise `SKIP`.
 | `detail` | string | Technical description, specific enough to reproduce. |
 | `references` | array of string | Standards, e.g. `CWE-1059`, `OWASP-API9:2023`, `NIST-SP-800-204-S3.1`. |
 | `evidence_ref` | string \| null | `record_id` of the proof in `evidence.json`. |
+| `confidence` | string | How sure the tool is that the violation is real: `CERTAIN` (the observed fact, or proven by a positive control), `FIRM` (resting on one stated assumption), `TENTATIVE` (a heuristic or an indirect sign). Not a severity. |
+| `supporting_refs` | array of string | `record_id`s of the reference responses the verdict rests on (calibration probes, positive controls: `ref_NNN` in `evidence.json`). |
 
 <!-- [[[end]]] -->
 

@@ -103,6 +103,12 @@ class TestResultRow(BaseModel):
     priority: int = Field(description="Priority, 0-3.")
     priority_label: str = Field(description="Label of the priority (as `min_priority_label`).")
     strategy: str = Field(description="`BLACK_BOX`, `GREY_BOX` or `WHITE_BOX`.")
+    effect: str = Field(
+        default="",
+        description=(
+            "What the test does to the target: `READ_ONLY`, `CHANGES_DATA` or `STRESSES_TARGET`."
+        ),
+    )
     status: str = Field(
         description=(
             "`PASS`, `FAIL`, `INCONCLUSIVE`, `SKIP` or `ERROR` (see Status semantics below)."
@@ -592,6 +598,7 @@ def _build_all_rows(result_set: ResultSet) -> list[TestResultRow]:
             priority=result.priority,
             priority_label=PRIORITY_LABELS.get(result.priority, f"P{result.priority}"),
             strategy=result.strategy,
+            effect=result.effect,
             status=result.status.value,
             coverage=result.coverage,
             sub_tests=list(result.sub_tests),

@@ -57,8 +57,8 @@ from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.gateway.base import CONCEPT_BACKEND_TIMEOUTS
 from src.core.gateway.concepts import BackendTimeout, ConceptScope, ConceptStatus
-from src.core.models import Finding, Outcome, TestResult, TestStrategy
-from src.core.test_metadata import Need, TestInfo
+from src.core.models import Confidence, Finding, Outcome, TestResult, TestStrategy
+from src.core.test_metadata import Effect, Need, TestInfo
 from src.tests.base import BaseTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -153,6 +153,10 @@ _SCOPE_WORDS: dict[ConceptScope, str] = {
     ConceptScope.GLOBAL: "gateway",
 }
 
+# Every finding of 4.2 is a value read from the gateway configuration: the
+# observed fact itself (topic 5).
+_CONFIDENCE: Confidence = Confidence.CERTAIN
+
 # OWASP/NIST references cited in every Finding produced by this test.
 _REFERENCES: tuple[str, ...] = (
     "OWASP-API4:2023",
@@ -185,6 +189,7 @@ class Test42TimeoutConfigAudit(BaseTest[Test42Params]):
             "OWASP-API4",
         ),
         needs=(Need.GATEWAY,),
+        effect=Effect.READ_ONLY,
         sub_tests=tuple(label for label, _ in _TIMEOUT_LABELS),
     )
 
@@ -331,6 +336,7 @@ class Test42TimeoutConfigAudit(BaseTest[Test42Params]):
                 ),
                 references=list(_REFERENCES),
                 evidence_ref=evidence_ref,
+                confidence=_CONFIDENCE,
             )
 
         if value_ms == _TIMEOUT_UNCONFIGURED:
@@ -346,6 +352,7 @@ class Test42TimeoutConfigAudit(BaseTest[Test42Params]):
                 ),
                 references=list(_REFERENCES),
                 evidence_ref=evidence_ref,
+                confidence=_CONFIDENCE,
             )
 
         if value_ms > max_value_ms:
@@ -365,6 +372,7 @@ class Test42TimeoutConfigAudit(BaseTest[Test42Params]):
                 ),
                 references=list(_REFERENCES),
                 evidence_ref=evidence_ref,
+                confidence=_CONFIDENCE,
             )
 
         return _WITHIN_LIMIT, None

@@ -3,10 +3,10 @@ src/core/models/enums.py
 
 Shared enumerations for the APIGuard Assurance tool.
 
-TestStatus, Coverage, ResponseCategory, Outcome, TransportError, TestStrategy,
-SpecDialect and NotRunReason inherit from StrEnum so their values serialize natively to JSON strings
-without extra configuration. ExitCode inherits from IntEnum: its values are process
-exit codes.
+TestStatus, Coverage, ResponseCategory, Outcome, TransportError, Confidence,
+TestStrategy, SpecDialect and NotRunReason inherit from StrEnum so their values
+serialize natively to JSON strings without extra configuration. ExitCode inherits
+from IntEnum: its values are process exit codes.
 
 Dependency rule: this module imports only from the stdlib.
 It must never import from any other src/ module.
@@ -123,6 +123,29 @@ class Outcome(StrEnum):
     ENFORCED = "ENFORCED"
     NOT_VERIFIABLE = "NOT_VERIFIABLE"
     NOT_APPLICABLE = "NOT_APPLICABLE"
+
+
+class Confidence(StrEnum):
+    """
+    How sure the tool is that a finding is a real violation (not how serious it is).
+
+    Each detail of a test's oracle table has its level, written on the test
+    page; a test does not choose it case by case (docs/project/test-review.md,
+    topic 5). Every finding states one.
+
+    CERTAIN   -- the violation is the observed behaviour itself (a header
+                 missing, a value read from the gateway configuration), or is
+                 proven by a reference of the same request (a positive control).
+    FIRM      -- observed directly, but its meaning rests on one stated
+                 assumption (an existence only indicated by a difference from an
+                 unknown sibling).
+    TENTATIVE -- rests on a heuristic or an indirect sign (a keyword, a timing,
+                 a candidate derived by a heuristic rule).
+    """
+
+    CERTAIN = "CERTAIN"
+    FIRM = "FIRM"
+    TENTATIVE = "TENTATIVE"
 
 
 class TransportError(StrEnum):

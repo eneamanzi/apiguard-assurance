@@ -209,7 +209,7 @@ stays a SKIP inside the test. `_requires_attack_surface(target)` remains for the
 
 | Call | When |
 |---|---|
-| `self._judge(record, store, sub_test, outcome, detail, finding=None, *, duration_ms=None)` | Judge one HTTP response: log it, record the judgement, keep the proof. |
+| `self._judge(record, store, sub_test, outcome, detail, finding=None, *, references=(), duration_ms=None)` | Judge one HTTP response: log it, record the judgement, keep the proof. |
 | `self._step(record, *, duration_ms=None)` | Log a request that is not judged: a preparation step of the test. |
 | `store.pin_evidence(record)` | Store in evidence.json a transaction that is key context but proves no FAIL. |
 
