@@ -234,7 +234,9 @@ class AssessmentTest(ABC, Generic[ParamsT]):
                       NOT_VERIFIABLE it is the reason, counted in the result).
             finding:  The violation's finding: given exactly when the outcome is
                       VIOLATION, with its evidence_ref already set by the caller
-                      (BaseTest._judge() sets it for an HTTP response).
+                      (BaseTest._judge() sets it for an HTTP response). A finding
+                      without references of its own cites the test's
+                      (info.references, the primary CWE excluded).
 
         Raises:
             ValueError: An undeclared sub-test, a malformed detail, or a finding
@@ -256,7 +258,10 @@ class AssessmentTest(ABC, Generic[ParamsT]):
             )
         if outcome == Outcome.VIOLATION:
             tally.violations += 1
-            self._findings.append(cast(Finding, finding))
+            violation = cast(Finding, finding)
+            if not violation.references:
+                violation = violation.model_copy(update={"references": list(self.info.references)})
+            self._findings.append(violation)
         elif outcome == Outcome.ENFORCED:
             tally.enforced += 1
         elif outcome == Outcome.NOT_APPLICABLE:
@@ -411,6 +416,7 @@ class AssessmentTest(ABC, Generic[ParamsT]):
             strategy=info.strategy.value,
             effect=info.effect.value,
             tags=list(info.tags),
+            references=list(info.references),
             cwe_id=info.cwe,
             tool_name=info.tool or "",
             source=self.source,

@@ -158,7 +158,7 @@ class BaseTest(AssessmentTest[ParamsT]):
         detail: str,
         finding: Finding | None = None,
         *,
-        references: Sequence[CalibrationPoint | PositiveControl] = (),
+        reference_responses: Sequence[CalibrationPoint | PositiveControl] = (),
         duration_ms: float | None = None,
     ) -> None:
         """
@@ -176,8 +176,8 @@ class BaseTest(AssessmentTest[ParamsT]):
             detail:      The test's detail, UPPER_SNAKE_CASE.
             finding:     The finding of a VIOLATION (title, detail, confidence); its
                          evidence_ref is set here.
-            references:  The reference responses the verdict rests on
-                         (calibration points, positive controls); their records
+            reference_responses: The reference responses the verdict rests
+                         on (calibration points, positive controls); their records
                          become the finding's supporting_refs.
             duration_ms: Per-request timing override in milliseconds; by
                          default the record's own elapsed time.
@@ -189,7 +189,9 @@ class BaseTest(AssessmentTest[ParamsT]):
         if is_violation and finding is not None:
             store.add_fail_evidence(record)
             supporting = [*finding.supporting_refs]
-            supporting += [rid for rid in reference_ids(references) if rid not in supporting]
+            supporting += [
+                rid for rid in reference_ids(reference_responses) if rid not in supporting
+            ]
             finding = finding.model_copy(
                 update={"evidence_ref": record.record_id, "supporting_refs": supporting}
             )

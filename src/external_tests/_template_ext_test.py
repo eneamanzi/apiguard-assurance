@@ -49,7 +49,15 @@ from src.connectors.base import BaseConnector, ConnectorResult
 
 # from src.connectors.<toolname> import <ToolnameConnector>
 from src.core.context import TargetContext
-from src.core.models import Confidence, Finding, InfoNote, Outcome, TestStrategy
+from src.core.models import (
+    Confidence,
+    Finding,
+    InfoNote,
+    Outcome,
+    Reference,
+    Standard,
+    TestStrategy,
+)
 from src.core.models.results import TestResult
 from src.core.test_metadata import Effect, TestInfo
 from src.external_tests.base import ExternalToolTest
@@ -60,10 +68,10 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # Module-level constants
 # ---------------------------------------------------------------------------
 
-_REFERENCES: tuple[str, ...] = (
-    "OWASP-API-Security-Top-10-2023",
-    # Add relevant NIST, CWE, OWASP ASVS references here.
-)
+# The standards of the guarantee, each written as its standard writes it
+# (src/core/models/standards.py); declared in info and cited by the findings.
+# The primary CWE is info.cwe: do not repeat it here.
+_REFERENCES: tuple[Reference, ...] = (Reference(standard=Standard.OWASP_API_TOP10, id="API8:2023"),)
 
 
 # ---------------------------------------------------------------------------
@@ -103,6 +111,8 @@ class TemplateExtTest(ExternalToolTest):
         priority=2,
         strategy=TestStrategy.GREY_BOX,
         cwe="CWE-200",
+        references=_REFERENCES,
+        # Topics, lowercase words joined by hyphens; standards go in references.
         tags=("template", "external"),
         tool="template",
         sub_tests=("tool_scan",),
@@ -208,7 +218,6 @@ class TemplateExtTest(ExternalToolTest):
                     finding=Finding(
                         title=f"[{severity}] {item.get('id', 'unknown')}",
                         detail=str(item.get("finding", "")),
-                        references=list(_REFERENCES),
                         evidence_ref=artifact_ref,
                         # The level of each tool result is decided per tool
                         # (test-review.md, phase 0c piece 10); FIRM here only

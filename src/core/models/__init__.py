@@ -25,7 +25,7 @@ Symbol inventory by source module:
     http.py            EvidenceFile, EvidenceRecord, TransactionSummary
 
     surface.py         ParameterInfo, EndpointRecord, AttackSurface,
-                       SecuritySchemeRecord, SecuritySchemeType
+                       SecuritySchemeRecord, SecuritySchemeType, DerivationBasis, DerivedFact
 
     results.py         Finding, InfoNote, SubTestResult, TestResult, ResultSet, NotRunEntry,
                        status_from_counts, combine_sub_tests
@@ -36,6 +36,8 @@ Symbol inventory by source module:
     resources.py       ResourceConfig, CreateRequest, DeleteRequest, ResourceAuth,
                        CREDENTIAL_VALUE, FIXED_PLACEHOLDERS, PLACEHOLDER_USERNAME,
                        PLACEHOLDER_PASSWORD, PLACEHOLDER_RANDOM
+
+    standards.py       Standard, StandardFormat, Reference, STANDARD_FORMATS
 
     tls.py             TlsSettings
 
@@ -86,8 +88,11 @@ from src.core.models.results import (
     status_from_counts,
 )
 from src.core.models.runtime import AuthType, CredentialLocation, RuntimeCredentials, SendAs
+from src.core.models.standards import STANDARD_FORMATS, Reference, Standard, StandardFormat
 from src.core.models.surface import (
     AttackSurface,
+    DerivationBasis,
+    DerivedFact,
     EndpointRecord,
     ParameterInfo,
     SecuritySchemeRecord,
@@ -115,6 +120,8 @@ __all__ = [
     "ParameterInfo",
     "EndpointRecord",
     "AttackSurface",
+    "DerivationBasis",
+    "DerivedFact",
     "SecuritySchemeRecord",
     "SecuritySchemeType",
     # results.py
@@ -142,6 +149,10 @@ __all__ = [
     "PLACEHOLDER_PASSWORD",
     "PLACEHOLDER_RANDOM",
     # tls.py
+    "Standard",
+    "StandardFormat",
+    "Reference",
+    "STANDARD_FORMATS",
     "TlsSettings",
     # external_tools.py
     "BaseExternalToolConfig",

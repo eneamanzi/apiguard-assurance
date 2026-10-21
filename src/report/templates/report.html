@@ -1864,6 +1864,16 @@
                 <span class="detail-meta-value">{{ row.cwe_id }}</span>
               </div>
               {% endif %}
+              {% if row.references %}
+              <div class="detail-meta-item">
+                <span class="detail-meta-label">Standards</span>
+                <span class="detail-meta-value">
+                  {% for ref in row.references %}
+                  <span class="ref-tag">{{ ref.text }}</span>
+                  {% endfor %}
+                </span>
+              </div>
+              {% endif %}
               {% if row.tags %}
               <div class="detail-meta-item">
                 <span class="detail-meta-label">Tags</span>
@@ -2030,7 +2040,7 @@
                 {% if finding.references %}
                 <div class="finding-refs">
                   {% for ref in finding.references %}
-                  <span class="ref-tag">{{ ref }}</span>
+                  <span class="ref-tag">{{ ref.text }}</span>
                   {% endfor %}
                 </div>
                 {% endif %}
@@ -2087,7 +2097,7 @@
                 {% if note.references %}
                 <div class="finding-refs">
                   {% for ref in note.references %}
-                  <span class="ref-tag ref-tag-info">{{ ref }}</span>
+                  <span class="ref-tag ref-tag-info">{{ ref.text }}</span>
                   {% endfor %}
                 </div>
                 {% endif %}
@@ -2224,6 +2234,46 @@
       </div>
       {% else %}
       <p style="color:var(--color-muted);padding:1rem 0;">Every test of the tool was run.</p>
+      {% endif %}
+    </section>
+
+    <!-- DERIVED KNOWLEDGE: what the tool deduced from the specification before the tests -->
+    <section class="section" id="derived-section">
+      <div class="section-header">
+        <h2>Derived Knowledge ({{ report.derived | length }})</h2>
+      </div>
+      <p style="color:var(--color-muted);padding:0 0 0.75rem;">
+        What the tool deduced from the specification before any test ran, by named rules: DECLARED
+        (the specification states it) or HEURISTIC (a rule infers it). The configuration always prevails:
+        a wrong deduction is corrected there.
+      </p>
+      {% if report.derived %}
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Rule</th>
+              <th>Basis</th>
+              <th>Endpoint</th>
+              <th>Value</th>
+              <th>Why</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for fact in report.derived %}
+            <tr>
+              <td><code>{{ fact.rule }}</code></td>
+              <td>{{ fact.basis.value }}</td>
+              <td>{% if fact.path %}<code>{{ fact.method }} {{ fact.path }}</code>{% else %}whole API{% endif %}</td>
+              <td><code>{{ fact.value }}</code></td>
+              <td style="font-size:0.8rem;">{{ fact.note }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p style="color:var(--color-muted);padding:1rem 0;">Nothing derived from the specification.</p>
       {% endif %}
     </section>
 
@@ -3251,7 +3301,7 @@
       lines.push("Confidence: " + finding.confidence);
       lines.push("Detail:   " + finding.detail);
       if (finding.references && finding.references.length > 0) {
-        lines.push("Refs:     " + finding.references.join(", "));
+        lines.push("Refs:     " + finding.references.map(function (ref) { return ref.text; }).join(", "));
       }
       if (finding.evidence_ref) {
         lines.push("Evidence: " + finding.evidence_ref + " (see evidence.json)");

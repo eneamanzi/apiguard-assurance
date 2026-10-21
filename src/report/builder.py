@@ -35,10 +35,12 @@ from pydantic import BaseModel, Field
 from src.config.schema import ToolConfig
 from src.core.models import (
     Coverage,
+    DerivedFact,
     ExitCode,
     Finding,
     InfoNote,
     NotRunEntry,
+    Reference,
     ResultSet,
     SubTestResult,
     TestStatus,
@@ -144,7 +146,11 @@ class TestResultRow(BaseModel):
     )
     tags: list[str] = Field(
         default_factory=list,
-        description="Test tags (e.g. `OWASP-API9:2023`).",
+        description="Topic labels (e.g. `availability`).",
+    )
+    references: list[Reference] = Field(
+        default_factory=list,
+        description="The standards of the guarantee, from the test's declaration.",
     )
     cwe_id: str = Field(
         default="",
@@ -407,6 +413,13 @@ class ReportData(BaseModel):
             "`all_rows` + `not_run` = every test of the tool."
         ),
     )
+    derived: list[DerivedFact] = Field(
+        default_factory=list,
+        description=(
+            "What the tool derived from the specification before the tests, by named rules "
+            "(`rule`, `basis`): the configuration always prevails over it."
+        ),
+    )
     references: ReferencesSummary = Field(
         default_factory=ReferencesSummary,
         description=(
@@ -428,6 +441,7 @@ def build_report_data(
     spec_title: str = "Unknown",
     spec_version: str = "Unknown",
     references: ReferenceResponses | None = None,
+    derived: list[DerivedFact] | None = None,
 ) -> ReportData:
     """
     Aggregate a completed ResultSet into a ReportData object for rendering.
@@ -447,6 +461,7 @@ def build_report_data(
         spec_version: OpenAPI spec version from AttackSurface.spec_version.
                       Defaults to 'Unknown' when not provided.
         references: The run's reference responses; None gives an empty section.
+        derived: The facts derived from the specification (AttackSurface.derived).
 
     Returns:
         Frozen ReportData ready for renderer.py.
@@ -492,6 +507,7 @@ def build_report_data(
         all_rows=all_rows,
         not_run=list(result_set.not_run),
         references=_references_summary(references),
+        derived=list(derived or []),
     )
 
     log.info(
@@ -608,6 +624,7 @@ def _build_all_rows(result_set: ResultSet) -> list[TestResultRow]:
             finding_count=len(result.findings),
             findings=list(result.findings),
             tags=list(result.tags),
+            references=list(result.references),
             cwe_id=result.cwe_id,
             transaction_log=list(result.transaction_log),
             notes=list(result.notes),

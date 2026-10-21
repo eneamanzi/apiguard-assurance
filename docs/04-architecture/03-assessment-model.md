@@ -125,7 +125,8 @@ they differ from the specification. If they are intended, the specification is w
 A PASS is bounded by what the test covers: each test page lists the methodology sub-tests that are not
 implemented and the test's known limitations.
 
-**Finding vs InfoNote.** A Finding is a violation, with references (CWE, OWASP, NIST, RFC) and, for HTTP tests, an
+**Finding vs InfoNote.** A Finding is a violation, with references (the standard and its identifier: OWASP, ASVS, WSTG, NIST, RFC; by
+default the test's) and, for HTTP tests, an
 `evidence_ref` to the proving transaction (not yet for 4.1 and 7.2, Q-50). An InfoNote is context the analyst must know but that is not a
 violation: a compensating control, a sub-test that could not run, an ambiguous result (e.g. SSRF probe timeout),
 an item requiring manual verification.

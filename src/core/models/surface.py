@@ -164,6 +164,44 @@ class SecuritySchemeRecord(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class DerivationBasis(StrEnum):
+    """
+    How a derived fact was obtained from the specification (topic 4, precedence).
+
+    DECLARED  -- the specification states it (`deprecated: true`, `format: uri`,
+                 a request schema, an `example`).
+    HEURISTIC -- a named rule infers it (an `admin` path segment, version
+                 siblings): a finding resting on it is at most TENTATIVE.
+    """
+
+    DECLARED = "DECLARED"
+    HEURISTIC = "HEURISTIC"
+
+
+class DerivedFact(BaseModel):
+    """
+    One thing the tool derived from the specification, before any test ran.
+
+    Produced by the named rules of src/discovery/derivation.py in Phase 2; the
+    tests read them from AttackSurface.derived; the report lists them, so that
+    a reader sees what was derived and can correct it in the configuration
+    (which always prevails, topic 4).
+    """
+
+    model_config = {"frozen": True}
+
+    rule: str = Field(description="The rule that produced the fact, e.g. `service_prefixes`.")
+    basis: DerivationBasis = Field(description="`DECLARED` or `HEURISTIC`.")
+    method: str | None = Field(
+        default=None, description="The endpoint's method; null for a fact about the whole API."
+    )
+    path: str | None = Field(
+        default=None, description="The endpoint's path; null for a fact about the whole API."
+    )
+    value: str = Field(description="What was derived, e.g. `/identity/api`.")
+    note: str = Field(default="", description="Why, in a few words (the evidence in the spec).")
+
+
 class AttackSurface(BaseModel):
     """
     Structured map of all HTTP operations exposed by the target API.
@@ -194,6 +232,13 @@ class AttackSurface(BaseModel):
     security_schemes: list[SecuritySchemeRecord] = Field(
         default_factory=list,
         description="Authentication schemes declared by the spec, in declaration order.",
+    )
+    derived: list[DerivedFact] = Field(
+        default_factory=list,
+        description=(
+            "What the tool derived from the specification by its named rules (Phase 2): "
+            "facts about endpoints or about the whole API, each with its rule and basis."
+        ),
     )
 
     @property
@@ -230,6 +275,22 @@ class AttackSurface(BaseModel):
     def get_endpoints_by_tag(self, tag: str) -> list[EndpointRecord]:
         """Return all endpoints annotated with a specific OpenAPI tag."""
         return [ep for ep in self.endpoints if tag in ep.tags]
+
+    def derived_facts(self, rule: str | None = None) -> list[DerivedFact]:
+        """
+        The facts derived from the specification (Phase 2, src/discovery/derivation.py).
+
+        Args:
+            rule: Only the facts of this rule; None for all.
+
+        Returns:
+            The facts, in the order the rules produced them.
+        """
+        return [fact for fact in self.derived if rule is None or fact.rule == rule]
+
+    def derived_for(self, method: str, path: str) -> list[DerivedFact]:
+        """The facts derived about one endpoint (method and template path)."""
+        return [f for f in self.derived if f.method == method.upper() and f.path == path]
 
     def get_endpoints_with_path_parameters(self) -> list[EndpointRecord]:
         """Return all endpoints with at least one path parameter."""

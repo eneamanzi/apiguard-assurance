@@ -125,6 +125,7 @@ from src.core.tls import (
     certificate_failure,
     tls_warnings,
 )
+from src.discovery.derivation import derive_knowledge
 from src.discovery.openapi import load_openapi_spec
 from src.discovery.surface import build_attack_surface
 from src.external_tests.base import ExternalToolTest
@@ -1016,6 +1017,9 @@ class AssessmentEngine:
             tls_context=connections.specification,
         )
         attack_surface = build_attack_surface(spec, dialect, source_url=spec_source)
+        # What the tool derives from the specification before any test runs
+        # (src/discovery/derivation.py): no request, the specification only.
+        attack_surface = derive_knowledge(spec, attack_surface)
 
         log.info(
             "pipeline_phase_2_openapi_discovery_completed",
@@ -1024,6 +1028,7 @@ class AssessmentEngine:
             dialect=attack_surface.dialect,
             total_endpoints=attack_surface.total_endpoint_count,
             unique_paths=attack_surface.unique_path_count,
+            derived_facts=len(attack_surface.derived),
         )
 
         return attack_surface
@@ -1720,6 +1725,7 @@ class AssessmentEngine:
                 spec_title=attack_surface.spec_title,
                 spec_version=attack_surface.spec_version,
                 references=references,
+                derived=attack_surface.derived,
             )
             # Secrets learned after their capture (e.g. a token in the
             # response that creates it) are replaced in the whole report.

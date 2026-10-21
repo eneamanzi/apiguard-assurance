@@ -82,7 +82,7 @@ from src.core.client import SecurityClient
 from src.core.context import ROLE_USER_A, TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.exceptions import AuthenticationSetupError, SecurityClientError
-from src.core.models import Finding, TestResult, TestStrategy
+from src.core.models import Finding, Reference, Standard, TestResult, TestStrategy
 from src.core.test_metadata import TestInfo
 from src.tests.base import BaseTest
 from src.tests.helpers.auth import acquire_tokens, auth_parts
@@ -91,15 +91,22 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 
 _RBAC_BYPASS_CODES: frozenset[int] = frozenset(range(200, 300))
 _STATE_RBAC_BYPASS: str = "RBAC_BYPASS"
-_REFERENCES: list[str] = ["CWE-285", "OWASP-API5:2023", "OWASP-ASVS-v5.0.0-V8.3.1", ...]
+_REFERENCES: tuple[Reference, ...] = (
+    Reference(standard=Standard.OWASP_API_TOP10, id="API5:2023"),
+    Reference(standard=Standard.ASVS, id="v5.0.0-8.3.1"),
+    ...
+)
 ```
 
 Allowed imports: `core/`, `src/tests/base.py`, `src/tests/helpers/`, `src/tests/data/`. Never `config/`,
 `discovery/`, `report/`, `engine.py`, `connectors/`; never start a subprocess.
 
 **Declaration.** A test declares who it is in one `TestInfo` (`src/core/test_metadata.py`), its `info` class
-attribute: ID, name, priority, strategy, CWE, and optionally tags and prerequisites (`depends_on`, `requires_pass`,
-empty when omitted). The domain is not written: it is the first number of the ID. The results carry these values
+attribute: ID, name, priority, strategy, CWE, and optionally the other standards of the guarantee (`references`), tags
+and prerequisites (`depends_on`, `requires_pass`, empty when omitted). Each reference is the standard and the
+identifier as that standard writes it, checked against its format ([`Reference`](../../03-reference/04-report-schema.md#reference));
+a finding without references of its own cites the test's. Tags are topics only, lowercase words joined by hyphens
+(`rate-limit`): a standard written as a tag stops the start. The domain is not written: it is the first number of the ID. The results carry these values
 under their report names (`test_id`, `test_name`, `domain`, `cwe_id`).
 
 ```python
@@ -110,7 +117,8 @@ class Test21RbacEnforcement(BaseTest):
         priority=2,
         strategy=TestStrategy.GREY_BOX,
         cwe="CWE-285",
-        tags=("authorization", "rbac", "OWASP-API5:2023", ...),
+        references=_REFERENCES,
+        tags=("authorization", "rbac"),
     )
 ```
 
@@ -172,7 +180,6 @@ if response.status_code in _RBAC_BYPASS_CODES:
     return Finding(
         title=f"RBAC Bypass: {method} {path}",
         detail=f"Sent {method} {path} with a '{ROLE_USER_A}' token. Expected 403 ... Received {response.status_code} ...",
-        references=_REFERENCES,
         evidence_ref=record.record_id,
     )
 self._log_transaction(record, oracle_state=_STATE_RBAC_ENFORCED)
@@ -209,7 +216,7 @@ stays a SKIP inside the test. `_requires_attack_surface(target)` remains for the
 
 | Call | When |
 |---|---|
-| `self._judge(record, store, sub_test, outcome, detail, finding=None, *, references=(), duration_ms=None)` | Judge one HTTP response: log it, record the judgement, keep the proof. |
+| `self._judge(record, store, sub_test, outcome, detail, finding=None, *, reference_responses=(), duration_ms=None)` | Judge one HTTP response: log it, record the judgement, keep the proof. |
 | `self._step(record, *, duration_ms=None)` | Log a request that is not judged: a preparation step of the test. |
 | `store.pin_evidence(record)` | Store in evidence.json a transaction that is key context but proves no FAIL. |
 

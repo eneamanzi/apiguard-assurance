@@ -57,7 +57,15 @@ from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.gateway.base import CONCEPT_BACKEND_TIMEOUTS
 from src.core.gateway.concepts import BackendTimeout, ConceptScope, ConceptStatus
-from src.core.models import Confidence, Finding, Outcome, TestResult, TestStrategy
+from src.core.models import (
+    Confidence,
+    Finding,
+    Outcome,
+    Reference,
+    Standard,
+    TestResult,
+    TestStrategy,
+)
 from src.core.test_metadata import Effect, Need, TestInfo
 from src.tests.base import BaseTest
 
@@ -157,12 +165,12 @@ _SCOPE_WORDS: dict[ConceptScope, str] = {
 # observed fact itself (topic 5).
 _CONFIDENCE: Confidence = Confidence.CERTAIN
 
-# OWASP/NIST references cited in every Finding produced by this test.
-_REFERENCES: tuple[str, ...] = (
-    "OWASP-API4:2023",
-    "CWE-400",
-    "NIST-SP-800-204A-Section-4.3",
-    "OWASP-ASVS-v5.0.0-V16.5.2",
+# The standards of the guarantee, declared in info and cited by every finding
+# (the primary CWE is info.cwe).
+_REFERENCES: tuple[Reference, ...] = (
+    Reference(standard=Standard.OWASP_API_TOP10, id="API4:2023"),
+    Reference(standard=Standard.NIST_SP, id="800-204A", section="4.3"),
+    Reference(standard=Standard.ASVS, id="v5.0.0-16.5.2"),
 )
 
 
@@ -181,12 +189,12 @@ class Test42TimeoutConfigAudit(BaseTest[Test42Params]):
         priority=1,
         strategy=TestStrategy.WHITE_BOX,
         cwe="CWE-400",
+        references=_REFERENCES,
         tags=(
             "availability",
             "timeout",
             "resource-lock",
             "white-box",
-            "OWASP-API4",
         ),
         needs=(Need.GATEWAY,),
         effect=Effect.READ_ONLY,
@@ -334,7 +342,6 @@ class Test42TimeoutConfigAudit(BaseTest[Test42Params]):
                     f"timeout value. Without it, timeout enforcement for this backend is "
                     f"unknown and cannot be audited (the gateway's default applies)."
                 ),
-                references=list(_REFERENCES),
                 evidence_ref=evidence_ref,
                 confidence=_CONFIDENCE,
             )
@@ -350,7 +357,6 @@ class Test42TimeoutConfigAudit(BaseTest[Test42Params]):
                     f"Oracle: {label} must be > 0 and <= {max_value_ms} ms "
                     f"(NIST SP 800-204A Section 4.3)."
                 ),
-                references=list(_REFERENCES),
                 evidence_ref=evidence_ref,
                 confidence=_CONFIDENCE,
             )
@@ -370,7 +376,6 @@ class Test42TimeoutConfigAudit(BaseTest[Test42Params]):
                     f"Recommended action: reduce {label} to <= {max_value_ms} ms in the "
                     f"gateway configuration."
                 ),
-                references=list(_REFERENCES),
                 evidence_ref=evidence_ref,
                 confidence=_CONFIDENCE,
             )

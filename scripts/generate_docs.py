@@ -69,11 +69,14 @@ from src.config.loader import mapping_entry_model, model_in_annotation
 from src.config.schema import ToolConfig
 from src.core.assessment_test import NEEDED_TO_RUN, AssessmentTest, has_marker
 from src.core.models import (
+    STANDARD_FORMATS,
+    DerivedFact,
     EvidenceFile,
     EvidenceRecord,
     Finding,
     InfoNote,
     NotRunEntry,
+    Reference,
     SubTestResult,
     TestStrategy,
     TlsSettings,
@@ -293,6 +296,7 @@ def test_header(*test_ids: str, page: str) -> str:
         ("Priority / strategy", [f"{_priority(t.info)} / {t.info.strategy.value}" for t in tests]),
         ("Effect", [t.info.effect.value for t in tests]),
         ("CWE", [t.info.cwe for t in tests]),
+        ("Standards", [_standards(t.info) for t in tests]),
         ("Tags", [", ".join(f"`{tag}`" for tag in t.info.tags) or "none" for t in tests]),
         ("Prerequisites", [_prerequisites(t.info) for t in tests]),
         ("Needs", [_needs(t) for t in tests]),
@@ -714,7 +718,9 @@ _REPORT_MODELS: dict[str, type[BaseModel]] = {
         SubTestResult,
         Finding,
         InfoNote,
+        Reference,
         TransactionSummary,
+        DerivedFact,
         ReferencesSummary,
         CalibrationPoint,
         Fingerprint,
@@ -755,6 +761,32 @@ def _fields_table(model: type[BaseModel], models: dict[str, type[BaseModel]]) ->
         lines.append(
             f"| `{field.alias or name}` | {_json_type(field.annotation, models)} "
             f"| {_cell(field.description or '')} |"
+        )
+    for name, computed in model.model_computed_fields.items():
+        lines.append(
+            f"| `{name}` | {_json_type(computed.return_type, models)} "
+            f"| {_cell(computed.description or '')} (computed) |"
+        )
+    return _block(lines)
+
+
+def _standards(info: TestInfo) -> str:
+    """The test's references as shown to a reader, each in backticks (a text may hold a comma)."""
+    return ", ".join(f"`{ref.text}`" for ref in info.references) or "none"
+
+
+def standards_table() -> str:
+    """The format of each standard a reference may cite (report-schema.md): STANDARD_FORMATS."""
+    lines = [
+        "| `standard` | Standard | `id` example | Section | Shown as |",
+        "|---|---|---|---|---|",
+    ]
+    for standard, spec in STANDARD_FORMATS.items():
+        example = Reference(standard=standard, id=spec.example, section=spec.section_example)
+        section = f"optional, e.g. `{spec.section_example}`" if spec.section_example else "no"
+        lines.append(
+            f"| `{standard.value}` | {spec.name} | `{spec.example}` | {section} "
+            f"| `{example.text}` |"
         )
     return _block(lines)
 

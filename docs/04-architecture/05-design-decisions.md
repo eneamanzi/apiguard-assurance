@@ -255,7 +255,7 @@ gateway adapters knew tests 3.3, 4.3 and 7.2 by name.
 **Decision.** Every fact about a test is written once, in its module, and the rest is derived from it:
 
 - **Declaration:** one frozen `TestInfo` (`src/core/test_metadata.py`): `id`, `name`, `priority`, `strategy`,
-  `cwe`, `tags`, `depends_on`, `requires_pass`, `tool` (external tests), `needs`; the domain is the first number of
+  `cwe`, `references` (the other standards, each in its standard's format), `tags`, `depends_on`, `requires_pass`, `tool` (external tests), `needs`; the domain is the first number of
   the ID. Results keep their report names (`test_id`, `test_name`, `cwe_id`, ...).
 - **Parameters:** the model lives in the test module and is named in the class, `BaseTest[Test21Params]`; the test
   reads `self.params(target)`, typed (mypy checks every name) and only its own. The `tests:` section is validated

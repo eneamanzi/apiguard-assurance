@@ -14,7 +14,8 @@
 | Priority / strategy | P1 / WHITE_BOX |
 | Effect | READ_ONLY |
 | CWE | CWE-400 |
-| Tags | `availability`, `timeout`, `resource-lock`, `white-box`, `OWASP-API4` |
+| Standards | `OWASP API4:2023`, `NIST SP 800-204A, Section 4.3`, `OWASP ASVS v5.0.0-16.5.2` |
+| Tags | `availability`, `timeout`, `resource-lock`, `white-box` |
 | Prerequisites | none |
 | Needs | `GATEWAY` |
 | Parameters | [`tests.domain_4.test_4_2`](../../03-reference/01-configuration.md#testsdomain_4test_4_2) |

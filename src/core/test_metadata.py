@@ -34,6 +34,7 @@ from pydantic import (
 )
 
 from src.core.models import TestStrategy
+from src.core.models.standards import CWE_ID_PATTERN, Reference, Standard, duplicate_references
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -65,8 +66,10 @@ EXTERNAL_TEST_ID_PATTERN: re.Pattern[str] = re.compile(
 # and do not check its declaration (Python's convention for internal names).
 PRIVATE_CLASS_PREFIX: str = "_"
 
-# Primary CWE reference of a test, e.g. "CWE-285".
-CWE_ID_PATTERN: re.Pattern[str] = re.compile(r"^CWE-[1-9][0-9]*$")
+# A tag: a topic in lowercase words joined by hyphens, e.g. "rate-limit". The
+# standards a test cites are references, not tags: an uppercase standard
+# identifier written as a tag ("OWASP-API4") does not match.
+TAG_PATTERN: re.Pattern[str] = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$")
 
 # Name of a declared sub-test, e.g. "unauthenticated_access": lowercase words
 # joined by underscores. It is the key of the sub-test in the result and the
@@ -256,8 +259,16 @@ class TestInfo(BaseModel):
     cwe: Annotated[str, AfterValidator(_cwe_id)] = Field(
         description="Primary CWE of the weakness the test looks for, e.g. 'CWE-285'."
     )
-    tags: tuple[_NonEmptyText, ...] = Field(
-        default=(), description="Labels for the report (standards, topics)."
+    references: tuple[Reference, ...] = Field(
+        default=(),
+        description=(
+            "The other standards of the guarantee (OWASP, ASVS, WSTG, RFC, NIST SP), each in "
+            "its standard's format (src/core/models/standards.py); not the primary CWE."
+        ),
+    )
+    tags: tuple[str, ...] = Field(
+        default=(),
+        description="Topic labels: lowercase words joined by hyphens, e.g. 'rate-limit'.",
     )
     depends_on: tuple[str, ...] = Field(
         default=(),
@@ -341,6 +352,18 @@ class TestInfo(BaseModel):
         duplicates = sorted({s for s in self.sub_tests if self.sub_tests.count(s) > 1})
         if duplicates:
             raise ValueError(f"sub_tests: declared more than once: {duplicates}")
+        for tag in self.tags:
+            if not TAG_PATTERN.match(tag):
+                raise ValueError(
+                    f"tags: {tag!r} must be lowercase words joined by hyphens, e.g. "
+                    f"'rate-limit'; a standard goes in references"
+                )
+        duplicates = duplicate_references(self.references)
+        if duplicates:
+            raise ValueError(f"references: cited more than once: {duplicates}")
+        primary = Reference(standard=Standard.CWE, id=self.cwe)
+        if primary in self.references:
+            raise ValueError(f"references: {self.cwe} is the primary CWE (cwe), already cited")
         return self
 
     @property

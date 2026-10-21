@@ -123,6 +123,7 @@ info = TestInfo(
     priority=2,
     strategy=TestStrategy.BLACK_BOX,
     cwe="CWE-326",
+    references=(Reference(standard=Standard.ASVS, id="v5.0.0-12.1.1"), ...),
     tags=(...),
     tool="testssl",          # = field name in ExternalToolsConfig
 )

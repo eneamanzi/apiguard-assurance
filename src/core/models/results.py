@@ -32,6 +32,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from src.core.models.enums import Confidence, Coverage, ExitCode, NotRunReason, TestStatus
 from src.core.models.http import TransactionSummary
+from src.core.models.standards import Reference, duplicate_references
 
 # ---------------------------------------------------------------------------
 # Finding — unit of technical evidence
@@ -53,9 +54,9 @@ class Finding(BaseModel):
 
     title: str = Field(description="Short description of the violation.")
     detail: str = Field(description="Technical description, specific enough to reproduce.")
-    references: list[str] = Field(
+    references: list[Reference] = Field(
         default_factory=list,
-        description="Standards, e.g. `CWE-1059`, `OWASP-API9:2023`, `NIST-SP-800-204-S3.1`.",
+        description="The standards the violation breaks (src/core/models/standards.py).",
     )
     evidence_ref: str | None = Field(
         default=None,
@@ -84,6 +85,15 @@ class Finding(BaseModel):
         if not stripped:
             raise ValueError("Field must not be empty or whitespace-only.")
         return stripped
+
+    @field_validator("references")
+    @classmethod
+    def references_unique(cls, value: list[Reference]) -> list[Reference]:
+        """Reject a standard cited more than once."""
+        duplicates = duplicate_references(value)
+        if duplicates:
+            raise ValueError(f"references cited more than once: {duplicates}")
+        return value
 
 
 # ---------------------------------------------------------------------------
@@ -125,7 +135,7 @@ class InfoNote(BaseModel):
             InfoNote(
                 title="Compensating Control: Upstream Passive HC",
                 detail="...",
-                references=["OWASP-ASVS-v5.0.0-V16.5.2"],
+                references=[Reference(standard=Standard.ASVS, id="v5.0.0-16.5.2")],
             )
         ]
         return TestResult(status=TestStatus.PASS, findings=[], notes=notes, ...)
@@ -137,9 +147,9 @@ class InfoNote(BaseModel):
         )
     )
     detail: str = Field(description="The context, in full.")
-    references: list[str] = Field(
+    references: list[Reference] = Field(
         default_factory=list,
-        description="Standards.",
+        description="The standards the note relates to.",
     )
 
     @field_validator("title", "detail")
@@ -150,6 +160,15 @@ class InfoNote(BaseModel):
         if not stripped:
             raise ValueError("Field must not be empty or whitespace-only.")
         return stripped
+
+    @field_validator("references")
+    @classmethod
+    def references_unique(cls, value: list[Reference]) -> list[Reference]:
+        """Reject a standard cited more than once."""
+        duplicates = duplicate_references(value)
+        if duplicates:
+            raise ValueError(f"references cited more than once: {duplicates}")
+        return value
 
 
 # ---------------------------------------------------------------------------
@@ -414,7 +433,11 @@ class TestResult(BaseModel):
     )
     tags: list[str] = Field(
         default_factory=list,
-        description="Free-form tags from the test's declaration (e.g. OWASP refs).",
+        description="Topic labels from the test's declaration (e.g. `availability`).",
+    )
+    references: list[Reference] = Field(
+        default_factory=list,
+        description="The standards of the guarantee, from the test's declaration.",
     )
     cwe_id: str = Field(
         default="",
