@@ -154,7 +154,7 @@ class TestResultRow(BaseModel):
     )
     cwe_id: str = Field(
         default="",
-        description="Primary CWE (e.g. `CWE-306`).",
+        description="Primary CWE (e.g. `CWE-306`); empty when the test declares none.",
     )
     transaction_log: list[TransactionSummary] = Field(
         default_factory=list,

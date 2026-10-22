@@ -171,19 +171,6 @@ output:
 # Test review (branch test-review): the parameters of the tests not rewritten yet are commented out;
 # each block returns, uncommented, with its test (docs/project/test-review.md).
 tests: {}
-# domain_0:
-#   (0.2: returns with test 0.2)
-#   test_0_2:
-#     # The defaults plus APISIX, which answers with "Server: APISIX".
-#     gateway_server_identifiers:
-#       - "kong"
-#       - "nginx"
-#       - "openresty"
-#       - "apache"
-#       - "caddy"
-#       - "traefik"
-#       - "envoy"
-#       - "apisix"
 # domain_1:
 #   (1.4: returns with test 1.4)
 #   test_1_4:

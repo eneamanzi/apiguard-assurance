@@ -20,9 +20,9 @@ concepts](../../04-architecture/05-design-decisions.md#d7-neutral-gateway-concep
 | `circuit_breakers()` | `_read_circuit_breakers()` | `CircuitBreaker` | - |
 | `config_values()` | `_read_config_values()` | `ConfigValue` | - |
 | `health_checks()` | `_read_health_checks()` | `HealthCheck` | - |
-| `routes()` | `_read_routes()` | `GatewayRoute` | 0.1 |
+| `routes()` | `_read_routes()` | `GatewayRoute` | 0.1, 0.2 |
 | `signing_policies()` | `_read_signing_policies()` | `SigningPolicy` | - |
-| `target_health()` | `_read_target_health()` | `TargetHealth` | - |
+| `target_health()` | `_read_target_health()` | `TargetHealth` | 0.4 |
 
 <!-- [[[end]]] -->
 

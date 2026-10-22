@@ -222,8 +222,10 @@ def _not_blank(value: str) -> str:
     return value
 
 
-def _cwe_id(value: str) -> str:
-    """Require the form 'CWE-<number>'."""
+def _cwe_id(value: str | None) -> str | None:
+    """Require the form 'CWE-<number>', or no value at all."""
+    if value is None:
+        return None
     if not CWE_ID_PATTERN.match(value):
         raise ValueError("must have the form 'CWE-<number>', e.g. 'CWE-285'")
     return value
@@ -259,8 +261,13 @@ class TestInfo(BaseModel):
     strategy: TestStrategy = Field(
         description="What the tester needs: BLACK_BOX, GREY_BOX or WHITE_BOX."
     )
-    cwe: Annotated[str, AfterValidator(_cwe_id)] = Field(
-        description="Primary CWE of the weakness the test looks for, e.g. 'CWE-285'."
+    cwe: Annotated[str | None, AfterValidator(_cwe_id)] = Field(
+        default=None,
+        description=(
+            "Primary CWE of the weakness the test looks for, e.g. 'CWE-285'; None when the "
+            "catalogue holds no entry that describes it, and then the guarantee rests on the "
+            "standards in references."
+        ),
     )
     references: tuple[Reference, ...] = Field(
         default=(),
@@ -379,9 +386,10 @@ class TestInfo(BaseModel):
         duplicates = duplicate_references(self.references)
         if duplicates:
             raise ValueError(f"references: cited more than once: {duplicates}")
-        primary = Reference(standard=Standard.CWE, id=self.cwe)
-        if primary in self.references:
-            raise ValueError(f"references: {self.cwe} is the primary CWE (cwe), already cited")
+        if self.cwe is not None:
+            primary = Reference(standard=Standard.CWE, id=self.cwe)
+            if primary in self.references:
+                raise ValueError(f"references: {self.cwe} is the primary CWE (cwe), already cited")
         return self
 
     @property

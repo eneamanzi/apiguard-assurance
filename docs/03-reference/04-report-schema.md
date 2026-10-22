@@ -152,7 +152,7 @@ precondition, a not-run test was not selected or was stopped (`src/core/models/r
 | `findings` | array of [`Finding`](#finding) | At least one for `FAIL`, none for `PASS` and `INCONCLUSIVE` (enforced by the model); an `ERROR` result may carry findings collected before the error. |
 | `tags` | array of string | Topic labels (e.g. `availability`). |
 | `references` | array of [`Reference`](#reference) | The standards of the guarantee, from the test's declaration. |
-| `cwe_id` | string | Primary CWE (e.g. `CWE-306`). |
+| `cwe_id` | string | Primary CWE (e.g. `CWE-306`); empty when the test declares none. |
 | `transaction_log` | array of [`TransactionSummary`](#transactionsummary) | Every HTTP request of the test, PASS included. |
 | `notes` | array of [`InfoNote`](#infonote) | Informational context that is not a violation (e.g. a compensating control), on any status. |
 | `source` | `native` \| `external` | `native` or `external`. |

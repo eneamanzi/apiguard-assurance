@@ -441,7 +441,10 @@ class TestResult(BaseModel):
     )
     cwe_id: str = Field(
         default="",
-        description="Primary CWE identifier addressed by the test (e.g. 'CWE-287').",
+        description=(
+            "Primary CWE identifier addressed by the test (e.g. `CWE-287`); empty when the "
+            "test declares none because no catalogue entry describes its weakness."
+        ),
     )
 
     # --- External tool identifier ---

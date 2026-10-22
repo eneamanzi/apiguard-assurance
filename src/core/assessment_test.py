@@ -554,7 +554,7 @@ class AssessmentTest(ABC, Generic[ParamsT]):
             effect=info.effect.value,
             tags=list(info.tags),
             references=list(info.references),
-            cwe_id=info.cwe,
+            cwe_id=info.cwe or "",
             tool_name=info.tool or "",
             source=self.source,
         )

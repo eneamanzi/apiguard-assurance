@@ -258,7 +258,8 @@ def catalogue() -> str:
             link = _relative(pages[info.id], readme.relative_to(_ROOT))
             lines.append(
                 f"| {_id_cell(info)} | {info.name} | {_priority(info)} | {info.strategy.value} "
-                f"| {info.effect.value} | {info.cwe} | {_needs(test)} | [{info.id}]({link}) |"
+                f"| {info.effect.value} | {info.cwe or '-'} | {_needs(test)} "
+                f"| [{info.id}]({link}) |"
             )
     lines.append("")
     lines.append(
@@ -298,7 +299,7 @@ def test_header(*test_ids: str, page: str) -> str:
         ("Domain", [f"{t.info.domain} - {DOMAIN_NAMES[t.info.domain]}" for t in tests]),
         ("Priority / strategy", [f"{_priority(t.info)} / {t.info.strategy.value}" for t in tests]),
         ("Effect", [t.info.effect.value for t in tests]),
-        ("CWE", [t.info.cwe for t in tests]),
+        ("CWE", [t.info.cwe or "none" for t in tests]),
         ("Standards", [_standards(t.info) for t in tests]),
         ("Tags", [", ".join(f"`{tag}`" for tag in t.info.tags) or "none" for t in tests]),
         ("Prerequisites", [_prerequisites(t.info) for t in tests]),

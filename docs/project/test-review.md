@@ -23,18 +23,55 @@ crAPI enters the code.
 - **On the branch now:** only test 4.2 (the pilot of the common part); the other tests are on `main` and return one
   at a time, rewritten.
 - **Done:** guarantee 0.1 (2026-10-22): `ext.0.1.ffuf` (ffuf searches, the test re-verifies every candidate against the calibration) and `0.1` rewritten (undeclared methods, undocumented versions, gateway route drift). `ext.0.1.nuclei` removed. Both proven on the three labs; a self-review after the first runs fixed two weaknesses (a PASS that claimed more than was verified, a version group of POST paths skipped): [draft](test-review/0-1.md).
-- **Next:** guarantee 0.2 (the gateway rejects unregistered paths), after the owner's commit.
+- **Done:** group A (2026-10-22): `0.2` (paths without a route), `0.3` (deprecated operations still served) and
+  `0.4` (backend reachable without the gateway, new). All six phases through; the three labs give the three
+  situations of rule 9 between them; the self-review after the first run removed three false findings:
+  [draft](test-review/group-a.md).
+- **Next:** group B (1.1 authentication required, 1.6 secure sessions, 1.7 brute force and user enumeration), after
+  the owner's commit.
 - **Open, recorded here:** the SSRF listener (7.2), the reference probes on a backend that fails with 5xx (1.1); the
   documentation changes listed below.
 
 ## How we work
 
-**Order (owner, 2026-10-21).**
+**Order: by group of guarantees (owner, 2026-10-22).** It replaces the order of 2026-10-21 (first the 15
+guarantees of the existing tests, then the 16 missing ones, then the unconnected external tools), which was followed
+for guarantee 0.1. The reason for the change, after that first review: the boundary between two tests of the same
+domain ("one question, one test", rule 10) can only be decided by designing both, so the old order decided each
+boundary twice and reopened the test written first; and one run on the three labs costs almost the same for one test
+or for four, because its cost is the fixed part (startup, discovery, authentication).
 
-1. **The guarantees of the 18 existing tests**, one at a time, in the order of the table below: each is reviewed,
-   rewritten on the new base, proven on the labs and documented before the next starts.
-2. **The missing guarantees**, domain by domain.
-3. **The rest**: the external tools of the methodology not yet connected, each with the guarantee that uses it.
+A **group** is a set of guarantees that share their concepts (reference responses, gateway concepts, roles), the
+facts to collect from the labs, and often the external tool. Existing and missing guarantees are mixed: what decides
+a group is what its members share, not whether a test for them exists on `main`.
+
+| Group | Guarantees | What they share |
+|---|---|---|
+| A | 0.2, 0.3, 0.4 | the gateway routes, the specification, the code written for 0.1 |
+| B | 1.1, 1.6, 1.7 | the positive control, credential placement, the authentication endpoints |
+| C | 1.2, 1.3, 1.4 | the token lifecycle, jwt_tool, the login artefacts |
+| D | 1.5 | TLS, testssl and sslyze (both already connected) |
+| E | 2.1, 2.2, 2.4, 2.5 | two roles, own and other users' objects, equivalent paths |
+| F | 3.1, 3.3 | the request body and the signature over it |
+| G | 4.1, 4.2, 4.3, 4.4 | resource limits, the gateway plugin configuration, vegeta |
+| H | 5.1, 5.2 | the gateway's logs and alerts |
+| I | 6.1, 6.2, 6.3, 6.4 | what a response lets out: errors, headers, secrets |
+| J | 7.1, 7.2, 7.3, 7.4 | business flows, the outbound listener, races |
+
+**The six phases of a group.** Always the same, in this order.
+
+| Phase | What it produces |
+|---|---|
+| 1. Collection | one read-only pass over the three labs gathering the raw facts the whole group needs (routes, specification fields, what each lab answers in the cases at issue), saved in the group's draft |
+| 2. Design | `test-review/group-<letter>.md`: the **boundary table** (which question belongs to which test) and the future page of every test in the group, designed on the facts of phase 1. **The owner's go-ahead is given here, once for the group** |
+| 3. Code | the group's tests written in sequence; reported per test, not per file |
+| 4. Proof | one run per lab with all the group's tests |
+| 5. Self-review | the results reread against the boundary table; the fixes recorded in the draft |
+| 6. Documentation | the pages, `roadmap.md`, `CHANGELOG.md`, the files that follow a test, `hatch run dev:check`, in one pass; then the owner's commit |
+
+Inside a design approved in phase 2 the code is written without a file-by-file go-ahead. Everything else holds: no
+commit, no hand-made request that changes a lab without asking first, no new configuration parameter without
+stopping.
 
 **Start from the guarantee, not from the test** (owner, 2026-10-21). For each guarantee the question is how best to
 verify it: our code alone, an external tool alone, or both, each covering a different part. A native test does not
@@ -46,12 +83,13 @@ inside our test, which launches it and judges its results (the methodology's rul
 
 **Each review.**
 
-- **Draft:** `test-review/<id>.md` (e.g. `test-review/0-1.md`) is the future test page (template below) followed by
-  a review box. It replaces the page in `docs/05-tests/` only when the code is written and verified on the labs.
+- **Draft:** `test-review/group-<letter>.md` holds the boundary table and, per test, the future page (template
+  below) followed by a review box. Each page replaces the one in `docs/05-tests/` only when the code is written and
+  verified on the labs. (Guarantee 0.1, reviewed before the groups, has its own `test-review/0-1.md`.)
 - **Review box:** the guarantee and its standards (checked on their sources); problems found (code line, lab run);
   research (tools and sources); options and the recommendation; the owner's decision; the changes (code,
   configuration, documentation, labs); done when.
-- **Rules:** facts verified against the code, a run or a cited source; proposals marked as such; one guarantee at a
+- **Rules:** facts verified against the code, a run or a cited source; proposals marked as such; one group at a
   time; the owner decides and closes questions; the design is presented and agreed before code is written.
 - **Done when:** the test is back on the branch, `hatch run dev:check` passes, it gives the expected answer on the
   labs in the three situations (rule 9 below), its page and the files that follow it are updated; then a commit
@@ -126,8 +164,8 @@ optional, HYBRID) and its tools: a starting point, revisited in each review.
 | # | Guarantee | Tests on `main` | Methodology | Status |
 |---|---|---|---|---|
 | 1 | **0.1** Every exposed endpoint is documented (Shadow API Discovery) | `ext.0.1.ffuf` (new), `0.1` (rewritten); `ext.0.1.nuclei` removed | ffuf for the search, our code for the specification | done 2026-10-22, proven on the three labs ([draft](test-review/0-1.md)) |
-| 2 | **0.2** The gateway rejects unregistered paths (Deny-by-Default) | `0.2` | NATIVE + optional: cherrybomb | to review |
-| 3 | **0.3** Deprecated APIs are switched off or flagged (Deprecated APIs) | `0.3` | NATIVE + optional: oasdiff | to review |
+| 2 | **0.2** The gateway rejects unregistered paths (Deny-by-Default) | `0.2` rewritten (Paths Without a Route) | our code; cherrybomb not used | done 2026-10-22, group A ([draft](test-review/group-a.md)) |
+| 3 | **0.3** Deprecated APIs are switched off or flagged (Deprecated APIs) | `0.3` rewritten (Deprecated Operations Still Served) | our code; oasdiff not used | done 2026-10-22, group A ([draft](test-review/group-a.md)) |
 | 4 | **1.1** Only authenticated requests reach protected resources (Authentication Required) | `1.1` | NATIVE | to review |
 | 5 | **1.4** Revoked credentials are rejected (Token Revocation) | `1.4` | NATIVE | to review |
 | 6 | **1.5** Credentials never travel on insecure channels (Insecure Credential Transport, TLS) | `1.5`, `ext.1.5.testssl`, `ext.1.5.sslyze` | HYBRID: testssl.sh, sslyze | to review |
@@ -145,7 +183,7 @@ optional, HYBRID) and its tools: a starting point, revisited in each review.
 
 | Guarantee | Methodology | Status |
 |---|---|---|
-| **0.4** The backend is reachable only through the gateway (new) | to decide | to design |
+| **0.4** The backend is reachable only through the gateway (new) | our code (`0.4`, new) | done 2026-10-22, group A ([draft](test-review/group-a.md)) |
 | **1.2** Credentials are cryptographically valid (forged JWT) | HYBRID: jwt_tool | to design |
 | **1.3** Expired credentials are rejected | HYBRID: jwt_tool | to design |
 | **1.7** Authentication endpoints resist brute force and user enumeration (new) | to decide | to design |
@@ -254,6 +292,12 @@ What the review decides for the documentation is collected here and applied afte
 | `docs/04-architecture/01-overview.md`, `02-data-model.md` | Phase 2 derives knowledge (`src/discovery/derivation.py`, `AttackSurface.derived`), how a rule is added | piece 7 |
 | `docs/04-architecture/01-overview.md`, `02-data-model.md`, `03-assessment-model.md`, `docs/02-guides/03-extending/02-add-a-native-test.md` | the reference responses (`src/core/references.py`, `TestContext.references`, sibling patterns, `response_facts()`), how a test asks for them, their cost | piece 3 |
 | `docs/04-architecture/01-overview.md`, `02-data-model.md`, `03-assessment-model.md`, `docs/02-guides/03-extending/02-add-a-native-test.md` | the needs fix a minimum strategy (`NEED_MINIMUM_STRATEGY`); the gateway reaches only the tests that declare `Need.GATEWAY` (the `TargetContext` is no longer the same object for every test) | piece 1b |
+| `docs/06-knowledge/04-guarantees.md` | sections 0.2 and 0.3 aligned with what is implemented; **0.4 added** as a new guarantee (a backend answers only through the gateway) | group A |
+| `docs/06-knowledge/05-tool-decisions.md` | 0.1: nuclei no longer used, ffuf implemented; 0.2: cherrybomb not used (it reads the specification, not the gateway's routes); 0.3: oasdiff not used (it compares two specifications, which the target does not serve, and reports on documents rather than on the running API) | guarantees 0.1, group A |
+| `docs/03-reference/06-compatibility.md` | Test portability: 0.2 and 0.3 need only the specification and the target URL; 0.4 needs the gateway's admin plane and reports what the network the run started on allows | group A |
+| `docs/project/roadmap.md` | 0.2 and 0.3 rewritten, 0.4 added; `ext.0.1.nuclei` removed and `ext.0.1.ffuf` implemented | guarantees 0.1, group A |
+| `CHANGELOG.md` | `SecurityClient.request(origin=...)`, `TestInfo.cwe` optional, `ReferenceResponses.gateway_refusal()`, `random_token()`; the removed parameter `tests.domain_0.test_0_2.gateway_server_identifiers` | group A |
+| `OPEN_QUESTIONS.md` | the Q-29 items for 0.2 (the `Server` header check, the fixed list of nonexistent paths) and 0.3 (an unparseable `Sunset` counted as compliant) are answered | group A |
 
 ## History: how the common part was decided (phase 0, 2026-10-19 to 2026-10-21)
 

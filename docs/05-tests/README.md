@@ -10,13 +10,16 @@ target, and how it relates to the methodology.
 
 <!-- [[[cog import generate_docs as g; cog.out(g.catalogue()) ]]] -->
 
-3 tests: 2 native, 1 external.
+6 tests: 5 native, 1 external.
 
 | ID | Name | Pri. | Strategy | Effect | CWE | Needs | Page |
 |---|---|---|---|---|---|---|---|
 | **Domain 0 - API Discovery and Inventory Management** | | | | | | | |
 | `0.1` | Undeclared Methods, Undocumented Versions and Gateway Route Drift | P0 | BLACK_BOX | STRESSES_TARGET | CWE-912 | `GATEWAY` (optional) | [0.1](domain-0/0-1-shadow-api-discovery.md) |
 | `ext.0.1.ffuf` | Undocumented Paths Answer (ffuf path search, re-verified) | P0 | BLACK_BOX | STRESSES_TARGET | CWE-912 | - | [ext.0.1.ffuf](external/domain-0/ext-0-1-ffuf.md) |
+| `0.2` | Paths Without a Route | P0 | BLACK_BOX | READ_ONLY | CWE-183 | `GATEWAY` (optional) | [0.2](domain-0/0-2-paths-without-a-route.md) |
+| `0.3` | Deprecated Operations Still Served | P0 | BLACK_BOX | READ_ONLY | - | `USER_ACCOUNT` (optional) | [0.3](domain-0/0-3-deprecated-operations.md) |
+| `0.4` | Backend Reachable Without the Gateway | P0 | WHITE_BOX | READ_ONLY | CWE-420 | `GATEWAY` | [0.4](domain-0/0-4-backend-without-the-gateway.md) |
 | **Domain 1 - Identity and Authentication** | | | | | | | |
 | - | no test implemented | | | | | | |
 | **Domain 2 - Authorization and Access Control** | | | | | | | |

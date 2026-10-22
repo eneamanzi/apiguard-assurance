@@ -37,6 +37,7 @@ report/.
 from __future__ import annotations
 
 import json
+import re
 import ssl
 import time
 from collections.abc import Callable
@@ -60,6 +61,10 @@ from src.core.redaction import SET_COOKIE_HEADER, SecretRegistry
 from src.core.tls import TARGET_TLS, build_ssl_context, certificate_failure
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
+
+# An origin a test may ask instead of the target's base_url: scheme, host and
+# optional port, with no path (SecurityClient.request's origin).
+_ORIGIN_PATTERN: re.Pattern[str] = re.compile(r"^https?://[^/\s?#]+$")
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -317,6 +322,7 @@ class SecurityClient:
         json: object | None = None,
         content: bytes | None = None,
         params: dict[str, Any] | None = None,
+        origin: str | None = None,
     ) -> tuple[httpx.Response, EvidenceRecord]:
         """
         Perform an HTTP request and return the response with an evidence record.
@@ -350,6 +356,13 @@ class SecurityClient:
             content: Optional raw request body as bytes.
                      Mutually exclusive with json.
             params: Optional query string parameters.
+            origin: Another scheme, host and port to send this path to, e.g.
+                    "http://10.0.0.7:3000", instead of the target's base_url.
+                    Only a test whose question is about a second address uses
+                    it (test 0.4, whether a backend answers without the
+                    gateway); the record keeps the address actually asked, and
+                    the TLS settings of this client apply to it as they do to
+                    the target.
 
         Returns:
             Tuple of (httpx.Response, EvidenceRecord).
@@ -377,6 +390,12 @@ class SecurityClient:
                 f"Request path must start with '/'. Got: '{path}'. "
                 "Provide an absolute path relative to base_url."
             )
+        if origin is not None and not _ORIGIN_PATTERN.match(origin):
+            raise ValueError(
+                f"Request origin must be 'scheme://host[:port]' with no path. Got: '{origin}'."
+            )
+        target_url = f"{origin}{path}" if origin else path
+        display_url = f"{origin or self._base_url}{path}"
 
         record_id = self._next_record_id(test_id)
         timestamp = datetime.now(UTC)
@@ -399,7 +418,7 @@ class SecurityClient:
                 record_id=record_id,
                 timestamp=timestamp,
                 method=method_upper,
-                path=path,
+                display_url=display_url,
                 request_headers=headers or {},
                 request_json=json,
                 transport_error=transport_error,
@@ -408,7 +427,8 @@ class SecurityClient:
 
         response, attempt_count = self._execute_with_retry(
             method=method_upper,
-            path=path,
+            path=target_url,
+            display_url=display_url,
             headers=headers or {},
             json=json,
             content=content,
@@ -430,7 +450,7 @@ class SecurityClient:
             record_id=record_id,
             timestamp=timestamp,
             method=method_upper,
-            path=path,
+            display_url=display_url,
             request_headers=headers or {},
             request_json=json,
             response=response,
@@ -466,6 +486,7 @@ class SecurityClient:
         self,
         method: str,
         path: str,
+        display_url: str,
         headers: dict[str, str],
         json: object | None,
         content: bytes | None,
@@ -489,7 +510,9 @@ class SecurityClient:
 
         Args:
             method: Uppercase HTTP method.
-            path: Absolute path relative to base_url.
+            path: The URL given to httpx: a path relative to base_url, or the
+                  whole URL when the caller asked for another origin.
+            display_url: The address asked, for the messages and the record.
             headers: Request headers (may be empty dict).
             json: Optional JSON body.
             content: Optional raw body bytes.
@@ -548,7 +571,7 @@ class SecurityClient:
             raise SecurityClientError(
                 message=f"HTTP {method} {path}: {reason}",
                 method=method,
-                url=f"{self._base_url}{path}",
+                url=display_url,
                 status_code=None,
                 attempt_count=attempt_count,
                 record=failed_record(TransportError.TLS_ERROR),
@@ -572,7 +595,7 @@ class SecurityClient:
                     f"Last error: {last_exc_str}"
                 ),
                 method=method,
-                url=f"{self._base_url}{path}",
+                url=display_url,
                 status_code=None,
                 attempt_count=attempt_count,
                 record=failed_record(transport_error_of(last_exc)),
@@ -583,7 +606,7 @@ class SecurityClient:
         raise SecurityClientError(
             message=f"HTTP {method} {path} failed: unexpected retry loop exit.",
             method=method,
-            url=f"{self._base_url}{path}",
+            url=display_url,
         )
 
     def _build_failed_record(
@@ -591,7 +614,7 @@ class SecurityClient:
         record_id: str,
         timestamp: datetime,
         method: str,
-        path: str,
+        display_url: str,
         request_headers: dict[str, str],
         request_json: object | None,
         transport_error: TransportError,
@@ -628,7 +651,7 @@ class SecurityClient:
             record_id=record_id,
             timestamp_utc=timestamp,
             request_method=method,
-            request_url=redact(f"{self._base_url}{path}"),
+            request_url=redact(display_url),
             request_headers={
                 name: self._secrets.redact_header(name, str(value))
                 for name, value in request_headers.items()
@@ -647,7 +670,7 @@ class SecurityClient:
         record_id: str,
         timestamp: datetime,
         method: str,
-        path: str,
+        display_url: str,
         request_headers: dict[str, str],
         request_json: object | None,
         response: httpx.Response,
@@ -716,7 +739,7 @@ class SecurityClient:
             key.lower(): str(value) for key, value in response.headers.items()
         }
 
-        full_url = f"{self._base_url}{path}"
+        full_url = display_url
 
         # Every Set-Cookie redacted one by one (RFC 6265: they cannot be folded
         # into one value; httpx folds them in its mapping, and redacting the

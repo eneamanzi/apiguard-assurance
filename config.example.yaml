@@ -212,6 +212,12 @@ tests:
   domain_0:
     # 0.1 Undeclared Methods, Undocumented Versions and Gateway Route Drift: no parameters.
     test_0_1: {}
+    # 0.2 Paths Without a Route: no parameters.
+    test_0_2: {}
+    # 0.3 Deprecated Operations Still Served: no parameters.
+    test_0_3: {}
+    # 0.4 Backend Reachable Without the Gateway: no parameters.
+    test_0_4: {}
     # ext.0.1.ffuf Undocumented Paths Answer (ffuf path search, re-verified).
     ext_0_1_ffuf:
       # A list of the user's (one word or path per line), tried under every base path besides the

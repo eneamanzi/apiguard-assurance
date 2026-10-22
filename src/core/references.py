@@ -23,6 +23,14 @@ reached through TestContext.references):
                       the caller gives (the test knows which role is right).
                       Asked once per (method, path, credential label).
                       Answers positive_control().
+    gateway refusal   what the gateway answers when none of its routes matches:
+                      two requests to random paths at the root, unauthenticated,
+                      asked once for the run. Unlike a calibration point it has
+                      no spoiling rule, because a refusal is exactly what is
+                      being measured: a 401 or a 403 here is the gateway's own
+                      answer, not a probe that says nothing. Answers
+                      gateway_refusal(); the caller compares an answer with it
+                      through fingerprint_of().
 
 A judged response that is itself rate limited, unanswered or refused by an
 unavailable upstream is not compared (UNRELIABLE). A calibration point is used
@@ -79,6 +87,9 @@ REFERENCE_TEST_ID: str = "ref"
 _PROBE_PREFIX: str = "zqxv"
 _PROBE_RANDOM_BYTES: int = 6
 _PROBES_PER_POINT: int = 2
+
+# The sibling pattern of a path at the root: where the gateway refusal is probed.
+_ROOT_PATTERN: str = "/{*}"
 
 # Categories that spoil a calibration probe: the answer says nothing about
 # whether a path exists.
@@ -388,13 +399,27 @@ def _marker_for(parameter: ParameterInfo | None) -> str:
     return RANDOM_SEGMENT
 
 
+def random_token() -> str:
+    """
+    A random name no route or path is expected to hold.
+
+    The neutral prefix and random hexadecimal characters the random siblings
+    use, for a test that builds a path of its own and has to recognise its
+    random part in an answer (fingerprint_of's probed_segments).
+
+    Returns:
+        The token, e.g. "zqxv3f9a1c".
+    """
+    return _PROBE_PREFIX + secrets.token_hex(_PROBE_RANDOM_BYTES)
+
+
 def _random_value(kind: str | None) -> str:
     """A random value of a marker's kind (None or "" for a string)."""
     if kind == _KIND_INTEGER:
         return str(_RANDOM_INTEGER_MIN + secrets.randbelow(_RANDOM_INTEGER_SPAN))
     if kind == _KIND_UUID:
         return str(uuid.uuid4())
-    return _PROBE_PREFIX + secrets.token_hex(_PROBE_RANDOM_BYTES)
+    return random_token()
 
 
 def sibling_pattern(template_path: str, parameters: Sequence[ParameterInfo] = ()) -> str:
@@ -494,6 +519,7 @@ class ReferenceResponses:
         self._store = store
         self._points: dict[tuple[str, str, str], CalibrationPoint] = {}
         self._controls: dict[tuple[str, str, str], PositiveControl] = {}
+        self._refusal: CalibrationPoint | None = None
 
     # ------------------------------------------------------------------
     # Calibration
@@ -595,6 +621,59 @@ class ReferenceResponses:
         )
 
     # ------------------------------------------------------------------
+    # Gateway refusal
+    # ------------------------------------------------------------------
+
+    def gateway_refusal(self) -> CalibrationPoint:
+        """
+        What the gateway answers when none of its routes matches, probed on first use.
+
+        Two unauthenticated GET requests to random paths at the root, which no
+        route and no specification path is expected to match. The point is
+        reliable when both got the same answer; a caller compares a response
+        with it by fingerprint_of(record, its own random segments) ==
+        point.fingerprint.
+
+        Unlike calibration(), an answer that refuses the request does not spoil
+        the probe: a refusal is what is being measured, so a gateway that
+        answers 401 or 403 to an unrouted path has that as its refusal. The
+        point is unreliable only when the two probes answered differently.
+
+        Returns:
+            The CalibrationPoint of the refusal (from the cache after the first
+            call), its pattern being the root pattern "/{*}".
+        """
+        if self._refusal is not None:
+            return self._refusal
+        fingerprints: list[Fingerprint] = []
+        record_ids: list[str] = []
+        for _ in range(_PROBES_PER_POINT):
+            path, names = _fill_pattern(_ROOT_PATTERN)
+            record = self._send("GET", path, None)
+            record_ids.append(record.record_id)
+            fingerprints.append(fingerprint_of(record, names))
+        differed = len(set(fingerprints)) != 1
+        reason = "the two random paths got different answers" if differed else None
+        reliable = reason is None
+        point = CalibrationPoint(
+            pattern=_ROOT_PATTERN,
+            method="GET",
+            credential=NO_CREDENTIAL,
+            reliable=reliable,
+            fingerprint=fingerprints[0] if reliable else None,
+            reason=reason,
+            record_ids=tuple(record_ids),
+        )
+        self._refusal = point
+        log.info(
+            "reference_gateway_refusal",
+            reliable=point.reliable,
+            reason=point.reason,
+            status_code=point.fingerprint.status_code if point.fingerprint else None,
+        )
+        return point
+
+    # ------------------------------------------------------------------
     # Positive control
     # ------------------------------------------------------------------
 
@@ -665,6 +744,11 @@ class ReferenceResponses:
         Every reference of the run, for the report.
 
         Returns:
-            (calibration points, positive controls), in the order they were made.
+            (calibration points, positive controls), in the order they were
+            made; the gateway refusal, when it was measured, is the last
+            calibration point.
         """
-        return list(self._points.values()), list(self._controls.values())
+        points = list(self._points.values())
+        if self._refusal is not None:
+            points.append(self._refusal)
+        return points, list(self._controls.values())
