@@ -340,6 +340,15 @@ are in [`config.example.yaml`](../../config.example.yaml).
 
 <!-- [[[cog import generate_docs as g; cog.out(g.configuration_tests()) ]]] -->
 
+### `tests.domain_1.test_1_5`
+
+Test [1.5](../05-tests/domain-1/1-5-credentials-over-an-insecure-channel.md), Credentials Over an Insecure Channel.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `hsts_min_max_age_seconds` | int ≥86400 | `31536000` | Lowest acceptable max-age (seconds) in the Strict-Transport-Security header. NIST SP 800-52 Rev.2, OWASP ASVS v5.0.0-3.4.1 ask for at least one year. Default: 31536000 (one year). |
+| `http_url` | string | `""` | The API in plain HTTP, when its HTTP listener is on a non-standard port: only the origin (scheme://host[:port]) is used, the path is derived from the specification. Empty (default) derives the origin from base_url (scheme to http, port 443 dropped). |
+
 ### `tests.domain_4.test_4_2`
 
 Test [4.2](../05-tests/domain-4/4-2-timeout-config-audit.md), Timeout Configuration Audit -- Prevention of Resource Lock.

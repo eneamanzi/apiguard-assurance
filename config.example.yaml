@@ -234,6 +234,13 @@ tests:
     test_1_3: {}
     # 1.4 Credential Revocation: no parameters.
     test_1_4: {}
+    # 1.5 Credentials Over an Insecure Channel.
+    test_1_5:
+      # Lowest acceptable max-age (seconds) in the Strict-Transport-Security header.
+      hsts_min_max_age_seconds: 31536000
+      # The API in plain HTTP, when its HTTP listener is on a non-standard port: only the origin
+      # (scheme://host[:port]) is used, the path is derived from the specification.
+      http_url: ''
     # 1.6 Session Cookie Safety: no parameters.
     test_1_6: {}
     # 1.7 Authentication Endpoints Resist Guessing: no parameters.

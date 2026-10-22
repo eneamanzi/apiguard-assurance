@@ -86,12 +86,12 @@ output:
 
 # Test review (branch test-review): the parameters of the tests not rewritten yet are commented out;
 # each block returns, uncommented, with its test (docs/project/test-review.md).
-tests: {}
-# domain_1:
-#   (1.5: returns with test 1.5)
-#   test_1_5:
-#     # The lab's HTTP listener (Kong, host port 9000) redirects to HTTPS.
-#     http_url: "http://localhost:9000/identity/api/auth/jwks.json"
+tests:
+  domain_1:
+    test_1_5:
+      # The lab puts HTTPS on 9443 and the plain-HTTP listener (Kong) on 9000. Only
+      # the origin is used; the path is derived from the specification.
+      http_url: "http://localhost:9000"
 # domain_7:
 #   (7.2: returns with test 7.2)
 #   test_7_2:

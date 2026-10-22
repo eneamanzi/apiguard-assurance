@@ -39,7 +39,14 @@ crAPI enters the code.
   `alg: none` token (challenge 15) and issues a 7-day token; Forgejo's opaque token makes 1.2/1.3 not applicable
   and 1.4 passes. A self-review fixed the anchor (it must refuse a no-credential request, not only serve a
   credentialled one): [draft](test-review/group-c.md).
-- **Next:** group D (1.5 credentials over TLS, with testssl and sslyze already connected), after the owner's commit.
+- **Done:** group D (2026-10-22): `1.5` (credentials over an insecure channel, rewritten) and `ext.1.5.testssl`
+  (TLS handshake scan, rewritten). Owner chose one external TLS test (testssl) over two: `ext.1.5.sslyze` is removed
+  as an always-on test, the sslyze connector stays as an enable-able alternative. The native test now probes a
+  documented API path (not `/`), which fixes a false FAIL on HSTS, and reads the redirect's `Location` scheme. All
+  three labs PASS (TLS clean, redirect enforced, HSTS compliant); the three rule-9 situations were proven by tool
+  configuration (plain-HTTP target, and a withheld `ca_bundle` for an untrusted chain), so no gateway change was
+  needed. ASVS references corrected on the source (3.4.1 HSTS, 12.1.1/12.2.1 TLS): [draft](test-review/group-d.md).
+- **Next:** group E (2.1, 2.2, 2.4, 2.5: authorization), after the owner's commit.
 - **Open, recorded here:** the SSRF listener (7.2), the reference probes on a backend that fails with 5xx (1.1); the
   documentation changes listed below.
 
@@ -179,7 +186,7 @@ optional, HYBRID) and its tools: a starting point, revisited in each review.
 | 3 | **0.3** Deprecated APIs are switched off or flagged (Deprecated APIs) | `0.3` rewritten (Deprecated Operations Still Served) | our code; oasdiff not used | done 2026-10-22, group A ([draft](test-review/group-a.md)) |
 | 4 | **1.1** Only authenticated requests reach protected resources (Authentication Required) | `1.1` rewritten (Credential Required on Documented Operations) | our code | done 2026-10-22, group B ([draft](test-review/group-b.md)) |
 | 5 | **1.4** Revoked credentials are rejected (Token Revocation) | `1.4` rewritten (Credential Revocation) | our code; derived anchor | done 2026-10-22, group C ([draft](test-review/group-c.md)) |
-| 6 | **1.5** Credentials never travel on insecure channels (Insecure Credential Transport, TLS) | `1.5`, `ext.1.5.testssl`, `ext.1.5.sslyze` | HYBRID: testssl.sh, sslyze | to review |
+| 6 | **1.5** Credentials never travel on insecure channels (Insecure Credential Transport, TLS) | `1.5` rewritten (Credentials Over an Insecure Channel), `ext.1.5.testssl` rewritten; `ext.1.5.sslyze` removed as an always-on test | HYBRID: native HTTP layer + testssl.sh (one TLS scanner; sslyze connector kept, enable-able) | done 2026-10-22, group D ([draft](test-review/group-d.md)) |
 | 7 | **1.6** Sessions are managed securely (Secure Session Management) | `1.6` rewritten (Session Cookie Safety) | our code | done 2026-10-22, group B ([draft](test-review/group-b.md)) |
 | 8 | **2.1** Only authorised users reach privileged functions (RBAC Enforcement; with 2.3) | `2.1` | NATIVE | to review |
 | 9 | **3.3** Request signing does not allow replay or weak algorithms (HMAC Config Audit) | `3.3` | NATIVE | to review |
@@ -316,6 +323,11 @@ What the review decides for the documentation is collected here and applied afte
 | `docs/06-knowledge/05-tool-decisions.md` | jwt_tool not used for 1.2/1.3 on a keyless target (the attacks it adds cannot run without a key); native `jwt_forge.py` stays planned, for when a key is supplied | group C |
 | `docs/04-architecture/*` | `src/core/jwt_tokens.py` (read and degrade a JWT) and `src/tests/helpers/anchor.py` (a derived, two-sided anchor) as shared infrastructure | group C |
 | `docs/03-reference/06-compatibility.md`, `docs/project/roadmap.md`, `CHANGELOG.md` | 1.4 rewritten, 1.2 and 1.3 added; what each needs (a JWT target; a revocable login) | group C |
+| `docs/06-knowledge/04-guarantees.md` | 1.5 aligned: the HTTP redirect/HSTS checks are native, the TLS handshake is testssl; the ASVS references corrected (HSTS 3.4.1, TLS 12.1.1/12.2.1) | group D |
+| `docs/06-knowledge/05-tool-decisions.md` | 1.5: one TLS scanner (testssl.sh), not two; sslyze kept as an enable-able connector, not an always-on test; the choice and its reason | group D |
+| `docs/04-architecture/03-assessment-model.md` | `SecurityClient.request(origin=...)` used to probe and record the plain-HTTP request (a test may send to another origin) | group D |
+| `docs/03-reference/06-compatibility.md`, `docs/project/roadmap.md`, `CHANGELOG.md` | 1.5 rewritten and `ext.1.5.testssl` rewritten; `ext.1.5.sslyze` removed as a test; 1.5 needs only the target URL (and `http_url` for a non-standard HTTP port); the removed parameters `http_probe_enabled`, `expected_redirect_status_codes`, `http_probe_timeout_seconds`, `testssl_timeout_seconds` | group D |
+| `OPEN_QUESTIONS.md` | the Q-29 items for 1.5 (HSTS on `/` only, the redirect checked by status not `Location`, the HTTP probe not recorded) and the Q-24 item (sslyze `timeout_seconds`) and Q-50 (1.5 HTTP probe recorded) are answered | group D |
 
 ## History: how the common part was decided (phase 0, 2026-10-19 to 2026-10-21)
 

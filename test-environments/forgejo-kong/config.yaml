@@ -172,20 +172,13 @@ output:
 
 # Test review (branch test-review): the parameters of the tests not rewritten yet are commented out;
 # each block returns, uncommented, with its test (docs/project/test-review.md).
-tests: {}
-# domain_1:
-#   (1.4: returns with test 1.4)
-#   test_1_4:
-#     # Sent with the revoked token: Forgejo's profile of the authenticated user.
-#     protected_endpoint:
-#       method: GET
-#       path: /api/v1/user
-#   (1.5: returns with test 1.5)
-#   test_1_5:
-#     # The lab's HTTP listener (Kong, port 8000): the HTTPS-only API route answers 301
-#     # (https_redirect_status_code, kong/kong.yml). Derived from base_url the probe would hit
-#     # http://localhost:8443/, Kong's TLS port.
-#     http_url: "http://localhost:8000/api/v1/version"
+tests:
+  domain_1:
+    test_1_5:
+      # The lab puts HTTPS on 8443 and the plain-HTTP listener (Kong) on 8000, so
+      # deriving the HTTP origin from base_url would hit http://localhost:8443,
+      # Kong's TLS port. Only the origin is used; the path is derived from the spec.
+      http_url: "http://localhost:8000"
 # domain_2:
 #   (2.1: returns with test 2.1)
 #   test_2_1:

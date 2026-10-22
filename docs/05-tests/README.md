@@ -10,7 +10,7 @@ target, and how it relates to the methodology.
 
 <!-- [[[cog import generate_docs as g; cog.out(g.catalogue()) ]]] -->
 
-12 tests: 11 native, 1 external.
+14 tests: 12 native, 2 external.
 
 | ID | Name | Pri. | Strategy | Effect | CWE | Needs | Page |
 |---|---|---|---|---|---|---|---|
@@ -25,6 +25,8 @@ target, and how it relates to the methodology.
 | `1.2` | Credential Cryptographically Valid | P0 | GREY_BOX | READ_ONLY | CWE-347 | `USER_ACCOUNT` | [1.2](domain-1/1-2-credential-cryptographically-valid.md) |
 | `1.3` | Credential Expiry | P0 | GREY_BOX | READ_ONLY | CWE-613 | `USER_ACCOUNT` | [1.3](domain-1/1-3-credential-expiry.md) |
 | `1.4` | Credential Revocation | P2 | WHITE_BOX | CHANGES_DATA | CWE-613 | `USER_ACCOUNT`, `REVOCABLE_LOGIN` | [1.4](domain-1/1-4-credential-revocation.md) |
+| `1.5` | Credentials Over an Insecure Channel | P2 | BLACK_BOX | READ_ONLY | CWE-319 | - | [1.5](domain-1/1-5-credentials-over-an-insecure-channel.md) |
+| `ext.1.5.testssl` | TLS Stack Analysis (testssl.sh) | P2 | BLACK_BOX | READ_ONLY | CWE-326 | - | [ext.1.5.testssl](external/domain-1/ext-1-5-testssl.md) |
 | `1.6` | Session Cookie Safety | P3 | GREY_BOX | READ_ONLY | CWE-1004 | `USER_ACCOUNT` | [1.6](domain-1/1-6-session-cookie-safety.md) |
 | `1.7` | Authentication Endpoints Resist Guessing | P1 | GREY_BOX | STRESSES_TARGET | CWE-307 | `USER_ACCOUNT` | [1.7](domain-1/1-7-authentication-resistance.md) |
 | **Domain 2 - Authorization and Access Control** | | | | | | | |

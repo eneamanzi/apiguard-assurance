@@ -477,7 +477,7 @@ class ExecutionConfig(BaseModel):
                 Prefixed with the literal string 'ext', followed by two
                 non-negative integer strings X (domain) and Y (sequence),
                 then a non-empty alphanumeric tool identifier.
-                Examples: 'ext.0.1.nuclei', 'ext.1.5.testssl', 'ext.1.5.sslyze'.
+                Examples: 'ext.0.1.ffuf', 'ext.1.5.testssl'.
                 Used by ExternalToolTest subclasses in src/external_tests/.
                 The 'ext.' prefix avoids collision with native test IDs; the
                 tool suffix makes the ID self-documenting and unique when
