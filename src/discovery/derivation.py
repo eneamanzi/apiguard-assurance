@@ -30,6 +30,18 @@ Rules:
         whose resources are at the root, "/". Used to look for undocumented
         paths where the services really are (test 0.1), not only at the root.
 
+    version_siblings (HEURISTIC) -- the API versions next to the documented
+        ones that the specification does not document. For each position where
+        a path segment is shaped as a version (VERSION_SEGMENT: the part of the
+        path before it, e.g. /identity/api/), the major numbers documented there
+        (v2, v2.7 and v4.0 give 2 and 4); the candidates are the majors from 1
+        to the highest plus one that are not documented, written v<major>. One
+        fact per candidate, its value the path of the version (/identity/api/v3),
+        its note the documented versions. On Forgejo (/api/v1 only) /api/v2; on
+        crAPI /identity/api/v1 and v3, /identity/api/auth/v1 and v5,
+        /community/api/v1 and v3. Used to look for an undocumented version that
+        still answers (test 0.1).
+
 Dependency rule: imports only from the standard library, structlog and
 src.core.models.
 """
@@ -121,11 +133,57 @@ def _service_prefixes(
 
 
 # ---------------------------------------------------------------------------
+# Rule: version_siblings
+# ---------------------------------------------------------------------------
+
+VERSION_SIBLINGS: str = "version_siblings"
+
+# The major number of a version segment: "v2.7" -> 2.
+_VERSION_MAJOR: re.Pattern[str] = re.compile(r"^v(\d+)", re.IGNORECASE)
+
+# The first major version a candidate may have.
+_FIRST_MAJOR: int = 1
+
+
+def _version_siblings(
+    spec: dict[str, object], endpoints: Sequence[EndpointRecord]
+) -> list[DerivedFact]:
+    """The undocumented versions next to the documented ones (see the module docstring)."""
+    documented: dict[str, set[str]] = {}
+    for path in sorted({endpoint.path for endpoint in endpoints}):
+        segments = path.split("/")
+        for position, segment in enumerate(segments):
+            if VERSION_SEGMENT.match(segment):
+                base = "/".join(segments[:position])
+                documented.setdefault(base, set()).add(segment)
+    facts: list[DerivedFact] = []
+    for base, versions in documented.items():
+        majors: set[int] = set()
+        for version in versions:
+            match = _VERSION_MAJOR.match(version)
+            if match is not None:
+                majors.add(int(match.group(1)))
+        note = f"documented under {base}/: {', '.join(sorted(versions))}"
+        for major in range(_FIRST_MAJOR, max(majors) + 2):
+            if major not in majors:
+                facts.append(
+                    DerivedFact(
+                        rule=VERSION_SIBLINGS,
+                        basis=DerivationBasis.HEURISTIC,
+                        value=f"{base}/v{major}",
+                        note=note,
+                    )
+                )
+    return facts
+
+
+# ---------------------------------------------------------------------------
 # Registry and entry point
 # ---------------------------------------------------------------------------
 
 RULES: tuple[DerivationRule, ...] = (
     DerivationRule(SERVICE_PREFIXES, DerivationBasis.HEURISTIC, _service_prefixes),
+    DerivationRule(VERSION_SIBLINGS, DerivationBasis.HEURISTIC, _version_siblings),
 )
 
 

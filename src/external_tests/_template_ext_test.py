@@ -60,7 +60,7 @@ from src.core.models import (
 )
 from src.core.models.results import TestResult
 from src.core.test_metadata import Effect, TestInfo
-from src.external_tests.base import ExternalToolTest
+from src.external_tests.base import ExternalToolTest, ToolRun
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -72,6 +72,16 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # (src/core/models/standards.py); declared in info and cited by the findings.
 # The primary CWE is info.cwe: do not repeat it here.
 _REFERENCES: tuple[Reference, ...] = (Reference(standard=Standard.OWASP_API_TOP10, id="API8:2023"),)
+
+# The oracle: the identifier of each tool check the test uses -> the outcome and
+# detail it means (the table of the test page). Example identifiers.
+_ORACLE: dict[str, tuple[Outcome, str]] = {
+    "example-weak-protocol": (Outcome.VIOLATION, "WEAK_PROTOCOL_OFFERED"),
+    "example-protocol-ok": (Outcome.ENFORCED, "PROTOCOL_OK"),
+}
+
+# Tool checks that report a problem of the tool itself, not of the target.
+_TOOL_PROBLEMS: frozenset[str] = frozenset({"example-engine-problem"})
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +190,7 @@ class TemplateExtTest(ExternalToolTest):
     def _evaluate(
         self,
         result: ConnectorResult,
-        artifact_ref: str,
+        run: ToolRun,
     ) -> TestResult:
         """
         Apply the oracle to ConnectorResult: record the outcome of each result.
@@ -191,58 +201,56 @@ class TemplateExtTest(ExternalToolTest):
         tags, cwe_id, source, tool_name) into the result. Never build
         TestResult(...) directly.
 
-        The thresholds below are an example only: how each tool's results map
-        to the four outcomes is decided per tool (docs/project/test-review.md,
-        phase 0c piece 10).
+        The oracle is the tool's check, not its severity (docs/project/test-review.md,
+        rule 11): each check identifier the test uses is mapped to an outcome in
+        _ORACLE; a check the test does not map is not judged; a result outside
+        the target goes to a note; the tool's own problems are NOT_VERIFIABLE.
+        A test that verifies a tool result with a request of its own uses
+        run.client and judges the response with self._judge().
 
         Args:
-            result:       ConnectorResult from _invoke_connector().
-            artifact_ref: EvidenceStore record ID from store.pin_artifact():
-                          the evidence_ref of every finding.
+            result: ConnectorResult from _invoke_connector().
+            run:    The target, context, client and store of the run, and the
+                    tool output's record ID (run.artifact_ref, the evidence_ref
+                    of a finding resting on the output alone).
 
         Returns:
             TestResult: self._finish() (ERROR is handled by _run()).
         """
         notes: list[InfoNote] = []
-        violations = 0
-
+        target_url = run.target.endpoint_base_url()
         for item in result.raw_output.get("results", []):
-            severity = str(item.get("severity", "")).upper()
-
-            if severity in {"HIGH", "CRITICAL"}:
-                violations += 1
-                self._record(
-                    "tool_scan",
-                    Outcome.VIOLATION,
-                    "TOOL_FINDING_ABOVE_THRESHOLD",
-                    finding=Finding(
-                        title=f"[{severity}] {item.get('id', 'unknown')}",
-                        detail=str(item.get("finding", "")),
-                        evidence_ref=artifact_ref,
-                        # The level of each tool result is decided per tool
-                        # (test-review.md, phase 0c piece 10); FIRM here only
-                        # as an example.
-                        confidence=Confidence.FIRM,
-                    ),
-                )
-
-            elif severity in {"MEDIUM", "WARN"}:
-                # Below the threshold: an InfoNote (a blue card in the HTML
-                # report), not a judgement.
+            check = str(item.get("id", ""))
+            where = str(item.get("url", target_url))
+            if not where.startswith(target_url):
                 notes.append(
                     InfoNote(
-                        title=f"[{severity}] Observation: {item.get('id', 'unknown')}",
-                        detail=str(item.get("finding", "")),
-                        references=list(_REFERENCES),
+                        title=f"Result outside the target: {check}",
+                        detail=f"{where}: not judged (only the target counts).",
                     )
                 )
-
-        if violations == 0:
-            # The scan ran and found nothing above the threshold: verified.
-            self._record("tool_scan", Outcome.ENFORCED, "NO_FINDING_ABOVE_THRESHOLD")
+                continue
+            if check in _TOOL_PROBLEMS:
+                self._record("tool_scan", Outcome.NOT_VERIFIABLE, "TOOL_COULD_NOT_CHECK")
+                continue
+            mapped = _ORACLE.get(check)
+            if mapped is None:
+                continue
+            outcome, detail = mapped
+            finding = None
+            if outcome == Outcome.VIOLATION:
+                finding = Finding(
+                    title=f"{check}: {item.get('finding', '')}",
+                    detail=str(item.get("finding", "")),
+                    evidence_ref=run.artifact_ref,
+                    # The level is a column of the test's oracle table; FIRM here
+                    # only as an example.
+                    confidence=Confidence.FIRM,
+                )
+            self._record("tool_scan", outcome, detail, finding)
 
         return self._finish(
             notes=notes,
             message=f"{result.raw_output.get('all_count', 0)} tool result(s), raw output "
-            f"'{artifact_ref}'.",
+            f"'{run.artifact_ref}'.",
         )

@@ -5,12 +5,15 @@ AssessmentTest: what every test has, native and external alike.
 
 A test declares who it is in one TestInfo (``info``, src/core/test_metadata.py)
 and returns one TestResult. This base copies the declaration into every
-result, collects the test's judgements and computes the result from them,
-written once for both kinds of test (docs/04-architecture/05-design-decisions.md,
-D8; docs/project/test-review.md, topic 3). The two subclasses keep what is theirs:
+result, collects the test's judgements, the transaction log and the proof of
+each HTTP response it judges, and computes the result from them, written once
+for both kinds of test (docs/04-architecture/05-design-decisions.md, D8;
+docs/project/test-review.md, topic 3). An external test judges HTTP responses
+too when it verifies a tool's results with the tool's client (test-review, 0.1).
+The two subclasses keep what is theirs:
 
-    BaseTest (src/tests/base.py)                  the HTTP client contract and
-                                                  the transaction log;
+    BaseTest (src/tests/base.py)                  the native execute() and the
+                                                  gateway concept helpers;
     ExternalToolTest (src/external_tests/base.py) the tool, its connector and
                                                   its output.
 
@@ -22,8 +25,12 @@ How a test ends:
     _record(sub_test, outcome, detail, finding=None)
         one judgement: the outcome of one case of a declared sub-test, with
         the test's detail (UPPER_SNAKE_CASE); a finding exactly when the
-        outcome is VIOLATION. Native tests judge an HTTP response through
-        BaseTest._judge(), which records it here.
+        outcome is VIOLATION.
+    _judge(record, store, sub_test, outcome, detail, finding=None, ...)
+        the judgement of one HTTP response: logged in the transaction log,
+        recorded with _record(), and for a VIOLATION the record kept in
+        evidence.json with the finding pointed to it; _step(record) logs a
+        request that is not judged (a login, an object created for the test).
     _finish(notes=None, message=None)
         the result, computed: per sub-test counters and status, the test's
         status and coverage (src/core/models/results.py), the findings, a
@@ -57,6 +64,7 @@ from __future__ import annotations
 import re
 import traceback
 from abc import ABC
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, ClassVar, Generic, Literal, cast, get_args, get_origin
 
@@ -66,17 +74,22 @@ from pydantic.config import JsonDict
 from pydantic.fields import FieldInfo
 from typing_extensions import TypeVar
 
+from src.core.evidence import EvidenceStore
 from src.core.models import (
     Coverage,
+    EvidenceRecord,
     Finding,
     InfoNote,
     Outcome,
+    ResponseCategory,
     SubTestResult,
     TestResult,
     TestStatus,
     TransactionSummary,
     combine_sub_tests,
 )
+from src.core.references import CalibrationPoint, PositiveControl, reference_ids
+from src.core.response_category import categorize
 from src.core.test_metadata import TestInfo
 
 if TYPE_CHECKING:
@@ -150,6 +163,19 @@ def has_marker(field: FieldInfo, marker: JsonDict) -> bool:
 ParamsT = TypeVar("ParamsT", bound=BaseModel, default=NoParams)
 
 
+def category_of(record: EvidenceRecord) -> ResponseCategory:
+    """
+    The category of a recorded response (src/core/response_category.py).
+
+    Args:
+        record: The EvidenceRecord returned by SecurityClient.request().
+
+    Returns:
+        Its ResponseCategory, from the HTTP status.
+    """
+    return categorize(record.response_status_code)
+
+
 class AssessmentTest(ABC, Generic[ParamsT]):
     """
     Base of every test: its declaration, its parameters and its results.
@@ -180,11 +206,12 @@ class AssessmentTest(ABC, Generic[ParamsT]):
                     cls.params_model = None if model is NoParams else model
 
     def __init__(self) -> None:
-        """Start the test's tally: one empty entry per declared sub-test."""
+        """Start the test's tally (one empty entry per sub-test) and its transaction log."""
         self._tally: dict[str, _SubTestTally] = {
             name: _SubTestTally() for name in self.info.sub_tests
         }
         self._findings: list[Finding] = []
+        self._transaction_log: list[TransactionSummary] = []
 
     def params(self, target: TargetContext) -> ParamsT:
         """
@@ -200,18 +227,128 @@ class AssessmentTest(ABC, Generic[ParamsT]):
         return cast(ParamsT, target.test_params[self.info.id])
 
     # ------------------------------------------------------------------
-    # Hooks of the subclasses
+    # Judging HTTP responses and logging transactions
     # ------------------------------------------------------------------
+
+    def _judge(
+        self,
+        record: EvidenceRecord,
+        store: EvidenceStore,
+        sub_test: str,
+        outcome: Outcome,
+        detail: str,
+        finding: Finding | None = None,
+        *,
+        reference_responses: Sequence[CalibrationPoint | PositiveControl] = (),
+        duration_ms: float | None = None,
+    ) -> None:
+        """
+        Judge one HTTP response: log it, record the judgement, keep the proof.
+
+        For a VIOLATION the full record goes to evidence.json and the finding
+        is pointed to it (evidence_ref), so a finding of an HTTP response always
+        has its proof (docs/project/test-review.md, topic 5).
+
+        Args:
+            record:      The EvidenceRecord returned by SecurityClient.request().
+            store:       The EvidenceStore of the current test.
+            sub_test:    A declared sub-test (info.sub_tests).
+            outcome:     What the response means for the guarantee.
+            detail:      The test's detail, UPPER_SNAKE_CASE.
+            finding:     The finding of a VIOLATION (title, detail, confidence); its
+                         evidence_ref is set here.
+            reference_responses: The reference responses the verdict rests
+                         on (calibration points, positive controls); their records
+                         become the finding's supporting_refs.
+            duration_ms: Per-request timing override in milliseconds; by
+                         default the record's own elapsed time.
+
+        Raises:
+            ValueError: A judgement written wrongly (_record).
+        """
+        is_violation = outcome == Outcome.VIOLATION
+        if is_violation and finding is not None:
+            store.add_fail_evidence(record)
+            supporting = [*finding.supporting_refs]
+            supporting += [
+                rid for rid in reference_ids(reference_responses) if rid not in supporting
+            ]
+            finding = finding.model_copy(
+                update={"evidence_ref": record.record_id, "supporting_refs": supporting}
+            )
+        self._record(sub_test, outcome, detail, finding)
+        self._append(
+            TransactionSummary.from_evidence_record(
+                record=record,
+                is_fail=is_violation,
+                category=category_of(record),
+                sub_test=sub_test,
+                outcome=outcome,
+                detail=detail,
+                duration_ms=duration_ms,
+            )
+        )
+
+    def _step(self, record: EvidenceRecord, *, duration_ms: float | None = None) -> None:
+        """
+        Log a request that is not judged: a preparation step of the test.
+
+        Args:
+            record:      The EvidenceRecord returned by SecurityClient.request().
+            duration_ms: Per-request timing override in milliseconds.
+        """
+        self._append(
+            TransactionSummary.from_evidence_record(
+                record=record, category=category_of(record), duration_ms=duration_ms
+            )
+        )
+
+    def _append(self, summary: TransactionSummary) -> None:
+        """Append one entry to the transaction log (no cap: the entries are small)."""
+        self._transaction_log.append(summary)
+        log.debug(
+            "transaction_logged",
+            test_id=self.info.id,
+            record_id=summary.record_id,
+            status_code=summary.response_status_code,
+            category=summary.category,
+            outcome=summary.outcome,
+            detail=summary.detail,
+            log_size_after=len(self._transaction_log),
+        )
 
     def _result_transactions(self) -> list[TransactionSummary]:
         """
-        The transaction log a result carries.
+        The transaction log every result of this test carries.
 
         Returns:
-            A copy of the log for a native test; empty for a test that sends
-            no request of its own (external tools).
+            A copy (empty for a test that sends no request of its own), so that a
+            later judgement (a programming error) cannot change a result already
+            returned.
         """
-        return []
+        return list(self._transaction_log)
+
+    def _requires_attack_surface(self, target: TargetContext) -> TestResult | None:
+        """
+        Guard clause: return a SKIP result if the AttackSurface is absent.
+
+        Args:
+            target: The current TargetContext.
+
+        Returns:
+            None if attack_surface is present; TestResult(status=SKIP) otherwise.
+        """
+        if target.attack_surface is not None:
+            return None
+        return self._skip(
+            reason=(
+                "AttackSurface is not available in TargetContext. "
+                "This indicates Phase 2 (OpenAPI Discovery) did not complete "
+                "successfully before this test was invoked. "
+                "This is an infrastructure error; the pipeline should have been "
+                "aborted during Phase 2."
+            )
+        )
 
     # ------------------------------------------------------------------
     # Result construction
@@ -234,7 +371,7 @@ class AssessmentTest(ABC, Generic[ParamsT]):
                       NOT_VERIFIABLE it is the reason, counted in the result).
             finding:  The violation's finding: given exactly when the outcome is
                       VIOLATION, with its evidence_ref already set by the caller
-                      (BaseTest._judge() sets it for an HTTP response). A finding
+                      (_judge() sets it for an HTTP response). A finding
                       without references of its own cites the test's
                       (info.references, the primary CWE excluded).
 

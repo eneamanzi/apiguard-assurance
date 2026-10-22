@@ -12,8 +12,10 @@ Relationship with tests/base.py (BaseTest):
 
         BaseTest.execute()         -> receives (TargetContext, TestContext,
                                                 SecurityClient, EvidenceStore)
-        ExternalToolTest.execute() -> same signature, but internally invokes a
-                                      BaseConnector rather than SecurityClient.
+        ExternalToolTest.execute() -> same signature; it runs a BaseConnector,
+                                      and may use the SecurityClient to verify
+                                      the tool's results (the oracle is ours,
+                                      docs/project/test-review.md, 0.1).
 
     Both return TestResult.  The engine treats them identically -- it sees only
     the TestResult contract, not the implementation hierarchy.
@@ -73,6 +75,7 @@ from __future__ import annotations
 
 import json
 from abc import abstractmethod
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
@@ -80,6 +83,7 @@ import structlog
 
 from src.connectors.base import BaseConnector, BaseSubprocessConnector, ConnectorResult
 from src.core.assessment_test import AssessmentTest, ParamsT
+from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.exceptions import ExternalToolError
@@ -130,6 +134,28 @@ _DEV_CACHE_UNSAFE_CHARS: str = "./\\ "
 _TIME_LIMIT_WARNING_RATIO: float = 0.7
 _MS_PER_SECOND: int = 1000
 _PERCENT: int = 100
+
+
+@dataclass(frozen=True)
+class ToolRun:
+    """
+    What a test's evaluation of a tool's output can use (_evaluate).
+
+    Attributes:
+        target:       The run's TargetContext.
+        context:      The run's TestContext (reference responses, login artefacts).
+        client:       The run's HTTP client, to verify a tool result with a
+                      request of the test's own.
+        store:        The test's EvidenceStore.
+        artifact_ref: The evidence record ID of the tool's output (pin_artifact).
+    """
+
+    target: TargetContext
+    context: TestContext
+    client: SecurityClient
+    store: EvidenceStore
+    artifact_ref: str
+
 
 # ---------------------------------------------------------------------------
 # ExternalToolTest -- ABC
@@ -193,19 +219,21 @@ class ExternalToolTest(AssessmentTest[ParamsT]):
         self,
         target: TargetContext,
         context: TestContext,
+        client: SecurityClient,
         store: EvidenceStore,
     ) -> TestResult:
         """
         Orchestrate the external tool execution lifecycle.
 
-        Note: SecurityClient is intentionally NOT a parameter here.  External
-        tool tests do not make HTTP requests via httpx; they invoke subprocesses.
-        The engine passes (target, context, store) to ExternalToolTest.execute()
-        and (target, context, client, store) to BaseTest.execute().
+        The engine passes the same arguments as to BaseTest.execute(): the
+        client is there for a test that verifies the tool's results with
+        requests of its own (judged with _judge(), as in a native test); a test
+        that only reads the tool's output does not use it.
 
         Args:
             target:  Frozen TargetContext with target URL, credentials, surface.
             context: Mutable TestContext accumulating assessment state.
+            client:  The run's HTTP client, for the test's own requests.
             store:   EvidenceStore for persisting tool output as artifacts.
 
         Returns:
@@ -213,7 +241,7 @@ class ExternalToolTest(AssessmentTest[ParamsT]):
         """
         store.begin_test(self.info.id)
         try:
-            result = self._run(target, context, store)
+            result = self._run(target, context, client, store)
         except Exception as exc:  # noqa: BLE001 -- top-level catch by design
             result = self._error(exc)
         finally:
@@ -224,6 +252,7 @@ class ExternalToolTest(AssessmentTest[ParamsT]):
         self,
         target: TargetContext,
         context: TestContext,
+        client: SecurityClient,
         store: EvidenceStore,
     ) -> TestResult:
         """
@@ -400,7 +429,16 @@ class ExternalToolTest(AssessmentTest[ParamsT]):
             self._warn_if_near_time_limit(connector, connector_result, target)
 
         # --- Step 5: oracle evaluation (subclass responsibility) ---
-        result = self._evaluate(connector_result, artifact_ref)
+        result = self._evaluate(
+            connector_result,
+            ToolRun(
+                target=target,
+                context=context,
+                client=client,
+                store=store,
+                artifact_ref=artifact_ref,
+            ),
+        )
         context_notes = self._context_notes(target)
         if context_notes:
             result = result.model_copy(update={"notes": [*result.notes, *context_notes]})
@@ -891,7 +929,7 @@ class ExternalToolTest(AssessmentTest[ParamsT]):
     def _evaluate(
         self,
         result: ConnectorResult,
-        artifact_ref: str,
+        run: ToolRun,
     ) -> TestResult:
         """
         Apply the oracle to result.raw_output['results'] and return the result.
@@ -901,16 +939,20 @@ class ExternalToolTest(AssessmentTest[ParamsT]):
         outcome, detail, finding), following its oracle table (the outcome a
         tool result means, on the test page), then returns self._finish(): the
         status is computed, as for native tests. A finding's evidence_ref is
-        artifact_ref, the record_id returned by store.pin_artifact() in _run(),
-        so the report cross-references it to the raw tool output.
+        run.artifact_ref, the record_id returned by store.pin_artifact() in
+        _run(), so the report cross-references it to the raw tool output; a
+        test that verifies a tool result with a request of its own (run.client)
+        judges that response with self._judge(), which points the finding to
+        the request instead.
 
         An inapplicable condition discovered only in the output is recorded as
         NOT_APPLICABLE; a test with nothing applicable ends as SKIP by itself
         (a missing tool is handled earlier, by _check_and_skip).
 
         Args:
-            result:       ConnectorResult from the connector.
-            artifact_ref: Evidence record ID from store.pin_artifact().
+            result: ConnectorResult from the connector.
+            run:    What the evaluation can use: the target, the context, the
+                    client, the store and the tool output's evidence record ID.
 
         Returns:
             TestResult: self._finish() (errors are handled by execute()'s

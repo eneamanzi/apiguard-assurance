@@ -1513,16 +1513,16 @@ class AssessmentEngine:
             **timeout_field,
         )
 
-        # The gateway reaches only the tests that declare it (Need.GATEWAY): what
-        # a test declares is what it can use (docs/project/test-review.md,
-        # phase 0c piece 1b).
-        if Need.GATEWAY not in test.info.needs and target.gateway is not None:
+        # The gateway reaches only the tests that declare it (Need.GATEWAY,
+        # required or optional): what a test declares is what it can use
+        # (docs/project/test-review.md, phase 0c piece 1b; 0.1).
+        if not test.info.uses(Need.GATEWAY) and target.gateway is not None:
             target = target.model_copy(update={"gateway": None})
 
         wall_start = time.monotonic()
 
         if isinstance(test, ExternalToolTest):
-            result = test.execute(target, context, store)
+            result = test.execute(target, context, client, store)
         else:
             store.begin_test(test_id)
             try:

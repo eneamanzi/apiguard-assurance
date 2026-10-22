@@ -350,6 +350,14 @@ Test [4.2](../05-tests/domain-4/4-2-timeout-config-audit.md), Timeout Configurat
 | `max_read_timeout_ms` | int ≥1 | `30000` | Maximum acceptable backend read timeout of a gateway service, in milliseconds. Methodology oracle: read_timeout <= 30 000 ms (NIST SP 800-204A Section 4.3). Services with a higher value will produce a FAIL finding. |
 | `max_write_timeout_ms` | int ≥1 | `30000` | Maximum acceptable backend write (send) timeout of a gateway service, in milliseconds. Methodology oracle: write_timeout <= 30 000 ms. Services with a higher value will produce a FAIL finding. |
 
+### `tests.domain_0.ext_0_1_ffuf`
+
+Test [ext.0.1.ffuf](../05-tests/external/domain-0/ext-0-1-ffuf.md), Undocumented Paths Answer (ffuf path search, re-verified).
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `wordlist` | string \| null | none | A list of the user's (one word or path per line), tried under every base path besides the default lists, e.g. Assetnote's `httparchive_apiroutes` for a deep search (364,056 paths: at 30 requests per second about 3.4 hours per base path). Relative to the working directory. |
+
 <!-- [[[end]]] -->
 
 ## `external_tools`
@@ -389,6 +397,13 @@ true (`src/external_tests/registry.py`):
 | `sslyze.timeout_seconds` | int 30-300 \| null | none | **Required with `enabled: true`.** Today it has no effect: each TLS connection sslyze opens times out after 20 s whatever the value (`src/connectors/sslyze.py`; Q-24). |
 | `sslyze.expected_version` | string \| null | none | Expected tool version; a mismatch logs a WARNING and the test still runs. |
 | `sslyze.dev_mode` | bool | `false` | Development only: reuse the output a previous run saved (`<output.directory>/tools/<label>_output.json`) instead of running the tool; without that file the tool runs and saves it. Never enable in a real assessment. |
+| `ffuf.enabled` | bool | `false` | Enable ffuf; `timeout_seconds` is then required. |
+| `ffuf.timeout_seconds` | int ≥60 \| null | none | **Required with `enabled: true`.** Wall-clock limit (s) of the whole search (one ffuf run per base path), which only stops a tool that hangs: set it to 2-3 times the duration seen on your target (it grows with the base paths, the lists and the request rate); a search that ends after more than 70% of it logs the warning `external_tool_near_time_limit` with the value to raise. |
+| `ffuf.expected_version` | string \| null | none | Expected tool version; a mismatch logs a WARNING and the test still runs. |
+| `ffuf.dev_mode` | bool | `false` | Development only: reuse the output a previous run saved (`<output.directory>/tools/<label>_output.json`) instead of running the tool; without that file the tool runs and saves it. Never enable in a real assessment. |
+| `ffuf.wordlist_dir` | string | `./tools/seclists` | Directory of the pinned SecLists wordlists, relative to the working directory (`install_tools.sh` fills the default one). |
+| `ffuf.per_request_timeout` | int 1-60 | `10` | Timeout (s) of each request, passed as `-timeout`. |
+| `ffuf.rate_limit_rps` | int 1-150 | `30` | Requests per second, passed as `-rate`. |
 
 <!-- [[[end]]] -->
 

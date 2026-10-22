@@ -53,7 +53,7 @@ The implemented tests by strategy and priority (generated from the tests' declar
 
 | Strategy | P0 | P1 | P2 | P3 |
 |---|---|---|---|---|
-| `BLACK_BOX` | - | - | - | - |
+| `BLACK_BOX` | `0.1`, `ext.0.1.ffuf` | - | - | - |
 | `GREY_BOX` | - | - | - | - |
 | `WHITE_BOX` | - | `4.2` | - | - |
 

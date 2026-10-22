@@ -7,10 +7,10 @@ Every native test is a concrete subclass of BaseTest in
 src/tests/domain_<D>/test_<D>_<N>_<name>.py: it declares who it is in
 ``info = TestInfo(...)`` (with its sub-tests) and implements execute();
 TestRegistry discovers it, nothing else lists it. What every test has (the
-declaration, the judgements, the computed result) comes from AssessmentTest
+declaration, the judgements, the judgement of an HTTP response, the
+transaction log, the computed result) comes from AssessmentTest
 (src/core/assessment_test.py); BaseTest adds what is native: the execute()
-signature with the HTTP client, the transaction log, the judgement of an HTTP
-response, the guard clauses and the gateway concept helpers.
+signature with the HTTP client and the gateway concept helpers.
 
 Contract:
 
@@ -31,7 +31,8 @@ Contract:
 
        _judge() stores the evidence of a VIOLATION and points the finding to
        it; _step(record) logs a request that is not judged (a login, an
-       object created for the test).
+       object created for the test). Both, and category_of(), are in
+       src/core/assessment_test.py, shared with the external tests.
     3. Every result carries the declaration and the transaction log, whichever
        exit the test takes (_finish, _skip, _error).
 
@@ -45,7 +46,6 @@ Dependency rule:
 from __future__ import annotations
 
 from abc import abstractmethod
-from collections.abc import Sequence
 from typing import Any, ClassVar, Literal
 
 import structlog
@@ -55,35 +55,13 @@ from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.gateway.concepts import ConceptRead, ConceptStatus
-from src.core.models import (
-    EvidenceRecord,
-    Finding,
-    Outcome,
-    ResponseCategory,
-    TestResult,
-    TransactionSummary,
-)
-from src.core.references import CalibrationPoint, PositiveControl, reference_ids
-from src.core.response_category import categorize
+from src.core.models import TestResult
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
 # Label prefix of the evidence artifact of a gateway concept read by a test
 # (e.g. "gateway_backend_timeouts").
 _GATEWAY_CONCEPT_LABEL_PREFIX: str = "gateway_"
-
-
-def category_of(record: EvidenceRecord) -> ResponseCategory:
-    """
-    The category of a recorded response (src/core/response_category.py).
-
-    Args:
-        record: The EvidenceRecord returned by SecurityClient.request().
-
-    Returns:
-        Its ResponseCategory, from the HTTP status.
-    """
-    return categorize(record.response_status_code)
 
 
 # ---------------------------------------------------------------------------
@@ -104,20 +82,14 @@ class BaseTest(AssessmentTest[ParamsT]):
         4. Ensure execute() never raises: all exceptions are caught and
            returned as self._error(exc).
 
-    Instance-level state:
-        AssessmentTest.__init__ starts the tally of the sub-tests; this
-        __init__ adds the transaction log. Both are instance variables, so each
-        test instance keeps its own; TestRegistry creates each test class once
-        and the engine calls execute() once per instance.
+    Instance-level state: AssessmentTest.__init__ starts the tally of the
+    sub-tests and the transaction log, instance variables, so each test
+    instance keeps its own; TestRegistry creates each test class once and the
+    engine calls execute() once per instance.
     """
 
     # Origin of the results, fixed: must not be overridden.
     source: ClassVar[Literal["native", "external"]] = "native"
-
-    def __init__(self) -> None:
-        """Start the sub-test tally (AssessmentTest) and the transaction log."""
-        super().__init__()
-        self._transaction_log: list[TransactionSummary] = []
 
     @abstractmethod
     def execute(
@@ -146,133 +118,8 @@ class BaseTest(AssessmentTest[ParamsT]):
         """
 
     # ------------------------------------------------------------------
-    # Judging responses and logging transactions
+    # Gateway concepts
     # ------------------------------------------------------------------
-
-    def _judge(
-        self,
-        record: EvidenceRecord,
-        store: EvidenceStore,
-        sub_test: str,
-        outcome: Outcome,
-        detail: str,
-        finding: Finding | None = None,
-        *,
-        reference_responses: Sequence[CalibrationPoint | PositiveControl] = (),
-        duration_ms: float | None = None,
-    ) -> None:
-        """
-        Judge one HTTP response: log it, record the judgement, keep the proof.
-
-        For a VIOLATION the full record goes to evidence.json and the finding
-        is pointed to it (evidence_ref), so a finding of an HTTP test always
-        has its proof (docs/project/test-review.md, topic 5).
-
-        Args:
-            record:      The EvidenceRecord returned by SecurityClient.request().
-            store:       The EvidenceStore of the current test.
-            sub_test:    A declared sub-test (info.sub_tests).
-            outcome:     What the response means for the guarantee.
-            detail:      The test's detail, UPPER_SNAKE_CASE.
-            finding:     The finding of a VIOLATION (title, detail, confidence); its
-                         evidence_ref is set here.
-            reference_responses: The reference responses the verdict rests
-                         on (calibration points, positive controls); their records
-                         become the finding's supporting_refs.
-            duration_ms: Per-request timing override in milliseconds; by
-                         default the record's own elapsed time.
-
-        Raises:
-            ValueError: A judgement written wrongly (AssessmentTest._record).
-        """
-        is_violation = outcome == Outcome.VIOLATION
-        if is_violation and finding is not None:
-            store.add_fail_evidence(record)
-            supporting = [*finding.supporting_refs]
-            supporting += [
-                rid for rid in reference_ids(reference_responses) if rid not in supporting
-            ]
-            finding = finding.model_copy(
-                update={"evidence_ref": record.record_id, "supporting_refs": supporting}
-            )
-        self._record(sub_test, outcome, detail, finding)
-        self._append(
-            TransactionSummary.from_evidence_record(
-                record=record,
-                is_fail=is_violation,
-                category=category_of(record),
-                sub_test=sub_test,
-                outcome=outcome,
-                detail=detail,
-                duration_ms=duration_ms,
-            )
-        )
-
-    def _step(self, record: EvidenceRecord, *, duration_ms: float | None = None) -> None:
-        """
-        Log a request that is not judged: a preparation step of the test.
-
-        Args:
-            record:      The EvidenceRecord returned by SecurityClient.request().
-            duration_ms: Per-request timing override in milliseconds.
-        """
-        self._append(
-            TransactionSummary.from_evidence_record(
-                record=record, category=category_of(record), duration_ms=duration_ms
-            )
-        )
-
-    def _append(self, summary: TransactionSummary) -> None:
-        """Append one entry to the transaction log (no cap: the entries are small)."""
-        self._transaction_log.append(summary)
-        log.debug(
-            "transaction_logged",
-            test_id=self.info.id,
-            record_id=summary.record_id,
-            status_code=summary.response_status_code,
-            category=summary.category,
-            outcome=summary.outcome,
-            detail=summary.detail,
-            log_size_after=len(self._transaction_log),
-        )
-
-    def _result_transactions(self) -> list[TransactionSummary]:
-        """
-        The transaction log every result of this test carries (AssessmentTest).
-
-        Returns:
-            A copy, so that a later judgement (a programming error) cannot
-            change a result already returned.
-        """
-        return list(self._transaction_log)
-
-    # ------------------------------------------------------------------
-    # Guard clauses — early SKIP returns for precondition failures
-    # ------------------------------------------------------------------
-
-    def _requires_attack_surface(self, target: TargetContext) -> TestResult | None:
-        """
-        Guard clause: return a SKIP result if the AttackSurface is absent.
-
-        Args:
-            target: The current TargetContext.
-
-        Returns:
-            None if attack_surface is present.
-            TestResult(status=SKIP) if attack_surface is None.
-        """
-        if target.attack_surface is not None:
-            return None
-
-        return self._skip(
-            reason=(
-                "AttackSurface is not available in TargetContext. "
-                "This indicates Phase 2 (OpenAPI Discovery) did not complete "
-                "successfully before this test was invoked. "
-                "This is an infrastructure error; the pipeline should have been "
-                "aborted during Phase 2."
-            )
-        )
 
     def _record_gateway_concept(
         self,

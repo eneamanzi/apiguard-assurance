@@ -211,6 +211,52 @@ class SslyzeConfig(BaseExternalToolConfig):
     )
 
 
+class FfufConfig(BaseExternalToolConfig):
+    """
+    Configuration for the ffuf connector (path search, test ext.0.1.ffuf).
+
+    ffuf sends unauthenticated GET requests only, never the run's credentials:
+    it does not verify TLS certificates (InsecureSkipVerify in its source,
+    pkg/runner/simple.go), and every path it reports is requested again by the
+    test with the tool's client, which does.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable ffuf; `timeout_seconds` is then required.",
+    )
+    timeout_seconds: int | None = Field(
+        default=None,
+        ge=60,
+        description=(
+            "**Required with `enabled: true`.** Wall-clock limit (s) of the whole search (one "
+            "ffuf run per base path), which only stops a tool that hangs: set it to 2-3 times "
+            "the duration seen on your target (it grows with the base paths, the lists and the "
+            "request rate); a search that ends after more than 70% of it logs the warning "
+            "`external_tool_near_time_limit` with the value to raise."
+        ),
+    )
+    wordlist_dir: str = Field(
+        default="./tools/seclists",
+        description=(
+            "Directory of the pinned SecLists wordlists, relative to the working directory "
+            "(`install_tools.sh` fills the default one)."
+        ),
+    )
+    per_request_timeout: int = Field(
+        default=10,
+        ge=1,
+        le=60,
+        description="Timeout (s) of each request, passed as `-timeout`.",
+    )
+    rate_limit_rps: int = Field(
+        default=30,
+        ge=1,
+        le=150,
+        description="Requests per second, passed as `-rate`.",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Root external tools config
 # ---------------------------------------------------------------------------
@@ -250,13 +296,17 @@ class ExternalToolsConfig(BaseModel):
         default_factory=SslyzeConfig,
         description="Configuration for the sslyze connector (Python TLS library).",
     )
+    ffuf: FfufConfig = Field(
+        default_factory=FfufConfig,
+        description="Configuration for the ffuf connector (path search).",
+    )
 
     def is_tool_enabled(self, tool_name: str) -> bool:
         """
         Return True if the given tool is active (master switch AND per-tool switch).
 
         Args:
-            tool_name: Currently "testssl", "nuclei", or "sslyze".
+            tool_name: Currently "testssl", "nuclei", "sslyze" or "ffuf".
 
         Returns:
             bool: True only if both ExternalToolsConfig.enabled and the

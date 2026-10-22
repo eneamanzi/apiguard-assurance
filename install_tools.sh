@@ -130,5 +130,78 @@ else
     echo -e "${GREEN}[✓] nuclei-templates already installed (v$INSTALLED).${NC}"
 fi
 
+# ==========================================
+# TOOL 3: ffuf (pinned, checksum verified)
+# ==========================================
+# Go binary: OS- and architecture-specific, used by ext.0.1.ffuf to search for
+# undocumented paths. The archive is checked against the release's own
+# checksums file before it is extracted.
+# To upgrade: update FFUF_VERSION, delete ./tools/ffuf/, and verify that the
+# connector (src/connectors/ffuf.py) still reads ffuf's JSON output.
+FFUF_VERSION="2.3.0"
+FFUF_TARGET_DIR="$TOOLS_DIR/ffuf"
+
+if [ ! -f "$FFUF_TARGET_DIR/ffuf" ]; then
+    echo -e "${GREEN}[+] Downloading ffuf v$FFUF_VERSION ...${NC}"
+
+    case "$(uname -s)" in
+        Linux)  FFUF_OS="linux" ;;
+        Darwin) FFUF_OS="macOS" ;;
+        *) echo "ERROR: Unsupported OS: $(uname -s)"; exit 1 ;;
+    esac
+    case "$(uname -m)" in
+        x86_64)        FFUF_ARCH="amd64" ;;
+        arm64|aarch64) FFUF_ARCH="arm64" ;;
+        *) echo "ERROR: Unsupported architecture: $(uname -m)"; exit 1 ;;
+    esac
+
+    FFUF_ARCHIVE="ffuf_${FFUF_VERSION}_${FFUF_OS}_${FFUF_ARCH}.tar.gz"
+    FFUF_BASE_URL="https://github.com/ffuf/ffuf/releases/download/v${FFUF_VERSION}"
+    curl -sL "$FFUF_BASE_URL/$FFUF_ARCHIVE" -o "$FFUF_ARCHIVE"
+    curl -sL "$FFUF_BASE_URL/ffuf_${FFUF_VERSION}_checksums.txt" -o ffuf_checksums.txt
+
+    # The archive's line of the checksums file, checked with the local tool.
+    grep " $FFUF_ARCHIVE\$" ffuf_checksums.txt > ffuf_checksum_line.txt
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum -c ffuf_checksum_line.txt
+    else
+        shasum -a 256 -c ffuf_checksum_line.txt
+    fi
+
+    mkdir -p "$FFUF_TARGET_DIR"
+    tar -xzf "$FFUF_ARCHIVE" -C "$FFUF_TARGET_DIR" ffuf
+    rm "$FFUF_ARCHIVE" ffuf_checksums.txt ffuf_checksum_line.txt
+    chmod +x "$FFUF_TARGET_DIR/ffuf"
+
+    echo -e "${GREEN}[✓] ffuf v$FFUF_VERSION installed at $FFUF_TARGET_DIR/ffuf${NC}"
+else
+    echo -e "${GREEN}[✓] ffuf already installed.${NC}"
+fi
+
+# ==========================================
+# TOOL 3b: SecLists wordlists for ffuf (pinned)
+# ==========================================
+# Only the two lists ext.0.1.ffuf uses, at a pinned release of SecLists
+# (https://github.com/danielmiessler/SecLists, MIT), so that two scans of the
+# same target use the same words. The release is written next to them and
+# reported with the results.
+# To upgrade: update SECLISTS_VERSION and delete ./tools/seclists/.
+SECLISTS_VERSION="2026.1"
+SECLISTS_DIR="$TOOLS_DIR/seclists"
+SECLISTS_BASE_URL="https://raw.githubusercontent.com/danielmiessler/SecLists/${SECLISTS_VERSION}"
+SECLISTS_FILES="Discovery/Web-Content/common-api-endpoints-mazen160.txt Discovery/Web-Content/api/api-endpoints.txt"
+
+if [ ! -f "$SECLISTS_DIR/VERSION" ]; then
+    echo -e "${GREEN}[+] Downloading SecLists $SECLISTS_VERSION wordlists ...${NC}"
+    for list in $SECLISTS_FILES; do
+        mkdir -p "$SECLISTS_DIR/$(dirname "$list")"
+        curl -sfL "$SECLISTS_BASE_URL/$list" -o "$SECLISTS_DIR/$list"
+    done
+    echo "$SECLISTS_VERSION" > "$SECLISTS_DIR/VERSION"
+    echo -e "${GREEN}[✓] SecLists $SECLISTS_VERSION wordlists installed at $SECLISTS_DIR${NC}"
+else
+    echo -e "${GREEN}[✓] SecLists wordlists already installed ($(cat "$SECLISTS_DIR/VERSION")).${NC}"
+fi
+
 echo -e "${BLUE}=======================================${NC}"
 echo -e "${GREEN}[✓] All tools are ready.${NC}"

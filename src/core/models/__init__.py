@@ -41,7 +41,7 @@ Symbol inventory by source module:
 
     tls.py             TlsSettings
 
-    external_tools.py  BaseExternalToolConfig, TestsslConfig, NucleiConfig,
+    external_tools.py  BaseExternalToolConfig, TestsslConfig, NucleiConfig, FfufConfig,
                        ExternalToolsConfig
 """
 
@@ -62,6 +62,7 @@ from src.core.models.enums import (
 from src.core.models.external_tools import (
     BaseExternalToolConfig,
     ExternalToolsConfig,
+    FfufConfig,
     NucleiConfig,
     TestsslConfig,
 )
@@ -158,5 +159,6 @@ __all__ = [
     "BaseExternalToolConfig",
     "TestsslConfig",
     "NucleiConfig",
+    "FfufConfig",
     "ExternalToolsConfig",
 ]

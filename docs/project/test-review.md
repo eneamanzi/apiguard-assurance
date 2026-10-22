@@ -1,8 +1,9 @@
 # Test Review (working file)
 
 > **Audience:** project owner, Claude Code · **Status:** working file of step 3 of [`plan.md`](plan.md) (created
-> 2026-10-19). When the step ends its conclusions move to the permanent documentation (test pages, roadmap,
-> design decisions, `OPEN_QUESTIONS.md`) and this file and `test-review/` are removed (git keeps them).
+> 2026-10-19, reorganised 2026-10-21 for the review of the guarantees). When the step ends its conclusions move to
+> the permanent documentation (test pages, roadmap, design decisions, `OPEN_QUESTIONS.md`) and this file and
+> `test-review/` are removed (git keeps them).
 
 ## Purpose
 
@@ -16,38 +17,45 @@ crAPI enters the code.
 ## Where we are (updated 2026-10-21)
 
 - **Branch:** `test-review` (from `main` at `4b185f8`, 2026-10-20); `main` keeps the old tool. Baseline of the old
-  tool in `outputs/baseline/<lab>/` (not in git).
-- **Done:** phase 0a (rules common to every test, topics 1-10), phase 0b (the catalogue against the OWASP API Top 10
-  2023, priorities, tool versions), phase 0c pieces 1 (outcomes, categories, computed status, sub-tests; 4.2 back
-  as the pilot), 1b (strategy checked against the needs; the gateway only to the tests that declare it), 2
-  (a request without a response is recorded and judged NOT_VERIFIABLE) and 3 (reference responses: calibration,
-  positive control, `response_facts()`), 4 (finding confidence and supporting references), 5 (declared
-  effect, run order), 6 (login artefacts, every `Set-Cookie`), 7 (derived knowledge: the mechanism and the
-  `service_prefixes` rule) and 8 (references to standards: the standard and its official identifier, checked);
-  piece 9 (lab variants) dropped in favour of a written change on the test page (owner, 2026-10-21); piece 10
-  (the external tools observed on the three labs, the common rules for their results). Phase 0c is complete.
-- **On the branch now:** only test 4.2; the other 17 are on `main` and return one at a time, rewritten.
-- **Next:** a commit of phase 0c (the owner's), then phase 1 from test 0.1.
-- **Open, recorded here:** the SSRF listener (7.2 review), the
-  reference probes on a backend that fails with 5xx (1.1 review); the documentation changes listed below.
+  tool (native tests only) in `outputs/baseline/<lab>/`, not in git.
+- **Done:** phase 0, the common part every test rests on (2026-10-19 to 2026-10-21): the rules below, built in the
+  code and checked on the labs (history at the end of this file). Committed by the owner.
+- **On the branch now:** only test 4.2 (the pilot of the common part); the other tests are on `main` and return one
+  at a time, rewritten.
+- **Done:** guarantee 0.1 (2026-10-22): `ext.0.1.ffuf` (ffuf searches, the test re-verifies every candidate against the calibration) and `0.1` rewritten (undeclared methods, undocumented versions, gateway route drift). `ext.0.1.nuclei` removed. Both proven on the three labs; a self-review after the first runs fixed two weaknesses (a PASS that claimed more than was verified, a version group of POST paths skipped): [draft](test-review/0-1.md).
+- **Next:** guarantee 0.2 (the gateway rejects unregistered paths), after the owner's commit.
+- **Open, recorded here:** the SSRF listener (7.2), the reference probes on a backend that fails with 5xx (1.1); the
+  documentation changes listed below.
 
 ## How we work
 
-| Phase | Content | Output |
-|---|---|---|
-| 0a | Rules common to every test, decided once (topics below) | a decision per topic, recorded here |
-| 0b | The base: the methodology's guarantees and the roadmap, against the current standards | the revised catalogue of guarantees |
-| 0c | How the shared mechanisms decided in 0a are built (added 2026-10-20, owner: the cascade of each decision made concrete): order, files, models, contract changes, checks on the labs | the implementation plan of the common part, before any test is rewritten |
-| 1 | The 18 implemented tests, one at a time | one draft per test in `test-review/` |
-| 2 | The missing guarantees | one draft per test in `test-review/` |
+**Order (owner, 2026-10-21).**
 
-- **Draft:** `test-review/<id>.md` (e.g. `test-review/2-1.md`) is the future test page (template below) followed
-  by a review box. It replaces the page in `docs/05-tests/` only when the code is written and verified on the labs:
-  until then the test pages describe what the code does today.
-- **Review box:** problems found (with the evidence: code line, lab run), research (sources), options considered
-  and the recommendation, the owner's decision, the changes (code, configuration, documentation, labs), done when.
-- **Rules:** facts verified against the code, a run or a cited source; proposals marked as such; one topic or test
-  at a time; the owner decides and closes questions.
+1. **The guarantees of the 18 existing tests**, one at a time, in the order of the table below: each is reviewed,
+   rewritten on the new base, proven on the labs and documented before the next starts.
+2. **The missing guarantees**, domain by domain.
+3. **The rest**: the external tools of the methodology not yet connected, each with the guarantee that uses it.
+
+**Start from the guarantee, not from the test** (owner, 2026-10-21). For each guarantee the question is how best to
+verify it: our code alone, an external tool alone, or both, each covering a different part. A native test does not
+need an external companion, nor an external test a native one; the tool is not bound to the methodology's list
+(`docs/06-knowledge/05-tool-decisions.md`): a better one is searched for and compared. Where a tool is built for the
+job (path fuzzing, TLS handshakes, JWT attacks), it is used, not reimplemented: our code adds only what the tool
+cannot know (the specification, the calibration, the roles, the derived knowledge). An external tool always runs
+inside our test, which launches it and judges its results (the methodology's rule, the rules of piece 10).
+
+**Each review.**
+
+- **Draft:** `test-review/<id>.md` (e.g. `test-review/0-1.md`) is the future test page (template below) followed by
+  a review box. It replaces the page in `docs/05-tests/` only when the code is written and verified on the labs.
+- **Review box:** the guarantee and its standards (checked on their sources); problems found (code line, lab run);
+  research (tools and sources); options and the recommendation; the owner's decision; the changes (code,
+  configuration, documentation, labs); done when.
+- **Rules:** facts verified against the code, a run or a cited source; proposals marked as such; one guarantee at a
+  time; the owner decides and closes questions; the design is presented and agreed before code is written.
+- **Done when:** the test is back on the branch, `hatch run dev:check` passes, it gives the expected answer on the
+  labs in the three situations (rule 9 below), its page and the files that follow it are updated; then a commit
+  (the owner's).
 - **Files that follow a test** (besides its page): [`roadmap.md`](roadmap.md), the "Test portability" table of
   [`compatibility.md`](../03-reference/06-compatibility.md#test-portability),
   [`assessment-model.md`](../04-architecture/03-assessment-model.md), the usage guides
@@ -55,6 +63,25 @@ crAPI enters the code.
   [`configure-a-target.md`](../02-guides/01-usage/01-configure-a-target.md),
   [`select-tests.md`](../02-guides/01-usage/02-select-tests.md)), `CHANGELOG.md`; generated by `hatch run dev:gen`: the
   catalogue, the page header, the parameter tables, `config.example.yaml`.
+
+## Rules every test applies
+
+Decided in phase 0 and built in the code (detail and reasons in the history at the end).
+
+| # | Rule | In the code |
+|---|---|---|
+| 1 | **Two steps of judgement.** A response gets a category from a closed list (12, IANA registry); each test maps categories to an outcome `VIOLATION`, `ENFORCED`, `NOT_VERIFIABLE`, `NOT_APPLICABLE` with a detail (`UPPER_SNAKE_CASE`): that table is its oracle | `src/core/response_category.py`, `src/core/models/enums.py`, `BaseTest._judge` |
+| 2 | **Sub-tests and computed status.** A test declares its sub-tests; each judgement belongs to one; the status is computed from the counters (FAIL > PASS complete or partial > INCONCLUSIVE > SKIP), never chosen; a finding exactly with a `VIOLATION` | `TestInfo.sub_tests`, `AssessmentTest._record`, `_finish`, `src/core/models/results.py` |
+| 3 | **Reference responses.** A verdict that depends on "does this exist, is this refused" rests on calibration (random siblings by sibling pattern, typed values) and, where a credential exists, a positive control; `response_facts()` gives category and existence; a reference that cannot decide gives `NOT_VERIFIABLE` | `src/core/references.py`, `context.references` |
+| 4 | **Transport errors** (timeout, refused, TLS, protocol) are recorded and judged `NOT_VERIFIABLE`, never skipped | `SecurityClientError.record`, `TransportError` |
+| 5 | **Derive first, configure on top.** What a test probes comes from the specification (named derivation rules, Phase 2) and the gateway, then the configuration adds or corrects; a rule is added with the test that uses it and proven on the labs; no destructive request on a derived candidate the configuration has not confirmed; sampling by a stated rule, never "the first N" | `src/discovery/derivation.py`, `AttackSurface.derived` |
+| 6 | **Evidence and confidence.** Every finding has its proof (`evidence_ref`) and the references it rests on (`supporting_refs`); confidence `CERTAIN`, `FIRM` or `TENTATIVE` by the stated criteria, per detail, on the test page; no severity | `Finding`, `BaseTest._judge` |
+| 7 | **Effect.** `READ_ONLY`, `CHANGES_DATA` or `STRESSES_TARGET`, declared; the run order follows it; who creates cleans up or states what is left | `TestInfo.effect`, `src/core/dag.py` |
+| 8 | **Standards.** The other standards of the guarantee in `TestInfo.references`, each the standard and its official identifier (ASVS 5.0.0 level L2, WSTG with its version, API Top 10 2023, Top 10:2025, RFC, NIST SP); each verified on its source in the review | `src/core/models/standards.py` |
+| 9 | **Three situations on the labs.** A test is trusted once seen giving the right answer where the weakness is there, where it is not, and where the check cannot be made; a case the labs lack: the crAPI case of the category, the tool's configuration, or a change to a lab's gateway configuration written on the page with how to undo it | the page's "Validation" section |
+| 10 | **One question, one test.** Data two tests need is written once and shared (path variants, sensitive paths); the gateway's own answer is recognised by the references, not by lists of gateways | topic 7b |
+| 11 | **External tools.** The oracle is the tool's check, not its severity (kept as information); only results on the target count, others in a note; the tool's own problems are `NOT_VERIFIABLE`; the tool is pointed at the API; the command shown for manual verification runs | piece 10, `src/external_tests/` |
+| 12 | **Needs and strategy.** What a test needs is declared (`TestInfo.needs`), with a minimum strategy per need; the gateway reaches only the tests that declare it; login artefacts kept per role for the tests that read them | `src/core/test_metadata.py`, `context.login_artefact` |
 
 ## Page template
 
@@ -71,13 +98,13 @@ its own.
 
 | # | Section | Content |
 |---|---|---|
-| - | Generated header | ID, name, domain, priority and strategy, CWE, tags, needs, parameters, plus the declared effect and sub-tests |
+| - | Generated header | ID, name, domain, priority and strategy, CWE, standards, tags, needs, parameters, plus the declared effect and sub-tests |
 | 1 | Guarantee | what a PASS promises and what it does not; the threat; the OWASP category; the ASVS L2 requirements it checks |
 | 2 | Sub-tests and coverage of the methodology | the declared sub-tests (the same names as in the code and the report); each methodology sub-test implemented, partial, or left out with the reason |
-| 3 | Inputs | specification fields and derivation rules used (topic 4), configuration keys, gateway concepts |
+| 3 | Inputs | specification fields and derivation rules used (topic 4), configuration keys, gateway concepts, external tools |
 | 4 | Preconditions and reference responses | what must hold to give a verdict; which calibration and positive controls the test uses, with which role |
 | 5 | Probes | the requests, their number, their order (destructive ones last), sampling rule if any |
-| 6 | Oracle | per sub-test, the table category → `OUTCOME/DETAIL` → confidence |
+| 6 | Oracle | per sub-test, the table category (or tool check) → `OUTCOME/DETAIL` → confidence |
 | 7 | Outcomes | only what is the test's own: its SKIP reasons and what makes each sub-test PASS, FAIL or INCONCLUSIVE |
 | 8 | Findings | title, content, confidence, `evidence_ref` and `supporting_refs` |
 | 9 | Effects on the target | the declared effect (`READ_ONLY`, `CHANGES_DATA`, `STRESSES_TARGET`), what it creates or changes, cleanup, interference |
@@ -86,18 +113,160 @@ its own.
 | 12 | Validation | per lab: expected status and its basis, in the three situations (weakness there, not there, not verifiable); the change to a lab's gateway configuration a case needs (and how to undo it), the crAPI case of the category |
 | 13 | Remediation | what to do on FAIL (gateway, application) |
 | 14 | Limitations | what the test cannot detect |
-| 15 | Sources | references in the canonical format of topic 8, each verified on its source |
+| 15 | Sources | references in the format of `src/core/models/standards.py`, each verified on its source |
 
-## Overview of the current tests (2026-10-19)
+## The guarantees
 
+Status: **to review** (a test exists on `main`), **to design** (no test), **in review**, **done** (back on the
+branch, proven on the labs). "Methodology" is the classification of `05-tool-decisions.md` (NATIVE, NATIVE +
+optional, HYBRID) and its tools: a starting point, revisited in each review.
+
+### Step 1: the guarantees of the existing tests
+
+| # | Guarantee | Tests on `main` | Methodology | Status |
+|---|---|---|---|---|
+| 1 | **0.1** Every exposed endpoint is documented (Shadow API Discovery) | `ext.0.1.ffuf` (new), `0.1` (rewritten); `ext.0.1.nuclei` removed | ffuf for the search, our code for the specification | done 2026-10-22, proven on the three labs ([draft](test-review/0-1.md)) |
+| 2 | **0.2** The gateway rejects unregistered paths (Deny-by-Default) | `0.2` | NATIVE + optional: cherrybomb | to review |
+| 3 | **0.3** Deprecated APIs are switched off or flagged (Deprecated APIs) | `0.3` | NATIVE + optional: oasdiff | to review |
+| 4 | **1.1** Only authenticated requests reach protected resources (Authentication Required) | `1.1` | NATIVE | to review |
+| 5 | **1.4** Revoked credentials are rejected (Token Revocation) | `1.4` | NATIVE | to review |
+| 6 | **1.5** Credentials never travel on insecure channels (Insecure Credential Transport, TLS) | `1.5`, `ext.1.5.testssl`, `ext.1.5.sslyze` | HYBRID: testssl.sh, sslyze | to review |
+| 7 | **1.6** Sessions are managed securely (Secure Session Management) | `1.6` | NATIVE | to review |
+| 8 | **2.1** Only authorised users reach privileged functions (RBAC Enforcement; with 2.3) | `2.1` | NATIVE | to review |
+| 9 | **3.3** Request signing does not allow replay or weak algorithms (HMAC Config Audit) | `3.3` | NATIVE | to review |
+| 10 | **4.1** Rate limiting prevents resource exhaustion (Rate Limiting) | `4.1` | HYBRID: vegeta | to review |
+| 11 | **4.2** Timeouts prevent resource lock (Timeout Config Audit) | `4.2` (the pilot, on the branch) | NATIVE | to review |
+| 12 | **4.3** The system degrades gracefully (Circuit Breaker Audit) | `4.3` | NATIVE | to review |
+| 13 | **6.2** Security headers are configured (Security Headers Audit; with CORS) | `6.2` | NATIVE | to review |
+| 14 | **6.4** Service credentials are not hard-coded or exposed (Hardcoded Credentials Audit) | `6.4` | NATIVE + optional: trufflehog, gitleaks, detect-secrets | to review |
+| 15 | **7.2** The system prevents SSRF (SSRF Prevention) | `7.2` | HYBRID: nuclei, interactsh | to review |
+
+### Step 2: the missing guarantees
+
+| Guarantee | Methodology | Status |
+|---|---|---|
+| **0.4** The backend is reachable only through the gateway (new) | to decide | to design |
+| **1.2** Credentials are cryptographically valid (forged JWT) | HYBRID: jwt_tool | to design |
+| **1.3** Expired credentials are rejected | HYBRID: jwt_tool | to design |
+| **1.7** Authentication endpoints resist brute force and user enumeration (new) | to decide | to design |
+| **2.2** Users access only their own objects (BOLA) | NATIVE + optional: OFFAT, cherrybomb | to design |
+| **2.4** Equivalent paths to an operation enforce the same controls (redefined) | NATIVE | to design |
+| **2.5** Object property level authorization: excessive data, mass assignment | NATIVE | to design |
+| **3.1** Every input is validated (injection) | HYBRID: Schemathesis, nuclei; sqlmap, NoSQLMap, Dalfox, commix, SSTImap | to design |
+| **4.4** Requests and responses have size limits (new) | to decide | to design |
+| **5.1** Every request is logged with its metadata | NATIVE | to design |
+| **5.2** Anomalous security events raise alerts | NATIVE | to design |
+| **6.1** Errors disclose no internal information | NATIVE | to design |
+| **6.3** The gateway is hardened against layer-7 attacks (smuggling) | HYBRID: Python on sockets; http2smugl | to design |
+| **7.1** Sensitive business flows resist automated abuse | NATIVE | to design |
+| **7.3** Critical operations are protected from race conditions | HYBRID: vegeta | to design |
+| **7.4** External services are consumed safely (webhooks) | HYBRID: interactsh | to design |
+
+### Notes per guarantee (inputs for the reviews)
+
+What is already known, collected from the overview of 2026-10-19 (A-D, in the history), `OPEN_QUESTIONS.md` (Q-24,
+Q-29, Q-30, Q-32, Q-50) and the runs of phase 0; each review moves its notes into its draft.
+
+- **0.1:** the wordlist is fixed (37 paths with `/api` prefixes; crAPI's services live under `/identity`,
+  `/community`, `/workshop`: the derived `service_prefixes` give them, piece 7); undeclared methods probed on 3
+  endpoints only (Q-29) and sent without credentials, writes included (Q-30); no calibration (B1); sensitive paths in
+  three places (A3, topic 7b point 3). ext.0.1.nuclei: only `info` on the three labs, `http-missing-security-headers`
+  on `/`, a result on `localhost:22` (piece 10). Methodology: ffuf for path brute force (not implemented), katana for
+  single-page applications; the owner (2026-10-21): fuzzing is a tool's job, not ours.
+- **0.2:** Kong matches a route's path as a string prefix: route `/api` also forwards `/api-docs`, `/api-doc` to
+  Forgejo, which answers 404 (seen in the 0.1 runs, 2026-10-21; APISIX `/api/*` matches by segment): a case for
+  "the gateway forwards paths it has no route for"; false FAIL on APISIX without its identifier (Q-29, 2026-10-14); `gateway_server_identifiers` and the
+  normalization variants leave (topic 7b points 1, 4); the encoded variant almost never sent; only `200` counts.
+- **0.3:** reads only `deprecated: true` (SKIP on every lab); crAPI's version siblings (`v2`/`v3` of `check-otp`,
+  challenge 3) are a case (topic 4); the "differential" sub-tests move to 2.4; an unparseable `Sunset` counts as
+  compliant (Q-29).
+- **1.1:** PASS with 14 endpoints answering `503` (Q-29, 2026-10-14; now `NOT_VERIFIABLE`); only `2xx` is a bypass;
+  credential always sent as `Bearer` (C5, topic 7d); unauthenticated writes and `DELETE` on `path_seed` (Q-30);
+  path normalization variants become its sub-test (topic 7b); count reads and writes in the message (Q-29); resources
+  it creates itself instead of `path_seed` (topic 6); crAPI challenge 14 is its case.
+- **1.4:** PASS with a credential the target rejects (no positive control, Q-29); any non-`2xx` is PASS; WHITE_BOX or
+  GREY_BOX (phase 0b); token after a password change: a crAPI case (Q-32).
+- **1.5:** HSTS only on `/`, outside the API (Q-29, piece 10); the redirect checked by status, not by `Location`;
+  Kong's redirect drops the port (Q-29); the HTTP probe not recorded (Q-50); `includeSubDomains` (topic 7b point 2).
+  testssl: HIGH `cert_revocation` on every lab (private CA); sslyze: TLS 1.0/1.1 only a note (Q-29), the recorded
+  command does not run, `timeout_seconds` has no effect (Q-24).
+- **1.6:** SKIP on every lab (no session cookies); the login artefacts now give the login's `Set-Cookie` (piece 6);
+  Forgejo's web login sets a cookie, its API login does not (topic 9 note).
+- **2.1:** a `404` counts as enforced, so a wrong admin path gives PASS (Q-29); admin paths from configuration while
+  the specification has them (topic 4); crAPI `/workshop/api/management/users/all` answers `200` to user A (piece 3,
+  BFLA); method confusion and role hierarchy missing (Q-32); 2.3 merged in.
+- **3.3:** only the first matching plugin audited (Q-29); configuration only (topic 7c); Kong 3.9.0 `hmac-auth`
+  defaults include hmac-sha1 (Q-29); the page names Kong's plugin.
+- **4.1:** one endpoint, budget fixed by `max_requests`, not derived from the configured limit (Q-29, B7); no
+  `evidence_ref` (Q-50); exhausts the rate-limit budget of later tests (Q-30; a `STRESSES_TARGET` test now runs after the others, topic 6); `Retry-After` and a
+  request rate (topic 6, deferred).
+- **4.2:** the pilot of the common part; its standards (API4:2023, NIST SP 800-204A 4.3, ASVS v5.0.0-16.5.2) to verify
+  on their sources.
+- **4.3:** Level 2 passes if one upstream has a passive health check (Q-29); Kong has no circuit-breaker plugin,
+  passive health checks are its circuit breakers (Q-29); a non-numeric value reported as "Not Found" (Q-29).
+- **6.2:** `X-Frame-Options` obsolete for CSP `frame-ancestors`, `Referrer-Policy` and `Cross-Origin-Opener-Policy`
+  not checked, `Permissions-Policy` not in ASVS 3.4 (topic 8); HSTS leaves to 1.5; CORS joins (phase 0b); its primary
+  `CWE-16` is a prohibited category (topic 8).
+- **6.4:** two tests in one (debug paths, gateway configuration secrets); sub-test B scans nothing on Kong DB-less
+  (Q-29); `gateway_block_body_fragment` defaults to Kong's message (Q-29, topic 7b point 4).
+- **7.2:** judges acceptance (`200`/`201`), not an outbound call (B6, Q-29): a probable false PASS on crAPI
+  challenge 11; one aggregate finding (Q-50); `fixed_path` cleans up nothing (Q-30); makes Kong exclude crAPI's
+  workshop (Q-30); `ssrf_request_timeout_ms` has no effect (Q-24); the listener (topic 7c, provisional).
+
+### crAPI challenges by category
+
+crAPI v1.1.6 `docs/challenges.md` (https://github.com/OWASP/crAPI/blob/v1.1.6/docs/challenges.md); the lab leaves
+out the chatbot (challenges 16-18). Guarantees as revised in phase 0b.
+
+| Challenge | Category | Guarantee | Old tool |
+|---|---|---|---|
+| 14 endpoint without authentication | unauthenticated access | 1.1 | found (FAIL, 2 findings) |
+| 11 SSRF | SSRF | 7.2 | probable false PASS (B6) |
+| 7 delete another user's video via an admin endpoint | BFLA | 2.1 (with 2.3) | 2.1 not configured on crAPI (SKIP) |
+| 15 forge a JWT | JWT validation | 1.2 | not implemented |
+| 1, 2 another user's vehicle, mechanic reports | BOLA | 2.2 | not implemented |
+| 8, 9, 10 order and video properties | mass assignment | 2.5 | not implemented |
+| 4, 5 other users' data, internal video property | excessive data exposure | 2.5 | not implemented |
+| 3 another user's password reset (OTP) | brute force via an older version | 1.7, 2.4 | not implemented |
+| 6 layer 7 DoS on "contact mechanic" | business flow abuse | 7.1 | not implemented |
+| 12, 13 NoSQL and SQL injection | injection | 3.1 | not implemented |
+| (Q-32) token valid after a password change | credential lifecycle | 1.4 | not implemented |
+
+## Documentation changes to apply later
+
+The documentation is being reworked in another conversation (owner, 2026-10-20); this review does not edit it.
+What the review decides for the documentation is collected here and applied after that work is done.
+
+| Where | Change | From |
+|---|---|---|
+| `docs/04-architecture/03-assessment-model.md` | the rules common to every test: categories, outcomes, computed status, complete and partial PASS, confidence criteria, reference responses, ordering by effect | topics 1-6, 10 |
+| `docs/04-architecture/02-data-model.md` | `supporting_refs`, outcomes and sub-test counters in the result, derived knowledge on the `AttackSurface`, login artefacts and references in `TestContext`, `TestInfo` effect and sub-tests | topics 3-7 |
+| `docs/03-reference/04-report-schema.md`, `05-evidence-format.md`, `03-exit-codes.md` | status `INCONCLUSIVE` (exit `3`), PASS complete or partial, the references and derived-knowledge sections, `ref_...` records (the generated tables are done; the prose around them, the example of a report) | topics 3, 5 |
+| `CHANGELOG.md` | every piece of phase 0c, among them the security fix of piece 6 (several `Set-Cookie`: only the first value was redacted) | phase 0c |
+| `docs/02-guides/01-usage/03-read-the-report.md` | the "Standards" row of a test and the references of a finding (`references[].text`; `jq` on `standard` and `id`) | piece 8 |
+| `docs/02-guides/01-usage/03-read-the-report.md` | how to read a finding's confidence and supporting references, the "Reference Responses" section, a partial PASS, INCONCLUSIVE | pieces 1, 3, 4 |
+| `docs/project/roadmap.md` | 6.1 and 7.1 missing from Milestone 2; strategies in its tables differ from the declarations (1.4, 1.5, 1.6, 6.2, ext.1.5.*) | overview D |
+| the catalogue of the guarantees (`docs/06-knowledge/04-guarantees.md`, translated to English) | the conclusions of phase 0b, applied **from this conversation** once the English version exists (owner, 2026-10-20) | phase 0b |
+| every test page | the new template, when its test is rewritten | phase 1, 2 |
+| `docs/02-guides/03-extending/02-add-a-native-test.md`, `03-add-an-external-test.md` | how a test declares effect and sub-tests, records outcomes, uses the references; the example code of the native guide (still `_make_*`, `_log_transaction`, `oracle_state`) and the external guide's "typical oracle"; the generated tables and the sentences next to them are already updated (piece 1) | topics 3, 6, 7 |
+| `docs/02-guides/03-extending/01-coding-rules.md` | the top-level except returns `self._error(exc)` (line 55 still names `_make_error`); a `SecurityClientError` of one probe is judged NOT_VERIFIABLE with `exc.record`, not turned into ERROR | pieces 1, 2 |
+| `docs/04-architecture/02-data-model.md`, `03-assessment-model.md`, `docs/02-guides/01-usage/03-read-the-report.md` | `oracle_state` replaced by `sub_test`, `category`, `outcome`, `detail` (data model "Extra" row, "Oracle states" paragraph, the `jq` example) | piece 1 |
+| `docs/04-architecture/01-overview.md`, `02-data-model.md` | Phase 2 derives knowledge (`src/discovery/derivation.py`, `AttackSurface.derived`), how a rule is added | piece 7 |
+| `docs/04-architecture/01-overview.md`, `02-data-model.md`, `03-assessment-model.md`, `docs/02-guides/03-extending/02-add-a-native-test.md` | the reference responses (`src/core/references.py`, `TestContext.references`, sibling patterns, `response_facts()`), how a test asks for them, their cost | piece 3 |
+| `docs/04-architecture/01-overview.md`, `02-data-model.md`, `03-assessment-model.md`, `docs/02-guides/03-extending/02-add-a-native-test.md` | the needs fix a minimum strategy (`NEED_MINIMUM_STRATEGY`); the gateway reaches only the tests that declare `Need.GATEWAY` (the `TargetContext` is no longer the same object for every test) | piece 1b |
+
+## History: how the common part was decided (phase 0, 2026-10-19 to 2026-10-21)
+
+Kept as written at the time (the decisions and their evidence); the rules in force are summarised in "Rules every
+test applies" above. Piece 9 and the provisional parts of topics 5 and 9 were later revised: the revision is
+written where the decision is.
+
+### Overview of the current tests (2026-10-19)
 Read: the 15 native tests, the 2 external test modules, `src/tests/base.py`, `src/core/assessment_test.py`,
 `src/core/test_metadata.py`, the helpers and data in `src/tests/`, the gateway concepts. What repeats across tests
 or is missing for several of them; each point feeds a phase 0a topic.
-
-### A. The same thing done in several places
-
+#### A. The same thing done in several places
 | # | What | Where | Difference |
-|---|---|---|---|
 | A1 | Path normalization variants | 0.2 sub-check 2; 1.1 phase C | 0.2: 4 variants (trailing slash, double slash, uppercase, encoded last segment), `GET`, only `200` is a bypass, one path; 1.1: 3 variants, the declared method, any `2xx`, one anchor |
 | A2 | HSTS | 1.5 sub-test 2 (on `/` only); 6.2 sub-tests 1-2 | same parameter `hsts_min_max_age_seconds` in both; a missing `includeSubDomains` is a FAIL finding in 1.5 (`test_1_5:582`) and only a debug log in 6.2 |
 | A3 | Debug and actuator paths | 0.1 wordlist (`/api/actuator/env`, `/debug`, `/metrics`, ...); 6.4 sub-test A (`debug_endpoint_paths`); ext.0.1.nuclei (tags `exposure`, `panel`) | three lists of the same kind of path, three oracles |
@@ -106,11 +275,8 @@ or is missing for several of them; each point feeds a phase 0a topic.
 | A6 | Status code sets | every test has its own | "active" in 0.1 includes 3xx and 5xx, in 0.3 it does not; "enforced" is 401/403 in 1.1, 403/404 in 2.1 |
 | A7 | Choice of the endpoints to probe | 0.1 (first N in spec order), 0.2 (one authenticated non-parametric), 1.1 (first enforced non-parametric), 4.1 (first non-parametric `GET`), 6.2 (first usable `GET` and a sample) | no shared criterion; each choice decides what the verdict covers |
 | A8 | Transport errors | 0.1, 0.2, 0.3, 1.1 | logged with structlog only: absent from the transaction log and the result, so coverage lost to them is invisible |
-
-### B. Capabilities several tests need and nobody provides
-
+#### B. Capabilities several tests need and nobody provides
 | # | Capability | Who needs it | Today |
-|---|---|---|---|
 | B1 | Calibration (how gateway and application answer an unknown path, an unknown method, a missing and an invalid credential) | 0.1, 0.2, 1.1, 2.1, 6.4 | none; false PASS and false FAIL recorded in Q-29 (2.1 PASS on a path crAPI does not have; 0.2 false FAIL on APISIX without its identifier) |
 | B2 | Positive control of a credential (a request that must succeed for each role) | 1.4, 2.1, 7.2, the 2.x tests | none; with a credential the target rejects, 1.4 and 2.1 gave PASS (Q-29, 2026-10-14) |
 | B3 | A second ordinary account | 2.2 (BOLA), 2.3, 2.4, 7.3 | `ROLE_USER_B` exists (`src/core/context.py:68`), the labs configure it (crAPI: `user_b_username`), no test uses it and no `Need` names it |
@@ -120,9 +286,7 @@ or is missing for several of them; each point feeds a phase 0a topic.
 | B7 | Gateway concepts beyond the current seven (backend timeouts, circuit breakers, health checks, request signing policies, routes, configuration values, live target health) | 4.1 (configured limit), 1.1 (authentication per route), 6.2 (header plugins), 3.1 / 6.3 (validation, size limits), 5.1 (logging), 2.1 (ACL) | the black-box tests cannot be confirmed from the configuration; the 4.1 budget is not derived from the configured limit (Q-29) |
 | B8 | Empirical confirmation of a configuration audit | 3.3, 4.2, 4.3 | configuration read only; the methodology's empirical sub-tests (slow backend, replay of a signed request) are not implemented (Q-32) |
 | B9 | Response inspection helpers | 6.1, 2.5, user enumeration | `contains_stack_trace`, `contains_sensitive_fields`, `extract_debug_fields`, `check_security_headers`, `auth_errors_are_uniform` (`src/tests/helpers/response_inspector.py`) are used by no test |
-
-### C. Results, evidence, execution
-
+#### C. Results, evidence, execution
 | # | Point | Today |
 |---|---|---|
 | C1 | Severity and confidence | `Finding` has no severity by design (`src/core/models/results.py:39`, the analyst judges); the external tests decide FAIL or note from the tool's severity (nuclei critical/high/medium, testssl and sslyze critical/high): two rules; no test states a confidence |
@@ -130,9 +294,7 @@ or is missing for several of them; each point feeds a phase 0a topic.
 | C3 | The inconclusive part | 1.1 counts it in its message; no test turns it into a note or a status when it hides part of the surface (Q-29: 1.1 PASS with 14 endpoints answering 503) |
 | C4 | Order and interference | sequential, lexicographic by ID (`docs/05-tests/README.md`): the 4.1 burst runs before 6.2, 6.4, 7.2; 7.2 can make Kong exclude crAPI's workshop service (Q-30); no pacing, no rule "disruptive tests last"; `TestContext.set_shared` exists, no test shares data (no `depends_on` declared) |
 | C5 | Credential placement | 1.1 sub-check B sends `Authorization: <value>` with `Bearer` values (`test_1_1:845`) whatever placement the run declares (Forgejo: `token` prefix; others: a header or a query parameter); overlaps the future 1.2 |
-
-### D. Declarations and references (for phase 0b)
-
+#### D. Declarations and references (for phase 0b)
 - Strategies in the roadmap tables differ from the declarations: roadmap 1.4 GREY_BOX, 1.5, 1.6, 6.2, ext.1.5.*
   WHITE_BOX; `TestInfo`: 1.4 WHITE_BOX, 1.5, 1.6, 6.2, ext.1.5.* BLACK_BOX.
 - The roadmap's Milestone 2 lists neither 6.1 nor 7.1, which the methodology has; domain 5 has no test.
@@ -141,27 +303,7 @@ or is missing for several of them; each point feeds a phase 0a topic.
 - Standards: OWASP API Security Top 10 latest edition 2023 (https://api-security.owasp.org/, checked
   2026-10-19); OWASP Top 10:2025 for web applications (https://owasp.org/Top10/2025/; A10 Mishandling of Exceptional
   Conditions, SSRF folded into A01).
-
-### crAPI challenges by category
-
-crAPI v1.1.6 `docs/challenges.md` (https://github.com/OWASP/crAPI/blob/v1.1.6/docs/challenges.md); the lab leaves
-out the chatbot (challenges 16-18).
-
-| Challenge | Category | Guarantee | Today |
-|---|---|---|---|
-| 14 endpoint without authentication | unauthenticated access | 1.1 | found (FAIL, 2 findings) |
-| 11 SSRF | SSRF | 7.2 | probable false PASS (B6) |
-| 7 delete another user's video via an admin endpoint | BFLA | 2.1 / 2.3 | 2.1 not configured on crAPI (SKIP) |
-| 15 forge a JWT | JWT validation | 1.2 | not implemented |
-| 1, 2 another user's vehicle, mechanic reports | BOLA | 2.2 | not implemented |
-| 8, 9, 10 order and video properties | mass assignment | 2.2 sub-test (methodology §2.2) / 3.1 | not implemented |
-| 4, 5 other users' data, internal video property | excessive data exposure | 2.5 | not implemented |
-| 3 another user's password reset (OTP) | brute force via an older version | 7.1 / 4.1 / 0.3 | to verify |
-| 6 layer 7 DoS on "contact mechanic" | business flow abuse | 7.1 | not implemented |
-| 12, 13 NoSQL and SQL injection | injection | 3.1 | not implemented |
-| (Q-32) token valid after a password change | credential lifecycle | 1.4 | not implemented |
-
-## Phase 0a: topics
+### Phase 0a: topics
 
 In this order; each ends with the owner's decision, written under it.
 
@@ -181,7 +323,7 @@ In this order; each ends with the owner's decision, written under it.
    lab (0.3, 1.6) (Q-51).
 10. **The page template** above.
 
-### Topic 1 evidence: calibration and positive control spike (2026-10-20)
+#### Topic 1 evidence: calibration and positive control spike (2026-10-20)
 
 A script outside the repository (session scratch, not kept) on the three labs, `GET` only plus the crAPI login,
 user_a credential (Forgejo: Basic, no token created). Calibration: two random sibling paths without credential and
@@ -206,7 +348,7 @@ Forgejo through the `/api` route; two of the four "nonexistent" paths of 0.2 (`/
 `/api/nonexistent-apiguard-probe-abc-456`) reach the backend on Kong. Calibration names must not share a prefix
 with a route. The 0.1 wordlist verdicts do not change on these labs once that is fixed.
 
-### Topics 1 and 2: decision (owner, 2026-10-20)
+#### Topics 1 and 2: decision (owner, 2026-10-20)
 
 **Reference responses (differential oracle).** A response is judged against reference responses the tool
 obtains at run time from the target itself, never from a catalogue of applications or gateways:
@@ -228,7 +370,7 @@ obtains at run time from the target itself, never from a catalogue of applicatio
 Owner note for the 1.1 review: an endpoint declared protected in the specification and public in reality is
 reported (bypass or specification error, the same fact); the analyst reading the report decides which.
 
-### Topic 3: decision (owner, 2026-10-20)
+#### Topic 3: decision (owner, 2026-10-20)
 
 **Two steps of judgement.**
 
@@ -278,7 +420,7 @@ kept). Otherwise computed, never chosen by the test:
 `INCONCLUSIVE` is a new status (contract 1.0, report schema); it uses the existing exit code `3` ("at least one
 verification did not complete and no test returned FAIL").
 
-### Topic 4: decision (owner, 2026-10-20)
+#### Topic 4: decision (owner, 2026-10-20)
 
 **Derive first, configure on top.** What a test probes comes first from what the tool can derive, then from the
 configuration, which adds, removes or corrects. Precedence, highest first:
@@ -306,7 +448,7 @@ configuration, which adds, removes or corrects. Precedence, highest first:
   portability" table; a report section for the derived knowledge; the Ideas item "prepared resources proposed from
   the specification" (roadmap). `path_seed` keyed by name only (Q-29): in the 1.1 review.
 
-### Topic 5: decision (owner, 2026-10-20)
+#### Topic 5: decision (owner, 2026-10-20)
 
 - **Evidence.** A finding keeps `evidence_ref` (the main transaction) and gains `supporting_refs` (the reference
   responses and positive controls its verdict rests on). Reference requests go to `evidence.json` (IDs `ref_...`);
@@ -334,7 +476,7 @@ configuration, which adds, removes or corrects. Precedence, highest first:
   before it is adopted; the runs are planned in phase 0c, with the owner's go (external tools, targeted tests only).
   Proved in piece 10 (2026-10-21): the tool's severity cannot be the oracle; the rules adopted are there.
 
-### Topic 6: decision (owner, 2026-10-20)
+#### Topic 6: decision (owner, 2026-10-20)
 
 - The worst effect of interference (a false verdict, e.g. 1.1 PASS with 14 endpoints answering `503`) is already
   removed by topic 3: `UPSTREAM_UNAVAILABLE` and `RATE_LIMITED` are `NOT_VERIFIABLE`, the status becomes a partial
@@ -354,7 +496,7 @@ configuration, which adds, removes or corrects. Precedence, highest first:
   itself (prepared resources) when the target allows it, instead of the shared `path_seed` resources; this isolates
   tests better than ordering.
 
-### Topic 7a: where the decided mechanisms live (owner, 2026-10-20)
+#### Topic 7a: where the decided mechanisms live (owner, 2026-10-20)
 
 | Mechanism | Where | Why |
 |---|---|---|
@@ -370,7 +512,7 @@ No new engine phase: calibration happens on demand during Phase 5. Considered an
 the category when it receives a response (it would have to know the references and what the test is judging).
 The role of the positive control: the test's choice (piece 3).
 
-### Topic 7b: one question, one test (owner, 2026-10-20)
+#### Topic 7b: one question, one test (owner, 2026-10-20)
 
 Rule: one question is answered by one test; data two tests need (variants, path lists) is written once and shared.
 
@@ -391,7 +533,7 @@ Rule: one question is answered by one test; data two tests need (variants, path 
 5. **`Server` header** (0.2 backend identification, 6.2 version disclosure): 0.2 no longer needs it (point 4);
    6.2 keeps the version question.
 
-### Topic 7c: missing capabilities (owner, 2026-10-20)
+#### Topic 7c: missing capabilities (owner, 2026-10-20)
 
 - **Login artefacts:** the login helper keeps the whole login response per role (all headers, every `Set-Cookie`,
   body, credential) in two places with two jobs: in memory, in a typed place of `TestContext`, for the tests that
@@ -412,7 +554,7 @@ Rule: one question is answered by one test; data two tests need (variants, path 
   confidence about the configuration (`CERTAIN`); a behavioural proof is added only where it is possible without
   installing anything on the target's side; decided test by test.
 
-### Topic 7d: unused helpers, credential placement in probes (2026-10-20)
+#### Topic 7d: unused helpers, credential placement in probes (2026-10-20)
 
 - **Unused helpers** of `src/tests/helpers/response_inspector.py` (`contains_stack_trace`, `extract_debug_fields`,
   `contains_sensitive_fields`, `auth_errors_are_uniform`, `check_security_headers`): kept, not used as they are;
@@ -423,7 +565,7 @@ Rule: one question is answered by one test; data two tests need (variants, path 
   sent where and as the real credential is sent (`auth_parts`), values chosen by the kind of credential; JWT attacks
   (signature removed, `alg: none`, forged signature) belong to 1.2, not 1.1 (one question, one test).
 
-### Topic 8: standards and references (owner, 2026-10-20)
+#### Topic 8: standards and references (owner, 2026-10-20)
 
 | Standard | Version | Role |
 |---|---|---|
@@ -451,7 +593,7 @@ Rule: one question is answered by one test; data two tests need (variants, path 
   obsolete in favour of CSP `frame-ancestors`, and 3.4.5 `Referrer-Policy`, 3.4.8 `Cross-Origin-Opener-Policy` are
   not checked by 6.2, which requires `Permissions-Policy` that ASVS 3.4 does not list (6.2).
 
-### Topic 9: validation on the labs (owner, 2026-10-20)
+#### Topic 9: validation on the labs (owner, 2026-10-20)
 
 - A test is trusted only once it has been seen giving the right answer in **three situations**: the weakness is
   there (FAIL), it is not (PASS), the check cannot be made (INCONCLUSIVE, where it makes sense, e.g. 2.1 on a path
@@ -471,32 +613,9 @@ Rule: one question is answered by one test; data two tests need (variants, path 
 - Note for the 1.6 review: Forgejo's API login (Basic) sets no session cookie, its web login does; whether that is a
   valid case is decided there.
 
-## Documentation changes to apply later
+### Phase 0b: the base
 
-The documentation is being reworked in another conversation (owner, 2026-10-20); this review does not edit it.
-What the review decides for the documentation is collected here and applied after that work is done.
-
-| Where | Change | From |
-|---|---|---|
-| `docs/04-architecture/03-assessment-model.md` | the rules common to every test: categories, outcomes, computed status, complete and partial PASS, confidence criteria, reference responses, ordering by effect | topics 1-6, 10 |
-| `docs/04-architecture/02-data-model.md` | `supporting_refs`, outcomes and sub-test counters in the result, derived knowledge on the `AttackSurface`, login artefacts and references in `TestContext`, `TestInfo` effect and sub-tests | topics 3-7 |
-| `docs/03-reference/04-report-schema.md`, `05-evidence-format.md`, `03-exit-codes.md` | status `INCONCLUSIVE` (exit `3`), PASS complete or partial, the references and derived-knowledge sections, `ref_...` records (the generated tables are done; the prose around them, the example of a report) | topics 3, 5 |
-| `CHANGELOG.md` | every piece of phase 0c, among them the security fix of piece 6 (several `Set-Cookie`: only the first value was redacted) | phase 0c |
-| `docs/02-guides/01-usage/03-read-the-report.md` | the "Standards" row of a test and the references of a finding (`references[].text`; `jq` on `standard` and `id`) | piece 8 |
-| `docs/02-guides/01-usage/03-read-the-report.md` | how to read a finding's confidence and supporting references, the "Reference Responses" section, a partial PASS, INCONCLUSIVE | pieces 1, 3, 4 |
-| `docs/project/roadmap.md` | 6.1 and 7.1 missing from Milestone 2; strategies in its tables differ from the declarations (1.4, 1.5, 1.6, 6.2, ext.1.5.*) | overview D |
-| the catalogue of the guarantees (`docs/06-knowledge/04-guarantees.md`, translated to English) | the conclusions of phase 0b, applied **from this conversation** once the English version exists (owner, 2026-10-20) | phase 0b |
-| every test page | the new template, when its test is rewritten | phase 1, 2 |
-| `docs/02-guides/03-extending/02-add-a-native-test.md`, `03-add-an-external-test.md` | how a test declares effect and sub-tests, records outcomes, uses the references; the example code of the native guide (still `_make_*`, `_log_transaction`, `oracle_state`) and the external guide's "typical oracle"; the generated tables and the sentences next to them are already updated (piece 1) | topics 3, 6, 7 |
-| `docs/02-guides/03-extending/01-coding-rules.md` | the top-level except returns `self._error(exc)` (line 55 still names `_make_error`); a `SecurityClientError` of one probe is judged NOT_VERIFIABLE with `exc.record`, not turned into ERROR | pieces 1, 2 |
-| `docs/04-architecture/02-data-model.md`, `03-assessment-model.md`, `docs/02-guides/01-usage/03-read-the-report.md` | `oracle_state` replaced by `sub_test`, `category`, `outcome`, `detail` (data model "Extra" row, "Oracle states" paragraph, the `jq` example) | piece 1 |
-| `docs/04-architecture/01-overview.md`, `02-data-model.md` | Phase 2 derives knowledge (`src/discovery/derivation.py`, `AttackSurface.derived`), how a rule is added | piece 7 |
-| `docs/04-architecture/01-overview.md`, `02-data-model.md`, `03-assessment-model.md`, `docs/02-guides/03-extending/02-add-a-native-test.md` | the reference responses (`src/core/references.py`, `TestContext.references`, sibling patterns, `response_facts()`), how a test asks for them, their cost | piece 3 |
-| `docs/04-architecture/01-overview.md`, `02-data-model.md`, `03-assessment-model.md`, `docs/02-guides/03-extending/02-add-a-native-test.md` | the needs fix a minimum strategy (`NEED_MINIMUM_STRATEGY`); the gateway reaches only the tests that declare `Need.GATEWAY` (the `TargetContext` is no longer the same object for every test) | piece 1b |
-
-## Phase 0b: the base
-
-### Catalogue against OWASP API Security Top 10 2023 (2026-10-20)
+#### Catalogue against OWASP API Security Top 10 2023 (2026-10-20)
 
 | OWASP risk | Guarantees |
 |---|---|
@@ -531,7 +650,7 @@ What the review decides for the documentation is collected here and applied afte
 - Out of scope, stated: supply chain (OWASP Top 10:2025 A03), except the version disclosed in headers (6.2) and known
   CVEs found by nuclei. Idea, not planned: controls fail closed when a dependency fails (Top 10:2025 A10).
 
-### Priorities and strategies (owner, 2026-10-20; revisable in each test's review)
+#### Priorities and strategies (owner, 2026-10-20; revisable in each test's review)
 
 Criterion of `docs/06-knowledge/03-methodology.md` (Priorities): the OWASP Risk Rating factors used by the API
 Security Top 10 2023. Official ratings read from the source pages (OWASP/API-Security, editions/2023): API1 easy,
@@ -558,7 +677,7 @@ Strategies (owner's rule: BLACK_BOX external user, GREY_BOX user with credential
 WHITE_BOX (backend addresses read from the gateway); 1.7 BLACK_BOX; 1.4 WHITE_BOX today (admin account), GREY_BOX
 if user_a revokes its own credential: decided in the 1.4 review.
 
-### External tools (read 2026-10-20 from the GitHub releases and PyPI)
+#### External tools (read 2026-10-20 from the GitHub releases and PyPI)
 
 | Tool | Roadmap version | Latest (date) | Note |
 |---|---|---|---|
@@ -576,9 +695,9 @@ if user_a revokes its own credential: decided in the 1.4 review.
 None archived. Updating the pinned versions and whether each tool is still needed: decided when the test that uses
 it is designed or reviewed.
 
-## Phase 0c: how the common part is built (2026-10-20)
+### Phase 0c: how the common part is built (2026-10-20)
 
-### Method
+#### Method
 
 The new version is built on a **new branch** (`test-review`) in the usual folder, not alongside the old code
 (owner, 2026-10-20: nothing old carried along; a plain branch preferred to a second folder).
@@ -610,7 +729,7 @@ The new version is built on a **new branch** (`test-review`) in the usual folder
   touched twice, before and during its review, and a change that large cannot be checked step by step);
   building piece by piece in `main` with backward compatibility (old and new together for weeks).
 
-### Baseline of the old tool (2026-10-20)
+#### Baseline of the old tool (2026-10-20)
 
 Commit 4b185f8 (`main` = `test-review` before any change), native tests only (the lab configurations with
 `external_tools.enabled: false` and `output.directory: outputs/baseline/<lab>`), each lab reset before and after.
@@ -640,7 +759,7 @@ accepted" with `401` under `/identity/api` (`GET`/`PUT`/`PATCH`/`DELETE` on `res
 `verify-email-token`), where crAPI answers `401` to any path, existing or not (topic 1 evidence): false positives
 the reference responses remove; crAPI 7.2 PASS is the probable false PASS of Q-29.
 
-### Order of the common pieces
+#### Order of the common pieces
 
 Each piece rests on the ones before it; for each, the detailed plan (files, contract changes, lab check, done when)
 is written when it starts.
@@ -662,7 +781,7 @@ is written when it starts.
 Every piece is checked with `hatch run dev:check` and on the labs with the tests already rewritten; piece 10 runs
 the external tools only with the owner's go.
 
-### Piece 1: done (2026-10-21)
+#### Piece 1: done (2026-10-21)
 
 - Files: `src/core/models/enums.py` (`INCONCLUSIVE`, `Coverage`, `ResponseCategory`, `Outcome`, exit code texts),
   `src/core/response_category.py` (new), `src/core/models/results.py` (`SubTestResult`, `status_from_counts`,
@@ -684,7 +803,7 @@ the external tools only with the owner's go.
   reference responses, piece 3); checked on the models (`status_from_counts`, `combine_sub_tests`, the validators)
   with every combination of counters.
 
-### Piece 1b: done (2026-10-21)
+#### Piece 1b: done (2026-10-21)
 
 - `src/core/test_metadata.py`: `STRATEGY_RANK` and `NEED_MINIMUM_STRATEGY` (`USER_ACCOUNT` GREY_BOX;
   `ADMIN_ACCOUNT`, `GATEWAY`, `REVOCABLE_LOGIN` WHITE_BOX); a declaration below the minimum of one of its needs
@@ -697,7 +816,7 @@ the external tools only with the owner's go.
   PASS on the three labs as before. The gateway rule is exercised by the first rewritten test that does not
   declare `GATEWAY`.
 
-### Piece 2: done (2026-10-21)
+#### Piece 2: done (2026-10-21)
 
 - `src/core/models/enums.py`: `TransportError` (`timeout`, `connection_failed`, `tls_error`, `protocol_error`).
 - `src/core/models/http.py`: `EvidenceRecord` and `TransactionSummary` have `response_status_code` null and
@@ -713,7 +832,7 @@ the external tools only with the owner's go.
   `tls_error`; each record judged NOT_VERIFIABLE/NO_RESPONSE, the test INCONCLUSIVE ("3 not verifiable"). 4.2
   unchanged on the three labs.
 
-### Piece 3: done (2026-10-21)
+#### Piece 3: done (2026-10-21)
 
 - `src/core/references.py` (new): `ReferenceResponses`, one per run, reached through `TestContext.references`:
   - calibration per (sibling pattern, method, credential label), probed on first use with two random values
@@ -779,7 +898,7 @@ the external tools only with the owner's go.
 - With the first test that needs it (phase 1): the test helper that builds a `Credential` from the run's
   placement (`tests/helpers/auth.py`, `auth_parts`).
 
-### Piece 4: done (2026-10-21)
+#### Piece 4: done (2026-10-21)
 
 - `src/core/models/enums.py`: `Confidence` (`CERTAIN`, `FIRM`, `TENTATIVE`, the criteria of topic 5).
 - `src/core/models/results.py`: `Finding.confidence`, required (no default: a test cannot forget it),
@@ -797,7 +916,7 @@ the external tools only with the owner's go.
   siblings, `ref_003` the positive control) all stored in `evidence.json`, shown by the HTML report; a finding
   without confidence rejected.
 
-### Piece 5: done (2026-10-21)
+#### Piece 5: done (2026-10-21)
 
 - `src/core/test_metadata.py`: `Effect` (`READ_ONLY`, `CHANGES_DATA`, `STRESSES_TARGET`) and `EFFECT_RANK`;
   `TestInfo.effect`, required (no default).
@@ -815,7 +934,7 @@ the external tools only with the owner's go.
   6.2 and 7.2); a cycle still stops the start; a declaration without effect is rejected. 4.2 unchanged on the three
   labs, effect `READ_ONLY` in the report.
 
-### Piece 6: done (2026-10-21)
+#### Piece 6: done (2026-10-21)
 
 - `src/core/models/http.py`: `EvidenceRecord.response_set_cookies`, every `Set-Cookie` of a response in order,
   values redacted (names and attributes kept). RFC 6265 forbids folding several `Set-Cookie` into one value; a
@@ -836,7 +955,7 @@ the external tools only with the owner's go.
 - During the checks Claude created one token by hand on the Forgejo + Kong lab (a `curl` to see whether token
   creation sets cookies) without announcing it; it was deleted at once (none left).
 
-### Piece 7: done (2026-10-21)
+#### Piece 7: done (2026-10-21)
 
 - `src/core/models/surface.py`: `DerivationBasis` (`DECLARED`, `HEURISTIC`), `DerivedFact` (rule, basis, the
   endpoint or the whole API, value, why), `AttackSurface.derived`, `derived_facts(rule)`, `derived_for(method,
@@ -856,7 +975,7 @@ the external tools only with the owner's go.
   `/identity/api` (v2 and v3), so the version cut was added; it returned `/users`, `/orders` for an API at the root,
   so a collection prefix counts as the root.
 
-### Piece 8: done (2026-10-21)
+#### Piece 8: done (2026-10-21)
 
 - Research first (owner's question: do the standards prescribe a format?): CWE, the two OWASP Top 10 lists, ASVS
   and WSTG prescribe one; ASVS and WSTG ask documents, reports and tools to always write the version; RFC 7322 names
@@ -885,7 +1004,7 @@ the external tools only with the owner's go.
   to generate the documentation). 4.2: PASS on the three labs, FAIL with the lowered threshold; the report shows the
   three references on the test and on both findings.
 
-### Piece 9: dropped (2026-10-21)
+#### Piece 9: dropped (2026-10-21)
 
 - Built and then removed: a one-shot service per Kong lab applying a decK patch file (`kong/variants/<name>.yaml`)
   to `kong.yml` at every start, `patch` calls after `apisix/setup.sh`, and a check in `dev:check` (decK applies a
@@ -896,7 +1015,7 @@ the external tools only with the owner's go.
   answers 404 for a missing object (https://apisix.apache.org/docs/apisix/admin-api/). Nothing of it is left
   in the repository; the running labs were not touched.
 
-### Piece 10: done (2026-10-21)
+#### Piece 10: done (2026-10-21)
 
 The three tools observed on the three labs, with the commands the old tool records (nuclei v3.8.0, testssl.sh 3.2.3,
 sslyze 6.3.1): Forgejo + Kong from the run of 2026-10-20 (`outputs/forgejo/tools/`, the only one: the baseline ran
@@ -940,17 +1059,7 @@ base already records the four outcomes, `src/external_tests/_template_ext_test.p
   native tests already check (headers: 6.2, HSTS: 1.5) is not judged twice.
 - **The command recorded for manual verification is one that runs** with the installed version.
 
-## Phases 1 and 2: order
-
-- **Phase 1** (implemented), by domain, each external test after its native one: 0.1, ext.0.1.nuclei, 0.2, 0.3,
-  1.1, 1.4, 1.5, ext.1.5.testssl and ext.1.5.sslyze, 1.6, 2.1, 3.3, 4.1, 4.2, 4.3, 6.2, 6.4, 7.2.
-- **Native and external tests of the same guarantee are reviewed together** (owner, 2026-10-20): what each covers,
-  where they overlap, whether one should use the other's results, and how the pair is reported (today ext.0.1.nuclei
-  beside 0.1, ext.1.5.testssl and ext.1.5.sslyze beside 1.5).
-- **Phase 2** (missing, after phase 0b): 0.4, 1.2, 1.3, 1.7, 2.2, 2.4, 2.5, 3.1, 4.4, 5.1, 5.2, 6.1, 6.3, 7.1,
-  7.3, 7.4 (2.3 merged into 2.1) and the planned external tests.
-
-## Progress
+### Progress of phase 0
 
 | Item | Status | Decision |
 |---|---|---|
@@ -966,5 +1075,3 @@ base already records the four outcomes, `src/external_tests/_template_ext_test.p
 | Phase 0a topic 10 | done (2026-10-20) | page template updated with topics 1-9; common rules in `assessment-model.md` (above) |
 | Phase 0b | done (2026-10-20) | catalogue against API Top 10 2023 (3 new, 2 merges, 2.4 redefined), tools' versions, priorities (above); the catalogue text is edited after its translation |
 | Phase 0c | done (2026-10-21): pieces 1 to 8 and 10, 9 dropped | new branch, baseline reports from `main`, no backward compatibility; 10 pieces in order (above) |
-| Phase 1 | to do | |
-| Phase 2 | to do | |

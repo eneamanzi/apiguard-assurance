@@ -142,7 +142,7 @@ empty.
 |---|---|
 | `_build_connector() -> BaseConnector` | Construct the connector only, no I/O: the registry calls it once per tool to check availability and injects the instance into the tool's tests. |
 | `_invoke_connector(connector: BaseConnector, target: TargetContext, target_url: str) -> ConnectorResult` | Call connector.run(...) with the tool's timeout_seconds and the test's own parameters; target_url is target.endpoint_base_url(). |
-| `_evaluate(result: ConnectorResult, artifact_ref: str) -> TestResult` | Apply the oracle to result.raw_output['results'] and return the result. |
+| `_evaluate(result: ConnectorResult, run: ToolRun) -> TestResult` | Apply the oracle to result.raw_output['results'] and return the result. |
 
 <!-- [[[end]]] -->
 

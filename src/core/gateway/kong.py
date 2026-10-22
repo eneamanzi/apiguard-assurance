@@ -42,6 +42,8 @@ from src.core.gateway.concepts import (
     GatewayRoute,
     HealthCheck,
     PassiveCheck,
+    RouteMatch,
+    RoutePath,
     SigningPolicy,
     TargetHealth,
     TargetState,
@@ -97,6 +99,26 @@ _GLOBAL_SCOPE_NAME: str = "global"
 # ---------------------------------------------------------------------------
 # KongGatewayAdapter
 # ---------------------------------------------------------------------------
+
+
+# Kong's own path syntax: a path starting with "~" is a regular expression, any
+# other is a prefix (https://developer.konghq.com/gateway/routing/traditional/).
+_KONG_REGEX_PREFIX: str = "~"
+
+
+def _route_path(path: str) -> RoutePath:
+    """
+    One Kong route path in the neutral vocabulary of the concept.
+
+    Args:
+        path: The path as Kong states it.
+
+    Returns:
+        Its value without Kong's syntax, and how Kong matches it.
+    """
+    if path.startswith(_KONG_REGEX_PREFIX):
+        return RoutePath(value=path.removeprefix(_KONG_REGEX_PREFIX), match=RouteMatch.REGEX)
+    return RoutePath(value=path, match=RouteMatch.PREFIX)
 
 
 class KongGatewayAdapter(BaseGatewayAdapter):
@@ -200,7 +222,7 @@ class KongGatewayAdapter(BaseGatewayAdapter):
         items = tuple(
             GatewayRoute(
                 name=str(route.get("name") or route.get("id")),
-                paths=tuple(route.get("paths") or ()),
+                paths=tuple(_route_path(str(path)) for path in route.get("paths") or ()),
                 methods=tuple(route.get("methods") or ()),
                 backend=service_names.get(str((route.get("service") or {}).get("id"))),
                 enabled=True,

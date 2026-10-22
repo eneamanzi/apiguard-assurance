@@ -209,6 +209,16 @@ output:
 # Generated from the tests' parameter models (scripts/generate_docs.py, hatch run dev:gen).
 # [[[cog import generate_docs as g; cog.out(g.example_tests()) ]]]
 tests:
+  domain_0:
+    # 0.1 Undeclared Methods, Undocumented Versions and Gateway Route Drift: no parameters.
+    test_0_1: {}
+    # ext.0.1.ffuf Undocumented Paths Answer (ffuf path search, re-verified).
+    ext_0_1_ffuf:
+      # A list of the user's (one word or path per line), tried under every base path besides the
+      # default lists, e.g. Assetnote's `httparchive_apiroutes` for a deep search (364,056 paths: at
+      # 30 requests per second about 3.4 hours per base path).
+      wordlist: null
+
   domain_4:
     # 4.2 Timeout Configuration Audit -- Prevention of Resource Lock.
     test_4_2:
@@ -259,4 +269,16 @@ external_tools:
     # For sslyze (a library, not a process): the timeout of each network connection, at most 20 s.
     timeout_seconds: 60
     # expected_version: "6.3.1"
+    dev_mode: false
+  # ffuf, path search under the base paths derived from the specification (ext.0.1.ffuf).
+  # It sends unauthenticated GET requests only: it does not verify TLS certificates, and the
+  # test requests every path it reports again with the tool's own client.
+  ffuf:
+    enabled: false
+    timeout_seconds: 600
+    expected_version: "2.3.0"
+    wordlist_dir: "./tools/seclists"
+    # Per-request timeout (seconds) and request rate (per second).
+    per_request_timeout: 10
+    rate_limit_rps: 30
     dev_mode: false

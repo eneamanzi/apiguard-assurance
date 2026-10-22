@@ -73,6 +73,8 @@ from src.core.gateway.concepts import (
     HealthCheck,
     HealthCounters,
     PassiveCheck,
+    RouteMatch,
+    RoutePath,
     SigningPolicy,
     TargetHealth,
     TargetState,
@@ -129,6 +131,26 @@ _NO_HEALTH_API_REASON: str = (
 # ---------------------------------------------------------------------------
 # ApisixGatewayAdapter
 # ---------------------------------------------------------------------------
+
+
+# APISIX's own path syntax: a uri ending with "*" is a prefix, any other is
+# matched exactly (https://apisix.apache.org/docs/apisix/admin-api/).
+_APISIX_WILDCARD_SUFFIX: str = "*"
+
+
+def _route_path(uri: str) -> RoutePath:
+    """
+    One APISIX route uri in the neutral vocabulary of the concept.
+
+    Args:
+        uri: The uri as APISIX states it.
+
+    Returns:
+        Its value without APISIX's syntax, and how APISIX matches it.
+    """
+    if uri.endswith(_APISIX_WILDCARD_SUFFIX):
+        return RoutePath(value=uri.removesuffix(_APISIX_WILDCARD_SUFFIX), match=RouteMatch.PREFIX)
+    return RoutePath(value=uri, match=RouteMatch.EXACT)
 
 
 class ApisixGatewayAdapter(BaseGatewayAdapter):
@@ -242,7 +264,7 @@ class ApisixGatewayAdapter(BaseGatewayAdapter):
             items.append(
                 GatewayRoute(
                     name=_object_name(route),
-                    paths=tuple(str(uri) for uri in uris),
+                    paths=tuple(_route_path(str(uri)) for uri in uris),
                     methods=tuple(str(method) for method in route.get("methods") or ()),
                     backend=self._route_backend(route),
                     enabled=route.get("status") != _ROUTE_STATUS_DISABLED,

@@ -190,7 +190,7 @@ def _priority(info: TestInfo) -> str:
 
 
 def _needs(test: _Test) -> str:
-    """What a test needs from the configuration: its needs, then its needed parameters."""
+    """What a test needs: its needs, its needed parameters, then its optional needs."""
     needs = [f"`{need.value}`" for need in test.info.needs]
     if test.params is not None:
         needs += [
@@ -198,6 +198,7 @@ def _needs(test: _Test) -> str:
             for name, field in test.params.model_fields.items()
             if has_marker(field, NEEDED_TO_RUN)
         ]
+    needs += [f"`{need.value}` (optional)" for need in test.info.optional_needs]
     return ", ".join(needs) or "-"
 
 
@@ -262,8 +263,10 @@ def catalogue() -> str:
     lines.append("")
     lines.append(
         "Needs: what the test needs from the configuration (credentials of a role, a gateway, a "
-        "parameter); without it the engine records SKIP without running the test. What each test "
-        f"needs from a target, measured on the labs: [Test portability]({_PORTABILITY})."
+        "parameter); without it the engine records SKIP without running the test. An optional need "
+        "is used when configured; without it the test runs and the sub-tests that use it are not "
+        "applicable. What each test needs from a target, measured on the labs: "
+        f"[Test portability]({_PORTABILITY})."
     )
     return _block(lines)
 

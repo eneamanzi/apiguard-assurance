@@ -136,14 +136,16 @@ def section_keys(test_id: str) -> tuple[str, str]:
 
 class Need(StrEnum):
     """
-    What a test needs from the configuration to run at all.
+    What a test needs from the configuration.
 
-    Only what the configuration tells before any contact with the target: a
-    test whose need is not met is recorded as SKIP by the engine, with the
-    need's reason, without running (src/core/test_needs.py, which holds the
-    check of each need). What only the target can reveal (no deprecated
-    operation in the specification, no session cookie) stays a SKIP inside
-    the test. A new need is a member here and its check there.
+    Only what the configuration tells before any contact with the target. A
+    test declares a need either as required (TestInfo.needs: when it is not
+    met the engine records SKIP, with the need's reason, without running the
+    test; src/core/test_needs.py holds the check of each need) or as optional
+    (TestInfo.optional_needs: the test runs either way, and the sub-tests that
+    use it record NOT_APPLICABLE when it is missing). What only the target can
+    reveal (no deprecated operation in the specification, no session cookie)
+    stays inside the test. A new need is a member here and its check there.
     """
 
     ADMIN_ACCOUNT = "ADMIN_ACCOUNT"
@@ -195,10 +197,11 @@ STRATEGY_RANK: dict[TestStrategy, int] = {
     TestStrategy.WHITE_BOX: 2,
 }
 
-# The lowest strategy that grants each need: a test declaring a need must
-# declare at least this strategy (TestInfo checks it), so that its label says
-# what the tester must have. GREY_BOX is an ordinary account; the admin
-# account, the gateway's Admin API and a revocable login are a super user's.
+# The lowest strategy that grants each need: a test declaring a required need
+# must declare at least this strategy (TestInfo checks it), so that its label
+# says what the tester must have. GREY_BOX is an ordinary account; the admin
+# account, the gateway's Admin API and a revocable login are a super user's. An
+# optional need does not raise the strategy: the test runs without it.
 NEED_MINIMUM_STRATEGY: dict[Need, TestStrategy] = {
     Need.USER_ACCOUNT: TestStrategy.GREY_BOX,
     Need.ADMIN_ACCOUNT: TestStrategy.WHITE_BOX,
@@ -309,6 +312,13 @@ class TestInfo(BaseModel):
             "met the engine records SKIP without running it (src/core/test_needs.py)."
         ),
     )
+    optional_needs: tuple[Need, ...] = Field(
+        default=(),
+        description=(
+            "What the test uses when the configuration provides it: it runs either way, "
+            "and the sub-tests that use a missing one record NOT_APPLICABLE."
+        ),
+    )
 
     @model_validator(mode="after")
     def _id_and_kind_coherent(self) -> TestInfo:
@@ -336,6 +346,14 @@ class TestInfo(BaseModel):
                     raise ValueError(f"{field}: {prerequisite!r} is not a test ID")
                 if prerequisite == self.id:
                     raise ValueError(f"{field} lists the test itself ({self.id!r})")
+        for field in ("needs", "optional_needs"):
+            declared: tuple[Need, ...] = getattr(self, field)
+            repeated = sorted({n.value for n in declared if declared.count(n) > 1})
+            if repeated:
+                raise ValueError(f"{field}: declared more than once: {repeated}")
+        both = sorted({n.value for n in self.needs} & {n.value for n in self.optional_needs})
+        if both:
+            raise ValueError(f"needs and optional_needs both declare {both}")
         for need in self.needs:
             minimum = NEED_MINIMUM_STRATEGY[need]
             if STRATEGY_RANK[self.strategy] < STRATEGY_RANK[minimum]:
@@ -381,6 +399,10 @@ class TestInfo(BaseModel):
     def prerequisites(self) -> tuple[str, ...]:
         """Both kinds of prerequisite, depends_on first."""
         return (*self.depends_on, *self.requires_pass)
+
+    def uses(self, need: Need) -> bool:
+        """True when the test declares the need, required or optional."""
+        return need in self.needs or need in self.optional_needs
 
 
 # Pydantic error types whose input is not worth showing: a check of ours (the

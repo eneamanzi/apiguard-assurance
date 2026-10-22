@@ -425,6 +425,27 @@ def sibling_pattern(template_path: str, parameters: Sequence[ParameterInfo] = ()
     return "/" + "/".join([*segments[:-1], RANDOM_SEGMENT])
 
 
+def random_sibling_path(template_path: str, parameters: Sequence[ParameterInfo] = ()) -> str:
+    """
+    A concrete path addressing objects that do not exist, from a template.
+
+    The sibling pattern of the path (sibling_pattern) with a random value of
+    each parameter's declared type in it: a test probing a template without
+    touching any real object asks this path, and its calibration asks paths of
+    the same shape.
+
+    Args:
+        template_path: The path as the specification writes it.
+        parameters:    The operation's parameters (EndpointRecord.parameters).
+
+    Returns:
+        e.g. "/api/v1/repos/zqxv4f2a/zqxv91bd" for
+        "/api/v1/repos/{owner}/{repo}".
+    """
+    path, _values = _fill_pattern(sibling_pattern(template_path, parameters))
+    return path
+
+
 def _fill_pattern(pattern: str) -> tuple[str, tuple[str, ...]]:
     """A concrete path from a pattern: (path, the random values put in it)."""
     values: list[str] = []

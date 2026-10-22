@@ -10,12 +10,13 @@ target, and how it relates to the methodology.
 
 <!-- [[[cog import generate_docs as g; cog.out(g.catalogue()) ]]] -->
 
-1 tests: 1 native, 0 external.
+3 tests: 2 native, 1 external.
 
 | ID | Name | Pri. | Strategy | Effect | CWE | Needs | Page |
 |---|---|---|---|---|---|---|---|
 | **Domain 0 - API Discovery and Inventory Management** | | | | | | | |
-| - | no test implemented | | | | | | |
+| `0.1` | Undeclared Methods, Undocumented Versions and Gateway Route Drift | P0 | BLACK_BOX | STRESSES_TARGET | CWE-912 | `GATEWAY` (optional) | [0.1](domain-0/0-1-shadow-api-discovery.md) |
+| `ext.0.1.ffuf` | Undocumented Paths Answer (ffuf path search, re-verified) | P0 | BLACK_BOX | STRESSES_TARGET | CWE-912 | - | [ext.0.1.ffuf](external/domain-0/ext-0-1-ffuf.md) |
 | **Domain 1 - Identity and Authentication** | | | | | | | |
 | - | no test implemented | | | | | | |
 | **Domain 2 - Authorization and Access Control** | | | | | | | |
@@ -31,7 +32,7 @@ target, and how it relates to the methodology.
 | **Domain 7 - Business Logic and Sensitive Flows** | | | | | | | |
 | - | no test implemented | | | | | | |
 
-Needs: what the test needs from the configuration (credentials of a role, a gateway, a parameter); without it the engine records SKIP without running the test. What each test needs from a target, measured on the labs: [Test portability](../03-reference/06-compatibility.md#test-portability).
+Needs: what the test needs from the configuration (credentials of a role, a gateway, a parameter); without it the engine records SKIP without running the test. An optional need is used when configured; without it the test runs and the sub-tests that use it are not applicable. What each test needs from a target, measured on the labs: [Test portability](../03-reference/06-compatibility.md#test-portability).
 
 <!-- [[[end]]] -->
 
