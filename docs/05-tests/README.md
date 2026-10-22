@@ -10,7 +10,7 @@ target, and how it relates to the methodology.
 
 <!-- [[[cog import generate_docs as g; cog.out(g.catalogue()) ]]] -->
 
-6 tests: 5 native, 1 external.
+9 tests: 8 native, 1 external.
 
 | ID | Name | Pri. | Strategy | Effect | CWE | Needs | Page |
 |---|---|---|---|---|---|---|---|
@@ -21,7 +21,9 @@ target, and how it relates to the methodology.
 | `0.3` | Deprecated Operations Still Served | P0 | BLACK_BOX | READ_ONLY | - | `USER_ACCOUNT` (optional) | [0.3](domain-0/0-3-deprecated-operations.md) |
 | `0.4` | Backend Reachable Without the Gateway | P0 | WHITE_BOX | READ_ONLY | CWE-420 | `GATEWAY` | [0.4](domain-0/0-4-backend-without-the-gateway.md) |
 | **Domain 1 - Identity and Authentication** | | | | | | | |
-| - | no test implemented | | | | | | |
+| `1.1` | Credential Required on Documented Operations | P0 | BLACK_BOX | CHANGES_DATA | CWE-306 | - | [1.1](domain-1/1-1-credential-required.md) |
+| `1.6` | Session Cookie Safety | P3 | GREY_BOX | READ_ONLY | CWE-1004 | `USER_ACCOUNT` | [1.6](domain-1/1-6-session-cookie-safety.md) |
+| `1.7` | Authentication Endpoints Resist Guessing | P1 | GREY_BOX | STRESSES_TARGET | CWE-307 | `USER_ACCOUNT` | [1.7](domain-1/1-7-authentication-resistance.md) |
 | **Domain 2 - Authorization and Access Control** | | | | | | | |
 | - | no test implemented | | | | | | |
 | **Domain 3 - Data Integrity** | | | | | | | |

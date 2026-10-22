@@ -225,6 +225,14 @@ tests:
       # 30 requests per second about 3.4 hours per base path).
       wordlist: null
 
+  domain_1:
+    # 1.1 Credential Required on Documented Operations: no parameters.
+    test_1_1: {}
+    # 1.6 Session Cookie Safety: no parameters.
+    test_1_6: {}
+    # 1.7 Authentication Endpoints Resist Guessing: no parameters.
+    test_1_7: {}
+
   domain_4:
     # 4.2 Timeout Configuration Audit -- Prevention of Resource Lock.
     test_4_2:

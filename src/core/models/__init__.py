@@ -92,6 +92,7 @@ from src.core.models.runtime import AuthType, CredentialLocation, RuntimeCredent
 from src.core.models.standards import STANDARD_FORMATS, Reference, Standard, StandardFormat
 from src.core.models.surface import (
     AttackSurface,
+    AuthDeclaration,
     DerivationBasis,
     DerivedFact,
     EndpointRecord,
@@ -119,6 +120,7 @@ __all__ = [
     "TransactionSummary",
     # surface.py
     "ParameterInfo",
+    "AuthDeclaration",
     "EndpointRecord",
     "AttackSurface",
     "DerivationBasis",

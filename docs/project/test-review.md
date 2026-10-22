@@ -27,8 +27,14 @@ crAPI enters the code.
   `0.4` (backend reachable without the gateway, new). All six phases through; the three labs give the three
   situations of rule 9 between them; the self-review after the first run removed three false findings:
   [draft](test-review/group-a.md).
-- **Next:** group B (1.1 authentication required, 1.6 secure sessions, 1.7 brute force and user enumeration), after
-  the owner's commit.
+- **Done:** group B (2026-10-22): `1.1` (credential required, rewritten), `1.6` (session cookie safety, rewritten)
+  and `1.7` (authentication endpoints resist guessing, new). All six phases through; the self-review removed a
+  guard that suppressed 24 true cases and a false PASS on repeated attempts: [draft](test-review/group-b.md).
+  **Common part:** the engine now obtains the credential of every account a test declares as a need, as it already
+  gave the gateway to the tests that declare it (owner, 2026-10-22); `EndpointRecord.auth_declaration`;
+  `src/core/path_variants.py`.
+- **Next:** group C (1.2 forged credentials, 1.3 expired credentials, 1.4 revoked credentials), after the owner's
+  commit.
 - **Open, recorded here:** the SSRF listener (7.2), the reference probes on a backend that fails with 5xx (1.1); the
   documentation changes listed below.
 
@@ -63,11 +69,11 @@ a group is what its members share, not whether a test for them exists on `main`.
 | Phase | What it produces |
 |---|---|
 | 1. Collection | one read-only pass over the three labs gathering the raw facts the whole group needs (routes, specification fields, what each lab answers in the cases at issue), saved in the group's draft |
-| 2. Design | `test-review/group-<letter>.md`: the **boundary table** (which question belongs to which test) and the future page of every test in the group, designed on the facts of phase 1. **The owner's go-ahead is given here, once for the group** |
+| 2. Design | `test-review/group-<letter>.md`: the **boundary table** (which question belongs to which test) and, per test, a compact design (declaration, sub-tests, probes, oracle, effects, open points) on the facts of phase 1. Compact, not the finished page: group A's drafts held three full pages that phase 6 rewrote and this file then dropped. **The owner's go-ahead is given here, once for the group** |
 | 3. Code | the group's tests written in sequence; reported per test, not per file |
 | 4. Proof | one run per lab with all the group's tests |
 | 5. Self-review | the results reread against the boundary table; the fixes recorded in the draft |
-| 6. Documentation | the pages, `roadmap.md`, `CHANGELOG.md`, the files that follow a test, `hatch run dev:check`, in one pass; then the owner's commit |
+| 6. Documentation | the test pages (the full template, from the compact design and what the runs showed), `hatch run dev:check`, and the group's own draft left holding the collection and the review; the pages that describe the tool as a whole go to "Documentation changes to apply later" and are rewritten once at the end; then the owner's commit |
 
 Inside a design approved in phase 2 the code is written without a file-by-file go-ahead. Everything else holds: no
 commit, no hand-made request that changes a lab without asking first, no new configuration parameter without
@@ -166,10 +172,10 @@ optional, HYBRID) and its tools: a starting point, revisited in each review.
 | 1 | **0.1** Every exposed endpoint is documented (Shadow API Discovery) | `ext.0.1.ffuf` (new), `0.1` (rewritten); `ext.0.1.nuclei` removed | ffuf for the search, our code for the specification | done 2026-10-22, proven on the three labs ([draft](test-review/0-1.md)) |
 | 2 | **0.2** The gateway rejects unregistered paths (Deny-by-Default) | `0.2` rewritten (Paths Without a Route) | our code; cherrybomb not used | done 2026-10-22, group A ([draft](test-review/group-a.md)) |
 | 3 | **0.3** Deprecated APIs are switched off or flagged (Deprecated APIs) | `0.3` rewritten (Deprecated Operations Still Served) | our code; oasdiff not used | done 2026-10-22, group A ([draft](test-review/group-a.md)) |
-| 4 | **1.1** Only authenticated requests reach protected resources (Authentication Required) | `1.1` | NATIVE | to review |
+| 4 | **1.1** Only authenticated requests reach protected resources (Authentication Required) | `1.1` rewritten (Credential Required on Documented Operations) | our code | done 2026-10-22, group B ([draft](test-review/group-b.md)) |
 | 5 | **1.4** Revoked credentials are rejected (Token Revocation) | `1.4` | NATIVE | to review |
 | 6 | **1.5** Credentials never travel on insecure channels (Insecure Credential Transport, TLS) | `1.5`, `ext.1.5.testssl`, `ext.1.5.sslyze` | HYBRID: testssl.sh, sslyze | to review |
-| 7 | **1.6** Sessions are managed securely (Secure Session Management) | `1.6` | NATIVE | to review |
+| 7 | **1.6** Sessions are managed securely (Secure Session Management) | `1.6` rewritten (Session Cookie Safety) | our code | done 2026-10-22, group B ([draft](test-review/group-b.md)) |
 | 8 | **2.1** Only authorised users reach privileged functions (RBAC Enforcement; with 2.3) | `2.1` | NATIVE | to review |
 | 9 | **3.3** Request signing does not allow replay or weak algorithms (HMAC Config Audit) | `3.3` | NATIVE | to review |
 | 10 | **4.1** Rate limiting prevents resource exhaustion (Rate Limiting) | `4.1` | HYBRID: vegeta | to review |
@@ -186,7 +192,7 @@ optional, HYBRID) and its tools: a starting point, revisited in each review.
 | **0.4** The backend is reachable only through the gateway (new) | our code (`0.4`, new) | done 2026-10-22, group A ([draft](test-review/group-a.md)) |
 | **1.2** Credentials are cryptographically valid (forged JWT) | HYBRID: jwt_tool | to design |
 | **1.3** Expired credentials are rejected | HYBRID: jwt_tool | to design |
-| **1.7** Authentication endpoints resist brute force and user enumeration (new) | to decide | to design |
+| **1.7** Authentication endpoints resist brute force and user enumeration (new) | our code (`1.7`, new) | done 2026-10-22, group B ([draft](test-review/group-b.md)) |
 | **2.2** Users access only their own objects (BOLA) | NATIVE + optional: OFFAT, cherrybomb | to design |
 | **2.4** Equivalent paths to an operation enforce the same controls (redefined) | NATIVE | to design |
 | **2.5** Object property level authorization: excessive data, mass assignment | NATIVE | to design |
@@ -298,6 +304,9 @@ What the review decides for the documentation is collected here and applied afte
 | `docs/project/roadmap.md` | 0.2 and 0.3 rewritten, 0.4 added; `ext.0.1.nuclei` removed and `ext.0.1.ffuf` implemented | guarantees 0.1, group A |
 | `CHANGELOG.md` | `SecurityClient.request(origin=...)`, `TestInfo.cwe` optional, `ReferenceResponses.gateway_refusal()`, `random_token()`; the removed parameter `tests.domain_0.test_0_2.gateway_server_identifiers` | group A |
 | `OPEN_QUESTIONS.md` | the Q-29 items for 0.2 (the `Server` header check, the fixed list of nonexistent paths) and 0.3 (an unparseable `Sunset` counted as compliant) are answered | group A |
+| `docs/06-knowledge/04-guarantees.md` | sections 1.1 and 1.6 aligned with what is implemented (1.6 keeps only the cookie attributes); **1.7 added** as a new guarantee | group B |
+| `docs/04-architecture/01-overview.md`, `02-data-model.md`, `03-assessment-model.md`, `docs/02-guides/03-extending/02-add-a-native-test.md` | the engine provides a declared account need (a test no longer calls `acquire_tokens` itself); `EndpointRecord.auth_declaration`; the shared path variants (`src/core/path_variants.py`) | group B |
+| `docs/03-reference/06-compatibility.md`, `docs/project/roadmap.md`, `CHANGELOG.md` | 1.1 and 1.6 rewritten, 1.7 added; what each needs from a target | group B |
 
 ## History: how the common part was decided (phase 0, 2026-10-19 to 2026-10-21)
 

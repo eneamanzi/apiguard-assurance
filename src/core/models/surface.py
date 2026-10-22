@@ -55,6 +55,26 @@ class ParameterInfo(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class AuthDeclaration(StrEnum):
+    """
+    Where an operation's security requirement is declared.
+
+    The OpenAPI inheritance rule is the same in both dialects: an operation
+    that declares `security` (even `[]`) states its own requirement, and one
+    that does not inherits the document's. The two are not worth the same to a
+    test: the first is a statement about that operation, the second is a
+    default that may never have been thought about (test 1.1 sets the
+    confidence of its findings from it; measured 2026-10-22: crAPI declares
+    per operation, Forgejo declares only globally for all 473 of them).
+
+    OPERATION -- the operation declares `security` itself.
+    DOCUMENT  -- it inherits the document's global `security`.
+    """
+
+    OPERATION = "OPERATION"
+    DOCUMENT = "DOCUMENT"
+
+
 class EndpointRecord(BaseModel):
     """Structured descriptor for a single HTTP operation (path + method pair)."""
 
@@ -72,7 +92,14 @@ class EndpointRecord(BaseModel):
     )
     requires_auth: bool = Field(
         default=True,
-        description="True if the operation declares a security requirement.",
+        description="True if a security requirement applies to the operation.",
+    )
+    auth_declaration: AuthDeclaration = Field(
+        default=AuthDeclaration.DOCUMENT,
+        description=(
+            "Where that requirement is declared: `OPERATION` when the operation declares "
+            "`security` itself (even `[]`), `DOCUMENT` when it inherits the global one."
+        ),
     )
     is_deprecated: bool = Field(
         default=False,

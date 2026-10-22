@@ -93,6 +93,7 @@ from src.core.context import TargetContext, TestContext
 from src.core.dag import DAGScheduler, ScheduledBatch, prerequisite_skip_reason
 from src.core.evidence import EvidenceStore
 from src.core.exceptions import (
+    AuthenticationSetupError,
     ConfigurationError,
     DAGCycleError,
     OpenAPILoadError,
@@ -114,7 +115,7 @@ from src.core.models import (
 from src.core.redaction import SecretRegistry
 from src.core.references import ReferenceResponses
 from src.core.test_metadata import EFFECT_RANK, Need, is_external_test_id, section_keys
-from src.core.test_needs import ConfigurationFacts, unmet_needs
+from src.core.test_needs import NEED_ROLES, ConfigurationFacts, unmet_needs
 from src.core.tls import (
     GATEWAY_ADMIN_TLS,
     GATEWAY_HEALTH_TLS,
@@ -133,6 +134,7 @@ from src.external_tests.registry import ExternalTestRegistry
 from src.report.builder import ReportData, build_report_data
 from src.report.renderer import render_html_report
 from src.tests.base import BaseTest
+from src.tests.helpers.auth import acquire_tokens
 from src.tests.registry import TestRegistry
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -1518,6 +1520,26 @@ class AssessmentEngine:
         # (docs/project/test-review.md, phase 0c piece 1b; 0.1).
         if not test.info.uses(Need.GATEWAY) and target.gateway is not None:
             target = target.model_copy(update={"gateway": None})
+
+        # The credential of every account a test declares is obtained before it
+        # runs, as the gateway is given to it: a declared need is provided, so
+        # no test logs in for itself (group B, 2026-10-22). The login happens
+        # once per role and is reused by every later test; a role whose login
+        # does not work makes this test ERROR with the reason, and the others go
+        # on. Without any such need nothing is sent, so a run of tests that
+        # need no account never logs in.
+        roles = frozenset(role for need, role in NEED_ROLES.items() if test.info.uses(need))
+        if roles:
+            try:
+                acquire_tokens(target, context, client, required_roles=roles)
+            except (AuthenticationSetupError, SecurityClientError) as exc:
+                log.error(
+                    "test_account_not_available",
+                    test_id=test_id,
+                    roles=sorted(roles),
+                    error=str(exc),
+                )
+                return test._error(exc)  # noqa: SLF001
 
         wall_start = time.monotonic()
 
