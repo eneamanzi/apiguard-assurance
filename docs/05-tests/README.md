@@ -10,7 +10,7 @@ target, and how it relates to the methodology.
 
 <!-- [[[cog import generate_docs as g; cog.out(g.catalogue()) ]]] -->
 
-9 tests: 8 native, 1 external.
+12 tests: 11 native, 1 external.
 
 | ID | Name | Pri. | Strategy | Effect | CWE | Needs | Page |
 |---|---|---|---|---|---|---|---|
@@ -22,6 +22,9 @@ target, and how it relates to the methodology.
 | `0.4` | Backend Reachable Without the Gateway | P0 | WHITE_BOX | READ_ONLY | CWE-420 | `GATEWAY` | [0.4](domain-0/0-4-backend-without-the-gateway.md) |
 | **Domain 1 - Identity and Authentication** | | | | | | | |
 | `1.1` | Credential Required on Documented Operations | P0 | BLACK_BOX | CHANGES_DATA | CWE-306 | - | [1.1](domain-1/1-1-credential-required.md) |
+| `1.2` | Credential Cryptographically Valid | P0 | GREY_BOX | READ_ONLY | CWE-347 | `USER_ACCOUNT` | [1.2](domain-1/1-2-credential-cryptographically-valid.md) |
+| `1.3` | Credential Expiry | P0 | GREY_BOX | READ_ONLY | CWE-613 | `USER_ACCOUNT` | [1.3](domain-1/1-3-credential-expiry.md) |
+| `1.4` | Credential Revocation | P2 | WHITE_BOX | CHANGES_DATA | CWE-613 | `USER_ACCOUNT`, `REVOCABLE_LOGIN` | [1.4](domain-1/1-4-credential-revocation.md) |
 | `1.6` | Session Cookie Safety | P3 | GREY_BOX | READ_ONLY | CWE-1004 | `USER_ACCOUNT` | [1.6](domain-1/1-6-session-cookie-safety.md) |
 | `1.7` | Authentication Endpoints Resist Guessing | P1 | GREY_BOX | STRESSES_TARGET | CWE-307 | `USER_ACCOUNT` | [1.7](domain-1/1-7-authentication-resistance.md) |
 | **Domain 2 - Authorization and Access Control** | | | | | | | |

@@ -33,8 +33,13 @@ crAPI enters the code.
   **Common part:** the engine now obtains the credential of every account a test declares as a need, as it already
   gave the gateway to the tests that declare it (owner, 2026-10-22); `EndpointRecord.auth_declaration`;
   `src/core/path_variants.py`.
-- **Next:** group C (1.2 forged credentials, 1.3 expired credentials, 1.4 revoked credentials), after the owner's
-  commit.
+- **Done:** group C (2026-10-22): `1.2` (cryptographic validity), `1.3` (expiry) and `1.4` (revocation, rewritten).
+  Owner chose native over jwt_tool: the key-based JWT attacks cannot run on a target that exposes no key (ours, and
+  the common case), while the key-free ones our Python covers (`src/core/jwt_tokens.py`). crAPI accepts an
+  `alg: none` token (challenge 15) and issues a 7-day token; Forgejo's opaque token makes 1.2/1.3 not applicable
+  and 1.4 passes. A self-review fixed the anchor (it must refuse a no-credential request, not only serve a
+  credentialled one): [draft](test-review/group-c.md).
+- **Next:** group D (1.5 credentials over TLS, with testssl and sslyze already connected), after the owner's commit.
 - **Open, recorded here:** the SSRF listener (7.2), the reference probes on a backend that fails with 5xx (1.1); the
   documentation changes listed below.
 
@@ -173,7 +178,7 @@ optional, HYBRID) and its tools: a starting point, revisited in each review.
 | 2 | **0.2** The gateway rejects unregistered paths (Deny-by-Default) | `0.2` rewritten (Paths Without a Route) | our code; cherrybomb not used | done 2026-10-22, group A ([draft](test-review/group-a.md)) |
 | 3 | **0.3** Deprecated APIs are switched off or flagged (Deprecated APIs) | `0.3` rewritten (Deprecated Operations Still Served) | our code; oasdiff not used | done 2026-10-22, group A ([draft](test-review/group-a.md)) |
 | 4 | **1.1** Only authenticated requests reach protected resources (Authentication Required) | `1.1` rewritten (Credential Required on Documented Operations) | our code | done 2026-10-22, group B ([draft](test-review/group-b.md)) |
-| 5 | **1.4** Revoked credentials are rejected (Token Revocation) | `1.4` | NATIVE | to review |
+| 5 | **1.4** Revoked credentials are rejected (Token Revocation) | `1.4` rewritten (Credential Revocation) | our code; derived anchor | done 2026-10-22, group C ([draft](test-review/group-c.md)) |
 | 6 | **1.5** Credentials never travel on insecure channels (Insecure Credential Transport, TLS) | `1.5`, `ext.1.5.testssl`, `ext.1.5.sslyze` | HYBRID: testssl.sh, sslyze | to review |
 | 7 | **1.6** Sessions are managed securely (Secure Session Management) | `1.6` rewritten (Session Cookie Safety) | our code | done 2026-10-22, group B ([draft](test-review/group-b.md)) |
 | 8 | **2.1** Only authorised users reach privileged functions (RBAC Enforcement; with 2.3) | `2.1` | NATIVE | to review |
@@ -190,8 +195,8 @@ optional, HYBRID) and its tools: a starting point, revisited in each review.
 | Guarantee | Methodology | Status |
 |---|---|---|
 | **0.4** The backend is reachable only through the gateway (new) | our code (`0.4`, new) | done 2026-10-22, group A ([draft](test-review/group-a.md)) |
-| **1.2** Credentials are cryptographically valid (forged JWT) | HYBRID: jwt_tool | to design |
-| **1.3** Expired credentials are rejected | HYBRID: jwt_tool | to design |
+| **1.2** Credentials are cryptographically valid (forged JWT) | our code (`1.2`, new); jwt_tool not used (keyless target) | done 2026-10-22, group C ([draft](test-review/group-c.md)) |
+| **1.3** Expired credentials are rejected | our code (`1.3`, new); jwt_tool not used | done 2026-10-22, group C ([draft](test-review/group-c.md)) |
 | **1.7** Authentication endpoints resist brute force and user enumeration (new) | our code (`1.7`, new) | done 2026-10-22, group B ([draft](test-review/group-b.md)) |
 | **2.2** Users access only their own objects (BOLA) | NATIVE + optional: OFFAT, cherrybomb | to design |
 | **2.4** Equivalent paths to an operation enforce the same controls (redefined) | NATIVE | to design |
@@ -307,6 +312,10 @@ What the review decides for the documentation is collected here and applied afte
 | `docs/06-knowledge/04-guarantees.md` | sections 1.1 and 1.6 aligned with what is implemented (1.6 keeps only the cookie attributes); **1.7 added** as a new guarantee | group B |
 | `docs/04-architecture/01-overview.md`, `02-data-model.md`, `03-assessment-model.md`, `docs/02-guides/03-extending/02-add-a-native-test.md` | the engine provides a declared account need (a test no longer calls `acquire_tokens` itself); `EndpointRecord.auth_declaration`; the shared path variants (`src/core/path_variants.py`) | group B |
 | `docs/03-reference/06-compatibility.md`, `docs/project/roadmap.md`, `CHANGELOG.md` | 1.1 and 1.6 rewritten, 1.7 added; what each needs from a target | group B |
+| `docs/06-knowledge/04-guarantees.md` | 1.2, 1.3, 1.4 aligned; the key-based JWT cases marked as needing key material the target must supply | group C |
+| `docs/06-knowledge/05-tool-decisions.md` | jwt_tool not used for 1.2/1.3 on a keyless target (the attacks it adds cannot run without a key); native `jwt_forge.py` stays planned, for when a key is supplied | group C |
+| `docs/04-architecture/*` | `src/core/jwt_tokens.py` (read and degrade a JWT) and `src/tests/helpers/anchor.py` (a derived, two-sided anchor) as shared infrastructure | group C |
+| `docs/03-reference/06-compatibility.md`, `docs/project/roadmap.md`, `CHANGELOG.md` | 1.4 rewritten, 1.2 and 1.3 added; what each needs (a JWT target; a revocable login) | group C |
 
 ## History: how the common part was decided (phase 0, 2026-10-19 to 2026-10-21)
 

@@ -228,6 +228,12 @@ tests:
   domain_1:
     # 1.1 Credential Required on Documented Operations: no parameters.
     test_1_1: {}
+    # 1.2 Credential Cryptographically Valid: no parameters.
+    test_1_2: {}
+    # 1.3 Credential Expiry: no parameters.
+    test_1_3: {}
+    # 1.4 Credential Revocation: no parameters.
+    test_1_4: {}
     # 1.6 Session Cookie Safety: no parameters.
     test_1_6: {}
     # 1.7 Authentication Endpoints Resist Guessing: no parameters.
