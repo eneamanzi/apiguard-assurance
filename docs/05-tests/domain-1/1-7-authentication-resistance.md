@@ -15,7 +15,7 @@
 | Priority / strategy | P1 / GREY_BOX |
 | Effect | STRESSES_TARGET |
 | CWE | CWE-307 |
-| Standards | `OWASP API2:2023`, `CWE-204`, `CWE-208`, `NIST SP 800-63B, Section 3.2.2` |
+| Standards | `OWASP API2:2023`, `OWASP ASVS v5.0.0-6.3.8`, `OWASP ASVS v5.0.0-6.3.1`, `CWE-204`, `CWE-208`, `NIST SP 800-63B, Section 3.2.2` |
 | Tags | `authentication`, `brute-force` |
 | Prerequisites | none |
 | Needs | `USER_ACCOUNT` |
@@ -132,13 +132,65 @@ Runs of 2026-10-22, the three tests of the group together:
 |---|---|---|
 | Forgejo + Kong and + APISIX | FAIL, 3 findings | the answer differs (`user's password is invalid` against `user does not exist`), the medians are 383 to 439 ms against 3 ms, and 101 attempts bring no limit |
 | crAPI + Kong | FAIL, 3 findings | the answer differs (`Invalid Credentials` against `Given Email is not registered! `), the medians are 94 ms against 5 ms, and 101 attempts bring no limit |
-| any | ENFORCED | a rate limit on the login route: not on the labs (Kong's `rate-limiting` plugin is commented out in the Forgejo lab, for test `4.1`) |
+| Forgejo + Kong, with the rate limit below | **PASS on `repeated_attempts`**: 1 enforced | `ATTEMPTS_LIMITED`, a `429` at the 21st attempt, while `account_enumeration` still reports its 2 violations |
+| Forgejo + Kong, with the delay below | the same, `ATTEMPTS_SLOWED` | the answers go from 8 ms to 605 ms from the 31st attempt on |
+| Forgejo + Kong, with the scratch configuration below | **INCONCLUSIVE**, 2 not verifiable | `WRONG_PASSWORD_ACCEPTED` in both sub-tests: the test verified nothing and says so instead of reporting a PASS |
+
+**The three cases the labs lack, and how to undo them.** No lab limits failed attempts, and none accepts a wrong
+password. The first two are routes added in `test-environments/forgejo-kong/kong/kong.yml`, inside
+`services[forgejo-service].routes`, covering the login paths of every account (the repeated attempts go to an
+account that does not exist, so its path holds a random name):
+
+```yaml
+      - name: review-login-limit-route
+        paths:
+          - /api/v1/users
+        strip_path: false
+        preserve_host: false
+        protocols:
+          - https
+        https_redirect_status_code: 301
+        plugins:
+          - name: rate-limiting
+            config:
+              minute: 20          # lets the six probes of the comparison through
+              policy: local
+              limit_by: ip
+              hide_client_headers: false
+              fault_tolerant: true
+```
+
+For the delay, the same route with `pre-function` instead, which only waits and lets the request go on, so that the
+real login still works:
+
+```yaml
+          - name: pre-function
+            config:
+              access:
+                - |
+                  local store = ngx.shared.kong
+                  local seen = store:incr("zqxv_login_attempts", 1, 0)
+                  if seen and seen > 30 then
+                    ngx.sleep(0.6)
+                  end
+```
+
+Then `docker compose --env-file ../../.env up -d --force-recreate --wait kong`, and undo with `git checkout` and
+the same command. A `pre-function` that answers instead of waiting breaks the real login, and the engine then makes
+this test ERROR with that reason, which is the correct behaviour and was seen (2026-10-22).
+
+The third case needs no change to the lab, only a scratch configuration whose login resource is a public endpoint
+that ignores the account: `path: /api/v1/version`, `method: GET`, `auth: none`, `body: null`,
+`values: {credential: version}`. Every attempt is then answered `200`, and the test records
+`WRONG_PASSWORD_ACCEPTED`. (With `auth: basic` instead, Forgejo validates the credential even on a public endpoint
+and answers `401`, which is itself worth knowing.)
 
 **What each branch has been seen doing** (rule 9). Proven on a lab: `EXISTENCE_DISCLOSED_BY_ANSWER`,
-`EXISTENCE_DISCLOSED_BY_TIMING`, `ATTEMPTS_NOT_LIMITED`, and `ATTEMPTS_SLOWED` in its earlier, too eager form
-(2026-10-22, before the baseline and the absolute floor were added: the measurement that produced the correction).
-Still unproven: `NO_DISCREPANCY`, `TIMING_TOO_SMALL`, `ANSWER_NOT_STABLE`, `WRONG_PASSWORD_ACCEPTED`,
-`ATTEMPTS_LIMITED`, the SKIP reasons and the transport reasons.
+`EXISTENCE_DISCLOSED_BY_TIMING`, `ATTEMPTS_NOT_LIMITED`, and with the cases above `ATTEMPTS_LIMITED`,
+`ATTEMPTS_SLOWED` and `WRONG_PASSWORD_ACCEPTED` in both sub-tests. Still unproven: `NO_DISCREPANCY` and
+`TIMING_TOO_SMALL` (they need a target that answers two failed attempts alike, which no lab does and no stock
+gateway plugin reproduces without faking the login itself), `ANSWER_NOT_STABLE` (a login whose body changes by
+itself), the SKIP reasons and the transport reasons.
 
 ## 13. Remediation
 
@@ -161,7 +213,12 @@ Answer a failed authentication the same way whether the account exists or not, a
 ## 15. Sources
 
 - OWASP API2:2023 Broken Authentication: https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/
-- NIST SP 800-63B-4 section 3.2.2 Rate Limiting (Throttling): https://pages.nist.gov/800-63-4/sp800-63b.html
+- OWASP ASVS v5.0.0-6.3.8, this test written out: "Verify that valid users cannot be deduced from failed
+  authentication challenges, such as by basing on error messages, HTTP response codes, or different response
+  times"; and v5.0.0-6.3.1, the controls against credential stuffing and password brute force:
+  https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x15-V6-Authentication.md
+- NIST SP 800-63B-4 section 3.2.2 Rate Limiting (Throttling), "limit consecutive failed authentication attempts
+  ... to no more than 100": https://pages.nist.gov/800-63-4/sp800-63b.html
 - CWE-307 Improper Restriction of Excessive Authentication Attempts: https://cwe.mitre.org/data/definitions/307.html
 - CWE-204 Observable Response Discrepancy: https://cwe.mitre.org/data/definitions/204.html
 - CWE-208 Observable Timing Discrepancy: https://cwe.mitre.org/data/definitions/208.html

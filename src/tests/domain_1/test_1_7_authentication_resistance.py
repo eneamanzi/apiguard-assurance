@@ -145,8 +145,16 @@ _SPOILING: dict[ResponseCategory, str] = {
     ResponseCategory.SERVER_ERROR: "SERVER_ERROR",
 }
 
+# Each one read on its source, 2026-10-22 (rule 8). ASVS 6.3.8 is this test
+# written out: "valid users cannot be deduced from failed authentication
+# challenges, such as by basing on error messages, HTTP response codes, or
+# different response times"; 6.3.1 asks for the controls against credential
+# stuffing and brute force; NIST SP 800-63B-4 section 3.2.2 sets the limit of
+# 100 consecutive failures.
 _REFERENCES: tuple[Reference, ...] = (
     Reference(standard=Standard.OWASP_API_TOP10, id="API2:2023"),
+    Reference(standard=Standard.ASVS, id="v5.0.0-6.3.8"),
+    Reference(standard=Standard.ASVS, id="v5.0.0-6.3.1"),
     Reference(standard=Standard.CWE, id="CWE-204"),
     Reference(standard=Standard.CWE, id="CWE-208"),
     Reference(standard=Standard.NIST_SP, id="800-63B", section="3.2.2"),
@@ -210,11 +218,13 @@ class Test17AuthenticationResistance(BaseTest):
                     "Role user_a has no username and password in the configuration, so the "
                     "attempt for an account that exists cannot be made."
                 )
-            existing = self._enumeration(client, store, login, account[0])
-            if existing:
+            blocked = self._enumeration(client, store, login, account[0])
+            if blocked is None:
                 self._attempts(client, store, login, account[0])
             else:
-                self._record(_SUB_ATTEMPTS, Outcome.NOT_VERIFIABLE, "LOGIN_NOT_ANSWERING")
+                # The comparison could not be made, and its reason is the same
+                # reason the attempts cannot be counted.
+                self._record(_SUB_ATTEMPTS, Outcome.NOT_VERIFIABLE, blocked)
             return self._finish()
         except SecurityClientError as exc:
             return self._error(exc)
@@ -229,7 +239,7 @@ class Test17AuthenticationResistance(BaseTest):
         store: EvidenceStore,
         login: CreateRequest,
         username: str,
-    ) -> bool:
+    ) -> str | None:
         """
         Compare a failed attempt for a real account with one for an impossible account.
 
@@ -240,7 +250,9 @@ class Test17AuthenticationResistance(BaseTest):
             username: The operator's own account name.
 
         Returns:
-            True when both attempts were answered, so the other sub-test can run.
+            None when the comparison was made, so the other sub-test can run;
+            otherwise the reason it could not be, which that sub-test records
+            as its own.
         """
         unknown = _impossible_account(username)
         known_records: list[EvidenceRecord] = []
@@ -257,7 +269,7 @@ class Test17AuthenticationResistance(BaseTest):
                 self._judge(
                     record, store, _SUB_ENUMERATION, Outcome.NOT_VERIFIABLE, _SPOILING[category]
                 )
-                return False
+                return _SPOILING[category]
         if category_of(known) == ResponseCategory.SERVED:
             self._judge(
                 record=known,
@@ -266,7 +278,7 @@ class Test17AuthenticationResistance(BaseTest):
                 outcome=Outcome.NOT_VERIFIABLE,
                 detail="WRONG_PASSWORD_ACCEPTED",
             )
-            return False
+            return "WRONG_PASSWORD_ACCEPTED"
         known_shapes = {_answer(r, username) for r in known_records}
         other_shapes = {_answer(r, unknown) for r in unknown_records}
         if len(known_shapes) != 1 or len(other_shapes) != 1:
@@ -274,7 +286,7 @@ class Test17AuthenticationResistance(BaseTest):
             # the body changes by itself (a request id, a timestamp), so a
             # difference between the two cases would prove nothing.
             self._judge(known, store, _SUB_ENUMERATION, Outcome.NOT_VERIFIABLE, "ANSWER_NOT_STABLE")
-            return True
+            return "ANSWER_NOT_STABLE"
         if known_shapes != other_shapes:
             self._judge(
                 known,
@@ -295,14 +307,17 @@ class Test17AuthenticationResistance(BaseTest):
                     ),
                     supporting_refs=[other.record_id],
                     confidence=Confidence.CERTAIN,
-                    references=[Reference(standard=Standard.CWE, id="CWE-204")],
+                    references=[
+                        Reference(standard=Standard.CWE, id="CWE-204"),
+                        Reference(standard=Standard.ASVS, id="v5.0.0-6.3.8"),
+                    ],
                 ),
             )
         known_ms = statistics.median(_durations(known_records))
         other_ms = statistics.median(_durations(unknown_records))
         if max(known_ms, other_ms) < _TIMING_FLOOR_MS:
             self._judge(known, store, _SUB_ENUMERATION, Outcome.ENFORCED, "TIMING_TOO_SMALL")
-            return True
+            return None
         if known_ms >= other_ms * _TIMING_FACTOR:
             self._judge(
                 known,
@@ -324,12 +339,15 @@ class Test17AuthenticationResistance(BaseTest):
                     ),
                     supporting_refs=[other.record_id],
                     confidence=Confidence.FIRM,
-                    references=[Reference(standard=Standard.CWE, id="CWE-208")],
+                    references=[
+                        Reference(standard=Standard.CWE, id="CWE-208"),
+                        Reference(standard=Standard.ASVS, id="v5.0.0-6.3.8"),
+                    ],
                 ),
             )
-            return True
+            return None
         self._judge(known, store, _SUB_ENUMERATION, Outcome.ENFORCED, "NO_DISCREPANCY")
-        return True
+        return None
 
     # ------------------------------------------------------------------
     # Sub-test 2: does guessing get any harder

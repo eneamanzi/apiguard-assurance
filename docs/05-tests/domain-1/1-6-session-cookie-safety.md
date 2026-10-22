@@ -15,7 +15,7 @@
 | Priority / strategy | P3 / GREY_BOX |
 | Effect | READ_ONLY |
 | CWE | CWE-1004 |
-| Standards | `OWASP API2:2023`, `CWE-614`, `CWE-1275`, `CWE-384`, `RFC 6265, Section 4.1.2` |
+| Standards | `OWASP API2:2023`, `OWASP ASVS v5.0.0-3.3.1`, `OWASP ASVS v5.0.0-3.3.2`, `OWASP ASVS v5.0.0-3.3.4`, `CWE-614`, `CWE-1275`, `CWE-384`, `RFC 6265, Section 4.1.2` |
 | Tags | `authentication`, `session` |
 | Prerequisites | none |
 | Needs | `USER_ACCOUNT` |
@@ -72,7 +72,9 @@ names skips exactly the cookie whose name nobody guessed.
 | `HttpOnly` missing | `VIOLATION/COOKIE_WITHOUT_HTTPONLY` (CWE-1004) | CERTAIN |
 | `SameSite` missing, or `SameSite=None` | `VIOLATION/COOKIE_WITHOUT_SAMESITE` (CWE-1275) | CERTAIN |
 
-`SameSite=None` counts as absent: it is a value the standard allows and it restricts nothing.
+`SameSite=None` counts as absent: it is a value the standard allows and it restricts nothing. ASVS v5.0.0-3.3.2
+asks for a value "set according to the purpose of the cookie", and for a cookie that carries a session `None` is
+not such a value.
 
 ## 7. Outcomes
 
@@ -137,9 +139,11 @@ kong`. The other two cases are the same line with `; Secure; HttpOnly; SameSite=
 Undo with `git checkout test-environments/forgejo-kong/kong/kong.yml` and the same `docker compose` command; the
 lab was checked afterwards to give its usual results (2026-10-22).
 
-**What each branch has been seen doing** (rule 9). Proven on a lab: `COOKIE_SAFE`, the three
-`COOKIE_WITHOUT_*` branches, and both SKIP reasons (the second one on the three labs as they stand; the first by
-reading the code path, since no lab is configured with a static credential).
+**What each branch has been seen doing** (rule 9). Every branch of this test has been seen: `COOKIE_SAFE`, the
+three `COOKIE_WITHOUT_*` branches (the cases above), the second SKIP reason on the three labs as they stand, and
+the first with a scratch configuration that replaces the login with a static credential
+(`credentials.auth_type: static_token`, `user_a_token: "zqxv-not-a-real-token"`): no login response exists, and the
+test skips with that reason. No change to a lab is needed for it.
 
 ## 13. Remediation
 
@@ -155,10 +159,15 @@ every cookie that carries a session, and renew the identifier when the user auth
 - The session store's TTL and its replication mode are not read: the tool does not have the store's configuration.
 - Only the login of role `user_a` is read.
 - A target that keeps no session in a cookie is skipped, which says nothing about how it keeps its session.
+- The `__Host-` and `__Secure-` name prefixes that ASVS v5.0.0-3.3.1 and 3.3.3 also ask for are not checked: this
+  test reads the attributes, not the name.
 
 ## 15. Sources
 
 - OWASP API2:2023 Broken Authentication: https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/
+- OWASP ASVS v5.0.0-3.3.1 (`Secure`), v5.0.0-3.3.4 (`HttpOnly` on a cookie scripts must not read) and
+  v5.0.0-3.3.2 (`SameSite` "set according to the purpose of the cookie"):
+  https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x12-V3-Web-Frontend-Security.md
 - CWE-1004 Sensitive Cookie Without 'HttpOnly' Flag: https://cwe.mitre.org/data/definitions/1004.html
 - CWE-614 Sensitive Cookie in HTTPS Session Without 'Secure' Attribute: https://cwe.mitre.org/data/definitions/614.html
 - CWE-1275 Sensitive Cookie with Improper SameSite Attribute: https://cwe.mitre.org/data/definitions/1275.html

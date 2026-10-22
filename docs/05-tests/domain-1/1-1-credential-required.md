@@ -15,7 +15,7 @@
 | Priority / strategy | P0 / BLACK_BOX |
 | Effect | CHANGES_DATA |
 | CWE | CWE-306 |
-| Standards | `OWASP API2:2023`, `OWASP ASVS v5.0.0-6.2.1`, `NIST SP 800-63B, Section 3.2.2`, `RFC 9110, Section 5.1` |
+| Standards | `OWASP API2:2023`, `OWASP ASVS v5.0.0-8.2.1`, `OWASP ASVS v5.0.0-6.3.4`, `NIST SP 800-228, Section 3.2.1`, `RFC 9110, Section 5.1` |
 | Tags | `authentication`, `access-control` |
 | Prerequisites | none |
 | Needs | - |
@@ -147,11 +147,62 @@ Runs of 2026-10-22, the three tests of the group together:
 The old test reported the same 78 on Forgejo and the same 2 on crAPI, with no distinction between them and with 14
 endpoints answering `503` counted as a PASS.
 
+**The two cases the labs lack, and how to undo them.** No lab serves a path variant without a credential, and
+none accepts a credential that cannot be valid, so both were produced on the Forgejo + Kong lab. In
+`test-environments/forgejo-kong/kong/kong.yml`, inside `services[forgejo-service].routes`:
+
+```yaml
+      # A route that answers the upper-case variant of the sampled endpoint.
+      - name: review-variant-served-route
+        paths:
+          - /api/v1/USER
+        strip_path: false
+        preserve_host: false
+        protocols:
+          - https
+        https_redirect_status_code: 301
+        plugins:
+          - name: request-termination
+            config:
+              status_code: 200
+              content_type: "application/json"
+              body: '{"login":"user-a"}'
+      # An endpoint that requires the credential header to be there and never
+      # looks at what it holds. The regex is anchored so that it does not also
+      # catch /api/v1/users/... (Kong matches a path as a string).
+      - name: review-any-credential-route
+        paths:
+          - '~/api/v1/user$'
+        strip_path: false
+        preserve_host: false
+        protocols:
+          - https
+        https_redirect_status_code: 301
+        plugins:
+          - name: pre-function
+            config:
+              access:
+                - |
+                  if kong.request.get_header("authorization") then
+                    return kong.response.exit(200, { login = "user-a" })
+                  end
+                  return kong.response.exit(401, { message = "token is required" })
+```
+
+Then `cd test-environments/forgejo-kong && docker compose --env-file ../../.env up -d --force-recreate --wait
+kong`; undo with `git checkout test-environments/forgejo-kong/kong/kong.yml` and the same command. With the first,
+`path_variants` reports 1 violation at CERTAIN (`SERVED_AS_UPPER_SEGMENT`, `/api/v1/USER` answering `200` while
+`/api/v1/user` answers `401`) and 7 enforced; with the second, `malformed_credential` reports all five violations
+(`ACCEPTED_EMPTY_CREDENTIAL`, `ACCEPTED_WORD_NULL`, `ACCEPTED_ARBITRARY_STRING`, `ACCEPTED_HEADER_LOWERCASE`,
+`ACCEPTED_HEADER_UPPERCASE`), which is the whole oracle of that sub-test. The lab was checked back to its usual
+results afterwards (2026-10-22).
+
 **What each branch has been seen doing** (rule 9). Proven on a lab: `CREDENTIAL_REQUIRED`,
 `SERVED_WITHOUT_CREDENTIAL` at both confidences, `DECLARED_PUBLIC`, `NO_SECURITY_DECLARED`,
 `NOT_FOUND_LIKE_UNKNOWN`, `NOT_FOUND_OWN_ANSWER`, `VALIDATED_WITHOUT_CREDENTIAL`, `CREDENTIAL_REFUSED`,
-`VARIANT_NOT_SERVED`. Still unproven: `ACCEPTED_<case>`, `SERVED_AS_<kind>`, `REDIRECTED` and the transport
-reasons.
+`VARIANT_NOT_SERVED`, and with the two cases above every `ACCEPTED_<case>` and `SERVED_AS_UPPER_SEGMENT`. Still
+unproven: the other seven `SERVED_AS_<kind>` details (the same code path as the one proven, one per variant),
+`REDIRECTED` and the transport reasons.
 
 ## 13. Remediation
 
@@ -173,7 +224,15 @@ operation and a missing control look the same to any reader, human or machine.
 ## 15. Sources
 
 - OWASP API2:2023 Broken Authentication: https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/
-- OWASP ASVS v5.0.0-6.2.1: https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x15-V6-Authentication.md
-- NIST SP 800-63B-4 section 3.2.2: https://pages.nist.gov/800-63-4/sp800-63b.html
+- OWASP ASVS v5.0.0-8.2.1, "function-level access is restricted to consumers with explicit permissions":
+  https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x17-V8-Authorization.md
+- OWASP ASVS v5.0.0-6.3.4, "no undocumented pathways ... security controls and authentication strength are enforced
+  consistently" (the path variants): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x15-V6-Authentication.md
+- NIST SP 800-228 section 3.2.1 (REC-API-11, "the robust authentication and correct processing of authentication
+  credentials"): https://doi.org/10.6028/NIST.SP.800-228
 - RFC 9110 section 5.1 (header names are case-insensitive): https://www.rfc-editor.org/rfc/rfc9110.html#section-5.1
 - CWE-306 Missing Authentication for Critical Function: https://cwe.mitre.org/data/definitions/306.html
+
+Two references of an earlier version were wrong and are recorded here as a warning: `ASVS v5.0.0-6.2.1` is the
+minimum length of a password, and `NIST SP 800-63B-4 section 3.2.2` is throttling, which is test `1.7`'s. Each
+reference of this page was read on its source on 2026-10-22.

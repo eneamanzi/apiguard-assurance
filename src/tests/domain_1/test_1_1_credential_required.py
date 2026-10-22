@@ -139,10 +139,18 @@ _LOCATION_HEADER: str = "location"
 # How many items a note lists by name.
 _NOTE_EXAMPLES: int = 12
 
+# Each one read on its source, 2026-10-22 (rule 8). ASVS 8.2.1 is the
+# function-level access control this test checks; 6.3.4 is the consistency
+# across pathways that the path variants ask about; NIST SP 800-228 section
+# 3.2.1 holds REC-API-11, "the robust authentication and correct processing of
+# authentication credentials", which covers the malformed ones. An earlier
+# version cited ASVS 6.2.1, which is the minimum length of a password, and
+# NIST SP 800-63B section 3.2.2, which is throttling: both wrong here.
 _REFERENCES: tuple[Reference, ...] = (
     Reference(standard=Standard.OWASP_API_TOP10, id="API2:2023"),
-    Reference(standard=Standard.ASVS, id="v5.0.0-6.2.1"),
-    Reference(standard=Standard.NIST_SP, id="800-63B", section="3.2.2"),
+    Reference(standard=Standard.ASVS, id="v5.0.0-8.2.1"),
+    Reference(standard=Standard.ASVS, id="v5.0.0-6.3.4"),
+    Reference(standard=Standard.NIST_SP, id="800-228", section="3.2.1"),
     Reference(standard=Standard.RFC, id="9110", section="5.1"),
 )
 

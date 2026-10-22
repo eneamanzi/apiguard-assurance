@@ -280,6 +280,7 @@ operator already declares for every lab, and its method and path. No new paramet
 | 7 | `EndpointRecord.auth_declaration` (`OPERATION` or `DOCUMENT`) in the surface, set by the discovery | The confidence of 1.1 rests on it, and the information was being lost: `requires_auth` alone does not say whether the operation declared it |
 | 8 | `src/core/path_variants.py`, the shared list of path variants with its sources | Topic 7b point 1: written once, used by 1.1 now and by 2.1 later |
 | 9 | **1.1 sends a credential that cannot be valid where and how the target expects a credential** (`credential_placement`), not always as `Authorization: Bearer ...` | Found on the owner's question about agnosticism: Forgejo expects `Authorization: token <value>`, so every `Bearer` probe was refused for being the wrong scheme and never reached the check it was meant to test. Now the probes go as `token ...` on Forgejo and `Bearer ...` on crAPI, each from that target's own declaration |
+| 11 | **The standards of all three tests read on their source** (rule 8), which found two wrong citations in 1.1: `ASVS v5.0.0-6.2.1` is the minimum length of a password and `NIST SP 800-63B-4 section 3.2.2` is throttling. Replaced by `ASVS v5.0.0-8.2.1` (function-level access restricted to consumers with explicit permissions), `ASVS v5.0.0-6.3.4` (no undocumented pathways, controls enforced consistently: the path variants) and `NIST SP 800-228 section 3.2.1` (REC-API-11, the correct processing of credentials). Added, each read on its source: 1.6 cites `ASVS v5.0.0-3.3.1`, `3.3.4` and `3.3.2`, one per attribute; 1.7 cites `ASVS v5.0.0-6.3.8`, which is the test written out ("valid users cannot be deduced from failed authentication challenges, such as by basing on error messages, HTTP response codes, or different response times"), and `6.3.1`. Each finding now carries the pair that is its own, since a finding's own references replace the test's | The same class of error as the old 0.2's `ASVS 4.1.1`, which this review had already corrected once: a reference nobody reads is worse than none, because it looks checked |
 | 10 | **1.7's impossible account keeps the shape of the operator's own** (random characters alone, or random characters before the same `@domain`) | Same question: the name was always shaped as an address, so on a target that validates the form of a name, or accepts only its own domain, the two cases would have differed for a reason that has nothing to do with the account, and the test would have reported a disclosure that is not one |
 
 ### 2.8 Results on the labs (phase 4, 2026-10-22)
@@ -317,6 +318,37 @@ as before the engine change, in the order the effects dictate: the read-only tes
 5. **1.6 gets a case on a lab.** Forgejo's web login does set a session cookie but is not reachable through the
    gateway, so a route to it is added to the Forgejo + Kong lab for the proof, written on the test page with the
    exact configuration and how to undo it, and undone afterwards (as guarantee 0.1 did for its two cases).
+
+### 2.9 Coverage of the branches (owner's question, 2026-10-22)
+
+The owner asked whether the branches never seen were genuinely out of reach or merely not tried. Tried, and
+reached:
+
+| Branch | How it was produced | Result |
+|---|---|---|
+| 1.6, the first SKIP reason | a scratch configuration with `auth_type: static_token` (no lab change) | SKIP with that reason |
+| 1.7 `ATTEMPTS_LIMITED` | Kong `rate-limiting`, 20 a minute, on the login paths of every account | `429` at the 21st attempt, PASS on that sub-test while the enumeration still reports its 2 violations |
+| 1.7 `ATTEMPTS_SLOWED` | Kong `pre-function` that waits 0.6 s from the 31st request and lets it through | 8 ms then 605 ms, ENFORCED |
+| 1.7 `WRONG_PASSWORD_ACCEPTED` (both sub-tests) | a scratch configuration whose login is a public endpoint ignoring the account | INCONCLUSIVE with that reason: the test verified nothing and says so |
+| 1.1 every `ACCEPTED_<case>` | Kong `pre-function` on `~/api/v1/user$`: 200 when the credential header is there, 401 when it is not | all five violations at CERTAIN |
+| 1.1 `SERVED_AS_UPPER_SEGMENT` | Kong `request-termination` 200 on `/api/v1/USER` | 1 violation at CERTAIN, 7 enforced |
+
+Found while producing them: a `pre-function` that answers instead of waiting breaks the real login, and the engine,
+which now satisfies a declared account need, makes the test ERROR with that reason. The new error path of the
+engine change is therefore proven too. Each case is written on its test page with the exact configuration and how
+to undo it; the lab was restored and checked back to its usual results.
+
+Out of reach, with the reason, and written in the pages' limitations:
+
+| Branch | Why |
+|---|---|
+| 1.6 session fixation | needs a login the tool can repeat while carrying a cookie obtained before it; a form login with a CSRF token is not something it can drive |
+| 1.7 account lockout | can only be measured by failing repeatedly against a real account, which would lock the operator's own |
+| 1.7 `NO_DISCREPANCY`, `TIMING_TOO_SMALL` | need a target that answers two failed attempts alike: no lab does, and no stock gateway plugin reproduces it without faking the login itself |
+| 1.7 `ANSWER_NOT_STABLE` | needs a login whose body changes by itself between two identical requests |
+| 1.1 the other seven `SERVED_AS_<kind>` | the same code path as the one proven, one route per variant; not worth seven lab changes |
+| 1.1 `REDIRECTED`, the transport reasons everywhere | need a target that redirects an unauthenticated request, or a broken connection |
+| a third gateway | there is no third adapter |
 
 ### Changes outside this group's own files, deferred
 

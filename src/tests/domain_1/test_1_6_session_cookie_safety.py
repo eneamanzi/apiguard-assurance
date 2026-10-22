@@ -63,20 +63,28 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # The single sub-test.
 _SUB_COOKIES: str = "cookie_attributes"
 
-# The attributes judged, with the detail each missing one is recorded under and
-# the catalogue entry it belongs to.
-_ATTRIBUTES: tuple[tuple[str, str, str], ...] = (
-    ("secure", "COOKIE_WITHOUT_SECURE", "CWE-614"),
-    ("httponly", "COOKIE_WITHOUT_HTTPONLY", "CWE-1004"),
-    ("samesite", "COOKIE_WITHOUT_SAMESITE", "CWE-1275"),
+# The attributes judged: the detail each missing one is recorded under, its
+# catalogue entry and the ASVS requirement that asks for it, so that a finding
+# cites the two that are its own rather than the test's whole list.
+_ATTRIBUTES: tuple[tuple[str, str, str, str], ...] = (
+    ("secure", "COOKIE_WITHOUT_SECURE", "CWE-614", "v5.0.0-3.3.1"),
+    ("httponly", "COOKIE_WITHOUT_HTTPONLY", "CWE-1004", "v5.0.0-3.3.4"),
+    ("samesite", "COOKIE_WITHOUT_SAMESITE", "CWE-1275", "v5.0.0-3.3.2"),
 )
 
 # The `SameSite` values that restrict anything. `None` is a value the standard
 # allows and it restricts nothing, so it counts as absent (RFC 6265bis).
 _SAMESITE_RESTRICTING: frozenset[str] = frozenset({"strict", "lax"})
 
+# Each one read on its source, 2026-10-22 (rule 8): ASVS 3.3.1 asks for
+# `Secure`, 3.3.4 for `HttpOnly` on a cookie that scripts must not read, and
+# 3.3.2 for a `SameSite` value "according to the purpose of the cookie", which
+# for a session cookie `None` is not.
 _REFERENCES: tuple[Reference, ...] = (
     Reference(standard=Standard.OWASP_API_TOP10, id="API2:2023"),
+    Reference(standard=Standard.ASVS, id="v5.0.0-3.3.1"),
+    Reference(standard=Standard.ASVS, id="v5.0.0-3.3.2"),
+    Reference(standard=Standard.ASVS, id="v5.0.0-3.3.4"),
     Reference(standard=Standard.CWE, id="CWE-614"),
     Reference(standard=Standard.CWE, id="CWE-1275"),
     Reference(standard=Standard.CWE, id="CWE-384"),
@@ -159,14 +167,14 @@ class Test16SessionCookieSafety(BaseTest):
         name = raw.split("=", 1)[0].strip()
         present = _attributes(raw)
         missing = [
-            (detail, entry)
-            for attribute, detail, entry in _ATTRIBUTES
+            (detail, entry, requirement)
+            for attribute, detail, entry, requirement in _ATTRIBUTES
             if not _restricts(attribute, present)
         ]
         if not missing:
             self._record(_SUB_COOKIES, Outcome.ENFORCED, "COOKIE_SAFE")
             return
-        for detail, entry in missing:
+        for detail, entry, requirement in missing:
             attribute = detail.removeprefix("COOKIE_WITHOUT_").lower()
             self._record(
                 _SUB_COOKIES,
@@ -182,7 +190,10 @@ class Test16SessionCookieSafety(BaseTest):
                     evidence_ref=evidence_ref,
                     # The header as the target sent it: the observed fact.
                     confidence=Confidence.CERTAIN,
-                    references=[Reference(standard=Standard.CWE, id=entry)],
+                    references=[
+                        Reference(standard=Standard.CWE, id=entry),
+                        Reference(standard=Standard.ASVS, id=requirement),
+                    ],
                 ),
             )
 
