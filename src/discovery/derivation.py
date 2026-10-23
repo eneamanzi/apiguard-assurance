@@ -42,6 +42,13 @@ Rules:
         /community/api/v1 and v3. Used to look for an undocumented version that
         still answers (test 0.1).
 
+    privileged_endpoints (HEURISTIC) -- the documented operations whose path has
+        an `admin` or `management` segment, one fact per operation (method and
+        path). A privileged function is usually recognisable from its path; test
+        2.1 probes these with an ordinary user's credential (BFLA), and the
+        configuration adds or corrects. On Forgejo `/api/v1/admin/...`, on crAPI
+        `/workshop/api/management/...` and `/identity/api/v2/admin/...`.
+
 Dependency rule: imports only from the standard library, structlog and
 src.core.models.
 """
@@ -178,12 +185,51 @@ def _version_siblings(
 
 
 # ---------------------------------------------------------------------------
+# Rule: privileged_endpoints
+# ---------------------------------------------------------------------------
+
+PRIVILEGED_ENDPOINTS: str = "privileged_endpoints"
+
+# A path segment that marks an operation as privileged (admin or management
+# plane). Grounded on the labs: Forgejo `/api/v1/admin/...`, crAPI
+# `/workshop/api/management/...` and `/identity/api/v2/admin/...`. The match is
+# on a whole segment, so a word that merely contains "admin" (e.g. "administer"
+# would, but a real segment like "administrators") is matched only when it is
+# exactly one of these; the configuration adds or corrects (test 2.1).
+_PRIVILEGED_SEGMENTS: frozenset[str] = frozenset({"admin", "management"})
+
+
+def _privileged_endpoints(
+    spec: dict[str, object], endpoints: Sequence[EndpointRecord]
+) -> list[DerivedFact]:
+    """Documented operations whose path has an admin or management segment."""
+    facts: list[DerivedFact] = []
+    for endpoint in endpoints:
+        segments = {segment.lower() for segment in endpoint.path.split("/") if segment}
+        hit = segments & _PRIVILEGED_SEGMENTS
+        if not hit:
+            continue
+        facts.append(
+            DerivedFact(
+                rule=PRIVILEGED_ENDPOINTS,
+                basis=DerivationBasis.HEURISTIC,
+                value=endpoint.path,
+                method=endpoint.method,
+                path=endpoint.path,
+                note=f"path segment {sorted(hit)[0]!r}",
+            )
+        )
+    return facts
+
+
+# ---------------------------------------------------------------------------
 # Registry and entry point
 # ---------------------------------------------------------------------------
 
 RULES: tuple[DerivationRule, ...] = (
     DerivationRule(SERVICE_PREFIXES, DerivationBasis.HEURISTIC, _service_prefixes),
     DerivationRule(VERSION_SIBLINGS, DerivationBasis.HEURISTIC, _version_siblings),
+    DerivationRule(PRIVILEGED_ENDPOINTS, DerivationBasis.HEURISTIC, _privileged_endpoints),
 )
 
 

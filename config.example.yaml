@@ -246,6 +246,12 @@ tests:
     # 1.7 Authentication Endpoints Resist Guessing: no parameters.
     test_1_7: {}
 
+  domain_2:
+    # 2.1 Function-Level Authorization: no parameters.
+    test_2_1: {}
+    # 2.4 Authorization Consistency: no parameters.
+    test_2_4: {}
+
   domain_4:
     # 4.2 Timeout Configuration Audit -- Prevention of Resource Lock.
     test_4_2:

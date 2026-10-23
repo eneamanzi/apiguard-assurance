@@ -46,7 +46,11 @@ crAPI enters the code.
   three labs PASS (TLS clean, redirect enforced, HSTS compliant); the three rule-9 situations were proven by tool
   configuration (plain-HTTP target, and a withheld `ca_bundle` for an untrusted chain), so no gateway change was
   needed. ASVS references corrected on the source (3.4.1 HSTS, 12.1.1/12.2.1 TLS): [draft](test-review/group-d.md).
-- **Next:** group E (2.1, 2.2, 2.4, 2.5: authorization), after the owner's commit.
+- **In progress:** group E (authorization), split. **2.1 + 2.4 done** (2026-10-23): new derivation rule
+  `privileged_endpoints` (admin/management segment); 2.1 (BFLA) FAIL on crAPI (user_a reaches the management plane),
+  PASS on Forgejo; 2.4 (version-sibling consistency) PASS on crAPI, SKIP on Forgejo (only /api/v1). Self-review:
+  destructive privileged ops surfaced not omitted; 2.4 calibrates the version once (242 probes -> 1).
+  [draft](test-review/group-e.md). **Next: 2.2 + 2.5** (BOLA, object property level) after the owner's commit.
 - **Open, recorded here:** the SSRF listener (7.2), the reference probes on a backend that fails with 5xx (1.1); the
   documentation changes listed below.
 
@@ -188,7 +192,7 @@ optional, HYBRID) and its tools: a starting point, revisited in each review.
 | 5 | **1.4** Revoked credentials are rejected (Token Revocation) | `1.4` rewritten (Credential Revocation) | our code; derived anchor | done 2026-10-22, group C ([draft](test-review/group-c.md)) |
 | 6 | **1.5** Credentials never travel on insecure channels (Insecure Credential Transport, TLS) | `1.5` rewritten (Credentials Over an Insecure Channel), `ext.1.5.testssl` rewritten; `ext.1.5.sslyze` removed as an always-on test | HYBRID: native HTTP layer + testssl.sh (one TLS scanner; sslyze connector kept, enable-able) | done 2026-10-22, group D ([draft](test-review/group-d.md)) |
 | 7 | **1.6** Sessions are managed securely (Secure Session Management) | `1.6` rewritten (Session Cookie Safety) | our code | done 2026-10-22, group B ([draft](test-review/group-b.md)) |
-| 8 | **2.1** Only authorised users reach privileged functions (RBAC Enforcement; with 2.3) | `2.1` | NATIVE | to review |
+| 8 | **2.1** Only authorised users reach privileged functions (Function-Level Authorization, BFLA; 2.3 merged) | `2.1` rewritten | our code; derived `privileged_endpoints` | done 2026-10-23, group E ([draft](test-review/group-e.md)) |
 | 9 | **3.3** Request signing does not allow replay or weak algorithms (HMAC Config Audit) | `3.3` | NATIVE | to review |
 | 10 | **4.1** Rate limiting prevents resource exhaustion (Rate Limiting) | `4.1` | HYBRID: vegeta | to review |
 | 11 | **4.2** Timeouts prevent resource lock (Timeout Config Audit) | `4.2` (the pilot, on the branch) | NATIVE | to review |
@@ -206,7 +210,7 @@ optional, HYBRID) and its tools: a starting point, revisited in each review.
 | **1.3** Expired credentials are rejected | our code (`1.3`, new); jwt_tool not used | done 2026-10-22, group C ([draft](test-review/group-c.md)) |
 | **1.7** Authentication endpoints resist brute force and user enumeration (new) | our code (`1.7`, new) | done 2026-10-22, group B ([draft](test-review/group-b.md)) |
 | **2.2** Users access only their own objects (BOLA) | NATIVE + optional: OFFAT, cherrybomb | to design |
-| **2.4** Equivalent paths to an operation enforce the same controls (redefined) | NATIVE | to design |
+| **2.4** Equivalent paths to an operation enforce the same controls (Authorization Consistency, new) | our code; derived `version_siblings` | done 2026-10-23, group E ([draft](test-review/group-e.md)) |
 | **2.5** Object property level authorization: excessive data, mass assignment | NATIVE | to design |
 | **3.1** Every input is validated (injection) | HYBRID: Schemathesis, nuclei; sqlmap, NoSQLMap, Dalfox, commix, SSTImap | to design |
 | **4.4** Requests and responses have size limits (new) | to decide | to design |
@@ -328,6 +332,9 @@ What the review decides for the documentation is collected here and applied afte
 | `docs/04-architecture/03-assessment-model.md` | `SecurityClient.request(origin=...)` used to probe and record the plain-HTTP request (a test may send to another origin) | group D |
 | `docs/03-reference/06-compatibility.md`, `docs/project/roadmap.md`, `CHANGELOG.md` | 1.5 rewritten and `ext.1.5.testssl` rewritten; `ext.1.5.sslyze` removed as a test; 1.5 needs only the target URL (and `http_url` for a non-standard HTTP port); the removed parameters `http_probe_enabled`, `expected_redirect_status_codes`, `http_probe_timeout_seconds`, `testssl_timeout_seconds` | group D |
 | `OPEN_QUESTIONS.md` | the Q-29 items for 1.5 (HSTS on `/` only, the redirect checked by status not `Location`, the HTTP probe not recorded) and the Q-24 item (sslyze `timeout_seconds`) and Q-50 (1.5 HTTP probe recorded) are answered | group D |
+| `docs/06-knowledge/04-guarantees.md` | 2.1 aligned (BFLA, 2.3 merged in); 2.4 added (version-sibling consistency); the privileged endpoints derived, not listed | group E |
+| `docs/04-architecture/*` | the derivation rule `privileged_endpoints` as shared knowledge; a test reads the rule name as a string, never imports discovery | group E |
+| `docs/03-reference/06-compatibility.md`, `docs/project/roadmap.md`, `CHANGELOG.md` | 2.1 rewritten, 2.4 added; 2.1 needs user_a (admin optional), 2.4 needs only the spec | group E |
 
 ## History: how the common part was decided (phase 0, 2026-10-19 to 2026-10-21)
 

@@ -10,7 +10,7 @@ target, and how it relates to the methodology.
 
 <!-- [[[cog import generate_docs as g; cog.out(g.catalogue()) ]]] -->
 
-14 tests: 12 native, 2 external.
+16 tests: 14 native, 2 external.
 
 | ID | Name | Pri. | Strategy | Effect | CWE | Needs | Page |
 |---|---|---|---|---|---|---|---|
@@ -30,7 +30,8 @@ target, and how it relates to the methodology.
 | `1.6` | Session Cookie Safety | P3 | GREY_BOX | READ_ONLY | CWE-1004 | `USER_ACCOUNT` | [1.6](domain-1/1-6-session-cookie-safety.md) |
 | `1.7` | Authentication Endpoints Resist Guessing | P1 | GREY_BOX | STRESSES_TARGET | CWE-307 | `USER_ACCOUNT` | [1.7](domain-1/1-7-authentication-resistance.md) |
 | **Domain 2 - Authorization and Access Control** | | | | | | | |
-| - | no test implemented | | | | | | |
+| `2.1` | Function-Level Authorization | P1 | GREY_BOX | READ_ONLY | CWE-285 | `USER_ACCOUNT`, `ADMIN_ACCOUNT` (optional) | [2.1](domain-2/2-1-function-level-authorization.md) |
+| `2.4` | Authorization Consistency | P1 | BLACK_BOX | READ_ONLY | CWE-285 | - | [2.4](domain-2/2-4-authorization-consistency.md) |
 | **Domain 3 - Data Integrity** | | | | | | | |
 | - | no test implemented | | | | | | |
 | **Domain 4 - Availability and Resilience** | | | | | | | |
