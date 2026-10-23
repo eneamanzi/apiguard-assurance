@@ -349,6 +349,22 @@ Test [1.5](../05-tests/domain-1/1-5-credentials-over-an-insecure-channel.md), Cr
 | `hsts_min_max_age_seconds` | int ≥86400 | `31536000` | Lowest acceptable max-age (seconds) in the Strict-Transport-Security header. NIST SP 800-52 Rev.2, OWASP ASVS v5.0.0-3.4.1 ask for at least one year. Default: 31536000 (one year). |
 | `http_url` | string | `""` | The API in plain HTTP, when its HTTP listener is on a non-standard port: only the origin (scheme://host[:port]) is used, the path is derived from the specification. Empty (default) derives the origin from base_url (scheme to http, port 443 dropped). |
 
+### `tests.domain_2.test_2_2`
+
+Test [2.2](../05-tests/domain-2/2-2-object-level-authorization.md), Object-Level Authorization.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `owned_object_resources` | list | empty, **needed to run** | The config.yaml `resources:` resources that each create a disposable object owned by user_a, whose identifiers (its `values`) name the path parameters of the object's by-id operations. Each is tested in turn, so several object types are covered. Without any the test cannot run (BOLA needs an owned object). |
+
+### `tests.domain_2.test_2_5`
+
+Test [2.5](../05-tests/domain-2/2-5-object-property-authorization.md), Object Property-Level Authorization.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `owned_object_resources` | list | empty, **needed to run** | The config.yaml `resources:` resources that each create a disposable object owned by user_a (the same as test 2.2); each is checked in turn. Without any the test cannot run. |
+
 ### `tests.domain_4.test_4_2`
 
 Test [4.2](../05-tests/domain-4/4-2-timeout-config-audit.md), Timeout Configuration Audit -- Prevention of Resource Lock.

@@ -46,7 +46,7 @@ crAPI enters the code.
   three labs PASS (TLS clean, redirect enforced, HSTS compliant); the three rule-9 situations were proven by tool
   configuration (plain-HTTP target, and a withheld `ca_bundle` for an untrusted chain), so no gateway change was
   needed. ASVS references corrected on the source (3.4.1 HSTS, 12.1.1/12.2.1 TLS): [draft](test-review/group-d.md).
-- **In progress:** group E (authorization), split. **2.1 + 2.4 done** (2026-10-23): new derivation rule
+- **Done:** group E (authorization, 2026-10-23): 2.1 (BFLA), 2.4 (version-sibling consistency), 2.2 (BOLA) and 2.5 (object property level). New `privileged_endpoints` derivation rule, `Need.SECOND_USER_ACCOUNT`, and a disposable-owned-object helper reusing `resources:`. Proven on both labs, agnostically: crAPI FAIL (2.1 BFLA, 2.2 BOLA on an order, 2.5 `card_number` exposed), Forgejo enforced. A config-declared disposable `order` resource gives crAPI the owned object (no code specific to a target). [draft](test-review/group-e.md). **Next: group F (3.1, 3.3).**
   `privileged_endpoints` (admin/management segment); 2.1 (BFLA) FAIL on crAPI (user_a reaches the management plane),
   PASS on Forgejo; 2.4 (version-sibling consistency) PASS on crAPI, SKIP on Forgejo (only /api/v1). Self-review:
   destructive privileged ops surfaced not omitted; 2.4 calibrates the version once (242 probes -> 1).
@@ -209,9 +209,9 @@ optional, HYBRID) and its tools: a starting point, revisited in each review.
 | **1.2** Credentials are cryptographically valid (forged JWT) | our code (`1.2`, new); jwt_tool not used (keyless target) | done 2026-10-22, group C ([draft](test-review/group-c.md)) |
 | **1.3** Expired credentials are rejected | our code (`1.3`, new); jwt_tool not used | done 2026-10-22, group C ([draft](test-review/group-c.md)) |
 | **1.7** Authentication endpoints resist brute force and user enumeration (new) | our code (`1.7`, new) | done 2026-10-22, group B ([draft](test-review/group-b.md)) |
-| **2.2** Users access only their own objects (BOLA) | NATIVE + optional: OFFAT, cherrybomb | to design |
+| **2.2** Users access only their own objects (BOLA) | our code; disposable owned object via `resources:` | done 2026-10-23, group E ([draft](test-review/group-e.md)) |
 | **2.4** Equivalent paths to an operation enforce the same controls (Authorization Consistency, new) | our code; derived `version_siblings` | done 2026-10-23, group E ([draft](test-review/group-e.md)) |
-| **2.5** Object property level authorization: excessive data, mass assignment | NATIVE | to design |
+| **2.5** Object property level authorization: excessive data, mass assignment | our code; same owned object | done 2026-10-23, group E ([draft](test-review/group-e.md)) |
 | **3.1** Every input is validated (injection) | HYBRID: Schemathesis, nuclei; sqlmap, NoSQLMap, Dalfox, commix, SSTImap | to design |
 | **4.4** Requests and responses have size limits (new) | to decide | to design |
 | **5.1** Every request is logged with its metadata | NATIVE | to design |
@@ -335,6 +335,10 @@ What the review decides for the documentation is collected here and applied afte
 | `docs/06-knowledge/04-guarantees.md` | 2.1 aligned (BFLA, 2.3 merged in); 2.4 added (version-sibling consistency); the privileged endpoints derived, not listed | group E |
 | `docs/04-architecture/*` | the derivation rule `privileged_endpoints` as shared knowledge; a test reads the rule name as a string, never imports discovery | group E |
 | `docs/03-reference/06-compatibility.md`, `docs/project/roadmap.md`, `CHANGELOG.md` | 2.1 rewritten, 2.4 added; 2.1 needs user_a (admin optional), 2.4 needs only the spec | group E |
+| `docs/06-knowledge/04-guarantees.md` | 2.2 added (BOLA), 2.5 added (object property level: excessive data + mass assignment, role filtering folded into the sensitive-field scan); 2.3 merged into 2.1 | group E |
+| `docs/04-architecture/02-data-model.md`, `docs/02-guides/03-extending/02-add-a-native-test.md` | `Need.SECOND_USER_ACCOUNT` (user_b); the disposable-owned-object helper (`src/tests/helpers/owned_object.py`) and `create_resource(extra_body=...)`; a test resolves an object's by-id operations from a resource's `values` | group E |
+| `docs/03-reference/06-compatibility.md`, `docs/project/roadmap.md`, `CHANGELOG.md` | 2.2 and 2.5 added; both need user_a and `owned_object_resources` (2.2 also user_b); the new `Need` and the new `tests.domain_2.*` parameters | group E |
+| `OPEN_QUESTIONS.md` | B3 (a second ordinary account) is answered: `Need.SECOND_USER_ACCOUNT` used by 2.2; crAPI covered by a disposable `order` resource (real BOLA and excessive-data findings) | group E |
 
 ## History: how the common part was decided (phase 0, 2026-10-19 to 2026-10-21)
 

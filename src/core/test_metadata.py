@@ -154,6 +154,9 @@ class Need(StrEnum):
     USER_ACCOUNT = "USER_ACCOUNT"
     """The credentials of the user_a role (an ordinary account)."""
 
+    SECOND_USER_ACCOUNT = "SECOND_USER_ACCOUNT"
+    """The credentials of the user_b role (a second ordinary account, for cross-user tests)."""
+
     GATEWAY = "GATEWAY"
     """A gateway section: adapter and Admin API."""
 
@@ -204,6 +207,7 @@ STRATEGY_RANK: dict[TestStrategy, int] = {
 # optional need does not raise the strategy: the test runs without it.
 NEED_MINIMUM_STRATEGY: dict[Need, TestStrategy] = {
     Need.USER_ACCOUNT: TestStrategy.GREY_BOX,
+    Need.SECOND_USER_ACCOUNT: TestStrategy.GREY_BOX,
     Need.ADMIN_ACCOUNT: TestStrategy.WHITE_BOX,
     Need.GATEWAY: TestStrategy.WHITE_BOX,
     Need.REVOCABLE_LOGIN: TestStrategy.WHITE_BOX,

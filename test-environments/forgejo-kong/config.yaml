@@ -179,6 +179,14 @@ tests:
       # deriving the HTTP origin from base_url would hit http://localhost:8443,
       # Kong's TLS port. Only the origin is used; the path is derived from the spec.
       http_url: "http://localhost:8000"
+  domain_2:
+    # 2.2 (BOLA) and 2.5 (object property level) create a disposable object owned
+    # by user_a through the `repository` resource (private repo), attack it as
+    # user_b, and delete it.
+    test_2_2:
+      owned_object_resources: [repository]
+    test_2_5:
+      owned_object_resources: [repository]
 # domain_2:
 #   (2.1: returns with test 2.1)
 #   test_2_1:

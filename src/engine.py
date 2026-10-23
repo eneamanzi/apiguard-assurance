@@ -643,6 +643,8 @@ def _resource_references(params: BaseModel) -> list[str]:
             names += _resource_references(value)
         elif has_marker(field, REFERS_TO_RESOURCE) and isinstance(value, str):
             names.append(value)
+        elif has_marker(field, REFERS_TO_RESOURCE) and isinstance(value, list | tuple):
+            names += [item for item in value if isinstance(item, str)]
     return names
 
 

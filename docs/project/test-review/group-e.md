@@ -7,10 +7,37 @@
 |---|---|
 | 1. Collection | done 2026-10-22 (below) |
 | 2. Design | decided 2026-10-22; split go-ahead: **2.1 + 2.4 first**, then 2.2 + 2.5 (owner decisions below) |
-| 3. Code | 2.1 + 2.4 done 2026-10-23; 2.2 + 2.5 pending |
-| 4. Proof | 2.1 + 2.4 done 2026-10-23 (three labs) |
-| 5. Self-review | 2.1 + 2.4 done 2026-10-23 (two fixes, below) |
-| 6. Documentation | 2.1 + 2.4 done 2026-10-23 |
+| 3. Code | done 2026-10-23 (2.1, 2.4, 2.2, 2.5) |
+| 4. Proof | done 2026-10-23 |
+| 5. Self-review | done 2026-10-23 (fixes below) |
+| 6. Documentation | done 2026-10-23 |
+
+### 2.2 + 2.5 results and review (2026-10-23)
+
+**New `Need.SECOND_USER_ACCOUNT`** (user_b), wired like the others. **Disposable owned object** mechanism
+(`src/tests/helpers/owned_object.py`): the test creates an object owned by user_a through a configured `resources:`
+resource (new per-test parameter `owned_object_resources`), finds the object's by-id operations by resolving their
+path parameters from the resource's `values` (keeping the operations that use the **most** of them, so a less
+specific resource sharing one parameter is not mistaken for the object), has user_b attack it, and deletes it.
+`create_resource` gained an `extra_body` for 2.5's mass-assignment probe.
+
+**2.2** (cross_user_read/modify/delete) and **2.5** (no_sensitive_field, mass_assignment) proven on **Forgejo**
+(the `repository` resource, a private repo): all ENFORCED (Forgejo checks ownership, ignores injected fields) ->
+2.2 PASS, 2.5 PASS. This is the weakness-absent side.
+
+**Self-review fixes (both real oracle defects):**
+1. `object_operations` first picked `GET /api/v1/packages/{owner}` (a different resource sharing the `owner`
+   parameter) instead of `/repos/{owner}/{repo}`, so cross_user_read was OWNER_NOT_SERVED. Fixed: keep only the
+   operations that use the most of the object's identifiers.
+2. mass_assignment reported a false VIOLATION on Forgejo: the injected boolean `admin: true` matched the repo's
+   legitimate `permissions.admin: true`. Fixed: inject only **unique string sentinels**; a boolean reflected in a
+   response cannot be told from a legitimately-true field (a false positive). `role_field_filtering` folded into
+   `no_sensitive_field` (a sensitive field is caught by its name for any role; labelling an "admin-only non-sensitive"
+   field generically is not reliable).
+
+**crAPI (the weakness-present side) is covered** by a disposable `order` resource (a shop order owned by user_a, created with the user's JWT, product 1 quantity 1; crAPI has no order delete, so the lab reset removes it). Real findings: **2.2 FAIL** -- `cross_user_read` is a BOLA (user_b reads user_a's order, GET /orders/7 -> 200), while `cross_user_modify` is ENFORCED (PUT -> 403: crAPI checks ownership on write but not on read) and `cross_user_delete` is NOT_APPLICABLE (no order delete); **2.5 FAIL** -- the order response carries `card_number` (excessive data exposure), `mass_assignment` ENFORCED. So both sides of rule 9 are proven, on both labs, agnostically (no code specific to either target; the object is a config-declared resource).
+
+ASVS verified on source (v5.0.0): 8.2.2 (data-specific access / BOLA), 14.2.6 (no excessive data in responses).
 
 ### 2.1 + 2.4 results and review (2026-10-23)
 

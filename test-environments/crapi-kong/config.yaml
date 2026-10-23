@@ -65,6 +65,20 @@ resources:
         password: "{password}"
     values:
       credential: token
+  # A disposable object owned by user_a for tests 2.2 (BOLA) and 2.5 (object
+  # property level): a shop order, created with the user's JWT (product 1,
+  # quantity 1 = 10 of the 100 starting credit). crAPI has no delete for an
+  # order, so it is not cleaned up; the lab reset removes it. Its id names the
+  # path parameter of GET/PUT /workshop/api/shop/orders/{order_id}.
+  order:
+    create:
+      path: /workshop/api/shop/orders
+      auth: credential
+      body:
+        product_id: 1
+        quantity: 1
+    values:
+      order_id: id
 
 # What runs: every test by default, native and external (same in the three labs).
 # To run only a part, change one line:
@@ -92,6 +106,13 @@ tests:
       # The lab puts HTTPS on 9443 and the plain-HTTP listener (Kong) on 9000. Only
       # the origin is used; the path is derived from the specification.
       http_url: "http://localhost:9000"
+  domain_2:
+    # 2.2 (BOLA) and 2.5 (object property level) use a shop order owned by user_a
+    # (the `order` resource) as the disposable object.
+    test_2_2:
+      owned_object_resources: [order]
+    test_2_5:
+      owned_object_resources: [order]
 # domain_7:
 #   (7.2: returns with test 7.2)
 #   test_7_2:

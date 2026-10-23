@@ -176,6 +176,14 @@ tests:
       # The lab puts HTTPS on 10443 and the plain-HTTP listener (APISIX) on 10000.
       # Only the origin is used; the path is derived from the specification.
       http_url: "http://localhost:10000"
+  domain_2:
+    # 2.2 (BOLA) and 2.5 (object property level) create a disposable object owned
+    # by user_a through the `repository` resource (private repo), attack it as
+    # user_b, and delete it.
+    test_2_2:
+      owned_object_resources: [repository]
+    test_2_5:
+      owned_object_resources: [repository]
 # domain_2:
 #   (2.1: returns with test 2.1)
 #   test_2_1:

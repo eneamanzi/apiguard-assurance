@@ -249,8 +249,18 @@ tests:
   domain_2:
     # 2.1 Function-Level Authorization: no parameters.
     test_2_1: {}
+    # 2.2 Object-Level Authorization.
+    test_2_2:
+      # The config.yaml `resources:` resources that each create a disposable object owned by user_a,
+      # whose identifiers (its `values`) name the path parameters of the object's by-id operations.
+      owned_object_resources: []
     # 2.4 Authorization Consistency: no parameters.
     test_2_4: {}
+    # 2.5 Object Property-Level Authorization.
+    test_2_5:
+      # The config.yaml `resources:` resources that each create a disposable object owned by user_a
+      # (the same as test 2.2); each is checked in turn.
+      owned_object_resources: []
 
   domain_4:
     # 4.2 Timeout Configuration Audit -- Prevention of Resource Lock.

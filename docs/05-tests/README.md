@@ -10,7 +10,7 @@ target, and how it relates to the methodology.
 
 <!-- [[[cog import generate_docs as g; cog.out(g.catalogue()) ]]] -->
 
-16 tests: 14 native, 2 external.
+18 tests: 16 native, 2 external.
 
 | ID | Name | Pri. | Strategy | Effect | CWE | Needs | Page |
 |---|---|---|---|---|---|---|---|
@@ -31,7 +31,9 @@ target, and how it relates to the methodology.
 | `1.7` | Authentication Endpoints Resist Guessing | P1 | GREY_BOX | STRESSES_TARGET | CWE-307 | `USER_ACCOUNT` | [1.7](domain-1/1-7-authentication-resistance.md) |
 | **Domain 2 - Authorization and Access Control** | | | | | | | |
 | `2.1` | Function-Level Authorization | P1 | GREY_BOX | READ_ONLY | CWE-285 | `USER_ACCOUNT`, `ADMIN_ACCOUNT` (optional) | [2.1](domain-2/2-1-function-level-authorization.md) |
+| `2.2` | Object-Level Authorization | P1 | GREY_BOX | CHANGES_DATA | CWE-639 | `USER_ACCOUNT`, `SECOND_USER_ACCOUNT`, `owned_object_resources` | [2.2](domain-2/2-2-object-level-authorization.md) |
 | `2.4` | Authorization Consistency | P1 | BLACK_BOX | READ_ONLY | CWE-285 | - | [2.4](domain-2/2-4-authorization-consistency.md) |
+| `2.5` | Object Property-Level Authorization | P1 | GREY_BOX | CHANGES_DATA | CWE-213 | `USER_ACCOUNT`, `owned_object_resources` | [2.5](domain-2/2-5-object-property-authorization.md) |
 | **Domain 3 - Data Integrity** | | | | | | | |
 | - | no test implemented | | | | | | |
 | **Domain 4 - Availability and Resilience** | | | | | | | |
