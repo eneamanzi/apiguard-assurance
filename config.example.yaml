@@ -286,6 +286,17 @@ tests:
       body_size_bytes: 2000000
       # The documented write path to probe; empty derives the shortest documented write.
       probe_path: ''
+
+  domain_6:
+    # 6.1 Error and Information Disclosure: no parameters.
+    test_6_1: {}
+    # 6.2 Security Headers Audit: no parameters.
+    test_6_2: {}
+    # 6.4 Hardcoded Credentials Audit.
+    test_6_4:
+      # Paths of debug or actuator endpoints to probe unauthenticated for exposed credentials (e.g.
+      # /actuator/env, /debug/vars).
+      debug_endpoint_paths: []
 # [[[end]]]
 
 # =============================================================================

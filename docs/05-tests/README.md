@@ -10,7 +10,7 @@ target, and how it relates to the methodology.
 
 <!-- [[[cog import generate_docs as g; cog.out(g.catalogue()) ]]] -->
 
-21 tests: 19 native, 2 external.
+24 tests: 22 native, 2 external.
 
 | ID | Name | Pri. | Strategy | Effect | CWE | Needs | Page |
 |---|---|---|---|---|---|---|---|
@@ -44,7 +44,9 @@ target, and how it relates to the methodology.
 | **Domain 5 - Visibility and Auditing** | | | | | | | |
 | - | no test implemented | | | | | | |
 | **Domain 6 - Configuration and Hardening** | | | | | | | |
-| - | no test implemented | | | | | | |
+| `6.1` | Error and Information Disclosure | P2 | GREY_BOX | READ_ONLY | CWE-209 | `USER_ACCOUNT` | [6.1](domain-6/6-1-information-disclosure.md) |
+| `6.2` | Security Headers Audit | P3 | BLACK_BOX | READ_ONLY | - | - | [6.2](domain-6/6-2-security-headers-audit.md) |
+| `6.4` | Hardcoded Credentials Audit | P2 | BLACK_BOX | READ_ONLY | CWE-798 | `GATEWAY` (optional) | [6.4](domain-6/6-4-hardcoded-credentials-audit.md) |
 | **Domain 7 - Business Logic and Sensitive Flows** | | | | | | | |
 | - | no test implemented | | | | | | |
 

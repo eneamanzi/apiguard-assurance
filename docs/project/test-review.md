@@ -50,8 +50,9 @@ crAPI enters the code.
 - **Done:** group G (resource-consumption limits, 2026-10-23): 4.1 rate limiting, 4.2 timeouts (pilot), 4.3 circuit
   breaker, 4.4 size limits (new). On both gateways; 4.1/4.4 FAIL on the default labs (no rate/size plugin), the
   enforced side proven with an announced, reverted Kong plugin change. [draft](test-review/group-g.md).
+- **Done:** group I (2026-10-23): 6.1 (error/info disclosure, new), 6.2 (security headers, rewritten: HSTS to 1.5, CORS added, consistency by sampling), 6.4 (hard-coded credentials, rewritten). crAPI 6.2 FAIL (headers inconsistent across services, caught by sampling); the rest PASS. **6.3 (smuggling) deferred, kept open.** [draft](test-review/group-i.md).
 - **Order of the rest** (Claude's choice, owner 2026-10-23): G done, then **I** (6.1-6.4), H (5.1-5.2), F (3.1, 3.3),
-  J (7.x) -- reuse-first, the tool-heavy groups last. **Next: group I.**
+  J (7.x) -- reuse-first, the tool-heavy groups last. **Next: group H (5.1, 5.2).**
   `privileged_endpoints` (admin/management segment); 2.1 (BFLA) FAIL on crAPI (user_a reaches the management plane),
   PASS on Forgejo; 2.4 (version-sibling consistency) PASS on crAPI, SKIP on Forgejo (only /api/v1). Self-review:
   destructive privileged ops surfaced not omitted; 2.4 calibrates the version once (242 probes -> 1).
@@ -74,13 +75,13 @@ a group is what its members share, not whether a test for them exists on `main`.
 
 | Group | Guarantees | What they share |
 |---|---|---|
-| A | 0.2, 0.3, 0.4 | the gateway routes, the specification, the code written for 0.1 |
-| B | 1.1, 1.6, 1.7 | the positive control, credential placement, the authentication endpoints |
-| C | 1.2, 1.3, 1.4 | the token lifecycle, jwt_tool, the login artefacts |
-| D | 1.5 | TLS, testssl and sslyze (both already connected) |
-| E | 2.1, 2.2, 2.4, 2.5 | two roles, own and other users' objects, equivalent paths |
+| A ok | 0.2, 0.3, 0.4 | the gateway routes, the specification, the code written for 0.1 |
+| B ok | 1.1, 1.6, 1.7 | the positive control, credential placement, the authentication endpoints |
+| C ok | 1.2, 1.3, 1.4 | the token lifecycle, jwt_tool, the login artefacts |
+| D ok | 1.5 | TLS, testssl and sslyze (both already connected) |
+| E ok | 2.1, 2.2, 2.4, 2.5 | two roles, own and other users' objects, equivalent paths |
 | F | 3.1, 3.3 | the request body and the signature over it |
-| G | 4.1, 4.2, 4.3, 4.4 | resource limits, the gateway plugin configuration, vegeta |
+| G ok | 4.1, 4.2, 4.3, 4.4 | resource limits, the gateway plugin configuration, vegeta |
 | H | 5.1, 5.2 | the gateway's logs and alerts |
 | I | 6.1, 6.2, 6.3, 6.4 | what a response lets out: errors, headers, secrets |
 | J | 7.1, 7.2, 7.3, 7.4 | business flows, the outbound listener, races |
@@ -202,8 +203,8 @@ optional, HYBRID) and its tools: a starting point, revisited in each review.
 | 10 | **4.1** Rate limiting prevents resource exhaustion (Rate Limiting) | `4.1` rewritten | our code; native burst, limit read from the gateway (vegeta not used) | done 2026-10-23, group G ([draft](test-review/group-g.md)) |
 | 11 | **4.2** Timeouts prevent resource lock (Timeout Config Audit) | `4.2` (the pilot) | NATIVE, gateway audit | done 2026-10-23, group G |
 | 12 | **4.3** The system degrades gracefully (Circuit Breaker Audit) | `4.3` rewritten | NATIVE, gateway audit (passive health check = Kong's breaker) | done 2026-10-23, group G ([draft](test-review/group-g.md)) |
-| 13 | **6.2** Security headers are configured (Security Headers Audit; with CORS) | `6.2` | NATIVE | to review |
-| 14 | **6.4** Service credentials are not hard-coded or exposed (Hardcoded Credentials Audit) | `6.4` | NATIVE + optional: trufflehog, gitleaks, detect-secrets | to review |
+| 13 | **6.2** Security headers are configured (Security Headers Audit; with CORS) | `6.2` rewritten | NATIVE; sampled across services | done 2026-10-23, group I ([draft](test-review/group-i.md)) |
+| 14 | **6.4** Service credentials are not hard-coded or exposed (Hardcoded Credentials Audit) | `6.4` rewritten | NATIVE (debug probe + gateway config scan) | done 2026-10-23, group I ([draft](test-review/group-i.md)) |
 | 15 | **7.2** The system prevents SSRF (SSRF Prevention) | `7.2` | HYBRID: nuclei, interactsh | to review |
 
 ### Step 2: the missing guarantees
@@ -221,8 +222,8 @@ optional, HYBRID) and its tools: a starting point, revisited in each review.
 | **4.4** Requests have size limits (Request Size Limits, new) | our code (empirical 413 + gateway config) | done 2026-10-23, group G ([draft](test-review/group-g.md)) |
 | **5.1** Every request is logged with its metadata | NATIVE | to design |
 | **5.2** Anomalous security events raise alerts | NATIVE | to design |
-| **6.1** Errors disclose no internal information | NATIVE | to design |
-| **6.3** The gateway is hardened against layer-7 attacks (smuggling) | HYBRID: Python on sockets; http2smugl | to design |
+| **6.1** Errors disclose no internal information | NATIVE (response inspection) | done 2026-10-23, group I ([draft](test-review/group-i.md)) |
+| **6.3** The gateway is hardened against layer-7 attacks (smuggling) | raw-socket CL+TE probe (native) or http2smugl | **open**: split from group I, deferred (owner 2026-10-23) |
 | **7.1** Sensitive business flows resist automated abuse | NATIVE | to design |
 | **7.3** Critical operations are protected from race conditions | HYBRID: vegeta | to design |
 | **7.4** External services are consumed safely (webhooks) | HYBRID: interactsh | to design |

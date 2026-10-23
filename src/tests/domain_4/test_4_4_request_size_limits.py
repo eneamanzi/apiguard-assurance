@@ -167,7 +167,17 @@ class Test44RequestSizeLimits(BaseTest[Test44Params]):
             return self._error(exc)
 
     def _probe_path(self, target: TargetContext) -> str | None:
-        """The write path to probe: the configured one, or the shortest documented write."""
+        """
+        The write path to probe: the configured one, or the shortest documented write.
+
+        A write that requires authentication is preferred: the probe is sent
+        unauthenticated, so the gateway's size check (a 413) comes first and the
+        backend then refuses with 401, never creating anything. A public write is
+        used only when no authenticated one exists, and then a body under the
+        limit could be processed: the oversized body is still rejected by a size
+        limit, but the absence of one on a public write is a creation risk noted
+        on the page.
+        """
         cfg = self.params(target)
         if cfg.probe_path:
             return cfg.probe_path
@@ -177,7 +187,7 @@ class Test44RequestSizeLimits(BaseTest[Test44Params]):
         writes = [e for e in surface.endpoints if e.method.upper() in _WRITE_METHODS]
         if not writes:
             return None
-        shortest = min(writes, key=lambda e: (len(e.path), e.path, e.method))
+        shortest = min(writes, key=lambda e: (not e.requires_auth, len(e.path), e.path, e.method))
         return resolve_path_with_seed(shortest.path, target.path_seed)
 
     def _size(self, target: TargetContext) -> tuple[int, bool]:

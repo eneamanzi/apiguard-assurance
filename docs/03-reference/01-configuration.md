@@ -393,6 +393,14 @@ Test [4.4](../05-tests/domain-4/4-4-request-size-limits.md), Request Size Limits
 | `body_size_bytes` | int ≥1024 | `2000000` | The size of the body sent when the gateway's configured limit cannot be read. A body above a sane API limit (default 2 MB); a gateway that accepts it has no small body-size limit. |
 | `probe_path` | string | `""` | The documented write path to probe; empty derives the shortest documented write. |
 
+### `tests.domain_6.test_6_4`
+
+Test [6.4](../05-tests/domain-6/6-4-hardcoded-credentials-audit.md), Hardcoded Credentials Audit.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `debug_endpoint_paths` | list | empty | Paths of debug or actuator endpoints to probe unauthenticated for exposed credentials (e.g. /actuator/env, /debug/vars). Empty: the debug sub-test is not applicable. |
+
 ### `tests.domain_0.ext_0_1_ffuf`
 
 Test [ext.0.1.ffuf](../05-tests/external/domain-0/ext-0-1-ffuf.md), Undocumented Paths Answer (ffuf path search, re-verified).

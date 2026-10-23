@@ -112,6 +112,10 @@ oversized body is rejected with 413 before it reaches the backend (OWASP API4:20
 - Only the request body is checked, not the response size or header size.
 - A backend that happens to reject the body for another reason before the gateway's size check would read as a limit
   only if it answers 413.
+- The probe prefers a write that requires authentication (unauthenticated -> 401, nothing created). Where only a
+  public write exists and the gateway has no size limit, a body under the limit could be processed and create an
+  object: the oversized probe is still rejected by any size limit, but the absence of one on a public write is a
+  creation risk.
 
 ## 15. Sources
 
