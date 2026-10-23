@@ -46,7 +46,12 @@ crAPI enters the code.
   three labs PASS (TLS clean, redirect enforced, HSTS compliant); the three rule-9 situations were proven by tool
   configuration (plain-HTTP target, and a withheld `ca_bundle` for an untrusted chain), so no gateway change was
   needed. ASVS references corrected on the source (3.4.1 HSTS, 12.1.1/12.2.1 TLS): [draft](test-review/group-d.md).
-- **Done:** group E (authorization, 2026-10-23): 2.1 (BFLA), 2.4 (version-sibling consistency), 2.2 (BOLA) and 2.5 (object property level). New `privileged_endpoints` derivation rule, `Need.SECOND_USER_ACCOUNT`, and a disposable-owned-object helper reusing `resources:`. Proven on both labs, agnostically: crAPI FAIL (2.1 BFLA, 2.2 BOLA on an order, 2.5 `card_number` exposed), Forgejo enforced. A config-declared disposable `order` resource gives crAPI the owned object (no code specific to a target). [draft](test-review/group-e.md). **Next: group F (3.1, 3.3).**
+- **Done:** group E (authorization, 2026-10-23): 2.1 (BFLA), 2.4 (version-sibling consistency), 2.2 (BOLA) and 2.5 (object property level). New `privileged_endpoints` derivation rule, `Need.SECOND_USER_ACCOUNT`, and a disposable-owned-object helper reusing `resources:`. Proven on both labs, agnostically: crAPI FAIL (2.1 BFLA, 2.2 BOLA on an order, 2.5 `card_number` exposed), Forgejo enforced. A config-declared disposable `order` resource gives crAPI the owned object (no code specific to a target). [draft](test-review/group-e.md).
+- **Done:** group G (resource-consumption limits, 2026-10-23): 4.1 rate limiting, 4.2 timeouts (pilot), 4.3 circuit
+  breaker, 4.4 size limits (new). On both gateways; 4.1/4.4 FAIL on the default labs (no rate/size plugin), the
+  enforced side proven with an announced, reverted Kong plugin change. [draft](test-review/group-g.md).
+- **Order of the rest** (Claude's choice, owner 2026-10-23): G done, then **I** (6.1-6.4), H (5.1-5.2), F (3.1, 3.3),
+  J (7.x) -- reuse-first, the tool-heavy groups last. **Next: group I.**
   `privileged_endpoints` (admin/management segment); 2.1 (BFLA) FAIL on crAPI (user_a reaches the management plane),
   PASS on Forgejo; 2.4 (version-sibling consistency) PASS on crAPI, SKIP on Forgejo (only /api/v1). Self-review:
   destructive privileged ops surfaced not omitted; 2.4 calibrates the version once (242 probes -> 1).
@@ -194,9 +199,9 @@ optional, HYBRID) and its tools: a starting point, revisited in each review.
 | 7 | **1.6** Sessions are managed securely (Secure Session Management) | `1.6` rewritten (Session Cookie Safety) | our code | done 2026-10-22, group B ([draft](test-review/group-b.md)) |
 | 8 | **2.1** Only authorised users reach privileged functions (Function-Level Authorization, BFLA; 2.3 merged) | `2.1` rewritten | our code; derived `privileged_endpoints` | done 2026-10-23, group E ([draft](test-review/group-e.md)) |
 | 9 | **3.3** Request signing does not allow replay or weak algorithms (HMAC Config Audit) | `3.3` | NATIVE | to review |
-| 10 | **4.1** Rate limiting prevents resource exhaustion (Rate Limiting) | `4.1` | HYBRID: vegeta | to review |
-| 11 | **4.2** Timeouts prevent resource lock (Timeout Config Audit) | `4.2` (the pilot, on the branch) | NATIVE | to review |
-| 12 | **4.3** The system degrades gracefully (Circuit Breaker Audit) | `4.3` | NATIVE | to review |
+| 10 | **4.1** Rate limiting prevents resource exhaustion (Rate Limiting) | `4.1` rewritten | our code; native burst, limit read from the gateway (vegeta not used) | done 2026-10-23, group G ([draft](test-review/group-g.md)) |
+| 11 | **4.2** Timeouts prevent resource lock (Timeout Config Audit) | `4.2` (the pilot) | NATIVE, gateway audit | done 2026-10-23, group G |
+| 12 | **4.3** The system degrades gracefully (Circuit Breaker Audit) | `4.3` rewritten | NATIVE, gateway audit (passive health check = Kong's breaker) | done 2026-10-23, group G ([draft](test-review/group-g.md)) |
 | 13 | **6.2** Security headers are configured (Security Headers Audit; with CORS) | `6.2` | NATIVE | to review |
 | 14 | **6.4** Service credentials are not hard-coded or exposed (Hardcoded Credentials Audit) | `6.4` | NATIVE + optional: trufflehog, gitleaks, detect-secrets | to review |
 | 15 | **7.2** The system prevents SSRF (SSRF Prevention) | `7.2` | HYBRID: nuclei, interactsh | to review |
@@ -213,7 +218,7 @@ optional, HYBRID) and its tools: a starting point, revisited in each review.
 | **2.4** Equivalent paths to an operation enforce the same controls (Authorization Consistency, new) | our code; derived `version_siblings` | done 2026-10-23, group E ([draft](test-review/group-e.md)) |
 | **2.5** Object property level authorization: excessive data, mass assignment | our code; same owned object | done 2026-10-23, group E ([draft](test-review/group-e.md)) |
 | **3.1** Every input is validated (injection) | HYBRID: Schemathesis, nuclei; sqlmap, NoSQLMap, Dalfox, commix, SSTImap | to design |
-| **4.4** Requests and responses have size limits (new) | to decide | to design |
+| **4.4** Requests have size limits (Request Size Limits, new) | our code (empirical 413 + gateway config) | done 2026-10-23, group G ([draft](test-review/group-g.md)) |
 | **5.1** Every request is logged with its metadata | NATIVE | to design |
 | **5.2** Anomalous security events raise alerts | NATIVE | to design |
 | **6.1** Errors disclose no internal information | NATIVE | to design |
@@ -339,6 +344,9 @@ What the review decides for the documentation is collected here and applied afte
 | `docs/04-architecture/02-data-model.md`, `docs/02-guides/03-extending/02-add-a-native-test.md` | `Need.SECOND_USER_ACCOUNT` (user_b); the disposable-owned-object helper (`src/tests/helpers/owned_object.py`) and `create_resource(extra_body=...)`; a test resolves an object's by-id operations from a resource's `values` | group E |
 | `docs/03-reference/06-compatibility.md`, `docs/project/roadmap.md`, `CHANGELOG.md` | 2.2 and 2.5 added; both need user_a and `owned_object_resources` (2.2 also user_b); the new `Need` and the new `tests.domain_2.*` parameters | group E |
 | `OPEN_QUESTIONS.md` | B3 (a second ordinary account) is answered: `Need.SECOND_USER_ACCOUNT` used by 2.2; crAPI covered by a disposable `order` resource (real BOLA and excessive-data findings) | group E |
+| `docs/06-knowledge/04-guarantees.md` | 4.1/4.2/4.3 aligned with what is implemented; **4.4 added** (request size limits) | group G |
+| `docs/06-knowledge/05-tool-decisions.md` | 4.1: vegeta not used (a native burst finds the 429 and the spoofing bypass; the limit is read from the gateway) | group G |
+| `docs/03-reference/06-compatibility.md`, `docs/project/roadmap.md`, `CHANGELOG.md` | 4.1/4.3 rewritten, 4.4 added; 4.1/4.4 read the gateway limit (optional `Need.GATEWAY`) and send a burst / an oversized body (STRESSES_TARGET); new `tests.domain_4.*` parameters | group G |
 
 ## History: how the common part was decided (phase 0, 2026-10-19 to 2026-10-21)
 

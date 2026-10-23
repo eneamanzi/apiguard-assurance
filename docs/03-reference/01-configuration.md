@@ -365,6 +365,15 @@ Test [2.5](../05-tests/domain-2/2-5-object-property-authorization.md), Object Pr
 |---|---|---|---|
 | `owned_object_resources` | list | empty, **needed to run** | The config.yaml `resources:` resources that each create a disposable object owned by user_a (the same as test 2.2); each is checked in turn. Without any the test cannot run. |
 
+### `tests.domain_4.test_4_1`
+
+Test [4.1](../05-tests/domain-4/4-1-rate-limiting.md), Rate Limiting.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `max_burst` | int ≥2 | `150` | The largest burst the test sends before concluding there is no rate limit, when the gateway's configured limit cannot be read. The burst stops at the first 429. |
+| `probe_path` | string | `""` | The documented path to flood; empty derives the shortest documented GET. A read path, so the flood changes nothing. |
+
 ### `tests.domain_4.test_4_2`
 
 Test [4.2](../05-tests/domain-4/4-2-timeout-config-audit.md), Timeout Configuration Audit -- Prevention of Resource Lock.
@@ -374,6 +383,15 @@ Test [4.2](../05-tests/domain-4/4-2-timeout-config-audit.md), Timeout Configurat
 | `max_connect_timeout_ms` | int ≥1 | `5000` | Maximum acceptable backend connect timeout of a gateway service, in milliseconds. Methodology oracle: connect_timeout <= 5 000 ms (NIST SP 800-204A Section 4.3). Services with a higher value will produce a FAIL finding. |
 | `max_read_timeout_ms` | int ≥1 | `30000` | Maximum acceptable backend read timeout of a gateway service, in milliseconds. Methodology oracle: read_timeout <= 30 000 ms (NIST SP 800-204A Section 4.3). Services with a higher value will produce a FAIL finding. |
 | `max_write_timeout_ms` | int ≥1 | `30000` | Maximum acceptable backend write (send) timeout of a gateway service, in milliseconds. Methodology oracle: write_timeout <= 30 000 ms. Services with a higher value will produce a FAIL finding. |
+
+### `tests.domain_4.test_4_4`
+
+Test [4.4](../05-tests/domain-4/4-4-request-size-limits.md), Request Size Limits.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `body_size_bytes` | int ≥1024 | `2000000` | The size of the body sent when the gateway's configured limit cannot be read. A body above a sane API limit (default 2 MB); a gateway that accepts it has no small body-size limit. |
+| `probe_path` | string | `""` | The documented write path to probe; empty derives the shortest documented write. |
 
 ### `tests.domain_0.ext_0_1_ffuf`
 

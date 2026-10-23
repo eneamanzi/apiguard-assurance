@@ -263,6 +263,13 @@ tests:
       owned_object_resources: []
 
   domain_4:
+    # 4.1 Rate Limiting.
+    test_4_1:
+      # The largest burst the test sends before concluding there is no rate limit, when the
+      # gateway's configured limit cannot be read.
+      max_burst: 150
+      # The documented path to flood; empty derives the shortest documented GET.
+      probe_path: ''
     # 4.2 Timeout Configuration Audit -- Prevention of Resource Lock.
     test_4_2:
       # Maximum acceptable backend connect timeout of a gateway service, in milliseconds.
@@ -271,6 +278,14 @@ tests:
       max_read_timeout_ms: 30000
       # Maximum acceptable backend write (send) timeout of a gateway service, in milliseconds.
       max_write_timeout_ms: 30000
+    # 4.3 Circuit Breaker Audit: no parameters.
+    test_4_3: {}
+    # 4.4 Request Size Limits.
+    test_4_4:
+      # The size of the body sent when the gateway's configured limit cannot be read.
+      body_size_bytes: 2000000
+      # The documented write path to probe; empty derives the shortest documented write.
+      probe_path: ''
 # [[[end]]]
 
 # =============================================================================
