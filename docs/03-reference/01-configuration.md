@@ -365,6 +365,15 @@ Test [2.5](../05-tests/domain-2/2-5-object-property-authorization.md), Object Pr
 |---|---|---|---|
 | `owned_object_resources` | list | empty, **needed to run** | The config.yaml `resources:` resources that each create a disposable object owned by user_a (the same as test 2.2); each is checked in turn. Without any the test cannot run. |
 
+### `tests.domain_3.test_3_3`
+
+Test [3.3](../05-tests/domain-3/3-3-request-signing-audit.md), Request Signing Audit.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `max_replay_window_seconds` | int ≥1 | `300` | The largest acceptable replay window (clock-skew tolerance) in seconds; above it a signed request can be replayed. Default 300 (5 minutes). |
+| `forbidden_algorithms` | list | 4 values (`hmac-sha1`, `hmac-md5`, …) | HMAC algorithms treated as weak (compared lowercased). Default sha1/md5. |
+
 ### `tests.domain_4.test_4_1`
 
 Test [4.1](../05-tests/domain-4/4-1-rate-limiting.md), Rate Limiting.
@@ -455,6 +464,11 @@ true (`src/external_tests/registry.py`):
 | `ffuf.wordlist_dir` | string | `./tools/seclists` | Directory of the pinned SecLists wordlists, relative to the working directory (`install_tools.sh` fills the default one). |
 | `ffuf.per_request_timeout` | int 1-60 | `10` | Timeout (s) of each request, passed as `-timeout`. |
 | `ffuf.rate_limit_rps` | int 1-150 | `30` | Requests per second, passed as `-rate`. |
+| `schemathesis.enabled` | bool | `false` | Enable schemathesis; `timeout_seconds` is then required. Needs the `schemathesis` extra (`pip install "apiguard-assurance[schemathesis]"`). |
+| `schemathesis.timeout_seconds` | int ≥60 \| null | none | **Required with `enabled: true`.** Wall-clock limit (s) of the whole run (it grows with the number of operations and `max_examples`); only stops a tool that hangs. |
+| `schemathesis.expected_version` | string \| null | none | Expected tool version; a mismatch logs a WARNING and the test still runs. |
+| `schemathesis.dev_mode` | bool | `false` | Development only: reuse the output a previous run saved (`<output.directory>/tools/<label>_output.json`) instead of running the tool; without that file the tool runs and saves it. Never enable in a real assessment. |
+| `schemathesis.max_examples` | int 1-100 | `5` | Hypothesis examples generated per operation (`--hypothesis-max-examples`). Low keeps the run bounded; raise it for deeper fuzzing on a staging target. |
 
 <!-- [[[end]]] -->
 

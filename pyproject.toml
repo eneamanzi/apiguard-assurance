@@ -186,6 +186,14 @@ sslyze = [
     # must be removed or replaced with a permissively-licensed TLS scanner.
     "sslyze>=6.3,<7",
 ]
+schemathesis = [
+    # Schema-driven API testing — BaseLibraryConnector tier.
+    # Used by SchemathesisConnector (src/connectors/schemathesis.py) for
+    # ext.3.1.schemathesis: generates valid and invalid inputs from the OpenAPI
+    # specification and flags server errors and schema non-conformance.
+    # Install via:  pip install -e ".[schemathesis]"
+    "schemathesis>=3.39,<4",
+]
 
 [project.scripts]
 # Exposes the CLI entry point after `pip install -e .`

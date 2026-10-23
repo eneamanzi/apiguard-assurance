@@ -232,6 +232,12 @@ tests:
 external_tools:
   # Master switch: false skips every external test in one line.
   enabled: true
+  schemathesis:
+    # Schema-driven validation (ext.3.1.schemathesis), unauthenticated. Needs the
+    # [schemathesis] extra. max_examples kept low to bound the run.
+    enabled: true
+    timeout_seconds: 600
+    max_examples: 3
   # Each tool can also be switched off alone (enabled: false).
   testssl:
     enabled: true

@@ -52,8 +52,9 @@ crAPI enters the code.
   enforced side proven with an announced, reverted Kong plugin change. [draft](test-review/group-g.md).
 - **Done:** group I (2026-10-23): 6.1 (error/info disclosure, new), 6.2 (security headers, rewritten: HSTS to 1.5, CORS added, consistency by sampling), 6.4 (hard-coded credentials, rewritten). crAPI 6.2 FAIL (headers inconsistent across services, caught by sampling); the rest PASS. **6.3 (smuggling) deferred, kept open.** [draft](test-review/group-i.md).
 - **Done:** group H (2026-10-23): 5.1 (request logging, a gateway config audit: a logging plugin enabled -> enforced, none -> violation; the log-content checks deferred, they need log access), 5.2 (alerting, SKIP from outside: needs the SIEM's rules and a webhook). 5.1 FAIL on the default labs (no logging plugin), enforced side proven with an announced, reverted Kong http-log plugin. [draft](test-review/group-h.md).
+- **Done:** group F (2026-10-23): 3.1 input validation via **Schemathesis** (`ext.3.1.schemathesis`, schema-driven, unauthenticated) and 3.3 request-signing audit (rewritten). crAPI 3.1 FAIL (20 operations return 500 on a generated input), Forgejo/APISIX 3.1 PASS; 3.3 PASS on the labs (compliant hmac policy), VIOLATION with an announced, reverted Kong change. [draft](test-review/group-f.md).
 - **Order of the rest** (Claude's choice, owner 2026-10-23): G done, then **I** (6.1-6.4), H (5.1-5.2), F (3.1, 3.3),
-  J (7.x) -- reuse-first, the tool-heavy groups last. **Next: group F (3.1, 3.3).**
+  J (7.x) -- reuse-first, the tool-heavy groups last. **Next: group J (7.1-7.4), last.**
   `privileged_endpoints` (admin/management segment); 2.1 (BFLA) FAIL on crAPI (user_a reaches the management plane),
   PASS on Forgejo; 2.4 (version-sibling consistency) PASS on crAPI, SKIP on Forgejo (only /api/v1). Self-review:
   destructive privileged ops surfaced not omitted; 2.4 calibrates the version once (242 probes -> 1).
@@ -81,7 +82,7 @@ a group is what its members share, not whether a test for them exists on `main`.
 | C ok | 1.2, 1.3, 1.4 | the token lifecycle, jwt_tool, the login artefacts |
 | D ok | 1.5 | TLS, testssl and sslyze (both already connected) |
 | E ok | 2.1, 2.2, 2.4, 2.5 | two roles, own and other users' objects, equivalent paths |
-| F | 3.1, 3.3 | the request body and the signature over it |
+| F ok | 3.1, 3.3 | the request body and the signature over it (3.1 via Schemathesis; deep-injection tools deferred) |
 | G ok | 4.1, 4.2, 4.3, 4.4 | resource limits, the gateway plugin configuration, vegeta |
 | H ok | 5.1, 5.2 | the gateway's logs and alerts (5.2 SKIP from outside; content/alert checks deferred) |
 | I ok | 6.1, 6.2, 6.4 | what a response lets out: errors, headers, secrets |
@@ -201,7 +202,7 @@ optional, HYBRID) and its tools: a starting point, revisited in each review.
 | 6 | **1.5** Credentials never travel on insecure channels (Insecure Credential Transport, TLS) | `1.5` rewritten (Credentials Over an Insecure Channel), `ext.1.5.testssl` rewritten; `ext.1.5.sslyze` removed as an always-on test | HYBRID: native HTTP layer + testssl.sh (one TLS scanner; sslyze connector kept, enable-able) | done 2026-10-22, group D ([draft](test-review/group-d.md)) |
 | 7 | **1.6** Sessions are managed securely (Secure Session Management) | `1.6` rewritten (Session Cookie Safety) | our code | done 2026-10-22, group B ([draft](test-review/group-b.md)) |
 | 8 | **2.1** Only authorised users reach privileged functions (Function-Level Authorization, BFLA; 2.3 merged) | `2.1` rewritten | our code; derived `privileged_endpoints` | done 2026-10-23, group E ([draft](test-review/group-e.md)) |
-| 9 | **3.3** Request signing does not allow replay or weak algorithms (HMAC Config Audit) | `3.3` | NATIVE | to review |
+| 9 | **3.3** Request signing does not allow replay or weak algorithms (Request Signing Audit) | `3.3` rewritten | NATIVE, gateway audit (all policies; absence = not applicable) | done 2026-10-23, group F ([draft](test-review/group-f.md)) |
 | 10 | **4.1** Rate limiting prevents resource exhaustion (Rate Limiting) | `4.1` rewritten | our code; native burst, limit read from the gateway (vegeta not used) | done 2026-10-23, group G ([draft](test-review/group-g.md)) |
 | 11 | **4.2** Timeouts prevent resource lock (Timeout Config Audit) | `4.2` (the pilot) | NATIVE, gateway audit | done 2026-10-23, group G |
 | 12 | **4.3** The system degrades gracefully (Circuit Breaker Audit) | `4.3` rewritten | NATIVE, gateway audit (passive health check = Kong's breaker) | done 2026-10-23, group G ([draft](test-review/group-g.md)) |
@@ -220,7 +221,7 @@ optional, HYBRID) and its tools: a starting point, revisited in each review.
 | **2.2** Users access only their own objects (BOLA) | our code; disposable owned object via `resources:` | done 2026-10-23, group E ([draft](test-review/group-e.md)) |
 | **2.4** Equivalent paths to an operation enforce the same controls (Authorization Consistency, new) | our code; derived `version_siblings` | done 2026-10-23, group E ([draft](test-review/group-e.md)) |
 | **2.5** Object property level authorization: excessive data, mass assignment | our code; same owned object | done 2026-10-23, group E ([draft](test-review/group-e.md)) |
-| **3.1** Every input is validated (injection) | HYBRID: Schemathesis, nuclei; sqlmap, NoSQLMap, Dalfox, commix, SSTImap | to design |
+| **3.1** Every input is validated (injection) | `ext.3.1.schemathesis` (Schemathesis); deep-injection tools deferred | done 2026-10-23, group F ([draft](test-review/group-f.md)) |
 | **4.4** Requests have size limits (Request Size Limits, new) | our code (empirical 413 + gateway config) | done 2026-10-23, group G ([draft](test-review/group-g.md)) |
 | **5.1** Every request is logged with its metadata | NATIVE, gateway config audit | done 2026-10-23, group H ([draft](test-review/group-h.md)) |
 | **5.2** Anomalous security events raise alerts | SKIP from outside (needs SIEM/webhook) | done 2026-10-23, group H ([draft](test-review/group-h.md)); behavioural checks deferred |
@@ -313,7 +314,9 @@ sound, a live case was not produced) and external tools not yet wired.
 | **Key-based JWT attacks** (algorithm confusion, expired/forged `exp`): a `jwt_forge.py` helper run only when the operator supplies a signing key or JWKS | 1.2, 1.3 | no target gives key material (NEEDS_KEY_MATERIAL) |
 | **Password-change revocation** (crAPI's stateless-JWT challenge, Q-32): a configured OTP/reset flow | 1.4 | target-specific flow (MailHog on the lab) |
 | 2.2/2.5 coverage **option (b)**: derive candidate object endpoints (list a collection, take an owned id) instead of only the configured `owned_object_resources` | 2.2, 2.5 | owner chose (a) now; (b) is a later, more automatic coverage |
-| Wire the **external tools** not yet connected where a review chose native/deferred: vegeta (4.1, native burst used instead), jwt_tool (1.2/1.3, keyless), sslyze (1.5, testssl used; the connector stays), trufflehog/gitleaks (6.4), http2smugl (6.3), interactsh / an out-of-band listener (7.2/7.4), Schemathesis/nuclei/sqlmap (3.1) | various | connected with the guarantee that needs them, or when a key/listener is available |
+| Wire the **external tools** not yet connected where a review chose native/deferred: vegeta (4.1, native burst used instead), jwt_tool (1.2/1.3, keyless), sslyze (1.5, testssl used; the connector stays), trufflehog/gitleaks (6.4), http2smugl (6.3), interactsh / an out-of-band listener (7.2/7.4) | various | connected with the guarantee that needs them, or when a key/listener is available |
+| 3.1 **deep injection** confirmation (sqlmap, NoSQLMap, Dalfox, commix, SSTImap) and an **authenticated** Schemathesis run (write bodies) | 3.1 | Schemathesis is wired unauthenticated now; deep confirmation changes data and needs the heavy tools |
+| Verify **ASVS v5.0.0-4.1.5** on source and add it to 3.3's references | 3.3 | WebFetch was rate-limited 2026-10-23 |
 | 5.1 **log-content** checks (fields, redaction, real IP, injection) and 5.2 **behavioural alert** checks (brute-force alert, dedup, threshold) | 5.1, 5.2 | need read access to the logs and an alert webhook the tool can observe |
 
 ## Documentation changes to apply later

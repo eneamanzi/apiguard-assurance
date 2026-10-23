@@ -262,6 +262,19 @@ tests:
       # (the same as test 2.2); each is checked in turn.
       owned_object_resources: []
 
+  domain_3:
+    # 3.3 Request Signing Audit.
+    test_3_3:
+      # The largest acceptable replay window (clock-skew tolerance) in seconds; above it a signed
+      # request can be replayed.
+      max_replay_window_seconds: 300
+      # HMAC algorithms treated as weak (compared lowercased).
+      forbidden_algorithms:
+        - hmac-sha1
+        - hmac-md5
+        - sha1
+        - md5
+
   domain_4:
     # 4.1 Rate Limiting.
     test_4_1:
@@ -356,4 +369,14 @@ external_tools:
     # Per-request timeout (seconds) and request rate (per second).
     per_request_timeout: 10
     rate_limit_rps: 30
+    dev_mode: false
+
+  # Schema-driven input validation (ext.3.1.schemathesis), unauthenticated.
+  # Needs the [schemathesis] extra: pip install "apiguard-assurance[schemathesis]".
+  schemathesis:
+    enabled: false
+    timeout_seconds: 600
+    # expected_version: "3.39.16"
+    # Hypothesis examples generated per operation (low keeps the run bounded).
+    max_examples: 5
     dev_mode: false

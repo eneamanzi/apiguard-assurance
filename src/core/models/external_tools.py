@@ -257,6 +257,43 @@ class FfufConfig(BaseExternalToolConfig):
     )
 
 
+class SchemathesisConfig(BaseExternalToolConfig):
+    """
+    Configuration for the schemathesis connector (schema-driven API testing).
+
+    schemathesis is a Python tool run as a subprocess (`schemathesis run`); it
+    generates valid and invalid inputs from the OpenAPI specification and flags
+    server errors and schema non-conformance (test ext.3.1.schemathesis). It is
+    run unauthenticated (no credential injected). Install via the extra:
+    `pip install "apiguard-assurance[schemathesis]"`.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description=(
+            "Enable schemathesis; `timeout_seconds` is then required. Needs the `schemathesis` "
+            'extra (`pip install "apiguard-assurance[schemathesis]"`).'
+        ),
+    )
+    timeout_seconds: int | None = Field(
+        default=None,
+        ge=60,
+        description=(
+            "**Required with `enabled: true`.** Wall-clock limit (s) of the whole run (it grows "
+            "with the number of operations and `max_examples`); only stops a tool that hangs."
+        ),
+    )
+    max_examples: int = Field(
+        default=5,
+        ge=1,
+        le=100,
+        description=(
+            "Hypothesis examples generated per operation (`--hypothesis-max-examples`). Low keeps "
+            "the run bounded; raise it for deeper fuzzing on a staging target."
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Root external tools config
 # ---------------------------------------------------------------------------
@@ -299,6 +336,10 @@ class ExternalToolsConfig(BaseModel):
     ffuf: FfufConfig = Field(
         default_factory=FfufConfig,
         description="Configuration for the ffuf connector (path search).",
+    )
+    schemathesis: SchemathesisConfig = Field(
+        default_factory=SchemathesisConfig,
+        description="Configuration for the schemathesis connector (schema-driven API testing).",
     )
 
     def is_tool_enabled(self, tool_name: str) -> bool:
