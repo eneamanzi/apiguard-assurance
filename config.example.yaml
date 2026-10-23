@@ -287,6 +287,12 @@ tests:
       # The documented write path to probe; empty derives the shortest documented write.
       probe_path: ''
 
+  domain_5:
+    # 5.1 Request Logging Audit: no parameters.
+    test_5_1: {}
+    # 5.2 Security Alerting Audit: no parameters.
+    test_5_2: {}
+
   domain_6:
     # 6.1 Error and Information Disclosure: no parameters.
     test_6_1: {}

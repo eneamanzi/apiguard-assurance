@@ -10,7 +10,7 @@ target, and how it relates to the methodology.
 
 <!-- [[[cog import generate_docs as g; cog.out(g.catalogue()) ]]] -->
 
-24 tests: 22 native, 2 external.
+26 tests: 24 native, 2 external.
 
 | ID | Name | Pri. | Strategy | Effect | CWE | Needs | Page |
 |---|---|---|---|---|---|---|---|
@@ -42,7 +42,8 @@ target, and how it relates to the methodology.
 | `4.3` | Circuit Breaker Audit | P1 | WHITE_BOX | READ_ONLY | CWE-400 | `GATEWAY` | [4.3](domain-4/4-3-circuit-breaker-audit.md) |
 | `4.4` | Request Size Limits | P1 | BLACK_BOX | STRESSES_TARGET | CWE-400 | `GATEWAY` (optional) | [4.4](domain-4/4-4-request-size-limits.md) |
 | **Domain 5 - Visibility and Auditing** | | | | | | | |
-| - | no test implemented | | | | | | |
+| `5.1` | Request Logging Audit | P1 | WHITE_BOX | READ_ONLY | CWE-778 | `GATEWAY` | [5.1](domain-5/5-1-request-logging-audit.md) |
+| `5.2` | Security Alerting Audit | P2 | WHITE_BOX | READ_ONLY | CWE-778 | - | [5.2](domain-5/5-2-security-alerting-audit.md) |
 | **Domain 6 - Configuration and Hardening** | | | | | | | |
 | `6.1` | Error and Information Disclosure | P2 | GREY_BOX | READ_ONLY | CWE-209 | `USER_ACCOUNT` | [6.1](domain-6/6-1-information-disclosure.md) |
 | `6.2` | Security Headers Audit | P3 | BLACK_BOX | READ_ONLY | - | - | [6.2](domain-6/6-2-security-headers-audit.md) |

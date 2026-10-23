@@ -51,8 +51,9 @@ crAPI enters the code.
   breaker, 4.4 size limits (new). On both gateways; 4.1/4.4 FAIL on the default labs (no rate/size plugin), the
   enforced side proven with an announced, reverted Kong plugin change. [draft](test-review/group-g.md).
 - **Done:** group I (2026-10-23): 6.1 (error/info disclosure, new), 6.2 (security headers, rewritten: HSTS to 1.5, CORS added, consistency by sampling), 6.4 (hard-coded credentials, rewritten). crAPI 6.2 FAIL (headers inconsistent across services, caught by sampling); the rest PASS. **6.3 (smuggling) deferred, kept open.** [draft](test-review/group-i.md).
+- **Done:** group H (2026-10-23): 5.1 (request logging, a gateway config audit: a logging plugin enabled -> enforced, none -> violation; the log-content checks deferred, they need log access), 5.2 (alerting, SKIP from outside: needs the SIEM's rules and a webhook). 5.1 FAIL on the default labs (no logging plugin), enforced side proven with an announced, reverted Kong http-log plugin. [draft](test-review/group-h.md).
 - **Order of the rest** (Claude's choice, owner 2026-10-23): G done, then **I** (6.1-6.4), H (5.1-5.2), F (3.1, 3.3),
-  J (7.x) -- reuse-first, the tool-heavy groups last. **Next: group H (5.1, 5.2).**
+  J (7.x) -- reuse-first, the tool-heavy groups last. **Next: group F (3.1, 3.3).**
   `privileged_endpoints` (admin/management segment); 2.1 (BFLA) FAIL on crAPI (user_a reaches the management plane),
   PASS on Forgejo; 2.4 (version-sibling consistency) PASS on crAPI, SKIP on Forgejo (only /api/v1). Self-review:
   destructive privileged ops surfaced not omitted; 2.4 calibrates the version once (242 probes -> 1).
@@ -82,8 +83,9 @@ a group is what its members share, not whether a test for them exists on `main`.
 | E ok | 2.1, 2.2, 2.4, 2.5 | two roles, own and other users' objects, equivalent paths |
 | F | 3.1, 3.3 | the request body and the signature over it |
 | G ok | 4.1, 4.2, 4.3, 4.4 | resource limits, the gateway plugin configuration, vegeta |
-| H | 5.1, 5.2 | the gateway's logs and alerts |
-| I | 6.1, 6.2, 6.3, 6.4 | what a response lets out: errors, headers, secrets |
+| H ok | 5.1, 5.2 | the gateway's logs and alerts (5.2 SKIP from outside; content/alert checks deferred) |
+| I ok | 6.1, 6.2, 6.4 | what a response lets out: errors, headers, secrets |
+| I (6.3) | 6.3 | layer-7 smuggling: split from I, deferred and open (see Deferred follow-ups) |
 | J | 7.1, 7.2, 7.3, 7.4 | business flows, the outbound listener, races |
 
 **The six phases of a group.** Always the same, in this order.
@@ -220,8 +222,8 @@ optional, HYBRID) and its tools: a starting point, revisited in each review.
 | **2.5** Object property level authorization: excessive data, mass assignment | our code; same owned object | done 2026-10-23, group E ([draft](test-review/group-e.md)) |
 | **3.1** Every input is validated (injection) | HYBRID: Schemathesis, nuclei; sqlmap, NoSQLMap, Dalfox, commix, SSTImap | to design |
 | **4.4** Requests have size limits (Request Size Limits, new) | our code (empirical 413 + gateway config) | done 2026-10-23, group G ([draft](test-review/group-g.md)) |
-| **5.1** Every request is logged with its metadata | NATIVE | to design |
-| **5.2** Anomalous security events raise alerts | NATIVE | to design |
+| **5.1** Every request is logged with its metadata | NATIVE, gateway config audit | done 2026-10-23, group H ([draft](test-review/group-h.md)) |
+| **5.2** Anomalous security events raise alerts | SKIP from outside (needs SIEM/webhook) | done 2026-10-23, group H ([draft](test-review/group-h.md)); behavioural checks deferred |
 | **6.1** Errors disclose no internal information | NATIVE (response inspection) | done 2026-10-23, group I ([draft](test-review/group-i.md)) |
 | **6.3** The gateway is hardened against layer-7 attacks (smuggling) | raw-socket CL+TE probe (native) or http2smugl | **open**: split from group I, deferred (owner 2026-10-23) |
 | **7.1** Sensitive business flows resist automated abuse | NATIVE | to design |
@@ -297,6 +299,22 @@ out the chatbot (challenges 16-18). Guarantees as revised in phase 0b.
 | 6 layer 7 DoS on "contact mechanic" | business flow abuse | 7.1 | not implemented |
 | 12, 13 NoSQL and SQL injection | injection | 3.1 | not implemented |
 | (Q-32) token valid after a password change | credential lifecycle | 1.4 | not implemented |
+
+## Deferred follow-ups (after all tests)
+
+Things left for after every test is developed (owner, 2026-10-23): not open questions (the owner does not need to
+decide them), just work to pick up at the end. Mostly VIOLATION branches a lab does not exhibit (the detector is
+sound, a live case was not produced) and external tools not yet wired.
+
+| Item | Test(s) | Why deferred |
+|---|---|---|
+| **6.3 smuggling** (a new guarantee): a raw-socket CL+TE probe and the layer-7 timeout audit | 6.3 | split from group I and deferred (owner 2026-10-23) |
+| Produce a **live VIOLATION** on a lab (announced gateway change) for the branches proven only by the detector's logic: a leaked header / stack trace (6.1), a debug/config secret (6.4), a version that drops auth (2.4), a bound mass-assignment field (2.5), a gateway with no breaker/health check (4.3) | 6.1, 6.4, 2.4, 2.5, 4.3 | the labs do not exhibit them; a clean injection fought the gateway (Kong strips URL credentials, header-injection fiddly). Detectors are deterministic; 6.2/others prove the reading path |
+| **Key-based JWT attacks** (algorithm confusion, expired/forged `exp`): a `jwt_forge.py` helper run only when the operator supplies a signing key or JWKS | 1.2, 1.3 | no target gives key material (NEEDS_KEY_MATERIAL) |
+| **Password-change revocation** (crAPI's stateless-JWT challenge, Q-32): a configured OTP/reset flow | 1.4 | target-specific flow (MailHog on the lab) |
+| 2.2/2.5 coverage **option (b)**: derive candidate object endpoints (list a collection, take an owned id) instead of only the configured `owned_object_resources` | 2.2, 2.5 | owner chose (a) now; (b) is a later, more automatic coverage |
+| Wire the **external tools** not yet connected where a review chose native/deferred: vegeta (4.1, native burst used instead), jwt_tool (1.2/1.3, keyless), sslyze (1.5, testssl used; the connector stays), trufflehog/gitleaks (6.4), http2smugl (6.3), interactsh / an out-of-band listener (7.2/7.4), Schemathesis/nuclei/sqlmap (3.1) | various | connected with the guarantee that needs them, or when a key/listener is available |
+| 5.1 **log-content** checks (fields, redaction, real IP, injection) and 5.2 **behavioural alert** checks (brute-force alert, dedup, threshold) | 5.1, 5.2 | need read access to the logs and an alert webhook the tool can observe |
 
 ## Documentation changes to apply later
 
