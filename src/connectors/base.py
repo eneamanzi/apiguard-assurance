@@ -8,10 +8,11 @@ Architecture — DA-1 split (ADR-001 §3):
     BaseSubprocessConnector — concrete base for tools invoked as subprocesses
                               (testssl.sh, ffuf, nuclei, ...).
     BaseLibraryConnector    — concrete base for tools accessed as Python libraries
-                              (sslyze, ...).
+                              (no concrete subclass at present; the tier stays
+                              as the documented extension point for one).
 
     The split is motivated by the principle that a subclass must not inherit
-    methods it cannot use.  Before DA-1, a hypothetical SslyzeConnector would
+    methods it cannot use.  Before DA-1, a hypothetical library connector would
     have inherited _run_subprocess() and BINARY_NAME even
     though none of them apply to a library-based tool.  The three-tier hierarchy
     removes this coupling: each concrete subclass inherits exactly the discovery
@@ -161,7 +162,7 @@ class BaseConnector(ABC):
             Human-readable tool identifier used in log messages and the HTML
             report.  For subprocess tools this is typically the binary name
             (e.g. "testssl.sh", "nuclei").  For library tools it is the
-            PyPI package name (e.g. "sslyze").
+            PyPI package name.
     """
 
     TOOL_NAME: ClassVar[str]
@@ -999,12 +1000,13 @@ class ConnectorRawOutput(TypedDict, total=True):
 
 class BaseLibraryConnector(BaseConnector):
     """
-    Base of a connector for a tool used as a Python library (sslyze).
+    Base of a connector for a tool used as a Python library.
 
     Provides implementations of is_available() and get_version() based on
     importlib introspection rather than subprocess execution.  Concrete
-    subclasses (e.g. SslyzeConnector) declare LIBRARY_MODULE and implement
-    run().
+    subclasses declare LIBRARY_MODULE and implement run(). No concrete
+    subclass exists today; the tier is kept as the extension point for a
+    Python-library tool.
 
     Discovery is performed exclusively via importlib.util.find_spec(): if the
     module is importable, the tool is considered available.  No subprocess
@@ -1017,7 +1019,7 @@ class BaseLibraryConnector(BaseConnector):
         LIBRARY_MODULE: str
             The top-level Python module name to import.  Must match the
             importable name, which may differ from the PyPI package name.
-            Example: "sslyze" (both PyPI name and importable name match).
+            Example: "requests" (both PyPI name and importable name match).
             Example: "PIL" (PyPI name: "Pillow", importable name: "PIL").
 
         TOOL_NAME: str (inherited from BaseConnector)

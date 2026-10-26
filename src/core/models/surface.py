@@ -193,7 +193,7 @@ class SecuritySchemeRecord(BaseModel):
 
 class DerivationBasis(StrEnum):
     """
-    How a derived fact was obtained from the specification (topic 4, precedence).
+    How a derived fact was obtained from the specification (precedence).
 
     DECLARED  -- the specification states it (`deprecated: true`, `format: uri`,
                  a request schema, an `example`).
@@ -212,7 +212,7 @@ class DerivedFact(BaseModel):
     Produced by the named rules of src/discovery/derivation.py in Phase 2; the
     tests read them from AttackSurface.derived; the report lists them, so that
     a reader sees what was derived and can correct it in the configuration
-    (which always prevails, topic 4).
+    (which always prevails).
     """
 
     model_config = {"frozen": True}

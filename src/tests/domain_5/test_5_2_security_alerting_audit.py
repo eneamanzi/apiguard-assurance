@@ -2,7 +2,7 @@
 src/tests/domain_5/test_5_2_security_alerting_audit.py
 
 Test 5.2: guarantee "anomalous security events trigger real-time alerts"
-(docs/project/test-review/group-h.md). NIST SP 800-61.
+. NIST SP 800-61.
 
 Alerting lives in the SIEM or the notification channel, not in the gateway, and
 the methodology says it is "only partly checkable from outside": its tests
@@ -93,7 +93,7 @@ class Test52SecurityAlertingAudit(BaseTest):
                         "The methodology's checks (a brute-force alert within seconds, alert "
                         "deduplication, a configured threshold) need an alert webhook the tool can "
                         "observe. They run once that out-of-band listener exists (shared with "
-                        "tests 7.2 and 7.4); see the Deferred follow-ups in the test review."
+                        "tests 7.2 and 7.4); see the backlog in docs/project/roadmap.md."
                     ),
                 )
             ],

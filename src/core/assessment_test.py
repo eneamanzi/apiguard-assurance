@@ -7,9 +7,9 @@ A test declares who it is in one TestInfo (``info``, src/core/test_metadata.py)
 and returns one TestResult. This base copies the declaration into every
 result, collects the test's judgements, the transaction log and the proof of
 each HTTP response it judges, and computes the result from them, written once
-for both kinds of test (docs/04-architecture/05-design-decisions.md, D8;
-docs/project/test-review.md, topic 3). An external test judges HTTP responses
-too when it verifies a tool's results with the tool's client (test-review, 0.1).
+for both kinds of test (docs/04-architecture/05-design-decisions.md, D8). An
+external test judges HTTP responses too when it verifies a tool's results with
+the tool's client.
 The two subclasses keep what is theirs:
 
     BaseTest (src/tests/base.py)                  the native execute() and the
@@ -247,7 +247,7 @@ class AssessmentTest(ABC, Generic[ParamsT]):
 
         For a VIOLATION the full record goes to evidence.json and the finding
         is pointed to it (evidence_ref), so a finding of an HTTP response always
-        has its proof (docs/project/test-review.md, topic 5).
+        has its proof.
 
         Args:
             record:      The EvidenceRecord returned by SecurityClient.request().

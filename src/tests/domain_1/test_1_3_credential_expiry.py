@@ -2,7 +2,7 @@
 src/tests/domain_1/test_1_3_credential_expiry.py
 
 Test 1.3: guarantee "a credential declares an expiry, keeps it within a sane
-bound, and is refused once it has passed" (docs/project/test-review/group-c.md).
+bound, and is refused once it has passed".
 
 The credential must be a JSON Web Token: an opaque token (Forgejo's) carries no
 claims to read, and the test is `NOT_APPLICABLE/NOT_A_JWT` there. Where it is a

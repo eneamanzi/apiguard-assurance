@@ -10,7 +10,7 @@ recomputes the signature and refuses any token whose signature does not match.
 The variants here are the ones that need no key, so they are the test for the
 one failure that matters most: a server that does not verify the signature at
 all. Each is built to be rejected; presenting it and seeing a `2xx` is the
-finding (test 1.2, docs/project/test-review/group-c.md). None of this signs
+finding (test 1.2). None of this signs
 anything: the variants that would need the signing or the public key (an
 expired `exp`, algorithm confusion) cannot be built without key material the
 target does not give us, and the test reports them as not verifiable rather

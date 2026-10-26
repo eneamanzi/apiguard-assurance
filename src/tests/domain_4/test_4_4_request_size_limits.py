@@ -1,8 +1,7 @@
 """
 src/tests/domain_4/test_4_4_request_size_limits.py
 
-Test 4.4: guarantee "the gateway limits the request body size" (new,
-docs/project/test-review/group-g.md). OWASP API4:2023.
+Test 4.4: guarantee "the gateway limits the request body size" (new). OWASP API4:2023.
 
 A gateway should reject an oversized request body with `413 Request Entity Too
 Large` before it is routed or processed; without a limit, a large body ties up

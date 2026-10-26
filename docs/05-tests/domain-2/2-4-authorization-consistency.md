@@ -1,6 +1,6 @@
 # 2.4 Authorization Consistency
 
-> **Audience:** analysts, contributors · **Status:** new in the test review (branch `test-review`, 2026-10-23) ·
+> **Audience:** analysts, contributors · **Status:** new in the test review (2026-10-23) ·
 > **Source of truth:**
 > [`src/tests/domain_2/test_2_4_authorization_consistency.py`](../../../src/tests/domain_2/test_2_4_authorization_consistency.py),
 > [`src/discovery/derivation.py`](../../../src/discovery/derivation.py) · **Verified:** 2026-10-23

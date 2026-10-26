@@ -156,7 +156,7 @@ resources:
 # To run only a part, change one line:
 #   min_priority   3 = all; 0 = P0 only, 1 = P0-P1, 2 = P0-P2
 #   strategies     remove one to exclude its tests (e.g. only BLACK_BOX: no credentials used)
-#   test_ids       e.g. ["1.4", "7.2", "ext.1.5.sslyze"]: only these (replaces the two filters above)
+#   test_ids       e.g. ["1.4", "7.2", "ext.1.5.testssl"]: only these (replaces the two filters above)
 #   external_tools.enabled: false (below): no external test, a run of a minute or two
 execution:
   min_priority: 3
@@ -250,9 +250,6 @@ external_tools:
     enabled: true
     timeout_seconds: 600
     expected_version: "3.8.0"
-  sslyze:
-    enabled: true
-    timeout_seconds: 60
   # ffuf, path search (ext.0.1.ffuf): unauthenticated GET only, about 1 minute on this lab.
   ffuf:
     enabled: true

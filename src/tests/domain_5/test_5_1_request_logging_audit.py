@@ -2,7 +2,7 @@
 src/tests/domain_5/test_5_1_request_logging_audit.py
 
 Test 5.1: guarantee "every request is logged with its metadata"
-(docs/project/test-review/group-h.md). NIST SP 800-92, OWASP ASVS v5.0.0-16.2.1.
+. NIST SP 800-92, OWASP ASVS v5.0.0-16.2.1.
 
 The methodology states the limit plainly: "without access to the logs this
 guarantee cannot be checked empirically from outside." So the test audits the

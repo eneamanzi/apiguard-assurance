@@ -2,9 +2,10 @@
 src/connectors/types/tls_findings.py
 
 Shared shape for TLS findings produced by the TLS-class connectors
-(``TestsslConnector``, ``SslyzeConnector``).  Both connectors normalise their
+(currently ``TestsslConnector``).  The connector normalises its
 tool-specific output into a list of ``TlsFinding`` dicts, which the
-``ext_test_1_5_tls_analysis`` oracle then consumes uniformly.
+``ext_test_1_5_tls_analysis`` oracle then consumes uniformly. The shape stays
+tool-neutral so a second TLS connector could reuse it unchanged.
 
 Required fields are the three the oracle needs to partition findings into
 FAIL / NOTE / IGNORE buckets:
@@ -18,7 +19,7 @@ opportunistically surfaces (CVE/CWE references in the report, IP/port for
 testssl's per-host findings):
 
     cve, cwe  -- standards references when present
-    ip, port  -- target identifiers (testssl only; sslyze omits them)
+    ip, port  -- target identifiers (testssl includes them per host)
 
 The TypedDict is structural, not nominal: connectors construct plain dicts
 that conform to this shape; mypy validates the access pattern downstream.
@@ -35,7 +36,7 @@ from typing import NotRequired, TypedDict
 
 
 class TlsFinding(TypedDict):
-    """Common shape for TLS findings produced by testssl.sh and sslyze."""
+    """Common shape for TLS findings produced by the TLS-class connectors (testssl.sh)."""
 
     id: str
     severity: str

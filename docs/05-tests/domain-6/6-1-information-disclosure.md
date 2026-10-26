@@ -1,6 +1,6 @@
 # 6.1 Error and Information Disclosure
 
-> **Audience:** analysts, contributors · **Status:** new in the test review (branch `test-review`, 2026-10-23) ·
+> **Audience:** analysts, contributors · **Status:** new in the test review (2026-10-23) ·
 > **Source of truth:**
 > [`src/tests/domain_6/test_6_1_information_disclosure.py`](../../../src/tests/domain_6/test_6_1_information_disclosure.py),
 > [`src/tests/helpers/response_inspector.py`](../../../src/tests/helpers/response_inspector.py) · **Verified:** 2026-10-23

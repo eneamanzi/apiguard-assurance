@@ -2,7 +2,7 @@
 src/external_tests/ext_test_3_1_input_validation_schemathesis.py
 
 Test ext.3.1.schemathesis: the input-validation part of guarantee 3.1, driven
-by Schemathesis (docs/project/test-review/group-f.md). OWASP API10:2023,
+by Schemathesis. OWASP API10:2023,
 CWE-20.
 
 Schemathesis generates valid and invalid requests from the OpenAPI

@@ -8,11 +8,27 @@ Before 1.0.0 a breaking change raises the minor version.
 
 ## [Unreleased]
 
-The test logic is unchanged since 0.1.0. Results on the lab differ only because the lab changed (below): with
-the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
+Since 0.1.0 the infrastructure for production and integration landed first (blocks 1-5d, 7-10, below), and then the
+**block-6 test review** rewrote the test suite on a new assessment model and extended it. Lab results therefore
+differ from 0.1.0 by the tests' own logic, not only by the lab's data. The full list of tests now implemented is in
+[`roadmap.md`](docs/project/roadmap.md); `apiguard list-tests` is the ground truth.
 
 ### Added
 
+- **Block-6 test review: the test suite was reviewed and extended.** New guarantees: 0.4 (a backend answers only
+  through the gateway), 1.2 and 1.3 (JWT cryptographic validity and expiry), 1.7 (authentication endpoints resist
+  guessing), 2.2 (object-level authorization, BOLA), 2.4 and 2.5 (authorization consistency and object-property
+  level), 4.4 (request size limits), 5.1 and 5.2 (request-logging and security-alerting audits), 6.1 (error and
+  information disclosure), 7.1, 7.3 and 7.4 (sensitive-flow anti-automation, race conditions, webhook verification);
+  `ext.0.1.ffuf` and `ext.3.1.schemathesis` as new external tests. The full set, with each test's strategy and
+  priority, is in `roadmap.md`.
+- **A new assessment model under every test** (block 6): each judged response carries an `outcome` (`VIOLATION`,
+  `ENFORCED`, `NOT_VERIFIABLE`, `NOT_APPLICABLE`) and a test-specific `detail`; each finding carries a `confidence`
+  (`CERTAIN`, `FIRM`, `TENTATIVE`); a test's status is computed from its sub-tests' outcomes, with a new
+  `INCONCLUSIVE` status (exit `3`, shared with ERROR) when a run verified nothing. Oracles rest on calibration and
+  positive controls, so a test reports honestly when it cannot verify instead of a false PASS. New needs
+  (`Need.SECOND_USER_ACCOUNT`, `Need.GATEWAY`, ...) let the engine acquire accounts and SKIP a test whose
+  prerequisites are missing.
 - Continuous integration on GitHub (`.github/workflows/check.yml`, Q-16): on every push and pull request,
   `hatch run dev:check` on Python 3.11 and 3.14, and the built wheel installed in an empty environment runs
   `apiguard version` and `apiguard list-tests`.
@@ -156,6 +172,11 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
 ### Removed
 
+- The sslyze connector and the `[sslyze]` optional extra (Q-11, Q-24): `SslyzeConnector`, `SslyzeConfig`, the
+  `external_tools.sslyze` configuration, the `ext.1.5.sslyze` external test and the Hatch default-environment
+  feature. sslyze (with its transitive `nassl`) is AGPL v3 and was imported in-process; on the labs it found no TLS
+  weakness testssl.sh did not already report, so guarantee 1.5 stays covered by `ext.1.5.testssl` alone. The
+  `BaseLibraryConnector` tier is kept as the documented extension point for a future Python-library tool.
 - `hatch run dev:docs` and the `pydoc-markdown` development dependency (Q-13): its output, `docs/API_REFERENCE.md`
   (the docstrings of a fixed list of modules), was not kept in the repository nor used; the docstrings stay in the code.
 - The lab's committed self-signed certificate and private key (`test-environments/forgejo-kong/certs/`) and
@@ -166,6 +187,15 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
 
 ### Changed
 
+- **Block-6 test review: the test logic was rewritten** (it is not unchanged since 0.1.0). Every test's oracle was
+  rebuilt on the new assessment model; several tests changed the strategy and priority they declare (read them with
+  `apiguard list-tests`). Existing tests of 0.1.0 were reworked (e.g. 1.1 records `5xx` as `NOT_VERIFIABLE` instead
+  of a silent PASS; 2.1 counts a `404` as enforced only when a positive control proves the operation exists; 1.5's
+  HTTP/HSTS checks are native and the TLS handshake is testssl). 3.2 is covered by 6.1; `ext.0.1.nuclei` was
+  replaced by `ext.0.1.ffuf`.
+- Test 2.2 (Object-Level Authorization, BOLA) is now priority **P0** (was P1), applying the methodology's
+  importance criterion to the OWASP API Top 10, where BOLA is API1:2023, the top risk (Q-33). It now runs under
+  `min_priority: 0` (P0 only); the other authorization tests (2.1, 2.4, 2.5) stay P1.
 - The usage guides state a fact once and link to its page (Q-04): the exit codes are explained in `exit-codes.md`
   (`read-the-report.md` keeps the two warnings for a reader, `integrate-apiguard.md` only what a program should
   do); the output files in `read-the-report.md`. Fixed on the way: an interrupted run keeps `config_used.yaml` and,
@@ -196,8 +226,6 @@ the new `path_seed` resources, test 1.1 reports 78 findings instead of 56.
   `path_seed` falls back to `apiguard-probe` in a DELETE; with a declared security scheme `send_as.in` and `name`
   may repeat the scheme's; `list-tests --config` does not read the certificates nor the specification;
   `tool_artifact_label` is the external test's ID; `all_rows` and `not_run` are ordered by `test_id` as text.
-  `external_tools.sslyze.timeout_seconds` has no effect (connections time out after 20 s whatever the value,
-  Q-24): the description says so until the owner decides.
 
 - **Breaking:** the text of an exit code has one definition (`EXIT_CODES`, `src/core/models/enums.py`), used by the
   report (`executive_summary.exit_code_label`), the console summary, `apiguard run --help` and

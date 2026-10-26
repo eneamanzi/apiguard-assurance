@@ -1,6 +1,6 @@
 # 0.2 Paths Without a Route
 
-> **Audience:** analysts, contributors · **Status:** rewritten in the test review (branch `test-review`, 2026-10-22) ·
+> **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-22) ·
 > **Source of truth:**
 > [`src/tests/domain_0/test_0_2_paths_without_a_route.py`](../../../src/tests/domain_0/test_0_2_paths_without_a_route.py) ·
 > **Verified:** 2026-10-22
@@ -44,7 +44,7 @@ is processed by the business logic"; a path with no route is not in the schema a
 |---|---|
 | `unrouted_paths` | "unregistered path rejection": what the gateway answers where no route matches, and whether that answer can be told from a backend's own |
 | `near_route_paths` | the same question just outside each route path, which is where a gateway matching route paths as plain strings forwards |
-| left out | "default backend fallback detection" by the `Server` header: replaced, see the oracle. "Path normalization consistency": the question of tests `1.1` and `2.1` (topic 7b) |
+| left out | "default backend fallback detection" by the `Server` header: replaced, see the oracle. "Path normalization consistency": the question of tests `1.1` and `2.1` |
 
 ## 3. Inputs
 
@@ -129,7 +129,7 @@ matches `/api/*` by segment and refuses them.
 
 ## 11. Configuration
 
-None. The old parameter `gateway_server_identifiers` is removed (topic 7b point 4): the APISIX lab needed its own
+None. The old parameter `gateway_server_identifiers` is removed: the APISIX lab needed its own
 list of gateway names, and now needs nothing. The sampling maximum is a constant of the module (owner, 2026-10-22).
 
 ## 12. Validation

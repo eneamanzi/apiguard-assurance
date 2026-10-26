@@ -147,7 +147,7 @@ class ExternalTestRegistry:
                                    Used for master-switch check and per-tool
                                    enabled state.
             min_priority:          Maximum priority (inclusive) to include.
-                                   (ext.0.1.nuclei is P0, the TLS tests P2.)
+                                   (ext.0.1.ffuf is P0, the TLS tests P2.)
             enabled_strategies:    Strategies to include (execution.strategies),
                                    as for native tests.
             allowed_ids:           None means no ID filter (normal priority and
@@ -488,7 +488,7 @@ class ExternalTestRegistry:
             skip_reason = (
                 f"External tool '{tool_name}' is not available on this system. "
                 "Install it: binaries with ./install_tools.sh (./tools/) or in PATH; "
-                "Python libraries with their extra (e.g. sslyze: [sslyze]). "
+                "Python libraries with their extra. "
                 f"This affects {test_count} test(s)."
             )
             for test in group:

@@ -2,7 +2,7 @@
 src/core/references.py
 
 Reference responses: what the target itself says, at run time, against which a
-response is judged (docs/project/test-review.md, topics 1 and 2).
+response is judged.
 
 Two kinds, one object per run (ReferenceResponses, created by the engine and
 reached through TestContext.references):
@@ -44,7 +44,7 @@ match (a Kong route "/api" also matches "/apiguard..."; the spike of
 response_facts() puts the status and the references together: the category
 a test judges (the status's, with one correction, below) and whether the
 endpoint is proven to exist. It is the first step of a judgement when the test
-asked for references (docs/project/test-review.md, topic 3).
+asked for references.
 
 Every reference request is an EvidenceRecord with ID ref_NNN, pinned in the
 evidence store of the test that asked first; summary() lists the points and
@@ -152,7 +152,7 @@ class Existence(StrEnum):
                    not reliable).
 
     A test that counts a case as ENFORCED on INDICATED existence gives its
-    finding-free verdict a lower confidence than on PROVEN (topic 5: FIRM
+    finding-free verdict a lower confidence than on PROVEN (FIRM
     against CERTAIN).
     """
 
@@ -164,7 +164,7 @@ class Existence(StrEnum):
 
 def confidence_of(existence: Existence) -> Confidence:
     """
-    The confidence an existence gives a verdict that rests on it (topic 5).
+    The confidence an existence gives a verdict that rests on it.
 
     Args:
         existence: The existence from response_facts().

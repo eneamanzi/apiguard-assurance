@@ -26,7 +26,7 @@ Linux, Python 3.11 to 3.14. Build the wheel from the repository, then install it
 
 ```bash
 hatch build -t wheel                                   # in the repository: dist/apiguard_assurance-<version>-py3-none-any.whl
-pip install "dist/apiguard_assurance-0.1.0-py3-none-any.whl[sslyze]"   # [sslyze]: optional TLS test ext.1.5.sslyze
+pip install "dist/apiguard_assurance-0.1.0-py3-none-any.whl[schemathesis]"   # [schemathesis]: optional test ext.3.1.schemathesis
 apiguard version
 ```
 
@@ -35,25 +35,25 @@ The wheel contains the Python code of the tool only: no `config.yaml`, and **nei
 
 | Test | Needs | With a pip install |
 |---|---|---|
-| `ext.1.5.sslyze` | the sslyze Python library | install the `[sslyze]` extra (above) |
-| `ext.0.1.nuclei` | the `nuclei` program and its templates | download nuclei and its templates yourself |
+| `ext.3.1.schemathesis` | the schemathesis Python library | install the `[schemathesis]` extra (above) |
+| `ext.0.1.ffuf` | the `ffuf` program and its wordlists | download ffuf and SecLists yourself |
 | `ext.1.5.testssl` | the `testssl.sh` program | download testssl.sh yourself |
 
-The tool looks for `nuclei` and `testssl.sh` in two places: the `PATH` (the folders where the system looks for
+The tool looks for `ffuf` and `testssl.sh` in two places: the `PATH` (the folders where the system looks for
 commands, e.g. `/usr/local/bin`), or a `tools/` folder inside the directory the command is run from (this is where
 `install_tools.sh` puts them in the repository). Verified with the `PATH`.
 
-nuclei also needs a folder of templates (the rules it applies). `external_tools.nuclei.template_dir` defaults to
-`./tools/nuclei-templates`, a path relative to the directory the command is run from: it exists in the repository
+ffuf also needs a folder of wordlists (the paths it tries). `external_tools.ffuf.wordlist_dir` defaults to
+`./tools/seclists`, a path relative to the directory the command is run from: it exists in the repository
 after `install_tools.sh`, not elsewhere. Set the real location, e.g.:
 
 ```yaml
 external_tools:
-  nuclei:
-    template_dir: "/opt/nuclei-templates"
+  ffuf:
+    wordlist_dir: "/opt/seclists"
 ```
 
-An enabled tool that is not found makes its test return SKIP ("External tool 'nuclei' is not available on this
+An enabled tool that is not found makes its test return SKIP ("External tool 'ffuf' is not available on this
 system"); the other tests run normally. A disabled tool (`enabled: false`) is listed in `not_run`. Tested versions:
 [compatibility](../../03-reference/06-compatibility.md).
 
@@ -191,8 +191,9 @@ jq -r '.all_rows[] | select(.status == "SKIP" or .status == "ERROR") | "\(.test_
 jq -r '.not_run[] | "\(.test_id)\t\(.reason)\t\(.detail)"' apiguard_report.json
 ```
 
-Some findings have no `evidence_ref` today: those of tests 4.1 and 7.2 and, when they fail, of the configuration
-audits 3.3, 4.2 and 4.3; the transactions of 4.1 and 7.2 are in the test's `transaction_log` (Q-50).
+A finding from an HTTP probe carries `evidence_ref`, the `record_id` of the proving transaction in `evidence.json`
+(set by `_judge()`). A finding from a gateway-configuration audit (3.3, 4.2, 4.3) references the gateway concept it
+read instead of an HTTP transaction.
 
 ## 7. Stop a run
 

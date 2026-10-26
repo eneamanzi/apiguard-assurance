@@ -19,7 +19,7 @@ returned as a finding; the calling test's oracle decides the outcome.
 
 The tool is run unauthenticated (no credential is injected): its write requests
 are refused, so nothing is created; a deep authenticated run is a deferred
-follow-up (docs/project/test-review.md, Deferred follow-ups).
+follow-up (the backlog in docs/project/roadmap.md).
 
 Discovery: `schemathesis` on PATH (installed by the `[schemathesis]` extra).
 

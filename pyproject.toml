@@ -174,18 +174,9 @@ Documentation = "https://github.com/eneamanzi/apiguard-assurance/blob/main/docs/
 # extra to enable the corresponding BaseLibraryConnector.
 #
 # Usage:
-#   pip install -e ".[sslyze]"   — enables SslyzeConnector (ext.1.5.sslyze)
+#   pip install -e ".[schemathesis]"   — enables SchemathesisConnector (ext.3.1.schemathesis)
 # ---------------------------------------------------------------------------
 [project.optional-dependencies]
-sslyze = [
-    # Pure-Python TLS scanner — BaseLibraryConnector tier.
-    # Used by SslyzeConnector (src/connectors/sslyze.py) for ext.1.5.sslyze.
-    # Requires nassl native extension; install via:  pip install sslyze
-    # NOTE: sslyze and its nassl transitive are licensed under AGPL v3 — this
-    # is acceptable for research/thesis use; for SaaS distribution, this extra
-    # must be removed or replaced with a permissively-licensed TLS scanner.
-    "sslyze>=6.3,<7",
-]
 schemathesis = [
     # Schema-driven API testing — BaseLibraryConnector tier.
     # Used by SchemathesisConnector (src/connectors/schemathesis.py) for
@@ -260,13 +251,12 @@ exclude = [
 ]
 
 # ---------------------------------------------------------------------------
-# Default hatch environment: runtime deps + optional connectors.
-# Running `hatch run <cmd>` uses this environment.
+# Default hatch environment: runtime deps only.
+# Running `hatch run <cmd>` uses this environment. Optional connectors are
+# installed on demand with their extra (e.g. `.[schemathesis]`); none is
+# enabled in the default environment.
 # ---------------------------------------------------------------------------
 [tool.hatch.envs.default]
-# Include the sslyze optional-dependency group so that SslyzeConnector
-# (src/connectors/sslyze.py) is available in the default run environment.
-features = ["sslyze"]
 
 # ---------------------------------------------------------------------------
 # Development dependencies: tooling only, never imported at runtime.

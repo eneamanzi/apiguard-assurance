@@ -14,8 +14,7 @@ Relationship with tests/base.py (BaseTest):
                                                 SecurityClient, EvidenceStore)
         ExternalToolTest.execute() -> same signature; it runs a BaseConnector,
                                       and may use the SecurityClient to verify
-                                      the tool's results (the oracle is ours,
-                                      docs/project/test-review.md, 0.1).
+                                      the tool's results (the oracle is ours).
 
     Both return TestResult.  The engine treats them identically -- it sees only
     the TestResult contract, not the implementation hierarchy.
@@ -180,7 +179,7 @@ class ExternalToolTest(AssessmentTest[ParamsT]):
 
     Every concrete subclass declares ``info = TestInfo(...)`` with an ID
     "ext.X.Y.tool" and ``tool`` set to the tool's key in ExternalToolsConfig
-    ("testssl", "sslyze", "nuclei"), so that ExternalTestRegistry can check
+    ("testssl", "nuclei", "ffuf", "schemathesis"), so that ExternalTestRegistry can check
     ExternalToolsConfig.is_tool_enabled() for it.
 
     The `source` ClassVar is fixed at "external" and must NOT be overridden
@@ -319,9 +318,9 @@ class ExternalToolTest(AssessmentTest[ParamsT]):
         # available to both the dev mode cache lookup and pin_artifact().
         # Formula mirrors _persist_tool_artifact()'s naming convention so
         # the cache file reconstructed here is the same file written by the
-        # prior live run.  Example: test_id="ext.0.1.nuclei"
-        # -> artifact_label="ext.0.1.nuclei"
-        # -> cache file: outputs/tools/ext_0_1_nuclei_output.json
+        # prior live run.  Example: test_id="ext.0.1.ffuf"
+        # -> artifact_label="ext.0.1.ffuf"
+        # -> cache file: outputs/tools/ext_0_1_ffuf_output.json
         # The test_id already carries the tool name (ext.X.Y.toolname convention),
         # so appending TOOL_NAME again would produce duplicate suffixes.
         artifact_label: str = self.info.id
@@ -482,7 +481,7 @@ class ExternalToolTest(AssessmentTest[ParamsT]):
         Warn when a tool ended after more than 70% of its time limit.
 
         Only for tools run as a process, where timeout_seconds is the limit of
-        the whole run (for sslyze, a library, it is a per-connection timeout).
+        the whole run (for a library-based connector it is a per-connection timeout).
 
         Args:
             connector:        The connector that ran the tool.
@@ -572,9 +571,9 @@ class ExternalToolTest(AssessmentTest[ParamsT]):
             EvidenceStore._persist_tool_artifact(), ensuring this method
             looks for the file at the same path it was written to.
 
-            Example: artifact_label="ext.0.1.nuclei"
-                     safe_label="ext_0_1_nuclei"
-                     file path: tools_dir/ext_0_1_nuclei_output.json
+            Example: artifact_label="ext.0.1.ffuf"
+                     safe_label="ext_0_1_ffuf"
+                     file path: tools_dir/ext_0_1_ffuf_output.json
 
         Fields in the reconstructed ConnectorResult:
             tool_name          -- from connector.TOOL_NAME (live value, not cached)
@@ -592,7 +591,7 @@ class ExternalToolTest(AssessmentTest[ParamsT]):
         Args:
             connector:      Active connector (provides TOOL_NAME for the result).
             artifact_label: Label string as computed by _run() before invocation
-                            (e.g. "ext.0.1_nuclei").
+                            (e.g. "ext.0.1_ffuf").
             tools_dir:      Root tool artifact directory from store.tools_dir
                             (e.g. Path("outputs/tools")).
 
@@ -833,7 +832,7 @@ class ExternalToolTest(AssessmentTest[ParamsT]):
             reason = (
                 f"External tool '{connector.TOOL_NAME}' is not available. "
                 "Install it: binaries with ./install_tools.sh (./tools/) or in PATH; "
-                "Python libraries with their extra (e.g. sslyze: [sslyze]). "
+                "Python libraries with their extra. "
                 f"Test '{self.info.id}' ({self.info.name}) requires this tool."
             )
             log.info(

@@ -2,7 +2,7 @@
 src/tests/domain_7/test_7_2_ssrf_prevention.py
 
 Test 7.2: guarantee "the system prevents Server-Side Request Forgery" (OWASP
-API7:2023, CWE-918, P0) (docs/project/test-review/group-j.md).
+API7:2023, CWE-918, P0).
 
 A URL-accepting endpoint (a webhook, a "fetch from URL" import) must reject a
 client URL that points at internal infrastructure: cloud metadata (IMDS),
@@ -27,7 +27,7 @@ Oracle (per payload):
 Honesty boundary (owner decision 2026-10-23): a 2xx means the endpoint accepted
 the URL, which is *not* proof the server made the outbound call. Confirming the
 call needs an out-of-band listener (a URL the tool controls; a hit on it proves
-the SSRF) -- a deferred follow-up (docs/project/test-review.md). Until then an
+the SSRF) -- a deferred follow-up. Until then an
 accepted URL is NOT_VERIFIABLE, never a PASS and never an unproven VIOLATION.
 
 GREY_BOX (the endpoint usually needs a credential), effect CHANGES_DATA (it

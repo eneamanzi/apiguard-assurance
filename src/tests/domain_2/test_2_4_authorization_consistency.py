@@ -2,7 +2,7 @@
 src/tests/domain_2/test_2_4_authorization_consistency.py
 
 Test 2.4: guarantee "authorization is consistent across equivalent endpoints"
-(docs/project/test-review/group-e.md). OWASP API8:2023.
+. OWASP API8:2023.
 
 An older or alternative version of an operation must enforce the same
 authorization as the documented one. The classic failure is a versioning drift:

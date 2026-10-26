@@ -4,8 +4,7 @@
 > hatch scripts), the project rules in `CLAUDE.md` ·
 > **Verified:** 2026-10-20 (`hatch run dev:check` passes, formatting and import rules included)
 
-Rules every change must follow. Where the current code deviates, the deviation is stated and tracked in
-`OPEN_QUESTIONS.md`.
+Rules every change must follow. Where the current code deviates, the deviation is stated and raised with the owner.
 
 ## Language and style
 
@@ -51,8 +50,10 @@ Rules every change must follow. Where the current code deviates, the deviation i
 ## Errors and logging
 
 - Raise only exceptions from the project hierarchy (`src/core/exceptions.py`, `GatewayAdapterError`); no bare
-  `except:` and no silent `except Exception: pass`. A test's `execute()` ends with
-  `except Exception as exc: return self._make_error(exc)`.
+  `except:` and no silent `except Exception: pass`. A test's `execute()` ends by catching the setup exceptions it
+  can get (`AuthenticationSetupError`, `SecurityClientError`) and returning `self._error(exc)`. A
+  `SecurityClientError` raised by a single probe is judged `NOT_VERIFIABLE` with `exc.record` (the transaction is
+  recorded), not turned into a test-wide ERROR.
 - Logging with `structlog`, as events with key-value pairs (`log.info("test_2_1_starting", endpoint_count=...)`),
   not interpolated strings. No `print()`; terminal output in the CLI uses `rich` consoles.
 - Never log credential values. Use `[REDACTED]` if a structure that may contain them must be logged.
@@ -75,13 +76,14 @@ single exception, required by the `test_<D>_<N>_` / `ext_test_<D>_<N>_` naming a
 ## Dependencies
 
 Runtime dependencies use `>=FLOOR,<NEXT_MAJOR`, where FLOOR is the version tested; the only exact pin is
-`prance==25.4.8.0`. Optional, licence-sensitive tools go in `[project.optional-dependencies]` (sslyze, AGPL v3).
+`prance==25.4.8.0`. Optional tools, and any dependency whose licence is incompatible with the intended
+distribution, go in `[project.optional-dependencies]` rather than among the required dependencies.
 
 ## Testing
 
 There is no automated unit test suite; mocking `httpx` is not accepted because it would not prove anything about
 security behaviour. Changes are verified by running the affected tests against the lab target
-(`test-environments/forgejo-kong/`) with `execution.test_ids`. An E2E suite against the lab is planned (Q-51).
+(`test-environments/forgejo-kong/`) with `execution.test_ids`.
 
 ## Before submitting
 

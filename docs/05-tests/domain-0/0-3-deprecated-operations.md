@@ -1,6 +1,6 @@
 # 0.3 Deprecated Operations Still Served
 
-> **Audience:** analysts, contributors · **Status:** rewritten in the test review (branch `test-review`, 2026-10-22) ·
+> **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-22) ·
 > **Source of truth:**
 > [`src/tests/domain_0/test_0_3_deprecated_operations.py`](../../../src/tests/domain_0/test_0_3_deprecated_operations.py) ·
 > **Verified:** 2026-10-22

@@ -1,6 +1,6 @@
 # 7.4 Webhook Signature Verification
 
-> **Audience:** analysts, contributors · **Status:** new in the test review (branch `test-review`, 2026-10-26) ·
+> **Audience:** analysts, contributors · **Status:** new in the test review (2026-10-26) ·
 > **Source of truth:**
 > [`src/tests/domain_7/test_7_4_webhook_verification.py`](../../../src/tests/domain_7/test_7_4_webhook_verification.py) ·
 > **Verified:** 2026-10-26
@@ -105,7 +105,7 @@ Runs of 2026-10-26:
 
 Rule 9: the live branches (`VIOLATION/UNSIGNED_ACCEPTED`, `VIOLATION/BAD_SIGNATURE_ACCEPTED`,
 `ENFORCED/SIGNATURE_REQUIRED`) are lab-unproven (the labs host no webhook receiver with a known signing scheme) and
-listed in the Deferred follow-ups, together with replay protection and the blind-callback case, which need the
+listed in the backlog (`../../project/roadmap.md`), together with replay protection and the blind-callback case, which need the
 out-of-band listener.
 
 ## 13. Remediation

@@ -2,7 +2,7 @@
 src/tests/domain_2/test_2_1_function_level_authorization.py
 
 Test 2.1: guarantee "only authorised users reach privileged functions"
-(docs/project/test-review/group-e.md). Broken Function Level Authorization
+. Broken Function Level Authorization
 (BFLA), OWASP API5:2023.
 
 A privileged function (an admin or management operation) must refuse an

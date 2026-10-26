@@ -2,7 +2,7 @@
 src/core/path_variants.py
 
 The variants of a path that a target may route to the same operation while a
-control attached to the path does not recognise them (topic 7b point 1: a
+control attached to the path does not recognise them (a
 technique, not a guarantee, so it is written once here and applied by every
 test whose control is decided on the path: 1.1 to authentication, 2.1 to the
 admin paths).

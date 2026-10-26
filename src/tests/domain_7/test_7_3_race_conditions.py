@@ -2,7 +2,7 @@
 src/tests/domain_7/test_7_3_race_conditions.py
 
 Test 7.3: guarantee "a once-only operation is safe under concurrency" (CWE-362,
-TOCTOU race conditions) (docs/project/test-review/group-j.md).
+TOCTOU race conditions).
 
 An operation that must take effect at most once (redeem a single-use coupon,
 submit one order, apply a referral, withdraw a balance) must serialize

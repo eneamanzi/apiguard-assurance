@@ -1,8 +1,7 @@
 """
 src/core/models/standards.py
 
-References to security standards: one model, one format per standard
-(docs/project/test-review.md, topic 8).
+References to security standards: one model, one format per standard.
 
 A reference is a pair: the standard and the identifier the standard itself
 prescribes, written exactly as the standard writes it, so a reader of the

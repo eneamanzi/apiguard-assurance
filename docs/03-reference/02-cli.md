@@ -38,7 +38,7 @@ There are no CLI options to select tests: selection is done in `config.yaml` (`e
 
 The loaded file is logged (`env_file_loaded`, path only, never values). `generate-seed` and `version` load no file.
 Verified on 2026-10-08 with a `pip` install in a fresh virtual environment, run from a folder outside the
-repository (Q-54; before, the file was searched from the tool's code folder and a `pip` install never found it).
+repository (before, the file was searched from the tool's code folder and a `pip` install never found it).
 
 ## Output streams
 

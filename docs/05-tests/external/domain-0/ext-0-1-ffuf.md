@@ -1,6 +1,6 @@
 # ext.0.1.ffuf Undocumented Paths Answer
 
-> **Audience:** analysts, contributors · **Status:** rewritten in the test review (branch `test-review`, 2026-10-21) ·
+> **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-21) ·
 > **Source of truth:**
 > [`src/external_tests/ext_test_0_1_undocumented_paths_ffuf.py`](../../../../src/external_tests/ext_test_0_1_undocumented_paths_ffuf.py),
 > [`src/connectors/ffuf.py`](../../../../src/connectors/ffuf.py) · **Verified:** 2026-10-21

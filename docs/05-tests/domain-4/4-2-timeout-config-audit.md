@@ -84,5 +84,5 @@ pool is exhausted and the gateway stops accepting traffic.
 
 ## See also
 
-- [`4.3 Circuit breaker audit`](4-3-circuit-breaker-audit.md) · [`3.3 HMAC audit`](../domain-3/3-3-hmac-config-audit.md)
+- [`4.3 Circuit breaker audit`](4-3-circuit-breaker-audit.md) · [`3.3 Request signing audit`](../domain-3/3-3-request-signing-audit.md)
 - [`../README.md`](../README.md)

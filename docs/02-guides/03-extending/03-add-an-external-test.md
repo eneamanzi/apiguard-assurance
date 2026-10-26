@@ -23,7 +23,7 @@ note or noise.
 
 | Situation | Steps |
 |---|---|
-| New test with an already supported tool (nuclei, testssl, sslyze) | 5, 6 |
+| New test with an already supported tool (nuclei, testssl, ffuf, schemathesis) | 5, 6 |
 | New tool | 1 to 6 |
 
 ## 1. Connector (`src/connectors/<tool>.py`)
@@ -35,7 +35,7 @@ Copy `_template_connector.py`. Pick the base class:
 | Base | For | Declares | Optional (default) |
 |---|---|---|---|
 | `BaseSubprocessConnector` | Base of a connector for a tool run as a program (nuclei, testssl.sh). | `TOOL_NAME`, `BINARY_NAME` | `DEFAULT_TIMEOUT_SECONDS` (120), `LOCAL_TOOLS_SUBDIR` ('') |
-| `BaseLibraryConnector` | Base of a connector for a tool used as a Python library (sslyze). | `TOOL_NAME`, `LIBRARY_MODULE` | - |
+| `BaseLibraryConnector` | Base of a connector for a tool used as a Python library. | `TOOL_NAME`, `LIBRARY_MODULE` | - |
 
 <!-- [[[end]]] -->
 
@@ -72,8 +72,10 @@ return ConnectorResult(tool_name=self.TOOL_NAME, tool_version=self.get_version()
 Raise `ExternalToolError(message, tool_name, exit_code=..., timed_out=...)` on tool failure. Connectors import only
 the standard library, structlog, `src.connectors.base` and `src.core.exceptions`.
 
-**Library connectors:** import the library only inside `run()` (types under `TYPE_CHECKING`), as
-`src/connectors/sslyze.py` does, so the package still imports when the optional dependency is missing.
+**Optional-dependency connectors:** import the library only inside `run()` (types under `TYPE_CHECKING`), so the
+package still imports when the optional dependency is not installed. `BaseLibraryConnector` is the tier for a tool
+used as a Python library rather than a subprocess; it currently has no concrete connector and stays as the
+documented extension point for one.
 
 ## 2. Export the connector
 
@@ -91,22 +93,22 @@ class ExternalToolsConfig(BaseModel):
     ...
     testssl: TestsslConfig = Field(...)
     nuclei: NucleiConfig = Field(...)
-    sslyze: SslyzeConfig = Field(...)
+    ffuf: FfufConfig = Field(...)
 ```
 
 **The field name must equal the test's `tool`** (in its `info`). The registry looks it up with
 `getattr(external_tools, tool)`; an unknown name excludes the test with the warning
 `external_tools_unknown_tool_name`.
 
-Optionally re-export the class in `src/core/models/__init__.py` (today `SslyzeConfig` is not re-exported and
-nothing breaks).
+Re-exporting the config class from `src/core/models/__init__.py` is optional: a tool's config class works without
+being re-exported.
 
 ## 4. Installation and dependencies
 
 - Binary: add a pinned download to `install_tools.sh` into `tools/<subdir>/` and set `expected_version` in
   `config.yaml`.
-- Library: add an optional extra in `pyproject.toml` (`[project.optional-dependencies]`) and check its licence
-  (sslyze is AGPL v3, Q-11).
+- Library: add an optional extra in `pyproject.toml` (`[project.optional-dependencies]`) and check its licence is
+  compatible with how the tool will be distributed.
 
 ## 5. The test (`src/external_tests/ext_test_<D>_<N>_<description>.py`)
 
@@ -214,4 +216,4 @@ Add the tool block under `external_tools` with `enabled`, `timeout_seconds`, `ex
 ## See also
 
 - [`add-a-native-test.md`](02-add-a-native-test.md) · [`coding-rules.md`](01-coding-rules.md)
-- [`../../tests/external/domain-1/ext-1-5-tls-analysis.md`](../../05-tests/external/domain-1/ext-1-5-tls-analysis.md) - an implemented example
+- [`../../05-tests/external/domain-1/ext-1-5-testssl.md`](../../05-tests/external/domain-1/ext-1-5-testssl.md) - an implemented example

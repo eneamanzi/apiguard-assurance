@@ -1,6 +1,6 @@
 # 7.3 Race Conditions in Critical Operations
 
-> **Audience:** analysts, contributors · **Status:** new in the test review (branch `test-review`, 2026-10-26) ·
+> **Audience:** analysts, contributors · **Status:** new in the test review (2026-10-26) ·
 > **Source of truth:**
 > [`src/tests/domain_7/test_7_3_race_conditions.py`](../../../src/tests/domain_7/test_7_3_race_conditions.py) ·
 > **Verified:** 2026-10-26
@@ -104,7 +104,7 @@ Runs of 2026-10-26:
 | Forgejo + Kong, crAPI + Kong, Forgejo + APISIX | **SKIP** | no once-only operation declared (`race_operation` unset): honest SKIP |
 
 Rule 9: the live branches (`VIOLATION/RACE_DOUBLE_EFFECT`, `ENFORCED/CONCURRENCY_SERIALIZED`) are lab-unproven and
-listed in the Deferred follow-ups, together with a check of the HTTP client's thread-safety on a real concurrent run
+listed in the backlog (`../../project/roadmap.md`), together with a check of the HTTP client's thread-safety on a real concurrent run
 (crAPI's coupon-apply flow is a candidate, once a valid coupon code is seeded).
 
 ## 13. Remediation

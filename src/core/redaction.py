@@ -3,7 +3,7 @@ src/core/redaction.py
 
 Redaction of secret values in the evidence and the reports.
 
-Principle (OPEN_QUESTIONS Q-31, owner decision): redact only secret values,
+Principle (owner decision): redact only secret values,
 never what proves a finding, and keep the meaning with typed placeholders
 ("[REDACTED: user_a token]" instead of a bare "[REDACTED]").
 

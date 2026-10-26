@@ -13,7 +13,7 @@ accumulated by the engine over a pipeline run.
     ResultSet      -- Ordered collection of all TestResult objects for a pipeline run.
 
 The status rule lives here, next to the models it constrains
-(docs/project/test-review.md, topic 3): status_from_counts() gives a
+: status_from_counts() gives a
 sub-test's status from its counters, combine_sub_tests() gives the test's
 status and coverage from its sub-tests. A test records outcomes; it never
 chooses PASS, FAIL or INCONCLUSIVE.
@@ -449,7 +449,7 @@ class TestResult(BaseModel):
 
     # --- External tool identifier ---
     # Populated exclusively for source='external' results, from the test's
-    # declaration (info.tool: "testssl", "sslyze", "nuclei") so the HTML report can display
+    # declaration (info.tool: "testssl", "nuclei", "ffuf") so the HTML report can display
     # it in the dedicated "Tool" column of the External Tool Tests sub-table
     # without requiring any import from external_tests/ in builder.py.
     # Empty string for all source='native' results.
@@ -459,7 +459,7 @@ class TestResult(BaseModel):
             "Name of the external binary used by this test. "
             "Non-empty only for source='external' results. "
             "Taken from the test's declaration (info.tool, e.g. 'testssl', "
-            "'sslyze', 'nuclei'). "
+            "'nuclei', 'ffuf'). "
             "Rendered in the 'Tool' column of the External Tool Tests sub-table."
         ),
     )
@@ -514,7 +514,7 @@ class TestResult(BaseModel):
         default=None,
         description=(
             "Label passed to EvidenceStore.pin_artifact() when the tool artifact "
-            "was stored. Format: '{test_id}_{tool_name_safe}', e.g. 'ext.0.1_nuclei'. "
+            "was stored. Format: '{test_id}_{tool_name_safe}', e.g. 'ext.0.1_ffuf'. "
             "The HTML report uses this to reconstruct the disk filename "
             "('<label_safe>_output.json') for the browser download button, ensuring "
             "the downloaded file has the same name as the on-disk artifact. "

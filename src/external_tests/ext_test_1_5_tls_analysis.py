@@ -2,21 +2,19 @@
 src/external_tests/ext_test_1_5_tls_analysis.py
 
 Test ext.1.5.testssl: the TLS handshake part of guarantee 1.5 (credentials
-never travel on an insecure channel), scanned by testssl.sh
-(docs/project/test-review/group-d.md).
+never travel on an insecure channel), scanned by testssl.sh.
 
 The native test 1.5 covers the HTTP layer (a plain-HTTP request forced onto
 HTTPS, the HSTS header). The TLS handshake itself -- protocol versions, cipher
 suites, forward secrecy, the certificate chain, known TLS CVEs -- is a scanner's
 job, and testssl.sh does it: we launch it, point it at the gateway's HTTPS
-listener, and judge its findings (docs/project/test-review.md, rule 11). We do
+listener, and judge its findings (rule 11). We do
 not reimplement the handshake.
 
 One tool, not two (owner, 2026-10-22): testssl.sh is installed by
 install_tools.sh and is the most comprehensive on protocols, ciphers and
-CVE-tagged weaknesses. The sslyze connector stays in the codebase as an
-alternative an operator can enable (external_tools.sslyze), but there is no
-second always-on test scanning the same host.
+CVE-tagged weaknesses, so it is the single TLS analysis tool for this
+guarantee.
 
 Oracle (sub-test tls_configuration):
 

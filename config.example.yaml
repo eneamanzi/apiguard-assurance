@@ -45,6 +45,9 @@ target:
   # /items/{id} reach the authentication check instead of a 404. Generate the names with
   #   apiguard generate-seed <spec url or path> -o seed.yaml
   # Parameters left out take "1" (or "apiguard-probe" for DELETE probes). Default: none.
+  # Keyed by parameter name only: the same name in two paths takes one value. Its job is to
+  # make paths routable to the authentication check, not to point at a specific object; for a
+  # specific real object a test creates one through resources: (see design decision D6).
   path_seed: {}
   #   Example:
   #     owner: "user-a"
@@ -412,13 +415,6 @@ external_tools:
     per_request_timeout: 10
     rate_limit_rps: 30
     extra_flags: ""
-    dev_mode: false
-  # sslyze, TLS analysis as a Python library (ext.1.5.sslyze; pip install "apiguard-assurance[sslyze]").
-  sslyze:
-    enabled: false
-    # For sslyze (a library, not a process): the timeout of each network connection, at most 20 s.
-    timeout_seconds: 60
-    # expected_version: "6.3.1"
     dev_mode: false
   # ffuf, path search under the base paths derived from the specification (ext.0.1.ffuf).
   # It sends unauthenticated GET requests only: it does not verify TLS certificates, and the

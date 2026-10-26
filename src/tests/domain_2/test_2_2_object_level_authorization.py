@@ -2,7 +2,7 @@
 src/tests/domain_2/test_2_2_object_level_authorization.py
 
 Test 2.2: guarantee "users access only their own data" (Broken Object Level
-Authorization, BOLA, OWASP API1:2023) (docs/project/test-review/group-e.md).
+Authorization, BOLA, OWASP API1:2023).
 
 An object must refuse a user who does not own it. The test creates a disposable
 object owned by user_a (through a configured resource, config.yaml
@@ -118,7 +118,7 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
     info = TestInfo(
         id="2.2",
         name="Object-Level Authorization",
-        priority=1,
+        priority=0,
         strategy=TestStrategy.GREY_BOX,
         cwe="CWE-639",
         references=_REFERENCES,

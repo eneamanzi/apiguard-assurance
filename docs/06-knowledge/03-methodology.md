@@ -2,7 +2,7 @@
 
 > **Audience:** analysts, contributors, readers of the research · **Status:** adapted from the thesis methodology
 > (chapter 3, now [`04-guarantees.md`](04-guarantees.md)), corrected against the tool · **Source of truth:** the owner's
-> decisions of 2026-10-20 ([`project/plan.md`](../project/plan.md), log); for the tool:
+> decisions of 2026-10-20; for the tool:
 > `src/core/test_metadata.py` (`TestInfo`, `Need`), `src/core/models/enums.py` (`TestStrategy`) · **Verified:**
 > 2026-10-20
 
@@ -59,9 +59,8 @@ algorithm), reading the configuration is deterministic, reproducible and documen
 gives the same verdict, and the value read is the evidence.
 
 In the tool: every test declares its strategy (`TestStrategy`) and its needs (`Need`: `USER_ACCOUNT`,
-`ADMIN_ACCOUNT`, `GATEWAY`, `REVOCABLE_LOGIN`). Today every test uses only what its strategy grants; that `TestInfo`
-should reject a need its strategy does not grant is planned before the test review ([`plan.md`](../project/plan.md),
-Still open).
+`ADMIN_ACCOUNT`, `SECOND_USER_ACCOUNT`, `GATEWAY`, `REVOCABLE_LOGIN`). Every test uses only what its strategy
+grants, and a need fixes the minimum strategy the test requires (`src/core/test_metadata.py`).
 
 ## Prerequisites and effects on the target
 
@@ -94,8 +93,9 @@ the priority leaves out the impact on a particular business, which only the orga
 | P2 Medium | application logic and defence in depth: serious, but behind another control or limited in reach | input validation, error handling, data exposure, service credentials |
 | P3 Low | best practice and compliance: hardening whose absence weakens other controls rather than opening a flaw by itself | security headers, request signing beyond TLS, distributed sessions |
 
-Which priority each guarantee has is part of the catalogue; it is checked against this criterion in the test
-review ([`plan.md`](../project/plan.md), Still open).
+Which priority each guarantee has is part of the catalogue; it was checked against this criterion in the block-6
+test review (now complete). The tool's declared priorities are authoritative ([`roadmap.md`](../project/roadmap.md));
+the thesis catalogue keeps its own tags for the record.
 
 In the tool the priority orders the work and nothing else: `execution.min_priority` keeps the tests up to a
 priority, and `execution.fail_fast` stops after the first P0 test that fails or errs

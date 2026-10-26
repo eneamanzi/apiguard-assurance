@@ -60,14 +60,14 @@ yet it is the thesis review's, marked "(thesis)" (the thesis gave 1.4 and 2.1 as
 
 | ID | Guarantee | Priority | Classification | Cat A | Cat B | Implemented |
 |---|---|---|---|---|---|---|
-| 0.1 | Shadow API discovery | P0 | HYBRID | ffuf, katana, nuclei | gau, cherrybomb | native 0.1, ext.0.1.nuclei |
+| 0.1 | Shadow API discovery | P0 | HYBRID | ffuf, katana, nuclei | gau, cherrybomb | native 0.1, ext.0.1.ffuf |
 | 0.2 | Deny-by-default | P0 | NATIVE + optional | - | cherrybomb | native 0.2 |
 | 0.3 | Deprecated APIs | P0 | NATIVE + optional | - | oasdiff | native 0.3 |
 | 1.1 | Authentication required | P0 | NATIVE | - | - | native 1.1 |
 | 1.2 | Credentials cryptographically valid | P0 (thesis) | HYBRID | jwt_tool | - | no |
 | 1.3 | Credentials not expired | P0 (thesis) | HYBRID | jwt_tool | - | no |
 | 1.4 | Credentials not revoked | P2 | NATIVE | - | - | native 1.4 |
-| 1.5 | Credentials not on insecure channels | P2 | HYBRID | testssl.sh, sslyze | - | native 1.5, ext.1.5.testssl, ext.1.5.sslyze |
+| 1.5 | Credentials not on insecure channels | P2 | HYBRID | testssl.sh | - | native 1.5, ext.1.5.testssl |
 | 1.6 | Session management | P3 | NATIVE | - | - | native 1.6 |
 | 2.1 | RBAC on privileged endpoints | P2 | NATIVE | - | - | native 2.1 |
 | 2.2 | BOLA prevention | P1 (thesis) | NATIVE + optional | - | OFFAT, cherrybomb | no |
@@ -90,8 +90,13 @@ yet it is the thesis review's, marked "(thesis)" (the thesis gave 1.4 and 2.1 as
 | 7.3 | Race conditions | P2 (thesis) | HYBRID | vegeta | - | no |
 | 7.4 | Safe consumption of external services | P2 (thesis) | HYBRID | interactsh | - | no |
 
-Implemented connectors: nuclei, testssl.sh, sslyze. Of the nine Cat A connectors, the other six (ffuf, katana,
-jwt_tool, Schemathesis, vegeta, interactsh) and every Cat B connector are not implemented.
+This is the tool-research classification (which tool for which guarantee, and why), not the record of what is
+implemented. The "Implemented" column is a thesis-era snapshot and is now out of date after the block-6 review (for
+example it does not show 1.2, 1.3, 2.2, 7.3 as implemented); **the authoritative, current implementation status is
+in [`roadmap.md`](../project/roadmap.md)** and `apiguard list-tests`. In short: the wired connectors are testssl.sh,
+ffuf, nuclei (connector present, no test wired now) and Schemathesis; sslyze was implemented in Milestone 1 and
+removed in the review (AGPL v3, no added value over testssl.sh for 1.5); katana, jwt_tool, vegeta, interactsh and
+every Cat B connector are not implemented.
 
 ## Reasons by guarantee
 
@@ -100,10 +105,9 @@ jwt_tool, Schemathesis, vegeta, interactsh) and every Cat B connector are not im
 - **0.1.** ffuf is the primary path brute-forcer (API wordlists from SecLists, JSON output, method negotiation,
   recursion, status and size filters, actively maintained; promoted from Cat B in place of the abandoned
   kiterunner). katana covers single-page applications, whose endpoints are defined in client-side JavaScript. nuclei,
-  in the thesis, takes a discovered endpoint from "it exists" to "it is exploitable", shared with 3.1 and 7.2; as
-  implemented (ext.0.1.nuclei) it looks for known exposures with the nuclei templates (Swagger UI, admin panels,
-  debug paths) and does not use the native discovery's results: the native test finds drift from the specification,
-  nuclei finds known-bad exposure patterns. gau adds a passive,
+  in the thesis, takes a discovered endpoint from "it exists" to "it is exploitable", shared with 3.1 and 7.2. The
+  `NucleiConnector` is in the codebase but not wired to a test now (`ext.0.1.nuclei` was replaced by `ext.0.1.ffuf`,
+  which fuzzes paths from wordlists); the native test finds drift from the specification. gau adds a passive,
   historical angle (web archives) without traffic to the target; cherrybomb adds static analysis of the
   specification.
 - **0.2.** Native: Python builds arbitrary paths. cherrybomb, already a connector for 0.1, flags statically the
@@ -127,9 +131,8 @@ jwt_tool, Schemathesis, vegeta, interactsh) and every Cat B connector are not im
   (Keycloak, Auth0, Cognito) are C.2: the tool is agnostic by design.
 - **1.5.** testssl.sh is the de facto standard for TLS analysis (protocol versions, cipher suites, forward secrecy,
   certificate checks, known TLS vulnerabilities); replicating it in Python would need hundreds of custom
-  handshakes. sslyze runs in parallel as a Python library, with no binary, usable where testssl.sh cannot be
-  installed, and gives independent evidence through ext.1.5.sslyze. The two run as separate external tests in the same run, one
-  after the other.
+  handshakes. It is the single TLS analysis tool for this guarantee. (sslyze was a second connector in Milestone 1,
+  removed in the test review: AGPL v3, and on the labs it found no weakness testssl.sh did not already report.)
 - **1.6.** No essential external tool: cookie attributes and session settings can be checked with Python and httpx.
 
 ### Domain 2. Authorization
@@ -155,8 +158,8 @@ jwt_tool, Schemathesis, vegeta, interactsh) and every Cat B connector are not im
   templates for CRLF use the same raw approach. Before declaring CRLF coverage, check that the pinned
   `nuclei-templates` bundle contains them.
 - **3.3.** No external tool: a configuration audit (white box); as implemented, it reads the signing policies and
-  routes from the gateway through its adapter. Key inspection tools add nothing that `openssl` or
-  sslyze do not already cover (C.4); Vault and IaC scanners are C.2.
+  routes from the gateway through its adapter. Key inspection tools add nothing that `openssl`
+  does not already cover (C.4); Vault and IaC scanners are C.2.
 
 ### Domain 4. Availability and resilience
 

@@ -14,7 +14,7 @@
 
 The file has no format version of its own: `tool_version` is the version of the output formats, with the policy in
 [compatibility](06-compatibility.md#interface-stability) (a breaking change raises the major, the minor before
-1.0.0). Until 2026-10 the file also had `output_schema_version` (`"1.0"`, set arbitrarily); it was removed (Q-25).
+1.0.0). Until 2026-10 the file also had `output_schema_version` (`"1.0"`, set arbitrarily); it was removed.
 
 ## Top level - `ReportData`
 
@@ -158,7 +158,7 @@ precondition, a not-run test was not selected or was stopped (`src/core/models/r
 | `source` | `native` \| `external` | `native` or `external`. |
 | `tool_name` | string | External tool name (e.g. `nuclei`); empty for native tests. |
 | `tool_artifact` | object \| null | External tests only: the tool's raw output (`command`, `command_json`, `results`, `all_count`, plus `_apiguard_meta_*` keys). |
-| `tool_artifact_label` | string \| null | External tests only: label of the tool output, the external test's ID (e.g. `ext.0.1.nuclei`). |
+| `tool_artifact_label` | string \| null | External tests only: label of the tool output, the external test's ID (e.g. `ext.0.1.ffuf`). |
 | `tool_artifact_record_id` | string \| null | External tests only: `record_id` of the tool output in `evidence.json`. |
 
 <!-- [[[end]]] -->

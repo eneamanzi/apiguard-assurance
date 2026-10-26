@@ -17,7 +17,7 @@ authentication, 2 authorization, 3 data integrity, 4 availability and resilience
 - external test `ext.X.Y.tool` = the same guarantee checked with an external tool (`ExternalToolTest` +
   connector). Several tools may cover one guarantee.
 
-v0.1.0 implements 15 native and 3 external tests covering 15 of the 29 guarantees (domain 5 has none).
+The tool implements 29 native and 3 external tests across the 8 domains (`apiguard list-tests`).
 
 ## Strategies (knowledge and privilege of the tester)
 
@@ -54,7 +54,7 @@ The implemented tests by strategy and priority (generated from the tests' declar
 | Strategy | P0 | P1 | P2 | P3 |
 |---|---|---|---|---|
 | `BLACK_BOX` | `0.1`, `0.2`, `0.3`, `1.1`, `4.1`, `ext.0.1.ffuf` | `2.4`, `4.4`, `7.1`, `7.4` | `1.5`, `6.4`, `ext.1.5.testssl`, `ext.3.1.schemathesis` | `6.2` |
-| `GREY_BOX` | `1.2`, `1.3`, `7.2` | `1.7`, `2.1`, `2.2`, `2.5`, `7.3` | `6.1` | `1.6` |
+| `GREY_BOX` | `1.2`, `1.3`, `2.2`, `7.2` | `1.7`, `2.1`, `2.5`, `7.3` | `6.1` | `1.6` |
 | `WHITE_BOX` | `0.4` | `4.2`, `4.3`, `5.1` | `1.4`, `5.2` | `3.3` |
 
 <!-- [[[end]]] -->
@@ -119,21 +119,45 @@ they differ from the specification. If they are intended, the specification is w
 |---|---|---|
 | `PASS` | The guarantee holds for what was tested. | none |
 | `FAIL` | The guarantee is violated; at least one Finding with evidence. | → 1 |
+| `INCONCLUSIVE` | The run finished but verified nothing: no violation and no case enforced, only not-verifiable or not-applicable cases. Not a pass. | → 3 if no FAIL |
 | `ERROR` | The check could not be completed (transport failure, rejected credentials, tool failure, unexpected exception). | → 3 if no FAIL |
 | `SKIP` | A precondition is missing; `skip_reason` says which. Not a pass. | none |
 
-A PASS is bounded by what the test covers: each test page lists the methodology sub-tests that are not
-implemented and the test's known limitations.
+The status is computed from the sub-tests, not chosen by the test (`combine_sub_tests`; a violation makes it FAIL,
+a verified case PASS, a not-verifiable case INCONCLUSIVE). A PASS is bounded by what the test covers: it carries
+`coverage` (`COMPLETE`, or `PARTIAL` when some cases were not verifiable), and each test page lists the methodology
+sub-tests that are not implemented and the test's known limitations.
 
 **Finding vs InfoNote.** A Finding is a violation, with references (the standard and its identifier: OWASP, ASVS, WSTG, NIST, RFC; by
-default the test's) and, for HTTP tests, an
-`evidence_ref` to the proving transaction (not yet for 4.1 and 7.2, Q-50). An InfoNote is context the analyst must know but that is not a
+default the test's) and, for an HTTP probe, an
+`evidence_ref` to the proving transaction (set by `_judge()`); a finding from a gateway-configuration audit references the gateway concept it read instead. An InfoNote is context the analyst must know but that is not a
 violation: a compensating control, a sub-test that could not run, an ambiguous result (e.g. SSRF probe timeout),
 an item requiring manual verification.
 
-**Oracle states.** Each HTTP transaction in a test's audit trail carries an `oracle_state` label set by the test
-(e.g. `ENFORCED`, `BYPASS`, `INCONCLUSIVE_PARAMETRIC`). Labels are defined per test; their meaning is listed on
-each test page.
+**Transaction judgement.** Each judged HTTP transaction in a test's audit trail carries four fields: a `category`
+(what the response is, common to every test: `SERVED`, `NOT_FOUND`, `UNAUTHENTICATED`, ...), the `sub_test` it
+belongs to, an `outcome` (what it means for the guarantee: `VIOLATION`, `ENFORCED`, `NOT_VERIFIABLE`,
+`NOT_APPLICABLE`) and a test-specific `detail` (e.g. `AUTH_BYPASS`, `PATH_NOT_FOUND`), read together as
+`outcome/detail` (`VIOLATION/AUTH_BYPASS`). Categories and outcomes are common to all tests; the details are
+defined per test and listed on each test page. A request that is not judged (a login, an object created for the
+test) carries a null `outcome`.
+
+**Reference responses: calibration and positive controls.** An oracle that reads an HTTP response needs to know
+what the target answers in two baseline cases, or it mistakes one thing for another (a `404` because the endpoint
+does not exist, read as "access enforced"). The run builds these **reference responses** once and shares them
+through `TestContext.references` (`src/core/references.py`), each probe pinned in evidence:
+
+- **Calibration** (`CalibrationPoint`): what "does not exist here" looks like. Two requests to random sibling paths
+  of the same shape (`sibling_pattern`), with the judged request's method and credential; when both answer alike
+  the point is *reliable* and carries a fingerprint. A judged response that matches it is "not there", not
+  "refused". `gateway_refusal()` is the special case: what the gateway answers when none of its routes matches.
+- **Positive control** (`PositiveControl`): whether a request works with a valid credential (a `2xx`). It proves
+  the operation exists and the credential is valid, so a later `403` / `404` means the control is enforced, not
+  that the endpoint is missing. The caller chooses the credential of the role the endpoint is meant for.
+
+A verdict that rests on reference responses records their `record_id`s in the finding's `supporting_refs`, so the
+reader sees the baseline the judgement stood on. This is why a test reports `NOT_VERIFIABLE` rather than a false
+PASS when calibration is unreliable or a positive control does not work.
 
 ## Fail-fast
 
@@ -149,12 +173,31 @@ The tool research classifies each guarantee and each candidate tool ([`06-knowle
 | NATIVE | Python covers the guarantee; an external tool would add no value. |
 | NATIVE + optional | Native, with an optional Cat B tool as complement. |
 | HYBRID | Python covers part of the guarantee; Cat A external tools cover the rest. |
-| Cat A tool | Connector to implement; needed for full coverage of a HYBRID guarantee (implemented: nuclei, testssl.sh, sslyze). |
+| Cat A tool | Connector to implement; needed for full coverage of a HYBRID guarantee (implemented: nuclei, testssl.sh). |
 | Cat B tool | Optional connector, a native fallback exists. |
 | Cat C tool | Evaluated and discarded (abandoned, out of scope, or no added value). |
 
 If a Cat A tool is enabled but not installed, its test returns SKIP; the native test for the same guarantee still
 runs.
+
+## Rules every test follows
+
+The contract the block-6 review built every test on; the code and the test pages cite these by number ("rule N").
+
+| # | Rule | In the code |
+|---|---|---|
+| 1 | **Two steps of judgement.** A response gets a category from a closed list (IANA-based); each test maps categories to an outcome (`VIOLATION`, `ENFORCED`, `NOT_VERIFIABLE`, `NOT_APPLICABLE`) with a detail (`UPPER_SNAKE_CASE`): that table is its oracle. | `src/core/response_category.py`, `src/core/models/enums.py`, `BaseTest._judge` |
+| 2 | **Sub-tests and computed status.** A test declares its sub-tests; each judgement belongs to one; the status is computed from the counters (FAIL > PASS complete or partial > INCONCLUSIVE > SKIP), never chosen; a finding exactly with a `VIOLATION`. | `TestInfo.sub_tests`, `AssessmentTest._record`, `_finish`, `src/core/models/results.py` |
+| 3 | **Reference responses.** A verdict that depends on "does this exist, is this refused" rests on calibration (random siblings) and, where a credential exists, a positive control; a reference that cannot decide gives `NOT_VERIFIABLE`. | `src/core/references.py`, `TestContext.references` |
+| 4 | **Transport errors** (timeout, refused, TLS, protocol) are recorded and judged `NOT_VERIFIABLE`, never skipped. | `SecurityClientError.record`, `TransportError` |
+| 5 | **Derive first, configure on top.** What a test probes comes from the specification (named derivation rules, Phase 2) and the gateway, then the configuration adds or corrects; no destructive request on a derived candidate the configuration has not confirmed; sampling by a stated rule, never "the first N". | `src/discovery/derivation.py`, `AttackSurface.derived` |
+| 6 | **Evidence and confidence.** Every finding has its proof (`evidence_ref`) and the references it rests on (`supporting_refs`); confidence `CERTAIN`, `FIRM` or `TENTATIVE` by stated criteria; no severity. | `Finding`, `BaseTest._judge` |
+| 7 | **Effect.** `READ_ONLY`, `CHANGES_DATA` or `STRESSES_TARGET`, declared; the run order follows it; who creates cleans up or states what is left. | `TestInfo.effect`, `src/core/dag.py` |
+| 8 | **Standards.** The guarantee's other standards in `TestInfo.references`, each the standard and its official identifier (ASVS 5.0.0 L2, WSTG with its version, OWASP API Top 10 2023, RFC, NIST SP), each verified on its source. | `src/core/models/standards.py` |
+| 9 | **Three situations on the labs.** A test is trusted once seen giving the right answer where the weakness is present, where it is absent, and where the check cannot be made; a case the labs lack is produced by the crAPI case of the category, the tool's configuration, or a documented change to a lab's gateway configuration. | the page's "Validation" section |
+| 10 | **One question, one test.** Data two tests need is written once and shared (path variants, sensitive paths); the gateway's own answer is recognised by the references, not by lists of gateways. | `src/core/path_variants.py`, `src/core/sensitive_paths.py` |
+| 11 | **External tools.** The oracle is the tool's check, not its severity (kept as information); only results on the target count; the tool's own problems are `NOT_VERIFIABLE`; the command shown for manual verification runs. | `src/external_tests/` |
+| 12 | **Needs and strategy.** What a test needs is declared (`TestInfo.needs`), with a minimum strategy per need; the gateway reaches only the tests that declare it. | `src/core/test_metadata.py` |
 
 ## See also
 

@@ -2,7 +2,7 @@
 src/tests/domain_6/test_6_1_information_disclosure.py
 
 Test 6.1: guarantee "errors and responses disclose no internal information"
-(docs/project/test-review/group-i.md). OWASP API8:2023, CWE-209.
+. OWASP API8:2023, CWE-209.
 
 A response, in an error or a normal condition, must not leak a stack trace, a
 debug field or a version header: these fingerprint the backend and widen the

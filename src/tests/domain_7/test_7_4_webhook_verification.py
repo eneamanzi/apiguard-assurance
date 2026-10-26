@@ -2,7 +2,7 @@
 src/tests/domain_7/test_7_4_webhook_verification.py
 
 Test 7.4: guarantee "an incoming webhook is authenticated before it is acted on"
-(OWASP API10:2023 unsafe consumption, CWE-347) (docs/project/test-review/group-j.md).
+(OWASP API10:2023 unsafe consumption, CWE-347).
 
 A webhook receiver consumes data pushed by an external service; if it acts on a
 delivery without verifying its signature, anyone who can reach the endpoint can

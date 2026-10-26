@@ -1,6 +1,6 @@
 # 3.3 Request Signing Audit
 
-> **Audience:** analysts, contributors · **Status:** rewritten in the test review (branch `test-review`, 2026-10-23) ·
+> **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-23) ·
 > **Source of truth:**
 > [`src/tests/domain_3/test_3_3_request_signing_audit.py`](../../../src/tests/domain_3/test_3_3_request_signing_audit.py) ·
 > **Verified:** 2026-10-23

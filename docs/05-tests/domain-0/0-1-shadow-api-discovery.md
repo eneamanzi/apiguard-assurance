@@ -1,6 +1,6 @@
 # 0.1 Undeclared Methods, Undocumented Versions and Gateway Route Drift
 
-> **Audience:** analysts, contributors · **Status:** rewritten in the test review (branch `test-review`, 2026-10-21) ·
+> **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-21) ·
 > **Source of truth:**
 > [`src/tests/domain_0/test_0_1_shadow_api_discovery.py`](../../../src/tests/domain_0/test_0_1_shadow_api_discovery.py) ·
 > **Verified:** 2026-10-21

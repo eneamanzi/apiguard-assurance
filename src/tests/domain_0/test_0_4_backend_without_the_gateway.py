@@ -2,7 +2,7 @@
 src/tests/domain_0/test_0_4_backend_without_the_gateway.py
 
 Test 0.4: guarantee "a backend the gateway routes to answers only through the
-gateway" (docs/project/test-review/group-a.md).
+gateway".
 
 A backend that answers directly is reachable without any of the gateway's
 policies, so every guarantee the other tests verify through the gateway can be

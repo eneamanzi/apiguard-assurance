@@ -1,6 +1,6 @@
 # 5.1 Request Logging Audit
 
-> **Audience:** analysts, contributors · **Status:** new in the test review (branch `test-review`, 2026-10-23) ·
+> **Audience:** analysts, contributors · **Status:** new in the test review (2026-10-23) ·
 > **Source of truth:**
 > [`src/tests/domain_5/test_5_1_request_logging_audit.py`](../../../src/tests/domain_5/test_5_1_request_logging_audit.py) ·
 > **Verified:** 2026-10-23

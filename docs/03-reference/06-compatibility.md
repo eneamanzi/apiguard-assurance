@@ -1,6 +1,6 @@
 # Compatibility
 
-> **Audience:** users, integrators · **Status:** draft - several points are open (see `OPEN_QUESTIONS.md`) ·
+> **Audience:** users, integrators · **Status:** v0.1.0 ·
 > **Source of truth:** `pyproject.toml`, `install_tools.sh`, `src/core/gateway/`, `src/discovery/openapi.py`,
 > `test-environments/*/docker-compose.yml` · **Verified:** 2026-10-05, v0.1.0; interface stability 2026-10-09; crAPI lab
 > 2026-10-10; APISIX lab and adapter 2026-10-12; connections and TLS, labs rebuilt with their certificate authority
@@ -13,7 +13,7 @@ Nothing in the "unknown" column should be assumed to work.
 
 | Item | Declared | Tested | Unknown |
 |---|---|---|---|
-| Python | `>=3.11,<3.15` (`pyproject.toml`); classifiers 3.11 to 3.14 | 3.11.14, 3.12.3, 3.13.9, 3.14.0 (2026-10-06: `pip install ".[sslyze]"` in a venv per version, then the 15 native tests and `ext.1.5.sslyze` on the lab; identical results on every version) | 3.15 and later: not installable until verified and added to the range |
+| Python | `>=3.11,<3.15` (`pyproject.toml`); classifiers 3.11 to 3.14 | 3.11.14, 3.12.3, 3.13.9, 3.14.0 (2026-10-06: a venv per version, then the native tests and the external tests on the lab; identical results on every version) | 3.15 and later: not installable until verified and added to the range |
 | Operating system | Linux only (classifier `POSIX :: Linux`) | Linux | Not supported: macOS, Windows. `install_tools.sh` also accepts macOS (x86_64, arm64), but the tool is not tested there; on Windows it exits with an error. |
 
 ## Target and gateway
@@ -28,26 +28,27 @@ Nothing in the "unknown" column should be assumed to work.
 
 ## Test portability
 
-What each test needs to run on a target other than the labs, and what happens when the need is not met: most tests
-return SKIP with a reason naming what is missing; 0.2 and 6.4 run anyway, with the effect stated. Measured on the three labs on 2026-10-14
-(full runs with the lab configurations, external tests included, which every lab now enables).
+What each test needs to run on a target other than the labs, grouped by requirement. When a need is not met the
+test returns SKIP with a reason naming what is missing (6.4 runs anyway, with the effect stated). The exact need and
+configuration of each test are on its page (`docs/05-tests/`, "Preconditions" and "Configuration") and printed by
+`apiguard list-tests`; this table is the summary.
 
-| Test | Needs | Without it | Forgejo + Kong | crAPI + Kong | Forgejo + APISIX |
-|---|---|---|---|---|---|
-| 0.1, 1.1, 1.5, 4.1, 6.2 | the specification and the target URL only | - | ran | ran | ran |
-| 0.2 | the gateway's server identifiers (`gateway_server_identifiers`; default includes Kong's) | a 404 with another gateway's `Server` header is reported as coming from the backend (false finding) | ran | ran | ran (set to `apisix`) |
-| 0.3 | operations marked `deprecated` in the specification, without path parameters | SKIP | SKIP (all have path parameters) | SKIP (none marked) | SKIP (as Forgejo + Kong) |
-| 1.4 | `auth_type: login` with a login resource that has a delete request, and `protected_endpoint` | SKIP naming what is missing | ran | SKIP (no revocation) | ran |
-| 1.6 | session cookies set by the target (`session_cookie_names`) | SKIP | SKIP | SKIP | SKIP |
-| 2.1 | credentials and `admin_endpoint_paths` | SKIP naming the key | ran | SKIP (not configured) | ran |
-| 3.3, 4.2, 4.3 | a gateway adapter (`kong` or `apisix`) and access to its Admin API | SKIP with the reason (no adapter, not supported, not accessible) | ran | ran | ran |
-| 6.4 | sub-test A: the gateway's block message (`gateway_block_body_fragment`; default is Kong's); sub-test B: a gateway adapter | without the message, a blocked endpoint is labelled blocked by the application, not by the gateway (same verdict); without an adapter, sub-test B gives a note and sub-test A still runs | ran | ran | ran (message set) |
-| 7.2 | credentials and `url_accepting_endpoint` (with its `resource` when the endpoint belongs to an object) | SKIP naming what is missing | ran (resource `repository`) | ran (fixed path) | ran (resource `repository`) |
-| ext.0.1.nuclei, ext.1.5.testssl, ext.1.5.sslyze | the tool installed | SKIP | ran | ran | ran |
+| Tests | What they need | Without it |
+|---|---|---|
+| 0.1, 0.2, 1.1, 1.5, 2.4, 4.1, 4.4, 5.2, 6.2, `ext.1.5.testssl`, `ext.0.1.ffuf`, `ext.3.1.schemathesis` | the specification and the target URL only (the external tests also need the tool installed; 1.5 also `http_url` on a non-standard HTTP port) | run anywhere |
+| 0.3 | an operation marked `deprecated` in the specification | SKIP |
+| 1.2, 1.3, 1.6, 1.7, 2.1, 6.1 | a user account (`credentials`); 1.6 also the session-cookie names, 2.1 uses an admin account if one is given | SKIP |
+| 2.5, 7.3 | a user account and the object or operation the test acts on (`owned_object_resources`; the race operation) | SKIP |
+| 2.2 | two user accounts and an owned-object resource | SKIP |
+| 7.2 | a user account and a `url_accepting_endpoint` (with its `resource` when the endpoint belongs to an object) | SKIP |
+| 1.4 | a revocable login (`auth_type: login` with a delete request) and `protected_endpoint` | SKIP / not applicable |
+| 7.1, 7.4 | a configured sensitive flow (7.1) or webhook with its signing secret (7.4) | SKIP |
+| 0.4, 3.3, 4.2, 4.3, 5.1 | a gateway adapter (`kong` or `apisix`) and access to its Admin API | SKIP (no adapter, not supported, not accessible) |
+| 6.4 | sub-test A: the gateway's block message (`gateway_block_body_fragment`); sub-test B: a gateway adapter | sub-test B gives a note; sub-test A still runs |
 
-"Ran" means the test reached a verdict (PASS or FAIL), not that the verdict is right: verdict correctness is the
-subject of the test review (`OPEN_QUESTIONS.md` Q-29: for example 2.1 counts a `404` as enforced, so a path the
-target does not have gives PASS). No test or helper contains Forgejo paths: what is specific to an application (its
+Reaching a verdict is not the same as the verdict being right: verdict correctness was the subject of the block-6
+test review (groups A-J), now complete, which rebuilt each test's oracle with calibration, positive controls and the
+honest `INCONCLUSIVE` status. No test or helper contains Forgejo paths: what is specific to an application (its
 login, the objects a test needs, the request that checks a revoked token) is configuration
 ([`resources`](01-configuration.md#resources)); the Forgejo values are in the lab configurations.
 
@@ -70,7 +71,7 @@ first start of any lab by its one-shot `pki` service (`test-environments/pki/gen
 gateway image; never committed): an authority (10 years) and, signed by it, the gateways' certificate and a client
 certificate (180 days, the CA/Browser Forum limit for public certificates from March 2026 is 200 days), with the
 RFC 5280 extensions strict validators require (`basicConstraints`, `keyUsage`, `extendedKeyUsage`, key
-identifiers: sslyze refuses a chain without `keyUsage`). Each lab exercises the highest level its gateway offers:
+identifiers). Each lab exercises the highest level its gateway offers:
 
 | Connection | Forgejo + Kong | crAPI + Kong | Forgejo + APISIX |
 |---|---|---|---|
@@ -188,7 +189,7 @@ every audit read APISIX (concept artifacts with `"adapter": "apisix"`).
 
 Rebuilt from scratch on 2026-10-15 (the three labs, with their certificates, Forgejo's port closed and the
 specification route): native results identical to the references on each lab; the external TLS tests, given the
-labs' authority, no longer report an untrusted chain (sslyze PASS, testssl.sh keeps `cert_revocation`: the lab
+labs' authority, no longer report an untrusted chain (testssl.sh keeps `cert_revocation`: the lab
 certificates declare no CRL or OCSP address).
 
 ## External tools
@@ -198,7 +199,6 @@ certificates declare no CRL or OCSP address).
 | testssl.sh | 3.2.3 (pinned) | `install_tools.sh` → `tools/testssl/` | - |
 | nuclei | 3.8.0 (pinned) | `install_tools.sh` → `tools/nuclei/` | - |
 | nuclei-templates | 10.4.3 (pinned) | `install_tools.sh` → `tools/nuclei-templates/` | - |
-| sslyze | `>=6.3,<7` (Python extra `[sslyze]`) | `pip install "apiguard-assurance[sslyze]"` | AGPL v3; `pyproject.toml` notes it must be removed or replaced for SaaS distribution (Q-11). |
 
 `external_tools.<tool>.expected_version` lets the tool warn when the installed version differs.
 
@@ -209,7 +209,7 @@ Runtime dependencies use `>=FLOOR,<NEXT_MAJOR` ranges (`pyproject.toml`), except
 
 ## Interface stability
 
-What an integrator can rely on (owner decision, 2026-10-09, Q-25). The list is a documented promise, not an
+What an integrator can rely on (owner decision, 2026-10-09). The list is a documented promise, not an
 automated check.
 
 **One version.** The tool version (`tool_version` in `apiguard_report.json` and `evidence.json`, `apiguard
@@ -242,7 +242,7 @@ counting as breaking:
 | Requirements (Python versions, platforms) | for installation | this page |
 
 **C. Not a contract** - may change freely: texts (finding titles and details, messages), the per-transaction
-`oracle_state` labels, log event names and fields, the Python modules (`src.*`), the layout of the HTML report.
+`detail` labels, log event names and fields, the Python modules (`src.*`), the layout of the HTML report.
 
 **When 1.0.0:** after the agnosticism work (plan, block 8), the last one expected to change `config.yaml` keys and
 accepted inputs. Until then the project is 0.x.

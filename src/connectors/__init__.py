@@ -21,7 +21,6 @@ from src.connectors.base import (
     ConnectorResult,
 )
 from src.connectors.nuclei import NucleiConnector
-from src.connectors.sslyze import SslyzeConnector
 from src.connectors.testssl import TestsslConnector
 
 __all__ = [
@@ -30,6 +29,5 @@ __all__ = [
     "BaseLibraryConnector",
     "ConnectorResult",
     "NucleiConnector",
-    "SslyzeConnector",
     "TestsslConnector",
 ]

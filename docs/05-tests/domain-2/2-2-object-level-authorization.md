@@ -1,6 +1,6 @@
 # 2.2 Object-Level Authorization
 
-> **Audience:** analysts, contributors · **Status:** new in the test review (branch `test-review`, 2026-10-23) ·
+> **Audience:** analysts, contributors · **Status:** new in the test review (2026-10-23) ·
 > **Source of truth:**
 > [`src/tests/domain_2/test_2_2_object_level_authorization.py`](../../../src/tests/domain_2/test_2_2_object_level_authorization.py),
 > [`src/tests/helpers/owned_object.py`](../../../src/tests/helpers/owned_object.py) · **Verified:** 2026-10-23
@@ -12,7 +12,7 @@
 | Test ID | `2.2` |
 | Name | Object-Level Authorization |
 | Domain | 2 - Authorization and Access Control |
-| Priority / strategy | P1 / GREY_BOX |
+| Priority / strategy | P0 / GREY_BOX |
 | Effect | CHANGES_DATA |
 | CWE | CWE-639 |
 | Standards | `OWASP API1:2023`, `OWASP ASVS v5.0.0-8.2.2`, `NIST SP 800-162, Section 2.2` |

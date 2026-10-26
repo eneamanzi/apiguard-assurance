@@ -190,7 +190,7 @@ hatch build --target wheel   # wheel only (faster: use for install testing)
 `.gitignore`, `install_tools.sh`. No configuration file: the lab configurations are in `test-environments/`.
 
 **What the sdist excludes**: `docs/06-knowledge/`, `docs/project/`, `CLAUDE.md`, `CONTRIBUTING.md`, `CHANGELOG.md`,
-`OPEN_QUESTIONS.md`, `test-environments/`, `outputs/`, `tools/`, `.claude/`, `.env`.
+`test-environments/`, `outputs/`, `tools/`, `.claude/`, `.env`.
 
 **Cold-install test** (verifies the wheel works in a clean environment):
 ```bash
@@ -327,8 +327,8 @@ cd ../..
 
 **Runs one after the other need no reset, but on the crAPI lab wait a few seconds.** Test 7.2 makes the workshop
 service answer 503/504 and Kong's passive health check excludes it; the active health check re-enables it about 5
-seconds later (Q-66). A run started within that window gets 503 from the workshop endpoints, and test 1.1 can PASS
-without having checked them (seen 2026-10-14, Q-29). Before the next run, the last command of the crAPI check below
+seconds later. A run started within that window gets 503 from the workshop endpoints, and test 1.1 can PASS
+without having checked them (seen 2026-10-14). Before the next run, the last command of the crAPI check below
 must print `"health":"HEALTHY"`.
 
 **Check that a lab is ready**, from the repository root, through the gateway and with the certificates verified
@@ -372,15 +372,15 @@ hatch run apiguard validate-config -c test-environments/forgejo-kong/config.yaml
 hatch run apiguard run -c test-environments/forgejo-kong/config.yaml                 # reports in outputs/forgejo/ (crAPI: outputs/crapi/, APISIX: outputs/forgejo-apisix/)
 ```
 
-The three lab configurations run every test, native and external (nuclei, testssl.sh, sslyze: about 5 minutes
+The three lab configurations run every test, native and external (testssl.sh, ffuf, schemathesis: about 5 minutes
 more), with the same commented filters above `execution`: for the native tests only, set
 `external_tools.enabled: false` (a run of one or two minutes); for some tests only, `execution.test_ids`.
 
 ## Git - Large Changes on a Branch
 
-For a rewrite that leaves the tool incomplete for a while (e.g. the test review, branch `test-review` created
-2026-10-20 from `main` at `4b185f8`, [`test-review.md`](test-review.md)): `main` keeps the old tool, the branch
-holds the new one, nothing old is kept on the branch for compatibility.
+For a rewrite that leaves the tool incomplete for a while (as the block-6 test review did on a `test-review`
+branch): `main` keeps the old tool, the branch holds the new one, nothing old is kept on the branch for
+compatibility.
 
 Where you are (the asterisk marks the current branch):
 ```bash

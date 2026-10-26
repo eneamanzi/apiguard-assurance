@@ -1,6 +1,6 @@
 # 7.1 Sensitive Business Flow Protection
 
-> **Audience:** analysts, contributors · **Status:** new in the test review (branch `test-review`, 2026-10-26) ·
+> **Audience:** analysts, contributors · **Status:** new in the test review (2026-10-26) ·
 > **Source of truth:**
 > [`src/tests/domain_7/test_7_1_sensitive_flow_protection.py`](../../../src/tests/domain_7/test_7_1_sensitive_flow_protection.py) ·
 > **Verified:** 2026-10-26
@@ -103,7 +103,7 @@ Runs of 2026-10-26:
 | Forgejo + Kong, Forgejo + APISIX | **SKIP** | no sensitive business flow declared (`sensitive_flow` unset): honest SKIP |
 
 Rule 9: the `VIOLATION` side is proven on crAPI; the `ENFORCED` sides (a `429` throttle, a CAPTCHA challenge) are
-lab-unproven and listed in the Deferred follow-ups (a target with a CAPTCHA or a hard throttle on the flow).
+lab-unproven and listed in the backlog (`../../project/roadmap.md`) (a target with a CAPTCHA or a hard throttle on the flow).
 
 ## 13. Remediation
 

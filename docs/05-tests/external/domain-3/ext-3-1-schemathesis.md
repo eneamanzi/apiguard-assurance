@@ -1,6 +1,6 @@
 # ext.3.1.schemathesis Input Validation
 
-> **Audience:** analysts, contributors · **Status:** new in the test review (branch `test-review`, 2026-10-23) ·
+> **Audience:** analysts, contributors · **Status:** new in the test review (2026-10-23) ·
 > **Source of truth:**
 > [`src/external_tests/ext_test_3_1_input_validation_schemathesis.py`](../../../../src/external_tests/ext_test_3_1_input_validation_schemathesis.py),
 > [`src/connectors/schemathesis.py`](../../../../src/connectors/schemathesis.py) · **Verified:** 2026-10-23

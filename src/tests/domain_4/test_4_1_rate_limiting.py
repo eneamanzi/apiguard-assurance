@@ -1,8 +1,7 @@
 """
 src/tests/domain_4/test_4_1_rate_limiting.py
 
-Test 4.1: guarantee "the gateway limits the request rate" (OWASP API4:2023)
-(docs/project/test-review/group-g.md).
+Test 4.1: guarantee "the gateway limits the request rate" (OWASP API4:2023).
 
 A gateway must stop a flood: past a limit it answers `429 Too Many Requests`.
 The test sends a burst to a documented endpoint and looks for the 429, then

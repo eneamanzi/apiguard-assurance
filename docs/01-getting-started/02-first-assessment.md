@@ -145,8 +145,8 @@ hatch run apiguard run -c test-environments/forgejo-kong/config.yaml
 About 5 minutes. The terminal shows one line per test with its result and, at the end, a summary with the paths
 of the reports (add `--log-level info` to see the steps of the run, `--log-level debug` to see every HTTP request).
 
-**Do not interrupt it.** Almost all of the 5 minutes are spent in the external-tool tests (nuclei, testssl.sh,
-sslyze; the native tests take about 30 seconds). The test in progress is shown with its position (`[16/18]`) and,
+**Do not interrupt it.** Almost all of the 5 minutes are spent in the external-tool tests (nuclei, testssl.sh;
+the native tests take about 30 seconds). The test in progress is shown with its position (`[16/18]`) and,
 on a terminal, the time elapsed against its limit (`0:01:40 (limit 600s)`); with the output redirected to a file,
 an external tool prints a `running (limit 600s)` line when it starts.
 Reports are written only at the very end: if you press `Ctrl+C` the tool removes what the tests created on the
@@ -164,9 +164,9 @@ tool found violations, which is the normal result on this lab ([exit codes](../0
 
 ## 6. Check the result
 
-Measured on this lab with the full run: exit code `1`, 18 tests scheduled, no `ERROR`, `SKIP` for 0.3 (no
-deprecated endpoint declared) and 1.6 (no session cookie), the rest PASS or FAIL. The exact number of findings
-varies with the lab data.
+On this lab with the full run: exit code `1`, no `ERROR`; the tests the lab does not give the inputs for return
+`SKIP` (for example 0.3, no deprecated endpoint declared, and 1.6, no session cookie), the rest PASS or FAIL. The
+exact number of tests and findings depends on the lab data and on which external tools are installed.
 
 Results are written to `outputs/forgejo/` (a previous run's files are replaced): the HTML report to open below, the
 same data in `apiguard_report.json`, the evidence and `config_used.yaml`. What each file is for:
@@ -245,5 +245,4 @@ Labs](../project/maintainer-commands.md#test-labs)).
 | the run stops with `Exit 10` and `Reason ... certificate is not trusted` | the certificates were regenerated and Kong still serves the old one: restart Kong as in [If you regenerate the certificates](#if-you-regenerate-the-certificates) |
 | `Configuration invalid: Environment variable(s) not set: X` | `.env` has no value for `X` (also checked for `${X}` written inside YAML comments) |
 | many `INCONCLUSIVE_PARAMETRIC` states in the report | the test repository is missing: check the setup output (step 3) |
-| `ext.1.5.sslyze` is SKIP | the tool was not started through Hatch (no sslyze) |
 | `bind: address already in use` | a port is taken: see [If a port is already in use](#if-a-port-is-already-in-use) |

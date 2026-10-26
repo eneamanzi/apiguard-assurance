@@ -1029,9 +1029,9 @@ def _silence_noisy_loggers(base_level: int) -> None:
     Args:
         base_level: The base log level configured for the tool.
     """
-    # Python warnings raised inside libraries (e.g. a deprecation notice of
-    # cryptography during an sslyze scan) are addressed to the developers of
-    # those libraries: they go through the logging system, under the
+    # Python warnings raised inside libraries (e.g. a deprecation notice of a
+    # third-party dependency) are addressed to the developers of those
+    # libraries: they go through the logging system, under the
     # "py.warnings" logger, and are shown only at DEBUG.
     logging.captureWarnings(True)
     logging.getLogger(_PY_WARNINGS_LOGGER).setLevel(
@@ -1048,9 +1048,6 @@ def _silence_noisy_loggers(base_level: int) -> None:
         "openapi_spec_validator",
         "urllib3",
         "chardet",
-        # sslyze logs each HTTP probe at INFO in plain text, which would break
-        # the one-JSON-object-per-line stream of --log-format json.
-        "sslyze",
     ]
 
     for logger_name in noisy_loggers:

@@ -3,7 +3,7 @@ src/tests/domain_2/test_2_5_object_property_authorization.py
 
 Test 2.5: guarantee "the API exposes only the properties a user may see, and
 accepts only the properties a user may set" (Broken Object Property Level
-Authorization, BOPLA, OWASP API3:2023) (docs/project/test-review/group-e.md).
+Authorization, BOPLA, OWASP API3:2023).
 
 Two sub-tests, on a disposable object owned by user_a (created through a
 configured resource, as in test 2.2):

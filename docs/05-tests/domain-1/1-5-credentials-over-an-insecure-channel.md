@@ -1,6 +1,6 @@
 # 1.5 Credentials Over an Insecure Channel
 
-> **Audience:** analysts, contributors · **Status:** rewritten in the test review (branch `test-review`, 2026-10-22) ·
+> **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-22) ·
 > **Source of truth:**
 > [`src/tests/domain_1/test_1_5_insecure_credential_transport.py`](../../../src/tests/domain_1/test_1_5_insecure_credential_transport.py)
 > · **Verified:** 2026-10-22

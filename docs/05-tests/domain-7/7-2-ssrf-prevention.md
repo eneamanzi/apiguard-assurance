@@ -1,6 +1,6 @@
 # 7.2 Server-Side Request Forgery Prevention
 
-> **Audience:** analysts, contributors · **Status:** rewritten in the test review (branch `test-review`, 2026-10-26) ·
+> **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-26) ·
 > **Source of truth:**
 > [`src/tests/domain_7/test_7_2_ssrf_prevention.py`](../../../src/tests/domain_7/test_7_2_ssrf_prevention.py) ·
 > **Verified:** 2026-10-26
@@ -123,7 +123,7 @@ Runs of 2026-10-26:
 The baseline control and the 5xx rule were added after the first crAPI run scored the gateway's `504`s as a false
 `ENFORCED`; they are what keeps a down/erroring upstream honest. Rule 9: the `ENFORCED` and the `NOT_VERIFIABLE`
 sides are both proven; the confirmed-SSRF `VIOLATION` is deferred with the listener
-(`docs/project/test-review.md`, Deferred follow-ups).
+(the backlog, `../../project/roadmap.md`).
 
 ## 13. Remediation
 

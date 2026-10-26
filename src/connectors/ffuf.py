@@ -2,7 +2,7 @@
 src/connectors/ffuf.py
 
 FfufConnector: subprocess connector for ffuf, the path search of test
-ext.0.1.ffuf (docs/project/test-review/0-1.md).
+ext.0.1.ffuf.
 
 Responsibility (connector layer):
     Run ffuf once per job (a base URL and its words), read each JSON output

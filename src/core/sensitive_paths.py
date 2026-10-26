@@ -5,8 +5,7 @@ The catalogue of sensitive paths: paths that frameworks and servers expose for
 monitoring, debugging, documentation or configuration, which should not be
 reachable unless intended (OWASP ASVS v5.0.0-13.4.2, 13.4.5).
 
-One catalogue for every test that asks about them (docs/project/test-review.md,
-topic 7b point 3): 0.1 asks whether such a path exists outside the
+One catalogue for every test that asks about them: 0.1 asks whether such a path exists outside the
 specification (the suffixes go into the wordlist of ext.0.1.ffuf), 6.4 whether
 it shows credentials. Each entry is a suffix without a leading slash, combined
 with the base paths derived from the specification (the service prefixes, the

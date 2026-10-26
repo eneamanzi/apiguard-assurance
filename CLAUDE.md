@@ -3,8 +3,9 @@
 ## Project
 
 Python CLI for automated security assessment of REST APIs behind an API gateway. Born as a Master's thesis in
-Cybersecurity; v0.1.0 released 2026-05-18 (15 native + 3 external tests). Current phase: documentation and
-hardening for production use and integration into another product.
+Cybersecurity; v0.1.0 released 2026-05-18 (15 native + 3 external tests), then the block-6 test review rebuilt and
+extended the suite to 29 native + 3 external tests (`apiguard list-tests` is the ground truth). Current phase:
+documentation and hardening for production use and integration into another product.
 
 **Development targets:** three labs in `test-environments/`: Forgejo behind Kong (DB-less, `forgejo-kong/`, the
 reference), OWASP crAPI behind Kong (`crapi-kong/`), Forgejo behind Apache APISIX (`forgejo-apisix/`). Each lab
@@ -18,9 +19,8 @@ in `docs/03-reference/06-compatibility.md` (Test portability).
 | Need | Read |
 |---|---|
 | Map of all documentation | `docs/index.md` |
-| Current work: what to do next, step by step | `docs/project/plan.md` |
-| Open doubts, with evidence (closed **only** by the owner) | `OPEN_QUESTIONS.md` |
-| What is implemented, milestones | `docs/project/roadmap.md` (single source of truth) |
+| What is implemented, the backlog, open decisions | `docs/project/roadmap.md` (single source of truth) |
+| The test-design rules every test follows ("rule N") | `docs/04-architecture/03-assessment-model.md` ("Rules every test follows") |
 | Pipeline, modules, dependencies, components | `docs/04-architecture/01-overview.md` |
 | Data models, assessment model, security model | `docs/04-architecture/02-data-model.md`, `assessment-model.md`, `security-model.md` |
 | Why a design choice was made (decisions D1-D9) | `docs/04-architecture/05-design-decisions.md` |
@@ -49,7 +49,7 @@ src/
 │                     #   models/, exceptions,
 │                     #   test_metadata (TestInfo, the declaration of a test),
 │                     #   assessment_test (base of every test), test_discovery
-├── connectors/       # External tool wrappers, zero test logic (nuclei, testssl, sslyze)
+├── connectors/       # External tool wrappers, zero test logic (testssl, ffuf, schemathesis; nuclei present, not wired)
 ├── external_tests/   # ExternalToolTest hierarchy, parallel to tests/ (both on core's AssessmentTest)
 ├── tests/            # BaseTest, registry, helpers/, domain_0 … domain_7 (each test module holds its
 │                     #   declaration, TestInfo, and its parameter model)
@@ -124,8 +124,8 @@ Use clean placeholders (`nuclei_result.json`, `testssl_result.json`).
 - Before writing: state the file and why. Wait for confirmation.
 
 ### Documentation
-- Write only facts verified against the code or a run; a doubt goes to `OPEN_QUESTIONS.md` with its evidence,
-  never guessed. Claude may propose a resolution; only the owner closes a question.
+- Write only facts verified against the code or a run; a doubt is raised with the owner with its evidence,
+  never guessed. Claude may propose a resolution; only the owner decides it.
 - Documentation in English, Markdown.
 
 ---
@@ -164,7 +164,7 @@ Missing external tool → `TestResult(SKIP)` via `_skip_reason_from_registry`. N
 
 ## Session Startup
 
-1. Read `docs/project/plan.md` to see the current step; check `OPEN_QUESTIONS.md` for the questions it involves.
+1. Read `docs/project/roadmap.md` for what is implemented, the backlog and the open decisions.
 2. For code work, check `docs/project/roadmap.md` and read the relevant files from "Where things are":
    - implementing a test: the matching guide in `docs/02-guides/extending/`, then the methodology;
    - touching infrastructure: `docs/04-architecture/01-overview.md`.

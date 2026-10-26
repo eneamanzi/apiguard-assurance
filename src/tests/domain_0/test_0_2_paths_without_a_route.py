@@ -2,7 +2,7 @@
 src/tests/domain_0/test_0_2_paths_without_a_route.py
 
 Test 0.2: guarantee "the gateway answers a path it has no route for itself,
-instead of forwarding it" (docs/project/test-review/group-a.md).
+instead of forwarding it".
 
 What is forwarded without a route reaches a backend without the policies the
 gateway attaches to its routes (authentication, rate limiting, request

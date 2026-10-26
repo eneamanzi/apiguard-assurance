@@ -2,7 +2,7 @@
 
 > **Audience:** users · **Status:** v0.1.0 · **Source of truth:** `src/engine.py` (Phase 4), `src/tests/registry.py`,
 > `src/external_tests/registry.py`, `src/config/schema/tool_config.py` (`ExecutionConfig`) · **Verified:** 2026-10-06
-> on the lab (runs: native tests only, test 1.1 only, `ext.1.5.sslyze` only)
+> on the lab (runs: native tests only, test 1.1 only, `ext.1.5.testssl` only)
 
 How to run only part of the assessment: a single test while you fix something, the fast tests only, or a subset
 for a pipeline. By default the tool runs every test whose preconditions can be checked.
@@ -12,8 +12,8 @@ Previous page: [Configure a target](01-configure-a-target.md). Every key is in t
 
 ## Where the time goes
 
-Measured on the lab: a full run takes about 5 minutes, of which **the 15 native tests take about 30 seconds**. The
-rest is the external tools (nuclei, testssl.sh, sslyze), which print nothing while they run. While you work on the
+Measured on the lab: **the native tests take well under a minute**; a full run with the external tools takes several
+minutes. The external tools (testssl.sh, ffuf, schemathesis) print nothing while they run. While you work on the
 configuration or on a single test, leave them off.
 
 ## How to change the selection
@@ -46,8 +46,8 @@ external_tools:
   enabled: false
 ```
 
-The external tests disappear from the report (they are not scheduled, not SKIP). Measured on the lab: 27 seconds,
-15 tests.
+The external tests disappear from the report (they are not scheduled, not SKIP): the native tests alone run in well
+under a minute.
 
 ### One or a few tests
 
@@ -65,18 +65,18 @@ External IDs work the same way:
 
 ```yaml
 execution:
-  test_ids: ["ext.1.5.sslyze"]
+  test_ids: ["ext.1.5.testssl"]
 ```
 
-A mixed list (`["1.1", "ext.1.5.sslyze"]`) runs exactly the listed tests.
+A mixed list (`["1.1", "ext.1.5.testssl"]`) runs exactly the listed tests.
 
 `test_ids` chooses only among the available tests: listing an external test whose tool is disabled in
 `external_tools` is an error (enable the tool, or remove the test from the list).
 
-ID formats: `X.Y` for native tests (`1.1`, `7.2`), `ext.X.Y.tool` for external tests (`ext.0.1.nuclei`,
-`ext.1.5.testssl`, `ext.1.5.sslyze`). A malformed ID, an ID that does not exist, or a test of a disabled tool stops
+ID formats: `X.Y` for native tests (`1.1`, `7.2`), `ext.X.Y.tool` for external tests (`ext.0.1.ffuf`,
+`ext.1.5.testssl`). A malformed ID, an ID that does not exist, or a test of a disabled tool stops
 the tool at startup (exit `10`, also with `validate-config`), listing every wrong entry; for an unknown ID it
-suggests the closest one (`unknown test 'ext.1.5.sslyzee' (did you mean 'ext.1.5.sslyze'?)`). The full list is in
+suggests the closest one (`unknown test 'ext.1.5.testsll' (did you mean 'ext.1.5.testssl'?)`). The full list is in
 the [test catalogue](../../05-tests/README.md).
 
 When `test_ids` is set, `min_priority` and `strategies` are ignored. Without `test_ids`, a combination of filters that
@@ -92,8 +92,8 @@ execution:
   min_priority: 0
 ```
 
-It applies to native and external tests: with `0`, the run includes the P0 native tests (0.1, 0.2, 0.3, 1.1, 4.1,
-7.2) and `ext.0.1.nuclei`. Priorities per test: [assessment model](../../04-architecture/03-assessment-model.md#priorities).
+It applies to native and external tests: with `0`, the run includes the P0 native tests (0.1, 0.2, 0.3, 0.4, 1.1,
+1.2, 1.3, 2.2, 4.1, 7.2) and `ext.0.1.ffuf`. Priorities per test: [assessment model](../../04-architecture/03-assessment-model.md#priorities).
 
 ### By strategy
 
@@ -105,13 +105,13 @@ execution:
     - BLACK_BOX
 ```
 
-With only `BLACK_BOX` (no credentials, no gateway access) the run has 11 tests: 0.1, 0.2, 0.3, 1.1, 1.5, 1.6, 4.1,
-6.2 and the three external tests, if their tools are enabled.
+With only `BLACK_BOX` (no credentials, no gateway access) the run has the network-only tests: 0.1, 0.2, 0.3, 1.1,
+1.5, 2.4, 4.1, 4.4, 6.2, 6.4, 7.1, 7.4 and the three external tests, if their tools are enabled.
 Strategies per test: [assessment model](../../04-architecture/03-assessment-model.md#strategies-knowledge-and-privilege-of-the-tester).
 
 ### One external tool only
 
-Each tool has its own `enabled` under `external_tools` (`testssl`, `nuclei`, `sslyze`). Set the ones you do not want
+Each tool has its own `enabled` under `external_tools` (`testssl`, `nuclei`, `ffuf`, `schemathesis`). Set the ones you do not want
 to `false` and keep the master switch on. A tool that is enabled but not installed returns SKIP.
 
 ## Things to know

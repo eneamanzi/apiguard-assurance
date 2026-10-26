@@ -2,7 +2,7 @@
 src/tests/domain_3/test_3_3_request_signing_audit.py
 
 Test 3.3: guarantee "data in transit is protected from tampering beyond TLS"
-(docs/project/test-review/group-f.md). An HMAC request signature with a strong
+. An HMAC request signature with a strong
 algorithm and replay protection.
 
 The test reads the gateway's signing policies through the adapter and audits

@@ -36,7 +36,7 @@ a run predictable and repeatable. The batches of the dependency graph are the na
 | Constraint | What it means | Where it holds |
 |---|---|---|
 | Agnosticism | Works on any REST API with an OpenAPI specification without touching the source. | D1.P1; the three labs |
-| Traceability | A FAIL of an HTTP test points to the transaction that proves it (`evidence_ref`). The rule is decided; 4.1 and 7.2 do not follow it yet (Q-50). | D4.P1, D5.P1 |
+| Traceability | A FAIL of an HTTP test points to the transaction that proves it (`evidence_ref`, set by `_judge()`); a configuration-audit finding references the gateway concept it read. | D4.P1, D5.P1 |
 | Prioritisation | A run can be limited to the most important tests (`execution.min_priority`), or stop at the first critical failure (`execution.fail_fast`). | [assessment model](03-assessment-model.md#priorities) |
 | Robustness | A test that raises an exception does not stop the others: it returns ERROR. | D4.P3 |
 | Cleanliness | What a test creates on the target is removed at the end (teardown, in reverse order). | D4.P6 |
@@ -53,8 +53,8 @@ No database or external service is needed at runtime: all state is in memory or 
 | Phase | What happens | Code | On failure |
 |---|---|---|---|
 | 1 Initialization | Read YAML as written, resolve `${VAR}` in its values, validate with Pydantic → frozen `ToolConfig` (D9); build the TLS context of each connection (`engine.build_connection_contexts`); then discover the tests and check every declaration (`src/core/test_discovery.py`), the `test_ids` entries and the `tests` section against the parameter models the tests declare (`engine.check_tests`, `src/config/tests_section.py`); write `config_used.yaml`, the configuration the run uses (`src/config/config_used.py`) | `src/config/loader.py`, `src/config/schema/`, `src/config/tests_section.py`, `src/config/config_used.py`, `src/core/tls.py`, `src/engine.py` | `ConfigurationError` or `TestDefinitionError` → exit 10 |
-| 2 OpenAPI discovery | Download (with the specification's TLS context) or read the spec, dereference `$ref` (prance, in a worker thread), detect dialect, validate, build `AttackSurface` | `src/discovery/download.py`, `openapi.py`, `surface.py` | `OpenAPILoadError` → exit 10 |
-| 3 Context construction | Resolve where and how credentials are sent (credentials + the spec's security schemes); build `TargetContext` (config + surface + credentials + placement + per-test config + gateway adapter), `TestContext`, `EvidenceStore` | `src/engine.py`, `src/core/auth_placement.py`, `src/core/context.py`, `src/core/evidence.py` | `ConfigurationError` (placement not determined) → exit 10 |
+| 2 OpenAPI discovery | Download (with the specification's TLS context) or read the spec, dereference `$ref` (prance, in a worker thread), detect dialect, validate, build `AttackSurface`, then derive shared knowledge from it by named rules (e.g. privileged endpoints) into `AttackSurface.derived`, so tests read it instead of each re-deriving | `src/discovery/download.py`, `openapi.py`, `surface.py`, `derivation.py` | `OpenAPILoadError` → exit 10 |
+| 3 Context construction | Resolve where and how credentials are sent (credentials + the spec's security schemes); build `TargetContext` (config + surface + credentials + placement + per-test config + gateway adapter), `TestContext` (with the run's shared reference responses, `TestContext.references`), `EvidenceStore` | `src/engine.py`, `src/core/auth_placement.py`, `src/core/context.py`, `src/core/references.py`, `src/core/evidence.py` | `ConfigurationError` (placement not determined) → exit 10 |
 | 4 Discovery and scheduling | Discover native and external tests, filter, build dependency batches | `src/tests/registry.py`, `src/external_tests/registry.py`, `src/core/dag.py` | `DAGCycleError` → exit 10 |
 | 5 Execution | One preflight request to the API, then run each test sequentially in batch order with one shared `SecurityClient` | `src/engine.py`, `src/tests/`, `src/external_tests/` | preflight: TLS problem → `ConfigurationError`, exit 10; per test: `ERROR` result |
 | 6 Teardown | Delete resources registered by tests, in reverse order | `src/engine.py`, `TestContext.drain_resources()` | warning, run continues |
@@ -124,7 +124,7 @@ src/
 │   │                   result helpers)
 │   ├── test_discovery.py Finds the test classes of a package; any test that cannot be used stops the run
 │   └── exceptions.py   Exception hierarchy
-├── connectors/         Wrappers around external tools (nuclei, testssl.sh, sslyze)
+├── connectors/         Wrappers around external tools (nuclei, testssl.sh, ffuf, schemathesis)
 ├── tests/              Native tests (domain_0 … domain_7), helpers/ (incl. the authentication methods), data/
 ├── external_tests/     Tests that run an external tool through a connector
 └── report/             Phase 7: ReportData builder, Jinja2 HTML renderer, template
@@ -206,7 +206,8 @@ APISIX's schemas, and the Control API `/v1/healthcheck` at `gateway.health.url`.
 adapter](../02-guides/03-extending/04-add-a-gateway-adapter.md)).
 
 **Connectors** (`src/connectors/`). `BaseConnector` with two tiers: `BaseSubprocessConnector` (nuclei,
-testssl.sh; `subprocess.run` with an argument list, no shell) and `BaseLibraryConnector` (sslyze). Binaries are
+testssl.sh, ffuf, schemathesis; `subprocess.run` with an argument list, no shell) and `BaseLibraryConnector`
+(no concrete connector at present; the tier is the documented extension point for a Python-library tool). Binaries are
 looked up in `./tools/<tool>/` relative to the working directory, then in `PATH`; if neither has it, the tool's
 tests return SKIP. Each connector returns a `ConnectorResult` whose `raw_output` has `command`,
 `command_json`, `results`, `all_count`. How to add one:
@@ -250,6 +251,6 @@ and `404` are accepted (404 = already gone). Failures are logged and never stop 
 
 `hatch build` produces a wheel (`py3-none-any`, contains `src/` only) and an sdist (sources, `docs/` except
 `docs/06-knowledge/` and `docs/project/`, READMEs, `.env.example`, `install_tools.sh`; not `test-environments/`, so no
-configuration file). sslyze is an
-optional extra: `pip install "apiguard-assurance[sslyze]"` (AGPL v3, Q-11). External binaries are not packaged:
+configuration file). schemathesis is an
+optional extra: `pip install "apiguard-assurance[schemathesis]"`. External binaries are not packaged:
 `install_tools.sh` downloads pinned versions into `tools/`.

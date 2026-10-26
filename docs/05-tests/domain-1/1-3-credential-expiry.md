@@ -1,6 +1,6 @@
 # 1.3 Credential Expiry
 
-> **Audience:** analysts, contributors · **Status:** new in the test review (branch `test-review`, 2026-10-22) ·
+> **Audience:** analysts, contributors · **Status:** new in the test review (2026-10-22) ·
 > **Source of truth:**
 > [`src/tests/domain_1/test_1_3_credential_expiry.py`](../../../src/tests/domain_1/test_1_3_credential_expiry.py),
 > [`src/core/jwt_tokens.py`](../../../src/core/jwt_tokens.py) · **Verified:** 2026-10-22

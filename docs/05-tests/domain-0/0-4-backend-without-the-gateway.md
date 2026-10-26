@@ -1,6 +1,6 @@
 # 0.4 Backend Reachable Without the Gateway
 
-> **Audience:** analysts, contributors · **Status:** new in the test review (branch `test-review`, 2026-10-22) ·
+> **Audience:** analysts, contributors · **Status:** new in the test review (2026-10-22) ·
 > **Source of truth:**
 > [`src/tests/domain_0/test_0_4_backend_without_the_gateway.py`](../../../src/tests/domain_0/test_0_4_backend_without_the_gateway.py) ·
 > **Verified:** 2026-10-22

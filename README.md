@@ -6,9 +6,10 @@ APIGuard Assurance reads the OpenAPI specification of an API, runs a set of secu
 produces a verdict (exit code), an interactive HTML report, a machine-readable JSON report and an archive of the
 HTTP transactions that prove each violation.
 
-The checks come from a methodology of 29 security guarantees in 8 domains (inventory, authentication,
-authorization, data integrity, availability, visibility, configuration, business logic). Version 0.1.0 implements
-15 native tests and 3 tests based on external tools (nuclei, testssl.sh, sslyze), covering 15 guarantees.
+The checks come from a methodology of security guarantees in 8 domains (inventory, authentication,
+authorization, data integrity, availability, visibility, configuration, business logic). The tool implements 29
+native tests and 3 tests based on external tools (ffuf, testssl.sh, Schemathesis); the full list is in the
+[test catalogue](docs/05-tests/README.md).
 
 **Use it only against systems you are allowed to test.** The tool sends requests without credentials, with
 invalid tokens and with SSRF payloads, and some tests create objects on the target
@@ -16,12 +17,13 @@ invalid tokens and with SSRF payloads, and some tests create objects on the targ
 
 ## Status
 
-Version 0.1.0, developed and tested on Linux. It works on any API described by Swagger 2.0 or OpenAPI 3.x; the
-unreleased version is tested on three labs (Forgejo behind Kong, OWASP crAPI behind Kong, Forgejo behind Apache
-APISIX), reads the gateway configuration of Kong and APISIX, and authenticates with HTTP Basic, a static token, a
-JSON login or the Forgejo token API, sending the credential as the specification declares. Some tests still
-assume Forgejo ([compatibility](docs/03-reference/06-compatibility.md)). The interfaces other than the JSON report are
-not versioned yet.
+Released: 0.1.0 (2026-05-18); the current version is unreleased, after the block-6 test review that rebuilt and
+extended the test suite. Developed and tested on Linux. It works on any API described by Swagger 2.0 or OpenAPI 3.x
+and is tested on three labs (Forgejo behind Kong, OWASP crAPI behind Kong, Forgejo behind Apache APISIX); it reads
+the gateway configuration of Kong and APISIX, and authenticates with HTTP Basic, a static token, a JSON login or
+the Forgejo token API, sending the credential as the specification declares. What each test needs from a target is
+in [compatibility](docs/03-reference/06-compatibility.md). The interfaces other than the JSON report are not
+versioned yet.
 
 ## Quick start
 

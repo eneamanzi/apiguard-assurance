@@ -1,6 +1,6 @@
 # 1.6 Session Cookie Safety
 
-> **Audience:** analysts, contributors · **Status:** rewritten in the test review (branch `test-review`, 2026-10-22) ·
+> **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-22) ·
 > **Source of truth:**
 > [`src/tests/domain_1/test_1_6_session_cookie_safety.py`](../../../src/tests/domain_1/test_1_6_session_cookie_safety.py) ·
 > **Verified:** 2026-10-22

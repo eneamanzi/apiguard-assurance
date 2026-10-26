@@ -2,7 +2,7 @@
 src/tests/domain_1/test_1_1_credential_required.py
 
 Test 1.1: guarantee "only requests carrying a credential reach the operations
-the specification declares as protected" (docs/project/test-review/group-b.md).
+the specification declares as protected".
 
 Three sub-tests:
 

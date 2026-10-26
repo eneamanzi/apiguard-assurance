@@ -81,16 +81,17 @@ class Test21RbacEnforcement(BaseTest[Test21Params]):
 from src.core.client import SecurityClient
 from src.core.context import ROLE_USER_A, TargetContext, TestContext
 from src.core.evidence import EvidenceStore
+from src.core.context import ROLE_USER_A
 from src.core.exceptions import AuthenticationSetupError, SecurityClientError
-from src.core.models import Finding, Reference, Standard, TestResult, TestStrategy
-from src.core.test_metadata import TestInfo
+from src.core.models import Confidence, Finding, Outcome, Reference, Standard, TestResult, TestStrategy
+from src.core.test_metadata import Effect, Need, TestInfo
 from src.tests.base import BaseTest
-from src.tests.helpers.auth import acquire_tokens, auth_parts
+from src.tests.helpers.auth import auth_parts
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
 _RBAC_BYPASS_CODES: frozenset[int] = frozenset(range(200, 300))
-_STATE_RBAC_BYPASS: str = "RBAC_BYPASS"
+_SUB_RBAC: str = "privileged_endpoint_refuses_user"
 _REFERENCES: tuple[Reference, ...] = (
     Reference(standard=Standard.OWASP_API_TOP10, id="API5:2023"),
     Reference(standard=Standard.ASVS, id="v5.0.0-8.3.1"),
@@ -119,8 +120,17 @@ class Test21RbacEnforcement(BaseTest):
         cwe="CWE-285",
         references=_REFERENCES,
         tags=("authorization", "rbac"),
+        effect=Effect.READ_ONLY,                     # required: READ_ONLY | CHANGES_DATA | STRESSES_TARGET
+        sub_tests=(_SUB_RBAC,),                       # required, at least one; every judgement belongs to one
+        needs=(Need.USER_ACCOUNT,),                   # the engine acquires the account and SKIPs the test without it
     )
 ```
+
+`effect` and `sub_tests` are mandatory: `effect` sets the run order (read-only tests first, then the ones that
+change data, then the ones that stress the target), and `sub_tests` are the named parts whose per-case outcomes the
+status is computed from (`_SUB_RBAC = "privileged_endpoint_refuses_user"`). `needs` lets the engine provide a
+declared account (the test no longer calls `acquire_tokens()` itself) and SKIP the test when the configuration does
+not supply it.
 
 `TestInfo` is checked when the module is imported, and test discovery (`src/core/test_discovery.py`) checks the
 rest: an invalid declaration (for example `priority` outside 0-3, an ID not of the form `X.Y`, a CWE not of the
@@ -145,45 +155,45 @@ def execute(self, target: TargetContext, context: TestContext,
             client: SecurityClient, store: EvidenceStore) -> TestResult:
     try:
         # info.needs=(Need.USER_ACCOUNT,) and admin_endpoint_paths NEEDED_TO_RUN:
-        # the engine has already recorded SKIP if either is missing.
-        try:
-            acquire_tokens(target, context, client, required_roles=frozenset({ROLE_USER_A}))
-        except (AuthenticationSetupError, SecurityClientError) as exc:
-            return self._make_error(exc)
-
+        # the engine has already recorded SKIP if either is missing, and has
+        # acquired the account; auth_parts() reads its credential.
+        user_a = auth_parts(target, context, ROLE_USER_A)
         cfg = self.params(target)
-        findings: list[Finding] = []
         for path in cfg.admin_endpoint_paths:
-            finding = self._probe_admin_endpoint(client=client, store=store, ...)
-            if finding is not None:
-                findings.append(finding)
-
-        if findings:
-            return self._make_fail_multi(message="...", findings=findings)
-        return self._make_pass(message="...")
-    except Exception as exc:  # noqa: BLE001
-        return self._make_error(exc)
+            self._probe_admin_endpoint(client, store, user_a, path)
+        return self._finish()
+    except (AuthenticationSetupError, SecurityClientError) as exc:
+        return self._error(exc)
 ```
 
-**A probe**: every request goes through `client.request()`, every response is logged with
-`_log_transaction()`, and a violation stores its evidence **before** logging it:
+`execute()` records a judgement for every case and returns `self._finish()`: it never chooses PASS, FAIL or
+INCONCLUSIVE itself, `_finish()` computes the status from the recorded outcomes. A probe that cannot run returns
+`self._skip(reason)`; an unexpected error returns `self._error(exc)`.
+
+**A probe**: every request goes through `client.request()`, and `self._judge()` records the outcome, logs the
+transaction, and (for a `VIOLATION`) stores the full evidence and points the finding at it (`evidence_ref`) in one
+call:
 
 ```python
-user_a_auth = auth_parts(target, context, ROLE_USER_A)   # headers and query parameters
 response, record = client.request(
     method=method, path=path, test_id=self.info.id,
-    headers=dict(user_a_auth.headers), params=dict(user_a_auth.params) or None,
+    headers=dict(user_a.headers), params=dict(user_a.params) or None,
 )
 if response.status_code in _RBAC_BYPASS_CODES:
-    store.add_fail_evidence(record)
-    self._log_transaction(record, oracle_state=_STATE_RBAC_BYPASS, is_fail=True)
-    return Finding(
-        title=f"RBAC Bypass: {method} {path}",
-        detail=f"Sent {method} {path} with a '{ROLE_USER_A}' token. Expected 403 ... Received {response.status_code} ...",
-        evidence_ref=record.record_id,
+    self._judge(
+        record, store, _SUB_RBAC, Outcome.VIOLATION, "RBAC_BYPASS",
+        finding=Finding(
+            title=f"RBAC bypass: {method} {path}",
+            detail=f"Sent {method} {path} with a '{ROLE_USER_A}' token; expected 403, received {response.status_code}.",
+            confidence=Confidence.CERTAIN,          # the bypass is directly observed
+        ),
     )
-self._log_transaction(record, oracle_state=_STATE_RBAC_ENFORCED)
+else:
+    self._judge(record, store, _SUB_RBAC, Outcome.ENFORCED, "ACCESS_REFUSED")
 ```
+
+The `finding` is given exactly when the outcome is `VIOLATION`; its `evidence_ref` and `supporting_refs` are set by
+`_judge()`, not by hand.
 
 ## 3. Building blocks
 
@@ -263,7 +273,7 @@ answer)` and use the returned id as the findings' `evidence_ref`; when the answe
 
 ## 4. Verify
 
-There is no automated test suite yet (planned: Q-51). Verify against the lab target:
+There is no automated test suite. Verify against the lab target:
 
 1. `apiguard validate-config` - the declaration and the new parameters load.
 2. Run only the new test: in a copy of `config.yaml` set `execution.test_ids: ["<D>.<N>"]`, then

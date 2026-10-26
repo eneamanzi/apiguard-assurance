@@ -133,10 +133,10 @@ Go to **[First assessment](02-first-assessment.md)**.
 ## Background
 
 **Why Hatch.** Hatch creates a virtual environment for the project by itself (under
-`~/.local/share/hatch/env/virtual/`), installs the project in editable mode with its dependencies **including
-sslyze**, and defines the project scripts in `pyproject.toml`. Every clone gets its own environment. A manual
-`python -m venv` + `pip install .` gives a different environment (no sslyze, no development tools, code copied
-instead of linked), so the same run can give different results: `ext.1.5.sslyze` is SKIP without sslyze.
+`~/.local/share/hatch/env/virtual/`), installs the project in editable mode with its dependencies, and defines the
+project scripts in `pyproject.toml`. Every clone gets its own environment. A manual `python -m venv` +
+`pip install .` gives a different environment (no development tools, code copied instead of linked). Optional
+connectors are not installed in either case unless you add their extra (e.g. `.[schemathesis]`).
 Use pip only to install the package into another product.
 
 **Binary lookup.** The tool looks for external binaries in `./tools/<tool>/` relative to the working directory,

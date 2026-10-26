@@ -142,7 +142,7 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # Similarity threshold for suggesting a test ID in place of an unknown one.
 # Higher than for configuration keys (0.6): test IDs are short and close to
 # each other, so 0.6 would suggest "1.6" for "1.7"; 0.8 keeps real typos
-# ("ext.1.5.sslyzee" -> "ext.1.5.sslyze", "ext.0.1.nucle" -> "ext.0.1.nuclei").
+# ("ext.1.5.testsll" -> "ext.1.5.testssl", "ext.0.1.ffu" -> "ext.0.1.ffuf").
 _TEST_ID_SUGGESTION_CUTOFF: float = 0.8
 
 
@@ -1518,8 +1518,7 @@ class AssessmentEngine:
         )
 
         # The gateway reaches only the tests that declare it (Need.GATEWAY,
-        # required or optional): what a test declares is what it can use
-        # (docs/project/test-review.md, phase 0c piece 1b; 0.1).
+        # required or optional): what a test declares is what it can use.
         if not test.info.uses(Need.GATEWAY) and target.gateway is not None:
             target = target.model_copy(update={"gateway": None})
 

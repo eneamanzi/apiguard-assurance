@@ -1,6 +1,6 @@
 # 6.2 Security Headers Audit
 
-> **Audience:** analysts, contributors · **Status:** rewritten in the test review (branch `test-review`, 2026-10-23) ·
+> **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-23) ·
 > **Source of truth:**
 > [`src/tests/domain_6/test_6_2_security_headers_audit.py`](../../../src/tests/domain_6/test_6_2_security_headers_audit.py),
 > [`src/tests/helpers/sampling.py`](../../../src/tests/helpers/sampling.py) · **Verified:** 2026-10-23

@@ -3,7 +3,7 @@ src/core/response_category.py
 
 The first step of every judgement: what a response is (ResponseCategory).
 
-One rule for every test (docs/project/test-review.md, topic 3): a test never
+One rule for every test: a test never
 lists status codes of its own; it asks for the category of a response and then
 says, in its oracle, what that category means for its guarantee (an Outcome).
 

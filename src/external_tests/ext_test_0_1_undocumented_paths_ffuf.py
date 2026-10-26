@@ -2,7 +2,7 @@
 src/external_tests/ext_test_0_1_undocumented_paths_ffuf.py
 
 ExtTest01UndocumentedPathsFfuf: guarantee 0.1, "every exposed endpoint is
-documented", the path search (docs/project/test-review/0-1.md).
+documented", the path search.
 
 ffuf proposes, the test proves. ffuf searches for paths under the base paths
 derived from the specification; every path it reports that the specification

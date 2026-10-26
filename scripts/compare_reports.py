@@ -10,7 +10,7 @@ coverage of a PASS, finding count and the counts of the judgements in the
 transaction log (``OUTCOME/DETAIL``); plus the run's exit code. It does not
 judge whether a result is correct, only whether it changed.
 
-Reports of the old tool (before the test review, docs/project/test-review.md)
+Reports of the old tool (before the block-6 test review)
 label transactions with a free ``oracle_state``; the new ones with ``outcome``
 and ``detail``. When one report uses each, the two vocabularies cannot be
 compared: their counts are shown side by side and not counted as differences.

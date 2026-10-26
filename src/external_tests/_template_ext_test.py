@@ -111,8 +111,8 @@ class TemplateExtTest(ExternalToolTest):
 
     # The declaration: one TestInfo, checked when the module is imported.
     # id: "ext.X.Y.tool" (X = domain, Y = sequence, tool = lowercase tool name),
-    #     e.g. "ext.0.1.nuclei", "ext.1.5.testssl"; the domain is taken from it.
-    # tool: the tool's key in external_tools (testssl, sslyze, nuclei); an
+    #     e.g. "ext.0.1.ffuf", "ext.1.5.testssl"; the domain is taken from it.
+    # tool: the tool's key in external_tools (testssl, nuclei, ffuf, schemathesis); an
     #     unknown key makes is_tool_enabled() exclude the test from the run.
     # depends_on / requires_pass: see "DAG placement" above; omitted when empty.
     info = TestInfo(
@@ -201,10 +201,10 @@ class TemplateExtTest(ExternalToolTest):
         tags, cwe_id, source, tool_name) into the result. Never build
         TestResult(...) directly.
 
-        The oracle is the tool's check, not its severity (docs/project/test-review.md,
-        rule 11): each check identifier the test uses is mapped to an outcome in
-        _ORACLE; a check the test does not map is not judged; a result outside
-        the target goes to a note; the tool's own problems are NOT_VERIFIABLE.
+        The oracle is the tool's check, not its severity (rule 11): each check
+        identifier the test uses is mapped to an outcome in _ORACLE; a check the
+        test does not map is not judged; a result outside the target goes to a
+        note; the tool's own problems are NOT_VERIFIABLE.
         A test that verifies a tool result with a request of its own uses
         run.client and judges the response with self._judge().
 

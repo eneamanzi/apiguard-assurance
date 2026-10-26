@@ -2,7 +2,7 @@
 
 > **Audience:** users, analysts · **Status:** v0.1.0 · **Source of truth:** `src/report/builder.py`,
 > `src/report/templates/report.html`, `src/core/evidence.py`, `src/core/models/results.py` · **Verified:** 2026-10-06
-> on lab runs (native tests only; `ext.1.5.sslyze` only); every command below was run on their output
+> on lab runs (native tests only; `ext.1.5.testssl` only); every command below was run on their output
 
 How to go from the exit code to the proof of each violation. Field-by-field descriptions are in the
 [report schema](../../03-reference/04-report-schema.md) and the [evidence format](../../03-reference/05-evidence-format.md).
@@ -20,7 +20,7 @@ replacing the files of the previous run:
 | `apiguard_report.json` | programs, and you with `jq` | the same data, machine-readable |
 | `evidence.json` | proof | the full HTTP transactions behind the findings, and the raw output of the external tools |
 | `config_used.yaml` | you, and a re-run | every configuration value the run used, `# specified` or `# default`; `apiguard run --config config_used.yaml` repeats the run ([details](../../03-reference/01-configuration.md#the-configuration-a-run-used-config_usedyaml)) |
-| `tools/<test>_output.json` | external tests | raw output of each tool (e.g. `tools/ext_1_5_sslyze_output.json`) |
+| `tools/<test>_output.json` | external tests | raw output of each tool (e.g. `tools/ext_1_5_testssl_output.json`) |
 
 If the run was interrupted (`Ctrl+C`, SIGTERM), the reports are not written: the folder keeps `config_used.yaml`
 (written before the run contacts the target) and, when the tests had started, `evidence_tmp/` with the evidence
@@ -55,19 +55,24 @@ jq -r '.all_rows[] | "\(.test_id)\t\(.status)\t\(.finding_count)\t\(.message)"' 
 |---|---|---|
 | `FAIL` | the guarantee is violated; at least one finding | read the findings (step 3) |
 | `PASS` | the guarantee holds **for what the test covers** | check the test page for what it does not cover |
+| `INCONCLUSIVE` | the test ran but verified nothing: no violation and nothing enforced, only cases it could not verify | not a pass; read the notes and the per-request `outcome` (step 4), often a missing precondition or an unreachable target |
 | `SKIP` | a precondition was missing; `skip_reason` says which | not a pass: provide the precondition or accept the gap |
 | `ERROR` | the check did not complete; the message says why | fix the cause (URL, credentials, tool) and run again |
 
-A test excluded by the [selection](02-select-tests.md) or stopped by fail-fast is not a result: it is listed in
-`not_run` (HTML: "Not Run" section) with the reason.
+A PASS can be **partial** (`coverage: PARTIAL`): the guarantee held for the cases checked, but some could not be
+verified; the notes and the per-request `outcome` (step 4) say which. A test excluded by the
+[selection](02-select-tests.md) or stopped by fail-fast is not a result: it is listed in `not_run` (HTML: "Not Run"
+section) with the reason.
 
 Each test can also carry **InfoNotes** (`notes`): context that is not a violation, such as a sub-check that could
 not run or something to verify by hand. Read them for PASS results too.
 
 ## 3. From a finding to its proof
 
-Each finding has a title, a detail and, for most tests, an `evidence_ref`: the ID of the transaction that proves it,
-stored in `evidence.json`. Example on the lab, test 1.1:
+Each finding has a title, a detail, a `confidence` (`CERTAIN`, `FIRM` or `TENTATIVE` — how sure the tool is the
+violation is real, not a severity) and, for most tests, an `evidence_ref`: the ID of the transaction that proves it,
+stored in `evidence.json`. A finding whose verdict rests on reference responses also lists their `supporting_refs`
+(the baseline probes it stood on, step from the assessment model). Example on the lab, test 1.1:
 
 ```bash
 jq -r '.all_rows[] | select(.test_id=="1.1") | .findings[] | "\(.evidence_ref)  \(.title)"' outputs/forgejo/apiguard_report.json
@@ -89,28 +94,30 @@ The record holds the request as sent (method, URL, headers, body) and the respon
 10,000 characters). In this example: `GET https://localhost:8443/api/v1/gitignore/templates` without credentials,
 answered `200`.
 
-**Findings without `evidence_ref`** (Q-50): 4.1 and the aggregate finding of 7.2 have none. For 7.2 the proving
-transactions are marked in the test's transaction log:
+**Findings and their proof.** A finding from an HTTP probe carries `evidence_ref`, the `record_id` of the proving
+transaction in `evidence.json` (set by the test's `_judge()`); look it up as above. To list every transaction a
+test stored as FAIL evidence:
 
 ```bash
-jq -r '.all_rows[] | select(.test_id=="7.2") | .transaction_log[] | select(.is_fail_evidence) | .record_id' outputs/forgejo/apiguard_report.json
+jq -r '.all_rows[] | select(.test_id=="1.1") | .transaction_log[] | select(.is_fail_evidence) | .record_id' outputs/forgejo/apiguard_report.json
 ```
 
-and each ID is in `evidence.json` as above. For 4.1 the finding's detail describes the probe (endpoint, number of
-requests, no `429` received) and the transaction log lists every request.
+A finding from a gateway-configuration audit (3.3, 4.2, 4.3) references the gateway concept it read instead of an
+HTTP transaction.
 
 ## 4. Every request of a test: the transaction log
 
-`transaction_log` lists **all** the requests of a test, PASS included, each with an `oracle_state`: the test's
-classification of that response (e.g. `ENFORCED`, `AUTH_BYPASS`, `INCONCLUSIVE_PARAMETRIC`). The states are
-defined per test, on each [test page](../../05-tests/README.md). To count them:
+`transaction_log` lists **all** the requests of a test, PASS included. Each judged request carries an `outcome`
+(`VIOLATION`, `ENFORCED`, `NOT_VERIFIABLE`, `NOT_APPLICABLE`), a test-specific `detail` (e.g. `AUTH_BYPASS`,
+`PATH_NOT_FOUND`) and a common `category` (what the response is). The details are defined per test, on each
+[test page](../../05-tests/README.md). To count the outcomes:
 
 ```bash
-jq '[.all_rows[] | select(.test_id=="1.1") | .transaction_log[].oracle_state] | group_by(.) | map({(.[0]): length}) | add' outputs/forgejo/apiguard_report.json
+jq '[.all_rows[] | select(.test_id=="1.1") | .transaction_log[] | select(.outcome!=null) | .outcome] | group_by(.) | map({(.[0]): length}) | add' outputs/forgejo/apiguard_report.json
 ```
 
-Many `INCONCLUSIVE_*` states mean the test could not reach a conclusion on those requests: in 1.1 they usually mean
-`path_seed` is missing values ([configure a target](01-configure-a-target.md#4-real-identifiers-path_seed)).
+Many `NOT_VERIFIABLE` outcomes mean the test could not reach a conclusion on those requests: in 1.1 they usually
+mean `path_seed` is missing values ([configure a target](01-configure-a-target.md#4-real-identifiers-path_seed)).
 
 Only the transactions marked `is_fail_evidence` are stored in full in `evidence.json`; the log keeps a preview of
 the others (request body up to 2,000 characters, response up to 1,000).
@@ -122,7 +129,7 @@ it by hand), and all the tool's results (`results`, `all_count`), unfiltered. Th
 it judged as violations.
 
 ```bash
-jq '.all_rows[] | select(.test_id=="ext.1.5.sslyze") | .tool_artifact.command' outputs/forgejo/apiguard_report.json
+jq '.all_rows[] | select(.test_id=="ext.1.5.testssl") | .tool_artifact.command' outputs/forgejo/apiguard_report.json
 ```
 
 The same output is in `tools/<test>_output.json` and, as one record, in `evidence.json` (`tool_artifact_record_id`).
@@ -156,8 +163,6 @@ plain SSH, connect with `ssh -L 8080:localhost:8080 <host>`.
 - **Known limits that produce misleading findings:**
   - 1.5 reports a false FAIL if `http_url` is not set on an HTTPS port that is not 443
     ([configure a target](01-configure-a-target.md#2-tls-and-certificates)).
-  - 2.1 counts a `404` as enforced: an `admin_endpoint_paths` entry your API does not have gives PASS without
-    testing anything (Q-29).
 - **Counts depend on the target's data.** More real resources in `path_seed` move probes from inconclusive to
   conclusive, and can change the number of findings.
 

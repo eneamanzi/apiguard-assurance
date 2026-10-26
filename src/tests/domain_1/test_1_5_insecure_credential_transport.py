@@ -1,8 +1,7 @@
 """
 src/tests/domain_1/test_1_5_insecure_credential_transport.py
 
-Test 1.5: guarantee "a credential never travels on an insecure channel"
-(docs/project/test-review/group-d.md).
+Test 1.5: guarantee "a credential never travels on an insecure channel".
 
 The credential reaches the API over HTTP. This test checks the two things the
 gateway must do so that it is never carried in cleartext, each the subject of
@@ -28,7 +27,7 @@ one sub-test:
 
 The TLS handshake itself (protocol versions, cipher suites, certificate, known
 TLS CVEs) is the subject of the external test ext.1.5.testssl, a scanner's job
-we do not reimplement (docs/project/test-review.md, rule 11). This native test
+we do not reimplement (rule 11). This native test
 covers only the HTTP-layer enforcement.
 
 Plain-HTTP target: when base_url is `http://`, the credential is in cleartext

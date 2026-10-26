@@ -2,8 +2,7 @@
 src/discovery/derivation.py
 
 Derived knowledge: what the tool deduces from the specification before any
-test runs (docs/project/test-review.md, topic 4: "derive first, configure on
-top").
+test runs ("derive first, configure on top").
 
 Each rule has a name and a basis (DECLARED: the specification states it;
 HEURISTIC: the rule infers it) and turns the specification into DerivedFact

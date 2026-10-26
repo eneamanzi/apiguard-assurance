@@ -20,25 +20,38 @@ the standard library, Pydantic and structlog.
 ```
 ResultSet
 └── results: [TestResult]
-      ├── status: PASS | FAIL | SKIP | ERROR
+      ├── status: PASS | FAIL | SKIP | ERROR | INCONCLUSIVE   (computed from the sub-tests, not chosen by the test)
+      ├── coverage: COMPLETE | PARTIAL | None                 (set on a PASS: PARTIAL when some cases were not verifiable)
       ├── message, skip_reason, duration_ms (set by the engine after execute())
       ├── declaration copied from the test's info (TestInfo): test_id, test_name, domain, priority, strategy, cwe_id, references, tags, tool_name; source
-      ├── findings: [Finding]           title, detail, references, evidence_ref ──► EvidenceRecord.record_id
+      ├── sub_tests: [SubTestResult]    name, status, coverage, counters (violations, enforced, not_verifiable, not_applicable), not_verifiable_reasons
+      ├── findings: [Finding]           title, detail, references, confidence, evidence_ref ──► EvidenceRecord.record_id, supporting_refs
       ├── notes: [InfoNote]             title, detail, references (context, not a violation)
       └── transaction_log: [TransactionSummary]   every HTTP request of the test (PASS included)
 ```
+
+**Outcomes and sub-tests (the assessment model, block 6).** A test declares its sub-tests and records, for each
+case, an `outcome` (`VIOLATION`, `ENFORCED`, `NOT_VERIFIABLE`, `NOT_APPLICABLE`) with a test-specific `detail`; a
+`Finding` of a violation carries a `confidence` (`CERTAIN`, `FIRM`, `TENTATIVE`) and, besides its `evidence_ref`,
+the `supporting_refs` of the reference responses the verdict rests on. The test never chooses PASS / FAIL: each
+sub-test's status is computed from its counters (`status_from_counts`: a violation → FAIL; else a verified case →
+PASS; else a not-verifiable case → INCONCLUSIVE; else SKIP) and the test's status and coverage from its sub-tests
+(`combine_sub_tests`). What each outcome means is in [`assessment-model.md`](03-assessment-model.md); the field
+formats are in [`report-schema.md`](../03-reference/04-report-schema.md).
 
 Invariants enforced by the model (`src/core/models/results.py`):
 
 | Status | Rule |
 |---|---|
-| `FAIL` | at least one `Finding` |
-| `PASS` | no `Finding` (notes allowed) |
-| `SKIP` | `skip_reason` required |
-| `ERROR` | findings optional |
+| `FAIL` | a sub-test judged a `VIOLATION`; carries at least one `Finding` |
+| `PASS` | no violation and at least one case verified (`ENFORCED`); `coverage` is `PARTIAL` when some cases were `NOT_VERIFIABLE`, else `COMPLETE` |
+| `INCONCLUSIVE` | ran to the end, no violation and nothing verified (only not-verifiable or not-applicable cases) |
+| `SKIP` | `skip_reason` required (a need or a required parameter missing) |
+| `ERROR` | an unexpected failure; findings optional |
 
-`ResultSet.compute_exit_code()`: any FAIL → 1, else any ERROR → 3, else 0 (`ExitCode` in
-`src/core/models/enums.py`, the single definition of the codes).
+`ResultSet.compute_exit_code()`: any FAIL → 1, else any ERROR **or INCONCLUSIVE** → 3, else 0 (`ExitCode` in
+`src/core/models/enums.py`, the single definition of the codes; INCONCLUSIVE shares exit 3 with ERROR, both being a
+verification that did not complete).
 
 ## Dual audit trail
 
@@ -48,7 +61,7 @@ Invariants enforced by the model (`src/core/models/results.py`):
 | Which transactions | all | FAIL evidence, pinned, tool artefacts |
 | Request body | truncated to 2,000 chars | as sent (JSON bodies only) |
 | Response body | preview, 1,000 chars | up to 10,000 chars |
-| Extra | `oracle_state`, `is_fail_evidence` | full response headers |
+| Extra | `category`, `sub_test`, `outcome`, `detail`, `is_fail_evidence` | full response headers |
 
 Both carry the redacted values (`src/core/redaction.py`: at capture in `SecurityClient`, again in Phase 7; the
 `EvidenceRecord` validator replaces any raw `authorization`; the summary is built from the record).
@@ -121,7 +134,7 @@ defined twice); the parameters of tests 3.3 and 4.3 that described Kong's plugin
 knowledge (decision 6.6).
 External-tool models live in `src/core/models/external_tools.py`, on purpose: they configure the tools (the
 `external_tools` section: switches, timeouts, binary flags), not the parameters of a single test, and they are used
-by `core` (`TargetContext`), the connectors and the external registry (owner decision 2026-10-09, Q-63).
+by `core` (`TargetContext`), the connectors and the external registry (owner decision 2026-10-09).
 
 ## Report models
 
@@ -132,8 +145,9 @@ by `core` (`TargetContext`), the connectors and the external registry (owner dec
 
 ## Exported models
 
-`src/core/models/__init__.py` exports: `TestStatus`, `TestStrategy`, `SpecDialect`, `EvidenceRecord`,
-`TransactionSummary`, `ParameterInfo`, `EndpointRecord`, `AttackSurface`, `Finding`, `InfoNote`, `TestResult`,
-`ResultSet`, `RuntimeCredentials`,
-`BaseExternalToolConfig`, `TestsslConfig`, `NucleiConfig`, `ExternalToolsConfig`. (`SslyzeConfig` exists in
-`external_tools.py` but is not exported from the package.)
+`src/core/models/__init__.py` is the shared vocabulary and lists the exports authoritatively. They cover the
+results (`TestResult`, `SubTestResult`, `ResultSet`, `Finding`, `InfoNote`), the assessment enums (`TestStatus`,
+`Outcome`, `Confidence`, `Coverage`, `ResponseCategory`, `ExitCode`), the audit trail (`EvidenceRecord`,
+`TransactionSummary`), the attack surface (`AttackSurface`, `EndpointRecord`, `ParameterInfo`, derived facts), the
+references (`Reference`, `Standard`), the credentials and resources, and the external-tool configs
+(`ExternalToolsConfig`, `TestsslConfig`, `NucleiConfig`, `FfufConfig`). Read `__init__.py` for the current list.

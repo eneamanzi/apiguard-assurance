@@ -496,7 +496,7 @@ class ExecutionConfig(BaseModel):
                     f"Invalid test_id format: {item!r}. "
                     "Accepted formats: 'X.Y' for native tests (e.g. '4.1', '0.2') "
                     "or 'ext.X.Y.toolname' for external tests "
-                    "(e.g. 'ext.1.5.testssl', 'ext.0.1.nuclei')."
+                    "(e.g. 'ext.1.5.testssl', 'ext.0.1.ffuf')."
                 )
         return value
 
@@ -610,7 +610,7 @@ class ToolConfig(BaseModel):
     external_tools: ExternalToolsConfig = Field(
         default_factory=ExternalToolsConfig,
         description=(
-            "Configuration for external tool connectors (testssl.sh, nuclei, sslyze). "
+            "Configuration for external tool connectors (testssl.sh, nuclei, ffuf, schemathesis). "
             "If the 'external_tools' key is absent from config.yaml, every tool is "
             "disabled: no external test is scheduled (native-only mode). "
             "When a tool is enabled=True, timeout_seconds is mandatory or Phase 1 "

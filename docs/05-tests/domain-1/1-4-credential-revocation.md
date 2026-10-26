@@ -1,6 +1,6 @@
 # 1.4 Credential Revocation
 
-> **Audience:** analysts, contributors · **Status:** rewritten in the test review (branch `test-review`, 2026-10-22) ·
+> **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-22) ·
 > **Source of truth:**
 > [`src/tests/domain_1/test_1_4_credential_revocation.py`](../../../src/tests/domain_1/test_1_4_credential_revocation.py),
 > [`src/tests/helpers/anchor.py`](../../../src/tests/helpers/anchor.py) · **Verified:** 2026-10-22

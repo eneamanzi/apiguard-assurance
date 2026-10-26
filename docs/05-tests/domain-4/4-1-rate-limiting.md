@@ -1,6 +1,6 @@
 # 4.1 Rate Limiting
 
-> **Audience:** analysts, contributors · **Status:** rewritten in the test review (branch `test-review`, 2026-10-23) ·
+> **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-23) ·
 > **Source of truth:**
 > [`src/tests/domain_4/test_4_1_rate_limiting.py`](../../../src/tests/domain_4/test_4_1_rate_limiting.py) ·
 > **Verified:** 2026-10-23

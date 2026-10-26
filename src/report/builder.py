@@ -188,7 +188,7 @@ class TestResultRow(BaseModel):
         default=None,
         description=(
             "External tests only: label of the tool output, the external test's ID (e.g. "
-            "`ext.0.1.nuclei`)."
+            "`ext.0.1.ffuf`)."
         ),
     )
     tool_artifact_record_id: str | None = Field(

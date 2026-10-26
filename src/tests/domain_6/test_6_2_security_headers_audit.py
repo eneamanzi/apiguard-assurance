@@ -1,8 +1,8 @@
 """
 src/tests/domain_6/test_6_2_security_headers_audit.py
 
-Test 6.2: guarantee "the defensive security headers are set" (rewritten,
-docs/project/test-review/group-i.md). OWASP API8:2023, OWASP ASVS v5.0.0 V3.4.
+Test 6.2: guarantee "the defensive security headers are set" (rewritten).
+OWASP API8:2023, OWASP ASVS v5.0.0 V3.4.
 
 The headers that defend a browser client are present and sound, and are present
 **consistently** across the services of the API (a header on one endpoint and

@@ -320,13 +320,12 @@ Some test defaults are written for the lab. On another target review them:
 | Test | Setting | What to do on another target |
 |---|---|---|
 | 7.2 | no endpoint that accepts a URL by default: SKIP until configured | set `url_accepting_endpoint` (its `path`, and its `body` with `"{ssrf_url}"`) to an endpoint of your API that accepts a URL; if the endpoint belongs to an object that must exist first, add a [prepared resource](../../03-reference/01-configuration.md#resources) and name it in the endpoint's `resource` ([reference](../../03-reference/01-configuration.md#testsdomain_7test_7_2)) |
-| 2.1 | no admin path by default: SKIP until configured | list admin-only endpoints of your API; a path your API does not have answers `404`, counted as enforced, so the test can PASS without testing anything |
+| 2.1 | needs a user account; the privileged endpoints are derived from the specification (an `admin`/`management` segment), so there is no list to configure | provide credentials; an admin account, if given, strengthens the positive control |
 | 1.4 | needs `auth_type: login` with a login resource that has a delete request, and `protected_endpoint` (an endpoint that requires authentication) | SKIP otherwise, naming what is missing |
-| 0.2, 6.4 | Kong-specific server identifiers and block message | review [`tests.domain_0.test_0_2`](../../03-reference/01-configuration.md#testsdomain_0test_0_2) and [`tests.domain_6.test_6_4`](../../03-reference/01-configuration.md#testsdomain_6test_6_4) |
+| 6.4 | sub-test A compares a blocked response against the gateway's block message | set `gateway_block_body_fragment` ([`tests.domain_6.test_6_4`](../../03-reference/01-configuration.md#testsdomain_6test_6_4)); without it the block is attributed to the application, same verdict |
+| 2.2, 2.5, 7.1, 7.4 | each needs the object or flow it acts on (an owned-object resource, a sensitive flow, a webhook with its secret) | see the full per-test list in [test portability](../../03-reference/06-compatibility.md#test-portability) |
 
-Measured on cRAPI on 2026-10-06 (no gateway, `jwt_login`, now a `login` resource, 7.2 posting to a fixed path): 0.1, 0.2, 0.3, 1.1, 1.5, 1.6, 4.1, 6.2 and
-6.4 ran normally, 7.2 worked, 2.1 passed only because the Forgejo admin paths do not exist there, 1.4 returned ERROR,
-3.3, 4.2 and 4.3 returned SKIP. The current behaviour on the three labs is in
+The complete, current list of what each test needs from a target, and what happens without it, is in
 [test portability](../../03-reference/06-compatibility.md#test-portability).
 
 ## Effects on the target
@@ -344,7 +343,7 @@ The tool is not read-only. Before the first run on a system that matters, know w
 
 ## 7. First run
 
-Start without the external tools (nuclei, testssl.sh, sslyze): the run takes seconds instead of minutes and shows
+Start without the external tools (nuclei, testssl.sh): the run takes seconds instead of minutes and shows
 whether the configuration works. The external tools are off unless your file enables them; if you copied a section
 from the lab's configuration (`test-environments/forgejo-kong/config.yaml`), set:
 

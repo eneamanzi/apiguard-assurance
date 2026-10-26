@@ -665,7 +665,7 @@ class EvidenceStore:
         report's "Download as JSON" button produces in the browser, giving the
         operator a 1:1 correspondence between disk artefacts and downloads.
 
-        Example: test_id "ext.0.1.nuclei" → file "tool_output_ext_0_1_nuclei.json".
+        Example: test_id "ext.0.1.ffuf" → file "tool_output_ext_0_1_ffuf.json".
 
         The envelope structure mirrors the one reconstructed by the HTML
         template's export function so that the two files are content-identical
@@ -687,9 +687,8 @@ class EvidenceStore:
         #   - immediately identifiable by tool name without opening the file
         #   - distinguished from other artefacts by the _output suffix
         # Example mappings:
-        #   "ext.0.1.nuclei"  -> "ext_0_1_nuclei_output.json"
+        #   "ext.0.1.ffuf"  -> "ext_0_1_ffuf_output.json"
         #   "ext.1.5.testssl" -> "ext_1_5_testssl_output.json"
-        #   "ext.1.5.sslyze"  -> "ext_1_5_sslyze_output.json"
         safe_label: str = label
         for char in _ARTIFACT_FILENAME_UNSAFE_CHARS:
             safe_label = safe_label.replace(char, "_")

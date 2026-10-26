@@ -31,7 +31,7 @@ target, and how it relates to the methodology.
 | `1.7` | Authentication Endpoints Resist Guessing | P1 | GREY_BOX | STRESSES_TARGET | CWE-307 | `USER_ACCOUNT` | [1.7](domain-1/1-7-authentication-resistance.md) |
 | **Domain 2 - Authorization and Access Control** | | | | | | | |
 | `2.1` | Function-Level Authorization | P1 | GREY_BOX | READ_ONLY | CWE-285 | `USER_ACCOUNT`, `ADMIN_ACCOUNT` (optional) | [2.1](domain-2/2-1-function-level-authorization.md) |
-| `2.2` | Object-Level Authorization | P1 | GREY_BOX | CHANGES_DATA | CWE-639 | `USER_ACCOUNT`, `SECOND_USER_ACCOUNT`, `owned_object_resources` | [2.2](domain-2/2-2-object-level-authorization.md) |
+| `2.2` | Object-Level Authorization | P0 | GREY_BOX | CHANGES_DATA | CWE-639 | `USER_ACCOUNT`, `SECOND_USER_ACCOUNT`, `owned_object_resources` | [2.2](domain-2/2-2-object-level-authorization.md) |
 | `2.4` | Authorization Consistency | P1 | BLACK_BOX | READ_ONLY | CWE-285 | - | [2.4](domain-2/2-4-authorization-consistency.md) |
 | `2.5` | Object Property-Level Authorization | P1 | GREY_BOX | CHANGES_DATA | CWE-213 | `USER_ACCOUNT`, `owned_object_resources` | [2.5](domain-2/2-5-object-property-authorization.md) |
 | **Domain 3 - Data Integrity** | | | | | | | |
@@ -76,9 +76,10 @@ Execution is sequential.
 
 ## Page structure
 
-Each page has the same sections: summary table, what it checks, how it works, outcomes (PASS/FAIL/SKIP/ERROR),
-oracle states (the values in `transaction_log[].oracle_state`), prerequisites and effects on the target,
-configuration, coverage against the methodology, why it exists, limitations.
+Each page has the same sections: summary table, then (1) Guarantee, (2) Sub-tests and coverage of the methodology,
+(3) Inputs, (4) Preconditions and reference responses, (5) Probes, (6) Oracle, (7) Outcomes (the test status and
+the per-transaction `outcome`/`detail` in `transaction_log`), (8) Findings, (9) Effects on the target,
+(10) Per gateway, (11) Configuration, (12) Validation, (13) Remediation, (14) Limitations, (15) Sources.
 
 ## See also
 

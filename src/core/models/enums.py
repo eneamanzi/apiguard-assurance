@@ -130,8 +130,7 @@ class Confidence(StrEnum):
     How sure the tool is that a finding is a real violation (not how serious it is).
 
     Each detail of a test's oracle table has its level, written on the test
-    page; a test does not choose it case by case (docs/project/test-review.md,
-    topic 5). Every finding states one.
+    page; a test does not choose it case by case. Every finding states one.
 
     CERTAIN   -- the violation is the observed behaviour itself (a header
                  missing, a value read from the gateway configuration), or is

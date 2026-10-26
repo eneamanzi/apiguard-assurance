@@ -13,7 +13,7 @@ Design rules:
     2. Timeout obligation: an enabled tool MUST declare timeout_seconds.
     3. Per-tool on/off: each tool can be independently disabled.
     4. extra_flags: additional CLI flags, must not contain secrets. Declared only
-       by command-line tools (testssl, nuclei); a library (sslyze) has none.
+       by command-line tools (testssl, nuclei); a library-based connector has none.
 
 Dependency rule: imports from pydantic and stdlib only.
 Must never import from config/, tests/, connectors/, external_tests/, or report/.
@@ -181,36 +181,6 @@ class NucleiConfig(BaseExternalToolConfig):
     )
 
 
-class SslyzeConfig(BaseExternalToolConfig):
-    """
-    Configuration for the sslyze connector (Python TLS scanner library).
-
-    sslyze is a BaseLibraryConnector: it is imported as a Python module, not
-    invoked as a subprocess.  Install via: pip install "apiguard-assurance[sslyze]"
-    or pip install sslyze>=6.0.
-
-    Reference: NIST SP 800-52 Rev.2, OWASP ASVS v5.0.0 V14.2.1.
-    """
-
-    enabled: bool = Field(
-        default=False,
-        description=(
-            "Enable sslyze; `timeout_seconds` is then required. Needs the `sslyze` extra "
-            '(`pip install "apiguard-assurance[sslyze]"`).'
-        ),
-    )
-    timeout_seconds: int | None = Field(
-        default=None,
-        ge=30,
-        le=300,
-        description=(
-            "**Required with `enabled: true`.** Today it has no effect: each TLS connection "
-            "sslyze opens times out after 20 s whatever the value "
-            "(`src/connectors/sslyze.py`; Q-24)."
-        ),
-    )
-
-
 class FfufConfig(BaseExternalToolConfig):
     """
     Configuration for the ffuf connector (path search, test ext.0.1.ffuf).
@@ -329,10 +299,6 @@ class ExternalToolsConfig(BaseModel):
         default_factory=NucleiConfig,
         description="Configuration for the nuclei connector.",
     )
-    sslyze: SslyzeConfig = Field(
-        default_factory=SslyzeConfig,
-        description="Configuration for the sslyze connector (Python TLS library).",
-    )
     ffuf: FfufConfig = Field(
         default_factory=FfufConfig,
         description="Configuration for the ffuf connector (path search).",
@@ -347,7 +313,7 @@ class ExternalToolsConfig(BaseModel):
         Return True if the given tool is active (master switch AND per-tool switch).
 
         Args:
-            tool_name: Currently "testssl", "nuclei", "sslyze" or "ffuf".
+            tool_name: Currently "testssl", "nuclei", "ffuf" or "schemathesis".
 
         Returns:
             bool: True only if both ExternalToolsConfig.enabled and the

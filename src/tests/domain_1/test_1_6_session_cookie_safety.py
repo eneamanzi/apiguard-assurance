@@ -1,8 +1,7 @@
 """
 src/tests/domain_1/test_1_6_session_cookie_safety.py
 
-Test 1.6: guarantee "a session the target keeps in a cookie is kept safely"
-(docs/project/test-review/group-b.md).
+Test 1.6: guarantee "a session the target keeps in a cookie is kept safely".
 
 One sub-test, cookie_attributes: every cookie the login response sets is read
 from the login artefact (TestContext.login_artefact, piece 6) and judged on

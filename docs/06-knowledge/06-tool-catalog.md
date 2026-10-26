@@ -41,7 +41,7 @@ native Python (why it is useful compared with Python alone); Output (the format 
 |---|---|---|---|---|---|
 | ffuf | `ffuf/ffuf` | Go, CLI | Very fast path enumeration with API wordlists (SecLists, 30k+ paths), several HTTP methods, recursion, filters on status and response size; actively maintained. Promoted from B in place of kiterunner (abandoned). | JSON (`-of json`) | Primary tool for shadow API discovery; connector shared with the 0.2 fallback. |
 | katana | `projectdiscovery/katana` | Go, CLI | Headless crawler that extracts endpoints from JavaScript bundles: essential for single-page applications, whose endpoints are defined in client-side routing. | JSON | Covers JavaScript-heavy cases ffuf does not. |
-| nuclei | `projectdiscovery/nuclei` | Go, CLI | Template-based scanner with an API template library maintained by the community: after discovery, takes the test from "an undocumented endpoint exists" to "it is exploitable". | JSON, SARIF | Connector shared with 3.1 and 7.2. Implemented (ext.0.1.nuclei) with a different role: known exposures from the templates (Swagger UI, admin panels, debug paths), without the native discovery's results. |
+| nuclei | `projectdiscovery/nuclei` | Go, CLI | Template-based scanner with an API template library maintained by the community: after discovery, takes the test from "an undocumented endpoint exists" to "it is exploitable". | JSON, SARIF | `NucleiConnector` is in the codebase (M1) but not wired to a test now: `ext.0.1.nuclei` was replaced by `ext.0.1.ffuf`. Decision pending (wire a nuclei test or remove the connector). |
 
 **Category B**
 
@@ -197,14 +197,14 @@ on `protected_endpoint`.
 | Tool | Repository | Language/type | Value against native Python | Output | Notes |
 |---|---|---|---|---|---|
 | testssl.sh 3.2 | `testssl/testssl.sh` | Bash script (needs OpenSSL) | The de facto standard for TLS security assessment: protocol versions, cipher suites, forward secrecy, certificate transparency, known TLS vulnerabilities with their CVEs. Replicating it in Python would need hundreds of raw TLS handshakes. | JSON (`--jsonfile`), entries with id, severity, finding, cve, cwe | Primary tool. Docker image `drwetter/testssl.sh`. Filter on severity MEDIUM, HIGH, CRITICAL, WARN. |
-| sslyze | `nabla-c0d3/sslyze` | Python, library and CLI | A parallel connector to testssl.sh, importable as a pure Python library with no binary: complementary TLS analysis. Implemented in Milestone 1 as `SslyzeConnector` (`BaseLibraryConnector`) with its own external test. | JSON | A library, so `BaseLibraryConnector`, not `BaseSubprocessConnector`. The two run as separate external tests in the same run, one after the other. |
+| sslyze | `nabla-c0d3/sslyze` | Python, library and CLI | A pure-Python TLS scanner, importable with no binary. Implemented in Milestone 1 as `SslyzeConnector` (`BaseLibraryConnector`), then removed in the test review: AGPL v3 (viral when imported in-process), and on the labs it found no weakness testssl.sh did not already report. testssl.sh is the single TLS tool for 1.5. | JSON | Removed; `BaseLibraryConnector` is kept as the extension point for a future Python-library tool. |
 
 **Category C**
 
 | Tool | Reason | Alternative |
 |---|---|---|
 | tlsx | C.4: faster on many targets but shallower on one; our case is always one target. | testssl.sh |
-| sslscan2 | C.1: an alternative to sslyze without advantages over it; an extra C dependency. | sslyze |
+| sslscan2 | C.1: an alternative to testssl.sh without advantages over it; an extra C dependency. | testssl.sh |
 | tls-scan | C.4: optimised for bulk scans of thousands of hosts, not deep analysis of one. | testssl.sh |
 | h2spec | C.3: HTTP/2 conformance testing, a different scope from TLS weaknesses. | - |
 | quiche + curl --http3 | C.3: HTTP/3/QUIC, outside the scope of v1.0. | - |
@@ -366,7 +366,7 @@ code; as implemented, by reading the signing policies and routes from the gatewa
 
 | Tool | Reason | Alternative |
 |---|---|---|
-| step-cli | C.4: one CLI command; `openssl` or sslyze already cover the same analysis; no dependency for a P3 test. | openssl or sslyze |
+| step-cli | C.4: one CLI command; `openssl` already covers the same analysis; no dependency for a P3 test. | openssl |
 | jwt_tool | C.4: marginal use on HMAC; the connector is for 1.2 and 1.3. | - |
 | Vault API | C.2: HashiCorp Vault-specific, breaks agnosticism. | - |
 | mitmproxy | C.3: a proxy approach incompatible with black box; for an empirical P3 test the risk-benefit is unfavourable. | - |
@@ -673,7 +673,7 @@ key works.
 | trufflehog | B | 6.4 | Runtime secret scanning. |
 | gitleaks | B | 6.4 | Secret scanning of git history. |
 | detect-secrets | B | 6.4 | Secret scanning as a Python library. |
-| sslyze | A | 1.5 (in parallel with testssl.sh) | TLS analysis as a Python library: a parallel connector, not a fallback. |
+| sslyze | A | 1.5 | TLS analysis as a Python library. Implemented in M1, removed in the test review (AGPL v3; no added value over testssl.sh). |
 
 Category C tools found under several tests (documented for historical completeness):
 
@@ -764,7 +764,8 @@ The primary operational tools for each test, by category. **Version 1.4**, align
 Changes with respect to v1.3: 0.1 kiterunner replaced by ffuf (A), removed from B; 1.2 jwtXploiter removed from B;
 3.1 CRLFuzz removed from A; 6.3 smuggler removed from A, A now on Python standard library sockets, http2smugl added
 to B; 7.2 Gopherus removed from B; 7.3 race-the-web removed from A, vegeta promoted to A and shared. Aligned
-in 2026-10: sslyze is category A for 1.5 (it was B in this matrix only); 2.2 and 6.4 are NATIVE with optional tools.
+in 2026-10: sslyze is category A for 1.5 (it was B in this matrix only; the connector was later removed, see its
+row above); 2.2 and 6.4 are NATIVE with optional tools.
 
 | Test | Cat. A (mandatory) | Cat. B (optional) | Classification |
 |---|---|---|---|
@@ -775,7 +776,7 @@ in 2026-10: sslyze is category A for 1.5 (it was B in this matrix only); 2.2 and
 | 1.2 | jwt_tool | - | HYBRID |
 | 1.3 | jwt_tool | - | HYBRID |
 | 1.4 | - | - | NATIVE |
-| 1.5 | testssl.sh, sslyze | - | HYBRID |
+| 1.5 | testssl.sh | - | HYBRID |
 | 1.6 | - | - | NATIVE |
 | 2.1 | - | - | NATIVE |
 | 2.2 | - | OFFAT, cherrybomb | NATIVE |

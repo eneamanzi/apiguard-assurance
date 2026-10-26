@@ -1,6 +1,6 @@
 # ext.1.5.testssl TLS Stack Analysis
 
-> **Audience:** analysts, contributors · **Status:** rewritten in the test review (branch `test-review`, 2026-10-22) ·
+> **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-22) ·
 > **Source of truth:**
 > [`src/external_tests/ext_test_1_5_tls_analysis.py`](../../../../src/external_tests/ext_test_1_5_tls_analysis.py),
 > [`src/connectors/testssl.py`](../../../../src/connectors/testssl.py) · **Verified:** 2026-10-22
@@ -33,7 +33,7 @@ forced onto HTTPS, the HSTS header); this test scans the TLS handshake.
 The TLS handshake that carries the credential is sound: only TLS 1.2/1.3 are offered, the cipher suites give forward
 secrecy and authenticated encryption, the certificate chain is valid and trusted, and no known TLS vulnerability is
 present. testssl.sh performs the scan; we point it at the gateway's HTTPS listener and judge its findings. We do not
-reimplement the handshake (docs/project/test-review.md, rule 11).
+reimplement the handshake (rule 11).
 
 A PASS promises that testssl.sh reported no HIGH or CRITICAL weakness on the target. It promises nothing about the
 HTTP redirect or HSTS (test `1.5`). OWASP API2:2023; NIST SP 800-52 Rev.2; ASVS v5.0.0-12.1.1 (only the latest TLS
@@ -99,8 +99,7 @@ Independent of the adapter: testssl scans the HTTPS listener directly. The scan 
 ## 11. Configuration
 
 No test parameter. The tool is configured under `external_tools.testssl` (`timeout_seconds`, `extra_flags`,
-`expected_version`, `dev_mode`). sslyze is kept as an enable-able alternative connector (`external_tools.sslyze`),
-not a second always-on test.
+`expected_version`, `dev_mode`). testssl.sh is the single TLS analysis tool for this guarantee.
 
 ## 12. Validation
 

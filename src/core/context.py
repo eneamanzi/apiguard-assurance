@@ -181,7 +181,7 @@ class TargetContext(BaseModel):
         default=None,
         description=(
             "Path of target.tls.ca_bundle, when set: the authority the external TLS tools "
-            "(testssl.sh --add-ca, sslyze custom_ca_file) trust in addition to theirs, and "
+            "(testssl.sh --add-ca) trust in addition to theirs, and "
             "the report states it (design-decisions D2)."
         ),
     )

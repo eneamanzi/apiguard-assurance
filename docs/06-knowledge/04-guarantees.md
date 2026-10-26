@@ -1,30 +1,37 @@
 # Guarantees Catalogue
 
 > **Audience:** readers of the research, contributors · **Status:** the catalogue of the thesis methodology
-> (chapter 3), translated from Italian, **not yet aligned with the tool**; it is rewritten guarantee by guarantee in
-> the test review (block 6, phase 0b, [`project/plan.md`](../project/plan.md)) · **Original:**
+> (chapter 3), translated from Italian. It is the methodology reference (the *why*), deliberately broader than the
+> tool; it is **not** the record of what the tool does. **Original:**
 > `git show 694f89a:docs/knowledge/methodology/methodology.it.md` · **Framework** (gradient, priorities, sources):
 > [`03-methodology.md`](03-methodology.md)
 
-> **Read this before relying on the page.** It is the thesis text, and the thesis predates several decisions. In
-> particular:
+> **Read this before relying on the page.** It is the thesis text, kept as the research reference. For what the tool
+> actually does, these other documents are authoritative, not this one:
 >
-> - **Priorities** (the `[P0]`-`[P3]` tags) are as the thesis gave them. They contradict the code in places (1.4 and
->   2.1 are P2 in the tests, P1 in the thesis's closing matrix; 2.2 is P1 in its heading and P2 in its matrix) and
->   will be checked against the importance criterion of [`03-methodology.md`](03-methodology.md#priorities).
+> - **Priorities, strategies and the list of implemented tests:** [`project/roadmap.md`](../project/roadmap.md) and
+>   the per-test pages in [`tests/`](../05-tests/README.md) print what each test declares (`apiguard list-tests` is
+>   the ground truth). The `[P0]`-`[P3]` tags below are the thesis's and differ from the code in places (resolved in
+>   favour of the code in the block-6 test review: the tool's declared priorities win; e.g. BOLA / 2.2 is P0 in the
+>   tool). They are left here as the thesis gave them, for the record.
 > - **"Approach" of each guarantee** (black, grey, white box) is the thesis's, which mixed what the tester has with
->   the technique. The tool's strategy says what the tester has ([`03-methodology.md`](03-methodology.md#knowledge-and-privilege-gradient)):
->   for example 1.5, 1.6 and 6.2 are described here as configuration audits and are black box in the tool.
+>   the technique. The tool's strategy says only what the tester has
+>   ([`03-methodology.md`](03-methodology.md#knowledge-and-privilege-gradient)): e.g. 1.5, 1.6 and 6.2 are described
+>   here as configuration audits and are black box in the tool.
 > - **Test logic** describes what the methodology asks for, not always what the test implements; what a test
->   implements, and what it leaves out, is on its page in [`tests/`](../05-tests/README.md) ("Coverage against the
->   methodology").
+>   implements, and what it leaves out, is on its page in [`tests/`](../05-tests/README.md) ("Sub-tests and coverage
+>   of the methodology").
+> - **Three guarantees were added during the block-6 review** and are written up here in their domains: 0.4 (a
+>   backend answers only through the gateway), 1.7 (authentication endpoints resist guessing) and 4.4 (request size
+>   limits). Each points to its test page for the concrete oracle, which it does not restate.
 > - **Construction details of attack inputs** (exact forged tokens, payload strings, step-by-step exploitation)
 >   are summarised here by what is checked and the expected result; the full text is in the original.
-> - Some sections cite the thesis documents (`TOOLS_catalog.md`, `4-Implementazione.md`) by their old names.
 
 Each guarantee has the same parts: **references** (OWASP API Security Top 10 2023, ASVS 5.0.0, NIST, RFC),
 **concept**, **failure scenarios**, **assumptions and prerequisites** (as the thesis wrote them), **test logic** (each
-check against its oracle). 29 guarantees in 8 domains; 3.2 was merged into 6.1.
+check against its oracle). The thesis lists 29 guarantees in 8 domains (3.2 was merged into 6.1); the tool adds 0.4,
+1.7 and 4.4 (see above). The priority table below is the thesis's; the tool's declared priorities are in
+`roadmap.md`.
 
 | Priority (thesis) | Guarantees |
 |---|---|
@@ -125,10 +132,10 @@ monitoring while remaining exposed: a critical window.
 - **Sunset header without enforcement.** The gateway returns a `Sunset` date but implements no control at that date;
   after it the endpoint keeps working as a "zombie API".
 
-**Assumptions and prerequisites (thesis).** Black box for the accessibility sub-tests (implemented in Milestone 1):
+**Assumptions and prerequisites (thesis).** Black box for the accessibility sub-tests (implemented):
 no credentials, only the specification to find endpoints with `deprecated: true`. The differential rate limiting and
 logging verbosity sub-tests need grey box (a standard user's token plus read access to the log aggregator or the
-Admin API): planned for Milestone 2.
+Admin API): not implemented (backlog).
 
 **Test logic.**
 
@@ -140,6 +147,41 @@ Admin API): planned for Milestone 2.
   per minute against 100); equal limits mean equal treatment and no compensating measure.
 - **Differential logging verbosity.** Check through the Admin API or the log aggregation system that deprecated
   endpoints log more (source IP, user identity, request body) than standard ones.
+
+---
+
+### 0.4 A backend answers only through the gateway `[P0]`
+
+**References:** OWASP API8:2023 Security Misconfiguration, NIST SP 800-228 §4.1, CWE-420 Unprotected Alternate
+Channel, OWASP ASVS v5.0.0-13.2.1.
+
+**Concept.** A backend the gateway routes to must answer only through the gateway. A backend reachable directly, on
+its own address or an exposed port, is an alternate channel that skips every policy the gateway enforces (TLS,
+authentication, rate limiting, headers, logging), so every other guarantee verified through the gateway can be
+bypassed (gateway bypass, CWE-288 / CWE-420). NIST SP 800-228 §4.1 names it for the centralized-gateway pattern: a
+perimeter gateway "can be bypassed ... which in turn bypasses the policy checks that are enforced by that gateway".
+
+**Failure scenarios.**
+
+- **Published backend port.** The backend's own port is reachable on the host (a container that publishes it, a
+  service bound to a routable interface); a caller that reaches it speaks to the application with none of the
+  gateway's controls.
+- **Declared upstream address answers directly.** The address the gateway lists as its upstream is reachable from
+  the caller's network and answers the same application, so the gateway is only one of several ways in.
+
+**Assumptions and prerequisites (tool; added in the block-6 review, not in the original thesis).** White box: the
+gateway's admin plane is read to learn the backend addresses it declares; an optional configured list supplies them
+when the admin plane is not available. The verdict is relative to the vantage point: "not reachable from here" is
+not proof of isolation (a name that does not resolve on this network proves nothing).
+
+**Test logic.**
+
+- **Direct backend probe.** For each backend address the gateway declares, and for the target's own host with that
+  backend's port, send the same parameter-free `GET` the gateway serves, and compare the answer (status, media type,
+  body shape; the `Server` header is ignored, as a gateway sets or strips it). An application that answers the same
+  without the gateway is a `VIOLATION`; a refused or timed-out connection is `ENFORCED`; a name that does not
+  resolve, or an address without a port, is `NOT_VERIFIABLE`; a different service on the derived host and port is
+  `NOT_APPLICABLE`.
 
 ---
 
@@ -347,6 +389,36 @@ box: it checks the cookies a target sets.)
   after authentication (ASVS V3.2.1). Necessarily empirical: it checks runtime behaviour.
 - **[audit]** Session tokens have at least 128 bits of randomness from a CSPRNG (ASVS V3.2.4); it suffices to check
   that the library used produces it by definition.
+
+---
+
+### 1.7 Authentication endpoints resist guessing `[P1]`
+
+**References:** OWASP API2:2023 Broken Authentication, OWASP ASVS v5.0.0-6.3.8 and v5.0.0-6.3.1, NIST SP 800-63B-4
+§3.2.2, CWE-307 Improper Restriction of Excessive Authentication Attempts, CWE-204 Observable Response Discrepancy,
+CWE-208 Observable Timing Discrepancy.
+
+**Concept.** The endpoint that authenticates a caller must not reveal whether an account exists, and must not let a
+caller keep guessing for free. Either makes an online password attack cheap: account enumeration tells an attacker
+which accounts are worth attacking, and an unlimited attempt budget lets them try.
+
+**Failure scenarios.**
+
+- **Account enumeration.** A failed authentication for an existing account is answered differently from one for an
+  account that cannot exist, by the message, the status, or the time taken; the difference discloses which accounts
+  are real.
+- **Unlimited attempts.** Consecutive failed attempts are neither slowed nor blocked, so credential stuffing and
+  brute force run at full speed.
+
+**Assumptions and prerequisites (tool; added in the block-6 review, not in the original thesis).** Grey box: a
+configured authentication endpoint and a name known not to exist; the verdict is from the address the run came from.
+It promises nothing about password strength, nothing about what an error discloses beyond the account's existence
+(6.1), and nothing about the API's general request budget (4.1).
+
+**Test logic.** Compare a failed authentication for an account that exists with one for an account that cannot, by
+the answer (bodies, with the submitted name masked) and by response time; a stable difference in either discloses
+existence. Then send failed attempts up to the bound (NIST SP 800-63B: no more than 100) and check they are slowed,
+blocked or answered `429`. The concrete oracle and thresholds are on the test page.
 
 ---
 
@@ -704,6 +776,32 @@ environment.
   dependent service and send requests to the endpoint that calls it. Expected: an immediate response (under 1 s) with
   a graceful fallback or `503` with `Retry-After`. A response blocking for the configured timeout before failing
   means the breaker is not active or not in the open state.
+
+---
+
+### 4.4 The gateway limits request body size `[P1]`
+
+**References:** OWASP API4:2023 Unrestricted Resource Consumption, OWASP ASVS v5.0.0-2.4.1, RFC 9110 §15.5.14 (413
+Content Too Large), CWE-400 Uncontrolled Resource Consumption.
+
+**Concept.** The gateway must reject an oversized request body with `413` before routing it to the backend. Without
+a size limit a large body ties up memory and bandwidth and can exhaust the backend, a denial of service that costs
+the attacker a single request.
+
+**Failure scenarios.**
+
+- **No limit configured.** The gateway forwards a body of any size; a few large uploads exhaust the backend's
+  memory.
+- **Limit above the backend's capacity.** A limit exists but is larger than the backend can take, so the body is
+  forwarded and the backend fails.
+
+**Assumptions and prerequisites (tool; added in the block-6 review, not in the original thesis).** The gateway's
+configured limit is read through its admin plane when available, to size the probe; otherwise a default size is
+tried. The body is padding, not an attack payload.
+
+**Test logic.** Send a request body above the limit and expect `413` before it is processed; a body above the
+gateway's configured limit (or, with no readable limit, above a default size) that is not rejected is a violation.
+The concrete oracle is on the test page.
 
 ---
 

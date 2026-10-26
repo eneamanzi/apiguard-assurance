@@ -1,8 +1,7 @@
 """
 src/tests/domain_1/test_1_2_credential_cryptographically_valid.py
 
-Test 1.2: guarantee "a credential whose signature does not hold is refused"
-(docs/project/test-review/group-c.md).
+Test 1.2: guarantee "a credential whose signature does not hold is refused".
 
 The credential must be a JSON Web Token (JWT): a target that issues an opaque
 token (Forgejo's sha1 API token) has no signature to attack, and the test is

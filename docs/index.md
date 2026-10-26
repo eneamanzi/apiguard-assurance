@@ -30,7 +30,7 @@
 | Secrets, outputs, traffic and TLS | [`04-security-model`](04-architecture/04-security-model.md) |
 | Why the tool is built this way (configuration by connection, TLS, credentials, prepared resources, gateway concepts) | [`05-design-decisions`](04-architecture/05-design-decisions.md) |
 | Why a test or a design choice exists (research) | [`06-knowledge/`](06-knowledge/README.md) (repository only) |
-| Project state, plan, roadmap, the v0.1.0 audit | [`plan`](project/plan.md), [`roadmap`](project/roadmap.md), [`audit-v0.1.0`](project/audit-v0.1.0.md) (repository only) |
+| Project state, roadmap, the v0.1.0 audit | [`roadmap`](project/roadmap.md), [`audit-v0.1.0`](project/audit-v0.1.0.md) (repository only) |
 
 ## Structure
 

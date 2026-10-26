@@ -86,7 +86,7 @@ one `isinstance` check.
 `SecurityClient`), and what both need is written once. The report tells native results from tool results.
 
 **Evidence.** By construction (`src/core/assessment_test.py`, `src/tests/base.py`, `src/external_tests/base.py`).
-Empirical: 0.1 (native) and ext.0.1.nuclei (external) in the same domain, told apart in `evidence.json` and the
+Empirical: 0.1 (native) and ext.0.1.ffuf (external) in the same domain, told apart in `evidence.json` and the
 report.
 
 **Possible developments.** A third hierarchy (for example LLM-assisted tests) adds a branch in the dispatch without
@@ -97,16 +97,18 @@ changing the existing contracts.
 ### D1.P5 Three-tier connector hierarchy
 
 **Definition.** Wrappers around external tools have three levels: `BaseConnector` (the universal contract),
-`BaseSubprocessConnector` (tools run as a process: testssl.sh, nuclei) and `BaseLibraryConnector` (Python libraries:
-sslyze). Each level carries only the mechanisms of its integration pattern; `src/connectors/_template_connector.py`
-is the template for new ones.
+`BaseSubprocessConnector` (tools run as a process: testssl.sh, nuclei, ffuf, schemathesis) and
+`BaseLibraryConnector` (tools used as a Python library). `BaseLibraryConnector` has no concrete connector at present
+and stays as the documented extension point for one. Each level carries only the mechanisms of its integration
+pattern; `src/connectors/_template_connector.py` is the template for new ones.
 
-**Consequences.** `TestsslConnector` does not inherit the library check (`importlib.util.find_spec`), and
-`SslyzeConnector` does not inherit the binary resolution or `_run_subprocess()`. The public contract (`run()`,
+**Consequences.** `TestsslConnector` does not inherit the library check (`importlib.util.find_spec`), and a
+library connector would not inherit the binary resolution or `_run_subprocess()`. The public contract (`run()`,
 `is_available()`, `get_version()`) is the same: the calling test does not know how the tool is integrated.
 
-**Evidence.** Empirical: all three tiers are exercised by ext.0.1.nuclei and ext.1.5.testssl (subprocess) and
-ext.1.5.sslyze (library).
+**Evidence.** Empirical: the subprocess tier is exercised by ext.0.1.ffuf and ext.1.5.testssl. The library tier is
+not exercised by a concrete connector today (sslyze, its first user, was removed in the test review); the tier's
+`importlib`-based availability and version checks remain in `BaseLibraryConnector`.
 
 **Possible developments.** A new tool needs only a subclass of the right level, with no change to `BaseConnector` or
 to the tests that use it.
@@ -179,12 +181,13 @@ them through `acquire_tokens()`, in any order. No test declares a prerequisite t
 `ConnectorResult` (raw output, exit code, timeout flag, duration). The external test judges it against its oracle in
 `_evaluate()`.
 
-**Consequences.** One connector serves tests with different oracles: ext.0.1.nuclei and a possible injection test
-would share `NucleiConnector`. A connector can be checked on its own (is the output parsed correctly?) without a
-security oracle.
+**Consequences.** One connector can serve tests with different oracles: the `NucleiConnector`, for instance, could
+back both a discovery test and an injection test (it is in the codebase, not wired to a test now). A connector can
+be checked on its own (is the output parsed correctly?) without a security oracle.
 
-**Evidence.** Empirical: `NucleiConnector.run()` returns every finding, including `info`; ext.0.1.nuclei partitions
-them into FAIL, notes and ignored; ext.1.5.testssl does the same with its severity buckets.
+**Evidence.** Empirical: a connector returns every result and the test decides — ext.1.5.testssl partitions
+testssl.sh's findings into FAIL, notes and ignored by severity; ext.0.1.ffuf treats the paths that answered as its
+results.
 
 **Possible developments.** The same connector can serve new domains (for example nuclei templates for OWASP API10,
 unsafe consumption of APIs).
@@ -236,7 +239,7 @@ natively, the tool widens detection); **Cat C** tools were evaluated and discard
 Cat B ones only widen it. An enabled but missing Cat A tool gives its external test SKIP, and the native test for the
 same guarantee still runs.
 
-**Evidence.** Empirical: ext.0.1.nuclei returns SKIP with a reason when nuclei is missing, while 0.1 still runs.
+**Evidence.** Empirical: ext.0.1.ffuf returns SKIP with a reason when ffuf is missing, while 0.1 still runs.
 
 **Possible developments.** A policy for contributions: a Cat B connector needs no change to the test; a Cat A one
 completes a HYBRID guarantee.
@@ -420,7 +423,7 @@ none.
 ### D4.P3 Errors isolated per test
 
 **Definition.** `execute()` never propagates an exception to the engine: an unexpected error becomes a
-`TestResult(ERROR)` inside the test (`_make_error()`), and the engine calls `execute()` without a handler around it.
+`TestResult(ERROR)` inside the test (`_error()`), and the engine calls `execute()` without a handler around it.
 
 **Consequences.** A test that fails unexpectedly gives ERROR and the run goes on with the next one; no test can stop
 another. Robustness is a property of the contract, not a defence in the engine.
@@ -683,19 +686,21 @@ installation, with no deployment-specific code. No binary found means `is_availa
 
 **In the docs.** [External tools](../04-architecture/04-security-model.md#external-tools).
 
-### D7.P2 Optional dependency for a licence-restricted tool (changed since the thesis)
+### D7.P2 Optional dependency for a non-required tool (changed since the thesis)
 
-**Definition.** sslyze (and its native dependency nassl) is licensed under AGPL v3, so it is declared only as an
-optional extra (`pip install "apiguard-assurance[sslyze]"`), not among the required dependencies; the development
-environment installs it. `SslyzeConnector.is_available()` checks for the package, and without it ext.1.5.sslyze is
-SKIP.
+**Definition.** A tool that is not required for the core to run is declared as an optional extra in
+`[project.optional-dependencies]`, not among the required dependencies, and its connector imports the library only
+inside `run()`, so the package still imports when the extra is not installed. Today the only such extra is
+`schemathesis` (`pip install "apiguard-assurance[schemathesis]"`).
 
-**Consequences.** A standard installation contains no AGPL code. The thesis stated that this keeps the core under the
-MIT licence: the project's licence is in fact not decided yet (`pyproject.toml` leaves it unspecified on purpose), and
-`pyproject.toml` notes that sslyze must be removed or replaced for a release under a permissive licence (open
-questions Q-05 and Q-11, set aside until the distribution model is known).
+**History (sslyze).** The original instance of this property was sslyze, whose transitive `nassl` is AGPL v3: it was
+an optional extra so a standard installation carried no AGPL code. In the test review sslyze was removed entirely
+(AGPL, and no added value over testssl.sh for guarantee 1.5), which resolves the licence concern at the source
+rather than isolating it in an extra. The project's own licence is still undecided (`pyproject.toml` leaves it
+unspecified on purpose; the choice is tracked in `roadmap.md`).
 
-**Evidence.** By construction: sslyze is absent from `[project] dependencies` and present among the optional ones.
+**Evidence.** By construction: a non-required tool is absent from `[project] dependencies` and present among the
+optional ones.
 
 **Possible developments.** The same pattern for any heavy or licence-restricted component.
 

@@ -2,8 +2,7 @@
 src/tests/domain_1/test_1_7_authentication_resistance.py
 
 Test 1.7: guarantee "the endpoint that authenticates a caller does not say
-whether an account exists, and does not let a caller go on guessing"
-(docs/project/test-review/group-b.md).
+whether an account exists, and does not let a caller go on guessing".
 
 Two sub-tests:
 

@@ -1,6 +1,6 @@
 # 1.1 Credential Required on Documented Operations
 
-> **Audience:** analysts, contributors · **Status:** rewritten in the test review (branch `test-review`, 2026-10-22) ·
+> **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-22) ·
 > **Source of truth:**
 > [`src/tests/domain_1/test_1_1_credential_required.py`](../../../src/tests/domain_1/test_1_1_credential_required.py) ·
 > **Verified:** 2026-10-22
@@ -41,7 +41,7 @@ a path the gateway has no route for (test `0.2`).
 |---|---|
 | `no_credential` | "no token": every documented protected operation, not a sample |
 | `malformed_credential` | "empty and malformed token" and "header case variations" |
-| `path_variants` | "path normalisation", from the shared list (`src/core/path_variants.py`, topic 7b) |
+| `path_variants` | "path normalisation", from the shared list (`src/core/path_variants.py`) |
 
 ## 3. Inputs
 

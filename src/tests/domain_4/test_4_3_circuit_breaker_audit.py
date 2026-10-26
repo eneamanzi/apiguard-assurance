@@ -2,7 +2,7 @@
 src/tests/domain_4/test_4_3_circuit_breaker_audit.py
 
 Test 4.3: guarantee "the system degrades gracefully with a circuit breaker"
-(docs/project/test-review/group-g.md). OWASP API4:2023.
+. OWASP API4:2023.
 
 A circuit breaker stops a failing downstream from cascading: it opens after N
 failures and answers at once instead of waiting for a timeout on every request.

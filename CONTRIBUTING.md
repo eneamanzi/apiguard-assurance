@@ -11,7 +11,7 @@ The project uses two Hatch environments, both created on first use:
 
 | Environment | Used by | Contains |
 |---|---|---|
-| `default` | `hatch run apiguard ...`, `hatch shell` | the tool and its runtime dependencies (sslyze included) |
+| `default` | `hatch run apiguard ...`, `hatch shell` | the tool and its runtime dependencies (optional connectors, e.g. `[schemathesis]`, are installed on demand) |
 | `dev` | `hatch run dev:<script>`, `hatch shell dev` | the tool plus ruff, mypy, bandit, vulture, pip-audit |
 
 ## Before you write code
@@ -26,8 +26,8 @@ The project uses two Hatch environments, both created on first use:
 
 ## Verify a change
 
-There is no automated test suite yet (an E2E suite against the lab is planned, Q-51); mocking HTTP would prove nothing
-about security behaviour. Until then a change is verified by hand against the lab.
+There is no automated test suite; mocking HTTP would prove nothing about security behaviour. A change is verified by
+hand against the lab.
 
 1. Static checks (must pass):
 
@@ -43,7 +43,7 @@ about security behaviour. Until then a change is verified by hand against the la
 
 2. Run the affected tests only, not the full assessment: copy the lab's configuration (`test-environments/forgejo-kong/config.yaml`), set `execution.test_ids` and turn off
    the external tools if you do not need them ([select tests](docs/02-guides/01-usage/02-select-tests.md)). Compare the
-   result with the previous run (status, findings, `oracle_state` counts) with the development helper:
+   result with the previous run (status, findings, `outcome` counts) with the development helper:
 
    ```bash
    hatch run python scripts/compare_reports.py before.json after.json
@@ -68,8 +68,9 @@ about security behaviour. Until then a change is verified by hand against the la
 | the lab | [`first-assessment.md`](docs/01-getting-started/02-first-assessment.md) (commands and expected output) |
 | what is implemented | [`docs/project/roadmap.md`](docs/project/roadmap.md) and [`CHANGELOG.md`](CHANGELOG.md) |
 
-Documentation states only facts checked against the code or a run. A doubt, or a behaviour that looks wrong, goes
-to [`OPEN_QUESTIONS.md`](OPEN_QUESTIONS.md) with its evidence; the project owner decides and closes it.
+Documentation states only facts checked against the code or a run. A doubt, or a behaviour that looks wrong, is
+raised with the project owner with its evidence; open decisions are recorded in
+[`docs/project/roadmap.md`](docs/project/roadmap.md).
 
 ## Commits
 
@@ -78,5 +79,4 @@ followed by a short summary. Never commit `.env` (it is ignored by git) or anyth
 
 ## Project state
 
-What is implemented and what comes next: [`docs/project/roadmap.md`](docs/project/roadmap.md). Current work plan:
-[`docs/project/plan.md`](docs/project/plan.md).
+What is implemented, the backlog and the open decisions: [`docs/project/roadmap.md`](docs/project/roadmap.md).

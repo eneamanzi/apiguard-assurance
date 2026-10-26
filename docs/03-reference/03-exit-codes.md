@@ -44,7 +44,7 @@ Ctrl+C (SIGINT) and SIGTERM are handled alike during `apiguard run`:
    created on the target. Please wait.`;
 4. the process ends by the **first** signal received: exit `130` (SIGINT) or `143` (SIGTERM), 128 + the signal
    number. A calling program sees a process terminated by that signal (Python `subprocess`: `returncode` `-2` or
-   `-15`). **No report files are written** (Phase 7 does not run; partial report: Q-26).
+   `-15`). **No report files are written** (Phase 7 does not run; there is no partial report).
 
 Do not use SIGKILL (`kill -9`): it cannot be intercepted, so teardown does not run and the resources the tests
 created on the target are left behind. Leave the tool a few seconds to clean up: `docker stop` sends SIGKILL 10
@@ -71,7 +71,7 @@ are not recorded as SKIP.
 Invalid invocations (unknown option, invalid choice such as `--log-format xml`, unknown command, no command) are
 rejected by the CLI framework (Typer/Click) with exit code **`2`**, for every command, before the tool starts:
 no test runs and no output file is written. `2` is reserved for this case (the usual convention of shells,
-`argparse` and Click); a completed run never returns it. Until 2026-10 ERROR was also `2` (Q-20).
+`argparse` and Click); a completed run never returns it. Until 2026-10 ERROR was also `2`.
 
 ## Handling in scripts
 

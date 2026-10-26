@@ -1,6 +1,6 @@
 # 2.1 Function-Level Authorization
 
-> **Audience:** analysts, contributors · **Status:** rewritten in the test review (branch `test-review`, 2026-10-23) ·
+> **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-23) ·
 > **Source of truth:**
 > [`src/tests/domain_2/test_2_1_function_level_authorization.py`](../../../src/tests/domain_2/test_2_1_function_level_authorization.py),
 > [`src/discovery/derivation.py`](../../../src/discovery/derivation.py) · **Verified:** 2026-10-23

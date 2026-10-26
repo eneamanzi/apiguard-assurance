@@ -2,8 +2,7 @@
 src/tests/domain_0/test_0_3_deprecated_operations.py
 
 Test 0.3: guarantee "an operation the specification marks deprecated is either
-switched off or declares its own sunset"
-(docs/project/test-review/group-a.md).
+switched off or declares its own sunset".
 
 One sub-test, deprecated_operations: each operation with `deprecated: true` is
 asked for and judged on what it answers and what its response declares.

@@ -2,7 +2,7 @@
 src/tests/domain_7/test_7_1_sensitive_flow_protection.py
 
 Test 7.1: guarantee "a sensitive business flow resists automated abuse" (OWASP
-API6:2023) (docs/project/test-review/group-j.md).
+API6:2023).
 
 A high-value flow (one-time-password request, coupon redemption, sign-up,
 password reset) must not be drivable by a script at machine speed: the server

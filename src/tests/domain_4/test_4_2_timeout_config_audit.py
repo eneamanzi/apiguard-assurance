@@ -20,7 +20,7 @@ Strategy: WHITE_BOX -- Configuration Audit through the gateway adapter.
 Priority: P1 -- a missing timeout on any upstream service is a resource-lock
     vulnerability that cascades into full pool exhaustion (CWE-400).
 
-Pilot of the test review (docs/project/test-review.md, phase 0c piece 1): the
+Pilot of the test review: the
 oracle is the v0.1.0 one, moved onto the computed result; its review (e.g.
 whether a timeout the gateway does not state is a violation, Q-29) is phase 1.
 
@@ -162,7 +162,7 @@ _SCOPE_WORDS: dict[ConceptScope, str] = {
 }
 
 # Every finding of 4.2 is a value read from the gateway configuration: the
-# observed fact itself (topic 5).
+# observed fact itself.
 _CONFIDENCE: Confidence = Confidence.CERTAIN
 
 # The standards of the guarantee, declared in info and cited by every finding

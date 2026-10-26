@@ -1,6 +1,6 @@
 # 1.7 Authentication Endpoints Resist Guessing
 
-> **Audience:** analysts, contributors · **Status:** new in the test review (branch `test-review`, 2026-10-22) ·
+> **Audience:** analysts, contributors · **Status:** new in the test review (2026-10-22) ·
 > **Source of truth:**
 > [`src/tests/domain_1/test_1_7_authentication_resistance.py`](../../../src/tests/domain_1/test_1_7_authentication_resistance.py) ·
 > **Verified:** 2026-10-22

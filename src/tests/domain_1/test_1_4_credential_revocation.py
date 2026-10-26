@@ -1,8 +1,7 @@
 """
 src/tests/domain_1/test_1_4_credential_revocation.py
 
-Test 1.4: guarantee "a credential that has been revoked is refused"
-(docs/project/test-review/group-c.md).
+Test 1.4: guarantee "a credential that has been revoked is refused".
 
 One sub-test, rejected_after_revocation. The test creates a credential of its
 own through the configured login, confirms it works, revokes it the way the

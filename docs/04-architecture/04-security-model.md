@@ -1,7 +1,6 @@
 # Security Model
 
-> **Audience:** integrators, operators, contributors · **Status:** v0.1.0, several open points (see
-> `OPEN_QUESTIONS.md`) · **Source of truth:** `src/cli.py`, `src/config/loader.py`, `src/core/client.py`,
+> **Audience:** integrators, operators, contributors · **Status:** v0.1.0 · **Source of truth:** `src/cli.py`, `src/config/loader.py`, `src/core/client.py`,
 > `src/core/models/http.py`, `src/core/evidence.py`, `src/core/gateway/kong.py`, `src/connectors/`,
 > `src/report/renderer.py`, `src/core/tls.py` · **Verified:** 2026-10-15 (TLS), 2026-10-05
 
@@ -45,7 +44,9 @@ Treat all output files as sensitive: response bodies can carry the target's data
 - Native tests do not start subprocesses; external tools run through connectors.
 - Several tests send **write methods** (`POST`, `PUT`, `PATCH`, `DELETE`) without credentials, or create objects
   with valid credentials; the exact behaviour is on each test page under "Prerequisites and effects on the target".
-  Summary and open decisions: Q-30.
+  By design the tool targets only volatile test resources it can lose and does not restore deleted ones (the
+  environment does): see design decisions [D6](05-design-decisions.md#d6-prepared-resources) and
+  [D10](05-design-decisions.md#d10-path_seed-makes-paths-routable-not-objects-specific).
 - Test 4.1 sends a burst of up to 300 requests (default) and exhausts the rate-limit budget of the tool's IP.
 - Resources created by tests and the login method (prepared resources with a delete request) are registered for
   teardown and deleted in Phase 6, also after Ctrl+C. Test 7.2 without `url_accepting_endpoint.resource` registers nothing.
@@ -80,8 +81,8 @@ every output) and with the context of `gateway.admin.tls`. The health interface 
 Control API) is read without those headers: it has no authentication of its own, and the key is not sent where it is
 not needed.
 
-**External TLS tools** (testssl.sh, sslyze) receive the path of `target.tls.ca_bundle` (`--add-ca`,
-`custom_ca_file`), never the client certificate or its key; their result then notes that the chain was trusted through the configured authority.
+**External TLS tools** (testssl.sh) receive the path of `target.tls.ca_bundle` (`--add-ca`), never the client
+certificate or its key; their result then notes that the chain was trusted through the configured authority.
 
 **Lab certificates.** The labs' authority and certificates are generated at the first start of a lab
 (`test-environments/pki/gen-pki.sh`) and never committed; no private key is in the repository.
@@ -101,8 +102,7 @@ not needed.
 | Gap | Question |
 |---|---|
 | No password-protected client key, no certificate pinning, no minimum TLS version per connection ([design decisions, D2](05-design-decisions.md#d2-certificate-trust-per-connection)) | - |
-| Unauthenticated write requests and leftover objects on the target | Q-30 |
-| sslyze dependency is AGPL v3 | Q-11 |
+| Unauthenticated write requests and leftover objects on the target (accepted by design: volatile test resources only; [D6](05-design-decisions.md#d6-prepared-resources)) | - |
 
 ## See also
 

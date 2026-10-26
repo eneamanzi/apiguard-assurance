@@ -1,342 +1,198 @@
 # APIGuard Assurance - Roadmap
 
-> **Audience:** project owner, contributors · **Status:** interim (2026-10-06). The current work, step by step, is in
-> [`plan.md`](plan.md). This file still describes the thesis milestones: it will be rewritten as a product roadmap
-> after the code work of group 3.D is planned (Q-17). Until then, Milestone 2 is a list of candidate tests, not a plan.
+> **Audience:** project owner, contributors · **Status:** current (2026-10-26). Single source of truth for what is
+> implemented and what is on the backlog. The authoritative list of implemented tests is the tool itself
+> (`apiguard list-tests`); this file groups them and records what is deliberately not implemented yet.
 
 - [Legend](#legend)
-- [Tests Overview](#tests-overview)
-- [Since v0.1.0 (unreleased)](#since-v010-unreleased)
-- [MILESTONE 1 - v0.1.0 (released 2026-05-18)](#milestone-1---v010-released-2026-05-18)
-  - [Domain 0 - API Discovery \& Inventory](#domain-0---api-discovery--inventory)
-  - [Domain 1 - Identity \& Authentication](#domain-1---identity--authentication)
-  - [Domain 2 - Authorization](#domain-2---authorization)
-  - [Domain 3 - Data Integrity](#domain-3---data-integrity)
-  - [Domain 4 - Availability \& Resilience](#domain-4---availability--resilience)
-  - [Domain 6 - Configuration \& Hardening](#domain-6---configuration--hardening)
-  - [Domain 7 - Business Logic \& Sensitive Flows](#domain-7---business-logic--sensitive-flows)
-  - [DAG State After Milestone 1 Completion](#dag-state-after-milestone-1-completion)
-  - [Strategy Coverage](#strategy-coverage)
-- [MILESTONE 2 - Candidate tests (not yet planned)](#milestone-2---candidate-tests-not-yet-planned)
-  - [Domain 0 - Shadow API Discovery (extended tooling)](#domain-0---shadow-api-discovery-extended-tooling)
-  - [Domain 1 - JWT \& Credential Lifecycle](#domain-1---jwt--credential-lifecycle)
-  - [Domain 2 - Authorization (Phase C - requires 1.2)](#domain-2---authorization-phase-c---requires-12)
-  - [Domain 3 - Injection](#domain-3---injection)
-  - [Domain 4 - Rate Limiting Extended](#domain-4---rate-limiting-extended)
-  - [Domain 5 - Observability](#domain-5---observability)
-  - [Domain 6 - HTTP Request Smuggling](#domain-6---http-request-smuggling)
-  - [Domain 7 - Race Condition, Unsafe Consumption, SSRF Extended](#domain-7---race-condition-unsafe-consumption-ssrf-extended)
-- [Ideas (not planned)](#ideas-not-planned)
+- [Implemented tests](#implemented-tests)
+- [Backlog](#backlog)
 - [Connectors](#connectors)
-  - [Cat A - Implemented (Milestone 1)](#cat-a---implemented-milestone-1)
-  - [Cat A - Not Yet Implemented (Milestone 2)](#cat-a---not-yet-implemented-milestone-2)
-  - [Cat B - All Deferred (Milestone 2)](#cat-b---all-deferred-milestone-2)
-- [TODO - Milestone 1 Remaining Tasks](#todo---milestone-1-remaining-tasks)
-
 
 ## Legend
 
 | Symbol | Meaning |
-|---------|-------------|
-| `[x]`   | The test is implemented. |
-| `[ ]`   | Not yet started or incomplete. |
+|--------|---------|
+| `[x]`  | Implemented (verified in `apiguard list-tests`). |
+| `[ ]`  | On the backlog: not implemented. |
 
-The symbol describes a **test**, not a guarantee. How much of a guarantee is covered is stated separately below.
+The symbol describes a **test**, not a guarantee: a guarantee may be covered by a native test and one or more
+external tests. Priorities and strategies below are the ones each test declares in its `TestInfo` (the tool prints
+them); priority is importance only (`03-methodology.md`), independent of strategy.
 
-**Guarantee coverage.** A guarantee is fully covered when its native test and **all** its planned Cat A external
-tests are implemented (Cat B connectors are optional and never count). Guarantees covered only in part:
-
-| Guarantee | Implemented | Planned (M2) |
-|---|---|---|
-| 0.1 All exposed endpoints are documented and authorized | `0.1` (native), `ext.0.1.nuclei` | `ext.0.1.ffuf` (large wordlists), `ext.0.1.katana` (JavaScript crawling) |
-
-**Naming convention:**
-- Native tests: `X.Y` (e.g. `1.4`, `2.1`)
-- External tests: `ext.X.Y.toolname` (e.g. `ext.0.1.nuclei`, `ext.1.5.testssl`) - the tool suffix makes the ID self-documenting and unique when multiple tools cover the same guarantee.
+**Naming:** native tests `X.Y` (e.g. `2.1`); external tests `ext.X.Y.tool` (e.g. `ext.1.5.testssl`), the tool
+suffix keeping the ID unique when several tools cover one guarantee.
 
 ---
 
-## Tests Overview
+## Implemented tests
 
-| ID | Milestone | Status |
-|----|-----------|--------|
-| 0.1 | M1 | [x] |
-| ext.0.1.nuclei | M1 | [x] |
-| 0.2 | M1 | [x] |
-| 0.3 | M1 | [x] |
-| 1.1 | M1 | [x] |
-| 1.4 | M1 | [x] |
-| 1.5 | M1 | [x] |
-| ext.1.5.testssl | M1 | [x] |
-| ext.1.5.sslyze | M1 | [x] |
-| 1.6 | M1 | [x] |
-| 3.3 | M1 | [x] |
-| 4.1 | M1 | [x] |
-| 4.2 | M1 | [x] |
-| 4.3 | M1 | [x] |
-| 6.2 | M1 | [x] |
-| 6.4 | M1 | [x] |
-| 7.2 | M1 | [x] |
-| 2.1 | M1 | [x] |
-| ext.0.1.ffuf | M2 | [ ] |
-| ext.0.1.katana | M2 | [ ] |
-| 1.2 | M2 | [ ] |
-| ext.1.2.jwt_tool | M2 | [ ] |
-| 1.3 | M2 | [ ] |
-| ext.1.3.jwt_tool | M2 | [ ] |
-| 2.2 | M2 | [ ] |
-| 2.3 | M2 | [ ] |
-| 2.4 | M2 | [ ] |
-| 2.5 | M2 | [ ] |
-| 3.1 | M2 | [ ] |
-| ext.3.1.schemathesis | M2 | [ ] |
-| ext.4.1.vegeta | M2 | [ ] |
-| 5.1 | M2 | [ ] |
-| 5.2 | M2 | [ ] |
-| 6.3 | M2 | [ ] |
-| ext.6.3.socket | M2 | [ ] |
-| ext.7.2.interactsh | M2 | [ ] |
-| 7.3 | M2 | [ ] |
-| ext.7.3.vegeta | M2 | [ ] |
-| 7.4 | M2 | [ ] |
-| ext.7.4.interactsh | M2 | [ ] |
-
----
-
-## Since v0.1.0 (unreleased)
-
-No new test. Infrastructure for production use and integration (details: `CHANGELOG.md`, "Unreleased"):
-
-- interface contract and versioning, secret redaction, console interface, prerequisites between tests
-  (blocks 1-5d);
-- agnosticism (block 7+8, 2026-10-10/14): gateway audits on neutral concepts with the `kong` and `apisix`
-  adapters; authentication methods `basic`, `static_token`, `login`, the credential sent as the specification
-  declares; prepared resources (what the tool creates on the target and how it logs in, in `config.yaml`: no
-  Forgejo code left); tests 2.1, 7.2 and 1.4 without Forgejo defaults; three labs (Forgejo + Kong, crAPI + Kong,
-  Forgejo + APISIX); `config.example.yaml` with every key.
-
-## MILESTONE 1 - v0.1.0 (released 2026-05-18)
-
-**Scope.** Tests selected for architectural property demonstration value.
-Selection criterion: which test provides the most concrete and verifiable evidence for the
-architectural claims in `docs/06-knowledge/08-design-properties.md`. Security coverage is secondary.
+32 tests after the block-6 test review (29 native + 3 external). Strategy / priority as declared.
 
 ### Domain 0 - API Discovery & Inventory
 
-| ID | Type | Status | Strategy / Priority | Key Properties |
-|----|------|--------|---------------------|----------------|
-| 0.1 | NATIVE+OPT | [x] | BLACK_BOX / P0 | D1.P1, D2.P1 |
-| ext.0.1.nuclei | HYBRID / nuclei | [x] | BLACK_BOX / P0 | D1.P4, D1.P5, D2.P3, D2.P4, D2.P6, D6.P2 |
-| 0.2 | NATIVE+OPT | [x] | BLACK_BOX / P0 | D1.P1 |
-| 0.3 | NATIVE+OPT | [x] | BLACK_BOX / P0 | D1.P1 |
-
-Files: `src/external_tests/ext_test_0_1_shadow_api_nuclei.py`, `src/connectors/nuclei.py`
+| ID | Strategy | Priority | Guarantee |
+|----|----------|----------|-----------|
+| 0.1 | BLACK_BOX | P0 | Undeclared methods, undocumented versions |
+| 0.2 | BLACK_BOX | P0 | Paths without a route |
+| 0.3 | BLACK_BOX | P0 | Deprecated operations still served |
+| 0.4 | WHITE_BOX | P0 | Backend reachable without the gateway (gateway bypass, CWE-288) |
+| ext.0.1.ffuf | BLACK_BOX | P0 | Undocumented paths answer (ffuf path search) |
 
 ### Domain 1 - Identity & Authentication
 
-| ID | Type | Status | Strategy / Priority | Key Properties |
-|----|------|--------|---------------------|----------------|
-| 1.1 | NATIVE | [x] | BLACK_BOX / P0 | D1.P1, D2.P2-PhaseA, D4.P1, D4.P7, D2.P8, D4.P9 |
-| 1.4 | NATIVE | [x] | GREY_BOX / P2 | D1.P3, D2.P2-PhaseB, D4.P6, D2.P5, D3.P3, D4.P8 |
-| 1.5 | NATIVE | [x] | WHITE_BOX / P2 | D3.P3 |
-| ext.1.5.testssl | HYBRID / testssl | [x] | WHITE_BOX / P2 | D1.P4, D1.P5, D2.P3, D2.P4, D3.P3, D6.P2 |
-| ext.1.5.sslyze | HYBRID / sslyze | [x] | WHITE_BOX / P2 | D1.P4, D1.P5, D2.P3, D2.P4, D3.P3, D6.P2 |
-| 1.6 | NATIVE | [x] | WHITE_BOX / P3 | D2.P5, D3.P3 |
-
-Files: `src/external_tests/ext_test_1_5_tls_analysis.py`, `src/connectors/testssl.py`, `src/connectors/sslyze.py`
+| ID | Strategy | Priority | Guarantee |
+|----|----------|----------|-----------|
+| 1.1 | BLACK_BOX | P0 | Credential required on documented endpoints |
+| 1.2 | GREY_BOX | P0 | Credential cryptographically valid |
+| 1.3 | GREY_BOX | P0 | Credential expiry |
+| 1.4 | WHITE_BOX | P2 | Credential revocation |
+| 1.5 | BLACK_BOX | P2 | Credentials over an insecure channel |
+| ext.1.5.testssl | BLACK_BOX | P2 | TLS stack analysis (testssl.sh) |
+| 1.6 | GREY_BOX | P3 | Session cookie safety |
+| 1.7 | GREY_BOX | P1 | Authentication endpoints resist guessing |
 
 ### Domain 2 - Authorization
 
-| ID | Type | Status | Strategy / Priority | Key Properties |
-|----|------|--------|---------------------|----------------|
-| 2.1 | NATIVE | [x] | GREY_BOX / P2 | D1.P3, D2.P5, D3.P3 |
+| ID | Strategy | Priority | Guarantee |
+|----|----------|----------|-----------|
+| 2.1 | GREY_BOX | P1 | Function-level authorization |
+| 2.2 | GREY_BOX | P0 | Object-level authorization (BOLA, API1:2023) |
+| 2.4 | BLACK_BOX | P1 | Authorization consistency |
+| 2.5 | GREY_BOX | P1 | Object property-level authorization |
 
 ### Domain 3 - Data Integrity
 
-| ID | Type | Status | Strategy / Priority | Key Properties |
-|----|------|--------|---------------------|----------------|
-| 3.3 | NATIVE | [x] | WHITE_BOX / P3 | D1.P6, D4.P5 |
+| ID | Strategy | Priority | Guarantee |
+|----|----------|----------|-----------|
+| 3.3 | WHITE_BOX | P3 | Request signing audit |
+| ext.3.1.schemathesis | BLACK_BOX | P2 | Input validation (Schemathesis) |
 
 ### Domain 4 - Availability & Resilience
 
-| ID | Type | Status | Strategy / Priority | Key Properties |
-|----|------|--------|---------------------|----------------|
-| 4.1 | NATIVE+OPT | [x] | BLACK_BOX / P0 | D4.P7 |
-| 4.2 | NATIVE | [x] | WHITE_BOX / P1 | D1.P6, D4.P5 |
-| 4.3 | NATIVE | [x] | WHITE_BOX / P1 | D1.P6, D5.P2, D4.P5 |
-
-### Domain 6 - Configuration & Hardening
-
-| ID | Type | Status | Strategy / Priority | Key Properties |
-|----|------|--------|---------------------|----------------|
-| 6.2 | NATIVE | [x] | WHITE_BOX / P3 | D3.P3, D5.P3 |
-| 6.4 | NATIVE+OPT | [x] | WHITE_BOX / P2 | D1.P6, D2.P8 |
-
-### Domain 7 - Business Logic & Sensitive Flows
-
-| ID | Type | Status | Strategy / Priority | Key Properties |
-|----|------|--------|---------------------|----------------|
-| 7.1 | NATIVE | [x] | BLACK_BOX / P1 | anti-automation burst on a declared sensitive flow (test review, group J) |
-| 7.2 | NATIVE | [x] | GREY_BOX / P0 | SSRF payload catalogue + benign control; outbound listener deferred (test review, group J) |
-| 7.3 | NATIVE | [x] | GREY_BOX / P1 | concurrent burst on a declared once-only operation (test review, group J) |
-| 7.4 | NATIVE | [x] | BLACK_BOX / P1 | webhook HMAC verification; blind/replay need the deferred listener (test review, group J) |
-
----
-
-### DAG State After Milestone 1 Completion
-
-| Phase | Tests |
-|-------|-------|
-| **A - No Dependencies** | 0.1, ext.0.1.nuclei, 0.2, 0.3, 1.1, 1.5, ext.1.5.testssl, ext.1.5.sslyze, 1.6, 3.3, 4.1, 4.2, 4.3, 6.2, 6.4, 7.2 |
-| **B - requires 1.1** | **1.4**, **2.1** |
-
-Phase C (requires ext.1.2.jwt_tool / jwt_tool connector) → Milestone 2.
-
-### Strategy Coverage
-
-| Strategy | Tests |
-|----------|-------|
-| BLACK_BOX | 0.1, ext.0.1.nuclei, 0.2, 0.3, 1.1, 4.1 |
-| GREY_BOX | 7.2, 1.4, 2.1 |
-| WHITE_BOX | 1.5, ext.1.5.testssl, ext.1.5.sslyze, 1.6, 3.3, 4.2, 4.3, 6.2, 6.4 |
-
----
-
-## MILESTONE 2 - Candidate tests (not yet planned)
-
-Candidate tests and connectors from the methodology and the tool research, recorded during the thesis. Their
-strategy, priority, tools and order are not decided: confirm them when each test is designed (Q-17). The quality
-review of the implemented tests (Q-29, Q-32) and the work of group 3.D in `plan.md` come first.
-
-### Domain 0 - Shadow API Discovery (extended tooling)
-
-| ID | Type | Status | Strategy | Notes |
-|----|------|--------|----------|-------|
-| ext.0.1.ffuf | HYBRID / ffuf | [ ] | BLACK_BOX | `FfufConnector` - wordlist path fuzzing; demonstrates connector reusability across tools for same domain |
-| ext.0.1.katana | HYBRID / katana | [ ] | BLACK_BOX | `KatanaConnector` - headless crawling for JS-rendered endpoints (vs static wordlist) |
-
-### Domain 1 - JWT & Credential Lifecycle
-
-| ID | Type | Status | Strategy | Notes |
-|----|------|--------|----------|-------|
-| 1.2 | NATIVE | [ ] | BLACK_BOX | Basic JWT structure validation; `depends_on=["1.1"]` |
-| ext.1.2.jwt_tool | HYBRID / jwt_tool | [ ] | BLACK_BOX | Crypto-level JWT check via jwt_tool; blocked by jwt_tool Cat A |
-| 1.3 | NATIVE | [ ] | BLACK_BOX | Credential expiry check; `depends_on=["1.1"]` |
-| ext.1.3.jwt_tool | HYBRID / jwt_tool | [ ] | BLACK_BOX | Shares jwt_tool with ext.1.2.jwt_tool (D2.P4 connector sharing); blocked by jwt_tool Cat A |
-
-### Domain 2 - Authorization (Phase C - requires 1.2)
-
-| ID | Type | Status | Strategy | Notes |
-|----|------|--------|----------|-------|
-| 2.2 | NATIVE+OPT | [ ] | GREY_BOX | Cat B: OFFAT, cherrybomb |
-| 2.3 | NATIVE+OPT | [ ] | GREY_BOX | Cat B: OFFAT |
-| 2.4 | NATIVE | [ ] | GREY_BOX | - |
-| 2.5 | NATIVE | [ ] | GREY_BOX | - |
-
-### Domain 3 - Injection
-
-| ID | Type | Status | Strategy | Notes |
-|----|------|--------|----------|-------|
-| 3.1 | NATIVE | [ ] | BLACK_BOX | Basic input validation checks |
-| ext.3.1.schemathesis | HYBRID / schemathesis | [ ] | BLACK_BOX | `schemathesis` BaseLibraryConnector (D1.P5 tier) + nuclei CRLF templates |
-
-### Domain 4 - Rate Limiting Extended
-
-| ID | Type | Status | Strategy | Notes |
-|----|------|--------|----------|-------|
-| ext.4.1.vegeta | HYBRID / vegeta | [ ] | BLACK_BOX | `VegetaConnector` - precise load + last-byte-sync; shared with ext.7.3.vegeta (D2.P4) |
+| ID | Strategy | Priority | Guarantee |
+|----|----------|----------|-----------|
+| 4.1 | BLACK_BOX | P0 | Rate limiting |
+| 4.2 | WHITE_BOX | P1 | Timeout configuration audit (prevention) |
+| 4.3 | WHITE_BOX | P1 | Circuit breaker audit |
+| 4.4 | BLACK_BOX | P1 | Request size limits |
 
 ### Domain 5 - Observability
 
-| ID | Type | Status | Strategy | Notes |
-|----|------|--------|----------|-------|
-| 5.1 | NATIVE | [ ] | WHITE_BOX | Requires log aggregator (Elasticsearch/Loki) in Docker setup |
-| 5.2 | NATIVE | [ ] | WHITE_BOX | Requires alerting system (Alertmanager/PagerDuty mock) |
+| ID | Strategy | Priority | Guarantee |
+|----|----------|----------|-----------|
+| 5.1 | WHITE_BOX | P1 | Request logging audit |
+| 5.2 | WHITE_BOX | P2 | Security alerting audit |
 
-### Domain 6 - HTTP Request Smuggling
+### Domain 6 - Configuration & Hardening
 
-| ID | Type | Status | Strategy | Notes |
-|----|------|--------|----------|-------|
-| 6.3 | NATIVE | [ ] | BLACK_BOX | Basic HTTP request smuggling detection |
-| ext.6.3.socket | HYBRID / tcp-socket | [ ] | BLACK_BOX | Raw TCP socket (stdlib) for CL.TE/TE.CL - 3rd D1.P5 connector tier. Cat B: http2smugl |
+| ID | Strategy | Priority | Guarantee |
+|----|----------|----------|-----------|
+| 6.1 | GREY_BOX | P2 | Error and information disclosure |
+| 6.2 | BLACK_BOX | P3 | Security headers audit |
+| 6.4 | BLACK_BOX | P2 | Hardcoded credentials audit |
 
-### Domain 7 - Race Condition, Unsafe Consumption, SSRF Extended
+### Domain 7 - Business Logic & Sensitive Flows
 
-| ID | Type | Status | Strategy | Notes |
-|----|------|--------|----------|-------|
-| ext.7.2.interactsh | HYBRID / nuclei+interactsh | [ ] | GREY_BOX | nuclei SSRF templates + `InteractshConnector` OOB; extends native 7.2 with blind SSRF |
-| 7.3 | NATIVE | [ ] | GREY_BOX | Race condition detection; `depends_on=["1.1"]` |
-| ext.7.3.vegeta | HYBRID / vegeta | [ ] | GREY_BOX | vegeta shared with ext.4.1.vegeta (D2.P4 cross-domain); `depends_on=["1.1"]` |
-| 7.4 | NATIVE | [ ] | GREY_BOX | Unsafe external consumption; `depends_on=["1.1"]` |
-| ext.7.4.interactsh | HYBRID / interactsh | [ ] | GREY_BOX | interactsh stateful OOB; extends D1.P4; `depends_on=["1.1"]` |
+| ID | Strategy | Priority | Guarantee |
+|----|----------|----------|-----------|
+| 7.1 | BLACK_BOX | P1 | Sensitive business flow protection (anti-automation) |
+| 7.2 | GREY_BOX | P0 | Server-side request forgery prevention |
+| 7.3 | GREY_BOX | P1 | Race conditions in critical operations |
+| 7.4 | BLACK_BOX | P1 | Webhook signature verification |
 
 ---
 
-## Ideas (not planned)
+## Backlog
 
-- **Test: the backend is reachable only through the gateway** (owner, 2026-10-14; candidate for Milestone 2, ID to
-  assign). A gateway bypass (CWE-288): a backend reachable directly skips every control of the gateway (TLS, rate
-  limit, headers, access rules, logs). Found when the Forgejo labs turned out to publish Forgejo's port; the
-  methodology has no such control (Q-32). Design notes: WHITE_BOX, the adapter already reads the backends' addresses
-  (concept "live target health"); the test contacts them directly from the tool's position; an optional key lists
-  backend addresses when the Admin API is not available; "not reachable from here" is stated as such (a name the tool
-  cannot resolve is not proof of isolation). Proven on a lab variant with the backend port open (E2E, Q-51).
+Not implemented yet. Most of these follow from the block-6 test review: detector branches a lab never exhibited (a
+live violation was not produced, the detector is sound), external tools not wired where the review chose native or
+deferred, and deeper sub-tests the methodology lists. None needs a decision from the owner to exist here; each is
+work to pick up.
 
-- **External tools in containers or as HTTP services.** Run nuclei, testssl.sh and other tools from containers, or
-  call them as services, instead of local binaries; the target would then be reached by a service name. A first,
-  never wired attempt (`effective_base_url`, `<TOOL>_SERVICE_URL`) was removed in 2026-10; to be
-  designed for real if the integration into another product needs it.
-- **Prepared resources proposed from the specification** (owner, 2026-10-14). Resources (`config.yaml`
-  `resources:`, the login among them) are written by hand today. A command, like `generate-seed` for `path_seed`,
-  could propose them from the OpenAPI specification: the login operation, the field holding the token, a create
-  and delete pair for an object. A proposal for the user to check, never applied automatically.
+### New guarantees / tests
+
+| ID | Why not yet |
+|----|-------------|
+| 2.3 | Candidate authorization test; not designed yet |
+| 6.3 (+ `ext.6.3.socket`) | HTTP request smuggling: a raw-socket CL.TE / TE.CL probe and the layer-7 timeout audit; split out and deferred |
+
+### External tools not wired
+
+| Tool / test | Why not wired |
+|-------------|---------------|
+| `ext.1.2.jwt_tool`, `ext.1.3.jwt_tool` (jwt_tool) | Key-based JWT attacks (algorithm confusion, forged `exp`) need signing-key or JWKS material the target must supply (`NEEDS_KEY_MATERIAL`); a native `jwt_forge.py` helper stays planned for when a key is available |
+| `ext.4.1.vegeta`, `ext.7.3.vegeta` (vegeta) | 4.1 uses a native burst and 7.3 a native concurrent burst now; vegeta's precise load / last-byte-sync would be wired when a case needs it |
+| `ext.7.2.interactsh`, `ext.7.4.interactsh` (out-of-band listener) | Confirming a blind SSRF outbound call (7.2) and a blind webhook callback / replay (7.4) needs a URL the tool controls; the listener is the heaviest build and fragile on Docker, deferred. Until then 7.2 reports an accepted URL as `NOT_VERIFIABLE/OUTBOUND_NOT_CONFIRMED` |
+| `ext.0.1.katana` (katana) | Headless crawling for JS-rendered endpoints, beyond ffuf's wordlist search |
+| nuclei (connector present, not wired) | `ext.0.1.nuclei` was replaced by `ext.0.1.ffuf` in the review; the `NucleiConnector` stays in the codebase but no external test uses it. Decision pending: wire a nuclei-based test, or remove the connector (as sslyze was removed) |
+
+### Deeper sub-tests and live cases
+
+| Area | What |
+|------|------|
+| Live violations | Produce a live VIOLATION on a lab (announced gateway change) for branches proven only by the detector's logic: a leaked header / stack trace (6.1), a debug/config secret (6.4), a version that drops auth (2.4), a bound mass-assignment field (2.5), a gateway with no breaker / health check (4.3); a CAPTCHA/throttle on a sensitive flow (7.1 `ENFORCED`), a once-only operation that serializes (7.3), a webhook that verifies its HMAC (7.4) |
+| 1.4 | Password-change revocation (crAPI's stateless-JWT challenge): a configured OTP / reset flow |
+| 2.2 / 2.5 | Coverage option (b): derive candidate object endpoints (list a collection, take an owned id) instead of only the configured `owned_object_resources` |
+| 3.1 | Deep injection confirmation (sqlmap, NoSQLMap, Dalfox, commix, SSTImap) and an authenticated Schemathesis run (write bodies); Schemathesis is wired unauthenticated now |
+| 3.3 | Verify ASVS v5.0.0-4.1.5 on source and add it to the references |
+| 5.1 / 5.2 | Log-content checks (fields, redaction, real IP, injection) and behavioural alert checks (brute-force alert, dedup, threshold): need read access to the logs and an alert webhook the tool can observe |
+
+### Ideas (not planned)
+
+- **External tools in containers or as HTTP services.** Run the external tools from containers, or call them as
+  services, instead of local binaries; the target would then be reached by a service name. A first, never-wired
+  attempt (`effective_base_url`, `<TOOL>_SERVICE_URL`) was removed in 2026-10; to be designed for real if the
+  integration into another product needs it.
+- **Prepared resources proposed from the specification.** Resources (`config.yaml` `resources:`, the login among
+  them) are written by hand today. A command, like `generate-seed` for `path_seed`, could propose them from the
+  OpenAPI specification (the login operation, the token field, a create/delete pair for an object): a proposal for
+  the user to check, never applied automatically.
+
+### Project decisions
+
+- **Licence (next to settle).** `pyproject.toml` leaves the licence unspecified on purpose. The choice depends on
+  the university regulations and on how the product APIGuard is integrated into will be distributed; to settle
+  before any public release or distribution.
+- **Release 1.0.0.** After an owner review of the usage and integration guides and the entry points (README,
+  CONTRIBUTING, index), tag 1.0.0 (the block-6 review changed test IDs and behaviour, so the release follows it).
+
+---
 
 ## Connectors
 
-### Cat A - Implemented (Milestone 1)
+### Implemented and wired
 
-| Connector | Pinned Version | Type | Used by |
-|-----------|---------------|------|---------|
-| **nuclei** | `3.8.0` / templates `10.4.3` | Subprocess | ext.0.1.nuclei |
-| **testssl.sh** | `3.2.x` | Subprocess | ext.1.5.testssl |
-| **sslyze** | `>=6.0` (6.3.1 tested) | Library | ext.1.5.sslyze |
+| Connector | Pinned version | Type | Used by |
+|-----------|----------------|------|---------|
+| testssl.sh | `3.2.3` | subprocess | ext.1.5.testssl |
+| ffuf | `2.3.0` | subprocess | ext.0.1.ffuf |
+| schemathesis | `>=3.39,<4` (Python extra `[schemathesis]`) | subprocess | ext.3.1.schemathesis |
 
-Source: `src/connectors/nuclei.py` + `src/connectors/testssl.py` + `src/connectors/sslyze.py` - all fully implemented.
+### Present but not wired
 
-### Cat A - Not Yet Implemented (Milestone 2)
+| Connector | Type | Status |
+|-----------|------|--------|
+| nuclei | subprocess | `NucleiConnector` present; no external test uses it since `ext.0.1.nuclei` was replaced by `ext.0.1.ffuf`. Keep (wire a nuclei test) or remove: decision pending |
 
-| Connector | Pinned Version | Type | Tests | Notes |
-|-----------|---------------|------|-------|-------|
-| **jwt_tool** | `2.3.0` | Subprocess | ext.1.2.jwt_tool, ext.1.3.jwt_tool | Unlocks all Phase C tests |
-| **ffuf** | `2.1.0` | Subprocess | ext.0.1.ffuf | - |
-| **katana** | `1.6.1` | Subprocess | ext.0.1.katana | - |
-| **vegeta** | `12.13.0` | Subprocess | ext.4.1.vegeta, ext.7.3.vegeta | last-byte-sync for race condition |
-| **interactsh** | `1.3.1` | Subprocess | ext.7.2.interactsh, ext.7.4.interactsh | OOB server for blind SSRF/consumption |
-| **schemathesis** | `4.18.1` | Library | ext.3.1.schemathesis | Python library connector |
+### Not implemented
 
-### Cat B - All Deferred (Milestone 2)
+| Connector | Pinned version | Type | Tests | Notes |
+|-----------|----------------|------|-------|-------|
+| jwt_tool | `2.3.0` | subprocess | ext.1.2.jwt_tool, ext.1.3.jwt_tool | Needs key material; unlocks the key-based JWT cases |
+| katana | `1.6.1` | subprocess | ext.0.1.katana | Headless crawling for JS-rendered endpoints |
+| vegeta | `12.13.0` | subprocess | ext.4.1.vegeta, ext.7.3.vegeta | Precise load / last-byte-sync |
+| interactsh | `1.3.1` | subprocess | ext.7.2.interactsh, ext.7.4.interactsh | Out-of-band server for blind SSRF / consumption |
 
-| Connector | For | Value |
-|-----------|-----|-------|
-| cherrybomb | 0.2, 2.2 | SAST on OpenAPI spec |
-| OFFAT | 2.2, 2.3 | Auto-generation of IDOR/DELETE tests from spec |
-| oasdiff | 0.3 | Semantic diff between spec versions; handles `$ref`/`allOf` edge cases |
-| trufflehog | 6.4 | 800+ community-maintained secret regex patterns |
-| gitleaks | 6.4 | Commit history scanning |
-| detect-secrets | 6.4 | Python library; pre-commit hook integration |
-| gau | 0.1 | Passive URL mining (Wayback Machine, Common Crawl) |
-| http2smugl | ext.6.3.socket | H2 downgrade smuggling coverage (Cat B until target exposes HTTP/2) |
+**Cat B (optional, a native path exists):** cherrybomb (0.2, 2.2), OFFAT (2.2, 2.3), oasdiff (0.3), trufflehog /
+gitleaks / detect-secrets (6.4), gau (0.1), http2smugl (ext.6.3.socket). Deferred; wired only if a target needs
+what the native path cannot give.
 
 > **Connector decision log:**
-> `kiterunner` removed (abandoned) → `ffuf` promoted from Cat B.
-> `crlfuzz` removed (abandoned) → CRLF coverage via nuclei template `crlf-injection`.
+> `kiterunner` removed (abandoned) → `ffuf`.
+> `crlfuzz` removed (abandoned) → CRLF coverage via nuclei template.
 > `smuggler` removed (no official release) → raw socket Python connector for CL.TE / TE.CL.
-> `race-the-web` removed (abandoned) → `vegeta` covers 4.1 (volume) and 7.3 (last-byte sync).
-> `jwtXploiter` removed (5 years unmaintained) → `jwt_tool` covers same attack variants.
-> `Gopherus` removed (abandoned) → Gopher SSRF payload coverage via nuclei templates.
-
----
-
-## TODO - Milestone 1 Remaining Tasks
-
-**All Milestone 1 tasks implemented.** M1 is complete.
+> `race-the-web` removed (abandoned) → `vegeta` for 4.1 and 7.3.
+> `jwtXploiter` removed (unmaintained) → `jwt_tool`.
+> `Gopherus` removed (abandoned) → nuclei templates.
+> `sslyze` removed (test review): AGPL v3 and no added value over testssl.sh for 1.5.

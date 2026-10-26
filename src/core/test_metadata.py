@@ -48,7 +48,7 @@ PRIORITY_MAX: int = 3
 DOMAIN_MIN: int = 0
 DOMAIN_MAX: int = 7
 
-# Prefix of external test IDs ("ext.1.5.sslyze"): it keeps them apart from
+# Prefix of external test IDs ("ext.1.5.testssl"): it keeps them apart from
 # native IDs ("1.5") and routes an execution.test_ids entry to the external
 # registry.
 EXTERNAL_TEST_ID_PREFIX: str = "ext."
@@ -166,7 +166,7 @@ class Need(StrEnum):
 
 class Effect(StrEnum):
     """
-    What running a test does to the target (docs/project/test-review.md, topic 6).
+    What running a test does to the target.
 
     Declared by every test; the engine runs READ_ONLY tests first, then
     CHANGES_DATA, then STRESSES_TARGET, as far as the prerequisites allow, so

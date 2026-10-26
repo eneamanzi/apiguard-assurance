@@ -486,7 +486,7 @@ true (`src/external_tests/registry.py`):
 | Tool enabled and available | The tests run; a tool failure or timeout returns **ERROR**. |
 
 `execution.test_ids` cannot force a disabled tool to run: listing a test of a disabled tool stops the tool at startup
-(exit `10`, e.g. `'ext.1.5.sslyze' cannot run: external_tools.sslyze.enabled is false`).
+(exit `10`, e.g. `'ext.1.5.testssl' cannot run: external_tools.testssl.enabled is false`).
 
 <!-- [[[cog import generate_docs as g; cog.out(g.configuration_table("external_tools")) ]]] -->
 
@@ -507,10 +507,6 @@ true (`src/external_tests/registry.py`):
 | `nuclei.tags` | list | 4 values (`api`, `exposure`, …) | Template tags selected (`-tags`). |
 | `nuclei.per_request_timeout` | int 5-60 | `10` | Timeout (s) of each request, passed as `-timeout`. |
 | `nuclei.rate_limit_rps` | int 1-150 | `30` | Requests per second, passed as `-rl`. |
-| `sslyze.enabled` | bool | `false` | Enable sslyze; `timeout_seconds` is then required. Needs the `sslyze` extra (`pip install "apiguard-assurance[sslyze]"`). |
-| `sslyze.timeout_seconds` | int 30-300 \| null | none | **Required with `enabled: true`.** Today it has no effect: each TLS connection sslyze opens times out after 20 s whatever the value (`src/connectors/sslyze.py`; Q-24). |
-| `sslyze.expected_version` | string \| null | none | Expected tool version; a mismatch logs a WARNING and the test still runs. |
-| `sslyze.dev_mode` | bool | `false` | Development only: reuse the output a previous run saved (`<output.directory>/tools/<label>_output.json`) instead of running the tool; without that file the tool runs and saves it. Never enable in a real assessment. |
 | `ffuf.enabled` | bool | `false` | Enable ffuf; `timeout_seconds` is then required. |
 | `ffuf.timeout_seconds` | int ≥60 \| null | none | **Required with `enabled: true`.** Wall-clock limit (s) of the whole search (one ffuf run per base path), which only stops a tool that hangs: set it to 2-3 times the duration seen on your target (it grows with the base paths, the lists and the request rate); a search that ends after more than 70% of it logs the warning `external_tool_near_time_limit` with the value to raise. |
 | `ffuf.expected_version` | string \| null | none | Expected tool version; a mismatch logs a WARNING and the test still runs. |
@@ -526,8 +522,8 @@ true (`src/external_tests/registry.py`):
 
 <!-- [[[end]]] -->
 
-Binary installation: `install_tools.sh` (testssl.sh 3.2.3, nuclei 3.8.0). sslyze is a Python extra:
-`pip install "apiguard-assurance[sslyze]"`.
+Binary installation: `install_tools.sh` (testssl.sh 3.2.3, nuclei 3.8.0). schemathesis is a Python extra:
+`pip install "apiguard-assurance[schemathesis]"`.
 
 ---
 

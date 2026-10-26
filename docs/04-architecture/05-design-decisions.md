@@ -77,7 +77,7 @@ into one `ssl.SSLContext` at startup (`src/core/tls.py`).
   certificate and answer an HTTP 400 page: those pages are recognised too (`certificate_answer()`).
 - **Private keys:** only the path is configuration; an encrypted key is refused, because Python's TLS library would
   prompt for its password and a CI job would hang; a key readable by other users gives a warning, as SSH does.
-- **External TLS tools** receive `ca_bundle` (testssl.sh `--add-ca`, sslyze `custom_ca_file`) and add a note that
+- **External TLS tools** receive `ca_bundle` (testssl.sh `--add-ca`) and add a note that
   trust came from it. An authority installed only in the system does not change their judgement: their job is to
   judge the certificate as clients without that authority see it.
 
@@ -122,7 +122,7 @@ gateway bypass, CWE-288).
   of any lab by a one-shot `pki` service using the gateway's own image (it ships `openssl`: no new image), never
   committed. Leaf certificates of 180 days (the CA/Browser Forum limits public certificates to 200 days from March
   2026; testssl flags longer ones), renewed when fewer than 30 days remain, with the RFC 5280 extensions strict
-  validators require (sslyze refused a chain without `keyUsage`). A lock makes two labs started together generate
+  validators require (a strict validator refuses a chain without `keyUsage`). A lock makes two labs started together generate
   once; the files belong to the owner of the folder.
 - **Each lab at the highest level its gateway offers:** every connection verified with the labs' authority; Kong's
   Admin API over HTTPS (Kong OSS has no client certificate or key for it); APISIX's Admin API over HTTPS with a
@@ -131,8 +131,8 @@ gateway bypass, CWE-288).
 - **No backend port:** the specification is served through the gateway (a route for `/swagger.v1.json` only), and the
   backend is reachable only through the gateway, as in production; Forgejo's `ROOT_URL` is the gateway's address.
 
-**Consequences.** No private key in the repository. A test "the backend is reachable only through the gateway" does
-not exist in the methodology: recorded as a candidate (Q-32, roadmap Ideas). Commands for the labs:
+**Consequences.** No private key in the repository. A test that the backend is reachable only through the gateway,
+absent from the thesis methodology, was added in the block-6 review as guarantee 0.4. Commands for the labs:
 [maintainer commands](../project/maintainer-commands.md#test-labs).
 
 ## D5. A credential is obtained and sent separately
@@ -304,7 +304,7 @@ Sources: [Cog, running cog](https://cog.readthedocs.io/en/latest/running.html),
 
 ## D9. The configuration as written and as used
 
-**Problem.** Four defects of `config.yaml` (Q-68, Q-69, Q-70), all of the same kind: what the tool ran with could
+**Problem.** Four defects of `config.yaml`, all of the same kind: what the tool ran with could
 differ from what the user wrote, without a message. A key written twice kept its last value. A `${VAR}` was
 replaced in the raw text before YAML read it, so the value became YAML source: a password `ab #cd` arrived as `ab`,
 `C:\new` in quotes with a newline, and a YAML error printed the password. A block with every line commented was
@@ -345,7 +345,36 @@ Sources: [compose-go interpolation](https://raw.githubusercontent.com/compose-sp
 [OpenTelemetry env-vars RFC](https://raw.githubusercontent.com/open-telemetry/opentelemetry-collector/main/docs/rfcs/env-vars.md),
 [Vector environment variables](https://vector.dev/docs/03-reference/environment_variables/).
 
+## D10. `path_seed` makes paths routable, not objects specific
+
+**Problem.** A parametric endpoint (`/items/{id}`) answers `404` at the router until `{id}` is a real value, so a
+probe never reaches the authentication check behind it. The tool therefore lets the operator supply real values
+(`target.path_seed`). The structure is a flat map **parameter name → value** (`src/core/context.py`, consumed by
+`src/tests/helpers/path_resolver.py`), so the same parameter name used in two different paths takes a single value:
+right for one path, possibly a `404` for the other.
+
+**Decision.** `path_seed` is name-keyed on purpose, and its job is stated as **routability**, not object identity: it
+makes parametric paths reach the backend (and so the authentication layer), it does not point at a specific object.
+A test that needs a specific real object owned by a role does not rely on `path_seed` for it; it creates and
+references that object through a prepared resource (D6), which yields the exact id. In the current suite the
+object-level tests (2.2 BOLA, 2.5 object property level, 7.2) already do this.
+
+**Why this is enough.** The tests that probe parametric paths for an authorization decision (1.1, 2.1, ...) care
+whether auth fires, not which object is hit, so a routable-but-not-specific path serves them; and when a seeded
+path still returns `404` the assessment model records it as not-verifiable (parametric), never a silent PASS
+(the group-A fix to 1.1). The only case the name-keyed map cannot serve -- a test needing a specific real object
+taken from `path_seed` rather than from `resources:` -- does not exist in the suite.
+
+**Alternatives left out.** Keying by path + parameter (precise everywhere, but one value per `{param}` of every path:
+a verbose burden on the agnostic operator, and redundant with `resources:` for the one case that would benefit);
+an optional path-qualified override key on top of the flat map (`"/users/{id}:id"`): a clean escape hatch, deferred
+until a real test needs it (YAGNI).
+
+**Consequences.** `path_seed` stays a flat `dict[str, str]`; the operator supplies one value per parameter name, not
+per path, and `apiguard generate-seed` keeps emitting a flat template. The specific-object need is met by D6. If a
+future test requires a specific object through the seed, the path-qualified override is the planned extension.
+
 ## See also
 
 - [Overview](01-overview.md) · [Security model](04-security-model.md) · [Configuration reference](../03-reference/01-configuration.md)
-- [`OPEN_QUESTIONS.md`](../../OPEN_QUESTIONS.md): what is still undecided
+- [`roadmap.md`](../project/roadmap.md): what is implemented, the backlog, and open decisions

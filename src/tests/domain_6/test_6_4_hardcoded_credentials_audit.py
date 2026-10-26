@@ -2,7 +2,7 @@
 src/tests/domain_6/test_6_4_hardcoded_credentials_audit.py
 
 Test 6.4: guarantee "service credentials are not hard-coded or exposed"
-(rewritten, docs/project/test-review/group-i.md). OWASP API8:2023, CWE-798.
+(rewritten). OWASP API8:2023, CWE-798.
 
 Two sub-tests on one guarantee (credentials not exposed):
 

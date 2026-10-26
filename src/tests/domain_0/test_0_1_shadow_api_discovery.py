@@ -2,7 +2,7 @@
 src/tests/domain_0/test_0_1_shadow_api_discovery.py
 
 Test 0.1: guarantee "every exposed endpoint is documented", the part that needs
-the specification (docs/project/test-review/0-1.md). The path search is the
+the specification. The path search is the
 companion external test ext.0.1.ffuf.
 
 Three sub-tests, each asking only "does something exist outside the
