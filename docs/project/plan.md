@@ -15,10 +15,13 @@
   branch `test-review` (created 2026-10-20 from `main` at `4b185f8`; merged into `main` at the end). Phases 0a and
   0b decided; phase 0c done (2026-10-21: the common part, pieces 1-8 and 10; test 4.2 back as the pilot, the
   other tests removed from the branch until each is rewritten).
-- **Next step:** group E of the guarantees (2.1, 2.2, 2.4, 2.5: authorization), in the six phases of
-  [`test-review.md`](test-review.md). Groups A-I done except the deferred items (6.3 smuggling; deep-injection tools; log/alert content checks). Only group J (7.1-7.4) left. Group F's commit is left.
-  Follow-ups left for after every test (lab-unproven VIOLATION branches, key-based JWT, unwired tools, 6.3 smuggling)
-  are tracked in [`test-review.md`](test-review.md) "Deferred follow-ups (after all tests)", not in OPEN_QUESTIONS.
+- **Next step:** **merge `test-review` into `main`.** All ten groups A-J are done (group J, the last, finished
+  2026-10-26: 7.2 rewritten, 7.1/7.3/7.4 new; six phases through, `dev:check` green). The merge applies the
+  "Documentation changes to apply later" and clears the CHANGELOG `[Unreleased]` note (the review's test-logic
+  changes land as one set). Group J's commit is left for the owner.
+  Follow-ups left for after every test (the out-of-band listener for 7.2/7.4, the lab-unproven live branches of
+  7.1/7.3/7.4, 6.3 smuggling, deep-injection tools, log/alert content checks, key-based JWT, ASVS 4.1.5) are tracked
+  in [`test-review.md`](test-review.md) "Deferred follow-ups (after all tests)", not in OPEN_QUESTIONS.
 
 ## Still open
 

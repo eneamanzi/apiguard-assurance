@@ -14,7 +14,7 @@ positive case for **categories** of weakness (BOLA, mass assignment, SSRF, ...):
 category, from what the tool knows of any API (the OpenAPI specification and `config.yaml`); nothing specific to
 crAPI enters the code.
 
-## Where we are (updated 2026-10-21)
+## Where we are (updated 2026-10-26)
 
 - **Branch:** `test-review` (from `main` at `4b185f8`, 2026-10-20); `main` keeps the old tool. Baseline of the old
   tool (native tests only) in `outputs/baseline/<lab>/`, not in git.
@@ -53,8 +53,17 @@ crAPI enters the code.
 - **Done:** group I (2026-10-23): 6.1 (error/info disclosure, new), 6.2 (security headers, rewritten: HSTS to 1.5, CORS added, consistency by sampling), 6.4 (hard-coded credentials, rewritten). crAPI 6.2 FAIL (headers inconsistent across services, caught by sampling); the rest PASS. **6.3 (smuggling) deferred, kept open.** [draft](test-review/group-i.md).
 - **Done:** group H (2026-10-23): 5.1 (request logging, a gateway config audit: a logging plugin enabled -> enforced, none -> violation; the log-content checks deferred, they need log access), 5.2 (alerting, SKIP from outside: needs the SIEM's rules and a webhook). 5.1 FAIL on the default labs (no logging plugin), enforced side proven with an announced, reverted Kong http-log plugin. [draft](test-review/group-h.md).
 - **Done:** group F (2026-10-23): 3.1 input validation via **Schemathesis** (`ext.3.1.schemathesis`, schema-driven, unauthenticated) and 3.3 request-signing audit (rewritten). crAPI 3.1 FAIL (20 operations return 500 on a generated input), Forgejo/APISIX 3.1 PASS; 3.3 PASS on the labs (compliant hmac policy), VIOLATION with an announced, reverted Kong change. [draft](test-review/group-f.md).
+- **Done:** group J (business logic and advanced threats, 2026-10-26, **last group**): 7.2 (SSRF, rewritten),
+  7.1 (sensitive-flow anti-automation, new), 7.3 (race conditions, new), 7.4 (webhook signature, new). Owner decided
+  (2026-10-23) to **defer the out-of-band listener**: 7.2 reports an accepted URL as `NOT_VERIFIABLE/OUTBOUND_NOT_CONFIRMED`
+  (never a false pass, never an unproven violation), the confirmed-SSRF and blind-webhook cases stay in Deferred
+  follow-ups. 7.2 gained a benign-URL positive control and a 5xx rule after the first crAPI run scored the gateway's
+  `504`s as a false ENFORCED (the B6 bug): now Forgejo PASS (15 enforced / 58 not verifiable), crAPI INCONCLUSIVE
+  (all not verifiable, upstream hangs). 7.1 FAIL on crAPI (forget-password has no anti-automation); 7.3/7.4 SKIP on
+  the labs (no once-only operation / webhook receiver declared) -- honest, their live branches deferred.
+  [draft](test-review/group-j.md).
 - **Order of the rest** (Claude's choice, owner 2026-10-23): G done, then **I** (6.1-6.4), H (5.1-5.2), F (3.1, 3.3),
-  J (7.x) -- reuse-first, the tool-heavy groups last. **Next: group J (7.1-7.4), last.**
+  J (7.x) -- reuse-first, the tool-heavy groups last. **All groups done; next: merge `test-review` into `main`.**
   `privileged_endpoints` (admin/management segment); 2.1 (BFLA) FAIL on crAPI (user_a reaches the management plane),
   PASS on Forgejo; 2.4 (version-sibling consistency) PASS on crAPI, SKIP on Forgejo (only /api/v1). Self-review:
   destructive privileged ops surfaced not omitted; 2.4 calibrates the version once (242 probes -> 1).
@@ -87,7 +96,7 @@ a group is what its members share, not whether a test for them exists on `main`.
 | H ok | 5.1, 5.2 | the gateway's logs and alerts (5.2 SKIP from outside; content/alert checks deferred) |
 | I ok | 6.1, 6.2, 6.4 | what a response lets out: errors, headers, secrets |
 | I (6.3) | 6.3 | layer-7 smuggling: split from I, deferred and open (see Deferred follow-ups) |
-| J | 7.1, 7.2, 7.3, 7.4 | business flows, the outbound listener, races |
+| J ok | 7.1, 7.2, 7.3, 7.4 | business flows, the outbound listener, races (listener deferred; 7.2 accepted->NOT_VERIFIABLE) |
 
 **The six phases of a group.** Always the same, in this order.
 
@@ -208,7 +217,7 @@ optional, HYBRID) and its tools: a starting point, revisited in each review.
 | 12 | **4.3** The system degrades gracefully (Circuit Breaker Audit) | `4.3` rewritten | NATIVE, gateway audit (passive health check = Kong's breaker) | done 2026-10-23, group G ([draft](test-review/group-g.md)) |
 | 13 | **6.2** Security headers are configured (Security Headers Audit; with CORS) | `6.2` rewritten | NATIVE; sampled across services | done 2026-10-23, group I ([draft](test-review/group-i.md)) |
 | 14 | **6.4** Service credentials are not hard-coded or exposed (Hardcoded Credentials Audit) | `6.4` rewritten | NATIVE (debug probe + gateway config scan) | done 2026-10-23, group I ([draft](test-review/group-i.md)) |
-| 15 | **7.2** The system prevents SSRF (SSRF Prevention) | `7.2` | HYBRID: nuclei, interactsh | to review |
+| 15 | **7.2** The system prevents SSRF (SSRF Prevention) | `7.2` rewritten | NATIVE (payload catalogue + benign control); out-of-band listener deferred | done 2026-10-26, group J ([draft](test-review/group-j.md)) |
 
 ### Step 2: the missing guarantees
 
@@ -227,9 +236,9 @@ optional, HYBRID) and its tools: a starting point, revisited in each review.
 | **5.2** Anomalous security events raise alerts | SKIP from outside (needs SIEM/webhook) | done 2026-10-23, group H ([draft](test-review/group-h.md)); behavioural checks deferred |
 | **6.1** Errors disclose no internal information | NATIVE (response inspection) | done 2026-10-23, group I ([draft](test-review/group-i.md)) |
 | **6.3** The gateway is hardened against layer-7 attacks (smuggling) | raw-socket CL+TE probe (native) or http2smugl | **open**: split from group I, deferred (owner 2026-10-23) |
-| **7.1** Sensitive business flows resist automated abuse | NATIVE | to design |
-| **7.3** Critical operations are protected from race conditions | HYBRID: vegeta | to design |
-| **7.4** External services are consumed safely (webhooks) | HYBRID: interactsh | to design |
+| **7.1** Sensitive business flows resist automated abuse | NATIVE (burst for a CAPTCHA/throttle on a declared flow) | done 2026-10-26, group J ([draft](test-review/group-j.md)) |
+| **7.3** Critical operations are protected from race conditions | NATIVE (concurrent burst on a declared once-only operation; vegeta not used) | done 2026-10-26, group J ([draft](test-review/group-j.md)) |
+| **7.4** External services are consumed safely (webhooks) | NATIVE (HMAC signature verification; blind/replay cases need the deferred listener) | done 2026-10-26, group J ([draft](test-review/group-j.md)) |
 
 ### Notes per guarantee (inputs for the reviews)
 
@@ -318,6 +327,8 @@ sound, a live case was not produced) and external tools not yet wired.
 | 3.1 **deep injection** confirmation (sqlmap, NoSQLMap, Dalfox, commix, SSTImap) and an **authenticated** Schemathesis run (write bodies) | 3.1 | Schemathesis is wired unauthenticated now; deep confirmation changes data and needs the heavy tools |
 | Verify **ASVS v5.0.0-4.1.5** on source and add it to 3.3's references | 3.3 | WebFetch was rate-limited 2026-10-23 |
 | 5.1 **log-content** checks (fields, redaction, real IP, injection) and 5.2 **behavioural alert** checks (brute-force alert, dedup, threshold) | 5.1, 5.2 | need read access to the logs and an alert webhook the tool can observe |
+| **Out-of-band listener** (a URL the tool controls): confirms the SSRF outbound call (7.2 `VIOLATION`), the blind webhook callback and replay (7.4) | 7.2, 7.4 | the heaviest build and fragile on Docker (owner deferred 2026-10-23); until then 7.2 accepted->`NOT_VERIFIABLE/OUTBOUND_NOT_CONFIRMED` |
+| Produce a **live** case for the branches proven only by the detector's logic: a CAPTCHA/throttle on a sensitive flow (7.1 `ENFORCED`), a once-only operation that races vs serializes (7.3, incl. a check of the HTTP client's thread-safety under real concurrency), a webhook that does/does not verify its HMAC (7.4) | 7.1, 7.3, 7.4 | the labs declare no such flow/operation/receiver (crAPI's coupon-apply is a 7.3 candidate once a valid coupon is seeded); the `VIOLATION` sides of 7.1 (crAPI forget-password) is already proven |
 
 ## Documentation changes to apply later
 

@@ -316,6 +316,68 @@ tests:
       # Paths of debug or actuator endpoints to probe unauthenticated for exposed credentials (e.g.
       # /actuator/env, /debug/vars).
       debug_endpoint_paths: []
+
+  domain_7:
+    # 7.1 Sensitive Business Flow Protection.
+    test_7_1:
+      # The sensitive business flow to probe for an anti-automation control (a CAPTCHA, a
+      # human-verification challenge, an aggressive throttle).
+      # sensitive_flow:
+        # path: /identity/api/auth/forgot-password
+        # method: POST
+        # body:
+          # email: user@example.com
+        # role: user_a
+      # How many identical submissions the burst sends before concluding there is no anti-automation
+      # control.
+      burst_size: 12
+    # 7.2 Server-Side Request Forgery Prevention.
+    test_7_2:
+      # The endpoint that accepts a URL from the client and makes the server call it (a webhook, a
+      # fetch-from-URL import): path, body (with "{ssrf_url}" where the URL goes) and, optionally, a
+      # prepared resource.
+      # url_accepting_endpoint:
+        # path: /api/v1/repos/{owner}/{repo}/hooks
+        # body:
+          # type: gitea
+          # config:
+            # url: '{ssrf_url}'
+            # content_type: json
+        # resource: repository
+      # The bypass classes to probe.
+      payload_categories:
+        - cloud_metadata
+        - private_ip
+        - encoding_bypass
+        - forbidden_protocol
+        - dns_bypass
+        - url_parser_confusion
+    # 7.3 Race Conditions in Critical Operations.
+    test_7_3:
+      # The once-only operation to probe for a race condition.
+      # race_operation:
+        # path: /workshop/api/shop/apply_coupon
+        # method: POST
+        # body:
+          # coupon_code: TRAC075
+        # role: user_a
+        # resource: cart
+      # How many identical requests are fired at the same instant.
+      concurrency: 15
+      # The largest number of concurrent requests that may succeed without a race.
+      max_successful: 1
+    # 7.4 Webhook Signature Verification.
+    test_7_4:
+      # The webhook receiver to probe for signature verification.
+      # webhook_endpoint:
+        # path: /api/webhooks/payment
+        # method: POST
+        # body:
+          # event: payment.succeeded
+          # amount: 100
+        # signature_header: X-Hub-Signature-256
+        # signing_secret: ${WEBHOOK_SECRET}
+        # signature_format: sha256={signature}
 # [[[end]]]
 
 # =============================================================================

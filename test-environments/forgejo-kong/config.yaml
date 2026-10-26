@@ -187,6 +187,24 @@ tests:
       owned_object_resources: [repository]
     test_2_5:
       owned_object_resources: [repository]
+  domain_7:
+    # 7.2 (SSRF): the resource 'repository' is created first (as user A), then each
+    # SSRF payload URL goes in config.url of a webhook created on it; the webhooks go
+    # with the repository at teardown. active: false so the webhook never fires.
+    test_7_2:
+      url_accepting_endpoint:
+        resource: repository
+        path: "/api/v1/repos/{owner}/{repo}/hooks"
+        body:
+          type: "forgejo"
+          config:
+            url: "{ssrf_url}"
+            content_type: "json"
+            secret: "{random_secret}"
+          events:
+            - "push"
+          active: false
+          branch_filter: "*"
 # domain_2:
 #   (2.1: returns with test 2.1)
 #   test_2_1:
@@ -211,24 +229,6 @@ tests:
 #       - /api/config
 #       - /admin/config
 #       - /_debug
-# domain_7:
-#   (7.2: returns with test 7.2)
-#   test_7_2:
-#     # Forgejo webhooks: the resource 'repository' is created first, then the SSRF URL goes in config.url.
-#     url_accepting_endpoint:
-#       resource: repository
-#       path: "/api/v1/repos/{owner}/{repo}/hooks"
-#       body:
-#         type: "forgejo"
-#         config:
-#           url: "{ssrf_url}"
-#           content_type: "json"
-#           secret: "{random_secret}"
-#         events:
-#           - "push"
-#         active: false             # the webhook never fires on real events
-#         branch_filter: "*"
-
 # External tools (installed by install_tools.sh): all three, about 5 minutes more.
 external_tools:
   # Master switch: false skips every external test in one line.

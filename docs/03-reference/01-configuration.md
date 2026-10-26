@@ -410,6 +410,60 @@ Test [6.4](../05-tests/domain-6/6-4-hardcoded-credentials-audit.md), Hardcoded C
 |---|---|---|---|
 | `debug_endpoint_paths` | list | empty | Paths of debug or actuator endpoints to probe unauthenticated for exposed credentials (e.g. /actuator/env, /debug/vars). Empty: the debug sub-test is not applicable. |
 
+### `tests.domain_7.test_7_1`
+
+Test [7.1](../05-tests/domain-7/7-1-sensitive-flow-protection.md), Sensitive Business Flow Protection.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `sensitive_flow` | object \| null | none, **needed to run** | The sensitive business flow to probe for an anti-automation control (a CAPTCHA, a human-verification challenge, an aggressive throttle). No default: unset, the engine records the test as SKIP before it runs. |
+| `sensitive_flow.path` | string | required | Path of the sensitive flow. |
+| `sensitive_flow.method` | string | `POST` | HTTP method of the flow (default POST). |
+| `sensitive_flow.body` | object \| null | none | JSON body submitted on every request (optional). |
+| `sensitive_flow.role` | string \| null | none | Role whose credential drives the flow. Omit for an anonymous flow (sign-up, OTP request, password reset), the common case. |
+| `burst_size` | int ≥2 | `12` | How many identical submissions the burst sends before concluding there is no anti-automation control. Kept small: the burst drives the real flow. |
+
+### `tests.domain_7.test_7_2`
+
+Test [7.2](../05-tests/domain-7/7-2-ssrf-prevention.md), Server-Side Request Forgery Prevention.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `url_accepting_endpoint` | object \| null | none, **needed to run** | The endpoint that accepts a URL from the client and makes the server call it (a webhook, a fetch-from-URL import): path, body (with "{ssrf_url}" where the URL goes) and, optionally, a prepared resource. No default: unset, the engine records the test as SKIP before it runs. |
+| `url_accepting_endpoint.path` | string | required | Path of the endpoint (POST). With a resource it may hold the resource's values, e.g. '/api/v1/repos/{owner}/{repo}/hooks'. |
+| `url_accepting_endpoint.body` | object | required | JSON body of the request. Must contain "{ssrf_url}" exactly once, replaced by each payload URL; may contain "{random_secret}" (32 hexadecimal characters) and, with a resource, the resource's values. Placeholders in quotes. |
+| `url_accepting_endpoint.resource` | string \| null | none | Name of a prepared resource (resources: in config.yaml) created for user A before probing; its values fill the placeholders of path and body, and it is deleted at teardown. Optional: without it the path is used as written. |
+| `payload_categories` | list | 6 values (`cloud_metadata`, `private_ip`, …) | The bypass classes to probe. Valid values: 'cloud_metadata', 'private_ip', 'encoding_bypass', 'forbidden_protocol', 'dns_bypass', 'url_parser_confusion'. A class left out is not probed and its sub-test stays empty. |
+
+### `tests.domain_7.test_7_3`
+
+Test [7.3](../05-tests/domain-7/7-3-race-conditions.md), Race Conditions in Critical Operations.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `race_operation` | object \| null | none, **needed to run** | The once-only operation to probe for a race condition. No default: unset, the engine records the test as SKIP before it runs. |
+| `race_operation.path` | string | required | Path of the once-only operation. May hold a resource's values as {name}. |
+| `race_operation.method` | string | `POST` | HTTP method of the operation (default POST). |
+| `race_operation.body` | object \| null | none | JSON body sent on every concurrent request (optional). |
+| `race_operation.role` | string | `user_a` | Role whose credential performs the operation (default user_a). |
+| `race_operation.resource` | string \| null | none | Optional prepared resource (resources: in config.yaml) created once before the burst; its values fill the path, and it is removed at teardown. |
+| `concurrency` | int 2-50 | `15` | How many identical requests are fired at the same instant. |
+| `max_successful` | int ≥1 | `1` | The largest number of concurrent requests that may succeed without a race. 1 for a strictly once-only operation (the default); raise it for a bounded quota. |
+
+### `tests.domain_7.test_7_4`
+
+Test [7.4](../05-tests/domain-7/7-4-webhook-verification.md), Webhook Signature Verification.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `webhook_endpoint` | object \| null | none, **needed to run** | The webhook receiver to probe for signature verification. No default: unset, the engine records the test as SKIP before it runs. |
+| `webhook_endpoint.path` | string | required | Path of the webhook receiver. |
+| `webhook_endpoint.method` | string | `POST` | HTTP method of the receiver (default POST). |
+| `webhook_endpoint.body` | object | required | The webhook payload sent as the JSON body on every delivery. |
+| `webhook_endpoint.signature_header` | string | required | Name of the header that carries the signature (e.g. 'X-Hub-Signature-256'). |
+| `webhook_endpoint.signing_secret` | string | `""` | The shared secret the sender signs with, for the valid-signature positive control. A ${VAR} reference from the environment; never a literal in the repo. Empty: the positive control is skipped and enforcement is inferred, not confirmed. |
+| `webhook_endpoint.signature_format` | string | `{signature}` | How the header value is built from the hex digest, e.g. 'sha256={signature}' (GitHub). '{signature}' is the lowercase hex HMAC-SHA256 of the raw body. |
+
 ### `tests.domain_0.ext_0_1_ffuf`
 
 Test [ext.0.1.ffuf](../05-tests/external/domain-0/ext-0-1-ffuf.md), Undocumented Paths Answer (ffuf path search, re-verified).

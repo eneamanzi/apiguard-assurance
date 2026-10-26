@@ -10,7 +10,7 @@ target, and how it relates to the methodology.
 
 <!-- [[[cog import generate_docs as g; cog.out(g.catalogue()) ]]] -->
 
-28 tests: 25 native, 3 external.
+32 tests: 29 native, 3 external.
 
 | ID | Name | Pri. | Strategy | Effect | CWE | Needs | Page |
 |---|---|---|---|---|---|---|---|
@@ -50,7 +50,10 @@ target, and how it relates to the methodology.
 | `6.2` | Security Headers Audit | P3 | BLACK_BOX | READ_ONLY | - | - | [6.2](domain-6/6-2-security-headers-audit.md) |
 | `6.4` | Hardcoded Credentials Audit | P2 | BLACK_BOX | READ_ONLY | CWE-798 | `GATEWAY` (optional) | [6.4](domain-6/6-4-hardcoded-credentials-audit.md) |
 | **Domain 7 - Business Logic and Sensitive Flows** | | | | | | | |
-| - | no test implemented | | | | | | |
+| `7.1` | Sensitive Business Flow Protection | P1 | BLACK_BOX | CHANGES_DATA | CWE-799 | `sensitive_flow` | [7.1](domain-7/7-1-sensitive-flow-protection.md) |
+| `7.2` | Server-Side Request Forgery Prevention | P0 | GREY_BOX | CHANGES_DATA | CWE-918 | `USER_ACCOUNT`, `url_accepting_endpoint` | [7.2](domain-7/7-2-ssrf-prevention.md) |
+| `7.3` | Race Conditions in Critical Operations | P1 | GREY_BOX | STRESSES_TARGET | CWE-362 | `USER_ACCOUNT`, `race_operation` | [7.3](domain-7/7-3-race-conditions.md) |
+| `7.4` | Webhook Signature Verification | P1 | BLACK_BOX | CHANGES_DATA | CWE-347 | `webhook_endpoint` | [7.4](domain-7/7-4-webhook-verification.md) |
 
 Needs: what the test needs from the configuration (credentials of a role, a gateway, a parameter); without it the engine records SKIP without running the test. An optional need is used when configured; without it the test runs and the sub-tests that use it are not applicable. What each test needs from a target, measured on the labs: [Test portability](../03-reference/06-compatibility.md#test-portability).
 

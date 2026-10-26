@@ -176,7 +176,10 @@ Files: `src/external_tests/ext_test_1_5_tls_analysis.py`, `src/connectors/testss
 
 | ID | Type | Status | Strategy / Priority | Key Properties |
 |----|------|--------|---------------------|----------------|
-| 7.2 | NATIVE+OPT | [x] | GREY_BOX / P0 | D3.P3, D2.P8 |
+| 7.1 | NATIVE | [x] | BLACK_BOX / P1 | anti-automation burst on a declared sensitive flow (test review, group J) |
+| 7.2 | NATIVE | [x] | GREY_BOX / P0 | SSRF payload catalogue + benign control; outbound listener deferred (test review, group J) |
+| 7.3 | NATIVE | [x] | GREY_BOX / P1 | concurrent burst on a declared once-only operation (test review, group J) |
+| 7.4 | NATIVE | [x] | BLACK_BOX / P1 | webhook HMAC verification; blind/replay need the deferred listener (test review, group J) |
 
 ---
 

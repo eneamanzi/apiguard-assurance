@@ -184,6 +184,23 @@ tests:
       owned_object_resources: [repository]
     test_2_5:
       owned_object_resources: [repository]
+  domain_7:
+    # 7.2 (SSRF), as in the Forgejo + Kong lab: the resource 'repository' is
+    # created first, then each SSRF payload URL goes in a webhook's config.url.
+    test_7_2:
+      url_accepting_endpoint:
+        resource: repository
+        path: "/api/v1/repos/{owner}/{repo}/hooks"
+        body:
+          type: "forgejo"
+          config:
+            url: "{ssrf_url}"
+            content_type: "json"
+            secret: "{random_secret}"
+          events:
+            - "push"
+          active: false
+          branch_filter: "*"
 # domain_2:
 #   (2.1: returns with test 2.1)
 #   test_2_1:
@@ -209,24 +226,6 @@ tests:
 #       - /api/config
 #       - /admin/config
 #       - /_debug
-
-# domain_7:
-#   (7.2: returns with test 7.2)
-#   test_7_2:
-#     # Forgejo webhooks, as in the Forgejo + Kong lab: the resource 'repository' is created first.
-#     url_accepting_endpoint:
-#       resource: repository
-#       path: "/api/v1/repos/{owner}/{repo}/hooks"
-#       body:
-#         type: "forgejo"
-#         config:
-#           url: "{ssrf_url}"
-#           content_type: "json"
-#           secret: "{random_secret}"
-#         events:
-#           - "push"
-#         active: false
-#         branch_filter: "*"
 
 # External tools (installed by install_tools.sh): all three, about 5 minutes more.
 external_tools:
