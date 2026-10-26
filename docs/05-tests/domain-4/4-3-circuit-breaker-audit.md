@@ -1,108 +1,117 @@
 # 4.3 Circuit Breaker Audit
 
-> **Audience:** analysts, contributors · **Status:** implemented (v0.1.0); any gateway with an adapter (today Kong) · **Source of truth:**
+> **Audience:** analysts, contributors · **Status:** rewritten in the test review (branch `test-review`, 2026-10-23) ·
+> **Source of truth:**
 > [`src/tests/domain_4/test_4_3_circuit_breaker_audit.py`](../../../src/tests/domain_4/test_4_3_circuit_breaker_audit.py) ·
-> **Verified:** 2026-10-05
+> **Verified:** 2026-10-23
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("4.3", page=cog.inFile)) ]]] -->
 
 |  |  |
 |---|---|
 | Test ID | `4.3` |
-| Name | Circuit Breaker Audit -- Dual-Check a 3 Livelli |
+| Name | Circuit Breaker Audit |
 | Domain | 4 - Availability and Resilience |
 | Priority / strategy | P1 / WHITE_BOX |
+| Effect | READ_ONLY |
 | CWE | CWE-400 |
-| Tags | `availability`, `resilience`, `circuit-breaker`, `cascading-failure`, `passive-healthcheck`, `white-box`, `OWASP-API4` |
+| Standards | `OWASP API4:2023`, `OWASP ASVS v5.0.0-16.5.2`, `NIST SP 800-204, Section 4.5.1` |
+| Tags | `resource-consumption`, `circuit-breaker`, `resilience` |
 | Prerequisites | none |
 | Needs | `GATEWAY` |
-| Parameters | [`tests.domain_4.test_4_3`](../../03-reference/01-configuration.md#testsdomain_4test_4_3) |
+| Parameters | none |
 
 <!-- [[[end]]] -->
 
+**Same group:** tests `4.1`, `4.2`, `4.4` (resource-consumption limits).
 
-## What it checks
+## 1. Guarantee
 
-The gateway must stop forwarding traffic to a failing backend (circuit breaker), so that one degraded dependency
-does not exhaust the gateway and cause a cascading outage.
+The gateway degrades gracefully when a backend fails: a circuit breaker opens after repeated failures and answers at
+once instead of waiting for a timeout on every request. A passive health check (a failing backend is taken out of
+rotation) is the accepted equivalent. A PASS promises the gateway has one or the other. The threat (OWASP API4:2023,
+ASVS v5.0.0-16.5.2): without it, a failing dependency makes every request wait for its timeout and the thread pool
+fills, cascading the failure.
 
-## How it works
+## 2. Sub-tests and coverage of the methodology
 
-No request is sent to the target API. Three levels, evaluated in order through the gateway adapter, plus an
-independent observability check. Kong OSS has no native circuit-breaker plugin, hence the fallback levels.
-
-**Level 1, native plugin.** Read the gateway's circuit breakers: which plugins are circuit breakers is the adapter's
-knowledge (Kong: the third-party `circuit-breaker`, Kong OSS has none; APISIX: `api-breaker`). If one is found, the
-result is decided here:
-
-| Plugin state | Finding |
+| Sub-test | Methodology (guarantee 4.3) |
 |---|---|
-| Disabled | `CB Plugin '<name>' Registered but Disabled` |
-| Failure threshold or open duration missing | `CB Parameter '<label>' Not Found in Plugin '<name>'` (aliases searched: `failure_threshold`, `consecutive_errors`, `error_threshold_percentage`; `timeout`, `sleep_time`, `recovery_time`, `timeout_duration`) |
-| Value not numeric | `CB Parameter '<label>' Non-Numeric in Plugin '<name>'` |
-| Outside `failure_threshold_min`-`max` (3-10) or `timeout_duration_min`-`max_seconds` (30-120) | `CB Parameter '<label>' Out of Range (…) in Plugin '<name>'` |
+| `degradation_configured` | "the presence of circuit breaker directives, or an equivalent (passive health check)" |
+| left out | the parameter thresholds check and the behavioural staging test (a coordinated downstream outage, not reproducible from outside) |
 
-**Level 2, compensating control** (only if no plugin at Level 1). Inspect upstreams for passive health checks:
-one is configured when at least one of `unhealthy.http_failures`, `unhealthy.tcp_failures`,
-`unhealthy.timeouts` is above 0, and valid when every non-zero value is within `passive_hc_max_*` (default 10).
-At least one valid upstream → PASS with InfoNote
-`Level 2 (Compensating Control): Passive HC on <n>/<total> Upstream(s) -- No Native CB Plugin`.
+## 3. Inputs
 
-**Level 3, no protection.** Neither of the above → finding
-`Level 3 (Vulnerable): No Circuit-Breaker Protection Detected`.
+Two gateway concepts read through the adapter: `circuit_breakers` and `health_checks` (`src/core/gateway/`). No
+request is sent.
 
-**Observability.** The live health of the backend targets must be readable (gateway concept "live target health":
-Kong `GET /upstreams/<name>/health`). If it is not: `Observability Gap: Backend Health State Not Readable`, with the
-reason, attached as an InfoNote on PASS and as an additional **Finding** on FAIL (it then counts in the finding
-total). Until 2026-10 the check looked for circuit-breaker fields in Kong's `/status`, which never has them, and
-always reported a gap although Kong exposes the upstream health.
+## 4. Preconditions and reference responses
 
-**Gateway access.** The levels read the gateway concepts circuit breakers, health checks and live target health
-([gateway concepts](../../04-architecture/05-design-decisions.md#d7-neutral-gateway-concepts)). Health checks not supported or not accessible: SKIP.
-Circuit breakers not accessible: SKIP when the verdict would be Level 3 (their absence is not proven), a note when
-Level 2 holds.
+`Need.GATEWAY` (the Admin API). No reference responses: the concepts read are the evidence.
 
-## Outcomes
+## 5. Probes
 
-| Status | When |
-|---|---|
-| PASS | Level 1 plugin compliant, or Level 2 compensating control found. |
-| FAIL | Level 1 plugin with issues, or Level 3. |
-| SKIP | No gateway adapter configured, or a concept the verdict needs is not supported or cannot be read (reason "Not applicable to this gateway: ..." / "Not verifiable: no access to ..."). |
-| ERROR | Unexpected exception. |
+None: a configuration audit. The two concepts are read and pinned as evidence.
 
-References: OWASP-API4:2023, OWASP-ASVS-v5.0.0-V16.5.2, NIST-SP-800-204-Section-4.5.1, CWE-400. Each concept read is
-stored in `evidence.json` (`artifact-4.3-gateway_...`); findings point to the concept they are based on
-(`evidence_ref`).
+## 6. Oracle (`degradation_configured`)
 
-## Prerequisites and effects on the target
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| a circuit breaker is enabled | `ENFORCED/CIRCUIT_BREAKER` | CERTAIN |
+| no breaker, but a passive or active health check is configured | `ENFORCED/HEALTH_CHECK` (a note: a compensating control) | CERTAIN |
+| neither | `VIOLATION/NO_CIRCUIT_BREAKER` | CERTAIN |
+| neither concept readable | SKIP | - |
 
-`gateway` (`adapter` `kong` or `apisix`, `admin.url`; APISIX: `health.url` for the live health). Read-only Admin API calls.
+## 7. Outcomes
 
-## Coverage against the methodology
+SKIP when neither concept can be read. FAIL when the gateway has no breaker and no health check; PASS otherwise
+(with a note when the control is a health check standing in for a breaker).
 
-Source: [`04-guarantees.md` §4.3](../../06-knowledge/04-guarantees.md).
+## 8. Findings
 
-| Methodology item | Status |
-|---|---|
-| Circuit-breaker directive present | Implemented (Kong plugin, or passive health checks as compensating control). |
-| Parameters: threshold 3-10, open duration 30-120 s | Implemented for the plugin. Trigger codes (5xx and timeouts) not checked. |
-| Health endpoint exposing breaker state | Implemented as the observability check (live health of the backend targets). |
-| 30-day metrics analysis | Not implemented. |
-| Behavioural test with a disabled dependency | Not implemented (staging only). |
+"No circuit breaker or health check on the gateway", `evidence_ref` the circuit-breaker concept artifact.
 
-## Why it exists
+## 9. Effects on the target
 
-OWASP API4:2023, OWASP ASVS v5.0.0 V16.5.2, NIST SP 800-204 §4.5.1 (circuit breaker pattern). Without it, every
-request to a failing dependency waits for the full timeout and the backlog takes down the whole gateway.
+`READ_ONLY`: reads the gateway Admin API, sends no request to the API.
 
-## Limitations
+## 10. Per gateway
 
-- Level 2 passes if at least one upstream has a valid passive health check, even when other upstreams have none
-  (the InfoNote reports `<n>/<total>`).
-- On Kong OSS, Level 1 is never satisfied unless a third-party plugin is installed.
+Kong has no circuit-breaker plugin: its passive health check (a backend marked unhealthy after N failures) is the
+equivalent, reported ENFORCED with a note. APISIX exposes both a breaker (`api-breaker`) and health checks.
 
-## See also
+## 11. Configuration
 
-- [`4.2 Timeout audit`](4-2-timeout-config-audit.md) · [`4.1 Rate limiting`](4-1-rate-limiting.md)
-- [`../README.md`](../README.md)
+None.
+
+## 12. Validation
+
+Runs of 2026-10-23:
+
+| Lab | Status | Basis |
+|---|---|---|
+| Forgejo + Kong, crAPI + Kong | **PASS** | no breaker plugin, but a passive health check on the upstream (`HEALTH_CHECK`, with a note that it is Kong's equivalent) |
+| Forgejo + APISIX | **PASS** | a breaker or a health check read from APISIX |
+
+Rule 9: the ENFORCED side (a health check as the compensating control) is proven on the labs. The VIOLATION branch
+(a gateway with neither) is not present on the labs (both configure a health check); it is the plain absence of both
+concepts, and the SKIP branch covers a non-readable admin plane.
+
+## 13. Remediation
+
+Configure a circuit breaker (or at least a passive health check that takes a failing backend out of rotation) with a
+failure threshold and an open-state timeout, so a failing dependency does not cascade (OWASP API4:2023, ASVS
+v5.0.0-16.5.2).
+
+## 14. Limitations
+
+- Only the presence of a breaker or health check is judged, not whether its thresholds are sound (a follow-up could
+  check `failure_threshold`, `open_seconds`).
+- The behavioural test (a real downstream outage) is out of scope: it needs a coordinated staging action.
+
+## 15. Sources
+
+- OWASP API4:2023 Unrestricted Resource Consumption: https://owasp.org/API-Security/editions/2023/en/0xa4-unrestricted-resource-consumption/
+- OWASP ASVS v5.0.0-16.5.2 (operate securely when external resource access fails): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x25-V16-Security-Logging-and-Error-Handling.md
+- NIST SP 800-204 section 4.5.1 (circuit breaker for microservices): https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-204.pdf
+- CWE-400 Uncontrolled Resource Consumption: https://cwe.mitre.org/data/definitions/400.html

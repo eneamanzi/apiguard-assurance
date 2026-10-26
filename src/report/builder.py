@@ -34,16 +34,21 @@ from pydantic import BaseModel, Field
 
 from src.config.schema import ToolConfig
 from src.core.models import (
+    Coverage,
+    DerivedFact,
     ExitCode,
     Finding,
     InfoNote,
     NotRunEntry,
+    Reference,
     ResultSet,
+    SubTestResult,
     TestStatus,
     TlsSettings,
     TransactionSummary,
 )
 from src.core.models.enums import exit_code_text
+from src.core.references import CalibrationPoint, PositiveControl, ReferenceResponses
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -100,8 +105,24 @@ class TestResultRow(BaseModel):
     priority: int = Field(description="Priority, 0-3.")
     priority_label: str = Field(description="Label of the priority (as `min_priority_label`).")
     strategy: str = Field(description="`BLACK_BOX`, `GREY_BOX` or `WHITE_BOX`.")
+    effect: str = Field(
+        default="",
+        description=(
+            "What the test does to the target: `READ_ONLY`, `CHANGES_DATA` or `STRESSES_TARGET`."
+        ),
+    )
     status: str = Field(
-        description="`PASS`, `FAIL`, `SKIP` or `ERROR` (see Status semantics below)."
+        description=(
+            "`PASS`, `FAIL`, `INCONCLUSIVE`, `SKIP` or `ERROR` (see Status semantics below)."
+        )
+    )
+    coverage: Coverage | None = Field(
+        default=None,
+        description="For a `PASS`: `complete`, or `partial` when cases were not verifiable.",
+    )
+    sub_tests: list[SubTestResult] = Field(
+        default_factory=list,
+        description="Every declared sub-test with its counters and status.",
     )
     message: str = Field(description="One-line outcome.")
     skip_reason: str | None = Field(
@@ -119,17 +140,21 @@ class TestResultRow(BaseModel):
     findings: list[Finding] = Field(
         default_factory=list,
         description=(
-            "At least one for `FAIL`, none for `PASS` (both enforced by the model); an "
-            "`ERROR` result may carry findings collected before the error."
+            "At least one for `FAIL`, none for `PASS` and `INCONCLUSIVE` (enforced by the "
+            "model); an `ERROR` result may carry findings collected before the error."
         ),
     )
     tags: list[str] = Field(
         default_factory=list,
-        description="Test tags (e.g. `OWASP-API9:2023`).",
+        description="Topic labels (e.g. `availability`).",
+    )
+    references: list[Reference] = Field(
+        default_factory=list,
+        description="The standards of the guarantee, from the test's declaration.",
     )
     cwe_id: str = Field(
         default="",
-        description="Primary CWE (e.g. `CWE-306`).",
+        description="Primary CWE (e.g. `CWE-306`); empty when the test declares none.",
     )
     transaction_log: list[TransactionSummary] = Field(
         default_factory=list,
@@ -193,6 +218,9 @@ class DomainSummary(BaseModel):
     fail_count: Annotated[int, Field(ge=0)] = Field(
         default=0, description="Results with status FAIL."
     )
+    inconclusive_count: Annotated[int, Field(ge=0)] = Field(
+        default=0, description="Results with status INCONCLUSIVE."
+    )
     skip_count: Annotated[int, Field(ge=0)] = Field(
         default=0, description="Results with status SKIP."
     )
@@ -232,15 +260,20 @@ class ExecutiveSummary(BaseModel):
 
     model_config = {"frozen": True}
 
-    scheduled_tests: Annotated[int, Field(ge=0)] = Field(description="PASS + FAIL + ERROR + SKIP.")
+    scheduled_tests: Annotated[int, Field(ge=0)] = Field(
+        description="PASS + FAIL + INCONCLUSIVE + ERROR + SKIP."
+    )
     executed_tests: Annotated[int, Field(ge=0)] = Field(
-        description="PASS + FAIL + ERROR (SKIP excluded)."
+        description="PASS + FAIL + INCONCLUSIVE + ERROR (SKIP excluded)."
     )
     pass_count: Annotated[int, Field(ge=0)] = Field(
         default=0, description="Results with status PASS."
     )
     fail_count: Annotated[int, Field(ge=0)] = Field(
         default=0, description="Results with status FAIL."
+    )
+    inconclusive_count: Annotated[int, Field(ge=0)] = Field(
+        default=0, description="Results with status INCONCLUSIVE."
     )
     skip_count: Annotated[int, Field(ge=0)] = Field(
         default=0, description="Results with status SKIP."
@@ -299,6 +332,24 @@ class ConnectionTrust(BaseModel):
     )
     client_certificate: bool = Field(
         description="`true` when the tool presented a client certificate (mutual TLS)."
+    )
+
+
+class ReferencesSummary(BaseModel):
+    """The reference responses of the run (src/core/references.py)."""
+
+    model_config = {"frozen": True}
+
+    calibration_points: list[CalibrationPoint] = Field(
+        default_factory=list,
+        description=(
+            'What "does not exist here" looked like for each sibling pattern, method and '
+            "credential asked; a point not reliable is never used."
+        ),
+    )
+    positive_controls: list[PositiveControl] = Field(
+        default_factory=list,
+        description="Whether each request asked worked with a valid credential.",
     )
 
 
@@ -362,6 +413,20 @@ class ReportData(BaseModel):
             "`all_rows` + `not_run` = every test of the tool."
         ),
     )
+    derived: list[DerivedFact] = Field(
+        default_factory=list,
+        description=(
+            "What the tool derived from the specification before the tests, by named rules "
+            "(`rule`, `basis`): the configuration always prevails over it."
+        ),
+    )
+    references: ReferencesSummary = Field(
+        default_factory=ReferencesSummary,
+        description=(
+            "The reference responses the tests asked for: calibration points and positive "
+            "controls, each with its records (`ref_NNN`) in `evidence.json`."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -375,6 +440,8 @@ def build_report_data(
     config: ToolConfig,
     spec_title: str = "Unknown",
     spec_version: str = "Unknown",
+    references: ReferenceResponses | None = None,
+    derived: list[DerivedFact] | None = None,
 ) -> ReportData:
     """
     Aggregate a completed ResultSet into a ReportData object for rendering.
@@ -393,6 +460,8 @@ def build_report_data(
                     Defaults to 'Unknown' when not provided.
         spec_version: OpenAPI spec version from AttackSurface.spec_version.
                       Defaults to 'Unknown' when not provided.
+        references: The run's reference responses; None gives an empty section.
+        derived: The facts derived from the specification (AttackSurface.derived).
 
     Returns:
         Frozen ReportData ready for renderer.py.
@@ -437,6 +506,8 @@ def build_report_data(
         domains=domains,
         all_rows=all_rows,
         not_run=list(result_set.not_run),
+        references=_references_summary(references),
+        derived=list(derived or []),
     )
 
     log.info(
@@ -543,13 +614,17 @@ def _build_all_rows(result_set: ResultSet) -> list[TestResultRow]:
             priority=result.priority,
             priority_label=PRIORITY_LABELS.get(result.priority, f"P{result.priority}"),
             strategy=result.strategy,
+            effect=result.effect,
             status=result.status.value,
+            coverage=result.coverage,
+            sub_tests=list(result.sub_tests),
             message=result.message,
             skip_reason=result.skip_reason,
             duration_ms=result.duration_ms,
             finding_count=len(result.findings),
             findings=list(result.findings),
             tags=list(result.tags),
+            references=list(result.references),
             cwe_id=result.cwe_id,
             transaction_log=list(result.transaction_log),
             notes=list(result.notes),
@@ -564,6 +639,14 @@ def _build_all_rows(result_set: ResultSet) -> list[TestResultRow]:
 
     rows.sort(key=lambda r: r.test_id)
     return rows
+
+
+def _references_summary(references: ReferenceResponses | None) -> ReferencesSummary:
+    """The references section of the report, from the run's ReferenceResponses."""
+    if references is None:
+        return ReferencesSummary()
+    points, controls = references.summary()
+    return ReferencesSummary(calibration_points=points, positive_controls=controls)
 
 
 def _build_domain_summaries(all_rows: list[TestResultRow]) -> list[DomainSummary]:
@@ -593,6 +676,7 @@ def _build_domain_summaries(all_rows: list[TestResultRow]) -> list[DomainSummary
 
         pass_count = sum(1 for r in rows if r.status == TestStatus.PASS.value)
         fail_count = sum(1 for r in rows if r.status == TestStatus.FAIL.value)
+        inconclusive_count = sum(1 for r in rows if r.status == TestStatus.INCONCLUSIVE.value)
         skip_count = sum(1 for r in rows if r.status == TestStatus.SKIP.value)
         error_count = sum(1 for r in rows if r.status == TestStatus.ERROR.value)
         total_finding_count = sum(r.finding_count for r in rows)
@@ -606,6 +690,7 @@ def _build_domain_summaries(all_rows: list[TestResultRow]) -> list[DomainSummary
             rows=rows,
             pass_count=pass_count,
             fail_count=fail_count,
+            inconclusive_count=inconclusive_count,
             skip_count=skip_count,
             error_count=error_count,
             total_finding_count=total_finding_count,
@@ -625,9 +710,10 @@ def _build_executive_summary(
     """
     Compute the executive summary statistics from the ResultSet.
 
-    The pass_rate_pct is computed over executed tests only (PASS + FAIL + ERROR),
-    excluding SKIP. This is the most honest metric: SKIP tests did not contribute
-    to the assessment outcome and should not inflate or deflate the pass rate.
+    The pass_rate_pct is computed over executed tests only (PASS + FAIL +
+    INCONCLUSIVE + ERROR), excluding SKIP. This is the most honest metric: SKIP
+    tests did not contribute to the assessment outcome and should not inflate or
+    deflate the pass rate.
 
     Args:
         result_set: Completed ResultSet.
@@ -637,7 +723,12 @@ def _build_executive_summary(
     Returns:
         Frozen ExecutiveSummary.
     """
-    executed_count = result_set.pass_count + result_set.fail_count + result_set.error_count
+    executed_count = (
+        result_set.pass_count
+        + result_set.fail_count
+        + result_set.inconclusive_count
+        + result_set.error_count
+    )
     scheduled_count = executed_count + result_set.skip_count
 
     pass_rate = (
@@ -651,6 +742,7 @@ def _build_executive_summary(
         executed_tests=executed_count,
         pass_count=result_set.pass_count,
         fail_count=result_set.fail_count,
+        inconclusive_count=result_set.inconclusive_count,
         skip_count=result_set.skip_count,
         error_count=result_set.error_count,
         not_run_count=len(result_set.not_run),

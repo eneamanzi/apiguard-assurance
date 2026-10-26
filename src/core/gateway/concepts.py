@@ -287,13 +287,44 @@ class SigningPolicy(BaseModel):
     source: str = Field(min_length=1, description=_SOURCE_DESCRIPTION)
 
 
+class RouteMatch(StrEnum):
+    """
+    How a gateway matches one path of a route.
+
+    Each adapter translates its gateway's own syntax into this vocabulary
+    (Kong writes a regular expression as "~<expression>", APISIX a prefix as
+    "<path>*"), so that a test comparing routes with a specification needs to
+    know nothing about the gateway.
+    """
+
+    PREFIX = "PREFIX"
+    """Every path starting with the value."""
+
+    EXACT = "EXACT"
+    """Only the value itself."""
+
+    REGEX = "REGEX"
+    """Every path the value, a regular expression, matches."""
+
+
+class RoutePath(BaseModel):
+    """One path of a route: the value as the gateway states it, and how it matches."""
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    value: str = Field(min_length=1, description="The path, without the gateway's own syntax.")
+    match: RouteMatch = Field(description="`PREFIX`, `EXACT` or `REGEX`.")
+
+
 class GatewayRoute(BaseModel):
     """A route exposed by the gateway (minimal form)."""
 
     model_config = {"frozen": True, "extra": "forbid"}
 
     name: str = Field(min_length=1, description="Route name, or its id when unnamed.")
-    paths: tuple[str, ...] = Field(description="Paths the route exposes.")
+    paths: tuple[RoutePath, ...] = Field(
+        description="Paths the route exposes, and how each matches."
+    )
     methods: tuple[str, ...] = Field(description="Allowed methods; empty means all.")
     backend: str | None = Field(
         description="Name of the backend the route sends to (same names as the other concepts)."

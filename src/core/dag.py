@@ -36,6 +36,7 @@ with tests/.
 from __future__ import annotations
 
 import graphlib
+import heapq
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
@@ -61,9 +62,10 @@ class ScheduledBatch:
     in the batch depends on another test in the same batch). In Version 1.0,
     the engine iterates over batch.test_ids sequentially.
 
-    The batch_index is 0-based and reflects the topological level: all tests
-    in batch 0 have no dependencies, all tests in batch 1 depend only on tests
-    in batch 0, and so on.
+    The batch_index is 0-based and follows the run order: the batches are
+    consecutive pieces of one sequence (prerequisites first, then the declared
+    effect, then the test ID), cut where a test depends on one of the current
+    batch; a test's prerequisites are always in earlier batches.
 
     Using a frozen dataclass rather than a plain tuple or list makes the
     batch immutable after construction and provides a named interface
@@ -119,6 +121,7 @@ class DAGScheduler:
         self,
         dependencies: dict[str, list[str]],
         active_test_ids: set[str],
+        order_rank: Mapping[str, int] | None = None,
     ) -> list[ScheduledBatch]:
         """
         Build a topologically ordered list of ScheduledBatch objects.
@@ -133,8 +136,11 @@ class DAGScheduler:
                detect cycles. A CycleError from graphlib is converted to
                DAGCycleError with structured diagnostic information.
 
-            3. Drain the sorter into ScheduledBatch objects, one batch per
-               topological level.
+            3. Drain the sorter into one sequence: whenever several tests are
+               ready (their prerequisites already placed), the lowest
+               order_rank goes first, then the test ID; then cut the sequence
+               into ScheduledBatch objects, a new batch starting where a test
+               depends on one of the current batch.
 
         Args:
             dependencies: Mapping from test_id to list of test_id prerequisites.
@@ -145,6 +151,12 @@ class DAGScheduler:
             active_test_ids: Set of test_id values selected for the run.
                              Edges to IDs outside this set are dropped (the
                              engine skips the dependent test).
+
+            order_rank: Rank of each test among the ready ones (lower first);
+                        the engine gives the rank of the declared effect
+                        (READ_ONLY, CHANGES_DATA, STRESSES_TARGET), so that the
+                        tests that change or stress the target run last, as far
+                        as the prerequisites allow. Missing: rank 0.
 
         Returns:
             Ordered list of ScheduledBatch. Index 0 contains tests with no
@@ -173,7 +185,12 @@ class DAGScheduler:
         sorter = self._build_sorter(sanitized)
 
         # Step 3: drain the sorter into batches.
-        batches = self._drain_into_batches(sorter, expected_test_ids=set(sanitized.keys()))
+        batches = self._drain_into_batches(
+            sorter,
+            expected_test_ids=set(sanitized.keys()),
+            dependencies=sanitized,
+            order_rank=order_rank or {},
+        )
 
         total_scheduled = sum(b.size for b in batches)
         log.info(
@@ -296,99 +313,88 @@ class DAGScheduler:
         self,
         sorter: graphlib.TopologicalSorter,  # type: ignore[type-arg]
         expected_test_ids: set[str],
+        dependencies: Mapping[str, Sequence[str]],
+        order_rank: Mapping[str, int],
     ) -> list[ScheduledBatch]:
         """
-        Extract topological levels from the prepared sorter into ScheduledBatch objects.
+        Extract the run order from the prepared sorter and cut it into batches.
 
         graphlib.TopologicalSorter operates as a stateful iterator:
-            - get_ready() returns nodes whose dependencies have all been marked done.
-            - done(*nodes) marks nodes as completed, potentially unblocking dependents.
-            - is_active() returns False when all nodes have been yielded and marked done.
+            - get_ready() returns the nodes that became ready (all their
+              predecessors marked done) since the previous call.
+            - done(node) marks one node as completed, possibly unblocking others.
+            - is_active() returns False when every node has been marked done.
 
-        We drain the sorter level by level:
-            - Call get_ready() to get the current batch of unblocked nodes.
-            - Mark all of them as done simultaneously (simulating sequential execution
-              completing before the next batch starts).
-            - Repeat until is_active() returns False.
+        One node is taken at a time: among the ready ones, the lowest
+        (order_rank, test_id) first. The result is a single sequence that
+        respects every prerequisite and, within that, the rank (the declared
+        effect) across the whole run, not only within a topological level;
+        the test ID makes it deterministic (docs/04-architecture/01-overview.md,
+        "Pipeline", Reproducibility).
 
-        Each call to get_ready() before the corresponding done() represents one
-        topological level — a ScheduledBatch. The batch_index is 0-based.
-
-        The test_ids within each batch are sorted lexicographically for
-        deterministic ordering. graphlib does not guarantee ordering within a level,
-        and deterministic output is required by the Reproducibility constraint
-        (docs/04-architecture/01-overview.md, "Pipeline").
+        The sequence is then cut into ScheduledBatch objects: a new batch
+        starts where a test depends on a test of the current batch, so that no
+        test of a batch depends on another of the same batch (the batch
+        contract, kept for a future parallel execution).
 
         Stall detection
         ---------------
-        If is_active() returns True but get_ready() yields no nodes, the sorter
-        has entered an irrecoverable state. This should not occur after a clean
-        prepare() without cycles, but graphlib's internal state is not formally
-        documented against all edge cases. On stall, we log a structured ERROR
-        that names every test_id that was expected but never extracted, then
-        break. This ensures that an operator reading the logs can immediately
-        identify which test declarations to inspect, rather than discovering the
-        problem indirectly via a ``pipeline_phase_5_test_id_not_in_lookup`` error.
+        If is_active() returns True but nothing is ready, the sorter has
+        entered an irrecoverable state. This should not occur after a clean
+        prepare() without cycles; on stall, a structured ERROR names every test
+        that was never extracted, then the drain stops.
 
         Args:
-            sorter: A prepared TopologicalSorter (prepare() already called).
-            expected_test_ids: Complete set of test IDs the sorter should yield.
-                               Used exclusively for stall diagnostics.
+            sorter:            A prepared TopologicalSorter (prepare() already called).
+            expected_test_ids: Complete set of test IDs the sorter should yield,
+                               for the stall diagnostics.
+            dependencies:      The sanitized prerequisites of each test.
+            order_rank:        Rank of each test among the ready ones (default 0).
 
         Returns:
-            Ordered list of ScheduledBatch, one per topological level.
+            Ordered list of ScheduledBatch.
         """
-        batches: list[ScheduledBatch] = []
-        batch_index: int = 0
-        scheduled_so_far: set[str] = set()
+        sequence: list[str] = []
+        ready: list[tuple[int, str]] = []
 
         while sorter.is_active():
-            # get_ready() returns nodes with all dependencies satisfied.
-            # Sorting ensures deterministic ordering within a batch.
-            ready_nodes: list[str] = sorted(sorter.get_ready())
-
-            if not ready_nodes:
-                # is_active() is True but get_ready() returned nothing.
-                # Identify the test IDs that were never scheduled to give
-                # the operator an actionable diagnostic.
-                unscheduled = sorted(expected_test_ids - scheduled_so_far)
+            for node in sorter.get_ready():
+                heapq.heappush(ready, (order_rank.get(node, 0), node))
+            if not ready:
+                unscheduled = sorted(expected_test_ids - set(sequence))
                 log.error(
                     "dag_drain_stalled",
-                    batch_index=batch_index,
                     unscheduled_test_ids=unscheduled,
-                    scheduled_count=len(scheduled_so_far),
+                    scheduled_count=len(sequence),
                     expected_count=len(expected_test_ids),
                     detail=(
-                        "TopologicalSorter reports is_active()=True but get_ready() "
-                        "returned no nodes. The listed test IDs were never extracted "
-                        "from the sorter and will not be executed. This indicates an "
-                        "internal graphlib state inconsistency — inspect the "
-                        "depends_on declarations of the unscheduled tests and verify "
-                        "that no undeclared cycle exists."
+                        "TopologicalSorter reports is_active()=True but nothing is ready. "
+                        "The listed test IDs were never extracted from the sorter and will "
+                        "not be executed: inspect their depends_on declarations."
                     ),
                 )
                 break
+            _, node = heapq.heappop(ready)
+            sequence.append(node)
+            sorter.done(node)
 
-            batch = ScheduledBatch(
-                batch_index=batch_index,
-                test_ids=ready_nodes,
-            )
-            batches.append(batch)
-            scheduled_so_far.update(ready_nodes)
+        batches: list[ScheduledBatch] = []
+        current: list[str] = []
+        for test_id in sequence:
+            if any(dep in current for dep in dependencies.get(test_id, ())):
+                batches.append(ScheduledBatch(batch_index=len(batches), test_ids=current))
+                current = []
+            current.append(test_id)
+        if current:
+            batches.append(ScheduledBatch(batch_index=len(batches), test_ids=current))
 
+        for batch in batches:
             log.debug(
                 "dag_batch_created",
-                batch_index=batch_index,
-                test_ids=ready_nodes,
-                batch_size=len(ready_nodes),
+                batch_index=batch.batch_index,
+                test_ids=batch.test_ids,
+                batch_size=batch.size,
             )
-
-            # Mark all nodes in this batch as done before extracting the next level.
-            # In a parallel execution model, done() would be called per-node as each
-            # test completes. In sequential V1.0, we mark all as done at once.
-            sorter.done(*ready_nodes)
-            batch_index += 1
-
         return batches
 
 
@@ -396,9 +402,12 @@ class DAGScheduler:
 # Prerequisite check (Phase 5)
 # ---------------------------------------------------------------------------
 
-# Statuses with which a prerequisite has completed: it ran and reached a
-# verdict, so whatever it produces for its dependents exists.
-_COMPLETED_STATUSES: frozenset[TestStatus] = frozenset({TestStatus.PASS, TestStatus.FAIL})
+# Statuses with which a prerequisite has completed: it ran to the end, so
+# whatever it produces for its dependents exists (INCONCLUSIVE too: it ran to
+# the end, it only could not verify).
+_COMPLETED_STATUSES: frozenset[TestStatus] = frozenset(
+    {TestStatus.PASS, TestStatus.FAIL, TestStatus.INCONCLUSIVE}
+)
 
 
 def prerequisite_skip_reason(
@@ -414,7 +423,7 @@ def prerequisite_skip_reason(
     prerequisite missing from statuses is not in the run.
 
     Rules (one reason per unmet prerequisite, depends_on first):
-        depends_on X:    X must have completed (PASS or FAIL).
+        depends_on X:    X must have completed (PASS, FAIL or INCONCLUSIVE).
         requires_pass X: X must have returned PASS.
 
     Args:

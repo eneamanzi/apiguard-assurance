@@ -170,43 +170,28 @@ execution:
 output:
   directory: "outputs/forgejo"
 
+# Test review (branch test-review): the parameters of the tests not rewritten yet are commented out;
+# each block returns, uncommented, with its test (docs/project/test-review.md).
 tests:
   domain_1:
-    test_1_4:
-      # Sent with the revoked token: Forgejo's profile of the authenticated user.
-      protected_endpoint:
-        method: GET
-        path: /api/v1/user
     test_1_5:
-      # The lab's HTTP listener (Kong, port 8000): the HTTPS-only API route answers 301
-      # (https_redirect_status_code, kong/kong.yml). Derived from base_url the probe would hit
-      # http://localhost:8443/, Kong's TLS port.
-      http_url: "http://localhost:8000/api/v1/version"
+      # The lab puts HTTPS on 8443 and the plain-HTTP listener (Kong) on 8000, so
+      # deriving the HTTP origin from base_url would hit http://localhost:8443,
+      # Kong's TLS port. Only the origin is used; the path is derived from the spec.
+      http_url: "http://localhost:8000"
   domain_2:
-    test_2_1:
-      # Forgejo admin-only endpoint.
-      admin_endpoint_paths:
-        - "/api/v1/admin/users"
-      admin_endpoint_method: "GET"
-  domain_6:
-    test_6_4:
-      debug_endpoint_paths:
-        # Routed through Kong to Forgejo (/api prefix)
-        - /api/v1/settings/api    # Forgejo: public server settings endpoint (no auth required)
-        - /api/debug/config
-        - /api/debug/users
-        # Not routed by Kong (Kong answers 404): checks the gateway's deny-by-default
-        - /actuator/env
-        - /actuator/configprops
-        - /actuator/health
-        - /debug/vars
-        - /debug/pprof
-        - /api/config
-        - /admin/config
-        - /_debug
+    # 2.2 (BOLA) and 2.5 (object property level) create a disposable object owned
+    # by user_a through the `repository` resource (private repo), attack it as
+    # user_b, and delete it.
+    test_2_2:
+      owned_object_resources: [repository]
+    test_2_5:
+      owned_object_resources: [repository]
   domain_7:
+    # 7.2 (SSRF): the resource 'repository' is created first (as user A), then each
+    # SSRF payload URL goes in config.url of a webhook created on it; the webhooks go
+    # with the repository at teardown. active: false so the webhook never fires.
     test_7_2:
-      # Forgejo webhooks: the resource 'repository' is created first, then the SSRF URL goes in config.url.
       url_accepting_endpoint:
         resource: repository
         path: "/api/v1/repos/{owner}/{repo}/hooks"
@@ -218,13 +203,42 @@ tests:
             secret: "{random_secret}"
           events:
             - "push"
-          active: false             # the webhook never fires on real events
+          active: false
           branch_filter: "*"
-
+# domain_2:
+#   (2.1: returns with test 2.1)
+#   test_2_1:
+#     # Forgejo admin-only endpoint.
+#     admin_endpoint_paths:
+#       - "/api/v1/admin/users"
+#     admin_endpoint_method: "GET"
+# domain_6:
+#   (6.4: returns with test 6.4)
+#   test_6_4:
+#     debug_endpoint_paths:
+#       # Routed through Kong to Forgejo (/api prefix)
+#       - /api/v1/settings/api    # Forgejo: public server settings endpoint (no auth required)
+#       - /api/debug/config
+#       - /api/debug/users
+#       # Not routed by Kong (Kong answers 404): checks the gateway's deny-by-default
+#       - /actuator/env
+#       - /actuator/configprops
+#       - /actuator/health
+#       - /debug/vars
+#       - /debug/pprof
+#       - /api/config
+#       - /admin/config
+#       - /_debug
 # External tools (installed by install_tools.sh): all three, about 5 minutes more.
 external_tools:
   # Master switch: false skips every external test in one line.
   enabled: true
+  schemathesis:
+    # Schema-driven validation (ext.3.1.schemathesis), unauthenticated. Needs the
+    # [schemathesis] extra. max_examples kept low to bound the run.
+    enabled: true
+    timeout_seconds: 600
+    max_examples: 3
   # Each tool can also be switched off alone (enabled: false).
   testssl:
     enabled: true
@@ -239,3 +253,8 @@ external_tools:
   sslyze:
     enabled: true
     timeout_seconds: 60
+  # ffuf, path search (ext.0.1.ffuf): unauthenticated GET only, about 1 minute on this lab.
+  ffuf:
+    enabled: true
+    timeout_seconds: 600
+    expected_version: "2.3.0"

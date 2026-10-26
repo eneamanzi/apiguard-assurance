@@ -9,10 +9,10 @@
 
 | Code | Label | Meaning |
 |---|---|---|
-| `0` | CLEAN | No test returned FAIL or ERROR: no violation detected (a SKIP verifies nothing). |
+| `0` | CLEAN | No test returned FAIL, ERROR or INCONCLUSIVE: no violation detected (a SKIP verifies nothing). |
 | `1` | FAIL | At least one security guarantee is violated. |
 | `2` | USAGE | Invalid invocation: the assessment did not start. |
-| `3` | ERROR | At least one verification did not complete and no test returned FAIL; an ERROR result may carry findings. |
+| `3` | ERROR | At least one verification did not complete (a test returned ERROR or INCONCLUSIVE) and no test returned FAIL; an ERROR result may carry findings. |
 | `10` | INFRA | The assessment did not run or did not complete: no security verdict. |
 | `130` | INTERRUPTED | Stopped by Ctrl+C: teardown removes the resources created on the target, no report. |
 | `143` | TERMINATED | Stopped by SIGTERM: teardown removes the resources created on the target, no report. |

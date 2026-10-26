@@ -168,55 +168,26 @@ execution:
 output:
   directory: "outputs/forgejo-apisix"
 
+# Test review (branch test-review): the parameters of the tests not rewritten yet are commented out;
+# each block returns, uncommented, with its test (docs/project/test-review.md).
 tests:
-  domain_0:
-    test_0_2:
-      # The defaults plus APISIX, which answers with "Server: APISIX".
-      gateway_server_identifiers:
-        - "kong"
-        - "nginx"
-        - "openresty"
-        - "apache"
-        - "caddy"
-        - "traefik"
-        - "envoy"
-        - "apisix"
   domain_1:
-    test_1_4:
-      # Sent with the revoked token: Forgejo's profile of the authenticated user.
-      protected_endpoint:
-        method: GET
-        path: /api/v1/user
     test_1_5:
-      # The lab's HTTP listener (APISIX, host port 10000) redirects to HTTPS.
-      http_url: "http://localhost:10000/api/v1/version"
+      # The lab puts HTTPS on 10443 and the plain-HTTP listener (APISIX) on 10000.
+      # Only the origin is used; the path is derived from the specification.
+      http_url: "http://localhost:10000"
   domain_2:
-    test_2_1:
-      # Forgejo admin-only endpoint, as in the Forgejo + Kong lab.
-      admin_endpoint_paths:
-        - "/api/v1/admin/users"
-      admin_endpoint_method: "GET"
-  domain_6:
-    test_6_4:
-      # Body of APISIX's own 404 (no route matched): {"error_msg":"404 Route Not Found"}.
-      gateway_block_body_fragment: "404 Route Not Found"
-      # Same paths as the Forgejo + Kong lab.
-      debug_endpoint_paths:
-        - /api/v1/settings/api
-        - /api/debug/config
-        - /api/debug/users
-        - /actuator/env
-        - /actuator/configprops
-        - /actuator/health
-        - /debug/vars
-        - /debug/pprof
-        - /api/config
-        - /admin/config
-        - /_debug
-
+    # 2.2 (BOLA) and 2.5 (object property level) create a disposable object owned
+    # by user_a through the `repository` resource (private repo), attack it as
+    # user_b, and delete it.
+    test_2_2:
+      owned_object_resources: [repository]
+    test_2_5:
+      owned_object_resources: [repository]
   domain_7:
+    # 7.2 (SSRF), as in the Forgejo + Kong lab: the resource 'repository' is
+    # created first, then each SSRF payload URL goes in a webhook's config.url.
     test_7_2:
-      # Forgejo webhooks, as in the Forgejo + Kong lab: the resource 'repository' is created first.
       url_accepting_endpoint:
         resource: repository
         path: "/api/v1/repos/{owner}/{repo}/hooks"
@@ -230,11 +201,42 @@ tests:
             - "push"
           active: false
           branch_filter: "*"
+# domain_2:
+#   (2.1: returns with test 2.1)
+#   test_2_1:
+#     # Forgejo admin-only endpoint, as in the Forgejo + Kong lab.
+#     admin_endpoint_paths:
+#       - "/api/v1/admin/users"
+#     admin_endpoint_method: "GET"
+# domain_6:
+#   (6.4: returns with test 6.4)
+#   test_6_4:
+#     # Body of APISIX's own 404 (no route matched): {"error_msg":"404 Route Not Found"}.
+#     gateway_block_body_fragment: "404 Route Not Found"
+#     # Same paths as the Forgejo + Kong lab.
+#     debug_endpoint_paths:
+#       - /api/v1/settings/api
+#       - /api/debug/config
+#       - /api/debug/users
+#       - /actuator/env
+#       - /actuator/configprops
+#       - /actuator/health
+#       - /debug/vars
+#       - /debug/pprof
+#       - /api/config
+#       - /admin/config
+#       - /_debug
 
 # External tools (installed by install_tools.sh): all three, about 5 minutes more.
 external_tools:
   # Master switch: false skips every external test in one line.
   enabled: true
+  schemathesis:
+    # Schema-driven validation (ext.3.1.schemathesis), unauthenticated. Needs the
+    # [schemathesis] extra. max_examples kept low to bound the run.
+    enabled: true
+    timeout_seconds: 600
+    max_examples: 3
   # Each tool can also be switched off alone (enabled: false).
   testssl:
     enabled: true
@@ -249,3 +251,8 @@ external_tools:
   sslyze:
     enabled: true
     timeout_seconds: 60
+  # ffuf, path search (ext.0.1.ffuf): unauthenticated GET only, about 1 minute on this lab.
+  ffuf:
+    enabled: true
+    timeout_seconds: 600
+    expected_version: "2.3.0"

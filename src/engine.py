@@ -93,6 +93,7 @@ from src.core.context import TargetContext, TestContext
 from src.core.dag import DAGScheduler, ScheduledBatch, prerequisite_skip_reason
 from src.core.evidence import EvidenceStore
 from src.core.exceptions import (
+    AuthenticationSetupError,
     ConfigurationError,
     DAGCycleError,
     OpenAPILoadError,
@@ -112,8 +113,9 @@ from src.core.models import (
     TestStatus,
 )
 from src.core.redaction import SecretRegistry
-from src.core.test_metadata import is_external_test_id, section_keys
-from src.core.test_needs import ConfigurationFacts, unmet_needs
+from src.core.references import ReferenceResponses
+from src.core.test_metadata import EFFECT_RANK, Need, is_external_test_id, section_keys
+from src.core.test_needs import NEED_ROLES, ConfigurationFacts, unmet_needs
 from src.core.tls import (
     GATEWAY_ADMIN_TLS,
     GATEWAY_HEALTH_TLS,
@@ -124,6 +126,7 @@ from src.core.tls import (
     certificate_failure,
     tls_warnings,
 )
+from src.discovery.derivation import derive_knowledge
 from src.discovery.openapi import load_openapi_spec
 from src.discovery.surface import build_attack_surface
 from src.external_tests.base import ExternalToolTest
@@ -131,6 +134,7 @@ from src.external_tests.registry import ExternalTestRegistry
 from src.report.builder import ReportData, build_report_data
 from src.report.renderer import render_html_report
 from src.tests.base import BaseTest
+from src.tests.helpers.auth import acquire_tokens
 from src.tests.registry import TestRegistry
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -639,6 +643,8 @@ def _resource_references(params: BaseModel) -> list[str]:
             names += _resource_references(value)
         elif has_marker(field, REFERS_TO_RESOURCE) and isinstance(value, str):
             names.append(value)
+        elif has_marker(field, REFERS_TO_RESOURCE) and isinstance(value, list | tuple):
+            names += [item for item in value if isinstance(item, str)]
     return names
 
 
@@ -862,6 +868,11 @@ class AssessmentEngine:
             # instead of failing every test.
             _preflight(client, store)
 
+            # The run's reference responses (calibration, positive control):
+            # one object, through the run's client and store, reached by the
+            # tests through context.references (src/core/references.py).
+            context.attach_references(ReferenceResponses(client, store))
+
             # Phase 6 (teardown) MUST run even if Phase 5 is interrupted by
             # KeyboardInterrupt (Ctrl+C) or terminated by an unexpected
             # exception.  Tests in Phase 5 register real resources on the
@@ -912,6 +923,7 @@ class AssessmentEngine:
             config=config,
             attack_surface=attack_surface,
             secrets=context.secrets,
+            references=context.references,
         )
 
         exit_code = result_set.compute_exit_code()
@@ -1009,6 +1021,9 @@ class AssessmentEngine:
             tls_context=connections.specification,
         )
         attack_surface = build_attack_surface(spec, dialect, source_url=spec_source)
+        # What the tool derives from the specification before any test runs
+        # (src/discovery/derivation.py): no request, the specification only.
+        attack_surface = derive_knowledge(spec, attack_surface)
 
         log.info(
             "pipeline_phase_2_openapi_discovery_completed",
@@ -1017,6 +1032,7 @@ class AssessmentEngine:
             dialect=attack_surface.dialect,
             total_endpoints=attack_surface.total_endpoint_count,
             unique_paths=attack_surface.unique_path_count,
+            derived_facts=len(attack_surface.derived),
         )
 
         return attack_surface
@@ -1224,6 +1240,7 @@ class AssessmentEngine:
         scheduled_batches = scheduler.build_schedule(
             dependencies=dependency_map,
             active_test_ids=active_test_ids,
+            order_rank={t.info.id: EFFECT_RANK[t.info.effect] for t in all_tests},
         )
 
         # Tests whose needs the configuration does not meet: said before any test
@@ -1273,7 +1290,7 @@ class AssessmentEngine:
 
         Fail-fast condition (docs/04-architecture/03-assessment-model.md, "Fail-fast"):
             If config.execution.fail_fast is True and a P0 test returns
-            FAIL or ERROR, execution stops immediately.
+            FAIL, ERROR or INCONCLUSIVE, execution stops immediately.
         """
         log.info(
             "pipeline_phase_5_execution_started",
@@ -1328,7 +1345,7 @@ class AssessmentEngine:
                     )
                     skip_reason = " ".join(needs) if needs else None
                 if skip_reason is not None:
-                    result = test._make_skip(skip_reason)  # noqa: SLF001
+                    result = test._skip(skip_reason)  # noqa: SLF001
                     log.info(
                         "test_skipped_prerequisite_not_met",
                         progress=f"{position}/{total}",
@@ -1382,7 +1399,8 @@ class AssessmentEngine:
                 "pipeline_phase_5_fail_fast_triggered",
                 results_recorded=result_set.total_count,
                 detail=(
-                    "Execution aborted by fail-fast condition. A P0 test returned FAIL or ERROR."
+                    "Execution aborted by fail-fast condition. A P0 test returned FAIL, ERROR "
+                    "or INCONCLUSIVE."
                 ),
             )
 
@@ -1499,10 +1517,36 @@ class AssessmentEngine:
             **timeout_field,
         )
 
+        # The gateway reaches only the tests that declare it (Need.GATEWAY,
+        # required or optional): what a test declares is what it can use
+        # (docs/project/test-review.md, phase 0c piece 1b; 0.1).
+        if not test.info.uses(Need.GATEWAY) and target.gateway is not None:
+            target = target.model_copy(update={"gateway": None})
+
+        # The credential of every account a test declares is obtained before it
+        # runs, as the gateway is given to it: a declared need is provided, so
+        # no test logs in for itself (group B, 2026-10-22). The login happens
+        # once per role and is reused by every later test; a role whose login
+        # does not work makes this test ERROR with the reason, and the others go
+        # on. Without any such need nothing is sent, so a run of tests that
+        # need no account never logs in.
+        roles = frozenset(role for need, role in NEED_ROLES.items() if test.info.uses(need))
+        if roles:
+            try:
+                acquire_tokens(target, context, client, required_roles=roles)
+            except (AuthenticationSetupError, SecurityClientError) as exc:
+                log.error(
+                    "test_account_not_available",
+                    test_id=test_id,
+                    roles=sorted(roles),
+                    error=str(exc),
+                )
+                return test._error(exc)  # noqa: SLF001
+
         wall_start = time.monotonic()
 
         if isinstance(test, ExternalToolTest):
-            result = test.execute(target, context, store)
+            result = test.execute(target, context, client, store)
         else:
             store.begin_test(test_id)
             try:
@@ -1529,13 +1573,18 @@ class AssessmentEngine:
         """
         Determine whether the fail-fast condition is triggered.
 
-        Condition: test has priority P0 AND status is FAIL or ERROR.
-        Both FAIL and ERROR are treated as blocking for P0 tests because
-        an ERROR means the verification of a critical guarantee did not
-        complete -- proceeding would produce an assessment without foundation.
+        Condition: test has priority P0 AND status is FAIL, ERROR or
+        INCONCLUSIVE. All three are blocking for P0 tests: a FAIL violates a
+        critical guarantee, an ERROR or an INCONCLUSIVE means its verification
+        did not complete (the same grouping as exit code 3) -- proceeding would
+        produce an assessment without foundation.
         """
         is_p0 = test.info.priority == 0
-        is_blocking_status = result.status in (TestStatus.FAIL, TestStatus.ERROR)
+        is_blocking_status = result.status in (
+            TestStatus.FAIL,
+            TestStatus.ERROR,
+            TestStatus.INCONCLUSIVE,
+        )
 
         if is_p0 and is_blocking_status:
             log.warning(
@@ -1651,6 +1700,7 @@ class AssessmentEngine:
         config: ToolConfig,
         attack_surface: AttackSurface,
         secrets: SecretRegistry,
+        references: ReferenceResponses,
     ) -> None:
         """
         Serialize evidence and generate the HTML assessment report.
@@ -1698,6 +1748,8 @@ class AssessmentEngine:
                 config=config,
                 spec_title=attack_surface.spec_title,
                 spec_version=attack_surface.spec_version,
+                references=references,
+                derived=attack_surface.derived,
             )
             # Secrets learned after their capture (e.g. a token in the
             # response that creates it) are replaced in the whole report.

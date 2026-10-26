@@ -1,248 +1,170 @@
 """
 src/tests/domain_1/test_1_5_insecure_credential_transport.py
 
-Test 1.5 -- Credentials Not Transmitted via Insecure Channels.
+Test 1.5: guarantee "a credential never travels on an insecure channel"
+(docs/project/test-review/group-d.md).
 
-Guarantee (docs/06-knowledge/04-guarantees.md, Section 1.5):
-    Credentials must be transmitted exclusively over TLS 1.2+ channels.
-    The Gateway must enforce HTTPS for all API traffic: HTTP requests must
-    either be rejected (port 80 closed) or permanently redirected to HTTPS
-    (301/308).  The HSTS header must be present on all HTTPS responses to
-    instruct browsers to never attempt plain-HTTP connections.
+The credential reaches the API over HTTP. This test checks the two things the
+gateway must do so that it is never carried in cleartext, each the subject of
+one sub-test:
 
-    Methodology references:
-        OWASP API2:2023 Broken Authentication
-        RFC 9110 Section 4.2.2 (HTTPS redirect semantics)
-        NIST SP 800-52 Rev.2 (TLS configuration)
-        OWASP ASVS v5.0.0 V12.1.1 (HSTS requirement)
-        OWASP ASVS v5.0.0 V14.2.1 (TLS version requirement)
+    credential_forced_onto_tls  a plain-HTTP request to a documented API path
+                                is refused or permanently redirected to HTTPS
+                                before it is processed; any cleartext answer
+                                (served, a weak/temporary redirect, or an error
+                                that the server produced) is a VIOLATION, because
+                                the request with its credential crossed the
+                                cleartext channel. The path is derived from the
+                                specification (where a credential actually
+                                travels), not `/`: a gateway redirects to HTTPS
+                                only on a path it has a route for, and answers
+                                `/` in cleartext (Kong, APISIX).
+    hsts_present                an HTTPS response carries a sound HSTS header
+                                (present, max-age within a bound,
+                                includeSubDomains), so a browser never tries
+                                plain HTTP. Checked on a documented API response,
+                                not `/` (the gateway sets HSTS on the API, not on
+                                an unrouted path).
 
-Strategy: BLACK_BOX -- network access only (the methodology classifies it as a
-    configuration audit, WHITE_BOX; the tool labels by what the tester has).
-    Like test 6.2, this test does NOT require gateway Admin API access.
-    Sub-test 1 uses httpx directly (not SecurityClient) to probe the HTTP
-    transport layer -- this is an intentional, documented exception to the
-    SecurityClient-only rule, justified by the same transport-boundary
-    reasoning that justifies gateway adapters using httpx for Admin API calls:
-    both represent separate trust boundaries from the target API.
-    Sub-test 2 uses SecurityClient for the HSTS header check on HTTPS.
+The TLS handshake itself (protocol versions, cipher suites, certificate, known
+TLS CVEs) is the subject of the external test ext.1.5.testssl, a scanner's job
+we do not reimplement (docs/project/test-review.md, rule 11). This native test
+covers only the HTTP-layer enforcement.
 
-    TLS cipher-suite and protocol audit (previously sub-test 3 in this file)
-    is now exclusively handled by ext_test_1_5_tls_analysis.py via the
-    TestsslConnector.  This separation enforces the architectural rule that
-    native BaseTest subclasses must not invoke external binary subprocesses;
-    that responsibility belongs to ExternalToolTest subclasses via connectors.
+Plain-HTTP target: when base_url is `http://`, the credential is in cleartext
+on every request; credential_forced_onto_tls is a VIOLATION/PLAIN_HTTP and HSTS
+is NOT_APPLICABLE (there is no TLS layer). The test never SKIPs a reachable
+target, which would hide the worst transport state.
 
-    Special case -- plain-HTTP target:
-    If the configured target base URL uses plain HTTP (no TLS), the test
-    immediately returns FAIL with a direct critical finding instead of SKIP.
-    Rationale: a plain-HTTP target is the worst possible state for credential
-    transport security.  Returning SKIP would hide this violation from the
-    report.  Sub-test 2 is skipped in this case because it requires a TLS layer.
+The HTTP probe is sent through the client (origin=), so it is recorded as
+evidence like any other request.
 
-Priority: P2 -- Defense-in-depth transport layer control.
-    A missing HSTS header or open HTTP port exposes credential interception
-    risk, but does not directly bypass application-level authentication.
-
-Sub-tests (executed in order):
---------------------------------------------------------------------------
-Sub-test 1 -- HTTP redirect enforcement (empirical, RFC 9110)
-    Derives the HTTP version of target.endpoint_base_url() by replacing
-    the 'https://' scheme with 'http://'.  Sends a plain GET to that URL.
-
-    Oracle:
-        Connection refused (OSError) -> PASS: HTTP port not exposed.
-        Connection timeout           -> PASS: port filtered (conservative).
-        Status in expected_redirect_codes (301/308) -> PASS: redirect enforced.
-        Any 2xx status               -> FAIL: HTTP API accessible in clear.
-        Any other 3xx (302, 307)     -> FAIL: temporary redirect, MITM-downgradeable.
-        Any 4xx / 5xx                -> FAIL: HTTP server is running and responding.
-
-Sub-test 2 -- HSTS header validation (NIST SP 800-52 Rev.2, ASVS V12.1.1)
-    Sends a GET to '/' on HTTPS via SecurityClient.  The response is
-    expected to carry the Strict-Transport-Security header regardless of
-    the HTTP status code (401, 404, or 200 -- all valid for this check).
-
-    Oracle:
-        Header absent                             -> FAIL.
-        max-age < hsts_min_max_age_seconds        -> FAIL.
-        includeSubDomains absent                  -> FAIL (best practice).
-        Header present and compliant              -> PASS.
-
-EvidenceStore policy:
-    Sub-test 1: no EvidenceRecord (direct httpx, no SecurityClient).
-                Finding uses evidence_ref=None.
-    Sub-test 2: EvidenceRecord from client.request().
-                add_fail_evidence() called on FAIL; pin_evidence() not used.
+Dependency rule: imports from stdlib, structlog and src.core, plus
+src.tests.base and src.tests.helpers.
 """
 
 from __future__ import annotations
 
 import re
-import ssl
 from typing import Annotated
-from urllib.parse import urlparse
+from urllib.parse import urlsplit
 
-import httpx
 import structlog
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
+from src.core.assessment_test import category_of
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
-from src.core.models import Finding, TestResult, TestStrategy
-from src.core.test_metadata import TestInfo
+from src.core.exceptions import SecurityClientError
+from src.core.models import (
+    Confidence,
+    EvidenceRecord,
+    Finding,
+    Outcome,
+    Reference,
+    ResponseCategory,
+    Standard,
+    TestResult,
+    TestStrategy,
+)
+from src.core.test_metadata import Effect, TestInfo
 from src.tests.base import BaseTest
+from src.tests.helpers.path_resolver import resolve_path_with_seed
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
-# ---------------------------------------------------------------------------
-# Parameters: tests.domain_1.test_1_5 in config.yaml
-# ---------------------------------------------------------------------------
+# The sub-tests, in the order the page lists them.
+_SUB_TLS: str = "credential_forced_onto_tls"
+_SUB_HSTS: str = "hsts_present"
 
-# HSTS max-age threshold: NIST SP 800-52 Rev.2, OWASP ASVS v5.0.0 V12.1.1.
-# 31 536 000 s = 1 year (recommended minimum).
-TEST_15_HSTS_MIN_MAX_AGE_DEFAULT: int = 31_536_000
+# A permanent redirect (RFC 9110): the only redirect that forces HTTPS for good.
+# A temporary redirect (302, 307) can be stripped by a man in the middle, so it
+# does not enforce the move to TLS.
+_PERMANENT_REDIRECTS: frozenset[int] = frozenset({301, 308})
 
-TEST_15_HSTS_MIN_MAX_AGE_MIN: int = 86_400  # 1 day — absolute floor
+# HSTS header and its parts (response headers are compared in lower case).
+_HSTS_HEADER: str = "strict-transport-security"
+_HSTS_INCLUDE_SUBDOMAINS: str = "includesubdomains"
+_HSTS_MAX_AGE: re.Pattern[str] = re.compile(r"max-age\s*=\s*(\d+)", re.IGNORECASE)
+_LOCATION_HEADER: str = "location"
 
-# HTTP redirect probe timeout: intentionally short; a refused connection is
-# immediate.  5 s accommodates slow firewalls that return TCP RST after a
-# brief delay rather than immediately.
-TEST_15_HTTP_PROBE_TIMEOUT_DEFAULT: float = 5.0
+# The HTTPS default port, dropped when deriving the plain-HTTP origin so that it
+# falls back to the implicit port 80 of a real deployment.
+_HTTPS_DEFAULT_PORT: int = 443
 
-TEST_15_HTTP_PROBE_TIMEOUT_MIN: float = 1.0
+# Where to probe when the specification documents no path at all: the root,
+# which still carries (or lacks) HSTS and still answers over HTTP.
+_ROOT_PATH: str = "/"
+
+# The lower bound of an acceptable HSTS floor (one day); the default is one year
+# (NIST SP 800-52 Rev.2, ASVS v5.0.0-3.4.1).
+_HSTS_MIN_FLOOR_SECONDS: int = 86_400
+_HSTS_DEFAULT_MAX_AGE_SECONDS: int = 31_536_000
+
+_REFERENCES: tuple[Reference, ...] = (
+    # Read on the ASVS v5.0.0 sources 2026-10-22: RFC 9110 section 4.2.2 (an
+    # `https` URI is a different origin, so a downgrade crosses a security
+    # boundary); ASVS 3.4.1 (Strict-Transport-Security on all responses, max-age
+    # at least one year, subdomains for L2+); 12.2.1 (TLS on all connectivity to
+    # external HTTP services, no fallback to cleartext).
+    Reference(standard=Standard.OWASP_API_TOP10, id="API2:2023"),
+    Reference(standard=Standard.RFC, id="9110", section="4.2.2"),
+    Reference(standard=Standard.NIST_SP, id="800-52"),
+    Reference(standard=Standard.ASVS, id="v5.0.0-3.4.1"),
+    Reference(standard=Standard.ASVS, id="v5.0.0-12.2.1"),
+)
 
 
 class Test15Params(BaseModel):
     """
-    Tuning parameters for Test 1.5 (Credentials Not Transmitted via Insecure Channels).
+    Parameters of test 1.5.
 
-    Governs two sub-tests executed against the target:
-
-    Sub-test 1 -- HTTP redirect enforcement (empirical, RFC 9110):
-        Sends a GET to the HTTP version of the target base URL.
-        Oracle: connection refused (port 80 closed) or 301/308 permanent
-        redirect.  Any 2xx or other 3xx response is a FAIL.
-
-    Sub-test 2 -- HSTS header validation (NIST SP 800-52 Rev.2,
-        OWASP ASVS v5.0.0 V12.1.1):
-        Sends a GET to the HTTPS base URL and inspects the
-        Strict-Transport-Security response header.
-        Oracle: header present, max-age >= hsts_min_max_age_seconds,
-        includeSubDomains present.
-
-    TLS cipher-suite audit is handled exclusively by ext_test_1_5_tls_analysis.py
-    via the TestsslConnector.  Enable external_tools.testssl in config.yaml.
+    The HTTP probe derives its origin from base_url (scheme to `http`, the HTTPS
+    default port dropped to the implicit port 80); `http_url` overrides it where
+    the deployment puts HTTP on a non-standard port (the labs, with HTTPS on
+    8443/9443/10443 and HTTP on 8000/9000/10000). The path is always derived from
+    the specification: only the origin of `http_url` is used, its path ignored.
     """
 
-    model_config = {"frozen": True, "extra": "forbid"}
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
-    hsts_min_max_age_seconds: Annotated[
-        int,
-        Field(ge=TEST_15_HSTS_MIN_MAX_AGE_MIN),
-    ] = Field(
-        default=TEST_15_HSTS_MIN_MAX_AGE_DEFAULT,
+    hsts_min_max_age_seconds: Annotated[int, Field(ge=_HSTS_MIN_FLOOR_SECONDS)] = Field(
+        default=_HSTS_DEFAULT_MAX_AGE_SECONDS,
         description=(
-            "Minimum acceptable max-age value (seconds) in the Strict-Transport-Security "
-            "header.  NIST SP 800-52 Rev.2, OWASP ASVS v5.0.0 V12.1.1. "
-            f"Default: {TEST_15_HSTS_MIN_MAX_AGE_DEFAULT} (1 year)."
-        ),
-    )
-    http_probe_enabled: bool = Field(
-        default=True,
-        description=(
-            "If True, probe the HTTP base URL for redirect enforcement (sub-test 1). "
-            "Set False only if port 80 is filtered at the network level and "
-            "any connection attempt would block for the full timeout. Default: True."
+            "Lowest acceptable max-age (seconds) in the Strict-Transport-Security header. "
+            "NIST SP 800-52 Rev.2, OWASP ASVS v5.0.0-3.4.1 ask for at least one year. "
+            f"Default: {_HSTS_DEFAULT_MAX_AGE_SECONDS} (one year)."
         ),
     )
     http_url: str = Field(
         default="",
         description=(
-            "A URL of the API in plain HTTP, checked for a redirect to HTTPS (sub-test 1). "
-            "When non-empty, this URL is used directly instead of deriving the "
-            "HTTP counterpart from the HTTPS base URL. "
-            "Use in non-standard port lab setups where the HTTPS base URL uses a "
-            "port other than 443 (e.g. https://localhost:8443 -> derive produces "
-            "http://localhost:8443/ which hits the gateway's TLS listener and returns 400). "
-            "Example: 'http://localhost:8000/' to probe the gateway's HTTP listener. "
-            "Empty string (default) falls back to the derived URL."
+            "The API in plain HTTP, when its HTTP listener is on a non-standard port: only the "
+            "origin (scheme://host[:port]) is used, the path is derived from the specification. "
+            "Empty (default) derives the origin from base_url (scheme to http, port 443 dropped)."
         ),
     )
-    http_probe_timeout_seconds: Annotated[
-        float,
-        Field(ge=TEST_15_HTTP_PROBE_TIMEOUT_MIN),
-    ] = Field(
-        default=TEST_15_HTTP_PROBE_TIMEOUT_DEFAULT,
-        description=(
-            "Connect + read timeout (seconds) for the HTTP redirect probe. "
-            "Keep short: a TCP RST is returned immediately for refused connections. "
-            f"Default: {TEST_15_HTTP_PROBE_TIMEOUT_DEFAULT}."
-        ),
-    )
-    expected_redirect_status_codes: tuple[int, ...] = Field(
-        default_factory=lambda: (301, 308),
-        description=(
-            "HTTP status codes that satisfy the redirect oracle in sub-test 1. "
-            "RFC 9110 permanent redirects: 301 (Moved Permanently) and "
-            "308 (Permanent Redirect).  Temporary redirects 302/307 are NOT "
-            "accepted: they allow MITM-driven downgrade attacks. Default: [301, 308]."
-        ),
-    )
-
-
-# ---------------------------------------------------------------------------
-# Module-level constants
-# ---------------------------------------------------------------------------
-
-# Oracle states — appear verbatim in the HTML Audit Trail column.
-_STATE_HTTP_PORT_CLOSED: str = "HTTP_PORT_CLOSED"
-_STATE_HTTP_REDIRECT_ENFORCED: str = "HTTP_REDIRECT_ENFORCED"
-_STATE_HTTP_PORT_OPEN: str = "HTTP_PORT_OPEN"
-_STATE_HTTP_PROBE_TIMEOUT: str = "HTTP_PROBE_TIMEOUT"
-_STATE_HSTS_COMPLIANT: str = "HSTS_COMPLIANT"
-_STATE_HSTS_MISSING: str = "HSTS_MISSING"
-_STATE_HSTS_MAX_AGE_LOW: str = "HSTS_MAX_AGE_BELOW_MINIMUM"
-_STATE_HSTS_NO_INCLUDE_SUBDOMAINS: str = "HSTS_MISSING_INCLUDE_SUBDOMAINS"
-
-# Regex to extract the numeric max-age value from the HSTS header.
-_HSTS_MAX_AGE_PATTERN: re.Pattern[str] = re.compile(r"max-age\s*=\s*(\d+)", re.IGNORECASE)
-
-# HTTP header names (lowercase -- SecurityClient normalises response headers).
-_HEADER_HSTS: str = "strict-transport-security"
-_HEADER_HSTS_INCLUDE_SUBDOMAINS: str = "includesubdomains"
-
-# Standards references cited in every Finding this test produces.
-_REFERENCES: tuple[str, ...] = (
-    "OWASP-API2:2023",
-    "RFC-9110-S4.2.2",
-    "NIST-SP-800-52-Rev2",
-    "OWASP-ASVS-v5.0.0-V12.1.1",
-    "OWASP-ASVS-v5.0.0-V14.2.1",
-)
-
-# Path probed for HSTS check -- any path is acceptable since HSTS must be
-# present on every response regardless of status code.
-_HSTS_PROBE_PATH: str = "/"
 
 
 class Test15InsecureCredentialTransport(BaseTest[Test15Params]):
-    """Test 1.5 -- Credentials Not Transmitted via Insecure Channels."""
+    """
+    Test 1.5 -- whether the credential is forced onto TLS and HSTS is set.
+
+    The oracle of each sub-test is in the module docstring and on the test
+    page.
+    """
 
     info = TestInfo(
         id="1.5",
-        name="Credentials Not Transmitted via Insecure Channels",
+        name="Credentials Over an Insecure Channel",
         priority=2,
         strategy=TestStrategy.BLACK_BOX,
         cwe="CWE-319",
-        tags=(
-            "transport-security",
-            "tls",
-            "hsts",
-            "OWASP-API2:2023",
-            "NIST-SP-800-52",
-        ),
+        references=_REFERENCES,
+        tags=("transport-security", "tls", "hsts"),
+        effect=Effect.READ_ONLY,
+        sub_tests=(_SUB_TLS, _SUB_HSTS),
     )
 
     def execute(
@@ -253,364 +175,298 @@ class Test15InsecureCredentialTransport(BaseTest[Test15Params]):
         store: EvidenceStore,
     ) -> TestResult:
         """
-        Verify that the target enforces HTTPS for all API traffic.
+        Probe the HTTP listener for a redirect, and an HTTPS response for HSTS.
 
-        Runs up to three sub-tests depending on the target scheme:
+        Args:
+            target:  The run's target (base URL, surface, path seed).
+            context: The run's context (unused: no credential is needed).
+            client:  The run's HTTP client.
+            store:   The test's evidence store.
 
-        - If the target base URL uses plain HTTP (no TLS at all), the test
-          immediately returns FAIL with a critical finding: this is the worst
-          possible state for credential transport security and requires no
-          further probing.  Sub-tests 2 and 3 are skipped because they
-          presuppose a TLS layer to inspect.
-
-        - If the target base URL uses HTTPS, three sub-tests are executed
-          in sequence (HTTP redirect probe, HSTS header, optional testssl.sh).
-          Each sub-test that detects a violation appends a Finding.
-
-        Returns PASS only when the target is HTTPS and all sub-tests pass.
-        Returns FAIL on any violation (including plain-HTTP target).
-        Never returns SKIP: every reachable target has a deterministic result.
+        Returns:
+            self._finish(), self._requires_attack_surface(...), or
+            self._error(exc).
         """
+        del context
         try:
             cfg = self.params(target)
             base_url = target.endpoint_base_url()
-            tls_context = target.tls_context
-
-            # ----------------------------------------------------------------
-            # Fast-path FAIL: target is plain HTTP — no TLS layer at all.
-            # Every credential sent to this API is transmitted in cleartext.
-            # Sub-test 2 requires a TLS handshake to inspect and is skipped.
-            # ----------------------------------------------------------------
             if not base_url.startswith("https://"):
-                log.info(
-                    "test_1_5_target_is_plain_http",
-                    base_url=base_url,
-                    oracle=_STATE_HTTP_PORT_OPEN,
-                )
-                return self._make_fail(
-                    message=(
-                        f"Target API operates on plain HTTP: '{base_url}'. "
-                        "All credentials, tokens, and session data are transmitted "
-                        "in cleartext.  This is the most critical transport-layer "
-                        "misconfiguration possible."
-                    ),
-                    detail=(
-                        f"The configured target base URL is '{base_url}', which uses "
-                        "the plain HTTP scheme.  No TLS layer is present between the "
-                        "client and the API Gateway.  Any credential sent in an "
-                        "Authorization header, any session token, and any sensitive "
-                        "payload is visible to any observer on the network path "
-                        "(Wireshark, corporate proxy, rogue Wi-Fi access point).  "
-                        "This finding supersedes all other transport-security checks: "
-                        "HSTS is meaningless without TLS.  "
-                        "For TLS cipher-suite analysis, enable the testssl.sh connector "
-                        "via external_tools.testssl in config.yaml.  "
-                        "Remediation: configure the Gateway to listen on HTTPS "
-                        "(TLS 1.2+), obtain a valid certificate, and update the "
-                        "target URL in config.yaml to 'https://'.  "
-                        "Oracle: target.endpoint_base_url() must start with 'https://' "
-                        "(RFC 9110 Section 4.2.2, NIST SP 800-52 Rev.2, "
-                        "OWASP ASVS v5.0.0 V12.1.1)."
-                    ),
-                    evidence_record_id=None,
-                    additional_references=list(_REFERENCES),
-                )
+                return self._plain_http(base_url)
+            missing = self._requires_attack_surface(target)
+            if missing is not None:
+                return missing
+            probe_path = self._documented_path(target)
+            self._check_http(target, client, store, cfg, base_url, probe_path)
+            self._check_hsts(client, store, cfg, probe_path)
+            return self._finish()
+        except Exception as exc:  # noqa: BLE001 -- top-level guard (BaseTest contract)
+            return self._error(exc)
 
-            findings: list[Finding] = []
-
-            # ------------------------------------------------------------------
-            # Sub-test 1 -- HTTP redirect enforcement
-            # ------------------------------------------------------------------
-            if cfg.http_probe_enabled:
-                finding_1 = self._run_http_redirect_probe(base_url, cfg, tls_context)
-                if finding_1 is not None:
-                    findings.append(finding_1)
-            else:
-                log.info(
-                    "test_1_5_http_probe_disabled",
-                    reason="http_probe_enabled=False in config",
-                )
-
-            # ------------------------------------------------------------------
-            # Sub-test 2 -- HSTS header validation
-            # ------------------------------------------------------------------
-            hsts_findings = self._run_hsts_check(client, store, cfg)
-            findings.extend(hsts_findings)
-
-            if findings:
-                return self._make_fail_multi(
-                    message=f"Transport security audit found {len(findings)} violation(s).",
-                    findings=findings,
-                )
-
-            return self._make_pass(
-                message=(
-                    "Transport security checks passed: HTTP redirect enforced "
-                    "(or port closed) and HSTS header compliant. "
-                    "TLS cipher-suite audit handled by ext_test_1.5 (testssl.sh connector)."
-                )
-            )
-
-        except Exception as exc:  # noqa: BLE001
-            return self._make_error(exc)
-
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
-
-    def _derive_http_url(self, https_base_url: str) -> str:
+    def _plain_http(self, base_url: str) -> TestResult:
         """
-        Derive the HTTP equivalent of an HTTPS base URL.
-
-        Replaces 'https://' with 'http://' and removes an explicit port 443
-        if present (port 80 is the implicit HTTP default).
+        The result for a target whose base URL is plain HTTP.
 
         Args:
-            https_base_url: HTTPS base URL string, e.g. 'https://api.example.com'.
+            base_url: The configured base URL (an `http://` one here).
 
         Returns:
-            HTTP URL string, e.g. 'http://api.example.com'.
+            self._finish() with the PLAIN_HTTP violation and HSTS not applicable.
         """
-        parsed = urlparse(https_base_url)
-        port = parsed.port
-        # Replace scheme; remove port 443 (HTTPS default) if explicitly set so
-        # that the derived HTTP URL uses the implicit port-80 default instead.
-        # For non-standard ports (e.g. 8443) the port is kept as-is: the probe
-        # targets the same port number with a different scheme, which is the
-        # correct behaviour for non-standard deployments.
-        if port == 443:  # noqa: PLR2004
-            netloc = parsed.hostname or ""
-        else:
-            # parsed.netloc already excludes the scheme (e.g. "localhost:8443").
-            netloc = parsed.netloc
-        http_url = parsed._replace(scheme="http", netloc=netloc).geturl()
-        # urlparse may leave a double-slash if netloc was empty; clean up.
-        return http_url.replace("///", "//")
-
-    def _run_http_redirect_probe(
-        self,
-        https_base_url: str,
-        cfg: Test15Params,
-        tls_context: ssl.SSLContext,
-    ) -> Finding | None:
-        """
-        Probe the HTTP version of the target base URL.
-
-        Uses httpx directly (not SecurityClient) because SecurityClient is
-        bound to the HTTPS base URL at construction.  This is the same
-        pattern as KongGatewayAdapter using httpx for the gateway admin API.
-
-        The TLS context of target.tls is passed to httpx.get(verify=...), so
-        that the probe trusts what SecurityClient trusts on the same target.
-
-        Args:
-            https_base_url: HTTPS target base URL from TargetContext.
-            cfg: Test15Params instance with probe parameters.
-            tls_context: TargetContext.tls_context (built from target.tls).
-
-        Returns:
-            Finding if the probe reveals a vulnerability, None otherwise.
-        """
-        http_url = self._derive_http_url(https_base_url)
-        # If an explicit override is configured, use it directly.
-        # This handles non-standard port lab setups where the derived URL
-        # (e.g. http://localhost:8443/) hits the TLS listener and returns 400
-        # instead of the redirect that the real HTTP listener (8000) would serve.
-        if cfg.http_url:
-            probe_url = cfg.http_url
-            log.info(
-                "test_1_5_http_url_override",
-                derived_url=f"{http_url}/",
-                override_url=probe_url,
-            )
-        else:
-            probe_url = f"{http_url}/"
-        expected_codes: frozenset[int] = frozenset(cfg.expected_redirect_status_codes)
-
-        log.info(
-            "test_1_5_http_probe_starting",
-            probe_url=probe_url,
-            timeout_seconds=cfg.http_probe_timeout_seconds,
-        )
-
-        try:
-            response = httpx.get(
-                probe_url,
-                follow_redirects=False,
-                timeout=cfg.http_probe_timeout_seconds,
-                verify=tls_context,
-            )
-        except (httpx.ConnectError, httpx.RemoteProtocolError):
-            # Connection refused or reset: HTTP port is closed.  Secure.
-            log.info("test_1_5_http_probe_connection_refused", oracle=_STATE_HTTP_PORT_CLOSED)
-            return None
-        except httpx.TimeoutException:
-            # Port filtered: treat as secure (conservative).
-            log.info(
-                "test_1_5_http_probe_timeout",
-                oracle=_STATE_HTTP_PROBE_TIMEOUT,
-                note="Port appears filtered; treating as secure (conservative).",
-            )
-            return None
-        except Exception as exc:  # noqa: BLE001
-            log.warning("test_1_5_http_probe_unexpected_error", error=str(exc))
-            return None
-
-        status_code = response.status_code
-
-        if status_code in expected_codes:
-            log.info(
-                "test_1_5_http_probe_redirect_enforced",
-                oracle=_STATE_HTTP_REDIRECT_ENFORCED,
-                status_code=status_code,
-            )
-            return None
-
-        # Any other response means HTTP is accessible and not properly enforced.
-        log.info(
-            "test_1_5_http_probe_port_open",
-            oracle=_STATE_HTTP_PORT_OPEN,
-            status_code=status_code,
-        )
-        return Finding(
-            title="HTTP Port Accessible Without HTTPS Redirect",
-            detail=(
-                f"Sent GET {probe_url} (HTTP plaintext). "
-                f"Expected connection refused, 301, or 308. "
-                f"Received HTTP {status_code}. "
-                "The HTTP port is open and the server does not enforce a permanent "
-                "redirect to HTTPS.  An attacker performing MITM can intercept "
-                "credentials transmitted over this plaintext channel.  "
-                "Oracle: port 80 must be closed or return 301/308 (RFC 9110, "
-                "NIST SP 800-52 Rev.2)."
+        self._record(
+            _SUB_TLS,
+            Outcome.VIOLATION,
+            "PLAIN_HTTP",
+            Finding(
+                title="The API is served over plain HTTP",
+                detail=(
+                    f"The configured base URL is {base_url!r}, plain HTTP: there is no TLS "
+                    "layer, so every credential, token and session value is sent in cleartext "
+                    "and is readable by anyone on the network path. Serve the API over HTTPS "
+                    "(TLS 1.2+) and set the target to its `https://` URL."
+                ),
+                confidence=Confidence.CERTAIN,
             ),
-            references=list(_REFERENCES),
-            evidence_ref=None,  # No EvidenceRecord: httpx direct call, not SecurityClient
+        )
+        self._record(_SUB_HSTS, Outcome.NOT_APPLICABLE, "NO_TLS")
+        return self._finish(message="The target is plain HTTP.")
+
+    def _documented_path(self, target: TargetContext) -> str:
+        """
+        A documented path to probe: the shortest one, parameters resolved.
+
+        A short path is likelier to need no path parameter and to have a gateway
+        route; the choice does not change the verdict (every documented path must
+        be forced onto TLS and carry HSTS), only which one proves it.
+
+        Args:
+            target: The run's target (surface, path seed).
+
+        Returns:
+            A concrete path, or the root when the specification documents none.
+        """
+        surface = target.attack_surface
+        if surface is None or not surface.endpoints:
+            return _ROOT_PATH
+        shortest = min(surface.endpoints, key=lambda e: (len(e.path), e.path, e.method))
+        return resolve_path_with_seed(shortest.path, target.path_seed)
+
+    def _http_origin(self, cfg: Test15Params, base_url: str) -> str:
+        """
+        The plain-HTTP origin to probe.
+
+        Args:
+            cfg:      The test's parameters (http_url override).
+            base_url: The HTTPS base URL.
+
+        Returns:
+            An origin "http://host[:port]" (no path), from http_url when set,
+            else derived from base_url.
+        """
+        if cfg.http_url:
+            parts = urlsplit(cfg.http_url)
+            return f"http://{parts.netloc}"
+        parts = urlsplit(base_url)
+        if parts.port in (None, _HTTPS_DEFAULT_PORT):
+            return f"http://{parts.hostname}"
+        return f"http://{parts.hostname}:{parts.port}"
+
+    def _check_http(
+        self,
+        target: TargetContext,
+        client: SecurityClient,
+        store: EvidenceStore,
+        cfg: Test15Params,
+        base_url: str,
+        probe_path: str,
+    ) -> None:
+        """
+        Send a plain-HTTP GET to a documented path and judge the answer.
+
+        Args:
+            target:     The run's target (unused beyond base_url, kept for symmetry).
+            client:     The run's HTTP client.
+            store:      The test's evidence store.
+            cfg:        The test's parameters.
+            base_url:   The HTTPS base URL (to derive the HTTP origin).
+            probe_path: The documented path to send over HTTP.
+        """
+        del target
+        origin = self._http_origin(cfg, base_url)
+        try:
+            response, record = client.request(
+                "GET",
+                probe_path,
+                test_id=self.info.id,
+                origin=origin,
+            )
+        except SecurityClientError as exc:
+            # No response over HTTP: the listener refused or did not answer the
+            # request, so no credential crossed a cleartext channel. The probe's
+            # question is exactly whether the HTTP port serves the request; a
+            # transport failure here is the enforced state, not NOT_VERIFIABLE.
+            if exc.record is None:
+                raise
+            self._judge(exc.record, store, _SUB_TLS, Outcome.ENFORCED, "HTTP_PORT_UNREACHABLE")
+            return
+        self._judge_http(response.headers, record, store, origin, probe_path)
+
+    def _judge_http(
+        self,
+        headers: object,
+        record: EvidenceRecord,
+        store: EvidenceStore,
+        origin: str,
+        probe_path: str,
+    ) -> None:
+        """
+        Judge a plain-HTTP response: an https redirect enforces, anything else is
+        a cleartext exposure.
+
+        Args:
+            headers:    The response headers (for the Location of a redirect).
+            record:     The evidence record of the probe.
+            store:      The test's evidence store.
+            origin:     The HTTP origin probed (for the finding text).
+            probe_path: The path probed (for the finding text).
+        """
+        status = record.response_status_code
+        category = category_of(record)
+        location = _header(headers, _LOCATION_HEADER)
+        if status in _PERMANENT_REDIRECTS and location.lower().startswith("https://"):
+            self._judge(record, store, _SUB_TLS, Outcome.ENFORCED, "HTTP_REDIRECT_ENFORCED")
+            return
+        if category == ResponseCategory.REDIRECT:
+            detail, why = (
+                ("WEAK_REDIRECT", f"redirected to {location!r}, which does not force HTTPS")
+                if status in _PERMANENT_REDIRECTS
+                else ("TEMPORARY_REDIRECT", f"returned a temporary redirect (HTTP {status})")
+            )
+        elif category == ResponseCategory.SERVED:
+            detail, why = (
+                "HTTP_SERVED_CLEARTEXT",
+                f"served the request in cleartext (HTTP {status})",
+            )
+        else:
+            detail, why = (
+                "HTTP_PROCESSED_CLEARTEXT",
+                f"processed the request over cleartext and answered HTTP {status}",
+            )
+        self._judge(
+            record,
+            store,
+            _SUB_TLS,
+            Outcome.VIOLATION,
+            detail,
+            Finding(
+                title=f"Credential-bearing request accepted over plain HTTP: {origin}{probe_path}",
+                detail=(
+                    f"A plain-HTTP GET to {origin}{probe_path} {why}. A client sending its "
+                    "credential to this URL transmits it in cleartext: a man in the middle reads "
+                    "or downgrades the connection. The gateway must refuse plain HTTP or answer a "
+                    "301/308 redirect to the `https` URL before the request is processed "
+                    "(RFC 9110 section 4.2.2, NIST SP 800-52 Rev.2)."
+                ),
+                confidence=Confidence.CERTAIN,
+            ),
         )
 
-    def _run_hsts_check(
+    def _check_hsts(
         self,
         client: SecurityClient,
         store: EvidenceStore,
         cfg: Test15Params,
-    ) -> list[Finding]:
+        probe_path: str,
+    ) -> None:
         """
-        Send a GET to the HTTPS root and validate the HSTS response header.
+        Send an HTTPS GET to a documented path and judge the HSTS header.
 
         Args:
-            client: SecurityClient bound to the HTTPS base URL.
-            store: EvidenceStore for recording FAIL transactions.
-            cfg: Test15Params instance.
-
-        Returns:
-            List of Finding objects.  Empty if HSTS is compliant.
+            client:     The run's HTTP client (bound to the HTTPS base URL).
+            store:      The test's evidence store.
+            cfg:        The test's parameters (the max-age bound).
+            probe_path: The documented path to read.
         """
-        findings: list[Finding] = []
-
-        log.info("test_1_5_hsts_check_starting", probe_path=_HSTS_PROBE_PATH)
-
-        response, record = client.request(
-            method="GET",
-            path=_HSTS_PROBE_PATH,
-            test_id=self.info.id,
-            # No Authorization header: HSTS must be present on ALL responses.
-        )
-
-        headers = {k.lower(): v for k, v in response.headers.items()}
-        hsts_value = headers.get(_HEADER_HSTS)
-
-        if hsts_value is None:
-            store.add_fail_evidence(record)
-            self._log_transaction(record, oracle_state=_STATE_HSTS_MISSING, is_fail=True)
-            findings.append(
+        response, record = client.request("GET", probe_path, test_id=self.info.id)
+        value = _header(response.headers, _HSTS_HEADER)
+        if not value:
+            self._judge(
+                record,
+                store,
+                _SUB_HSTS,
+                Outcome.VIOLATION,
+                "HSTS_MISSING",
                 Finding(
-                    title="Strict-Transport-Security Header Absent",
+                    title="No HSTS header on the API response",
                     detail=(
-                        f"Sent GET {_HSTS_PROBE_PATH} over HTTPS. "
-                        "The response did not include a Strict-Transport-Security header. "
-                        "Without HSTS, browsers may attempt HTTP connections that expose "
-                        "credentials to downgrade attacks (SSL stripping). "
-                        "Oracle: header must be present with "
-                        f"max-age >= {cfg.hsts_min_max_age_seconds}; includeSubDomains "
-                        "(OWASP ASVS v5.0.0 V12.1.1, NIST SP 800-52 Rev.2)."
+                        f"The HTTPS response to GET {probe_path} carries no "
+                        "Strict-Transport-Security header, so a browser that first reaches the "
+                        "host over HTTP is not told to switch to HTTPS and stay there "
+                        "(ASVS v5.0.0-3.4.1). Add it with a max-age of at least "
+                        f"{cfg.hsts_min_max_age_seconds} seconds and includeSubDomains."
                     ),
-                    references=list(_REFERENCES),
-                    evidence_ref=record.record_id,
-                )
+                    confidence=Confidence.CERTAIN,
+                ),
             )
-            return findings
-
-        # HSTS header is present -- validate max-age value.
-        max_age_match = _HSTS_MAX_AGE_PATTERN.search(hsts_value)
-        if max_age_match is None:
-            store.add_fail_evidence(record)
-            self._log_transaction(record, oracle_state=_STATE_HSTS_MAX_AGE_LOW, is_fail=True)
-            findings.append(
+            return
+        match = _HSTS_MAX_AGE.search(value)
+        max_age = int(match.group(1)) if match else None
+        if max_age is None or max_age < cfg.hsts_min_max_age_seconds:
+            self._judge(
+                record,
+                store,
+                _SUB_HSTS,
+                Outcome.VIOLATION,
+                "HSTS_MAX_AGE_LOW",
                 Finding(
-                    title="Strict-Transport-Security Header Has No max-age",
+                    title="HSTS max-age is below the bound",
                     detail=(
-                        f"HSTS header present with value '{hsts_value}' but no "
-                        "max-age directive was found.  A HSTS header without max-age "
-                        "is syntactically invalid and ignored by browsers (RFC 6797). "
-                        f"Oracle: max-age >= {cfg.hsts_min_max_age_seconds} required."
+                        f"The HSTS header on GET {probe_path} is {value!r}: its max-age "
+                        f"({'absent' if max_age is None else max_age}) is below the "
+                        f"{cfg.hsts_min_max_age_seconds} seconds asked for (NIST SP 800-52 Rev.2, "
+                        "ASVS v5.0.0-3.4.1). A short max-age leaves a window in which a browser "
+                        "still tries plain HTTP."
                     ),
-                    references=list(_REFERENCES),
-                    evidence_ref=record.record_id,
-                )
+                    confidence=Confidence.CERTAIN,
+                ),
             )
-        else:
-            max_age = int(max_age_match.group(1))
-            if max_age < cfg.hsts_min_max_age_seconds:
-                store.add_fail_evidence(record)
-                self._log_transaction(record, oracle_state=_STATE_HSTS_MAX_AGE_LOW, is_fail=True)
-                findings.append(
-                    Finding(
-                        title="Strict-Transport-Security max-age Below Minimum Threshold",
-                        detail=(
-                            f"HSTS header present: '{hsts_value}'. "
-                            f"max-age={max_age} is below the required minimum of "
-                            f"{cfg.hsts_min_max_age_seconds} seconds. "
-                            "A short max-age window allows HTTPS downgrade after expiry. "
-                            "Oracle: max-age must be >= 31 536 000 (1 year) per "
-                            "OWASP ASVS v5.0.0 V12.1.1."
-                        ),
-                        references=list(_REFERENCES),
-                        evidence_ref=record.record_id,
-                    )
-                )
-
-        # Validate includeSubDomains presence (best practice, ASVS V3.4.1).
-        if _HEADER_HSTS_INCLUDE_SUBDOMAINS not in hsts_value.lower():
-            # This is a separate Finding: missing includeSubDomains is distinct from
-            # missing/invalid max-age.  Both can coexist.
-            if not any(f.evidence_ref == record.record_id for f in findings):
-                # Only pin/add evidence once; if already added as FAIL, skip.
-                store.add_fail_evidence(record)
-            self._log_transaction(
-                record, oracle_state=_STATE_HSTS_NO_INCLUDE_SUBDOMAINS, is_fail=True
-            )
-            findings.append(
+            return
+        if _HSTS_INCLUDE_SUBDOMAINS not in value.lower().replace(" ", ""):
+            self._judge(
+                record,
+                store,
+                _SUB_HSTS,
+                Outcome.VIOLATION,
+                "HSTS_NO_SUBDOMAINS",
                 Finding(
-                    title="Strict-Transport-Security Missing includeSubDomains",
+                    title="HSTS does not cover subdomains",
                     detail=(
-                        f"HSTS header present: '{hsts_value}'. "
-                        "The 'includeSubDomains' directive is absent.  Without it, "
-                        "subdomains are not protected by HSTS and remain vulnerable "
-                        "to cookie injection via subdomain takeover.  "
-                        "Oracle: 'includeSubDomains' must be present per "
-                        "OWASP ASVS v5.0.0 V3.4.1."
+                        f"The HSTS header on GET {probe_path} is {value!r}: it has a sufficient "
+                        "max-age but no includeSubDomains, so a subdomain served over HTTP is not "
+                        "protected (ASVS v5.0.0-3.4.1). Add includeSubDomains unless a subdomain "
+                        "is deliberately HTTP-only. Reported at lower confidence: a bounded "
+                        "max-age already forces HTTPS on this host."
                     ),
-                    references=list(_REFERENCES),
-                    evidence_ref=record.record_id,
-                )
+                    confidence=Confidence.FIRM,
+                ),
             )
+            return
+        self._judge(record, store, _SUB_HSTS, Outcome.ENFORCED, "HSTS_COMPLIANT")
 
-        if not findings:
-            self._log_transaction(record, oracle_state=_STATE_HSTS_COMPLIANT)
-            log.info(
-                "test_1_5_hsts_check_passed",
-                hsts_value=hsts_value,
-                max_age=max_age_match.group(1) if max_age_match else "N/A",
-            )
 
-        return findings
+def _header(headers: object, name: str) -> str:
+    """
+    One response header by name, case-insensitively, or the empty string.
+
+    Args:
+        headers: The response's headers (httpx.Headers, case-insensitive).
+        name:    The header name in lower case.
+
+    Returns:
+        The header value, or "" when it is absent.
+    """
+    getter = getattr(headers, "get", None)
+    if getter is None:
+        return ""
+    value = getter(name)
+    return value if isinstance(value, str) else ""

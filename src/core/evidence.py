@@ -492,8 +492,8 @@ class EvidenceStore:
 
     def add_fail_evidence(self, record: EvidenceRecord) -> None:
         """
-        Store a transaction that proves a FAIL in evidence.json; log it with
-        _log_transaction(..., is_fail=True).
+        Store a transaction that proves a FAIL in evidence.json; BaseTest._judge()
+        calls it for every VIOLATION.
 
         Primary write path.  Every transaction where the observed server
         behavior violates the security guarantee under test must be recorded

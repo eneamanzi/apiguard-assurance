@@ -1,165 +1,154 @@
 """
 src/tests/domain_0/test_0_1_shadow_api_discovery.py
 
-Test 0.1 -- All Exposed Endpoints Are Documented and Authorized.
+Test 0.1: guarantee "every exposed endpoint is documented", the part that needs
+the specification (docs/project/test-review/0-1.md). The path search is the
+companion external test ext.0.1.ffuf.
 
-Guarantee (docs/06-knowledge/04-guarantees.md, Section 0.1):
-    Every active endpoint on the Gateway corresponds to an entry in the
-    official OpenAPI specification. Endpoints that are active but undocumented
-    (Shadow APIs) constitute unknown attack surface: they are not subject to
-    security review, rate limiting, or systematic authentication policies.
+Three sub-tests, each asking only "does something exist outside the
+specification":
 
-Methodology (docs/06-knowledge/04-guarantees.md, Section 0.1):
-    - Path Enumeration via Fuzzing: scan with standard wordlist of common
-      undocumented paths and compare responses against documented endpoints.
-    - HTTP Method Discovery: for each documented endpoint, send OPTIONS and
-      compare Allow header against declared methods.
-    - Versioning Completeness: probe common version prefixes for undocumented
-      active versions.
+    undeclared_methods     a documented path accepts a method the specification
+                           does not declare for it;
+    undocumented_versions  a version of a documented path that the
+                           specification does not document answers;
+    gateway_route_drift    the gateway routes something no documented path
+                           falls under (optional need GATEWAY: without it the
+                           sub-test is NOT_APPLICABLE and the others run).
 
-Strategy: BLACK_BOX -- zero credentials, anonymous external attacker simulation.
-Priority: P0 -- perimeter control, must pass before any authenticated test.
+What a method means is never assumed: each answer is compared with what the
+same method gives on random paths under the same parent (the calibration of
+src/core/references.py). A path answering an undeclared method exactly as an
+unknown path does does not serve it; a path answering differently treats that
+method specially, which is the evidence the sub-test needs. Measured on the
+labs (2026-10-21): Forgejo answers 405 to a method token it does not know and
+404 to an undeclared POST on a path it serves with GET, so comparing those two
+answers would report every such path; comparing like with like does not.
 
-False-positive guard
---------------------
-The OpenAPI spec URL itself (e.g. /swagger.v1.json, /api/swagger, /openapi.yaml)
-is excluded from the shadow-API wordlist at runtime. The rationale is that the
-spec endpoint is the source of truth for the AttackSurface: flagging the very
-document we fetched the surface from as a "shadow API" would be a circular and
-misleading finding.
+Where the target refuses an unauthenticated request before it looks at the
+method (crAPI's identity service answers 401 to any path and any method, as
+its calibration shows), the two answers are identical and say nothing: the
+case is NOT_VERIFIABLE, not enforced (2026-10-22: 47 of 202 judgements on
+crAPI were counted as enforced before this rule).
 
-This exclusion only applies when the spec was sourced via a URL
-(target.openapi_spec_url is not None). When the spec was read from a local
-filesystem path (target.openapi_spec_path is not None), there is no web-accessible
-path to exclude -- the file lives on disk, not behind an HTTP route -- so the
-exclusion set is left empty in that case.
+Safety of the method probes (owner, 2026-10-21: more discovery is better, with
+cleanup):
 
-The exclusion is derived dynamically from target.get_openapi_source() /
-target.openapi_spec_url so that it works across any target configuration.
+    - a path with parameters is probed on random values of the declared type
+      (random_sibling_path), never on the operator's resources, so a handled
+      write finds no object to act on;
+    - a path without parameters is probed with an empty JSON body;
+    - anything a probe creates (2xx with a Location) is deleted at once; what
+      cannot be deleted is stated in the result (rule 7).
+
+Dependency rule: imports from stdlib, structlog, pydantic and src.core, plus
+src.tests.base and src.tests.helpers. The name of the derivation rule is a
+constant here: a test never imports src/discovery/.
 """
 
 from __future__ import annotations
 
-import urllib.parse
-from collections.abc import Sequence
-from typing import Annotated
+import re
+from urllib.parse import urlsplit
 
 import structlog
-from pydantic import BaseModel, Field
 
+from src.core.assessment_test import category_of
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
-from src.core.models import EndpointRecord, Finding, TestResult, TestStrategy
-from src.core.test_metadata import TestInfo
+from src.core.exceptions import SecurityClientError
+from src.core.gateway.base import CONCEPT_ROUTES
+from src.core.gateway.concepts import ConceptStatus, RouteMatch, RoutePath
+from src.core.models import (
+    Confidence,
+    EndpointRecord,
+    EvidenceRecord,
+    Finding,
+    InfoNote,
+    Outcome,
+    Reference,
+    ResponseCategory,
+    Standard,
+    TestResult,
+    TestStrategy,
+)
+from src.core.references import Similarity, random_sibling_path, sibling_pattern
+from src.core.response_category import categorize
+from src.core.test_metadata import Effect, Need, TestInfo
 from src.tests.base import BaseTest
-from src.tests.data.shadow_wordlists import SHADOW_API_WORDLIST
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
-# ---------------------------------------------------------------------------
-# Parameters: tests.domain_0.test_0_1 in config.yaml
-# ---------------------------------------------------------------------------
+# The sub-tests, in the order the page lists them.
+_SUB_METHODS: str = "undeclared_methods"
+_SUB_VERSIONS: str = "undocumented_versions"
+_SUB_ROUTES: str = "gateway_route_drift"
 
-# Number of documented endpoints taken (in spec order) by the undeclared-method
-# sub-check; parametric endpoints among them are skipped. Each sampled endpoint
-# receives up to about five undeclared methods, so 10 means about 50 requests.
-# Bounds are safety rails: below 1 the sub-check would do nothing, above 100 a
-# typo would send a burst of hundreds of requests. 10 is the v0.1.0 behaviour.
-TEST_01_METHOD_PROBE_SAMPLE_SIZE_DEFAULT: int = 10
+# The methods probed when the specification does not declare them for a path.
+# HEAD is left out: RFC 9110 §9.3.2 makes it implied by GET.
+PROBED_METHODS: tuple[str, ...] = ("GET", "POST", "PUT", "PATCH", "DELETE")
 
-TEST_01_METHOD_PROBE_SAMPLE_SIZE_MIN: int = 1
+# The methods that carry a body; an empty JSON object is sent with them.
+_BODY_METHODS: frozenset[str] = frozenset({"POST", "PUT", "PATCH"})
+_EMPTY_BODY: dict[str, object] = {}
 
-TEST_01_METHOD_PROBE_SAMPLE_SIZE_MAX: int = 100
-
-
-class Test01Params(BaseModel):
-    """
-    Configuration for Test 0.1 (Shadow API Discovery).
-
-    Path in config.yaml: tests.domain_0.test_0_1
-    """
-
-    model_config = {"frozen": True, "extra": "forbid"}
-
-    method_probe_sample_size: Annotated[
-        int,
-        Field(ge=TEST_01_METHOD_PROBE_SAMPLE_SIZE_MIN, le=TEST_01_METHOD_PROBE_SAMPLE_SIZE_MAX),
-    ] = Field(
-        default=TEST_01_METHOD_PROBE_SAMPLE_SIZE_DEFAULT,
-        description=(
-            "Number of documented endpoints (in spec order) used by the undeclared-method "
-            "sub-check; parametric ones among them are skipped. Each receives up to about "
-            "five undeclared methods. Range 1-100, default 10."
-        ),
-    )
-
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-# HTTP status codes that indicate an active endpoint (not a definitive 404).
-# 401 and 403 are included: the path exists and the server is enforcing auth.
-# 429 is included: the path exists and is rate-limited.
-# 500 is included: the path exists but the server encountered an error.
-_ACTIVE_STATUS_CODES: frozenset[int] = frozenset(
-    {
-        200,
-        201,
-        202,
-        204,
-        301,
-        302,
-        307,
-        308,
-        400,
-        401,
-        403,
-        405,
-        422,
-        429,
-        500,
-        502,
-        503,
-    }
+# The categories in which an answer is a refusal of the request itself: the
+# target did not look at the method or the path, so an unauthenticated probe
+# cannot tell whether either is served.
+_REFUSING: frozenset[ResponseCategory] = frozenset(
+    {ResponseCategory.UNAUTHENTICATED, ResponseCategory.FORBIDDEN}
 )
 
-# HTTP methods to probe per documented endpoint for method discovery.
-_PROBE_METHODS: tuple[str, ...] = ("GET", "POST", "PUT", "PATCH", "DELETE")
+# The answer categories that say nothing about the guarantee: the target was
+# unavailable or protecting itself (rule 1).
+_SPOILING: dict[ResponseCategory, str] = {
+    ResponseCategory.UPSTREAM_UNAVAILABLE: "UPSTREAM_UNAVAILABLE",
+    ResponseCategory.RATE_LIMITED: "RATE_LIMITED",
+    ResponseCategory.NO_RESPONSE: "NO_RESPONSE",
+    ResponseCategory.SERVER_ERROR: "SERVER_ERROR",
+}
+
+# The name of the derivation rule whose facts give the undocumented versions
+# (src/discovery/derivation.py; a test does not import that package).
+RULE_VERSION_SIBLINGS: str = "version_siblings"
+
+# A path segment shaped as an API version, as the derivation rule reads it.
+_VERSION_SEGMENT: re.Pattern[str] = re.compile(r"^v\d+(\.\d+)*$", re.IGNORECASE)
+_TEMPLATE_PARAMETER: re.Pattern[str] = re.compile(r"\{([^}/]+)\}")
+
+# The header a created object's address comes in (RFC 9110 §10.2.2).
+_LOCATION_HEADER: str = "location"
+
+# How many items a note lists by name.
+_NOTE_EXAMPLES: int = 12
+
+_REFERENCES: tuple[Reference, ...] = (
+    Reference(standard=Standard.OWASP_API_TOP10, id="API9:2023"),
+    Reference(standard=Standard.ASVS, id="v5.0.0-4.1.4"),
+    Reference(standard=Standard.WSTG, id="WSTG-v42-CONF-06"),
+)
 
 
-# ---------------------------------------------------------------------------
-# Test implementation
-# ---------------------------------------------------------------------------
-
-
-class Test_0_1_ShadowApiDiscovery(BaseTest[Test01Params]):  # noqa: N801
+class Test01ShadowApiDiscovery(BaseTest):
     """
-    Verify that all active endpoints are documented in the OpenAPI specification.
+    Test 0.1 -- what the specification itself reveals about undocumented exposure.
 
-    Performs two sub-checks:
-        1. Path fuzzing: probes a wordlist of common undocumented paths,
-           excluding the spec URL path (when using URL-sourced spec) to
-           prevent false positives. Version prefixes are covered only by the
-           /api/v1/* and /api/v2/* entries of the wordlist.
-        2. Method discovery: takes the first method_probe_sample_size documented
-           endpoints (config, default 10), skips the
-           parametric ones, and sends undeclared HTTP methods directly to the
-           others (no OPTIONS / Allow check).
+    The oracle of each sub-test is in the module docstring and on the test
+    page; the path search is ext.0.1.ffuf.
     """
 
     info = TestInfo(
         id="0.1",
-        name="All Exposed Endpoints Are Documented and Authorized",
+        name="Undeclared Methods, Undocumented Versions and Gateway Route Drift",
         priority=0,
         strategy=TestStrategy.BLACK_BOX,
-        cwe="CWE-1059",
-        tags=(
-            "shadow-api",
-            "inventory",
-            "OWASP-API9:2023",
-        ),
+        cwe="CWE-912",
+        references=_REFERENCES,
+        tags=("inventory", "shadow-api"),
+        optional_needs=(Need.GATEWAY,),
+        effect=Effect.STRESSES_TARGET,
+        sub_tests=(_SUB_METHODS, _SUB_VERSIONS, _SUB_ROUTES),
     )
 
     def execute(
@@ -170,341 +159,490 @@ class Test_0_1_ShadowApiDiscovery(BaseTest[Test01Params]):  # noqa: N801
         store: EvidenceStore,
     ) -> TestResult:
         """
-        Execute shadow API discovery via path fuzzing and method probing.
+        Run the three sub-tests and return the computed result.
 
-        Returns PASS if no undocumented active endpoints are found.
-        Returns FAIL with one Finding per discovered shadow endpoint or
-        undeclared active method.
-        Returns SKIP if the AttackSurface is unavailable.
-        Returns ERROR if an unexpected exception occurs.
+        Args:
+            target:  The run's target (surface, derived facts, path_seed, gateway).
+            context: The run's context (reference responses).
+            client:  The run's HTTP client.
+            store:   The test's evidence store.
+
+        Returns:
+            self._finish(), or self._skip() without an attack surface, or
+            self._error(exc) on an unexpected exception.
         """
         try:
-            skip = self._requires_attack_surface(target)
-            if skip is not None:
-                return skip
+            missing = self._requires_attack_surface(target)
+            if missing is not None:
+                return missing
+            notes: list[InfoNote] = []
+            notes += self._methods(target, context, client, store)
+            notes += self._versions(target, context, client, store)
+            notes += self._routes(target, store)
+            return self._finish(notes=notes)
+        except Exception as exc:  # noqa: BLE001 -- the test's top-level handler
+            return self._error(exc)
 
-            assert target.attack_surface is not None  # noqa: S101 -- type narrowing only
-            surface = target.attack_surface
+    # ------------------------------------------------------------------
+    # Sub-test: undeclared_methods
+    # ------------------------------------------------------------------
 
-            # Build a set of documented (path, method) pairs for O(1) lookup.
-            documented_pairs: frozenset[tuple[str, str]] = frozenset(
-                (ep.path, ep.method) for ep in surface.endpoints
-            )
-            documented_paths: frozenset[str] = frozenset(ep.path for ep in surface.endpoints)
-
-            # Build the dynamic exclusion set so the spec URL itself is never
-            # probed. This prevents the false positive where the OpenAPI
-            # document endpoint (e.g. /swagger.v1.json) is flagged as a
-            # Shadow API because it is not listed inside its own spec.
-            # When the spec was loaded from a local path, the exclusion set
-            # is empty because there is no web-accessible path to exclude.
-            exclusion_set: frozenset[str] = _build_exclusion_set(target)
-
-            findings: list[Finding] = []
-
-            # Sub-check 1: path fuzzing against the wordlist.
-            findings.extend(
-                self._probe_shadow_paths(
-                    wordlist=SHADOW_API_WORDLIST,
-                    documented_paths=documented_paths,
-                    exclusion_set=exclusion_set,
-                    client=client,
-                    store=store,
-                )
-            )
-
-            # Sub-check 2: HTTP method discovery on documented endpoints.
-            # Sample a bounded number of documented endpoints to avoid excessive
-            # requests (tests.domain_0.test_0_1.method_probe_sample_size).
-            sample_size = self.params(target).method_probe_sample_size
-            sample_endpoints = list(surface.endpoints)[:sample_size]
-            findings.extend(
-                self._probe_undeclared_methods(
-                    endpoints=sample_endpoints,
-                    documented_pairs=documented_pairs,
-                    client=client,
-                    store=store,
-                )
-            )
-
-            if findings:
-                return self._make_fail_multi(
-                    message=(
-                        f"Shadow API discovery found {len(findings)} undocumented "
-                        f"active endpoint(s) or undeclared method(s)."
-                    ),
-                    findings=findings,
-                )
-
-            return self._make_pass(
-                message=(
-                    "No shadow API endpoints detected. "
-                    "All probed paths returned 404 or are documented in the spec."
-                )
-            )
-
-        except Exception as exc:  # noqa: BLE001
-            return self._make_error(exc)
-
-    def _probe_shadow_paths(
+    def _methods(
         self,
-        wordlist: list[str],
-        documented_paths: frozenset[str],
-        exclusion_set: frozenset[str],
+        target: TargetContext,
+        context: TestContext,
         client: SecurityClient,
         store: EvidenceStore,
-    ) -> list[Finding]:
+    ) -> list[InfoNote]:
         """
-        Probe each path in the wordlist and flag active, undocumented paths.
-
-        A path is considered a shadow API candidate if ALL of the following
-        conditions hold simultaneously:
-            - It is NOT in the documented paths set from the AttackSurface.
-            - It is NOT in the exclusion_set (e.g. the spec URL path).
-            - It returns a status code in _ACTIVE_STATUS_CODES (not 404/410).
+        Probe every method the specification does not declare, path by path.
 
         Args:
-            wordlist: List of candidate shadow API paths.
-            documented_paths: Set of paths from the OpenAPI spec.
-            exclusion_set: Paths that must never be flagged regardless of
-                           their HTTP response (e.g. the spec URL path).
-            client: SecurityClient for HTTP requests.
-            store: EvidenceStore for FAIL evidence.
+            target:  The run's target.
+            context: The run's context (the calibration).
+            client:  The HTTP client.
+            store:   The evidence store.
 
         Returns:
-            List of Finding objects, one per discovered shadow path.
+            The note of anything a probe created and could not delete.
         """
-        findings: list[Finding] = []
+        surface = target.attack_surface
+        declared: dict[str, set[str]] = {}
+        endpoints: dict[str, EndpointRecord] = {}
+        for endpoint in surface.endpoints if surface is not None else []:
+            declared.setdefault(endpoint.path, set()).add(endpoint.method)
+            endpoints.setdefault(endpoint.path, endpoint)
+        left_behind: list[str] = []
+        for template, methods in declared.items():
+            endpoint = endpoints[template]
+            path = self._concrete_path(template, endpoint)
+            for method in (m for m in PROBED_METHODS if m not in methods):
+                self._probe_method(method, path, endpoint, context, client, store, left_behind)
+        if not left_behind:
+            return []
+        more = len(left_behind) - _NOTE_EXAMPLES
+        return [
+            InfoNote(
+                title=f"{len(left_behind)} object(s) a probe created and could not delete",
+                detail=(
+                    "An undeclared write method was handled and the object it created could not "
+                    f"be removed: {', '.join(left_behind[:_NOTE_EXAMPLES])}"
+                    + (f" and {more} more" if more > 0 else "")
+                    + ". Remove them by hand."
+                ),
+            )
+        ]
 
-        for path in wordlist:
-            # Skip paths already documented in the spec.
-            if path in documented_paths:
+    @staticmethod
+    def _concrete_path(template: str, endpoint: EndpointRecord) -> str:
+        """
+        The path to probe: random values of the declared type in every parameter.
+
+        The operator's resources (path_seed) are deliberately not used: the
+        sub-tests ask whether an endpoint exists or knows a method, which a
+        non-existent object answers just as well, and nothing real can be
+        changed (rule 7).
+
+        Args:
+            template: The path as the specification writes it.
+            endpoint: Its first operation (for the parameters' declared types).
+
+        Returns:
+            A concrete path, addressing objects that do not exist.
+        """
+        if not _TEMPLATE_PARAMETER.search(template):
+            return template
+        return random_sibling_path(template, endpoint.parameters)
+
+    def _probe_method(  # noqa: PLR0913 -- one probe needs all of it
+        self,
+        method: str,
+        path: str,
+        endpoint: EndpointRecord,
+        context: TestContext,
+        client: SecurityClient,
+        store: EvidenceStore,
+        left_behind: list[str],
+    ) -> None:
+        """
+        Send one undeclared method and judge the answer (module docstring).
+
+        Args:
+            method:      The undeclared method.
+            path:        The concrete path probed.
+            endpoint:    The documented operation of that path (its template and
+                         the declared types of its parameters).
+            context:     The run's context (the calibration).
+            client:      The HTTP client.
+            store:       The evidence store.
+            left_behind: Filled with what a handled write created and could not
+                         be deleted.
+        """
+        body = _EMPTY_BODY if method in _BODY_METHODS else None
+        try:
+            _response, record = client.request(method, path, test_id=self.info.id, json=body)
+        except SecurityClientError as exc:
+            if exc.record is None:
+                raise
+            self._judge(exc.record, store, _SUB_METHODS, Outcome.NOT_VERIFIABLE, "NO_RESPONSE")
+            return
+        category = category_of(record)
+        detail = _SPOILING.get(category)
+        if detail is not None:
+            self._judge(record, store, _SUB_METHODS, Outcome.NOT_VERIFIABLE, detail)
+            return
+        if category == ResponseCategory.METHOD_NOT_ALLOWED:
+            # The standard refusal of a method a resource does not support
+            # (RFC 9110 section 15.5.6): no calibration needed.
+            self._judge(record, store, _SUB_METHODS, Outcome.ENFORCED, "METHOD_REJECTED")
+            return
+        references = context.references
+        similarity = references.same_as_unknown(
+            record, template_path=endpoint.path, parameters=endpoint.parameters
+        )
+        point = references.calibration(sibling_pattern(endpoint.path, endpoint.parameters), method)
+        if similarity == Similarity.UNRELIABLE:
+            self._judge(record, store, _SUB_METHODS, Outcome.NOT_VERIFIABLE, "CALIBRATION_UNSTABLE")
+            return
+        served = category == ResponseCategory.SERVED
+        if similarity == Similarity.SAME_AS_UNKNOWN and not served:
+            refused = (
+                point.fingerprint is not None
+                and categorize(point.fingerprint.status_code) in _REFUSING
+            )
+            self._judge(
+                record,
+                store,
+                _SUB_METHODS,
+                Outcome.NOT_VERIFIABLE if refused else Outcome.ENFORCED,
+                "REFUSED_BEFORE_ROUTING" if refused else "METHOD_NOT_SERVED",
+            )
+            return
+        if served:
+            self._clean_up(record, path, client, store, left_behind)
+        self._judge(
+            record,
+            store,
+            _SUB_METHODS,
+            Outcome.VIOLATION,
+            "UNDECLARED_METHOD_HANDLED" if served else "UNDECLARED_METHOD_KNOWN",
+            finding=Finding(
+                title=f"Undeclared method handled: {method} {endpoint.path}",
+                detail=(
+                    f"{method} {path} (no credential) answered {record.response_status_code} "
+                    f"({category.value}), while the same method on random paths under the same "
+                    f"parent ({point.pattern}) answered otherwise: this path treats {method} "
+                    "specially, and the specification does not declare it here. Declare it or "
+                    "block it (OWASP ASVS v5.0.0-4.1.4); whether it requires a credential or the "
+                    "right role is judged by tests 1.1 and 2.1."
+                ),
+                confidence=Confidence.CERTAIN if served else Confidence.FIRM,
+            ),
+            reference_responses=(point,),
+        )
+
+    def _clean_up(
+        self,
+        record: EvidenceRecord,
+        path: str,
+        client: SecurityClient,
+        store: EvidenceStore,
+        left_behind: list[str],
+    ) -> None:
+        """
+        Delete what a handled write created, or record it as left behind (rule 7).
+
+        Args:
+            record:      The answer of the handled write.
+            path:        The path probed.
+            client:      The HTTP client.
+            store:       The evidence store.
+            left_behind: Filled when the object could not be deleted.
+        """
+        location = record.response_headers.get(_LOCATION_HEADER)
+        created = location or (path if record.request_method == "PUT" else None)
+        if created is None:
+            return
+        target_path = (
+            "/" + created.split("://", 1)[-1].split("/", 1)[-1] if "://" in created else created
+        )
+        try:
+            _response, removal = client.request("DELETE", target_path, test_id=self.info.id)
+        except SecurityClientError:
+            left_behind.append(target_path)
+            return
+        self._step(removal)
+        if category_of(removal) not in (
+            ResponseCategory.SERVED,
+            ResponseCategory.NOT_FOUND,
+        ):
+            left_behind.append(target_path)
+        store.pin_evidence(removal)
+
+    # ------------------------------------------------------------------
+    # Sub-test: undocumented_versions
+    # ------------------------------------------------------------------
+
+    def _versions(
+        self,
+        target: TargetContext,
+        context: TestContext,
+        client: SecurityClient,
+        store: EvidenceStore,
+    ) -> list[InfoNote]:
+        """
+        Probe one documented path under each undocumented version (rule 5).
+
+        The candidates are the facts of the derivation rule version_siblings
+        (Phase 2). The path probed under a sibling version is chosen by a
+        stated rule: of that version group, a GET path first (read-only), a
+        path of any documented method otherwise, preferring one without
+        parameters and then the shortest. A method with a body is sent with an
+        empty one: the question is whether the version directory answers, and
+        an empty body creates nothing. Probing GET only left crAPI's
+        /identity/api/auth/ group (every path a POST) unverifiable, which is
+        where the methodology's own case lives (an older version of check-otp
+        without the controls of the newer one).
+
+        Args:
+            target:  The run's target (derived facts, surface).
+            context: The run's context (references).
+            client:  The HTTP client.
+            store:   The evidence store.
+
+        Returns:
+            The note listing what was probed, when anything was.
+        """
+        surface = target.attack_surface
+        if surface is None:
+            return []
+        facts = surface.derived_facts(RULE_VERSION_SIBLINGS)
+        if not facts:
+            self._record(_SUB_VERSIONS, Outcome.NOT_APPLICABLE, "NO_VERSIONED_PATH")
+            return []
+        probed: list[str] = []
+        for fact in facts:
+            base, _, version = fact.value.rpartition("/")
+            sample = self._version_sample(surface.endpoints, base)
+            if sample is None:
+                self._record(_SUB_VERSIONS, Outcome.NOT_APPLICABLE, "NO_PATH_IN_GROUP")
                 continue
-
-            # Skip paths in the exclusion set (spec URL, etc.).
-            if path in exclusion_set:
-                log.debug(
-                    "shadow_probe_path_excluded",
-                    path=path,
-                    reason="path is in the dynamic exclusion set (e.g. spec URL)",
-                )
-                continue
-
-            try:
-                response, record = client.request(
-                    method="GET",
-                    path=path,
-                    test_id=self.info.id,
-                )
-            except Exception as exc:  # noqa: BLE001
-                log.debug(
-                    "shadow_probe_transport_error",
-                    path=path,
-                    exc_type=type(exc).__name__,
-                    detail=str(exc),
-                )
-                continue
-
-            if response.status_code in _ACTIVE_STATUS_CODES:
-                store.add_fail_evidence(record)
-                self._log_transaction(
-                    record,
-                    oracle_state="SHADOW_API_ACTIVE",
-                    is_fail=True,
-                )
-                findings.append(
-                    Finding(
-                        title="Shadow API endpoint detected (undocumented active path)",
-                        detail=(
-                            f"GET {path} returned HTTP {response.status_code}, "
-                            f"indicating the path is active on the Gateway. "
-                            f"This path is not declared in the OpenAPI specification. "
-                            f"Expected: HTTP 404 Not Found (deny-by-default)."
-                        ),
-                        references=[
-                            self.info.cwe,
-                            "OWASP-API9:2023",
-                            "NIST-SP-800-204-S3.1",
-                        ],
-                        evidence_ref=record.record_id,
+            endpoint, suffix = sample
+            path = f"{base}/{version}{suffix}"
+            concrete = self._concrete_path(path, endpoint)
+            self._probe_version(concrete, endpoint.method, fact.value, context, client, store)
+            probed.append(f"{endpoint.method} {concrete}")
+        if not probed:
+            return []
+        return [
+            InfoNote(
+                title=f"{len(probed)} undocumented version(s) probed",
+                detail=(
+                    "The versions next to those the specification documents, from the "
+                    f"derivation rule {RULE_VERSION_SIBLINGS}: "
+                    f"{', '.join(probed[:_NOTE_EXAMPLES])}"
+                    + (
+                        f" and {len(probed) - _NOTE_EXAMPLES} more"
+                        if len(probed) > _NOTE_EXAMPLES
+                        else ""
                     )
-                )
-            else:
-                # 404/410: path correctly denied by the Gateway deny-by-default policy.
-                self._log_transaction(record, oracle_state="CORRECTLY_DENIED")
+                    + "."
+                ),
+            )
+        ]
 
-        return findings
-
-    def _probe_undeclared_methods(
-        self,
-        endpoints: Sequence[EndpointRecord],
-        documented_pairs: frozenset[tuple[str, str]],
-        client: SecurityClient,
-        store: EvidenceStore,
-    ) -> list[Finding]:
+    @staticmethod
+    def _version_sample(
+        endpoints: list[EndpointRecord], base: str
+    ) -> tuple[EndpointRecord, str] | None:
         """
-        For each sampled documented endpoint, probe methods not in the spec.
+        The documented path a version group lends for the probe, and its suffix.
 
-        An undeclared method is flagged if the server responds with a status
-        code other than 405 Method Not Allowed, which is the correct response
-        for unsupported methods per RFC 9110.
+        Chosen by the stated rule of the sub-test: a GET path first, then one
+        without parameters, then the shortest.
 
         Args:
-            endpoints: Sample of EndpointRecord objects to probe.
-            documented_pairs: Set of (path, method) tuples from the spec.
-            client: SecurityClient for HTTP requests.
-            store: EvidenceStore for FAIL evidence.
+            endpoints: The surface's endpoints.
+            base:      The path before the version segment, e.g. "/identity/api".
 
         Returns:
-            List of Finding objects, one per undeclared active method.
+            (the endpoint, the path after the version segment), or None when the
+            group documents no operation.
         """
-        findings: list[Finding] = []
-
+        found: list[tuple[int, int, int, EndpointRecord, str]] = []
         for endpoint in endpoints:
-            path: str = endpoint.path
+            segments = endpoint.path.split("/")
+            for position, segment in enumerate(segments):
+                if _VERSION_SEGMENT.match(segment) and "/".join(segments[:position]) == base:
+                    suffix = "/" + "/".join(segments[position + 1 :])
+                    not_get = 0 if endpoint.method == "GET" else 1
+                    parametric = 1 if _TEMPLATE_PARAMETER.search(suffix) else 0
+                    found.append((not_get, parametric, len(suffix), endpoint, suffix))
+                    break
+        if not found:
+            return None
+        *_ranking, endpoint, suffix = min(found, key=lambda item: item[:3])
+        return endpoint, suffix
 
-            # Skip paths with template parameters: we cannot substitute
-            # real values in Black Box mode without knowing valid resource IDs.
-            if "{" in path:
+    def _probe_version(  # noqa: PLR0913 -- one probe needs all of it
+        self,
+        path: str,
+        method: str,
+        candidate: str,
+        context: TestContext,
+        client: SecurityClient,
+        store: EvidenceStore,
+    ) -> None:
+        """
+        Request one path under an undocumented version and judge it (rule 3).
+
+        Args:
+            path:      The concrete path under the undocumented version.
+            method:    The method the specification declares on that path; a
+                       method with a body is sent with an empty one.
+            candidate: The version directory the rule derived.
+            context:   The run's context (references).
+            client:    The HTTP client.
+            store:     The evidence store.
+        """
+        body = _EMPTY_BODY if method in _BODY_METHODS else None
+        try:
+            _response, record = client.request(method, path, test_id=self.info.id, json=body)
+        except SecurityClientError as exc:
+            if exc.record is None:
+                raise
+            self._judge(exc.record, store, _SUB_VERSIONS, Outcome.NOT_VERIFIABLE, "NO_RESPONSE")
+            return
+        category = category_of(record)
+        detail = _SPOILING.get(category)
+        if detail is not None:
+            self._judge(record, store, _SUB_VERSIONS, Outcome.NOT_VERIFIABLE, detail)
+            return
+        references = context.references
+        similarity = references.same_as_unknown(record, template_path=path)
+        point = references.calibration(sibling_pattern(path), method)
+        if similarity == Similarity.UNRELIABLE:
+            self._judge(
+                record, store, _SUB_VERSIONS, Outcome.NOT_VERIFIABLE, "CALIBRATION_UNSTABLE"
+            )
+            return
+        if similarity == Similarity.SAME_AS_UNKNOWN or category == ResponseCategory.NOT_FOUND:
+            self._judge(record, store, _SUB_VERSIONS, Outcome.ENFORCED, "VERSION_ABSENT")
+            return
+        self._judge(
+            record,
+            store,
+            _SUB_VERSIONS,
+            Outcome.VIOLATION,
+            "UNDOCUMENTED_VERSION",
+            finding=Finding(
+                title=f"Undocumented API version answers: {method} {path}",
+                detail=(
+                    f"{method} {path} (no credential) answered {record.response_status_code} "
+                    f"({category.value}), unlike random paths under the same parent: the version "
+                    f"directory {candidate} is not documented, while its neighbours are. An old "
+                    "version left active lacks the controls added later; remove it or document "
+                    "it. Whether two versions enforce the same controls is judged by test 2.4."
+                ),
+                # The candidate comes from a heuristic rule (rule 6, TENTATIVE).
+                confidence=Confidence.TENTATIVE,
+            ),
+            reference_responses=(point,),
+        )
+
+    # ------------------------------------------------------------------
+    # Sub-test: gateway_route_drift
+    # ------------------------------------------------------------------
+
+    def _routes(self, target: TargetContext, store: EvidenceStore) -> list[InfoNote]:
+        """
+        Compare the gateway's routes with the documented paths (optional need).
+
+        Args:
+            target: The run's target (gateway, surface).
+            store:  The evidence store.
+
+        Returns:
+            No note: the judgements carry the sub-test's outcome.
+        """
+        if target.gateway is None:
+            self._record(_SUB_ROUTES, Outcome.NOT_APPLICABLE, "NO_GATEWAY")
+            return []
+        answer = target.gateway.routes()
+        evidence_ref = self._record_gateway_concept(target, store, CONCEPT_ROUTES, answer)
+        if answer.status != ConceptStatus.READ:
+            detail = (
+                "ROUTES_NOT_SUPPORTED"
+                if answer.status == ConceptStatus.NOT_SUPPORTED
+                else "ROUTES_NOT_READABLE"
+            )
+            outcome = (
+                Outcome.NOT_APPLICABLE
+                if answer.status == ConceptStatus.NOT_SUPPORTED
+                else Outcome.NOT_VERIFIABLE
+            )
+            self._record(_SUB_ROUTES, outcome, detail)
+            return []
+        surface = target.attack_surface
+        documented = sorted({e.path for e in surface.endpoints} if surface is not None else set())
+        spec_path = urlsplit(str(target.openapi_spec_url)).path if target.openapi_spec_url else None
+        for route in answer.items:
+            if not route.enabled:
+                self._record(_SUB_ROUTES, Outcome.NOT_APPLICABLE, "ROUTE_DISABLED")
                 continue
-
-            for method in _PROBE_METHODS:
-                if (path, method) in documented_pairs:
-                    continue
-
-                try:
-                    response, record = client.request(
-                        method=method,
-                        path=path,
-                        test_id=self.info.id,
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    log.debug(
-                        "method_probe_transport_error",
-                        path=path,
-                        method=method,
-                        exc_type=type(exc).__name__,
-                        detail=str(exc),
-                    )
-                    continue
-
-                # 405 is the correct response for unsupported methods.
-                # Any other status in _ACTIVE_STATUS_CODES indicates the
-                # method is accepted without being declared in the spec.
-                if response.status_code in _ACTIVE_STATUS_CODES and response.status_code != 405:
-                    store.add_fail_evidence(record)
-                    self._log_transaction(
-                        record,
-                        oracle_state="UNDECLARED_METHOD_ACTIVE",
-                        is_fail=True,
-                    )
-                    findings.append(
-                        Finding(
-                            title="Undeclared HTTP method accepted by endpoint",
-                            detail=(
-                                f"{method} {path} returned HTTP "
-                                f"{response.status_code}. "
-                                f"This method is not declared in the OpenAPI spec "
-                                f"for this path. "
-                                f"Expected: HTTP 405 Method Not Allowed."
-                            ),
-                            references=[
-                                self.info.cwe,
-                                "OWASP-API9:2023",
-                                "RFC-9110-S9.1",
-                            ],
-                            evidence_ref=record.record_id,
-                        )
-                    )
-                else:
-                    oracle = (
-                        "METHOD_NOT_ALLOWED" if response.status_code == 405 else "CORRECTLY_DENIED"
-                    )
-                    self._log_transaction(record, oracle_state=oracle)
-
-        return findings
+            orphans = [p for p in route.paths if not _route_covers(p, documented, spec_path)]
+            if not orphans:
+                self._record(_SUB_ROUTES, Outcome.ENFORCED, "ROUTE_DOCUMENTED")
+                continue
+            self._record(
+                _SUB_ROUTES,
+                Outcome.VIOLATION,
+                "ROUTE_NOT_DOCUMENTED",
+                Finding(
+                    title=f"Gateway route without documented paths: {route.name}",
+                    detail=(
+                        f"The gateway's route '{route.name}' is enabled and exposes "
+                        f"{', '.join(f'{p.value} ({p.match.value})' for p in orphans)}, under "
+                        "which the specification documents no "
+                        f"operation (backend: {route.backend or 'unknown'}). Either the route "
+                        "exposes an API nobody reviewed, or it is left over from a removed one: "
+                        "remove it or document what it serves."
+                    ),
+                    evidence_ref=evidence_ref,
+                    # The configuration read: the observed fact itself (rule 6).
+                    confidence=Confidence.CERTAIN,
+                ),
+            )
+        return []
 
 
-# ---------------------------------------------------------------------------
-# Module-level helper -- dynamic exclusion set construction
-# ---------------------------------------------------------------------------
-
-
-def _build_exclusion_set(target: TargetContext) -> frozenset[str]:
+def _route_covers(route_path: RoutePath, documented: list[str], spec_path: str | None) -> bool:
     """
-    Build the set of web paths that must never be flagged as shadow endpoints.
+    Whether a route's path has a documented path (or the specification) under it.
 
-    URL-sourced spec
-    ----------------
-    When the OpenAPI spec was fetched over HTTP (target.openapi_spec_url is
-    not None), the path component of that URL is added to the exclusion set.
-    This prevents the circular false positive where the spec's own serving
-    endpoint (e.g. /swagger.v1.json) is reported as an undocumented active
-    path, because it is not listed inside the spec it exposes.
-
-    The path is extracted via urllib.parse.urlparse and normalised to remove
-    any trailing slash. Only the path component is used -- scheme, host, and
-    query string are irrelevant for path comparison against the wordlist.
-
-    Example:
-        openapi_spec_url = "http://localhost:3000/swagger.v1.json"
-        extracted path   = "/swagger.v1.json"
-        exclusion_set    = frozenset({"/swagger.v1.json"})
-
-    Path-sourced spec
-    -----------------
-    When the OpenAPI spec was read from a local filesystem path
-    (target.openapi_spec_path is not None), there is no web-accessible HTTP
-    path to exclude -- the file lives on disk and is not served by the Gateway.
-    In this case the exclusion set is empty and all wordlist paths are probed
-    normally.
-
-    Error handling
-    --------------
-    If the URL cannot be parsed (unusual format), the exclusion set is returned
-    empty rather than raising. The consequence is a potential false positive on
-    that specific path -- acceptable because the alternative (crashing the test)
-    is worse.
+    How the gateway matches the path is the adapter's answer (RouteMatch), so
+    this comparison knows nothing about any gateway's own syntax.
 
     Args:
-        target: The current TargetContext carrying the spec source info.
+        route_path: One path of the gateway's route, with its match kind.
+        documented: The documented paths.
+        spec_path:  The path the specification is served at, if any.
 
     Returns:
-        frozenset of web path strings to exclude from shadow-API probing.
-        Empty frozenset when the spec was sourced from a local filesystem path.
+        True when at least one documented path falls under the route.
     """
-    # Local path: no web route to exclude.
-    if target.openapi_spec_url is None:
-        log.debug(
-            "shadow_probe_exclusion_set_empty",
-            reason=(
-                "OpenAPI spec was sourced from a local filesystem path "
-                "(target.openapi_spec_path). No web-accessible spec path "
-                "to exclude from shadow-API probing."
-            ),
-        )
-        return frozenset()
-
-    # URL source: extract and exclude the path component.
-    excluded: set[str] = set()
-
-    try:
-        spec_url_str = str(target.openapi_spec_url)
-        parsed = urllib.parse.urlparse(spec_url_str)
-        spec_path = parsed.path.rstrip("/")
-        if spec_path:
-            excluded.add(spec_path)
-            log.debug(
-                "shadow_probe_exclusion_set_built",
-                spec_url=spec_url_str,
-                excluded_path=spec_path,
-            )
-    except Exception as exc:  # noqa: BLE001
-        log.warning(
-            "shadow_probe_exclusion_set_build_failed",
-            exc_type=type(exc).__name__,
-            detail=str(exc),
-            consequence="spec URL path will not be excluded from shadow probing",
-        )
-
-    return frozenset(excluded)
+    candidates = [*documented, *([spec_path] if spec_path else [])]
+    if route_path.match == RouteMatch.REGEX:
+        try:
+            expression = re.compile(route_path.value)
+        except re.error:
+            return False
+        return any(expression.search(path) for path in candidates)
+    if route_path.match == RouteMatch.EXACT:
+        # A path matched exactly is covered by a documented operation on it, or
+        # by the documented operations under it: an exact route of a directory
+        # (APISIX writes /api beside /api/*) is their parent, and test
+        # ext.0.1.ffuf does not judge such a parent either.
+        under = route_path.value.rstrip("/") + "/"
+        return any(path == route_path.value or path.startswith(under) for path in candidates)
+    return any(path.startswith(route_path.value) for path in candidates)

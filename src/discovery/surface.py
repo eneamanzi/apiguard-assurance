@@ -66,6 +66,7 @@ import structlog
 from src.core.exceptions import OpenAPILoadError
 from src.core.models import (
     AttackSurface,
+    AuthDeclaration,
     EndpointRecord,
     ParameterInfo,
     SecuritySchemeRecord,
@@ -609,8 +610,10 @@ def _build_single_record(
     operation_security_raw = operation.get(_KEY_SECURITY)
     if isinstance(operation_security_raw, list):
         requires_auth = _security_array_requires_auth(operation_security_raw)
+        auth_declaration = AuthDeclaration.OPERATION
     else:
         requires_auth = global_requires_auth
+        auth_declaration = AuthDeclaration.DOCUMENT
 
     # --- parameters ---
     operation_level_parameters = _extract_raw_parameters(operation)
@@ -660,6 +663,7 @@ def _build_single_record(
         operation_id=operation_id,
         tags=tags,
         requires_auth=requires_auth,
+        auth_declaration=auth_declaration,
         is_deprecated=is_deprecated,
         parameters=valid_parameters,
         request_body_required=request_body_required,

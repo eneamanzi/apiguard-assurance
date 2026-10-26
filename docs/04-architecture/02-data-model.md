@@ -22,7 +22,7 @@ ResultSet
 └── results: [TestResult]
       ├── status: PASS | FAIL | SKIP | ERROR
       ├── message, skip_reason, duration_ms (set by the engine after execute())
-      ├── declaration copied from the test's info (TestInfo): test_id, test_name, domain, priority, strategy, cwe_id, tags, tool_name; source
+      ├── declaration copied from the test's info (TestInfo): test_id, test_name, domain, priority, strategy, cwe_id, references, tags, tool_name; source
       ├── findings: [Finding]           title, detail, references, evidence_ref ──► EvidenceRecord.record_id
       ├── notes: [InfoNote]             title, detail, references (context, not a violation)
       └── transaction_log: [TransactionSummary]   every HTTP request of the test (PASS included)

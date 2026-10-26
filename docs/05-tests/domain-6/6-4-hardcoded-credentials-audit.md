@@ -1,112 +1,136 @@
 # 6.4 Hardcoded Credentials Audit
 
-> **Audience:** analysts, contributors · **Status:** implemented (v0.1.0) · **Source of truth:**
+> **Audience:** analysts, contributors · **Status:** rewritten in the test review (branch `test-review`, 2026-10-23) ·
+> **Source of truth:**
 > [`src/tests/domain_6/test_6_4_hardcoded_credentials_audit.py`](../../../src/tests/domain_6/test_6_4_hardcoded_credentials_audit.py) ·
-> **Verified:** 2026-10-05
+> **Verified:** 2026-10-23
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("6.4", page=cog.inFile)) ]]] -->
 
 |  |  |
 |---|---|
 | Test ID | `6.4` |
-| Name | Service Credentials Not Hardcoded or Exposed |
+| Name | Hardcoded Credentials Audit |
 | Domain | 6 - Configuration and Hardening |
-| Priority / strategy | P2 / WHITE_BOX |
+| Priority / strategy | P2 / BLACK_BOX |
+| Effect | READ_ONLY |
 | CWE | CWE-798 |
-| Tags | `hardcoded-credentials`, `secret-management`, `configuration-audit`, `CWE-798`, `OWASP-API8:2023` |
+| Standards | `OWASP API8:2023`, `OWASP ASVS v5.0.0-13.3.1`, `NIST SP 800-53, Section 5.4` |
+| Tags | `hardcoded-credentials`, `secret-management` |
 | Prerequisites | none |
-| Needs | - |
+| Needs | `GATEWAY` (optional) |
 | Parameters | [`tests.domain_6.test_6_4`](../../03-reference/01-configuration.md#testsdomain_6test_6_4) |
 
 <!-- [[[end]]] -->
 
-**Also uses:** `gateway.adapter` and `gateway.admin.url`, when configured (sub-test B; without them the test runs sub-test A only).
+**Same group:** tests `6.1`, `6.2`.
 
-## What it checks
+## 1. Guarantee
 
-Service credentials (database passwords, API keys, private keys) must not be exposed by debug endpoints nor stored
-in plain text in the gateway configuration.
+Service credentials are not exposed through a debug endpoint nor hard-coded in the gateway configuration. A PASS
+promises a probed debug endpoint returned no credential, and the gateway's configuration held none. OWASP API8:2023,
+CWE-798; ASVS v5.0.0-13.3.1 (secrets in a vault, not in source or artifacts).
 
-## How it works
+## 2. Sub-tests and coverage of the methodology
 
-**Sub-test A, debug endpoints (always runs).** Unauthenticated `GET` on each path in `debug_endpoint_paths`
-(10 defaults: `/actuator/env`, `/actuator/configprops`, `/actuator/health`, `/debug/vars`, `/debug/pprof`,
-`/api/config`, `/admin/config`, `/_debug`, `/api/debug/users`, `/api/debug/config`).
-
-| Response | Result |
+| Sub-test | Methodology (guarantee 6.4) |
 |---|---|
-| `2xx` and the body matches a credential pattern | Finding `Credential Pattern Exposed via Debug Endpoint: <path>` |
-| `2xx` with structured data, no pattern | InfoNote `Unauthenticated Debug Endpoint Returns Structured Data: <path>` |
-| non-`2xx` | Blocked (distinguishes gateway block from application block via `gateway_block_body_fragment`) |
+| `debug_endpoint_no_secret` | "debug endpoint exposure: `/actuator/env` etc. must not expose credentials" (empirical) |
+| `gateway_config_no_secret` | "pattern scan of the gateway config for credential formats and high-entropy values in sensitive keys" |
+| left out | the Docker-image `docker history` scan and the secret-manager rotation audit (no access to a registry or a vault from the tool) |
 
-Credential patterns: URL-embedded `user:password@host`, AWS access key id (`AKIA…`), Stripe `sk_live_` / `sk_test_`,
-GitHub `ghp_` token, PEM private key.
+## 3. Inputs
 
-**Sub-test B, gateway configuration (only with a gateway adapter).** The test reads the gateway concept
-"configuration values" ([gateway concepts](../../04-architecture/05-design-decisions.md#d7-neutral-gateway-concepts)): backend URLs and the text values of
-the plugin configurations, each with its location and dotted key. Client credentials (values the gateway keeps for
-its clients) are not scanned. On Kong DB-less no backend URL is returned and strings inside lists are not collected,
-so sub-test B finds nothing on the labs (Q-29).
+The debug endpoint paths to probe (`debug_endpoint_paths`, configured; none means the sub-test is not applicable).
+The gateway's configuration values read through the adapter (`config_values`, `Need.GATEWAY` optional). Secret values
+are masked (`SecretStr`).
 
-| Check | Finding |
+## 4. Preconditions and reference responses
+
+None for the debug probe (unauthenticated). The config scan needs a gateway; without one it is NOT_APPLICABLE.
+
+## 5. Probes
+
+An unauthenticated GET to each configured debug path (its body scanned for credential patterns); a read of
+`config_values`, each value scanned by pattern and by a credential-named key holding a non-placeholder value.
+READ_ONLY.
+
+## 6. Oracle
+
+**`debug_endpoint_no_secret`**
+
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| a debug path answers 2xx and its body matches a credential pattern | `VIOLATION/DEBUG_SECRET` | FIRM |
+| it is refused (non-2xx) | `ENFORCED/DEBUG_BLOCKED` | - |
+| 2xx with no credential | `ENFORCED/DEBUG_NO_SECRET` | - |
+| no debug path configured | `NOT_APPLICABLE/NO_DEBUG_PATH` | - |
+
+**`gateway_config_no_secret`**
+
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| a config value matches a credential pattern | `VIOLATION/CONFIG_SECRET` | FIRM |
+| a credential-named key holds a long non-placeholder value | `VIOLATION/CONFIG_SECRET` | TENTATIVE |
+| none found | `ENFORCED/CONFIG_NO_SECRET` | - |
+| no gateway, or config not readable | `NOT_APPLICABLE` / `NOT_VERIFIABLE` | - |
+
+## 7. Outcomes
+
+FAIL on an exposed credential; PASS when the debug endpoints and the config are clean.
+
+## 8. Findings
+
+"Debug endpoint exposes a credential: `<path>`", "Credential pattern in gateway config: ...", "Probable plaintext
+credential in gateway config: ...", each pointing to the request or the config concept artifact.
+
+## 9. Effects on the target
+
+`READ_ONLY`: unauthenticated reads of debug paths and a read of the gateway config.
+
+## 10. Per gateway
+
+The config scan reads whatever `config_values` exposes (Kong: service URLs and plugin config strings; APISIX:
+equivalent). On a Kong DB-less gateway the config holds few string values, so the scan may find little; this is a
+coverage limit, not a pass.
+
+## 11. Configuration
+
+| Parameter | What it is |
 |---|---|
-| Backend URL contains a credential pattern (e.g. `user:password@`) | `Credential Hardcoded in Gateway Backend URL: <location>` |
-| Plugin config value matches a credential pattern | `Credential Pattern in Gateway Config: <location>` |
-| Plugin config key looks sensitive (`password`, `secret`, `api_key`, `client_secret`, `private_key`, … 27 fragments; `token` alone is excluded) and the value has ≥ 8 characters and is not one of 30 known placeholders (`changeme`, `example`, …) | `Probable Plaintext Credential in Gateway Config: <location>` |
+| `debug_endpoint_paths` | the debug/actuator paths to probe (empty: the debug sub-test is not applicable) |
 
-Without a gateway adapter, sub-test B is replaced by the InfoNote `Admin API Audit Gap: Kong Configuration Not
-Scanned`. When the configuration values are not supported or cannot be read, sub-test A still stands and the InfoNote
-`Sub-test B Not Verified: Gateway Configuration Not Readable` gives the reason. With an adapter, an InfoNote reminds
-that filesystem and container-image checks must be done manually.
+## 12. Validation
 
-## Outcomes
+Runs of 2026-10-23:
 
-| Status | When |
-|---|---|
-| PASS | No finding (InfoNotes may document open endpoints and audit gaps). |
-| FAIL | At least one finding. |
-| SKIP | Never returned by this test. |
-| ERROR | Unexpected exception. |
+| Lab | Status | Basis |
+|---|---|---|
+| Forgejo + Kong, crAPI + Kong, Forgejo + APISIX | **PASS** | no `debug_endpoint_paths` configured (sub-test A not applicable); the gateway config holds no credential pattern (sub-test B enforced) |
 
-References: CWE-798, OWASP-API8:2023, OWASP-ASVS-V13.3.1, V13.3.4, V13.4.1, NIST-SP-800-53-Rev5-IA-5(1),
-NIST-SP-800-204-S5.4. Sub-test B stores the configuration values read in `evidence.json`
-(`artifact-6.4-gateway_configuration_values-...`, every value masked as `**********`, location and key visible) and
-its findings point to it (`evidence_ref`).
+Rule 9: the ENFORCED side is proven. The VIOLATION branches are lab-unproven: the labs expose no credential, Kong
+strips user:password from a service URL (so a credentialled URL cannot be injected into the config), and a Kong
+DB-less config carries few scannable string values (the review's own note). The detectors are deterministic regexes;
+producing a live exposure (a debug endpoint that returns a secret, a gateway that keeps a credentialled config value)
+is offered as a follow-up.
 
-## Oracle states
+## 13. Remediation
 
-`ENDPOINT_BLOCKED` (gateway block, body contains `gateway_block_body_fragment`), `ENDPOINT_BLOCKED_BY_APP`,
-`ENDPOINT_OPEN_NO_CREDENTIALS`, `ENDPOINT_OPEN_WITH_DATA`, `CREDENTIAL_EXPOSED` (FAIL evidence).
+Keep credentials in a secret manager and reference them at runtime, never in a config file or image (ASVS
+v5.0.0-13.3.1, CWE-798); make debug endpoints return 401/403 or remove them in production.
 
-## Prerequisites and effects on the target
+## 14. Limitations
 
-Read-only `GET`s without credentials; read-only Admin API calls when configured. Matched secrets appear in the
-finding detail and in `evidence.json`: treat the report as sensitive.
+- The debug sub-test probes only the configured paths; an undocumented debug endpoint is not found here (that is
+  test 0.1 / ffuf).
+- The config scan sees only what the adapter's `config_values` exposes; a secret in a file the Admin API does not
+  surface (Kong DB-less) is not reached.
+- The semantic-key rule is a heuristic (TENTATIVE): a long non-secret value in a credential-named key is a false
+  positive, a secret in a differently-named key a false negative.
 
-## Configuration
+## 15. Sources
 
-`debug_endpoint_paths` (adapt to the target's stack) and `gateway_block_body_fragment` (default is Kong's
-`no Route matched with those values`; change it for other gateways).
-
-## Coverage against the methodology
-
-Source: [`04-guarantees.md` §6.4](../../06-knowledge/04-guarantees.md).
-
-| Methodology item | Status |
-|---|---|
-| Debug endpoint exposure | Implemented. |
-| Regex scan of gateway configuration | Implemented on Admin API services and plugins (not on configuration files). |
-| Container image layers (`docker history`) | Not implemented (InfoNote). |
-| Secret rotation audit | Not implemented. |
-
-## Why it exists
-
-CWE-798, OWASP API8:2023, OWASP ASVS v5.0.0 V13.3 / V13.4, NIST SP 800-53 IA-5(1). Static credentials cannot be
-rotated without redeployment and, once leaked, give direct backend access that bypasses the gateway. Tooling
-decision ([`05-tool-decisions.md` §6.4](../../06-knowledge/05-tool-decisions.md)): native in M1; trufflehog, gitleaks and
-detect-secrets are optional Cat B complements.
-
-## See also
-
-- [`6.2 Security headers`](6-2-security-headers-audit.md)
-- [`../README.md`](../README.md)
+- OWASP API8:2023 Security Misconfiguration: https://owasp.org/API-Security/editions/2023/en/0xa8-security-misconfiguration/
+- OWASP ASVS v5.0.0-13.3.1 (secrets management): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x22-V13-Configuration.md
+- NIST SP 800-204 section 5.4 (secret management for microservices): https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-204.pdf
+- CWE-798 Use of Hard-coded Credentials: https://cwe.mitre.org/data/definitions/798.html

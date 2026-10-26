@@ -19,14 +19,16 @@ need to know the internal package layout.
 
 Symbol inventory by source module:
 
-    enums.py           TestStatus, TestStrategy, SpecDialect, ExitCode, NotRunReason
+    enums.py           TestStatus, Coverage, ResponseCategory, Outcome, TransportError, Confidence,
+                       TestStrategy, SpecDialect, ExitCode, NotRunReason
 
     http.py            EvidenceFile, EvidenceRecord, TransactionSummary
 
     surface.py         ParameterInfo, EndpointRecord, AttackSurface,
-                       SecuritySchemeRecord, SecuritySchemeType
+                       SecuritySchemeRecord, SecuritySchemeType, DerivationBasis, DerivedFact
 
-    results.py         Finding, InfoNote, TestResult, ResultSet, NotRunEntry
+    results.py         Finding, InfoNote, SubTestResult, TestResult, ResultSet, NotRunEntry,
+                       status_from_counts, combine_sub_tests
 
     runtime.py         RuntimeCredentials, SendAs, AuthType, CredentialLocation
                        (per-test parameters: in each test's module)
@@ -35,18 +37,32 @@ Symbol inventory by source module:
                        CREDENTIAL_VALUE, FIXED_PLACEHOLDERS, PLACEHOLDER_USERNAME,
                        PLACEHOLDER_PASSWORD, PLACEHOLDER_RANDOM
 
+    standards.py       Standard, StandardFormat, Reference, STANDARD_FORMATS
+
     tls.py             TlsSettings
 
-    external_tools.py  BaseExternalToolConfig, TestsslConfig, NucleiConfig,
+    external_tools.py  BaseExternalToolConfig, TestsslConfig, NucleiConfig, FfufConfig,
                        ExternalToolsConfig
 """
 
 from __future__ import annotations
 
-from src.core.models.enums import ExitCode, NotRunReason, SpecDialect, TestStatus, TestStrategy
+from src.core.models.enums import (
+    Confidence,
+    Coverage,
+    ExitCode,
+    NotRunReason,
+    Outcome,
+    ResponseCategory,
+    SpecDialect,
+    TestStatus,
+    TestStrategy,
+    TransportError,
+)
 from src.core.models.external_tools import (
     BaseExternalToolConfig,
     ExternalToolsConfig,
+    FfufConfig,
     NucleiConfig,
     TestsslConfig,
 )
@@ -62,10 +78,23 @@ from src.core.models.resources import (
     ResourceAuth,
     ResourceConfig,
 )
-from src.core.models.results import Finding, InfoNote, NotRunEntry, ResultSet, TestResult
+from src.core.models.results import (
+    Finding,
+    InfoNote,
+    NotRunEntry,
+    ResultSet,
+    SubTestResult,
+    TestResult,
+    combine_sub_tests,
+    status_from_counts,
+)
 from src.core.models.runtime import AuthType, CredentialLocation, RuntimeCredentials, SendAs
+from src.core.models.standards import STANDARD_FORMATS, Reference, Standard, StandardFormat
 from src.core.models.surface import (
     AttackSurface,
+    AuthDeclaration,
+    DerivationBasis,
+    DerivedFact,
     EndpointRecord,
     ParameterInfo,
     SecuritySchemeRecord,
@@ -76,6 +105,11 @@ from src.core.models.tls import TlsSettings
 __all__ = [
     # enums.py
     "TestStatus",
+    "Confidence",
+    "Coverage",
+    "ResponseCategory",
+    "Outcome",
+    "TransportError",
     "TestStrategy",
     "SpecDialect",
     "ExitCode",
@@ -86,14 +120,20 @@ __all__ = [
     "TransactionSummary",
     # surface.py
     "ParameterInfo",
+    "AuthDeclaration",
     "EndpointRecord",
     "AttackSurface",
+    "DerivationBasis",
+    "DerivedFact",
     "SecuritySchemeRecord",
     "SecuritySchemeType",
     # results.py
     "Finding",
     "InfoNote",
+    "SubTestResult",
     "TestResult",
+    "status_from_counts",
+    "combine_sub_tests",
     "ResultSet",
     "NotRunEntry",
     # runtime.py
@@ -112,10 +152,15 @@ __all__ = [
     "PLACEHOLDER_PASSWORD",
     "PLACEHOLDER_RANDOM",
     # tls.py
+    "Standard",
+    "StandardFormat",
+    "Reference",
+    "STANDARD_FORMATS",
     "TlsSettings",
     # external_tools.py
     "BaseExternalToolConfig",
     "TestsslConfig",
     "NucleiConfig",
+    "FfufConfig",
     "ExternalToolsConfig",
 ]

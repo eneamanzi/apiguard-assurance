@@ -15,7 +15,7 @@ Usage: `pip install "apiguard-assurance[sslyze]"` or
 Output normalisation:
     Each TLS issue becomes a finding dict with keys: id, severity, finding, cve.
     Severity levels follow the same CRITICAL/HIGH/MEDIUM scale as the testssl
-    connector so that ExtTest15SslyzeAnalysis can reuse the same oracle logic.
+    connector so the TLS analysis test can reuse the same oracle logic.
 
     CRITICAL: SSLv2 supported, Heartbleed, ROBOT strong oracle.
     HIGH:     SSLv3 supported, OpenSSL CCS injection, ROBOT weak oracle,
@@ -93,7 +93,7 @@ class SslyzeConnector(BaseLibraryConnector):
     Performs a comprehensive TLS scan of the target host, normalises the
     structured sslyze results into the ConnectorRawOutput format, and returns
     all findings unfiltered.  Severity partitioning (FAIL / NOTE / IGNORE) is
-    the exclusive responsibility of ExtTest15SslyzeAnalysis._evaluate().
+    the exclusive responsibility of the TLS analysis test oracle.
 
     ClassVars:
         TOOL_NAME:      Human-readable name used in logs and ConnectorResult.
@@ -279,7 +279,7 @@ class SslyzeConnector(BaseLibraryConnector):
         Convert sslyze's structured scan result into a flat list of TlsFinding.
 
         All findings are returned unfiltered — severity partitioning is the
-        responsibility of the test oracle in ExtTest15SslyzeAnalysis._evaluate().
+        responsibility of the TLS analysis test oracle.
 
         Args:
             scan_result: sslyze AllScanCommandsAttempts object — the

@@ -1,108 +1,136 @@
 # 4.1 Rate Limiting
 
-> **Audience:** analysts, contributors · **Status:** implemented (v0.1.0) · **Source of truth:**
+> **Audience:** analysts, contributors · **Status:** rewritten in the test review (branch `test-review`, 2026-10-23) ·
+> **Source of truth:**
 > [`src/tests/domain_4/test_4_1_rate_limiting.py`](../../../src/tests/domain_4/test_4_1_rate_limiting.py) ·
-> **Verified:** 2026-10-05
+> **Verified:** 2026-10-23
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("4.1", page=cog.inFile)) ]]] -->
 
 |  |  |
 |---|---|
 | Test ID | `4.1` |
-| Name | Rate Limiting -- Resource Exhaustion Prevention |
+| Name | Rate Limiting |
 | Domain | 4 - Availability and Resilience |
 | Priority / strategy | P0 / BLACK_BOX |
-| CWE | CWE-400 |
-| Tags | `availability`, `rate-limiting`, `dos-prevention`, `OWASP-API4` |
+| Effect | STRESSES_TARGET |
+| CWE | CWE-770 |
+| Standards | `OWASP API4:2023`, `OWASP ASVS v5.0.0-2.4.1`, `NIST SP 800-204, Section 4.5` |
+| Tags | `resource-consumption`, `rate-limiting` |
 | Prerequisites | none |
-| Needs | - |
+| Needs | `GATEWAY` (optional) |
 | Parameters | [`tests.domain_4.test_4_1`](../../03-reference/01-configuration.md#testsdomain_4test_4_1) |
 
 <!-- [[[end]]] -->
 
-## What it checks
+**Same group:** tests `4.2`, `4.3`, `4.4` (resource-consumption limits).
 
-The gateway must rate-limit requests (`429 Too Many Requests`), bind the counter to the real client IP rather than
-to a spoofable `X-Forwarded-For` header, and tell clients when to retry.
+## 1. Guarantee
 
-## How it works
+The gateway limits the request rate: past a limit it answers `429 Too Many Requests`, and the limit is keyed to the
+real connection, not to a header an attacker controls. A PASS promises a burst met a 429, and that spoofing
+`X-Forwarded-For` did not slip past it. The threat (OWASP API4:2023): an unlimited endpoint lets a loop exhaust the
+backend or brute-force a credential. ASVS v5.0.0-2.4.1 (anti-automation controls).
 
-One probe endpoint is chosen from the spec: the first non-parametric `GET`, otherwise the first non-parametric
-endpoint, otherwise the first endpoint. It is called with its declared method, no credentials, no body.
+## 2. Sub-tests and coverage of the methodology
 
-1. **Spoofing resistance.** Up to `max_requests` (default 150) requests, `request_interval_ms` (default 50 ms)
-   apart, each with a different random `X-Forwarded-For`. Stops at the first `429`.
-2. **Enforcement.** The same, without `X-Forwarded-For`. Stops at the first `429`.
-3. **Retry guidance.** On the first `429` observed, check for `Retry-After`, `X-RateLimit-Reset`,
-   `X-Rate-Limit-Reset` or `RateLimit-Reset`.
-
-Step 1 runs first on purpose: if the gateway counts by real IP, it consumes part of the budget and step 2 reaches
-`429` sooner, which is still a pass.
-
-| Condition | Finding |
+| Sub-test | Methodology (guarantee 4.1) |
 |---|---|
-| No `429` in step 1 | `Rate Limit Counter Bound to X-Forwarded-For (Spoofing Vulnerability)` |
-| No `429` in step 2 | `Rate Limiting Not Enforced` |
-| `429` without any retry header | `429 Response Missing Retry-After / X-RateLimit-Reset Header` |
+| `limit_enforced` | "limit enforcement: send past the limit, expect 429" |
+| `ip_spoofing_resisted` | "header spoofing resistance: a randomised X-Forwarded-For per call must not bypass the limit" |
+| left out | Retry-After reset (needs a real wait, slow); per-user vs per-IP (needs the counter reasoning of two users against one limit); token-bucket burst shape (a timing detail of the limit) |
 
-If the gateway has no rate limiting at all, steps 1 and 2 both produce a finding.
+## 3. Inputs
 
-## Outcomes
+The documented GET endpoint to flood (derived: the shortest documented GET, or `probe_path`). The burst budget is
+the gateway's configured rate-limit (read through `config_values` where available, `Need.GATEWAY` optional) plus a
+margin, else `max_burst`.
 
-| Status | When |
-|---|---|
-| PASS | `429` reached in both steps, with a retry header. |
-| FAIL | At least one finding. |
-| SKIP | Attack surface unavailable or empty. |
-| ERROR | Unexpected exception. |
+## 4. Preconditions and reference responses
 
-References: OWASP-API4:2023, OWASP-ASVS-v5.0.0-V2.4.1, NIST-SP-800-204-Section-4.5, CWE-400. The first `429` is
-stored in `evidence.json` even on PASS, as proof that the limit triggered.
+None beyond the attack surface. The 429 is the reference: `limit_enforced` is the baseline that `ip_spoofing_resisted`
+is judged against (a limit must exist before a bypass means anything).
 
-## Oracle states
+## 5. Probes
 
-`PROBE_HIT` (any non-429 response), `RATE_LIMIT_HIT` (`429`), `TRANSPORT_ERROR`.
+A burst of up to the budget of GETs, stopping at the first 429; then, only if the first burst met a 429, the same
+burst with a random `X-Forwarded-For` per request. No credential. Effect `STRESSES_TARGET`: the test runs after all
+others (rule 7), and the burst stops at the 429 so a working limit is not flooded past its threshold.
 
-## Prerequisites and effects on the target
+## 6. Oracle
 
-- Only the specification.
-- **Up to 2 × `max_requests` requests (300 by default) in a burst** against one endpoint. The run exhausts the
-  rate-limit budget of the tool's IP; tests running right after may receive `429` (inconclusive in 1.1). nuclei is
-  throttled (`rate_limit_rps`) for the same reason.
+**`limit_enforced`**
 
-## Configuration
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| a 429 within the budget | `ENFORCED/RATE_LIMITED` | - |
+| no 429 within the budget | `VIOLATION/NO_RATE_LIMIT` | CERTAIN |
+| the endpoint answers 5xx / unavailable | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` | - |
 
-| Key | Effect |
-|---|---|
-| `max_requests` (10-500) | Must exceed the gateway's limit for the probed endpoint, otherwise the test reports missing rate limiting. |
-| `request_interval_ms` (10-5000) | Spacing between requests: a limit per minute needs enough requests inside the window. |
+**`ip_spoofing_resisted`**
 
-## Coverage against the methodology
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| the spoofed burst still meets a 429 | `ENFORCED/SPOOF_RESISTED` | - |
+| it floods the full budget without a 429 | `VIOLATION/IP_SPOOF_BYPASS` | CERTAIN |
+| the plain burst found no limit | `NOT_APPLICABLE/NO_LIMIT_TO_BYPASS` | - |
 
-Source: [`04-guarantees.md` §4.1](../../06-knowledge/04-guarantees.md).
+## 7. Outcomes
 
-| Methodology sub-test | Status |
-|---|---|
-| Enforcement of the limit | Implemented on one endpoint, with a fixed budget (the methodology compares against the documented limit). |
-| `Retry-After` / reset header | Presence implemented; waiting and re-checking the reset is not. |
-| Header spoofing resistance (`X-Forwarded-For`) | Implemented. |
-| Per-user vs per-IP limit | Not implemented (needs two users). |
-| Burst behaviour (token bucket) | Not implemented. |
+SKIP without a documented GET. FAIL on no limit or a spoofing bypass; PASS when a 429 arrives and spoofing is
+resisted.
 
-## Why it exists
+## 8. Findings
 
-OWASP API4:2023 (Unrestricted Resource Consumption), OWASP ASVS v5.0.0 V2.4.1, NIST SP 800-204 §4.5. Without rate
-limiting a login endpoint allows unlimited brute force and an expensive endpoint can be saturated. Tooling decision
-([`05-tool-decisions.md` §4.1](../../06-knowledge/05-tool-decisions.md)): native implementation in M1; vegeta (precise
-load) is a planned Cat A connector.
+"No rate limit on `<path>`" / "Rate limit bypassed by spoofing X-Forwarded-For on `<path>`", `evidence_ref` the
+burst's last request.
 
-## Limitations
+## 9. Effects on the target
 
-- One endpoint only: a limit configured on other routes but not on the probed one is reported as absent, and vice
-  versa.
-- A gateway that ignores `X-Forwarded-For` but has no rate limiting yields both findings; read them together.
+`STRESSES_TARGET`: a burst of requests (stops at the first 429). Runs last. No credential, no data changed.
 
-## See also
+## 10. Per gateway
 
-- [`4.2 Timeout audit`](4-2-timeout-config-audit.md) · [`4.3 Circuit breaker audit`](4-3-circuit-breaker-audit.md)
-- [`../README.md`](../README.md)
+Independent of the adapter: the 429 is observed from outside; the configured limit is read through the adapter when
+available, to size the burst.
+
+## 11. Configuration
+
+| Parameter | What it is | Derived when left out |
+|---|---|---|
+| `max_burst` | the largest burst when the limit is not readable | - |
+| `probe_path` | the path to flood | the shortest documented GET |
+
+## 12. Validation
+
+Runs of 2026-10-23:
+
+| Lab | Status | Basis |
+|---|---|---|
+| Forgejo + Kong, crAPI + Kong, Forgejo + APISIX | **FAIL** | 150 requests to the shortest documented GET, no 429: no rate limit configured (a real gap of the default labs) |
+| Forgejo + Kong, with the plugin below | **PASS** | the 6th request answers 429 (`limit_enforced`), and the same burst with a random X-Forwarded-For still meets the 429 (`ip_spoofing_resisted`: Kong keys on the real connection) |
+
+**The case the labs lack, and how to undo it.** Add a global `rate-limiting` plugin (minute: 5, policy: local) to
+`test-environments/forgejo-kong/kong/kong.yml`, then `cd test-environments/forgejo-kong && docker compose --env-file
+../../.env up -d --force-recreate --wait kong`; undo with `git checkout` of that file and the same command. The lab
+was checked back to FAIL afterwards. Rule 9: both sides proven; `IP_SPOOF_BYPASS` and the transport reasons are not
+exercised (Kong resisted the spoof; a gateway trusting X-Forwarded-For would show the bypass).
+
+## 13. Remediation
+
+Configure a rate-limiting plugin on the gateway, keyed to the authenticated user and the real connection (not a
+client header), with a `Retry-After` on the 429 (OWASP API4:2023, ASVS v5.0.0-2.4.1).
+
+## 14. Limitations
+
+- The budget bounds the burst: a limit higher than the budget is reported as "no limit" (raise `max_burst` or let
+  the gateway config supply the limit).
+- Retry-After reset and the per-user-vs-per-IP distinction are not tested.
+- A rate limit expressed per hour or per day is not reached by a short burst.
+
+## 15. Sources
+
+- OWASP API4:2023 Unrestricted Resource Consumption: https://owasp.org/API-Security/editions/2023/en/0xa4-unrestricted-resource-consumption/
+- OWASP ASVS v5.0.0-2.4.1 (anti-automation controls): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x11-V2-Validation-and-Business-Logic.md
+- NIST SP 800-204 section 4.5 (rate limiting for microservices): https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-204.pdf
+- CWE-770 Allocation of Resources Without Limits or Throttling: https://cwe.mitre.org/data/definitions/770.html

@@ -115,6 +115,7 @@ def create_resource(
     name: str,
     role: str,
     test_id: str,
+    extra_body: dict[str, object] | None = None,
 ) -> PreparedResource:
     """
     Create a prepared resource for a role and register its deletion.
@@ -126,6 +127,8 @@ def create_resource(
         name:    The resource's name in config.yaml.
         role:    A ROLE_* constant: whose account and credential are used.
         test_id: Test the requests are attributed to (the login: 'auth_setup').
+        extra_body: Fields merged into the create request body (test 2.5 injects
+            a mass-assignment probe and reads the object back); None for none.
 
     Returns:
         The created resource and its values.
@@ -141,7 +144,7 @@ def create_resource(
 
     fixed = _fixed_values(target, context, resource, name, role)
     response, record = _send(
-        target, context, client, resource.create, fixed, name, role, test_id, "create"
+        target, context, client, resource.create, fixed, name, role, test_id, "create", extra_body
     )
     if not _SUCCESS_MIN <= response.status_code < _SUCCESS_MAX:
         raise ResourceSetupError(
@@ -271,10 +274,14 @@ def _send(
     role: str,
     test_id: str,
     part: str,
+    extra_body: dict[str, object] | None = None,
 ) -> tuple[httpx.Response, EvidenceRecord]:
     """Fill, authenticate and send one request of a resource."""
     headers, params = _auth_parts(target, context, request.auth, name, role, part)
-    body = _fill_body(request.json_body(), values, name)
+    raw_body: object = request.json_body()
+    if extra_body is not None and isinstance(raw_body, dict):
+        raw_body = {**raw_body, **extra_body}
+    body = _fill_body(raw_body, values, name)
     response, record = client.request(
         method=request.method,
         path=_fill(request.path, values, name),

@@ -1,88 +1,122 @@
 # 6.2 Security Headers Audit
 
-> **Audience:** analysts, contributors · **Status:** implemented (v0.1.0) · **Source of truth:**
+> **Audience:** analysts, contributors · **Status:** rewritten in the test review (branch `test-review`, 2026-10-23) ·
+> **Source of truth:**
 > [`src/tests/domain_6/test_6_2_security_headers_audit.py`](../../../src/tests/domain_6/test_6_2_security_headers_audit.py),
-> [`src/tests/helpers/response_inspector.py`](../../../src/tests/helpers/response_inspector.py) · **Verified:** 2026-10-05
+> [`src/tests/helpers/sampling.py`](../../../src/tests/helpers/sampling.py) · **Verified:** 2026-10-23
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("6.2", page=cog.inFile)) ]]] -->
 
 |  |  |
 |---|---|
 | Test ID | `6.2` |
-| Name | Security Headers Configured Appropriately |
+| Name | Security Headers Audit |
 | Domain | 6 - Configuration and Hardening |
 | Priority / strategy | P3 / BLACK_BOX |
-| CWE | CWE-16 |
-| Tags | `hardening`, `headers`, `OWASP-API8`, `ASVS-V3.4`, `hsts`, `csp` |
+| Effect | READ_ONLY |
+| CWE | none |
+| Standards | `OWASP API8:2023`, `OWASP ASVS v5.0.0-3.4.3`, `OWASP ASVS v5.0.0-3.4.4`, `OWASP ASVS v5.0.0-3.4.6` |
+| Tags | `security-headers`, `cors` |
 | Prerequisites | none |
 | Needs | - |
-| Parameters | [`tests.domain_6.test_6_2`](../../03-reference/01-configuration.md#testsdomain_6test_6_2) |
+| Parameters | none |
 
 <!-- [[[end]]] -->
 
-## What it checks
+**Same group:** tests `6.1`, `6.4`. HSTS is test `1.5`.
 
-API responses must carry the standard security headers, must not disclose implementation details, and must do so
-consistently across endpoints.
+## 1. Guarantee
 
-## How it works
+The defensive security headers are present, sound, and consistent across the services of the API. A PASS promises
+`X-Content-Type-Options: nosniff`, a framing protection (CSP `frame-ancestors` or X-Frame-Options), and a CORS policy
+that does not allow an arbitrary origin with credentials, on every sampled endpoint. OWASP API8:2023; ASVS
+v5.0.0-3.4.3 (CSP), 3.4.4 (nosniff), 3.4.6 (frame-ancestors). HSTS moved to 1.5; Permissions-Policy dropped (not in
+ASVS 3.4). No primary CWE (CWE-16 is a prohibited mapping category).
 
-All requests are `GET` without credentials (a `401` or `404` response still carries gateway-injected headers).
+## 2. Sub-tests and coverage of the methodology
 
-1. **Reference endpoint.** The first `GET` endpoint of the spec (non-parametric preferred). Its headers are
-   checked:
-
-| Header | Rule | Finding when violated |
-|---|---|---|
-| `Strict-Transport-Security` | present, contains `max-age=` | `Required Security Headers Missing` / `Security Headers Present but Misconfigured` |
-| `X-Content-Type-Options` | exactly `nosniff` | same |
-| `X-Frame-Options` | present, not `ALLOW-FROM` | same |
-| `Content-Security-Policy` | present, does not contain `default-src *` | same |
-| `Permissions-Policy` | present | same |
-| `X-Powered-By`, `X-AspNet-Version`, `X-AspNetMvc-Version` | absent | `Server Identification Headers Disclose Implementation Details` |
-| `Server` | no version (no `/` and no `N.N` pattern) | same |
-
-2. **HSTS max-age.** Below `hsts_min_max_age_seconds` (default 31536000) → `HSTS max-age Below Required Minimum`.
-   A missing `includeSubDomains` is mentioned in that finding's detail but is **not** a finding on its own here
-   (test 1.5 does report it).
-3. **Consistency.** Up to `endpoint_sample_size` further `GET` endpoints (default 5; `0` = all) are compared with
-   the reference header set → `Security Header Inconsistency Across Endpoints`.
-
-## Outcomes
-
-| Status | When |
+| Sub-test | Methodology (guarantee 6.2) |
 |---|---|
-| PASS | Reference compliant and consistent across the sample. |
-| FAIL | At least one finding. |
-| SKIP | Attack surface unavailable, or no `GET` endpoint in the spec. |
-| ERROR | Unexpected exception. |
+| `content_type_options` | "X-Content-Type-Options: nosniff" (ASVS 3.4.4) |
+| `framing_protection` | "X-Frame-Options / CSP frame-ancestors" (ASVS 3.4.6) |
+| `cors_not_wildcard` | "CORS strict: not `*` with credentials" |
+| consistency | "present on one endpoint and absent on another is a misconfiguration": each check is judged across a sample |
+| left out | HSTS (test 1.5); Permissions-Policy (not in ASVS 3.4) |
 
-References: OWASP ASVS v5.0.0 V3.4 (and V3.4.1, V13.4.6), OWASP API8:2023, RFC 6797 §6.1, NIST SP 800-52 Rev. 2,
-CWE-200, Mozilla Observatory best practices.
+## 3. Inputs
 
-## Prerequisites and effects on the target
+A sample of documented GET operations, one per service prefix (`src/tests/helpers/sampling.py`). No credential (the
+headers must be on every response, including public ones).
 
-Read-only `GET`s without credentials: 1 + `endpoint_sample_size` requests.
+## 4. Preconditions and reference responses
 
-## Coverage against the methodology
+The attack surface. For CORS, an arbitrary `Origin` is sent and the reflection judged; no other reference.
 
-Source: [`04-guarantees.md` §6.2](../../06-knowledge/04-guarantees.md). The required header list and
-oracles follow the methodology checklist (HSTS, nosniff, frame options, CSP, permissions policy, no leaky
-headers), applied to responses observed from outside rather than to the gateway configuration file.
+## 5. Probes
 
-## Why it exists
+For each sampled endpoint, one GET (the three header checks) and one GET with an arbitrary `Origin` (CORS).
+READ_ONLY.
 
-OWASP API8:2023 (Security Misconfiguration), OWASP ASVS v5.0.0 V3.4. Security headers are defence in depth against
-client-side attacks and are the gateway's job to inject uniformly; headers applied only on some routes are a
-misconfiguration in themselves.
+## 6. Oracle (per sub-test, aggregated over the sample)
 
-## Limitations
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| the header is present/sound on every sampled endpoint | `ENFORCED/PRESENT` | - |
+| absent on all sampled endpoints | `VIOLATION/MISSING` | CERTAIN |
+| present on some, absent on others | `VIOLATION/INCONSISTENT` | CERTAIN |
+| (CORS) an arbitrary origin or `*` is allowed with credentials | `VIOLATION/CORS_WILDCARD_CREDENTIALS` | CERTAIN |
+| (CORS) no sampled endpoint sends CORS headers | `NOT_APPLICABLE/NO_CORS` | - |
 
-- `X-Frame-Options` with any value other than `ALLOW-FROM` passes (e.g. a typo).
-- `Permissions-Policy` content is not evaluated.
-- Parametric `GET` endpoints may be sampled; their `404` responses are still used for the header check.
+## 7. Outcomes
 
-## See also
+SKIP without a documented GET. FAIL on a missing, inconsistent or unsafe-CORS header; PASS when all three hold
+across the sample.
 
-- [`1.5 Insecure credential transport`](../domain-1/1-5-insecure-credential-transport.md) · [`6.4 Hardcoded credentials`](6-4-hardcoded-credentials-audit.md)
-- [`../README.md`](../README.md)
+## 8. Findings
+
+"X-Content-Type-Options: nosniff missing/inconsistent", "Clickjacking protection ... missing/inconsistent", "Unsafe
+CORS: an arbitrary origin is allowed with credentials", each naming how many sampled endpoints and an example.
+
+## 9. Effects on the target
+
+`READ_ONLY`.
+
+## 10. Per gateway
+
+Independent of the adapter: the headers are the gateway's or the app's; the probe reads them. Consistency across
+services is exactly what a per-route gateway misconfiguration breaks.
+
+## 11. Configuration
+
+None.
+
+## 12. Validation
+
+Runs of 2026-10-23:
+
+| Lab | Status | Basis |
+|---|---|---|
+| Forgejo + Kong, Forgejo + APISIX | **PASS** | nosniff and framing present and consistent across the sampled services; no CORS |
+| crAPI + Kong | **FAIL**, 2 findings | nosniff and framing are **inconsistent** across crAPI's services (present on some, absent on others): a selective misconfiguration the single-endpoint check missed; CORS bounded |
+
+Rule 9, both sides proven, agnostically: ENFORCED on Forgejo, VIOLATION (inconsistency) on crAPI. The sampling (one
+endpoint per service) is what surfaces the inconsistency; a single-endpoint check would have passed crAPI.
+
+## 13. Remediation
+
+Set the headers at the gateway for every route: `X-Content-Type-Options: nosniff`, `Content-Security-Policy:
+frame-ancestors 'self'` (and `object-src 'none'`, `base-uri 'none'`), and a CORS allow-list of trusted origins
+(never `*` with credentials).
+
+## 14. Limitations
+
+- The sample is one endpoint per service: an inconsistency within a service (route A vs route B of the same prefix)
+  may be missed.
+- X-Frame-Options is accepted for framing although ASVS 5.0 marks it obsolete in favour of CSP `frame-ancestors`
+  (it still protects browsers); the remedy recommends CSP.
+
+## 15. Sources
+
+- OWASP API8:2023 Security Misconfiguration: https://owasp.org/API-Security/editions/2023/en/0xa8-security-misconfiguration/
+- OWASP ASVS v5.0.0-3.4.3, 3.4.4, 3.4.6 (Web Frontend Security headers): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x12-V3-Web-Frontend-Security.md
+- CWE-1021 Improper Restriction of Rendered UI Layers (clickjacking): https://cwe.mitre.org/data/definitions/1021.html

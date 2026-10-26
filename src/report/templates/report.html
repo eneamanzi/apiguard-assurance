@@ -22,6 +22,7 @@
       --color-fail: #dc2626;
       --color-skip: #d97706;
       --color-error: #7c3aed;
+      --color-inconclusive: #ea580c;
       --color-bg: #f8fafc;
       --color-surface: #ffffff;
       --color-border: #e2e8f0;
@@ -189,6 +190,10 @@
       color: var(--color-error);
     }
 
+    .stat-inconclusive .stat-value {
+      color: var(--color-inconclusive);
+    }
+
     .stat-neutral .stat-value {
       color: var(--color-accent);
     }
@@ -319,6 +324,11 @@
     .filter-btn[data-value="ERROR"].active {
       background: var(--color-error);
       border-color: var(--color-error);
+    }
+
+    .filter-btn[data-value="INCONCLUSIVE"].active {
+      background: var(--color-inconclusive);
+      border-color: var(--color-inconclusive);
     }
 
     .filter-btn[data-value="0"].active {
@@ -463,6 +473,48 @@
       color: var(--color-error);
     }
 
+    /* Confidence of a finding (not a severity) */
+    .confidence-badge {
+      display: inline-block;
+      margin-left: 0.4rem;
+      padding: 0.1rem 0.45rem;
+      border-radius: 999px;
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+    }
+
+    .confidence-certain {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    .confidence-firm {
+      background: #e0f2fe;
+      color: #075985;
+    }
+
+    .confidence-tentative {
+      background: #f1f5f9;
+      color: var(--color-muted);
+    }
+
+    .badge-inconclusive {
+      background: #ffedd5;
+      color: var(--color-inconclusive);
+    }
+
+    /* "partial" next to a PASS whose coverage is partial */
+    .coverage-partial {
+      display: inline-block;
+      margin-left: 0.3rem;
+      font-size: 0.68rem;
+      font-weight: 600;
+      color: var(--color-inconclusive);
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
     .badge-unknown {
       background: #f1f5f9;
       color: var(--color-muted);
@@ -507,6 +559,10 @@
 
     .dot-error {
       background: var(--color-error);
+    }
+
+    .dot-inconclusive {
+      background: var(--color-inconclusive);
     }
 
     .finding-count-badge {
@@ -869,6 +925,38 @@
       color: var(--color-error);
       font-style: italic;
       padding: 0.5rem 0;
+    }
+
+    .detail-inconclusive-msg {
+      font-size: 0.82rem;
+      color: var(--color-inconclusive);
+      font-style: italic;
+      padding: 0.5rem 0;
+    }
+
+    /* Sub-tests table in the detail panel */
+    .subtests-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+      margin: 0.5rem 0 0.75rem;
+    }
+
+    .subtests-table th,
+    .subtests-table td {
+      text-align: left;
+      padding: 0.3rem 0.5rem;
+      border-bottom: 1px solid var(--color-border);
+    }
+
+    .subtests-table th {
+      color: var(--color-muted);
+      font-weight: 600;
+    }
+
+    .subtests-num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
     }
 
     /* ------------------------------------------------------------------ */
@@ -1619,6 +1707,11 @@
           <div class="stat-value">{{ report.executive_summary.fail_count }}</div>
           <div class="stat-label">Failed</div>
         </div>
+        <div class="stat-card stat-inconclusive">
+          <div class="stat-value">{{ report.executive_summary.inconclusive_count }}</div>
+          <div class="stat-label">Inconclusive</div>
+          <div class="stat-sublabel">Run, nothing could be verified</div>
+        </div>
         <div class="stat-card stat-error">
           <div class="stat-value">{{ report.executive_summary.error_count }}</div>
           <div class="stat-label">Errors</div>
@@ -1648,6 +1741,9 @@
           </button>
           <button class="filter-btn" data-filter="status" data-value="FAIL">
             <span class="dot dot-fail"></span>Fail
+          </button>
+          <button class="filter-btn" data-filter="status" data-value="INCONCLUSIVE">
+            <span class="dot dot-inconclusive"></span>Inconclusive
           </button>
           <button class="filter-btn" data-filter="status" data-value="SKIP">
             <span class="dot dot-skip"></span>Skip
@@ -1698,6 +1794,7 @@
           <div class="domain-strip">
             <span><span class="dot dot-pass"></span>{{ domain.pass_count }} pass</span>
             <span><span class="dot dot-fail"></span>{{ domain.fail_count }} fail</span>
+            <span><span class="dot dot-inconclusive"></span>{{ domain.inconclusive_count }} inconclusive</span>
             <span><span class="dot dot-skip"></span>{{ domain.skip_count }} skip</span>
             <span><span class="dot dot-error"></span>{{ domain.error_count }} error</span>
             {% if domain.total_finding_count > 0 %}
@@ -1738,6 +1835,7 @@
         {%- endif %}
         <td>
           <span class="badge {{ row.status | status_badge_class }}">{{ row.status }}</span>
+          {%- if row.coverage == 'partial' %}<span class="coverage-partial" title="Some cases could not be verified: see the sub-tests">partial</span>{%- endif %}
         </td>
         <td class="td-msg">
           <div class="test-name">{{ row.test_name if row.test_name else row.test_id }}</div>
@@ -1764,6 +1862,16 @@
               <div class="detail-meta-item">
                 <span class="detail-meta-label">CWE</span>
                 <span class="detail-meta-value">{{ row.cwe_id }}</span>
+              </div>
+              {% endif %}
+              {% if row.references %}
+              <div class="detail-meta-item">
+                <span class="detail-meta-label">Standards</span>
+                <span class="detail-meta-value">
+                  {% for ref in row.references %}
+                  <span class="ref-tag">{{ ref.text }}</span>
+                  {% endfor %}
+                </span>
               </div>
               {% endif %}
               {% if row.tags %}
@@ -1869,6 +1977,45 @@
               </div>
               {%- endif %}
             </div>
+            <!-- Sub-tests: counters and status of each declared sub-test -->
+            {% if row.sub_tests %}
+            <div class="detail-section-header">
+              <span class="detail-section-title">Sub-tests ({{ row.sub_tests | length }})</span>
+            </div>
+            <table class="subtests-table">
+              <thead>
+                <tr>
+                  <th>Sub-test</th>
+                  <th>Status</th>
+                  <th class="subtests-num">Violations</th>
+                  <th class="subtests-num">Enforced</th>
+                  <th class="subtests-num">Not verifiable</th>
+                  <th class="subtests-num">Not applicable</th>
+                  <th>Why not verifiable</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for sub in row.sub_tests %}
+                <tr>
+                  <td><code>{{ sub.name }}</code></td>
+                  <td>
+                    <span class="badge {{ sub.status | status_badge_class }}">{{ sub.status }}</span>
+                    {%- if sub.coverage == 'partial' %}<span class="coverage-partial">partial</span>{%- endif %}
+                  </td>
+                  <td class="subtests-num">{{ sub.violations }}</td>
+                  <td class="subtests-num">{{ sub.enforced }}</td>
+                  <td class="subtests-num">{{ sub.not_verifiable }}</td>
+                  <td class="subtests-num">{{ sub.not_applicable }}</td>
+                  <td>
+                    {%- for reason, count in sub.not_verifiable_reasons.items() %}
+                    <code>{{ reason }}</code>&nbsp;{{ count }}{{ ", " if not loop.last }}
+                    {%- endfor %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% endif %}
             <!-- Findings (FAIL) -->
             {% if row.findings %}
             <div class="detail-findings-section">
@@ -1882,6 +2029,8 @@
               <div class="finding-card-expanded">
                 <div class="finding-card-header">
                   <span class="finding-title">{{ finding.title }}</span>
+                  <span class="confidence-badge confidence-{{ finding.confidence | lower }}"
+                    title="How sure the tool is that the violation is real (not a severity)">{{ finding.confidence }}</span>
                   <button class="btn btn-sm" data-action="copy-finding" data-test-id="{{ row.test_id }}"
                     data-idx="{{ loop.index0 }}">
                     Copy
@@ -1891,7 +2040,7 @@
                 {% if finding.references %}
                 <div class="finding-refs">
                   {% for ref in finding.references %}
-                  <span class="ref-tag">{{ ref }}</span>
+                  <span class="ref-tag">{{ ref.text }}</span>
                   {% endfor %}
                 </div>
                 {% endif %}
@@ -1901,12 +2050,26 @@
                   <span class="evidence-note">&rarr; see evidence.json</span>
                 </div>
                 {% endif %}
+                {% if finding.supporting_refs %}
+                <div class="finding-evidence">
+                  Supporting references: <code>{{ finding.supporting_refs | join(", ") }}</code>
+                  <span class="evidence-note">&rarr; calibration and positive controls in evidence.json</span>
+                </div>
+                {% endif %}
               </div>
               {% endfor %}
             </div>
             {% elif row.status == 'PASS' %}
             <div class="detail-pass-msg">
-              &#10003; All checks passed &mdash; no findings for this test.
+              {%- if row.coverage == 'partial' %}
+              &#10003; No violation, but not every case could be verified (partial): {{ row.message }}
+              {%- else %}
+              &#10003; No violation, every applicable case verified: {{ row.message }}
+              {%- endif %}
+            </div>
+            {% elif row.status == 'INCONCLUSIVE' %}
+            <div class="detail-inconclusive-msg">
+              Inconclusive: the test ran, but no case could be verified. {{ row.message }}
             </div>
             {% elif row.status == 'SKIP' %}
             <div class="detail-skip-msg">
@@ -1934,7 +2097,7 @@
                 {% if note.references %}
                 <div class="finding-refs">
                   {% for ref in note.references %}
-                  <span class="ref-tag ref-tag-info">{{ ref }}</span>
+                  <span class="ref-tag ref-tag-info">{{ ref.text }}</span>
                   {% endfor %}
                 </div>
                 {% endif %}
@@ -2074,6 +2237,121 @@
       {% endif %}
     </section>
 
+    <!-- DERIVED KNOWLEDGE: what the tool deduced from the specification before the tests -->
+    <section class="section" id="derived-section">
+      <div class="section-header">
+        <h2>Derived Knowledge ({{ report.derived | length }})</h2>
+      </div>
+      <p style="color:var(--color-muted);padding:0 0 0.75rem;">
+        What the tool deduced from the specification before any test ran, by named rules: DECLARED
+        (the specification states it) or HEURISTIC (a rule infers it). The configuration always prevails:
+        a wrong deduction is corrected there.
+      </p>
+      {% if report.derived %}
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Rule</th>
+              <th>Basis</th>
+              <th>Endpoint</th>
+              <th>Value</th>
+              <th>Why</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for fact in report.derived %}
+            <tr>
+              <td><code>{{ fact.rule }}</code></td>
+              <td>{{ fact.basis.value }}</td>
+              <td>{% if fact.path %}<code>{{ fact.method }} {{ fact.path }}</code>{% else %}whole API{% endif %}</td>
+              <td><code>{{ fact.value }}</code></td>
+              <td style="font-size:0.8rem;">{{ fact.note }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p style="color:var(--color-muted);padding:1rem 0;">Nothing derived from the specification.</p>
+      {% endif %}
+    </section>
+
+    <!-- REFERENCE RESPONSES: calibration points and positive controls asked by the tests -->
+    {%- set refs = report.references %}
+    <section class="section" id="references-section">
+      <div class="section-header">
+        <h2>Reference Responses ({{ refs.calibration_points | length }} calibration, {{ refs.positive_controls | length }} positive control)</h2>
+      </div>
+      <p style="color:var(--color-muted);padding:0 0 0.75rem;">
+        What the target itself answered, asked to judge the tests' responses: random sibling paths
+        (what "does not exist here" looks like, by sibling pattern, method and credential) and the same
+        requests with a valid credential. A calibration point that is not reliable is never used.
+        Every request is in evidence.json under its <code>ref_</code> ID.
+      </p>
+      {% if refs.calibration_points %}
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Sibling pattern</th>
+              <th>Method</th>
+              <th>Credential</th>
+              <th>Reliable</th>
+              <th>Status</th>
+              <th>Answer shape</th>
+              <th>Records</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for point in refs.calibration_points %}
+            <tr>
+              <td><code>{{ point.pattern }}</code></td>
+              <td>{{ point.method }}</td>
+              <td>{{ point.credential }}</td>
+              <td>{% if point.reliable %}yes{% else %}<span style="color:var(--color-inconclusive);">no</span>: {{ point.reason }}{% endif %}</td>
+              <td>{{ point.fingerprint.status_code if point.fingerprint else "" }}</td>
+              <td style="font-size:0.75rem;"><code>{{ (point.fingerprint.body_shape if point.fingerprint else "") | truncate(80) }}</code></td>
+              <td style="font-size:0.75rem;"><code>{{ point.record_ids | join(", ") }}</code></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+      {% if refs.positive_controls %}
+      <div class="table-wrapper" style="margin-top:0.75rem;">
+        <table>
+          <thead>
+            <tr>
+              <th>Method</th>
+              <th>Path</th>
+              <th>Credential</th>
+              <th>Status</th>
+              <th>Works</th>
+              <th>Record</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for control in refs.positive_controls %}
+            <tr>
+              <td>{{ control.method }}</td>
+              <td><code>{{ control.path }}</code></td>
+              <td>{{ control.credential }}</td>
+              <td>{{ control.status_code if control.status_code is not none else "no response" }}</td>
+              <td>{{ "yes" if control.works else "no" }}</td>
+              <td style="font-size:0.75rem;"><code>{{ control.record_id }}</code></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+      {% if not refs.calibration_points and not refs.positive_controls %}
+      <p style="color:var(--color-muted);padding:1rem 0;">No test of this run asked for a reference response.</p>
+      {% endif %}
+    </section>
+
     <!-- FOOTER -->
     <footer class="page-footer">
       <p>
@@ -2169,7 +2447,7 @@
               <th class="tx-th" style="width:54px;">Method</th>
               <th class="tx-th">Path</th>
               <th class="tx-th" style="width:58px;">HTTP</th>
-              <th class="tx-th" style="width:140px;">Oracle State</th>
+              <th class="tx-th" style="width:200px;">Outcome (category)</th>
               <th class="tx-th" style="width:82px;">Duration</th>
               <th class="tx-th" style="width:60px;">cURL</th>
             </tr>
@@ -2354,7 +2632,7 @@
     }
 
     // ---------------------------------------------------------------------------
-    // HTML-escape helper — prevents XSS from URL / oracle_state / record_id.
+    // HTML-escape helper — prevents XSS from URL / outcome / record_id.
     // Used by both the modal engine and the copy utilities below.
     // ---------------------------------------------------------------------------
     function _escHtml(str) {
@@ -2465,14 +2743,22 @@
           var path = tx.request_url || "";
           try { path = new URL(tx.request_url).pathname; } catch (e) { /* keep full URL */ }
 
-          var sc = tx.response_status_code;
-          var scClass = sc >= 500 ? "tx-status-err"
+          // No response (transport error): no status code, the reason instead.
+          var sc = (tx.response_status_code == null)
+            ? "no response (" + (tx.transport_error || "unknown") + ")"
+            : tx.response_status_code;
+          var scClass = (tx.response_status_code == null) ? "tx-status-err"
+            : sc >= 500 ? "tx-status-err"
             : sc >= 400 ? "tx-status-warn"
               : sc >= 300 ? "tx-status-info"
                 : sc >= 200 ? "tx-status-ok"
                   : "tx-status-other";
 
-          var oracle = tx.oracle_state || "\u2014";
+          // Outcome/detail and the response category; a preparation step has
+          // only its category. The sub-test is part of the searchable text.
+          var judged = tx.outcome ? (tx.outcome + "/" + tx.detail) : "\u2014";
+          var oracle = judged + (tx.category ? " (" + tx.category + ")" : "") +
+            (tx.sub_test ? " " + tx.sub_test : "");
           var dur = (tx.duration_ms != null)
             ? tx.duration_ms.toFixed(1) + "\u00a0ms"
             : "\u2014";
@@ -2502,9 +2788,9 @@
             "<td class=\"tx-cell\" title=\"" + _escHtml(tx.request_url || "") + "\">" +
             _escHtml(path) + "</td>" +
             // col 5: HTTP status + FAIL badge
-            "<td class=\"tx-cell\"><span class=\"" + scClass + "\">" + sc + "</span>" +
+            "<td class=\"tx-cell\"><span class=\"" + scClass + "\">" + _escHtml(String(sc)) + "</span>" +
             failBadge + "</td>" +
-            // col 6: oracle state
+            // col 6: outcome/detail (category) sub-test
             "<td class=\"tx-cell\"><span class=\"tx-oracle-label\">" +
             _escHtml(oracle) + "</span></td>" +
             // col 7: duration
@@ -2834,7 +3120,7 @@
         "Method",
         "Path",
         "HTTP Status",
-        "Oracle State",
+        "Outcome (category)",
         "Duration (ms)",
         "Is Fail Evidence",
         "Request Body",
@@ -2861,8 +3147,12 @@
           tx.record_id || "",
           tx.request_method || "",
           path,
-          String(tx.response_status_code),
-          tx.oracle_state || "",
+          (tx.response_status_code == null
+            ? "no response (" + (tx.transport_error || "unknown") + ")"
+            : String(tx.response_status_code)),
+          (tx.outcome ? tx.outcome + "/" + tx.detail : "") +
+          (tx.category ? " (" + tx.category + ")" : "") +
+          (tx.sub_test ? " " + tx.sub_test : ""),
           dur,
           tx.is_fail_evidence ? "TRUE" : "FALSE",
           reqBody,
@@ -3008,12 +3298,16 @@
     function findingToText(finding) {
       var lines = [];
       lines.push("[FINDING] " + finding.title);
+      lines.push("Confidence: " + finding.confidence);
       lines.push("Detail:   " + finding.detail);
       if (finding.references && finding.references.length > 0) {
-        lines.push("Refs:     " + finding.references.join(", "));
+        lines.push("Refs:     " + finding.references.map(function (ref) { return ref.text; }).join(", "));
       }
       if (finding.evidence_ref) {
         lines.push("Evidence: " + finding.evidence_ref + " (see evidence.json)");
+      }
+      if (finding.supporting_refs && finding.supporting_refs.length > 0) {
+        lines.push("Supporting: " + finding.supporting_refs.join(", ") + " (see evidence.json)");
       }
       return lines.join("\n");
     }

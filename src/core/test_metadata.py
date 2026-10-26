@@ -34,6 +34,7 @@ from pydantic import (
 )
 
 from src.core.models import TestStrategy
+from src.core.models.standards import CWE_ID_PATTERN, Reference, Standard, duplicate_references
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -65,8 +66,15 @@ EXTERNAL_TEST_ID_PATTERN: re.Pattern[str] = re.compile(
 # and do not check its declaration (Python's convention for internal names).
 PRIVATE_CLASS_PREFIX: str = "_"
 
-# Primary CWE reference of a test, e.g. "CWE-285".
-CWE_ID_PATTERN: re.Pattern[str] = re.compile(r"^CWE-[1-9][0-9]*$")
+# A tag: a topic in lowercase words joined by hyphens, e.g. "rate-limit". The
+# standards a test cites are references, not tags: an uppercase standard
+# identifier written as a tag ("OWASP-API4") does not match.
+TAG_PATTERN: re.Pattern[str] = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$")
+
+# Name of a declared sub-test, e.g. "unauthenticated_access": lowercase words
+# joined by underscores. It is the key of the sub-test in the result and the
+# report, and the row of the "Coverage of the methodology" table of the page.
+SUB_TEST_NAME_PATTERN: re.Pattern[str] = re.compile(r"^[a-z][a-z0-9]*(_[a-z0-9]+)*$")
 
 # ---------------------------------------------------------------------------
 # Test ID format
@@ -128,14 +136,16 @@ def section_keys(test_id: str) -> tuple[str, str]:
 
 class Need(StrEnum):
     """
-    What a test needs from the configuration to run at all.
+    What a test needs from the configuration.
 
-    Only what the configuration tells before any contact with the target: a
-    test whose need is not met is recorded as SKIP by the engine, with the
-    need's reason, without running (src/core/test_needs.py, which holds the
-    check of each need). What only the target can reveal (no deprecated
-    operation in the specification, no session cookie) stays a SKIP inside
-    the test. A new need is a member here and its check there.
+    Only what the configuration tells before any contact with the target. A
+    test declares a need either as required (TestInfo.needs: when it is not
+    met the engine records SKIP, with the need's reason, without running the
+    test; src/core/test_needs.py holds the check of each need) or as optional
+    (TestInfo.optional_needs: the test runs either way, and the sub-tests that
+    use it record NOT_APPLICABLE when it is missing). What only the target can
+    reveal (no deprecated operation in the specification, no session cookie)
+    stays inside the test. A new need is a member here and its check there.
     """
 
     ADMIN_ACCOUNT = "ADMIN_ACCOUNT"
@@ -144,11 +154,64 @@ class Need(StrEnum):
     USER_ACCOUNT = "USER_ACCOUNT"
     """The credentials of the user_a role (an ordinary account)."""
 
+    SECOND_USER_ACCOUNT = "SECOND_USER_ACCOUNT"
+    """The credentials of the user_b role (a second ordinary account, for cross-user tests)."""
+
     GATEWAY = "GATEWAY"
     """A gateway section: adapter and Admin API."""
 
     REVOCABLE_LOGIN = "REVOCABLE_LOGIN"
     """A login method that can revoke a credential (login with a delete request)."""
+
+
+class Effect(StrEnum):
+    """
+    What running a test does to the target (docs/project/test-review.md, topic 6).
+
+    Declared by every test; the engine runs READ_ONLY tests first, then
+    CHANGES_DATA, then STRESSES_TARGET, as far as the prerequisites allow, so
+    that a test that changes or degrades the target cannot spoil the ones after
+    it. A GET is not assumed harmless: the test declares what it does.
+    """
+
+    READ_ONLY = "READ_ONLY"
+    """Reads only: no state of the target changes."""
+
+    CHANGES_DATA = "CHANGES_DATA"
+    """Creates, modifies or deletes data on the target."""
+
+    STRESSES_TARGET = "STRESSES_TARGET"
+    """Bursts of requests, or payloads that can degrade the target."""
+
+
+# The run order of the effects (lower first).
+EFFECT_RANK: dict[Effect, int] = {
+    Effect.READ_ONLY: 0,
+    Effect.CHANGES_DATA: 1,
+    Effect.STRESSES_TARGET: 2,
+}
+
+
+# The order of the strategies by what the tester has: an external user, a user
+# with credentials, a super user with internal access.
+STRATEGY_RANK: dict[TestStrategy, int] = {
+    TestStrategy.BLACK_BOX: 0,
+    TestStrategy.GREY_BOX: 1,
+    TestStrategy.WHITE_BOX: 2,
+}
+
+# The lowest strategy that grants each need: a test declaring a required need
+# must declare at least this strategy (TestInfo checks it), so that its label
+# says what the tester must have. GREY_BOX is an ordinary account; the admin
+# account, the gateway's Admin API and a revocable login are a super user's. An
+# optional need does not raise the strategy: the test runs without it.
+NEED_MINIMUM_STRATEGY: dict[Need, TestStrategy] = {
+    Need.USER_ACCOUNT: TestStrategy.GREY_BOX,
+    Need.SECOND_USER_ACCOUNT: TestStrategy.GREY_BOX,
+    Need.ADMIN_ACCOUNT: TestStrategy.WHITE_BOX,
+    Need.GATEWAY: TestStrategy.WHITE_BOX,
+    Need.REVOCABLE_LOGIN: TestStrategy.WHITE_BOX,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -163,8 +226,10 @@ def _not_blank(value: str) -> str:
     return value
 
 
-def _cwe_id(value: str) -> str:
-    """Require the form 'CWE-<number>'."""
+def _cwe_id(value: str | None) -> str | None:
+    """Require the form 'CWE-<number>', or no value at all."""
+    if value is None:
+        return None
     if not CWE_ID_PATTERN.match(value):
         raise ValueError("must have the form 'CWE-<number>', e.g. 'CWE-285'")
     return value
@@ -200,11 +265,24 @@ class TestInfo(BaseModel):
     strategy: TestStrategy = Field(
         description="What the tester needs: BLACK_BOX, GREY_BOX or WHITE_BOX."
     )
-    cwe: Annotated[str, AfterValidator(_cwe_id)] = Field(
-        description="Primary CWE of the weakness the test looks for, e.g. 'CWE-285'."
+    cwe: Annotated[str | None, AfterValidator(_cwe_id)] = Field(
+        default=None,
+        description=(
+            "Primary CWE of the weakness the test looks for, e.g. 'CWE-285'; None when the "
+            "catalogue holds no entry that describes it, and then the guarantee rests on the "
+            "standards in references."
+        ),
     )
-    tags: tuple[_NonEmptyText, ...] = Field(
-        default=(), description="Labels for the report (standards, topics)."
+    references: tuple[Reference, ...] = Field(
+        default=(),
+        description=(
+            "The other standards of the guarantee (OWASP, ASVS, WSTG, RFC, NIST SP), each in "
+            "its standard's format (src/core/models/standards.py); not the primary CWE."
+        ),
+    )
+    tags: tuple[str, ...] = Field(
+        default=(),
+        description="Topic labels: lowercase words joined by hyphens, e.g. 'rate-limit'.",
     )
     depends_on: tuple[str, ...] = Field(
         default=(),
@@ -224,6 +302,20 @@ class TestInfo(BaseModel):
         default=None,
         description="External tests only: the external_tools key of the wrapped tool.",
     )
+    effect: Effect = Field(
+        description=(
+            "What running the test does to the target: READ_ONLY, CHANGES_DATA or "
+            "STRESSES_TARGET; the run order follows it."
+        )
+    )
+    sub_tests: tuple[str, ...] = Field(
+        min_length=1,
+        description=(
+            "The test's sub-tests, at least one: names in lowercase words joined by "
+            "underscores, unique; every judgement the test records belongs to one, and the "
+            "status is computed from them."
+        ),
+    )
     needs: tuple[Need, ...] = Field(
         default=(),
         description=(
@@ -231,10 +323,17 @@ class TestInfo(BaseModel):
             "met the engine records SKIP without running it (src/core/test_needs.py)."
         ),
     )
+    optional_needs: tuple[Need, ...] = Field(
+        default=(),
+        description=(
+            "What the test uses when the configuration provides it: it runs either way, "
+            "and the sub-tests that use a missing one record NOT_APPLICABLE."
+        ),
+    )
 
     @model_validator(mode="after")
     def _id_and_kind_coherent(self) -> TestInfo:
-        """Check the ID format, its domain, the tool and the prerequisites."""
+        """Check the ID, its domain, the tool, the prerequisites, the needs, the sub-tests."""
         native = NATIVE_TEST_ID_PATTERN.match(self.id)
         external = EXTERNAL_TEST_ID_PATTERN.match(self.id)
         match = native or external
@@ -258,6 +357,43 @@ class TestInfo(BaseModel):
                     raise ValueError(f"{field}: {prerequisite!r} is not a test ID")
                 if prerequisite == self.id:
                     raise ValueError(f"{field} lists the test itself ({self.id!r})")
+        for field in ("needs", "optional_needs"):
+            declared: tuple[Need, ...] = getattr(self, field)
+            repeated = sorted({n.value for n in declared if declared.count(n) > 1})
+            if repeated:
+                raise ValueError(f"{field}: declared more than once: {repeated}")
+        both = sorted({n.value for n in self.needs} & {n.value for n in self.optional_needs})
+        if both:
+            raise ValueError(f"needs and optional_needs both declare {both}")
+        for need in self.needs:
+            minimum = NEED_MINIMUM_STRATEGY[need]
+            if STRATEGY_RANK[self.strategy] < STRATEGY_RANK[minimum]:
+                raise ValueError(
+                    f"id {self.id!r}: the need {need.value} requires strategy {minimum.value} or "
+                    f"higher, the test declares {self.strategy.value}"
+                )
+        for sub_test in self.sub_tests:
+            if not SUB_TEST_NAME_PATTERN.match(sub_test):
+                raise ValueError(
+                    f"sub_tests: {sub_test!r} must be lowercase words joined by underscores, "
+                    f"e.g. 'unauthenticated_access'"
+                )
+        duplicates = sorted({s for s in self.sub_tests if self.sub_tests.count(s) > 1})
+        if duplicates:
+            raise ValueError(f"sub_tests: declared more than once: {duplicates}")
+        for tag in self.tags:
+            if not TAG_PATTERN.match(tag):
+                raise ValueError(
+                    f"tags: {tag!r} must be lowercase words joined by hyphens, e.g. "
+                    f"'rate-limit'; a standard goes in references"
+                )
+        duplicates = duplicate_references(self.references)
+        if duplicates:
+            raise ValueError(f"references: cited more than once: {duplicates}")
+        if self.cwe is not None:
+            primary = Reference(standard=Standard.CWE, id=self.cwe)
+            if primary in self.references:
+                raise ValueError(f"references: {self.cwe} is the primary CWE (cwe), already cited")
         return self
 
     @property
@@ -275,6 +411,10 @@ class TestInfo(BaseModel):
     def prerequisites(self) -> tuple[str, ...]:
         """Both kinds of prerequisite, depends_on first."""
         return (*self.depends_on, *self.requires_pass)
+
+    def uses(self, need: Need) -> bool:
+        """True when the test declares the need, required or optional."""
+        return need in self.needs or need in self.optional_needs
 
 
 # Pydantic error types whose input is not worth showing: a check of ours (the

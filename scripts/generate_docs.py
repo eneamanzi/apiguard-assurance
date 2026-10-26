@@ -69,16 +69,21 @@ from src.config.loader import mapping_entry_model, model_in_annotation
 from src.config.schema import ToolConfig
 from src.core.assessment_test import NEEDED_TO_RUN, AssessmentTest, has_marker
 from src.core.models import (
+    STANDARD_FORMATS,
+    DerivedFact,
     EvidenceFile,
     EvidenceRecord,
     Finding,
     InfoNote,
     NotRunEntry,
+    Reference,
+    SubTestResult,
     TestStrategy,
     TlsSettings,
     TransactionSummary,
 )
 from src.core.models.enums import EXIT_CODES
+from src.core.references import CalibrationPoint, Fingerprint, PositiveControl
 from src.core.test_metadata import PRIORITY_MAX, PRIORITY_MIN, TestInfo, section_keys
 from src.external_tests.registry import ExternalTestRegistry
 from src.report.builder import (
@@ -86,6 +91,7 @@ from src.report.builder import (
     ConnectionTrust,
     DomainSummary,
     ExecutiveSummary,
+    ReferencesSummary,
     ReportData,
     TestResultRow,
 )
@@ -184,7 +190,7 @@ def _priority(info: TestInfo) -> str:
 
 
 def _needs(test: _Test) -> str:
-    """What a test needs from the configuration: its needs, then its needed parameters."""
+    """What a test needs: its needs, its needed parameters, then its optional needs."""
     needs = [f"`{need.value}`" for need in test.info.needs]
     if test.params is not None:
         needs += [
@@ -192,6 +198,7 @@ def _needs(test: _Test) -> str:
             for name, field in test.params.model_fields.items()
             if has_marker(field, NEEDED_TO_RUN)
         ]
+    needs += [f"`{need.value}` (optional)" for need in test.info.optional_needs]
     return ", ".join(needs) or "-"
 
 
@@ -238,26 +245,29 @@ def catalogue() -> str:
     lines = [
         f"{len(tests)} tests: {native} native, {len(tests) - native} external.",
         "",
-        "| ID | Name | Pri. | Strategy | CWE | Needs | Page |",
-        "|---|---|---|---|---|---|---|",
+        "| ID | Name | Pri. | Strategy | Effect | CWE | Needs | Page |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for domain, name in DOMAIN_NAMES.items():
-        lines.append(f"| **Domain {domain} - {name}** | | | | | | |")
+        lines.append(f"| **Domain {domain} - {name}** | | | | | | | |")
         in_domain = [t for t in tests if t.info.domain == domain]
         if not in_domain:
-            lines.append("| - | no test implemented | | | | | |")
+            lines.append("| - | no test implemented | | | | | | |")
         for test in sorted(in_domain, key=lambda t: _id_key(t.info.id.removeprefix("ext."))):
             info = test.info
             link = _relative(pages[info.id], readme.relative_to(_ROOT))
             lines.append(
                 f"| {_id_cell(info)} | {info.name} | {_priority(info)} | {info.strategy.value} "
-                f"| {info.cwe} | {_needs(test)} | [{info.id}]({link}) |"
+                f"| {info.effect.value} | {info.cwe or '-'} | {_needs(test)} "
+                f"| [{info.id}]({link}) |"
             )
     lines.append("")
     lines.append(
         "Needs: what the test needs from the configuration (credentials of a role, a gateway, a "
-        "parameter); without it the engine records SKIP without running the test. What each test "
-        f"needs from a target, measured on the labs: [Test portability]({_PORTABILITY})."
+        "parameter); without it the engine records SKIP without running the test. An optional need "
+        "is used when configured; without it the test runs and the sub-tests that use it are not "
+        "applicable. What each test needs from a target, measured on the labs: "
+        f"[Test portability]({_PORTABILITY})."
     )
     return _block(lines)
 
@@ -288,7 +298,9 @@ def test_header(*test_ids: str, page: str) -> str:
         ("Name", [t.info.name for t in tests]),
         ("Domain", [f"{t.info.domain} - {DOMAIN_NAMES[t.info.domain]}" for t in tests]),
         ("Priority / strategy", [f"{_priority(t.info)} / {t.info.strategy.value}" for t in tests]),
-        ("CWE", [t.info.cwe for t in tests]),
+        ("Effect", [t.info.effect.value for t in tests]),
+        ("CWE", [t.info.cwe or "none" for t in tests]),
+        ("Standards", [_standards(t.info) for t in tests]),
         ("Tags", [", ".join(f"`{tag}`" for tag in t.info.tags) or "none" for t in tests]),
         ("Prerequisites", [_prerequisites(t.info) for t in tests]),
         ("Needs", [_needs(t) for t in tests]),
@@ -707,9 +719,16 @@ _REPORT_MODELS: dict[str, type[BaseModel]] = {
         NotRunEntry,
         DomainSummary,
         TestResultRow,
+        SubTestResult,
         Finding,
         InfoNote,
+        Reference,
         TransactionSummary,
+        DerivedFact,
+        ReferencesSummary,
+        CalibrationPoint,
+        Fingerprint,
+        PositiveControl,
     )
 }
 
@@ -746,6 +765,32 @@ def _fields_table(model: type[BaseModel], models: dict[str, type[BaseModel]]) ->
         lines.append(
             f"| `{field.alias or name}` | {_json_type(field.annotation, models)} "
             f"| {_cell(field.description or '')} |"
+        )
+    for name, computed in model.model_computed_fields.items():
+        lines.append(
+            f"| `{name}` | {_json_type(computed.return_type, models)} "
+            f"| {_cell(computed.description or '')} (computed) |"
+        )
+    return _block(lines)
+
+
+def _standards(info: TestInfo) -> str:
+    """The test's references as shown to a reader, each in backticks (a text may hold a comma)."""
+    return ", ".join(f"`{ref.text}`" for ref in info.references) or "none"
+
+
+def standards_table() -> str:
+    """The format of each standard a reference may cite (report-schema.md): STANDARD_FORMATS."""
+    lines = [
+        "| `standard` | Standard | `id` example | Section | Shown as |",
+        "|---|---|---|---|---|",
+    ]
+    for standard, spec in STANDARD_FORMATS.items():
+        example = Reference(standard=standard, id=spec.example, section=spec.section_example)
+        section = f"optional, e.g. `{spec.section_example}`" if spec.section_example else "no"
+        lines.append(
+            f"| `{standard.value}` | {spec.name} | `{spec.example}` | {section} "
+            f"| `{example.text}` |"
         )
     return _block(lines)
 

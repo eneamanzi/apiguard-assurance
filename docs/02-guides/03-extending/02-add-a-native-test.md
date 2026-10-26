@@ -82,7 +82,7 @@ from src.core.client import SecurityClient
 from src.core.context import ROLE_USER_A, TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.exceptions import AuthenticationSetupError, SecurityClientError
-from src.core.models import Finding, TestResult, TestStrategy
+from src.core.models import Finding, Reference, Standard, TestResult, TestStrategy
 from src.core.test_metadata import TestInfo
 from src.tests.base import BaseTest
 from src.tests.helpers.auth import acquire_tokens, auth_parts
@@ -91,15 +91,22 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 
 _RBAC_BYPASS_CODES: frozenset[int] = frozenset(range(200, 300))
 _STATE_RBAC_BYPASS: str = "RBAC_BYPASS"
-_REFERENCES: list[str] = ["CWE-285", "OWASP-API5:2023", "OWASP-ASVS-v5.0.0-V8.3.1", ...]
+_REFERENCES: tuple[Reference, ...] = (
+    Reference(standard=Standard.OWASP_API_TOP10, id="API5:2023"),
+    Reference(standard=Standard.ASVS, id="v5.0.0-8.3.1"),
+    ...
+)
 ```
 
 Allowed imports: `core/`, `src/tests/base.py`, `src/tests/helpers/`, `src/tests/data/`. Never `config/`,
 `discovery/`, `report/`, `engine.py`, `connectors/`; never start a subprocess.
 
 **Declaration.** A test declares who it is in one `TestInfo` (`src/core/test_metadata.py`), its `info` class
-attribute: ID, name, priority, strategy, CWE, and optionally tags and prerequisites (`depends_on`, `requires_pass`,
-empty when omitted). The domain is not written: it is the first number of the ID. The results carry these values
+attribute: ID, name, priority, strategy, CWE, and optionally the other standards of the guarantee (`references`), tags
+and prerequisites (`depends_on`, `requires_pass`, empty when omitted). Each reference is the standard and the
+identifier as that standard writes it, checked against its format ([`Reference`](../../03-reference/04-report-schema.md#reference));
+a finding without references of its own cites the test's. Tags are topics only, lowercase words joined by hyphens
+(`rate-limit`): a standard written as a tag stops the start. The domain is not written: it is the first number of the ID. The results carry these values
 under their report names (`test_id`, `test_name`, `domain`, `cwe_id`).
 
 ```python
@@ -110,7 +117,8 @@ class Test21RbacEnforcement(BaseTest):
         priority=2,
         strategy=TestStrategy.GREY_BOX,
         cwe="CWE-285",
-        tags=("authorization", "rbac", "OWASP-API5:2023", ...),
+        references=_REFERENCES,
+        tags=("authorization", "rbac"),
     )
 ```
 
@@ -172,7 +180,6 @@ if response.status_code in _RBAC_BYPASS_CODES:
     return Finding(
         title=f"RBAC Bypass: {method} {path}",
         detail=f"Sent {method} {path} with a '{ROLE_USER_A}' token. Expected 403 ... Received {response.status_code} ...",
-        references=_REFERENCES,
         evidence_ref=record.record_id,
     )
 self._log_transaction(record, oracle_state=_STATE_RBAC_ENFORCED)
@@ -180,18 +187,18 @@ self._log_transaction(record, oracle_state=_STATE_RBAC_ENFORCED)
 
 ## 3. Building blocks
 
-**Result helpers** (`src/core/assessment_test.py`, shared with external tests). They copy the declaration and the
-transaction log into the `TestResult`:
+**Result helpers** (`src/core/assessment_test.py`, shared with external tests). A test records judgements and ends
+with `_finish()`, which computes the status (it never chooses PASS, FAIL or INCONCLUSIVE) and copies the declaration
+and the transaction log into the `TestResult`:
 
-<!-- [[[cog import generate_docs as g; cog.out(g.methods_table(('Helper', 'Use'), 'src.core.assessment_test:AssessmentTest._make_pass', 'src.core.assessment_test:AssessmentTest._make_fail', 'src.core.assessment_test:AssessmentTest._make_fail_multi', 'src.core.assessment_test:AssessmentTest._make_skip', 'src.core.assessment_test:AssessmentTest._make_error')) ]]] -->
+<!-- [[[cog import generate_docs as g; cog.out(g.methods_table(('Helper', 'Use'), 'src.core.assessment_test:AssessmentTest._record', 'src.core.assessment_test:AssessmentTest._finish', 'src.core.assessment_test:AssessmentTest._skip', 'src.core.assessment_test:AssessmentTest._error')) ]]] -->
 
 | Helper | Use |
 |---|---|
-| `_make_pass(message, notes=None)` | Return a PASS result: the guarantee holds; notes may add context that is not a violation. |
-| `_make_fail(message, detail, evidence_record_id=None, additional_references=None, notes=None)` | Return a FAIL result with one finding, titled with the test's name, with its CWE as first reference. |
-| `_make_fail_multi(message, findings, notes=None)` | Return a FAIL result with the caller's findings, one per violation (preferred: each finding names the endpoint). |
-| `_make_skip(reason, notes=None)` | Return a SKIP result naming the missing precondition. |
-| `_make_error(exc, message=None)` | Return an ERROR result from an exception, keeping the transactions logged so far. |
+| `_record(sub_test, outcome, detail, finding=None)` | Record one judgement: the outcome of one case of a declared sub-test. |
+| `_finish(notes=None, message=None)` | The result of a test that ran to the end, computed from its judgements. |
+| `_skip(reason, notes=None)` | SKIP before the start: something the test needs is missing. |
+| `_error(exc, message=None)` | ERROR from an exception, for the except block of a test. |
 
 <!-- [[[end]]] -->
 
@@ -205,18 +212,20 @@ stays a SKIP inside the test. `_requires_attack_surface(target)` remains for the
 
 **Evidence and audit trail:**
 
-<!-- [[[cog import generate_docs as g; cog.out(g.methods_table(('Call', 'When'), ('self.', 'src.tests.base:BaseTest._log_transaction'), ('store.', 'src.core.evidence:EvidenceStore.add_fail_evidence'), ('store.', 'src.core.evidence:EvidenceStore.pin_evidence'))) ]]] -->
+<!-- [[[cog import generate_docs as g; cog.out(g.methods_table(('Call', 'When'), ('self.', 'src.tests.base:BaseTest._judge'), ('self.', 'src.tests.base:BaseTest._step'), ('store.', 'src.core.evidence:EvidenceStore.pin_evidence'))) ]]] -->
 
 | Call | When |
 |---|---|
-| `self._log_transaction(record, *, oracle_state=None, is_fail=False, duration_ms=None)` | Add a request to the test's audit trail (transaction_log in the report): call it after every client.request(). |
-| `store.add_fail_evidence(record)` | Store a transaction that proves a FAIL in evidence.json; log it with _log_transaction(..., is_fail=True). |
+| `self._judge(record, store, sub_test, outcome, detail, finding=None, *, reference_responses=(), duration_ms=None)` | Judge one HTTP response: log it, record the judgement, keep the proof. |
+| `self._step(record, *, duration_ms=None)` | Log a request that is not judged: a preparation step of the test. |
 | `store.pin_evidence(record)` | Store in evidence.json a transaction that is key context but proves no FAIL. |
 
 <!-- [[[end]]] -->
 
-Oracle-state labels are free strings in `SCREAMING_SNAKE_CASE`, defined as module constants and documented on the
-test page.
+Every response is judged (`_judge`) or logged as a preparation step (`_step`). A judgement is an outcome
+(`VIOLATION`, `ENFORCED`, `NOT_VERIFIABLE`, `NOT_APPLICABLE`) with the test's detail in `UPPER_SNAKE_CASE`, read as
+`VIOLATION/AUTH_BYPASS`; the category of the response comes from `category_of(record)` (`src/tests/base.py`). The
+test page documents the oracle table.
 
 **Secrets in the evidence** ([evidence format](../../03-reference/05-evidence-format.md#sensitive-data)): tokens stored with
 `context.set_token()` are redacted automatically. A secret the test creates or receives (a token it creates, a

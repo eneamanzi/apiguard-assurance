@@ -18,11 +18,11 @@ concepts](../../04-architecture/05-design-decisions.md#d7-neutral-gateway-concep
 |---|---|---|---|
 | `backend_timeouts()` | `_read_backend_timeouts()` | `BackendTimeout` | 4.2 |
 | `circuit_breakers()` | `_read_circuit_breakers()` | `CircuitBreaker` | 4.3 |
-| `config_values()` | `_read_config_values()` | `ConfigValue` | 6.4 |
+| `config_values()` | `_read_config_values()` | `ConfigValue` | 4.1, 4.4, 5.1, 6.4 |
 | `health_checks()` | `_read_health_checks()` | `HealthCheck` | 4.3 |
-| `routes()` | `_read_routes()` | `GatewayRoute` | 3.3 |
+| `routes()` | `_read_routes()` | `GatewayRoute` | 0.1, 0.2 |
 | `signing_policies()` | `_read_signing_policies()` | `SigningPolicy` | 3.3 |
-| `target_health()` | `_read_target_health()` | `TargetHealth` | 4.3 |
+| `target_health()` | `_read_target_health()` | `TargetHealth` | 0.4 |
 
 <!-- [[[end]]] -->
 

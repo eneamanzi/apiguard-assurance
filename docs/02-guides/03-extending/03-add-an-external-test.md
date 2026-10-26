@@ -123,6 +123,7 @@ info = TestInfo(
     priority=2,
     strategy=TestStrategy.BLACK_BOX,
     cwe="CWE-326",
+    references=(Reference(standard=Standard.ASVS, id="v5.0.0-12.1.1"), ...),
     tags=(...),
     tool="testssl",          # = field name in ExternalToolsConfig
 )
@@ -141,26 +142,26 @@ empty.
 |---|---|
 | `_build_connector() -> BaseConnector` | Construct the connector only, no I/O: the registry calls it once per tool to check availability and injects the instance into the tool's tests. |
 | `_invoke_connector(connector: BaseConnector, target: TargetContext, target_url: str) -> ConnectorResult` | Call connector.run(...) with the tool's timeout_seconds and the test's own parameters; target_url is target.endpoint_base_url(). |
-| `_evaluate(result: ConnectorResult, artifact_ref: str) -> TestResult` | Apply the oracle to result.raw_output['results'] and return the TestResult; put artifact_ref in each finding's evidence_ref. |
+| `_evaluate(result: ConnectorResult, run: ToolRun) -> TestResult` | Apply the oracle to result.raw_output['results'] and return the result. |
 
 <!-- [[[end]]] -->
 
 **Result helpers** (`src/core/assessment_test.py`, the same as native tests):
 
-<!-- [[[cog import generate_docs as g; cog.out(g.methods_table(('Helper', 'Use'), 'src.core.assessment_test:AssessmentTest._make_pass', 'src.core.assessment_test:AssessmentTest._make_fail', 'src.core.assessment_test:AssessmentTest._make_fail_multi', 'src.core.assessment_test:AssessmentTest._make_skip', 'src.core.assessment_test:AssessmentTest._make_error')) ]]] -->
+<!-- [[[cog import generate_docs as g; cog.out(g.methods_table(('Helper', 'Use'), 'src.core.assessment_test:AssessmentTest._record', 'src.core.assessment_test:AssessmentTest._finish', 'src.core.assessment_test:AssessmentTest._skip', 'src.core.assessment_test:AssessmentTest._error')) ]]] -->
 
 | Helper | Use |
 |---|---|
-| `_make_pass(message, notes=None)` | Return a PASS result: the guarantee holds; notes may add context that is not a violation. |
-| `_make_fail(message, detail, evidence_record_id=None, additional_references=None, notes=None)` | Return a FAIL result with one finding, titled with the test's name, with its CWE as first reference. |
-| `_make_fail_multi(message, findings, notes=None)` | Return a FAIL result with the caller's findings, one per violation (preferred: each finding names the endpoint). |
-| `_make_skip(reason, notes=None)` | Return a SKIP result naming the missing precondition. |
-| `_make_error(exc, message=None)` | Return an ERROR result from an exception, keeping the transactions logged so far. |
+| `_record(sub_test, outcome, detail, finding=None)` | Record one judgement: the outcome of one case of a declared sub-test. |
+| `_finish(notes=None, message=None)` | The result of a test that ran to the end, computed from its judgements. |
+| `_skip(reason, notes=None)` | SKIP before the start: something the test needs is missing. |
+| `_error(exc, message=None)` | ERROR from an exception, for the except block of a test. |
 
 <!-- [[[end]]] -->
 
-`_make_fail_multi` is the usual case (one finding per tool result above the threshold); `_make_error` is normally not
-needed, since the base class turns tool errors into ERROR. `_evaluate` returns only through these helpers.
+`_evaluate` records one judgement per tool result (`_record`, a finding for each `VIOLATION` with `artifact_ref` as
+its `evidence_ref`) and returns `_finish()`; `_error` is normally not needed, since the base class turns tool errors
+into ERROR.
 
 Never build `TestResult(...)` directly: the helpers copy the declaration (name, domain, priority, tool) into the
 result; without them the report shows empty fields.

@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from pydantic import BaseModel
 
 from src.core.assessment_test import NEEDED_TO_RUN, has_marker
+from src.core.context import ROLE_ADMIN, ROLE_USER_A, ROLE_USER_B
 from src.core.models import AuthType, ResourceConfig, RuntimeCredentials
 from src.core.test_metadata import Need, TestInfo, section_keys
 
@@ -64,6 +65,17 @@ def login_can_revoke(
     return resource is not None and resource.delete is not None
 
 
+# The role whose credential each account need means. The engine obtains it
+# before running a test that declares the need, required or optional, so that a
+# declared need is provided and no test logs in for itself (group B,
+# 2026-10-22). A need that is not about an account is absent here.
+NEED_ROLES: dict[Need, str] = {
+    Need.USER_ACCOUNT: ROLE_USER_A,
+    Need.SECOND_USER_ACCOUNT: ROLE_USER_B,
+    Need.ADMIN_ACCOUNT: ROLE_ADMIN,
+}
+
+
 _CHECKS: dict[Need, tuple[Callable[[ConfigurationFacts], bool], str]] = {
     Need.ADMIN_ACCOUNT: (
         lambda facts: facts.credentials.has_admin(),
@@ -72,6 +84,10 @@ _CHECKS: dict[Need, tuple[Callable[[ConfigurationFacts], bool], str]] = {
     Need.USER_ACCOUNT: (
         lambda facts: facts.credentials.has_user_a(),
         "the credentials of the user_a role are not configured (credentials.user_a_*)",
+    ),
+    Need.SECOND_USER_ACCOUNT: (
+        lambda facts: facts.credentials.has_user_b(),
+        "the credentials of the user_b role are not configured (credentials.user_b_*)",
     ),
     Need.GATEWAY: (
         lambda facts: facts.gateway_configured,

@@ -32,9 +32,8 @@ Sources
 
 # Each entry is a 2-tuple: (header_value, human_readable_label).
 #
-# The label is included in Finding.detail and in EvidenceRecord.oracle_state
-# so that a reader of the report can immediately understand what structural
-# property was being tested.
+# The label is included in Finding.detail so that a reader of the report can
+# immediately understand what structural property was being tested.
 #
 # Every value is deliberately broken in a *different* way so that a single
 # lucky bypass cannot explain all failures:

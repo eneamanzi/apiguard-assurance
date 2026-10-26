@@ -27,6 +27,11 @@ Design note — tool-not-found does NOT have a dedicated exception:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.core.models.http import EvidenceRecord
+
 
 class ToolBaseError(Exception):
     """
@@ -288,7 +293,10 @@ class SecurityClientError(ToolBaseError):
     The engine only sees TestResult objects, never raw exceptions.
 
     The status_code field is None: every failure happens before a response
-    is received.
+    is received. The record field holds the request as sent, without a
+    response (response_status_code None, transport_error set): a test judges
+    it as NOT_VERIFIABLE, so the request stays in the transaction log
+    (BaseTest._judge).
     """
 
     def __init__(
@@ -298,6 +306,7 @@ class SecurityClientError(ToolBaseError):
         url: str | None = None,
         status_code: int | None = None,
         attempt_count: int = 1,
+        record: EvidenceRecord | None = None,
     ) -> None:
         """
         Initialize a security client error.
@@ -311,12 +320,16 @@ class SecurityClientError(ToolBaseError):
                          failure occurred at the transport layer.
             attempt_count: Total number of attempts made before giving up,
                            including the initial attempt and all retries.
+            record:        The request as sent, without a response
+                           (transport_error set), for the transaction log; None
+                           when the failure happened before a request existed.
         """
         super().__init__(message)
         self.method: str | None = method
         self.url: str | None = url
         self.status_code: int | None = status_code
         self.attempt_count: int = attempt_count
+        self.record: EvidenceRecord | None = record
 
     def __repr__(self) -> str:
         return (

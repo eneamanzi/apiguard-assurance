@@ -37,8 +37,10 @@ report/.
 from __future__ import annotations
 
 import json
+import re
 import ssl
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from types import TracebackType
 from typing import Any
@@ -54,11 +56,15 @@ from tenacity import (
 )
 
 from src.core.exceptions import SecurityClientError
-from src.core.models import EvidenceRecord
-from src.core.redaction import SecretRegistry
+from src.core.models import EvidenceRecord, TransportError
+from src.core.redaction import SET_COOKIE_HEADER, SecretRegistry
 from src.core.tls import TARGET_TLS, build_ssl_context, certificate_failure
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
+
+# An origin a test may ask instead of the target's base_url: scheme, host and
+# optional port, with no path (SecurityClient.request's origin).
+_ORIGIN_PATTERN: re.Pattern[str] = re.compile(r"^https?://[^/\s?#]+$")
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -85,6 +91,9 @@ DEFAULT_RETRY_JITTER_SECONDS: float = 1.0
 # truncation is enforced by the EvidenceRecord.truncate_response_body field_validator.
 # The value is documented here only as a cross-reference for readers of this module.
 
+# How httpx folds a repeated header in its mapping (RFC 9110 section 5.3).
+_FOLDED_HEADER_SEPARATOR: str = ", "
+
 # HTTP exceptions that are considered transient and worth retrying.
 # These are all transport-layer failures — the server never sent a response.
 # httpx.HTTPStatusError (4xx, 5xx) is NOT in this tuple: a 503 is a valid
@@ -99,6 +108,36 @@ RETRYABLE_EXCEPTIONS: tuple[type[Exception], ...] = (
 )
 
 # Configuration path of the API connection's tls block, for messages.
+
+
+# The transport error of each retryable exception family (TransportError).
+_TIMEOUT_EXCEPTIONS: tuple[type[Exception], ...] = (
+    httpx.ConnectTimeout,
+    httpx.ReadTimeout,
+    httpx.WriteTimeout,
+    httpx.PoolTimeout,
+)
+
+
+def transport_error_of(exc: BaseException | None) -> TransportError:
+    """
+    The TransportError of the last exception of a failed request.
+
+    Args:
+        exc: The exception of the last attempt (None if tenacity kept none).
+
+    Returns:
+        TIMEOUT for a timeout, TLS_ERROR for a certificate or TLS failure,
+        CONNECTION_FAILED for a connection that could not be opened,
+        PROTOCOL_ERROR otherwise (the server closed or broke the protocol).
+    """
+    if isinstance(exc, _TIMEOUT_EXCEPTIONS):
+        return TransportError.TIMEOUT
+    if isinstance(exc, httpx.ConnectError):
+        if certificate_failure(exc, TARGET_TLS) is not None:
+            return TransportError.TLS_ERROR
+        return TransportError.CONNECTION_FAILED
+    return TransportError.PROTOCOL_ERROR
 
 
 def _is_transient(exc: BaseException) -> bool:
@@ -283,6 +322,7 @@ class SecurityClient:
         json: object | None = None,
         content: bytes | None = None,
         params: dict[str, Any] | None = None,
+        origin: str | None = None,
     ) -> tuple[httpx.Response, EvidenceRecord]:
         """
         Perform an HTTP request and return the response with an evidence record.
@@ -316,6 +356,13 @@ class SecurityClient:
             content: Optional raw request body as bytes.
                      Mutually exclusive with json.
             params: Optional query string parameters.
+            origin: Another scheme, host and port to send this path to, e.g.
+                    "http://10.0.0.7:3000", instead of the target's base_url.
+                    Only a test whose question is about a second address uses
+                    it (test 0.4, whether a backend answers without the
+                    gateway); the record keeps the address actually asked, and
+                    the TLS settings of this client apply to it as they do to
+                    the target.
 
         Returns:
             Tuple of (httpx.Response, EvidenceRecord).
@@ -343,6 +390,12 @@ class SecurityClient:
                 f"Request path must start with '/'. Got: '{path}'. "
                 "Provide an absolute path relative to base_url."
             )
+        if origin is not None and not _ORIGIN_PATTERN.match(origin):
+            raise ValueError(
+                f"Request origin must be 'scheme://host[:port]' with no path. Got: '{origin}'."
+            )
+        target_url = f"{origin}{path}" if origin else path
+        display_url = f"{origin or self._base_url}{path}"
 
         record_id = self._next_record_id(test_id)
         timestamp = datetime.now(UTC)
@@ -359,14 +412,29 @@ class SecurityClient:
         # including retry waits. Used only for diagnostic logging.
         wall_start = time.monotonic()
 
+        def failed_record(transport_error: TransportError) -> EvidenceRecord:
+            """The record of this request without a response, for SecurityClientError."""
+            return self._build_failed_record(
+                record_id=record_id,
+                timestamp=timestamp,
+                method=method_upper,
+                display_url=display_url,
+                request_headers=headers or {},
+                request_json=json,
+                transport_error=transport_error,
+                elapsed_ms=(time.monotonic() - wall_start) * 1000.0,
+            )
+
         response, attempt_count = self._execute_with_retry(
             method=method_upper,
-            path=path,
+            path=target_url,
+            display_url=display_url,
             headers=headers or {},
             json=json,
             content=content,
             params=params,
             bound_log=bound_log,
+            failed_record=failed_record,
         )
 
         wall_elapsed_ms = (time.monotonic() - wall_start) * 1000.0
@@ -382,7 +450,7 @@ class SecurityClient:
             record_id=record_id,
             timestamp=timestamp,
             method=method_upper,
-            path=path,
+            display_url=display_url,
             request_headers=headers or {},
             request_json=json,
             response=response,
@@ -418,11 +486,13 @@ class SecurityClient:
         self,
         method: str,
         path: str,
+        display_url: str,
         headers: dict[str, str],
         json: object | None,
         content: bytes | None,
         params: dict[str, Any] | None,
         bound_log: structlog.BoundLogger,
+        failed_record: Callable[[TransportError], EvidenceRecord],
     ) -> tuple[httpx.Response, int]:
         """
         Execute the HTTP request with tenacity retry on transient errors.
@@ -440,12 +510,16 @@ class SecurityClient:
 
         Args:
             method: Uppercase HTTP method.
-            path: Absolute path relative to base_url.
+            path: The URL given to httpx: a path relative to base_url, or the
+                  whole URL when the caller asked for another origin.
+            display_url: The address asked, for the messages and the record.
             headers: Request headers (may be empty dict).
             json: Optional JSON body.
             content: Optional raw body bytes.
             params: Optional query parameters.
             bound_log: Logger with test_id and record_id already bound.
+            failed_record: Builds the record of the request without a response,
+                           attached to SecurityClientError.
 
         Returns:
             Tuple of (httpx.Response, int) where int is the attempt count.
@@ -497,9 +571,10 @@ class SecurityClient:
             raise SecurityClientError(
                 message=f"HTTP {method} {path}: {reason}",
                 method=method,
-                url=f"{self._base_url}{path}",
+                url=display_url,
                 status_code=None,
                 attempt_count=attempt_count,
+                record=failed_record(TransportError.TLS_ERROR),
             ) from exc
         except RetryError as retry_exc:
             # All attempts exhausted. Extract the last underlying exception
@@ -520,9 +595,10 @@ class SecurityClient:
                     f"Last error: {last_exc_str}"
                 ),
                 method=method,
-                url=f"{self._base_url}{path}",
+                url=display_url,
                 status_code=None,
                 attempt_count=attempt_count,
+                record=failed_record(transport_error_of(last_exc)),
             ) from retry_exc
 
         # Unreachable: Retrying either returns or raises RetryError.
@@ -530,7 +606,63 @@ class SecurityClient:
         raise SecurityClientError(
             message=f"HTTP {method} {path} failed: unexpected retry loop exit.",
             method=method,
-            url=f"{self._base_url}{path}",
+            url=display_url,
+        )
+
+    def _build_failed_record(
+        self,
+        record_id: str,
+        timestamp: datetime,
+        method: str,
+        display_url: str,
+        request_headers: dict[str, str],
+        request_json: object | None,
+        transport_error: TransportError,
+        elapsed_ms: float,
+    ) -> EvidenceRecord:
+        """
+        Construct the EvidenceRecord of a request that got no response.
+
+        The request side is recorded and redacted exactly as in
+        _build_evidence_record(); the response side is empty, with the
+        transport error that explains it.
+
+        Args:
+            record_id:       Pre-generated unique ID for this record.
+            timestamp:       UTC timestamp of when the request was dispatched.
+            method:          Uppercase HTTP method.
+            path:            Absolute API path.
+            request_headers: Headers sent with the request (pre-redaction).
+            request_json:    JSON body sent, or None.
+            transport_error: Why no response arrived.
+            elapsed_ms:      Wall-clock duration of every attempt, retry waits included.
+
+        Returns:
+            An EvidenceRecord with response_status_code None.
+        """
+        request_body_str: str | None = None
+        if request_json is not None:
+            try:
+                request_body_str = json.dumps(request_json, ensure_ascii=False)
+            except (TypeError, ValueError):
+                request_body_str = str(request_json)
+        redact = self._secrets.redact
+        return EvidenceRecord(
+            record_id=record_id,
+            timestamp_utc=timestamp,
+            request_method=method,
+            request_url=redact(display_url),
+            request_headers={
+                name: self._secrets.redact_header(name, str(value))
+                for name, value in request_headers.items()
+            },
+            request_body=redact(request_body_str) if request_body_str is not None else None,
+            response_status_code=None,
+            transport_error=transport_error,
+            response_headers={},
+            response_body=None,
+            is_pinned=False,
+            elapsed_ms=round(elapsed_ms, 2),
         )
 
     def _build_evidence_record(
@@ -538,7 +670,7 @@ class SecurityClient:
         record_id: str,
         timestamp: datetime,
         method: str,
-        path: str,
+        display_url: str,
         request_headers: dict[str, str],
         request_json: object | None,
         response: httpx.Response,
@@ -607,7 +739,23 @@ class SecurityClient:
             key.lower(): str(value) for key, value in response.headers.items()
         }
 
-        full_url = f"{self._base_url}{path}"
+        full_url = display_url
+
+        # Every Set-Cookie redacted one by one (RFC 6265: they cannot be folded
+        # into one value; httpx folds them in its mapping, and redacting the
+        # folded value would hide only the first cookie). The mapping's
+        # set-cookie entry is rebuilt from the redacted list.
+        set_cookies = [
+            self._secrets.redact_header(SET_COOKIE_HEADER, value)
+            for value in response.headers.get_list(SET_COOKIE_HEADER)
+        ]
+        headers = {
+            name: self._secrets.redact_header(name, value)
+            for name, value in response_headers_normalized.items()
+            if name != SET_COOKIE_HEADER
+        }
+        if set_cookies:
+            headers[SET_COOKIE_HEADER] = _FOLDED_HEADER_SEPARATOR.join(set_cookies)
 
         # Redaction at capture (src/core/redaction.py): credential headers and
         # every secret already registered never reach the evidence files.
@@ -624,10 +772,8 @@ class SecurityClient:
             },
             request_body=redact(request_body_str) if request_body_str is not None else None,
             response_status_code=response.status_code,
-            response_headers={
-                name: self._secrets.redact_header(name, value)
-                for name, value in response_headers_normalized.items()
-            },
+            response_headers=headers,
+            response_set_cookies=set_cookies,
             response_body=redact(response_body_str) if response_body_str is not None else None,
             is_pinned=False,
             elapsed_ms=round(elapsed_ms, 2) if elapsed_ms is not None else None,

@@ -12,8 +12,10 @@
 | Name | Timeout Configuration Audit -- Prevention of Resource Lock |
 | Domain | 4 - Availability and Resilience |
 | Priority / strategy | P1 / WHITE_BOX |
+| Effect | READ_ONLY |
 | CWE | CWE-400 |
-| Tags | `availability`, `timeout`, `resource-lock`, `white-box`, `OWASP-API4` |
+| Standards | `OWASP API4:2023`, `NIST SP 800-204A, Section 4.3`, `OWASP ASVS v5.0.0-16.5.2` |
+| Tags | `availability`, `timeout`, `resource-lock`, `white-box` |
 | Prerequisites | none |
 | Needs | `GATEWAY` |
 | Parameters | [`tests.domain_4.test_4_2`](../../03-reference/01-configuration.md#testsdomain_4test_4_2) |
@@ -31,13 +33,18 @@ that a slow backend cannot hold gateway workers indefinitely.
 No request is sent to the target API. The test reads the gateway concept "backend timeouts" through the gateway
 adapter ([gateway concepts](../../04-architecture/05-design-decisions.md#d7-neutral-gateway-concepts)): one item per backend (a Kong service), or per route
 that overrides its backend's timeouts (APISIX), in seconds. For each item it checks the connect, read and write
-timeouts (`write_timeout` is the time between two writes to the backend):
+timeouts (`write_timeout` is the time between two writes to the backend). Each timeout is a sub-test
+(`connect_timeout`, `read_timeout`, `write_timeout`); each item gives one judgement in each:
 
-| Value | Finding |
-|---|---|
-| not stated by the gateway | `Timeout Field Absent: <field> on service '<name>'` (`route '<name>'` for a route) |
-| `0` | `Timeout Not Configured: <field> == 0 on service '<name>'` |
-| above the threshold | `Timeout Exceeds Oracle Threshold: <field> = <value> ms on service '<name>'` |
+| Value | Outcome / detail | Finding |
+|---|---|---|
+| within the threshold | `ENFORCED/WITHIN_LIMIT` | none |
+| above the threshold | `VIOLATION/ABOVE_LIMIT` | `Timeout Exceeds Oracle Threshold: <field> = <value> ms on service '<name>'` |
+| `0` | `VIOLATION/NOT_CONFIGURED` | `Timeout Not Configured: <field> == 0 on service '<name>'` |
+| not stated by the gateway | `VIOLATION/NOT_STATED` | `Timeout Field Absent: <field> on service '<name>'` (`route '<name>'` for a route) |
+
+The oracle is the one of v0.1.0, moved onto the computed result (pilot of the test review); whether a timeout the
+gateway does not state is a violation is decided in the review of this test.
 
 Thresholds (ms): `max_connect_timeout_ms` 5000, `max_read_timeout_ms` 30000, `max_write_timeout_ms` 30000.
 
@@ -45,8 +52,8 @@ Thresholds (ms): `max_connect_timeout_ms` 5000, `max_read_timeout_ms` 30000, `ma
 
 | Status | When |
 |---|---|
-| PASS | Every service has all three timeouts within bounds. |
-| FAIL | At least one finding. |
+| PASS | No violation: every item has all three timeouts within bounds (always `complete`: this test has no not verifiable case). |
+| FAIL | At least one violation (one finding each). |
 | SKIP | No gateway adapter configured; the gateway has no such concept ("Not applicable to this gateway: backend timeouts: ..."); the Admin API cannot be read ("Not verifiable: no access to backend timeouts: ..."); or no backend registered. |
 | ERROR | Unexpected exception. |
 
