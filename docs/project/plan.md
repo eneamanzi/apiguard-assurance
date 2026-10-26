@@ -16,9 +16,11 @@
   0b decided; phase 0c done (2026-10-21: the common part, pieces 1-8 and 10; test 4.2 back as the pilot, the
   other tests removed from the branch until each is rewritten).
 - **Next step:** **merge `test-review` into `main`.** All ten groups A-J are done (group J, the last, finished
-  2026-10-26: 7.2 rewritten, 7.1/7.3/7.4 new; six phases through, `dev:check` green). The merge applies the
-  "Documentation changes to apply later" and clears the CHANGELOG `[Unreleased]` note (the review's test-logic
-  changes land as one set). Group J's commit is left for the owner.
+  2026-10-26: 7.2 rewritten, 7.1/7.3/7.4 new; six phases through, `dev:check` green; committed `6bb4bb9`). The merge
+  is a git operation only: `main` has not moved from `4b185f8`, so `test-review` is 19 commits ahead in a straight
+  line. The review's whole-tool documentation backlog (test-review.md "Documentation changes to apply later",
+  including the CHANGELOG rewrite) stays **deferred**: it is applied later together with the separate documentation
+  rework, not inside the merge.
   Follow-ups left for after every test (the out-of-band listener for 7.2/7.4, the lab-unproven live branches of
   7.1/7.3/7.4, 6.3 smuggling, deep-injection tools, log/alert content checks, key-based JWT, ASVS 4.1.5) are tracked
   in [`test-review.md`](test-review.md) "Deferred follow-ups (after all tests)", not in OPEN_QUESTIONS.
