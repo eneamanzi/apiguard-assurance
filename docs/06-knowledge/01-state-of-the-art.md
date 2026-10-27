@@ -594,18 +594,38 @@ These are not configuration bugs: they are **emergent properties** of incompatib
    gateway, SSE through a load balancer, gRPC bidirectional streaming through a mesh sidecar). Infrastructure built
    for request-response fails with persistent connections: rate limiting, timeouts and resource allocation are
    wrong.
+   *Mitigation:* each case moves the control into the application. A WebSocket limit is a per-connection message
+   counter that disconnects the client over the threshold (one state lookup per message, the only way to enforce
+   it); an SSE connection survives an idle load balancer through heartbeat comment lines sent more often than the
+   timeout, at the cost of bandwidth and connection slots; gRPC streaming memory is bounded by raising the sidecar's
+   limit, by Istio's ambient mode (ztunnel works at layer 4 and does not buffer payloads) or by an application-side
+   stream timeout. None of the three is a full fix: each trades memory or functionality.
 2. **Protocol translation loss**: transcoding loses metadata or meaning (gRPC-Web to gRPC through Envoy, HTTP/2
    downgraded to HTTP/1.1 by a misconfigured gateway). Logs differ (the gateway sees HTTP, the backend processes
    gRPC) and policies diverge (the WAF validates HTTP, the backend deserialises protobuf with other rules).
+   *Mitigation:* none at the gateway. The assumption to break is "the mesh encrypts, therefore the traffic is
+   encrypted": a downgrade to HTTP/1.1 on a path without mTLS carries plain text, so the protocol of each listener
+   has to be asserted rather than assumed.
 3. **Payload opacity**: the infrastructure cannot inspect binary or encrypted payloads (protobuf through a WAF,
    WebSocket frames after the upgrade). Injection payloads pass the security layer unseen; defence in depth is
    broken.
+   *Mitigation:* there is no infrastructure-level solution. The backend validates and sanitises every frame and
+   every deserialised message itself and cannot delegate that to the WAF, which breaks the separation between
+   infrastructure security and application logic.
 4. **Semantic routing failure**: the infrastructure routes on HTTP metadata, the protocol on payload semantics
    (GraphQL's single endpoint with batching, SOAP's single endpoint with the operation in the body). URL-based
    routing, rate limiting and authorization are ineffective: the gateway does not understand the application.
+   *Mitigation:* a protocol-aware gateway, or the control in the application. Disabling GraphQL introspection is
+   not one: the schema stays discoverable through field suggestion, and a gateway that sees only an HTTP 200 with a
+   JSON body cannot tell a valid answer from an error that leaks the schema.
 5. **Resource accounting mismatch**: the infrastructure counts HTTP requests, the protocol runs N operations per
    request (GraphQL batching, one HTTP/2 stream with unlimited gRPC messages, one WebSocket handshake with thousands
-   of frames). Rate limiting, billing and capacity planning based on HTTP metrics are wrong.
+   of frames). Rate limiting, billing and capacity planning based on HTTP metrics are wrong. The magnitude is the
+   point: against a limit of 100 requests per second, 1,000 batched queries per request yield 100,000 backend
+   operations per second, a bypass of a thousand times the intended rate.
+   *Mitigation:* request-counting rate limiters (Nginx `limit_req`, API gateway throttling) do not protect at all.
+   The server must parse the query into a syntax tree, compute a cost in which each field carries a weight and
+   nesting multiplies, and refuse what exceeds a threshold. Traditional infrastructure cannot do this.
 
 ### 3.3 Where to test what
 
@@ -640,8 +660,9 @@ Generic HTTP scanners (Nikto, Dirb, an OWASP ZAP baseline scan) do not cover Web
 protobuf without its `.proto`, GraphQL query complexity, long SSE connections with token expiry, or protocol
 downgrades (HTTP/2 to HTTP/1.1); these need specialised tools (`grpcurl` and `ghz` for gRPC, `graphql-cop` and
 `clairvoyance` for GraphQL, `wscat` for WebSocket, a custom EventSource client for SSE, packet capture for protocol
-inspection). The full research notes behind this chapter, with the combination-by-combination analysis, are in
-[`archive/state-of-the-art-extensive.md`](02-state-of-the-art-extended.md).
+inspection). The research notes behind this chapter, with the
+analysis of each architecture-protocol combination one by one, are in the Italian original in the git history
+([`README.md`](README.md#italian-originals)); their substance is in sections 3.1 to 3.3 above.
 
 ## Conclusions
 
@@ -651,8 +672,59 @@ testing; six protocol mechanisms (REST, GraphQL, gRPC, SOAP, WebSocket, SSE) wit
 follow from their design; and five recurring impedance mismatch patterns between the two, with a matrix of where to
 test what. Abstracting instead of cataloguing, stressing substantial differences instead of feature lists, and
 orienting everything to testing gives the basis for the methodology
-([`03-methodology.md`](03-methodology.md)) and for the tool's design.
+([`02-methodology.md`](02-methodology.md)) and for the tool's design.
 
+## Sources
+
+The primary sources of the chapter: vendor and project documentation, protocol specifications and standards.
+Secondary commentary consulted during the research is not kept; the full original list, including it, is in the
+Italian thesis notes in the git history (see [`README.md`](README.md#italian-originals)).
+
+**Architectural patterns**
+
+- AWS Documentation - Amazon API Gateway: https://docs.aws.amazon.com/apigateway/latest/developerguide/welcome.html
+- AWS Reference Architecture - Multi-region API Gateway with CloudFront: https://docs.aws.amazon.com/architecture-diagrams/latest/multi-region-api-gateway-with-cloudfront/multi-region-api-gateway-with-cloudfront.html
+- Azure API Management - API Gateway Overview: https://learn.microsoft.com/en-us/azure/api-management/api-management-gateways-overview
+- Azure Architecture Center - API Gateways: https://learn.microsoft.com/en-us/azure/architecture/microservices/design/gateway
+- CNCF Blog - Advancing Open Source Gateways with kgateway: https://www.cncf.io/blog/2025/02/05/advancing-open-source-gateways-with-kgateway
+- CNCF Cloud Native Glossary - API Gateway: https://glossary.cncf.io/api-gateway
+- GitHub - Kong Repository: https://github.com/Kong/kong
+- Google Cloud - API Gateway Architecture Overview: https://cloud.google.com/api-gateway/docs/architecture-overview
+- Google Cloud - About API Gateway: https://cloud.google.com/api-gateway/docs/about-api-gateway
+- Istio - Introducing Ambient Mesh: https://istio.io/latest/blog/2022/introducing-ambient-mesh
+- Kong Gateway Documentation: https://developer.konghq.com/gateway
+- Kubernetes Gateway API - Introduction: https://gateway-api.sigs.k8s.io
+- NGINX Community Blog - Kubernetes Networking: Moving from Ingress to Gateway API: https://blog.nginx.org/blog/kubernetes-networking-ingress-controller-to-gateway-api
+- kgateway Blog - Advancing Open Source Gateways: https://kgateway.dev/blog/advancing-open-source-gateways
+- kgateway Official Site: https://kgateway.dev
+
+**Protocol mechanisms**
+
+- Frontiers - Cloud Security and SOAP XML Vulnerabilities: https://www.frontiersin.org/journals/computer-science/articles/10.3389/fcomp.2025.1595624/full
+- GraphQL Specification: https://spec.graphql.org
+- MDN - Using Server-Sent Events: https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events
+- Microsoft Learn - Configure API for SSE in Azure API Management: https://learn.microsoft.com/en-us/azure/api-management/how-to-server-sent-events
+- OWASP - Testing WebSockets: https://owasp.org/www-project-web-security-testing-guide/v41/4-Web_Application_Security_Testing/11-Client_Side_Testing/10-Testing_WebSockets
+- PortSwigger - Testing for WebSockets Vulnerabilities: https://portswigger.net/web-security/websockets
+- gRPC Official Documentation: https://grpc.io/docs
+- gRPC Protocol Specification: https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md
+
+**Architecture-protocol interactions**
+
+- AWS API Gateway - Deploy WebSocket APIs: https://docs.aws.amazon.com/apigateway/latest/developerguide/apigateway-set-up-websocket-deployment.html
+- AWS API Gateway - Important Notes: https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-known-issues.html
+- AWS API Gateway - Protect WebSocket APIs: https://docs.aws.amazon.com/apigateway/latest/developerguide/websocket-api-protect.html
+- AWS Prescriptive Guidance - gRPC on Amazon EKS with ALB: https://docs.aws.amazon.com/prescriptive-guidance/latest/patterns/deploy-a-grpc-based-application-on-an-amazon-eks-cluster-and-access-it-with-an-application-load-balancer.html
+- Apollo GraphQL - Introduction to Apollo Federation: https://www.apollographql.com/docs/federation
+- GitHub - Istio Discussion #53877: https://github.com/istio/istio/discussions/53877
+- GraphQL.org - GraphQL Federation: https://graphql.org/learn/federation
+- Istio - gRPC Proxyless Service Mesh: https://istio.io/latest/blog/2021/proxyless-grpc
+- Kubernetes Gateway API - gRPC Routing: https://gateway-api.sigs.k8s.io/guides/grpc-routing
+- Kubernetes Ingress-Nginx - gRPC Example: https://kubernetes.github.io/ingress-nginx/examples/grpc
+- Microsoft Learn - Expose WebSocket Server to Application Gateway: https://learn.microsoft.com/en-us/azure/application-gateway/ingress-controller-expose-websocket-server
+- Microsoft Learn - Import WebSocket API to Azure API Management: https://learn.microsoft.com/en-us/azure/api-management/websocket-api
+- Microsoft Learn - WebSocket Support in Azure Application Gateway: https://learn.microsoft.com/en-us/azure/application-gateway/application-gateway-websocket
+- Red Hat - gRPC Protocol Listener on Service Mesh: https://access.redhat.com/solutions/6246351
 ## Corrections to the thesis version
 
 Facts of the thesis chapter corrected on 2026-10-20 against the sources below; the thesis text is in the git history

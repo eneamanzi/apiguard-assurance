@@ -33,18 +33,27 @@ test returns SKIP with a reason naming what is missing (6.4 runs anyway, with th
 configuration of each test are on its page (`docs/05-tests/`, "Preconditions" and "Configuration") and printed by
 `apiguard list-tests`; this table is the summary.
 
-| Tests | What they need | Without it |
-|---|---|---|
-| 0.1, 0.2, 1.1, 1.5, 2.4, 4.1, 4.4, 5.2, 6.2, `ext.1.5.testssl`, `ext.0.1.ffuf`, `ext.3.1.schemathesis` | the specification and the target URL only (the external tests also need the tool installed; 1.5 also `http_url` on a non-standard HTTP port) | run anywhere |
-| 0.3 | an operation marked `deprecated` in the specification | SKIP |
-| 1.2, 1.3, 1.6, 1.7, 2.1, 6.1 | a user account (`credentials`); 1.6 also the session-cookie names, 2.1 uses an admin account if one is given | SKIP |
-| 2.5, 7.3 | a user account and the object or operation the test acts on (`owned_object_resources`; the race operation) | SKIP |
-| 2.2 | two user accounts and an owned-object resource | SKIP |
-| 7.2 | a user account and a `url_accepting_endpoint` (with its `resource` when the endpoint belongs to an object) | SKIP |
-| 1.4 | a revocable login (`auth_type: login` with a delete request) and `protected_endpoint` | SKIP / not applicable |
-| 7.1, 7.4 | a configured sensitive flow (7.1) or webhook with its signing secret (7.4) | SKIP |
-| 0.4, 3.3, 4.2, 4.3, 5.1 | a gateway adapter (`kong` or `apisix`) and access to its Admin API | SKIP (no adapter, not supported, not accessible) |
-| 6.4 | sub-test A: the gateway's block message (`gateway_block_body_fragment`); sub-test B: a gateway adapter | sub-test B gives a note; sub-test A still runs |
+<!-- [[[cog import generate_docs as g; cog.out(g.needs_table()) ]]] -->
+
+| Need | What the configuration must give | Required by | Used when present by |
+|---|---|---|---|
+| `ADMIN_ACCOUNT` | The credentials of the admin role | - | `2.1` |
+| `USER_ACCOUNT` | The credentials of the user_a role (an ordinary account) | `1.2`, `1.3`, `1.4`, `1.6`, `1.7`, `2.1`, `2.2`, `2.5`, `6.1`, `7.2`, `7.3` | `0.3` |
+| `SECOND_USER_ACCOUNT` | The credentials of the user_b role (a second ordinary account, for cross-user tests) | `2.2` | - |
+| `GATEWAY` | A gateway section: adapter and Admin API | `0.4`, `3.3`, `4.2`, `4.3`, `5.1` | `0.1`, `0.2`, `4.1`, `4.4`, `6.4` |
+| `REVOCABLE_LOGIN` | A login method that can revoke a credential (login with a delete request) | `1.4` | - |
+| `owned_object_resources` | The config.yaml `resources:` resources that each create a disposable object owned by user_a, whose identifiers (its `values`) name the path parameters of the object's by-id operations | `2.2`, `2.5` | - |
+| `race_operation` | The once-only operation to probe for a race condition | `7.3` | - |
+| `sensitive_flow` | The sensitive business flow to probe for an anti-automation control (a CAPTCHA, a human-verification challenge, an aggressive throttle) | `7.1` | - |
+| `url_accepting_endpoint` | The endpoint that accepts a URL from the client and makes the server call it (a webhook, a fetch-from-URL import): path, body (with "{ssrf_url}" where the URL goes) and, optionally, a prepared resource | `7.2` | - |
+| `webhook_endpoint` | The webhook receiver to probe for signature verification | `7.4` | - |
+
+<!-- [[[end]]] -->
+
+Two requirements are not in the table because they are not declared needs: **0.3** runs only where the
+specification marks an operation `deprecated`, and **6.4**'s first sub-test compares a blocked response against the
+gateway's block message (`gateway_block_body_fragment`), running without it and saying so in a note. A test whose
+need is unmet is recorded SKIP before it runs, with the reason naming what is missing.
 
 Reaching a verdict is not the same as the verdict being right: verdict correctness was the subject of the block-6
 test review (groups A-J), now complete, which rebuilt each test's oracle with calibration, positive controls and the
@@ -184,7 +193,7 @@ Unavoidable differences from the Kong labs: APISIX's `hmac-auth` has no `hmac-sh
 too (interval at least 1 s, here 60 s), where the Kong labs probe only unhealthy targets; an HTTP request other than
 GET or HEAD gets a 308 redirect, where Kong answers 301.
 
-Results (2026-10-12, native tests): the same tests, statuses, findings and oracle states as the Forgejo + Kong lab;
+Results (2026-10-12, native tests): the same tests, statuses, findings and outcomes as the Forgejo + Kong lab;
 every audit read APISIX (concept artifacts with `"adapter": "apisix"`).
 
 Rebuilt from scratch on 2026-10-15 (the three labs, with their certificates, Forgejo's port closed and the
@@ -194,13 +203,17 @@ certificates declare no CRL or OCSP address).
 
 ## External tools
 
-| Tool | Version | Installed by | Licence note |
+| Tool | Version | Installed by | Used by |
 |---|---|---|---|
-| testssl.sh | 3.2.3 (pinned) | `install_tools.sh` → `tools/testssl/` | - |
-| nuclei | 3.8.0 (pinned) | `install_tools.sh` → `tools/nuclei/` | - |
-| nuclei-templates | 10.4.3 (pinned) | `install_tools.sh` → `tools/nuclei-templates/` | - |
+| testssl.sh | 3.2.3 (pinned) | `install_tools.sh` → `tools/testssl/` | `ext.1.5.testssl` |
+| ffuf | 2.3.0 (pinned, checksum verified) | `install_tools.sh` → `tools/ffuf/` | `ext.0.1.ffuf` |
+| SecLists wordlists | 2026.1 (pinned, two lists only) | `install_tools.sh` → `tools/seclists/` | `ext.0.1.ffuf` |
+| Schemathesis | `>=3.39,<4` | `pip install "apiguard-assurance[schemathesis]"` | `ext.3.1.schemathesis` |
+| nuclei | 3.8.0 (pinned) | `install_tools.sh` → `tools/nuclei/` | no test ([roadmap](../project/roadmap.md)) |
+| nuclei-templates | 10.4.3 (pinned) | `install_tools.sh` → `tools/nuclei-templates/` | no test |
 
-`external_tools.<tool>.expected_version` lets the tool warn when the installed version differs.
+`external_tools.<tool>.expected_version` lets the tool warn when the installed version differs. Schemathesis is a
+Python library, not a binary: without its extra `ext.3.1.schemathesis` returns SKIP like a missing binary.
 
 ## Python dependencies
 

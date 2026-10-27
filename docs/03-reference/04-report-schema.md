@@ -156,7 +156,7 @@ precondition, a not-run test was not selected or was stopped (`src/core/models/r
 | `transaction_log` | array of [`TransactionSummary`](#transactionsummary) | Every HTTP request of the test, PASS included. |
 | `notes` | array of [`InfoNote`](#infonote) | Informational context that is not a violation (e.g. a compensating control), on any status. |
 | `source` | `native` \| `external` | `native` or `external`. |
-| `tool_name` | string | External tool name (e.g. `nuclei`); empty for native tests. |
+| `tool_name` | string | External tool name (e.g. `ffuf`); empty for native tests. |
 | `tool_artifact` | object \| null | External tests only: the tool's raw output (`command`, `command_json`, `results`, `all_count`, plus `_apiguard_meta_*` keys). |
 | `tool_artifact_label` | string \| null | External tests only: label of the tool output, the external test's ID (e.g. `ext.0.1.ffuf`). |
 | `tool_artifact_record_id` | string \| null | External tests only: `record_id` of the tool output in `evidence.json`. |
@@ -289,7 +289,7 @@ test's review.
 | `category` | string \| null | What the response is, common to every test (`SERVED`, `NOT_FOUND`, `UNAUTHENTICATED`, ...). |
 | `sub_test` | string \| null | The sub-test the request belongs to; null for a preparation step. |
 | `outcome` | string \| null | What the response means for the guarantee (`VIOLATION`, `ENFORCED`, `NOT_VERIFIABLE`, `NOT_APPLICABLE`); null when the request is not judged (a login, an object created for the test). |
-| `detail` | string \| null | The test's detail of the outcome, e.g. `AUTH_BYPASS`, `PATH_NOT_FOUND`; read with the outcome as `VIOLATION/AUTH_BYPASS`. Null with a null outcome. |
+| `detail` | string \| null | The test's detail of the outcome, e.g. `SERVED_WITHOUT_CREDENTIAL`, `NOT_FOUND_LIKE_UNKNOWN`; read with the outcome as `VIOLATION/SERVED_WITHOUT_CREDENTIAL`. Null with a null outcome. |
 | `duration_ms` | number \| null | Duration of the request. |
 | `is_fail_evidence` | bool | The transaction is FAIL evidence: the full record is in `evidence.json`. |
 | `request_headers` | object | Lowercase names; `authorization` and cookie values redacted with typed placeholders (see the evidence format). |
@@ -419,4 +419,4 @@ The reference responses the tests asked for (calibration and positive control): 
 
 - [`evidence-format.md`](05-evidence-format.md)
 - [`exit-codes.md`](03-exit-codes.md)
-- *planned:* `guides/integration/consume-the-report.md`
+- [`integrate-apiguard.md`](../02-guides/02-integration/01-integrate-apiguard.md): consuming this report from another program

@@ -96,9 +96,15 @@ coverage limit, not a pass.
 
 ## 11. Configuration
 
-| Parameter | What it is |
-|---|---|
-| `debug_endpoint_paths` | the debug/actuator paths to probe (empty: the debug sub-test is not applicable) |
+<!-- [[[cog import generate_docs as g; cog.out(g.test_params("6.4", page=cog.inFile)) ]]] -->
+
+Section [`tests.domain_6.test_6_4`](../../03-reference/01-configuration.md#testsdomain_6test_6_4) of `config.yaml`:
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `debug_endpoint_paths` | list | empty | Paths of debug or actuator endpoints to probe unauthenticated for exposed credentials (e.g. /actuator/env, /debug/vars). Empty: the debug sub-test is not applicable. |
+
+<!-- [[[end]]] -->
 
 ## 12. Validation
 
@@ -112,7 +118,7 @@ Rule 9: the ENFORCED side is proven. The VIOLATION branches are lab-unproven: th
 strips user:password from a service URL (so a credentialled URL cannot be injected into the config), and a Kong
 DB-less config carries few scannable string values (the review's own note). The detectors are deterministic regexes;
 producing a live exposure (a debug endpoint that returns a secret, a gateway that keeps a credentialled config value)
-is offered as a follow-up.
+would need an announced change to a lab and has not been done.
 
 ## 13. Remediation
 

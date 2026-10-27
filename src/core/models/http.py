@@ -355,8 +355,9 @@ class TransactionSummary(BaseModel):
     detail: str | None = Field(
         default=None,
         description=(
-            "The test's detail of the outcome, e.g. `AUTH_BYPASS`, `PATH_NOT_FOUND`; read "
-            "with the outcome as `VIOLATION/AUTH_BYPASS`. Null with a null outcome."
+            "The test's detail of the outcome, e.g. `SERVED_WITHOUT_CREDENTIAL`, "
+            "`NOT_FOUND_LIKE_UNKNOWN`; read with the outcome as "
+            "`VIOLATION/SERVED_WITHOUT_CREDENTIAL`. Null with a null outcome."
         ),
     )
     duration_ms: float | None = Field(

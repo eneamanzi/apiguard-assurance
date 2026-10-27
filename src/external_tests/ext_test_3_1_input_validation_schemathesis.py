@@ -19,7 +19,8 @@ an operation Schemathesis flags is one whose input is not validated.
 It runs unauthenticated (no credential injected): the write requests it
 generates are refused, so nothing is created; effect STRESSES_TARGET (many
 generated requests), run last. The deep injection confirmation (sqlmap,
-NoSQLMap, Dalfox, commix) and an authenticated run are deferred follow-ups.
+NoSQLMap, Dalfox, commix) and an authenticated run are not planned, so a
+validation gap behind the credential is outside what this test reports.
 
 Dependency rule:
     Imports from stdlib, structlog, src.connectors, src.core,

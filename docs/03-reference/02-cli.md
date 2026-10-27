@@ -24,8 +24,9 @@ There are no CLI options to select tests: selection is done in `config.yaml` (`e
 
 ## Environment and `.env`
 
-`run` and `validate-config` load a `.env` file before reading `config.yaml` (`_load_env_file`, `src/cli.py`);
-`${VAR}` placeholders in `config.yaml` are resolved from the resulting environment.
+`run`, `validate-config`, `list-tests --config` and `generate-seed --config` load a `.env` file before reading
+`config.yaml` (`_load_env_file`, `src/cli.py`); `${VAR}` placeholders in `config.yaml` are resolved from the
+resulting environment.
 
 - **Without `--env-file`:** `.env` in the **current working directory** (where you run the command), if it exists.
   No other folder is searched: not the tool's installation folder, not parent folders. No `.env` is not an error;
@@ -36,7 +37,9 @@ There are no CLI options to select tests: selection is done in `config.yaml` (`e
   a container or a calling program) are never overwritten by the file (`override=False`). Without any file, the
   exported variables alone are enough.
 
-The loaded file is logged (`env_file_loaded`, path only, never values). `generate-seed` and `version` load no file.
+The loaded file is logged (`env_file_loaded`, path only, never values). `version` loads no file, and neither do
+`list-tests` and `generate-seed` without `--config`: with no configuration to read there is no placeholder to
+resolve.
 Verified on 2026-10-08 with a `pip` install in a fresh virtual environment, run from a folder outside the
 repository (before, the file was searched from the tool's code folder and a `pip` install never found it).
 
@@ -166,10 +169,10 @@ JSON output, one object per test (native first, then external, by ID):
 | Field | Type | Meaning |
 |---|---|---|
 | `id`, `name`, `priority`, `strategy`, `cwe`, `tags`, `depends_on`, `requires_pass`, `tool` | as in `TestInfo` | the declaration (`tool` is `null` for a native test) |
-| `needs` | list of strings | `ADMIN_ACCOUNT`, `USER_ACCOUNT`, `GATEWAY`, `REVOCABLE_LOGIN` ([configuration](01-configuration.md#tests)) |
+| `needs` | list of strings | the `Need` members ([assessment model](../04-architecture/03-assessment-model.md#needs-what-the-configuration-must-hold)) |
 | `domain` | int | the methodology domain (first number of the ID) |
 | `source` | string | `native` or `external` |
-| `parameters_key` | string \| null | the test's section in `config.yaml` (`tests.domain_2.test_2_1`), `null` when it has no parameters |
+| `parameters_key` | string \| null | the test's section in `config.yaml` (`tests.domain_4.test_4_2`), `null` when it has no parameters |
 | `needed_parameters` | list of strings | parameters the test cannot run without |
 | `parameters_schema` | object \| null | JSON Schema of the parameters (Pydantic `model_json_schema()`: types, ranges, defaults, descriptions) |
 | `selected` | bool | with `--config` only: the run selects the test |

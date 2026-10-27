@@ -106,9 +106,9 @@ unreliable in both directions, and it needed a list of gateway names in the conf
 
 ## 7. Outcomes
 
-No SKIP of its own: without a gateway the test still runs and `near_route_paths` is not applicable. A sub-test is
-PASS complete when every judgement is enforced, PASS partial when some case could not be judged, INCONCLUSIVE when
-none could.
+No SKIP of its own: without a gateway the test still runs and `near_route_paths` is not applicable. How a
+sub-test's status follows from its judgements is rule 2 of the
+[assessment model](../../04-architecture/03-assessment-model.md#rules-every-test-follows).
 
 ## 8. Findings
 

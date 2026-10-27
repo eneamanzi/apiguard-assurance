@@ -102,7 +102,7 @@ _DEBUG_FIELD_SUBSTRINGS: tuple[str, ...] = (
 
 # Expected security headers with their required values or validation rules.
 # None as the expected value means "must be present, any non-empty value".
-# Methodology reference: Garanzia 6.2 — Security Header Configurati.
+# Methodology reference: guarantee 6.2 -- security headers configured.
 SECURITY_HEADER_DEFINITIONS: dict[str, str | None] = {
     "strict-transport-security": "max-age=",  # must contain max-age
     "x-content-type-options": "nosniff",
@@ -137,7 +137,7 @@ def contains_stack_trace(body: str) -> list[str]:
     """
     Search a response body string for stack trace or framework leakage patterns.
 
-    Methodology reference: Garanzia 6.1 — the oracle states that response
+    Methodology reference: guarantee 6.1 -- the oracle states that response
     bodies must not contain class names, file paths, or exception messages.
 
     Args:

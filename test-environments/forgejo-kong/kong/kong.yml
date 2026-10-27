@@ -32,7 +32,8 @@ upstreams:
 
 services:
   - name: forgejo-service
-    # Modifica cruciale: url non punta più a forgejo:3000, ma all'upstream
+    # url points at the upstream, not directly at forgejo:3000, so the upstream's
+    # health checks and timeouts apply (test 4.3 reads them).
     url: http://forgejo-upstream
     connect_timeout: 5000
     read_timeout: 30000

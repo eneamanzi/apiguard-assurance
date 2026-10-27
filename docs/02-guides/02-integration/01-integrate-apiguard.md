@@ -2,7 +2,7 @@
 
 > **Audience:** developers integrating the tool into another product or an automated pipeline · **Status:** 0.x
 > (see [versions](#9-versions)) · **Source of truth:** `src/cli.py`, `src/engine.py`, the
-> [reference pages](../../03-reference/) · **Verified:** 2026-10-09 with a wheel installed by `pip` in a fresh virtual
+> [reference pages](../../03-reference/) · **Verified:** 2026-10-27 (the durations, measured on the lab); 2026-10-09 with a wheel installed by `pip` in a fresh virtual
 > environment, run from a working directory outside the repository, against the Forgejo + Kong lab; certificates
 > and the `connections` checks 2026-10-15 on the three labs
 
@@ -61,7 +61,7 @@ system"); the other tests run normally. A disabled tool (`enabled: false`) is li
 
 Start from `config.example.yaml` in the repository root, which lists every key with its description and default
 (reference: [configuration](../../03-reference/01-configuration.md)), and keep what your target needs. Relative paths
-in the file (specification, output directory, nuclei templates) are resolved against the directory the command
+in the file (specification, output directory, ffuf's wordlist directory) are resolved against the directory the command
 runs from: start the tool from the directory that holds the file, or write absolute paths. Secrets
 never go in the file: write `${VAR}` and provide the variables at run time, either exported in the environment of
 the process or in a file passed with `--env-file` (variables already in the environment win):
@@ -101,10 +101,11 @@ started together it returns ERROR).
 APIGUARD_OUTPUT_DIR=runs/r1 apiguard run -c config.yaml --env-file credentials.env
 ```
 
-On the lab a run takes about 25 seconds with the native tests and about 5 minutes with nuclei and testssl.sh;
-nuclei alone takes about 195 seconds against the example's limit of 600 (`external_tools.nuclei.timeout_seconds`):
-give your own limit a margin (the run warns, `external_tool_near_time_limit`, when a tool ends after more than 70% of
-it).
+On the lab a run takes about 18 seconds with the native tests alone and about two and a half minutes with the
+three external tools as well: testssl.sh about 75 seconds against the lab's limit of 180
+(`external_tools.testssl.timeout_seconds`), Schemathesis about 31 and ffuf about 30, both against a limit of 600.
+Give your own limits a margin (the run warns, `external_tool_near_time_limit`, when a tool ends after more than 70%
+of its limit).
 
 **Output for people or for machines.** The default console output is a progress view (one line per test, a
 summary with the report paths). For a log collector use JSON lines:
@@ -192,8 +193,9 @@ jq -r '.not_run[] | "\(.test_id)\t\(.reason)\t\(.detail)"' apiguard_report.json
 ```
 
 A finding from an HTTP probe carries `evidence_ref`, the `record_id` of the proving transaction in `evidence.json`
-(set by `_judge()`). A finding from a gateway-configuration audit (3.3, 4.2, 4.3) references the gateway concept it
-read instead of an HTTP transaction.
+(set by `_judge()`). A finding from a gateway-configuration check references the gateway concept it read instead of an
+HTTP transaction: its `evidence_ref` starts with `artifact-` (3.3, 4.2, 4.3, 5.1, and the route-drift part of 0.1
+and 0.2).
 
 ## 7. Stop a run
 
@@ -201,7 +203,7 @@ Send SIGTERM (or SIGINT) and give the tool a few seconds: it removes what the te
 exits with `143` (`130` for SIGINT), without reports; the output directory keeps `config_used.yaml` and, when the tests
 had started, `evidence_tmp/` (partial files). Repeated signals do not interrupt the cleanup. **Never SIGKILL** (`kill -9`): the cleanup does not run and
 tokens or repositories stay on the target. `timeout --kill-after=30s` sends SIGKILL only if the tool is still
-running 30 seconds after SIGTERM; on the lab the cleanup takes about one second. Details:
+running 30 seconds after SIGTERM; on the lab the cleanup took about a second for three resources, and it grows with their number. Details:
 [stopping a run](../../03-reference/03-exit-codes.md#stopping-a-run).
 
 ## 8. Effects on the target and sensitive data

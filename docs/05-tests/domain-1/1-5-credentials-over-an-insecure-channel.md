@@ -115,10 +115,16 @@ drops the port in the `Location` (`https://host/...`), APISIX keeps it; the orac
 
 ## 11. Configuration
 
-| Parameter | What it is | Derived when left out |
-|---|---|---|
-| `hsts_min_max_age_seconds` | the lowest acceptable HSTS `max-age` (default one year) | - |
-| `http_url` | the plain-HTTP origin of the API; only its origin is used, the path comes from the specification | the origin is derived from `base_url` (scheme to `http`, the HTTPS default port dropped to the implicit port 80) |
+<!-- [[[cog import generate_docs as g; cog.out(g.test_params("1.5", page=cog.inFile)) ]]] -->
+
+Section [`tests.domain_1.test_1_5`](../../03-reference/01-configuration.md#testsdomain_1test_1_5) of `config.yaml`:
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `hsts_min_max_age_seconds` | int ≥86400 | `31536000` | Lowest acceptable max-age (seconds) in the Strict-Transport-Security header. NIST SP 800-52 Rev.2, OWASP ASVS v5.0.0-3.4.1 ask for at least one year. Default: 31536000 (one year). |
+| `http_url` | string | `""` | The API in plain HTTP, when its HTTP listener is on a non-standard port: only the origin (scheme://host[:port]) is used, the path is derived from the specification. Empty (default) derives the origin from base_url (scheme to http, port 443 dropped). |
+
+<!-- [[[end]]] -->
 
 The labs set `http_url` to the gateway's HTTP listener (`http://localhost:8000`/`9000`/`10000`) because they put
 HTTPS on a non-standard port; a real deployment with HTTPS on 443 and HTTP on 80 needs no override.

@@ -5,7 +5,7 @@
 > `git show 694f89a:docs/knowledge/target-selection.it.md` · **Verified:** 2026-10-20
 
 What a target application must offer for the tool to assess it, and the applications considered. The tool itself is
-agnostic of the target ([design property D1.P1](08-design-properties.md)); these requirements describe what makes an
+agnostic of the target ([design property D1.P1](07-design-properties.md)); these requirements describe what makes an
 application a *good* target for development and for demonstrating the methodology. What each test needs from a
 target, and what happens without it, is in
 [Test portability](../03-reference/06-compatibility.md#test-portability); the labs are in

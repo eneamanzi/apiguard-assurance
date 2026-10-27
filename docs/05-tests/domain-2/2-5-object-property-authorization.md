@@ -101,9 +101,15 @@ Independent of the adapter: property filtering and body binding are the applicat
 
 ## 11. Configuration
 
-| Parameter | What it is |
-|---|---|
-| `owned_object_resources` | the `resources:` resource that creates a disposable object owned by user_a (the same as 2.2). Required. |
+<!-- [[[cog import generate_docs as g; cog.out(g.test_params("2.5", page=cog.inFile)) ]]] -->
+
+Section [`tests.domain_2.test_2_5`](../../03-reference/01-configuration.md#testsdomain_2test_2_5) of `config.yaml`:
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `owned_object_resources` | list | empty, **needed to run** | The config.yaml `resources:` resources that each create a disposable object owned by user_a (the same as test 2.2); each is checked in turn. Without any the test cannot run. |
+
+<!-- [[[end]]] -->
 
 ## 12. Validation
 
@@ -131,6 +137,8 @@ request fields, never the whole body (mass assignment, CWE-915).
 - Mass assignment probes a fixed set of common ownership field names with string sentinels; a boolean-only privileged
   field, or a field name outside the set, is not caught (to avoid false positives).
 - The scan descends a few levels into the response; a deeply nested sensitive field is missed.
+- The object comes from `owned_object_resources` and always will: deriving candidate objects from the target is not
+  planned (2026-10-27), so without a configured resource the test is SKIP (the same boundary as test 2.2).
 
 ## 15. Sources
 

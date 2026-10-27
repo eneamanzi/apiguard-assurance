@@ -4,7 +4,7 @@
 > 2026), adapted to English: every tool found in a verifiable source, for every guarantee, in category A, B or C.
 > Tools are described by their role; the detailed technique lists of the thesis are in the Italian original
 > (`git show 694f89a:docs/knowledge/tools/catalog.it.md`; also tag `v0.1.0`, `docs/priv/TOOLS_catalog.md`). Maintenance states ("abandoned", "actively maintained") are as of May
-> 2026. · **Decisions in short, criteria and implementation state:** [`05-tool-decisions.md`](05-tool-decisions.md) ·
+> 2026. · **Decisions in short and the criteria:** [`04-tool-decisions.md`](04-tool-decisions.md) ·
 > **Verified:** 2026-10-20
 
 **Changes in v1.3 (May 2026) with respect to v1.2.**
@@ -23,7 +23,7 @@
 **Since v1.2, three categories.** Each test section has three sub-sections, in order of operational priority:
 **category A**, connector to implement, mandatory (Python structurally cannot); **category B**, optional connector
 with a native fallback (Python can, the tool adds genuine coverage); **category C**, discarded (does not enter the
-code; the reason is stated). The reasons C.1-C.4 are defined in [`05-tool-decisions.md`](05-tool-decisions.md#criteria).
+code; the reason is stated). The reasons C.1-C.4 are defined in [`04-tool-decisions.md`](04-tool-decisions.md#criteria).
 
 **Columns.** Tool; Repository (GitHub or identifier); Language/type (CLI, library, API, script); Value against
 native Python (why it is useful compared with Python alone); Output (the format relevant for integration); Notes
@@ -173,7 +173,7 @@ stripped signatures, key identifier mismatches).
 
 **Goal:** valid tokens explicitly revoked (after logout, after a password change) are rejected. As implemented: a
 credential obtained through the configured login, revoked with the login's configured delete request, then replayed
-on `protected_endpoint`.
+on a derived anchor endpoint.
 
 **Category A and B:** none, a purely NATIVE test.
 
@@ -318,7 +318,8 @@ covers today the cookie attributes only.
 `400`.
 
 > **CRLF coverage (v1.3).** CRLFuzz was removed from category A (inactive since 2021). It was there because it
-> worked on raw sockets, bypassing the request normalisation (RFC 7230) applied by `httpx`. The nuclei CRLF templates
+> worked on raw sockets, bypassing the request normalisation (RFC 9112, which obsoleted RFC 7230) applied by
+> `httpx`. The nuclei CRLF templates
 > in the pinned `nuclei-templates 10.4.3` bundle use the same raw TCP approach and give equivalent evidence.
 > Prerequisite: check that the bundle contains them before declaring CRLF covered in 3.1.
 

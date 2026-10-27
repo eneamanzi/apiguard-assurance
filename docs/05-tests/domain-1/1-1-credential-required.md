@@ -107,8 +107,8 @@ read for what it is.
 
 ## 7. Outcomes
 
-No SKIP of its own (it needs no credential and no gateway). A sub-test is PASS complete when every judgement is
-enforced, PASS partial when some case could not be judged, INCONCLUSIVE when none could.
+No SKIP of its own (it needs no credential and no gateway). How a sub-test's status follows from its judgements
+is rule 2 of the [assessment model](../../04-architecture/03-assessment-model.md#rules-every-test-follows).
 
 ## 8. Findings
 

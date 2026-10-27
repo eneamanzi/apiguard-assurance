@@ -40,6 +40,7 @@ This file lives in scripts/ (development only), like check_config_keys.py.
 from __future__ import annotations
 
 import argparse
+import ast
 import importlib
 import inspect
 import logging
@@ -84,7 +85,15 @@ from src.core.models import (
 )
 from src.core.models.enums import EXIT_CODES
 from src.core.references import CalibrationPoint, Fingerprint, PositiveControl
-from src.core.test_metadata import PRIORITY_MAX, PRIORITY_MIN, TestInfo, section_keys
+from src.core.test_metadata import (
+    EFFECT_RANK,
+    PRIORITY_MAX,
+    PRIORITY_MIN,
+    Effect,
+    Need,
+    TestInfo,
+    section_keys,
+)
 from src.external_tests.registry import ExternalTestRegistry
 from src.report.builder import (
     DOMAIN_NAMES,
@@ -108,6 +117,10 @@ GENERATED_FILES: tuple[str, ...] = (
     "docs/05-tests/*/*.md",
     "docs/05-tests/external/*/*.md",
     "docs/04-architecture/03-assessment-model.md",
+    "docs/02-guides/01-usage/01-configure-a-target.md",
+    "docs/03-reference/06-compatibility.md",
+    "docs/06-knowledge/03-guarantees.md",
+    "docs/06-knowledge/02-methodology.md",
     "docs/03-reference/01-configuration.md",
     "docs/03-reference/02-cli.md",
     "docs/03-reference/04-report-schema.md",
@@ -475,6 +488,44 @@ def _cell(text: str) -> str:
     return " ".join(text.split()).replace("|", "\\|")
 
 
+def test_params(*test_ids: str, page: str) -> str:
+    """
+    The parameter table of a test page (section 11), from the test's model.
+
+    Only for a test that declares parameters: a test without them keeps the
+    hand-written sentence saying what the page derives instead.
+
+    Args:
+        test_ids: The tests the page describes.
+        page:     The page's path (cog.inFile), for the relative link.
+
+    Returns:
+        A Markdown table per test: key, type, default, description.
+    """
+    by_id = {t.info.id: t for t in _tests()}
+    configuration = _relative(_CONFIGURATION_PAGE, page)
+    parts: list[str] = []
+    for test_id in test_ids:
+        test = by_id[test_id]
+        if test.params is None:
+            continue
+        domain_key, test_key = section_keys(test.info.id)
+        parts.append(
+            f"Section [`tests.{domain_key}.{test_key}`]"
+            f"({configuration}#{_config_anchor(test)}) of `config.yaml`:\n"
+        )
+        parts.append("| Key | Type | Default | Description |\n|---|---|---|---|")
+        for key, field in _fields(test.params):
+            default = _default_cell(_default(field))
+            if has_marker(field, NEEDED_TO_RUN):
+                default += ", **needed to run**"
+            parts.append(
+                f"| `{key}` | {_type(field)} | {default} | {_cell(field.description or '')} |"
+            )
+        parts.append("")
+    return _block(parts)
+
+
 def configuration_tests() -> str:
     """
     The tests chapter of configuration.md: one section and table per test.
@@ -826,6 +877,194 @@ def exit_codes_table() -> str:
     for code, info in EXIT_CODES.items():
         meaning = info.meaning[0].upper() + info.meaning[1:]
         lines.append(f"| `{code}` | {info.label} | {_cell(meaning)}. |")
+    return _block(lines)
+
+
+def _member_docs(enum_class: type[Enum]) -> dict[str, str]:
+    """
+    The docstring written under each member of a StrEnum, by member name.
+
+    Python keeps no attribute docstrings at runtime, so they are read from the
+    class source: that way a table built from them cannot drift from the code.
+
+    Args:
+        enum_class: The enum whose members carry a docstring.
+
+    Returns:
+        Member name to its docstring, collapsed to one line without the final
+        full stop.
+    """
+    pairs = re.findall(
+        r'^    (\w+) = "[^"]*"\n    """(.+?)"""', inspect.getsource(enum_class), re.M | re.S
+    )
+    return {name: " ".join(doc.split()).rstrip(".") for name, doc in pairs}
+
+
+# The graph's nodes: src's top-level modules and packages, with core split per
+# submodule, which is the granularity a contributor needs to place a new module.
+_GRAPH_CORE: str = "core"
+
+
+def _graph_node(module: str) -> str | None:
+    """
+    The graph node a src module belongs to.
+
+    Args:
+        module: A dotted module name starting with "src".
+
+    Returns:
+        The node name, or None when the module is src itself.
+    """
+    parts = module.split(".")
+    if len(parts) < 2:
+        return None
+    if parts[1] == _GRAPH_CORE and len(parts) > 2:
+        return f"{_GRAPH_CORE}/{parts[2]}"
+    return parts[1]
+
+
+def import_graph() -> str:
+    """
+    The import graph of src, computed from the source (overview.md).
+
+    One line per node, in the order a reader follows the pipeline, with the
+    nodes it imports. An import that exists only under `if TYPE_CHECKING` is
+    marked, because it does not constrain the runtime dependency direction.
+
+    Returns:
+        A fenced code block with the graph.
+    """
+    edges: dict[str, dict[str, bool]] = {}
+    for path in sorted((_ROOT / "src").rglob("*.py")):
+        relative = path.relative_to(_ROOT / "src").with_suffix("")
+        module = "src." + ".".join(p for p in relative.parts if p != "__init__")
+        source_node = _graph_node(module)
+        if source_node is None:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        type_only: set[int] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.If) and "TYPE_CHECKING" in ast.unparse(node.test):
+                type_only.update(id(child) for child in ast.walk(node))
+        for node in ast.walk(tree):
+            names: list[str] = []
+            if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("src"):
+                names = [node.module]
+            elif isinstance(node, ast.Import):
+                names = [a.name for a in node.names if a.name.startswith("src")]
+            for name in names:
+                target = _graph_node(name)
+                if target is None or target == source_node:
+                    continue
+                runtime = id(node) not in type_only
+                known = edges.setdefault(source_node, {})
+                known[target] = known.get(target, False) or runtime
+    order = [
+        "cli",
+        "cli_console",
+        "engine",
+        "config",
+        "discovery",
+        "tests",
+        "external_tests",
+        "connectors",
+        "report",
+    ]
+    nodes = [n for n in order if n in edges] + sorted(n for n in edges if n not in order)
+    width = max(len(n) for n in nodes)
+    lines: list[str] = []
+    for name in nodes:
+        targets = [t if edges[name][t] else f"{t} (types only)" for t in sorted(edges[name])]
+        lines.append(f"{name:<{width}} -> {', '.join(targets)}")
+    return _block(["```", *lines, "```"])
+
+
+def effects_table() -> str:
+    """
+    The tests by the effect they declare (configure-a-target.md).
+
+    What a run does to the target, from TestInfo.effect and the Effect enum, in
+    the order the engine runs them.
+
+    Returns:
+        A Markdown table: one row per effect, with the tests that declare it.
+    """
+    docs = _member_docs(Effect)
+    tests = _tests()
+    lines = ["| Effect | What it does to the target | Tests |", "|---|---|---|"]
+    for effect in sorted(Effect, key=lambda e: EFFECT_RANK[e]):
+        ids = [_id_cell(t.info) for t in tests if t.info.effect is effect]
+        lines.append(
+            f"| `{effect.name}` | {_cell(docs.get(effect.name, ''))} | {', '.join(ids) or '-'} |"
+        )
+    return _block(lines)
+
+
+def guarantee_priorities() -> str:
+    """
+    The guarantees by the priority their test declares (03-guarantees.md).
+
+    A guarantee with no test keeps the priority the methodology proposes, which
+    the catalogue states in its heading; it is listed in its own row.
+
+    Returns:
+        A Markdown table: one row per priority, with the guarantee numbers.
+    """
+    by_guarantee: dict[str, int] = {}
+    for test in _tests():
+        key = (
+            test.info.id
+            if not test.info.id.startswith("ext.")
+            else ".".join(test.info.id.split(".")[1:3])
+        )
+        by_guarantee.setdefault(key, test.info.priority)
+    lines = ["| Priority | Guarantees |", "|---|---|"]
+    for priority in range(PRIORITY_MIN, PRIORITY_MAX + 1):
+        ids = sorted(k for k, p in by_guarantee.items() if p == priority)
+        lines.append(f"| P{priority} | {', '.join(ids)} |")
+    return _block(lines)
+
+
+def needs_table() -> str:
+    """
+    The needs a test can declare (docs/04-architecture/03-assessment-model.md).
+
+    The vocabulary comes from the Need enum and each row's meaning from that
+    member's docstring, so the table cannot drift from the code; the last two
+    columns come from the tests' own declarations.
+
+    Returns:
+        A Markdown table: one row per need, with the tests that require it and
+        the tests that use it when it is there.
+    """
+    member_docs = _member_docs(Need)
+    tests = _tests()
+    lines = [
+        "| Need | What the configuration must give | Required by | Used when present by |",
+        "|---|---|---|---|",
+    ]
+    for need in Need:
+        required = [_id_cell(t.info) for t in tests if need in t.info.needs]
+        optional = [_id_cell(t.info) for t in tests if need in t.info.optional_needs]
+        meaning = member_docs.get(need.name, "")
+        lines.append(
+            f"| `{need.name}` | {_cell(meaning)} | "
+            f"{', '.join(required) or '-'} | {', '.join(optional) or '-'} |"
+        )
+    # A parameter marked NEEDED_TO_RUN is a need too: the engine skips the test
+    # naming it, exactly as it does for a Need member.
+    by_parameter: dict[str, tuple[str, list[str]]] = {}
+    for test in tests:
+        if test.params is None:
+            continue
+        for key, field in _fields(test.params):
+            if not has_marker(field, NEEDED_TO_RUN):
+                continue
+            first = re.split(r"\.\s", field.description or "")[0].rstrip(".")
+            meaning, ids = by_parameter.setdefault(key, (first, []))
+            ids.append(_id_cell(test.info))
+    for key, (meaning, ids) in sorted(by_parameter.items()):
+        lines.append(f"| `{key}` | {_cell(meaning)} | {', '.join(ids)} | - |")
     return _block(lines)
 
 

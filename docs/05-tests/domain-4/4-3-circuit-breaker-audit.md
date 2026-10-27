@@ -105,8 +105,9 @@ v5.0.0-16.5.2).
 
 ## 14. Limitations
 
-- Only the presence of a breaker or health check is judged, not whether its thresholds are sound (a follow-up could
-  check `failure_threshold`, `open_seconds`).
+- Only the presence of a breaker or health check is judged, never whether its thresholds are sound: a breaker that
+  opens after ten thousand failures passes. Judging `failure_threshold` and `open_seconds` would need a defensible
+  value for each target and is not planned (2026-10-27).
 - The behavioural test (a real downstream outage) is out of scope: it needs a coordinated staging action.
 
 ## 15. Sources

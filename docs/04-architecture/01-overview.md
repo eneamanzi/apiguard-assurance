@@ -29,7 +29,7 @@ What each test needs from the target is in [compatibility](../03-reference/06-co
 **Sequential execution.** Tests run one at a time, in a deterministic order. Parallel execution is deliberately not
 supported: it keeps the state of `TestContext`, `EvidenceStore` and the result set coherent without locks, and keeps
 a run predictable and repeatable. The batches of the dependency graph are the natural unit if it is ever added
-([design properties D2.P2](../06-knowledge/08-design-properties.md)).
+([design properties D2.P2](../06-knowledge/07-design-properties.md)).
 
 **The constraints the design answers to** (from the thesis, checked against today's code):
 
@@ -43,7 +43,7 @@ a run predictable and repeatable. The batches of the dependency graph are the na
 | Reproducibility | The same configuration on the same unchanged target gives the same results. | D3.P4 |
 
 No database or external service is needed at runtime: all state is in memory or in local files
-([D3.P5](../06-knowledge/08-design-properties.md)).
+([D3.P5](../06-knowledge/07-design-properties.md)).
 
 ## Pipeline
 
@@ -124,36 +124,45 @@ src/
 │   │                   result helpers)
 │   ├── test_discovery.py Finds the test classes of a package; any test that cannot be used stops the run
 │   └── exceptions.py   Exception hierarchy
-├── connectors/         Wrappers around external tools (nuclei, testssl.sh, ffuf, schemathesis)
+├── connectors/         Wrappers around external tools (testssl.sh, ffuf, schemathesis; nuclei unused)
 ├── tests/              Native tests (domain_0 … domain_7), helpers/ (incl. the authentication methods), data/
 ├── external_tests/     Tests that run an external tool through a connector
 └── report/             Phase 7: ReportData builder, Jinja2 HTML renderer, template
 ```
 
-Actual import graph (computed from the source, 2026-10-17):
+The import graph, computed from the source at every `hatch run dev:gen`. The direction (`core` <- `connectors` <-
+`tests`/`external_tests` <- `engine`) is enforced by `lint-imports` in `hatch run dev:check`:
+
+<!-- [[[cog import generate_docs as g; cog.out(g.import_graph()) ]]] -->
 
 ```
-cli                  -> cli_console, config, connectors, core/exceptions, core/models, discovery, engine
-cli_console          -> connectors, core/models (engine for types only)
-engine               -> config, core/*, discovery, external_tests, report, tests
-config               -> core/assessment_test, core/exceptions, core/gateway (the adapter names), core/models,
-                        core/test_metadata
-discovery            -> core/exceptions, core/models, core/tls
-tests                -> core/assessment_test, core/auth_placement, core/client, core/context, core/evidence,
-                        core/exceptions, core/gateway, core/models, core/templating, core/test_discovery,
-                        core/test_metadata
-external_tests       -> connectors, core/assessment_test, core/context, core/evidence, core/exceptions,
-                        core/models, core/test_discovery, core/test_metadata
-connectors           -> core/exceptions
-report               -> config, core/models, core/redaction
-core/gateway         -> core/exceptions, core/tls
-core/context         -> core/auth_placement, core/gateway, core/models, core/redaction
-core/client          -> core/exceptions, core/models, core/redaction, core/tls
-core/tls             -> core/exceptions, core/models
-core/test_metadata   -> core/models
-core/assessment_test -> core/models, core/test_metadata (core/context for types only)
-core/test_discovery  -> core/assessment_test, core/exceptions, core/test_metadata
+cli                    -> cli_console, config, connectors, core/exceptions, core/models, discovery, engine
+cli_console            -> connectors, core/models, engine (types only)
+engine                 -> config, core/assessment_test, core/auth_placement, core/client, core/context, core/dag, core/evidence, core/exceptions, core/gateway, core/models, core/redaction, core/references, core/test_metadata, core/test_needs, core/tls, discovery, external_tests, report, tests
+config                 -> core/assessment_test, core/exceptions, core/gateway, core/models, core/test_metadata
+discovery              -> core/exceptions, core/models, core/tls
+tests                  -> core/assessment_test, core/auth_placement, core/client, core/context, core/evidence, core/exceptions, core/gateway, core/jwt_tokens, core/models, core/path_variants, core/references, core/response_category, core/templating, core/test_discovery, core/test_metadata, core/test_needs
+external_tests         -> connectors, core/assessment_test, core/client, core/context, core/evidence, core/exceptions, core/models, core/references, core/response_category, core/sensitive_paths, core/test_discovery, core/test_metadata
+connectors             -> core/exceptions
+report                 -> config, core/models, core/redaction, core/references
+core/assessment_test   -> core/context (types only), core/evidence, core/models, core/references, core/response_category, core/test_metadata
+core/auth_placement    -> core/exceptions, core/models
+core/client            -> core/exceptions, core/models, core/redaction, core/tls
+core/context           -> core/auth_placement, core/gateway, core/models, core/redaction, core/references
+core/dag               -> core/exceptions, core/models
+core/evidence          -> core/models
+core/exceptions        -> core/models (types only)
+core/gateway           -> core/exceptions, core/tls
+core/models            -> core/redaction, core/templating
+core/references        -> core/client, core/evidence, core/exceptions, core/models, core/response_category
+core/response_category -> core/models
+core/test_discovery    -> core/assessment_test, core/exceptions, core/test_metadata
+core/test_metadata     -> core/models
+core/test_needs        -> core/assessment_test, core/context, core/models, core/test_metadata
+core/tls               -> core/exceptions, core/models
 ```
+
+<!-- [[[end]]] -->
 
 Rules that hold today: nothing imports `engine`; `core/` imports nothing outside `core/` and knows no test (the
 packages to scan are named by the registries, the parameters reach `TargetContext` by test ID); `tests/` never

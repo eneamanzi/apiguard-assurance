@@ -37,7 +37,7 @@ checked empirically from outside", so the test audits the gateway's configuratio
 | Sub-test | Methodology (guarantee 5.1) |
 |---|---|
 | `request_logging_configured` | the gateway produces logs for every request (audited as: a logging plugin is enabled) |
-| deferred follow-up | the log-content checks: required fields, secret redaction, real source IP, log-injection resistance (need read access to the logs) |
+| left out | the log-content checks: required fields, secret redaction, real source IP, log-injection resistance. All four need read access to the log stream, which the tool does not have on any target; not planned (2026-10-27) |
 
 ## 3. Inputs
 
@@ -95,7 +95,7 @@ Runs of 2026-10-23:
 **The case the labs lack, and how to undo it.** Add a global `http-log` plugin (any `http_endpoint`) to
 `test-environments/forgejo-kong/kong/kong.yml`, reload Kong (`docker compose ... up -d --force-recreate --wait
 kong`); undo with `git checkout` and the same command. The lab was checked back to FAIL. Rule 9: both sides proven;
-the log-content checks are a deferred follow-up (they need log access).
+the log-content checks are permanently outside this test (see Limitations).
 
 ## 13. Remediation
 
@@ -104,8 +104,10 @@ status, latency) to the log store, with sensitive values redacted (NIST SP 800-9
 
 ## 14. Limitations
 
-- Only the presence of a logging plugin is audited; the log content (fields, redaction, real IP, injection) needs
-  read access to the logs and is a deferred follow-up.
+- Only the presence of a logging plugin is audited, never what the logs contain. Checking fields, secret redaction,
+  the real source IP or log-injection resistance needs read access to the log stream, which the tool does not have on
+  any target and is not planned (2026-10-27): a gateway that logs every request into a file full of unredacted
+  tokens passes this test.
 - Logging configured outside the gateway (at the application, or a sidecar the Admin API does not expose) is not
   seen.
 

@@ -400,7 +400,8 @@ external_tools:
     extra_flags: "--quiet --color 0"
     # Reuse cached output instead of running the tool: never in a real assessment.
     dev_mode: false
-  # nuclei, template scan (ext.0.1.nuclei).
+  # nuclei, template scan. No test uses it: the connector is in the codebase but ext.0.1.nuclei was replaced
+  # by ext.0.1.ffuf, so this section is read and validated but changes nothing.
   nuclei:
     enabled: false
     timeout_seconds: 600

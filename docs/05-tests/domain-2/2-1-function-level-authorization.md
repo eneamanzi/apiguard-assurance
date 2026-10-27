@@ -97,10 +97,9 @@ request with user_a's credential.
 
 ## 11. Configuration
 
-| Parameter | What it is | Derived when left out |
-|---|---|---|
-| `admin_endpoint_paths` | privileged paths to add to the derived set | the `admin`/`management` segment rule |
-| `admin_endpoint_method` | the method for the added paths (safe) | `GET` |
+None. What counts as privileged is derived in Phase 2 by the rule `privileged_endpoints` (a documented path with an
+`admin` or `management` segment, `src/discovery/derivation.py`); the method is the one the specification declares.
+The old parameters that let the operator list privileged paths and their method are gone with the old test.
 
 ## 12. Validation
 

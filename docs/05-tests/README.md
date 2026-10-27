@@ -6,7 +6,11 @@
 
 Layout mirrors the code: native tests in `domain-N/` (`src/tests/domain_N/`),
 external-tool tests in `external/domain-N/` (`src/external_tests/`). One page per test explains what it checks, how, its outcomes, its effects on the
-target, and how it relates to the methodology.
+target, and the part of the methodology it does not implement. These pages, with
+[`../03-reference/`](../03-reference/01-configuration.md) and
+[`../04-architecture/`](../04-architecture/01-overview.md), are what to quote about the tool's behaviour: the
+methodology's own claims are broader
+([which document to quote](../index.md#two-kinds-of-document-and-which-one-to-quote)).
 
 <!-- [[[cog import generate_docs as g; cog.out(g.catalogue()) ]]] -->
 
@@ -71,8 +75,8 @@ Execution is sequential.
 
 - `X.Y`: native test for guarantee `Y` of domain `X` in the methodology.
 - `ext.X.Y.tool`: external-tool test for the same guarantee; several tools may cover one guarantee.
-- Guarantee numbers follow the methodology (29 guarantees in 8 domains); missing numbers are not implemented yet
-  ([roadmap](../project/roadmap.md)).
+- Guarantee numbers follow the methodology ([catalogue](../06-knowledge/03-guarantees.md)); a missing number is a
+  guarantee with no test, and its catalogue entry says which part of it other tests already cover.
 
 ## Page structure
 
@@ -85,4 +89,4 @@ the per-transaction `outcome`/`detail` in `transaction_log`), (8) Findings, (9) 
 
 - [`../reference/configuration.md`](../03-reference/01-configuration.md#tests) - per-test parameters
 - [`../reference/report-schema.md`](../03-reference/04-report-schema.md) - how results are serialised
-- [`../06-knowledge/04-guarantees.md`](../06-knowledge/04-guarantees.md) - the full methodology
+- [`../06-knowledge/03-guarantees.md`](../06-knowledge/03-guarantees.md) - the full methodology

@@ -37,7 +37,7 @@ other undocumented path exists, nor anything about what a path does: whether it 
 
 ASVS v5.0.0-13.4.5 (L2): documentation and monitoring endpoints are not exposed unless explicitly intended.
 
-## 2. Sub-tests
+## 2. Sub-tests and coverage of the methodology
 
 | Sub-test | Methodology (guarantee 0.1) |
 |---|---|
@@ -110,6 +110,16 @@ Independent of the gateway: the calibration learns each service's "not found" (K
 application's).
 
 ## 11. Configuration
+
+<!-- [[[cog import generate_docs as g; cog.out(g.test_params("ext.0.1.ffuf", page=cog.inFile)) ]]] -->
+
+Section [`tests.domain_0.ext_0_1_ffuf`](../../../03-reference/01-configuration.md#testsdomain_0ext_0_1_ffuf) of `config.yaml`:
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `wordlist` | string \| null | none | A list of the user's (one word or path per line), tried under every base path besides the default lists, e.g. Assetnote's `httparchive_apiroutes` for a deep search (364,056 paths: at 30 requests per second about 3.4 hours per base path). Relative to the working directory. |
+
+<!-- [[[end]]] -->
 
 `external_tools.ffuf` (`enabled`, `timeout_seconds`, `expected_version`, `wordlist_dir`, `per_request_timeout`,
 `rate_limit_rps`) and `tests.domain_0.ext_0_1_ffuf.wordlist`: [configuration reference](../../../03-reference/01-configuration.md).

@@ -89,11 +89,22 @@ Independent of the adapter: the concurrency is driven from outside.
 
 ## 11. Configuration
 
-| Parameter | What it is | Default |
-|---|---|---|
-| `race_operation` | the once-only operation (`path`, `method`, `body`, `role`, `resource`) | none (SKIP) |
-| `concurrency` | how many requests are fired at once | 15 |
-| `max_successful` | the largest number of successes allowed without a race | 1 |
+<!-- [[[cog import generate_docs as g; cog.out(g.test_params("7.3", page=cog.inFile)) ]]] -->
+
+Section [`tests.domain_7.test_7_3`](../../03-reference/01-configuration.md#testsdomain_7test_7_3) of `config.yaml`:
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `race_operation` | object \| null | none, **needed to run** | The once-only operation to probe for a race condition. No default: unset, the engine records the test as SKIP before it runs. |
+| `race_operation.path` | string | required | Path of the once-only operation. May hold a resource's values as {name}. |
+| `race_operation.method` | string | `POST` | HTTP method of the operation (default POST). |
+| `race_operation.body` | object \| null | none | JSON body sent on every concurrent request (optional). |
+| `race_operation.role` | string | `user_a` | Role whose credential performs the operation (default user_a). |
+| `race_operation.resource` | string \| null | none | Optional prepared resource (resources: in config.yaml) created once before the burst; its values fill the path, and it is removed at teardown. |
+| `concurrency` | int 2-50 | `15` | How many identical requests are fired at the same instant. |
+| `max_successful` | int ≥1 | `1` | The largest number of concurrent requests that may succeed without a race. 1 for a strictly once-only operation (the default); raise it for a bounded quota. |
+
+<!-- [[[end]]] -->
 
 ## 12. Validation
 
@@ -104,7 +115,7 @@ Runs of 2026-10-26:
 | Forgejo + Kong, crAPI + Kong, Forgejo + APISIX | **SKIP** | no once-only operation declared (`race_operation` unset): honest SKIP |
 
 Rule 9: the live branches (`VIOLATION/RACE_DOUBLE_EFFECT`, `ENFORCED/CONCURRENCY_SERIALIZED`) are lab-unproven and
-listed in the backlog (`../../project/roadmap.md`), together with a check of the HTTP client's thread-safety on a real concurrent run
+lab-unproven, together with a check of the HTTP client's thread-safety on a real concurrent run; the decision whether to produce the case live is part of the test-by-test review ([`../../project/roadmap.md`](../../project/roadmap.md#next-work))
 (crAPI's coupon-apply flow is a candidate, once a valid coupon code is seeded).
 
 ## 13. Remediation

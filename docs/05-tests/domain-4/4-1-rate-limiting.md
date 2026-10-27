@@ -96,10 +96,16 @@ available, to size the burst.
 
 ## 11. Configuration
 
-| Parameter | What it is | Derived when left out |
-|---|---|---|
-| `max_burst` | the largest burst when the limit is not readable | - |
-| `probe_path` | the path to flood | the shortest documented GET |
+<!-- [[[cog import generate_docs as g; cog.out(g.test_params("4.1", page=cog.inFile)) ]]] -->
+
+Section [`tests.domain_4.test_4_1`](../../03-reference/01-configuration.md#testsdomain_4test_4_1) of `config.yaml`:
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `max_burst` | int ≥2 | `150` | The largest burst the test sends before concluding there is no rate limit, when the gateway's configured limit cannot be read. The burst stops at the first 429. |
+| `probe_path` | string | `""` | The documented path to flood; empty derives the shortest documented GET. A read path, so the flood changes nothing. |
+
+<!-- [[[end]]] -->
 
 ## 12. Validation
 

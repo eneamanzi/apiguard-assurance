@@ -88,12 +88,12 @@ class Test52SecurityAlertingAudit(BaseTest):
             ),
             notes=[
                 InfoNote(
-                    title="Behavioural alert checks are a deferred follow-up",
+                    title="Behavioural alert checks are outside this test",
                     detail=(
                         "The methodology's checks (a brute-force alert within seconds, alert "
-                        "deduplication, a configured threshold) need an alert webhook the tool can "
-                        "observe. They run once that out-of-band listener exists (shared with "
-                        "tests 7.2 and 7.4); see the backlog in docs/project/roadmap.md."
+                        "deduplication, a configured threshold) need an alert receiver the tool "
+                        "can observe. No such receiver exists and none is planned, so this gap is "
+                        "permanent: verify the alerting rules by hand on the gateway or the SIEM."
                     ),
                 )
             ],

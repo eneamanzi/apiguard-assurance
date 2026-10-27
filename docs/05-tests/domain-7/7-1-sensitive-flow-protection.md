@@ -88,10 +88,20 @@ Independent of the adapter: the control is observed from outside.
 
 ## 11. Configuration
 
-| Parameter | What it is | Default |
-|---|---|---|
-| `sensitive_flow` | the flow to probe (`path`, `method`, `body`, `role`) | none (SKIP) |
-| `burst_size` | how many submissions before concluding there is no control | 12 |
+<!-- [[[cog import generate_docs as g; cog.out(g.test_params("7.1", page=cog.inFile)) ]]] -->
+
+Section [`tests.domain_7.test_7_1`](../../03-reference/01-configuration.md#testsdomain_7test_7_1) of `config.yaml`:
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `sensitive_flow` | object \| null | none, **needed to run** | The sensitive business flow to probe for an anti-automation control (a CAPTCHA, a human-verification challenge, an aggressive throttle). No default: unset, the engine records the test as SKIP before it runs. |
+| `sensitive_flow.path` | string | required | Path of the sensitive flow. |
+| `sensitive_flow.method` | string | `POST` | HTTP method of the flow (default POST). |
+| `sensitive_flow.body` | object \| null | none | JSON body submitted on every request (optional). |
+| `sensitive_flow.role` | string \| null | none | Role whose credential drives the flow. Omit for an anonymous flow (sign-up, OTP request, password reset), the common case. |
+| `burst_size` | int ≥2 | `12` | How many identical submissions the burst sends before concluding there is no anti-automation control. Kept small: the burst drives the real flow. |
+
+<!-- [[[end]]] -->
 
 ## 12. Validation
 
@@ -103,7 +113,7 @@ Runs of 2026-10-26:
 | Forgejo + Kong, Forgejo + APISIX | **SKIP** | no sensitive business flow declared (`sensitive_flow` unset): honest SKIP |
 
 Rule 9: the `VIOLATION` side is proven on crAPI; the `ENFORCED` sides (a `429` throttle, a CAPTCHA challenge) are
-lab-unproven and listed in the backlog (`../../project/roadmap.md`) (a target with a CAPTCHA or a hard throttle on the flow).
+lab-unproven: proving it live needs a target with a CAPTCHA or a hard throttle on the flow, and the decision whether to produce one is part of the test-by-test review ([`../../project/roadmap.md`](../../project/roadmap.md#next-work)).
 
 ## 13. Remediation
 

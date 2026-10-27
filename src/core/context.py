@@ -516,7 +516,8 @@ class TestContext(BaseModel):
 
         Args:
             value: The secret as it appears in requests and responses.
-            label: What it is, shown in its place, e.g. "7.2 webhook secret".
+            label: What it is, shown in its place, e.g. "user_a token" or
+                   "credential from resource 'forgejo-token'".
         """
         self._secrets.register(value, label)
 

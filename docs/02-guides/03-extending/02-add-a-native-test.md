@@ -3,15 +3,16 @@
 > **Audience:** contributors · **Status:** v0.1.0 · **Source of truth:** `src/core/test_metadata.py` (`TestInfo`),
 > `src/core/assessment_test.py`, `src/tests/base.py`, `src/core/test_discovery.py`, `src/engine.py` (Phase 3), the
 > existing tests in `src/tests/domain_*/` · **Verified:** 2026-10-05; declaration and discovery 2026-10-16.
-> Snippets are copied from `src/tests/domain_2/test_2_1_rbac_enforcement.py` and its configuration chain.
+> Snippets are copied from `src/tests/domain_4/test_4_2_timeout_config_audit.py` (parameters) and
+> `src/tests/domain_2/test_2_1_function_level_authorization.py` (declaration).
 > The previous long version of this guide is in git history (commit `fd3bd90`).
 
 A native test is a Python class that checks one methodology guarantee by sending HTTP requests through the tool's
 client. For a test that runs an external binary or library, see
 [`add-an-external-test.md`](03-add-an-external-test.md).
 
-Before starting, read the guarantee in [`04-guarantees.md`](../../06-knowledge/04-guarantees.md) and the
-tool decision in [`05-tool-decisions.md`](../../06-knowledge/05-tool-decisions.md), and the
+Before starting, read the guarantee in [`03-guarantees.md`](../../06-knowledge/03-guarantees.md) and the
+tool decision in [`04-tool-decisions.md`](../../06-knowledge/04-tool-decisions.md), and the
 [assessment model](../../04-architecture/03-assessment-model.md) (strategy, priority, outcomes).
 
 ## Files to touch
@@ -20,14 +21,14 @@ tool decision in [`05-tool-decisions.md`](../../06-knowledge/05-tool-decisions.m
 |---|---|---|---|
 | 1 | `src/tests/domain_<D>/__init__.py` | new domain | empty file (a test module outside a package stops the run) |
 | 2 | `src/tests/domain_<D>/test_<D>_<N>_<name>.py` | always | the test: its declaration (`info`), its parameter model if it has parameters, its code |
-| 3 | `docs/05-tests/<domain>/<test>.md` | always | the test page: its prose, and under the title the two lines of the header marker, copied from any test page (e.g. `docs/05-tests/domain-1/1-4-token-revocation.md`) with the ID in `test_header("<D>.<N>", page=cog.inFile)` changed |
+| 3 | `docs/05-tests/<domain>/<test>.md` | always | the test page: its prose, and under the title the two lines of the header marker, copied from any test page (e.g. `docs/05-tests/domain-1/1-4-credential-revocation.md`) with the ID in `test_header("<D>.<N>", page=cog.inFile)` changed |
 
 Then `hatch run dev:gen` writes what repeats the code: the page header, the catalogue row (`docs/05-tests/README.md`),
 the tests by strategy and priority (`docs/04-architecture/03-assessment-model.md`), the parameter table
 (`docs/03-reference/01-configuration.md`) and the parameter block of `config.example.yaml` (`scripts/generate_docs.py`,
 written by Cog between markers). `hatch run dev:check` fails when one of them is out of date, showing the
-difference, and when a test has no page. Still by hand: the page's prose, the "Test portability" row of
-`docs/03-reference/06-compatibility.md` (a measurement on the labs) and `docs/project/roadmap.md`.
+difference, and when a test has no page. Still by hand: the page's prose and the "Test portability" row of
+`docs/03-reference/06-compatibility.md` (a measurement on the labs).
 
 Nothing else declares a test: no list of tests, no configuration container, no line in `engine.py`. The test is
 discovered by its module name, its parameters are checked against the model it declares (the user's keys are
@@ -41,20 +42,26 @@ constants for defaults and bounds, and names it in its class declaration. See
 [data model](../../04-architecture/02-data-model.md#test-parameters-declared-by-the-test).
 
 ```python
-TEST_21_ADMIN_ENDPOINT_METHOD_DEFAULT: str = "GET"
+TEST_42_MAX_CONNECT_TIMEOUT_MS_DEFAULT: int = 5_000
 
 
-class Test21Params(BaseModel):
+class Test42Params(BaseModel):
     model_config = {"frozen": True, "extra": "forbid"}
 
-    admin_endpoint_paths: tuple[str, ...] = Field(default=(), description="...")
-    admin_endpoint_method: str = Field(default=TEST_21_ADMIN_ENDPOINT_METHOD_DEFAULT, description="...")
+    max_connect_timeout_ms: Annotated[int, Field(ge=1)] = Field(
+        default=TEST_42_MAX_CONNECT_TIMEOUT_MS_DEFAULT,
+        description=(
+            "Maximum acceptable backend connect timeout of a gateway service, in milliseconds. "
+            "Methodology oracle: connect_timeout <= 5 000 ms (NIST SP 800-204A Section 4.3). "
+            "Services with a higher value will produce a FAIL finding."
+        ),
+    )
 
 
-class Test21RbacEnforcement(BaseTest[Test21Params]):
+class Test42TimeoutConfigAudit(BaseTest[Test42Params]):
     ...
     def execute(self, target, context, client, store):
-        cfg = self.params(target)            # Test21Params: mypy checks every name
+        cfg = self.params(target)            # Test42Params: mypy checks every name
 ```
 
 - Every field needs a `description`: it is the source of
@@ -83,15 +90,25 @@ from src.core.context import ROLE_USER_A, TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.context import ROLE_USER_A
 from src.core.exceptions import AuthenticationSetupError, SecurityClientError
-from src.core.models import Confidence, Finding, Outcome, Reference, Standard, TestResult, TestStrategy
+from src.core.models import (Confidence, Finding, Outcome, Reference, ResponseCategory, Standard,
+                             TestResult, TestStrategy)
 from src.core.test_metadata import Effect, Need, TestInfo
+from src.core.assessment_test import category_of
 from src.tests.base import BaseTest
 from src.tests.helpers.auth import auth_parts
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
-_RBAC_BYPASS_CODES: frozenset[int] = frozenset(range(200, 300))
-_SUB_RBAC: str = "privileged_endpoint_refuses_user"
+_REFUSED: frozenset[ResponseCategory] = frozenset(
+    {ResponseCategory.FORBIDDEN, ResponseCategory.UNAUTHENTICATED}
+)
+# Categories that say nothing about the guarantee (rule 1).
+_SPOILING: dict[ResponseCategory, str] = {
+    ResponseCategory.UPSTREAM_UNAVAILABLE: "UPSTREAM_UNAVAILABLE",
+    ResponseCategory.RATE_LIMITED: "RATE_LIMITED",
+    ...
+}
+_SUB_REFUSES: str = "privileged_function_refuses_user"
 _REFERENCES: tuple[Reference, ...] = (
     Reference(standard=Standard.OWASP_API_TOP10, id="API5:2023"),
     Reference(standard=Standard.ASVS, id="v5.0.0-8.3.1"),
@@ -111,26 +128,28 @@ a finding without references of its own cites the test's. Tags are topics only, 
 under their report names (`test_id`, `test_name`, `domain`, `cwe_id`).
 
 ```python
-class Test21RbacEnforcement(BaseTest):
+class Test21FunctionLevelAuthorization(BaseTest):
     info = TestInfo(
         id="2.1",
-        name="Only Authorized Users Access Privileged Endpoints",
-        priority=2,
+        name="Function-Level Authorization",
+        priority=1,
         strategy=TestStrategy.GREY_BOX,
         cwe="CWE-285",
         references=_REFERENCES,
-        tags=("authorization", "rbac"),
-        effect=Effect.READ_ONLY,                     # required: READ_ONLY | CHANGES_DATA | STRESSES_TARGET
-        sub_tests=(_SUB_RBAC,),                       # required, at least one; every judgement belongs to one
+        tags=("authorization", "bfla"),
         needs=(Need.USER_ACCOUNT,),                   # the engine acquires the account and SKIPs the test without it
+        optional_needs=(Need.ADMIN_ACCOUNT,),         # used when configured; its absence does not SKIP the test
+        effect=Effect.READ_ONLY,                      # required: READ_ONLY | CHANGES_DATA | STRESSES_TARGET
+        sub_tests=(_SUB_REFUSES, _SUB_METHOD),        # required, at least one; every judgement belongs to one
     )
 ```
 
 `effect` and `sub_tests` are mandatory: `effect` sets the run order (read-only tests first, then the ones that
 change data, then the ones that stress the target), and `sub_tests` are the named parts whose per-case outcomes the
-status is computed from (`_SUB_RBAC = "privileged_endpoint_refuses_user"`). `needs` lets the engine provide a
-declared account (the test no longer calls `acquire_tokens()` itself) and SKIP the test when the configuration does
-not supply it.
+status is computed from (`_SUB_REFUSES = "privileged_function_refuses_user"`, `_SUB_METHOD = "method_not_confused"`).
+`needs` lets the engine provide a declared account (the test no longer calls `acquire_tokens()` itself) and SKIP the
+test when the configuration does not supply it; `optional_needs` declares an account the test uses when it is
+configured and does without when it is not.
 
 `TestInfo` is checked when the module is imported, and test discovery (`src/core/test_discovery.py`) checks the
 rest: an invalid declaration (for example `priority` outside 0-3, an ID not of the form `X.Y`, a CWE not of the
@@ -179,17 +198,29 @@ response, record = client.request(
     method=method, path=path, test_id=self.info.id,
     headers=dict(user_a.headers), params=dict(user_a.params) or None,
 )
-if response.status_code in _RBAC_BYPASS_CODES:
+category = category_of(record)               # step 1: the closed list, never a raw status code (rule 1)
+if category in _SPOILING:                    # the response says nothing about the guarantee
+    self._judge(record, store, _SUB_REFUSES, Outcome.NOT_VERIFIABLE, _SPOILING[category])
+elif category in _REFUSED:
+    self._judge(record, store, _SUB_REFUSES, Outcome.ENFORCED, "REFUSED")
+elif category == ResponseCategory.SERVED:    # step 2: the test's own rule on the category
     self._judge(
-        record, store, _SUB_RBAC, Outcome.VIOLATION, "RBAC_BYPASS",
-        finding=Finding(
-            title=f"RBAC bypass: {method} {path}",
-            detail=f"Sent {method} {path} with a '{ROLE_USER_A}' token; expected 403, received {response.status_code}.",
-            confidence=Confidence.CERTAIN,          # the bypass is directly observed
+        record, store, _SUB_REFUSES, Outcome.VIOLATION, "BFLA",
+        Finding(
+            title=f"Ordinary user reached a privileged function: {method} {path}",
+            detail=(
+                f"A request to {method} {path} with the user_a credential answered "
+                f"HTTP {record.response_status_code}. This is a privileged operation ({basis}), so "
+                "an authenticated but unprivileged user reached a function meant for an "
+                "administrator (BFLA, OWASP API5:2023)."
+            ),
+            # CERTAIN when a positive control confirmed the operation is privileged,
+            # FIRM when only the specification says so (rule 6).
+            confidence=Confidence.CERTAIN if certain else Confidence.FIRM,
         ),
     )
 else:
-    self._judge(record, store, _SUB_RBAC, Outcome.ENFORCED, "ACCESS_REFUSED")
+    self._judge(record, store, _SUB_REFUSES, Outcome.NOT_VERIFIABLE, category.name)
 ```
 
 The `finding` is given exactly when the outcome is `VIOLATION`; its `evidence_ref` and `supporting_refs` are set by
@@ -213,8 +244,9 @@ and the transaction log into the `TestResult`:
 <!-- [[[end]]] -->
 
 **Needs, not guards.** What a test needs from the configuration is declared, not checked in `execute()`:
-`TestInfo(needs=(Need.USER_ACCOUNT,))` (the vocabulary is `Need` in `src/core/test_metadata.py`: `ADMIN_ACCOUNT`,
-`USER_ACCOUNT`, `GATEWAY`, `REVOCABLE_LOGIN`) and, for a parameter the test cannot run without,
+`TestInfo(needs=(Need.USER_ACCOUNT,))` (the vocabulary is `Need` in `src/core/test_metadata.py`; every member,
+with the tests that depend on it, is in the [assessment model](../../04-architecture/03-assessment-model.md#needs-what-the-configuration-must-hold))
+and, for a parameter the test cannot run without,
 `Field(..., json_schema_extra=NEEDED_TO_RUN)`. The engine records SKIP before `execute()` when one is missing, with
 a uniform reason, and warns before the first test (`src/core/test_needs.py`, where a new need is one entry). What
 only the target can reveal (no deprecated operation, no session cookie, a gateway that does not support a concept)
@@ -234,7 +266,7 @@ stays a SKIP inside the test. `_requires_attack_surface(target)` remains for the
 
 Every response is judged (`_judge`) or logged as a preparation step (`_step`). A judgement is an outcome
 (`VIOLATION`, `ENFORCED`, `NOT_VERIFIABLE`, `NOT_APPLICABLE`) with the test's detail in `UPPER_SNAKE_CASE`, read as
-`VIOLATION/AUTH_BYPASS`; the category of the response comes from `category_of(record)` (`src/tests/base.py`). The
+`VIOLATION/SERVED_WITHOUT_CREDENTIAL`; the category of the response comes from `category_of(record)` (`src/tests/base.py`). The
 test page documents the oracle table.
 
 **Secrets in the evidence** ([evidence format](../../03-reference/05-evidence-format.md#sensitive-data)): tokens stored with

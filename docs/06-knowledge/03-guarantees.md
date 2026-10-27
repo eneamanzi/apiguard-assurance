@@ -1,44 +1,40 @@
 # Guarantees Catalogue
 
-> **Audience:** readers of the research, contributors · **Status:** the catalogue of the thesis methodology
-> (chapter 3), translated from Italian. It is the methodology reference (the *why*), deliberately broader than the
-> tool; it is **not** the record of what the tool does. **Original:**
-> `git show 694f89a:docs/knowledge/methodology/methodology.it.md` · **Framework** (gradient, priorities, sources):
-> [`03-methodology.md`](03-methodology.md)
-
-> **Read this before relying on the page.** It is the thesis text, kept as the research reference. For what the tool
-> actually does, these other documents are authoritative, not this one:
->
-> - **Priorities, strategies and the list of implemented tests:** [`project/roadmap.md`](../project/roadmap.md) and
->   the per-test pages in [`tests/`](../05-tests/README.md) print what each test declares (`apiguard list-tests` is
->   the ground truth). The `[P0]`-`[P3]` tags below are the thesis's and differ from the code in places (resolved in
->   favour of the code in the block-6 test review: the tool's declared priorities win; e.g. BOLA / 2.2 is P0 in the
->   tool). They are left here as the thesis gave them, for the record.
-> - **"Approach" of each guarantee** (black, grey, white box) is the thesis's, which mixed what the tester has with
->   the technique. The tool's strategy says only what the tester has
->   ([`03-methodology.md`](03-methodology.md#knowledge-and-privilege-gradient)): e.g. 1.5, 1.6 and 6.2 are described
->   here as configuration audits and are black box in the tool.
-> - **Test logic** describes what the methodology asks for, not always what the test implements; what a test
->   implements, and what it leaves out, is on its page in [`tests/`](../05-tests/README.md) ("Sub-tests and coverage
->   of the methodology").
-> - **Three guarantees were added during the block-6 review** and are written up here in their domains: 0.4 (a
->   backend answers only through the gateway), 1.7 (authentication endpoints resist guessing) and 4.4 (request size
->   limits). Each points to its test page for the concrete oracle, which it does not restate.
-> - **Construction details of attack inputs** (exact forged tokens, payload strings, step-by-step exploitation)
->   are summarised here by what is checked and the expected result; the full text is in the original.
+> **Audience:** readers of the research, contributors · **Status:** the catalogue of the security guarantees the
+> tool is built on, with the priority each one's test declares · **Source of truth:** the priorities and strategies
+> are those of the code (`apiguard list-tests`); what each test implements is on its page in
+> [`tests/`](../05-tests/README.md) · **Framework** (gradient, priorities, sources):
+> [`02-methodology.md`](02-methodology.md) · **Verified:** 2026-10-27 · **Thesis original:**
+> `git show 694f89a:docs/knowledge/methodology/methodology.it.md`
 
 Each guarantee has the same parts: **references** (OWASP API Security Top 10 2023, ASVS 5.0.0, NIST, RFC),
-**concept**, **failure scenarios**, **assumptions and prerequisites** (as the thesis wrote them), **test logic** (each
-check against its oracle). The thesis lists 29 guarantees in 8 domains (3.2 was merged into 6.1); the tool adds 0.4,
-1.7 and 4.4 (see above). The priority table below is the thesis's; the tool's declared priorities are in
-`roadmap.md`.
+**concept**, **failure scenarios**, **assumptions and prerequisites**, **test logic** (each check against its
+oracle). The **References** line is the methodology's own, broader than what the tool encodes: the standards a test
+declares, and therefore cites in its findings, are in the generated header of its page. Quote the page when the
+claim is about the tool, this line when it is about the methodology. The guarantee explains *why* a check exists and what the methodology asks for; the oracle a test actually
+applies, and the cases it leaves out, are on its page in [`tests/`](../05-tests/README.md) ("Sub-tests and coverage
+of the methodology").
 
-| Priority (thesis) | Guarantees |
+There are 32 guarantees in 8 domains (3.2 was merged into 6.1 and is kept as a pointer). Thirty have a test; **2.3** (approval of
+destructive operations) and **6.3** (layer-7 gateway hardening) have none and are tagged accordingly, with the
+priority the methodology proposes for them; neither is planned, and each entry says which of its scenarios other
+tests already cover. The construction details of the
+attack inputs (exact forged tokens, payload strings, step-by-step exploitation) are given here as what is checked
+and what is expected; the full text is in the thesis original.
+
+<!-- [[[cog import generate_docs as g; cog.out(g.guarantee_priorities()) ]]] -->
+
+| Priority | Guarantees |
 |---|---|
-| P0 | 0.1, 0.2, 0.3, 1.1, 1.2, 1.3, 4.1, 7.2 |
-| P1 | 2.3, 2.4, 4.2, 4.3, 5.1, 6.3 (and 1.4, 2.1, 2.2 in places, see above) |
-| P2 | 1.4, 1.5, 2.1, 2.2, 2.5, 3.1, 5.2, 6.1 (+3.2), 6.4, 7.1, 7.3, 7.4 |
+| P0 | 0.1, 0.2, 0.3, 0.4, 1.1, 1.2, 1.3, 2.2, 4.1, 7.2 |
+| P1 | 1.7, 2.1, 2.4, 2.5, 4.2, 4.3, 4.4, 5.1, 7.1, 7.3, 7.4 |
+| P2 | 1.4, 1.5, 3.1, 5.2, 6.1, 6.4 |
 | P3 | 1.6, 3.3, 6.2 |
+
+<!-- [[[end]]] -->
+
+**2.3** and **6.3** are absent from the table because no test declares a priority for them; their heading carries
+the one the methodology proposes.
 
 ---
 
@@ -63,7 +59,7 @@ kept in the gateway's management plane.
 - **Inconsistent versioning.** The gateway exposes `/api/v1/`, `/api/v2/`, `/api/v3/` but the specification
   documents only v3; the older versions lack controls added later and escape security review.
 
-**Assumptions and prerequisites (thesis).** Black box: only the base URL and, if public, the specification; no
+**Assumptions and prerequisites.** The test declares **black box** ([`0.1`](../05-tests/domain-0/0-1-shadow-api-discovery.md)). Only the base URL and, if public, the specification; no
 token. The sub-test "documentation drift via the Admin API" needs read access to the gateway's Admin API (an additional
 grey box approach, run if available).
 
@@ -102,7 +98,7 @@ or `403 Forbidden` for unregistered paths, without revealing internal topology.
 - **Case sensitivity mismatch.** The gateway registers `/api/users` (lowercase); a case-insensitive backend (for
   example Windows IIS) serves `/API/USERS`, which the gateway forwards to the default backend without authentication.
 
-**Assumptions and prerequisites (thesis).** Black box: no token, no knowledge of the infrastructure; arbitrary
+**Assumptions and prerequisites.** The test declares **black box** ([`0.2`](../05-tests/domain-0/0-2-paths-without-a-route.md)). No token, no knowledge of the infrastructure; arbitrary
 requests to invented paths and to variants of known paths.
 
 **Test logic.**
@@ -132,10 +128,9 @@ monitoring while remaining exposed: a critical window.
 - **Sunset header without enforcement.** The gateway returns a `Sunset` date but implements no control at that date;
   after it the endpoint keeps working as a "zombie API".
 
-**Assumptions and prerequisites (thesis).** Black box for the accessibility sub-tests (implemented):
-no credentials, only the specification to find endpoints with `deprecated: true`. The differential rate limiting and
+**Assumptions and prerequisites.** The test declares **black box** ([`0.3`](../05-tests/domain-0/0-3-deprecated-operations.md)). No credentials, only the specification to find endpoints with `deprecated: true`. The differential rate limiting and
 logging verbosity sub-tests need grey box (a standard user's token plus read access to the log aggregator or the
-Admin API): not implemented (backlog).
+Admin API): not implemented, and not planned.
 
 **Test logic.**
 
@@ -169,10 +164,10 @@ perimeter gateway "can be bypassed ... which in turn bypasses the policy checks 
 - **Declared upstream address answers directly.** The address the gateway lists as its upstream is reachable from
   the caller's network and answers the same application, so the gateway is only one of several ways in.
 
-**Assumptions and prerequisites (tool; added in the block-6 review, not in the original thesis).** White box: the
+**Assumptions and prerequisites.** The test declares **white box** ([`0.4`](../05-tests/domain-0/0-4-backend-without-the-gateway.md)). The
 gateway's admin plane is read to learn the backend addresses it declares; an optional configured list supplies them
 when the admin plane is not available. The verdict is relative to the vantage point: "not reachable from here" is
-not proof of isolation (a name that does not resolve on this network proves nothing).
+not proof of isolation (a name that does not resolve on this network proves nothing). This guarantee was added in the block-6 test review and is not in the original thesis.
 
 **Test logic.**
 
@@ -205,7 +200,7 @@ Unauthorized` at once.
 - **Unprotected path normalisation.** The API protects `/api/users` but not `/api/Users` or `/api/users/`, because
   routing does not normalise paths before applying policies.
 
-**Assumptions and prerequisites (thesis).** Black box: no token, no knowledge of the infrastructure; unauthenticated
+**Assumptions and prerequisites.** The test declares **black box** ([`1.1`](../05-tests/domain-1/1-1-credential-required.md)). No token, no knowledge of the infrastructure; unauthenticated
 requests, or with deliberately malformed tokens, to every protected endpoint documented in the specification.
 
 **Test logic.**
@@ -240,7 +235,7 @@ Weak or deprecated algorithms are excluded by NIST SP 800-131A.
   public key; if the API accepts both algorithms without constraints, a token signed with the public key as an HMAC
   secret passes validation.
 
-**Assumptions and prerequisites (thesis).** Grey box: at least one valid JWT obtained by a regular login, to read its
+**Assumptions and prerequisites.** The test declares **grey box** ([`1.2`](../05-tests/domain-1/1-2-credential-cryptographically-valid.md)). At least one valid JWT obtained by a regular login, to read its
 header and payload structure; for the algorithm confusion check, the public JWKS endpoint. No administrative access.
 
 **Test logic** (each case with its expected result; construction details are in the original).
@@ -274,7 +269,7 @@ recommends access tokens of 5-15 minutes, renewed with refresh tokens.
 - **Clock skew exploit.** Issuer and validator clocks differ by 10 minutes: valid tokens are rejected (clock ahead) or
   expired ones accepted (clock behind).
 
-**Assumptions and prerequisites (thesis).** Grey box: the tester can generate or manipulate JWTs with arbitrary `exp`
+**Assumptions and prerequisites.** The test declares **grey box** ([`1.3`](../05-tests/domain-1/1-3-credential-expiry.md)). The tester can generate or manipulate JWTs with arbitrary `exp`
 (the signing key, or a valid token to derive a modified one) and has an authenticated endpoint to test; no
 administrative access.
 
@@ -304,7 +299,7 @@ checks the resulting behaviour, not the internals.
 - **Race condition in replication.** The token enters the blacklist on the primary Redis node but asynchronous
   replication adds a delay of 500 ms; in the propagation window a request to a replica not yet updated is accepted.
 
-**Assumptions and prerequisites (thesis).** Grey box: valid credentials to log in, obtain a JWT and reach the logout
+**Assumptions and prerequisites.** The test declares **white box** ([`1.4`](../05-tests/domain-1/1-4-credential-revocation.md)). Valid credentials to log in, obtain a JWT and reach the logout
 and password change endpoints; at least two distinct accounts for the concurrency tests; no access to the internal
 session store.
 
@@ -333,10 +328,8 @@ headers) is checkable statically; the protocol part needs an active scan.
 - **TLS 1.0/1.1 supported.** The server accepts deprecated protocols; an attacker forces a downgrade and decrypts
   traffic offline using known weaknesses (BEAST, POODLE).
 
-**Assumptions and prerequisites (thesis).** "White box, configuration audit" (with one empirical test for the HTTP
-redirect): access to the server's TLS configuration (`nginx.conf`, `httpd.conf` or the gateway's equivalent), or the
-parameters from the infrastructure team. The `testssl.sh` scan needs only network connectivity. (In the tool, 1.5 is
-black box: the checks below are observed from outside.)
+**Assumptions and prerequisites.** The test declares **black box** ([`1.5`](../05-tests/domain-1/1-5-credentials-over-an-insecure-channel.md)). Access to the server's TLS configuration (`nginx.conf`, `httpd.conf` or the gateway's equivalent), or the
+parameters from the infrastructure team. The `testssl.sh` scan needs only network connectivity.
 
 **Configuration audit (checklist).**
 
@@ -372,10 +365,9 @@ outside and is treated as an architectural best practice.
   in with the same browser; the gateway does not regenerate the session ID; the attacker's cookie is now authenticated
   as the victim.
 
-**Assumptions and prerequisites (thesis).** "White box, configuration audit": read access to the session store's
+**Assumptions and prerequisites.** The test declares **grey box** ([`1.6`](../05-tests/domain-1/1-6-session-cookie-safety.md)). Read access to the session store's
 configuration (Redis TTL policy, replication mode) and to the cookie settings in the gateway or application
-middleware; the one empirical test (session fixation) needs a browser and a valid account. (In the tool, 1.6 is black
-box: it checks the cookies a target sets.)
+middleware; the one empirical test (session fixation) needs a browser and a valid account.
 
 **Configuration audit (checklist).**
 
@@ -410,10 +402,10 @@ which accounts are worth attacking, and an unlimited attempt budget lets them tr
 - **Unlimited attempts.** Consecutive failed attempts are neither slowed nor blocked, so credential stuffing and
   brute force run at full speed.
 
-**Assumptions and prerequisites (tool; added in the block-6 review, not in the original thesis).** Grey box: a
+**Assumptions and prerequisites.** The test declares **grey box** ([`1.7`](../05-tests/domain-1/1-7-authentication-resistance.md)). A
 configured authentication endpoint and a name known not to exist; the verdict is from the address the run came from.
 It promises nothing about password strength, nothing about what an error discloses beyond the account's existence
-(6.1), and nothing about the API's general request budget (4.1).
+(6.1), and nothing about the API's general request budget (4.1). This guarantee was added in the block-6 test review and is not in the original thesis.
 
 **Test logic.** Compare a failed authentication for an account that exists with one for an account that cannot, by
 the answer (bodies, with the submitted name masked) and by response time; a stable difference in either discloses
@@ -424,7 +416,7 @@ blocked or answered `429`. The concrete oracle and thresholds are on the test pa
 
 ## Domain 2. Authorization and access control
 
-### 2.1 Only authorised users reach privileged endpoints `[P2]`
+### 2.1 Only authorised users reach privileged endpoints `[P1]`
 
 **References:** OWASP API5:2023 Broken Function Level Authorization, OWASP ASVS 5.0.0 V8.3.1 and V8.2.2, NIST SP
 800-53 Rev. 5 AC-3.
@@ -440,7 +432,7 @@ who lack the required role or scope. Authentication proves "who you are"; author
 - **Inconsistency between HTTP methods.** `GET` and `DELETE` on `/api/users/{id}` require authentication and the admin
   role, but `PATCH` forgets the check; an ordinary user can modify data.
 
-**Assumptions and prerequisites (thesis).** Grey box: valid JWTs for at least two distinct roles (for example `user`
+**Assumptions and prerequisites.** The test declares **grey box** ([`2.1`](../05-tests/domain-2/2-1-function-level-authorization.md)). Valid JWTs for at least two distinct roles (for example `user`
 and `admin`), knowledge of the privileged endpoints in the OpenAPI document (methods and roles required), and an
 environment to run the calls against.
 
@@ -455,7 +447,7 @@ environment to run the calls against.
 
 ---
 
-### 2.2 Users access only their own data (BOLA prevention) `[P1]`
+### 2.2 Users access only their own data (BOLA prevention) `[P0]`
 
 **References:** OWASP API1:2023 Broken Object Level Authorization, CWE-639, OWASP ASVS 5.0.0 V8.2.2, NIST SP 800-162
 §2.2.
@@ -472,7 +464,7 @@ without checking that it matches the authenticated user. The typical backend che
 - **Modifying others' objects.** `PATCH /api/orders/100` setting the status to cancelled, from a user who does not
   own order 100.
 
-**Assumptions and prerequisites (thesis).** Grey box: valid JWTs for at least two distinct accounts (userA and userB),
+**Assumptions and prerequisites.** The test declares **grey box** ([`2.2`](../05-tests/domain-2/2-2-object-level-authorization.md)). Valid JWTs for at least two distinct accounts (userA and userB),
 each with at least one resource created and identified; the IDs of each user's resources, obtainable from earlier
 GET calls after login.
 
@@ -492,9 +484,15 @@ GET calls after login.
 
 ---
 
-### 2.3 Destructive operations require appropriate privileges `[P1]`
+### 2.3 Destructive operations require appropriate privileges `[P1 proposed, no test]`
 
 **References:** OWASP API5:2023, OWASP ASVS 5.0.0 V8.2.1 and V8.1.1, NIST SP 800-53 Rev. 5 AC-6 (least privilege).
+
+**Coverage by the tool.** No test declares this guarantee, but one of its two scenarios is already covered: delete by
+a non-owner is the `delete` sub-test of [2.2](../05-tests/domain-2/2-2-object-level-authorization.md), where the
+second account deletes the first account's object. Scope escalation is not covered and is not planned: it needs a
+target that issues OAuth2 tokens with granular scopes and documents the scope each operation requires, which none of
+the three labs does.
 
 **Concept.** Operations with permanent effects (DELETE, PUT on critical resources, financial operations) require
 OAuth2 scopes or roles higher than the corresponding read operations. Least privilege (NIST SP 800-53 AC-6) becomes
@@ -507,7 +505,7 @@ granular scopes: `read:posts` allows GET, `delete:posts` allows DELETE.
 - **Scope escalation.** An application obtains an OAuth token with `scope: read:profile` and uses it to call
   `DELETE /api/profile`, which should require `delete:profile`.
 
-**Assumptions and prerequisites (thesis).** Grey box: OAuth2 tokens with distinct granular scopes, at least two accounts
+**Assumptions and prerequisites (proposed).** No test implements this guarantee yet, so the approach below is the methodology's proposal, not a declared strategy. Grey box: OAuth2 tokens with distinct granular scopes, at least two accounts
 for the cross-ownership tests, and the documentation of the scopes each endpoint requires.
 
 **Test logic.**
@@ -535,7 +533,7 @@ duplicate routes or misaligned versions, systematically checkable by automated c
 - **GraphQL against REST.** The REST endpoint `GET /api/users` requires authentication; the GraphQL endpoint exposes
   the same data without it.
 
-**Assumptions and prerequisites (thesis).** Grey box: the complete OpenAPI specification for every API version, valid
+**Assumptions and prerequisites.** The test declares **black box** ([`2.4`](../05-tests/domain-2/2-4-authorization-consistency.md)). The complete OpenAPI specification for every API version, valid
 JWTs for users with distinct roles, and knowledge of alternative endpoints (older versions, alternative formats,
 convenience aliases) even if not documented in the current version.
 
@@ -549,7 +547,7 @@ convenience aliases) even if not documented in the current version.
 
 ---
 
-### 2.5 The API does not expose excessive data `[P2]`
+### 2.5 The API does not expose excessive data `[P1]`
 
 **References:** OWASP API3:2023 Broken Object Property Level Authorization, OWASP ASVS 5.0.0 V8.2.3 and V14.2.6, NIST
 SP 800-53 Rev. 5 SC-4.
@@ -563,7 +561,7 @@ response and reaches fields the interface hides.
 - **Password hash in the response.** `GET /api/users/me` returns an object with a `passwordHash` field. Even a hash
   should not be exposed: the attacker can try to crack it offline.
 
-**Assumptions and prerequisites (thesis).** Grey box: valid JWTs for at least two distinct roles (standard user and
+**Assumptions and prerequisites.** The test declares **grey box** ([`2.5`](../05-tests/domain-2/2-5-object-property-authorization.md)). Valid JWTs for at least two distinct roles (standard user and
 admin) to check field filtering by role; the OpenAPI specification or the data model documentation, to identify the
 sensitive fields that should not be exposed.
 
@@ -596,7 +594,7 @@ validation stays in the application.
 - **NoSQL injection.** A login body carrying query operators instead of values bypasses authentication in MongoDB.
 - **Buffer overflow / out of memory.** An upload of a 10 GB file; the server allocates all its memory and crashes.
 
-**Assumptions and prerequisites (thesis).** Grey box: a valid JWT for a standard user (to test authenticated
+**Assumptions and prerequisites.** The test declares **black box** ([`3.1`](../05-tests/external/domain-3/ext-3-1-schemathesis.md)). A valid JWT for a standard user (to test authenticated
 endpoints), the OpenAPI specification to know each field's expected type, and a test environment where anomalous
 payloads can be sent without affecting production data.
 
@@ -635,7 +633,7 @@ application architecture, not a standard gateway function.
 - **Tampering by a trusted proxy.** A corporate proxy changes the body of `POST /api/transfer` from an amount of 100
   to 1000. Without an HMAC the change is not detected.
 
-**Assumptions and prerequisites (thesis).** "White box, configuration audit": access to the application architecture
+**Assumptions and prerequisites.** The test declares **white box** ([`3.3`](../05-tests/domain-3/3-3-request-signing-audit.md)). Access to the application architecture
 documentation, to check whether a signing mechanism is implemented, and to the middleware's configuration files or
 source code to check its parameters. The empirical test is indicated only if the mechanism is already implemented and
 must be validated.
@@ -676,7 +674,7 @@ because it concerns infrastructure availability, not application logic.
 - **In-memory rate limit (single instance).** The counter is per instance; behind a round-robin load balancer each
   instance sees a fraction of the requests and never reaches the limit.
 
-**Assumptions and prerequisites (thesis).** Black box for enforcement tests and grey box for per-user tests: no
+**Assumptions and prerequisites.** The test declares **black box** ([`4.1`](../05-tests/domain-4/4-1-rate-limiting.md)). No
 knowledge of the internal architecture is needed; two distinct users' JWTs for the "per user against per IP" test. The
 configured limit must be known or derivable from the API documentation or response headers (`X-RateLimit-Limit`).
 
@@ -711,7 +709,7 @@ pool and the server can no longer accept new requests.
 - **External API call without a timeout.** `GET /api/weather` calls an external service that is down and does not
   answer; the default timeout may be 60 s or more, and the user waits that long to see an error.
 
-**Assumptions and prerequisites (thesis).** "White box, configuration audit": read access to the configuration files of
+**Assumptions and prerequisites.** The test declares **white box** ([`4.2`](../05-tests/domain-4/4-2-timeout-config-audit.md)). Read access to the configuration files of
 the gateway and application services, or the Admin API to extract the configured timeouts. The empirical test with a
 mock service is optional, in staging, to validate that the configured timeout produces the expected behaviour.
 
@@ -750,8 +748,7 @@ function of advanced gateways (Istio `outlierDetection`, Kong Enterprise, AWS AP
   default). At 100 requests per second, in 30 s the gateway accumulates 3000 pending requests, saturates the thread
   pool (Tomcat: 200 threads by default), and the failure of one dependency cascades to the whole gateway.
 
-**Assumptions and prerequisites (thesis).** "White box, configuration audit" with an optional behavioural test in
-staging: read access to the gateway configuration (Admin API or files) to check the circuit breaker parameters. The
+**Assumptions and prerequisites.** The test declares **white box** ([`4.3`](../05-tests/domain-4/4-3-circuit-breaker-audit.md)). Read access to the gateway configuration (Admin API or files) to check the circuit breaker parameters. The
 graceful degradation test, if needed, requires coordination to disable a dependent service in a non-production
 environment.
 
@@ -795,9 +792,9 @@ the attacker a single request.
 - **Limit above the backend's capacity.** A limit exists but is larger than the backend can take, so the body is
   forwarded and the backend fails.
 
-**Assumptions and prerequisites (tool; added in the block-6 review, not in the original thesis).** The gateway's
+**Assumptions and prerequisites.** The test declares **black box** ([`4.4`](../05-tests/domain-4/4-4-request-size-limits.md)). The gateway's
 configured limit is read through its admin plane when available, to size the probe; otherwise a default size is
-tried. The body is padding, not an attack payload.
+tried. The body is padding, not an attack payload. This guarantee was added in the block-6 test review and is not in the original thesis.
 
 **Test logic.** Send a request body above the limit and expect `413` before it is processed; a body above the
 gateway's configured limit (or, with no readable limit, above a default size) that is not rejected is a violation.
@@ -825,7 +822,7 @@ redacted for GDPR Article 30 conformance.
 - **Log injection.** A username containing a line break and a fake critical message injects a false entry that hides
   the real attack or raises false alarms.
 
-**Assumptions and prerequisites (thesis).** Grey box: a valid JWT for authenticated requests and read access to the log
+**Assumptions and prerequisites.** The test declares **white box** ([`5.1`](../05-tests/domain-5/5-1-request-logging-audit.md)). A valid JWT for authenticated requests and read access to the log
 aggregator (Elasticsearch/Kibana, Splunk, CloudWatch Logs, Datadog) to check the entries produced. Without access to
 the logs this guarantee cannot be checked empirically from outside.
 
@@ -860,7 +857,7 @@ outside.
 - **Alert fatigue.** The system alerts on every single `401`; 1000 alerts a day, mostly false positives. The team
   ignores them and misses real events.
 
-**Assumptions and prerequisites (thesis).** Grey box with a configuration audit component: read access to the alert
+**Assumptions and prerequisites.** The test declares **white box** ([`5.2`](../05-tests/domain-5/5-2-security-alerting-audit.md)). Read access to the alert
 rules (SIEM, Grafana Alert Manager, CloudWatch alarms) to check thresholds and correlation logic; for the behavioural
 tests, a webhook endpoint or notification channel in the test environment to receive the alerts and check their
 latency and content.
@@ -900,7 +897,7 @@ architecture. The principle is fail-secure: generic messages to the client, tech
 - **Differential information in authentication errors.** A different response for "user not found" and "wrong
   password" enables username enumeration.
 
-**Assumptions and prerequisites (thesis).** Grey box: a valid JWT (to test authenticated endpoints) and access to the
+**Assumptions and prerequisites.** The test declares **grey box** ([`6.1`](../05-tests/domain-6/6-1-information-disclosure.md)). A valid JWT (to test authenticated endpoints) and access to the
 raw HTTP responses; no access to internal configuration: every test rests on observing the responses to deliberately
 anomalous inputs.
 
@@ -936,10 +933,9 @@ static gateway configuration, checkable with one request.
 - **Missing HSTS.** A user types `http://api.example.com`, the browser makes an HTTP request and a man in the middle
   intercepts it (SSL stripping). HSTS prevents it after the first HTTPS visit.
 
-**Assumptions and prerequisites (thesis).** "White box, configuration audit": every check is doable with a single
+**Assumptions and prerequisites.** The test declares **black box** ([`6.2`](../05-tests/domain-6/6-2-security-headers-audit.md)). Every check is doable with a single
 `curl -I` or by inspecting the gateway configuration; no token or privileged access: the headers must be present on
-every response, including those of public endpoints. (In the tool, 6.2 is black box: it observes the response
-headers.)
+every response, including those of public endpoints.
 
 **Configuration audit (checklist).**
 
@@ -957,10 +953,18 @@ headers.)
 
 ---
 
-### 6.3 The gateway configuration is hardened against layer-7 exploits `[P1]`
+### 6.3 The gateway configuration is hardened against layer-7 exploits `[P1 proposed, no test]`
 
 **References:** OWASP API8:2023, OWASP ASVS 5.0.0 V14.2.1 and V14.5.3, RFC 9110 §9.3, CWE-444 (HTTP request smuggling),
 NIST SP 800-204 §4.5.1.
+
+**Coverage by the tool.** No test declares this guarantee, but two of its three scenarios are already covered: the
+CORS wildcard with credentials is the `cors_not_wildcard` sub-test of
+[6.2](../05-tests/domain-6/6-2-security-headers-audit.md), and the layer-7 timeouts are audited by
+[4.2](../05-tests/domain-4/4-2-timeout-config-audit.md) on the gateway's connect, read and write values (the separate
+header and body timeouts this guarantee asks for are not parameters Kong exposes). Request smuggling is the part left
+out, and it is not planned: a CL.TE / TE.CL probe needs a raw-socket connector, since `httpx` refuses to send
+`Content-Length` and `Transfer-Encoding` together by design.
 
 **Concept.** The gateway adds an HTTP parsing layer that, if weakly configured, becomes an attack surface for HTTP
 request smuggling (CWE-444) and slow-connection denial of service. Smuggling exploits discrepancies between the
@@ -980,7 +984,7 @@ headers, normalises paths before applying policies, and applies aggressive layer
   `Access-Control-Allow-Credentials: true` violates the CORS specification and may enable cross-origin exfiltration on
   legacy browsers.
 
-**Assumptions and prerequisites (thesis).** Mixed grey box and white box: the smuggling and CORS tests need only
+**Assumptions and prerequisites (proposed).** No test implements this guarantee yet, so the approach below is the methodology's proposal, not a declared strategy. Mixed grey box and white box: the smuggling and CORS tests need only
 network connectivity (grey box); the timeout and plugin tests need read access to the gateway configuration through
 the Admin API or files (white box). The CORS test with browser automation needs a controlled test environment.
 
@@ -1022,7 +1026,7 @@ repository leak, give direct access to the backend bypassing the gateway.
 - **No rotation policy.** Credentials managed by a secret manager but never rotated: the same secret in use for 3
   years, and a former employee with historical access can still use it after termination (ASVS V13.3.4).
 
-**Assumptions and prerequisites (thesis).** "White box, configuration audit": read access to the gateway's
+**Assumptions and prerequisites.** The test declares **black box** ([`6.4`](../05-tests/domain-6/6-4-hardcoded-credentials-audit.md)). Read access to the gateway's
 configuration files, to the Docker images (through the registry or `docker history`) and to the secret manager's audit
 trail. The one partly empirical test (debug endpoint exposure) needs network connectivity to the target.
 
@@ -1045,7 +1049,7 @@ trail. The one partly empirical test (debug endpoint exposure) needs network con
 
 ## Domain 7. Business logic and sensitive flows
 
-### 7.1 Sensitive business flows are protected from automated abuse `[P2]`
+### 7.1 Sensitive business flows are protected from automated abuse `[P1]`
 
 **References:** OWASP API6:2023 Unrestricted Access to Sensitive Business Flows, OWASP Automated Threats OAT-001 to
 OAT-021, OWASP ASVS 5.0.0 V2.4.1 and V2.4.2, NIST SP 800-63B-4 §5.2.5.
@@ -1063,7 +1067,7 @@ still cause fraud (for example card testing at 1 request a minute over 10,000 st
 - **Account creation bot.** No CAPTCHA on `POST /api/register` allows creating 10,000 accounts an hour for spam or vote
   manipulation.
 
-**Assumptions and prerequisites (thesis).** Grey box: a valid JWT (for payment endpoints that require authentication),
+**Assumptions and prerequisites.** The test declares **black box** ([`7.1`](../05-tests/domain-7/7-1-sensitive-flow-protection.md)). A valid JWT (for payment endpoints that require authentication),
 a test environment with a real account (for registration and email verification tests) and knowledge of the
 business-critical endpoints to test; no access to internal configuration.
 
@@ -1098,8 +1102,7 @@ link-local ranges, and DNS resolution validated before the request.
 - **Deny-list bypass through encoding.** The deny-list blocks `127.0.0.1` but not equivalent forms of the same address
   (abbreviated, hexadecimal, decimal notation), which simple string patterns do not cover.
 
-**Assumptions and prerequisites (thesis).** Black box (for public SSRF endpoints) or grey box (if the endpoint
-requires authentication): no knowledge of the internal infrastructure is needed, the test payloads are standard and
+**Assumptions and prerequisites.** The test declares **grey box** ([`7.2`](../05-tests/domain-7/7-2-ssrf-prevention.md)). No knowledge of the internal infrastructure is needed, the test payloads are standard and
 publicly documented; a valid standard user JWT for authenticated endpoints.
 
 **Test logic** (the categories checked; the concrete payload catalogue is in the tool's `ssrf_payloads` module).
@@ -1118,9 +1121,10 @@ publicly documented; a valid standard user JWT for authenticated endpoints.
 
 ---
 
-### 7.3 Critical operations are idempotent or protected from race conditions `[P2]`
+### 7.3 Critical operations are idempotent or protected from race conditions `[P1]`
 
-**References:** CWE-362 (race condition), OWASP ASVS 5.0.0 V2.3.3 and V2.3.4, RFC 7231 §4.2.2.
+**References:** CWE-362 (race condition), OWASP ASVS 5.0.0 V2.3.3 and V2.3.4, RFC 9110 §9.2.2 (idempotent
+methods; the thesis cited RFC 7231 §4.2.2, obsoleted by RFC 9110 in 2022).
 
 **Concept.** Business-critical operations (payment, fund transfer, inventory deduction) are idempotent, so that
 executing the same request N times has the same effect as once, and protected from race conditions. The mechanisms are
@@ -1134,7 +1138,7 @@ directly controlled by the gateway; the tests check the resulting behaviour from
 - **Race condition on inventory.** A product has stock 1 and two users buy it at once. Without synchronisation both
   read stock 1 and both deduct it: stock -1 (oversold).
 
-**Assumptions and prerequisites (thesis).** Grey box: valid JWTs for at least two distinct users, a staging environment
+**Assumptions and prerequisites.** The test declares **grey box** ([`7.3`](../05-tests/domain-7/7-3-race-conditions.md)). Valid JWTs for at least two distinct users, a staging environment
 where real test orders and transactions can be created (the idempotency test needs a working payment endpoint), and the
 ability to send concurrent requests with threads (for the race tests); no database access: the behaviour is observed
 through the API.
@@ -1151,7 +1155,7 @@ through the API.
 
 ---
 
-### 7.4 The API consumes external services safely (webhook verification) `[P2]`
+### 7.4 The API consumes external services safely (webhook verification) `[P1]`
 
 **References:** OWASP API10:2023 Unsafe Consumption of APIs, NIST SP 800-161 Rev. 1, OWASP ASVS 5.0.0 V13.2.4 and V4,
 NIST SP 800-204 §4.3.
@@ -1168,7 +1172,7 @@ attacker to trigger privileged operations (for example marking an order as paid 
 - **XSS through webhook data.** A webhook carries an issue title with a script; the backend stores it unsanitised and an
   admin viewing the issue list executes it.
 
-**Assumptions and prerequisites (thesis).** Grey box: the signature mechanism the external provider uses (typically
+**Assumptions and prerequisites.** The test declares **black box** ([`7.4`](../05-tests/domain-7/7-4-webhook-verification.md)). The signature mechanism the external provider uses (typically
 HMAC-SHA256 with a shared secret, documented in the provider's developer portal), the ability to send HTTP requests to
 the API's webhook endpoint, and a test environment to check the state of orders or resources after the webhook. For
 the XSS test, a browser and access to the admin interface.
@@ -1194,7 +1198,7 @@ the XSS test, a browser and access to the admin interface.
 The thesis closes the catalogue with a risk-based prioritisation matrix that restates the priorities by tier (P0 gateway
 core and OWASP top risks, P1 business-critical and advanced gateway features, P2 application logic and defence in depth,
 P3 static compliance and best practice), with the criteria of the dual prioritisation. The criteria are in
-[`03-methodology.md`](03-methodology.md#priorities); the assignment per guarantee is the table at the top of this page, where the
+[`02-methodology.md`](02-methodology.md#priorities); the assignment per guarantee is the table at the top of this page, where the
 matrix's differences from the section headings are noted.
 
 *Based on: OWASP API Security Top 10 2023, OWASP ASVS 5.0.0, NIST SP 800-204/204A, NIST SP 800-63B-4, RFC 7519/8725/9110.*

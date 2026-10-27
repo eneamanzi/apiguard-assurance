@@ -36,7 +36,7 @@ docker compose version
 ```
 
 Each command prints a version. `command not found` means the program is missing: install it before continuing.
-Python must be 3.12 (see [Requirements](#requirements)).
+Python must be between 3.11 and 3.14 (see [Requirements](#requirements)).
 
 `curl`, `tar` and `unzip` are needed only by `install_tools.sh`:
 
@@ -117,10 +117,13 @@ hatch run apiguard version
 1. `git clone` and `cd`: get the repository and enter it. **Run every following command from this folder.**
 2. `hatch run apiguard version`: the first time, Hatch creates the Python environment and installs the tool in it
    (about 15 seconds), then runs it. Expected output: `APIGuard Assurance version 0.1.0`.
-3. `./install_tools.sh`: downloads the external tools into `./tools/` (testssl.sh 3.2.3, nuclei 3.8.0,
-   nuclei-templates 10.4.3); tools already present are skipped. Only needed for the external tests (`ext.*`);
-   without them those tests return SKIP and the native tests run normally. nuclei also creates `~/.pdcp` in your
-   home directory.
+3. `./install_tools.sh`: downloads the external tools into `./tools/` (testssl.sh 3.2.3, ffuf 2.3.0 with the two
+   SecLists 2026.1 wordlists it uses, nuclei 3.8.0 and nuclei-templates 10.4.3); tools already present are
+   skipped, and ffuf's archive is checked against the project's published checksum. Only needed for the external
+   tests (`ext.*`); without them those tests return SKIP and the native tests run normally. nuclei also creates
+   `~/.pdcp` in your home directory. nuclei is downloaded but no test uses it: its connector is in the codebase
+   and `ext.0.1.nuclei` was replaced by `ext.0.1.ffuf` ([roadmap](../project/roadmap.md)). The third external
+   test, `ext.3.1.schemathesis`, is a Python library, not a binary: it comes from the `[schemathesis]` extra.
 
 Run the check of section 1 again: everything except `.env` and the lab should now be `ok`.
 

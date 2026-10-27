@@ -39,7 +39,7 @@ present configuration is.
 |---|---|
 | `algorithm_strong` | "the algorithm is SHA-256 or stronger; MD5/SHA-1 are non-conforming" |
 | `replay_protected` | "a timestamp window of at most 5 minutes, or a single-use nonce" |
-| left out (deferred) | the empirical tamper/replay test (only if a signing mechanism is implemented and a request can be crafted) |
+| left out | the empirical tamper/replay test: meaningful only on a target that implements signing, which no lab does; not planned (2026-10-27) |
 
 ## 3. Inputs
 
@@ -96,10 +96,16 @@ plugin. Kong's `hmac-auth` maps to it; APISIX's equivalent likewise.
 
 ## 11. Configuration
 
-| Parameter | What it is |
-|---|---|
-| `max_replay_window_seconds` | the largest acceptable replay window (default 300) |
-| `forbidden_algorithms` | the HMAC algorithms treated as weak (default sha1/md5) |
+<!-- [[[cog import generate_docs as g; cog.out(g.test_params("3.3", page=cog.inFile)) ]]] -->
+
+Section [`tests.domain_3.test_3_3`](../../03-reference/01-configuration.md#testsdomain_3test_3_3) of `config.yaml`:
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `max_replay_window_seconds` | int ≥1 | `300` | The largest acceptable replay window (clock-skew tolerance) in seconds; above it a signed request can be replayed. Default 300 (5 minutes). |
+| `forbidden_algorithms` | list | 4 values (`hmac-sha1`, `hmac-md5`, …) | HMAC algorithms treated as weak (compared lowercased). Default sha1/md5. |
+
+<!-- [[[end]]] -->
 
 ## 12. Validation
 
@@ -124,13 +130,18 @@ If request signing is used, allow only HMAC-SHA-256 or stronger and bound replay
 
 ## 14. Limitations
 
-- Configuration audit only: the empirical tamper/replay test (a crafted signed request) is a deferred follow-up,
-  meaningful only where a signing mechanism is implemented.
+- Configuration audit only: the test reads the gateway's signing policy and never sends a crafted signed request, so
+  it proves a mechanism is configured, not that the gateway rejects a tampered or replayed one. An empirical
+  tamper/replay test is not planned: it would be meaningful only on a target that implements signing, and none of the
+  three labs does.
 - Reads only what the adapter's `signing_policies` exposes; a signing mechanism in the application (not the gateway)
   is not seen.
 
 ## 15. Sources
 
 - NIST SP 800-107 Rev.1 (HMAC algorithm strength and use): https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-107r1.pdf
-- OWASP ASVS v5.0.0-4.1.5 (to verify on source; WebFetch was rate-limited 2026-10-23)
+- OWASP ASVS v5.0.0, V4.1.5 (verified on source 2026-10-27): "Verify that per-message digital signatures are
+  used to provide additional assurance on top of transport protections for requests or transactions which are
+  highly sensitive or which traverse a number of systems" (chapter V4 API and Web Service, section V4.1 Generic
+  Web Service Security, level 3): https://github.com/OWASP/ASVS/blob/master/5.0/en/0x13-V4-API-and-Web-Service.md
 - CWE-347 Improper Verification of Cryptographic Signature: https://cwe.mitre.org/data/definitions/347.html

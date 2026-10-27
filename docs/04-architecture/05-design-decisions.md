@@ -30,6 +30,7 @@ git log -- docs/project/tests-design.md                # D8: the last commit bef
 | [D7](#d7-neutral-gateway-concepts) | Neutral gateway concepts | 2026-10-11 |
 | [D8](#d8-a-test-is-self-contained) | A test is self-contained | 2026-10-17 |
 | [D9](#d9-the-configuration-as-written-and-as-used) | The configuration as written and as used | 2026-10-19 |
+| [D10](#d10-path_seed-makes-paths-routable-not-objects-specific) | `path_seed` makes paths routable, not objects specific | 2026-10-26 |
 
 ## D1. Configuration organised by connection
 
@@ -186,8 +187,9 @@ request, values taken from its JSON response, and an optional delete request sen
 - **Who and how:** the test chooses the role a resource is created for; each request says how it authenticates
   (`credential`, `basic`, `none`); the role that created a resource deletes it.
 - **Login on top of it:** `auth_type: login` with `login_resource`: the credential is the response value
-  `credential`; a delete request, when present, deletes it at the end and lets 1.4 revoke one. 1.4 takes its check
-  request from the configuration (`protected_endpoint`); random names (`apiguard-{random}`) mean two runs never collide.
+  `credential`; a delete request, when present, deletes it at the end and lets 1.4 revoke one. 1.4 derives the request it
+  replays the revoked credential on (`src/tests/helpers/anchor.py`); random names (`apiguard-{random}`) mean two runs
+  never collide.
 - **Secrets:** what gives access to the target (the value `credential`, passwords, Basic values) is masked; what
   explains what the tool created (names, ids) stays readable.
 - **Checked at startup** (exit 10): a resource used but not defined, an unknown placeholder, a response value used
@@ -257,7 +259,7 @@ gateway adapters knew tests 3.3, 4.3 and 7.2 by name.
 - **Declaration:** one frozen `TestInfo` (`src/core/test_metadata.py`): `id`, `name`, `priority`, `strategy`,
   `cwe`, `references` (the other standards, each in its standard's format), `tags`, `depends_on`, `requires_pass`, `tool` (external tests), `needs`; the domain is the first number of
   the ID. Results keep their report names (`test_id`, `test_name`, `cwe_id`, ...).
-- **Parameters:** the model lives in the test module and is named in the class, `BaseTest[Test21Params]`; the test
+- **Parameters:** the model lives in the test module and is named in the class, `BaseTest[Test42Params]`; the test
   reads `self.params(target)`, typed (mypy checks every name) and only its own. The `tests:` section is validated
   after test discovery against the declared models, with the same messages as any key
   (`src/config/tests_section.py`); the keys stay `tests.domain_<D>.test_<D>_<N>.<param>`, derived from the ID
@@ -267,8 +269,9 @@ gateway adapters knew tests 3.3, 4.3 and 7.2 by name.
   parameters and the result helpers for native and external tests; one discovery (`src/core/test_discovery.py`)
   stops the run for any test that cannot be used (a module that cannot be imported or is outside a package, a
   missing or invalid declaration, a duplicate ID): a test left out silently would read as a guarantee that holds.
-- **Needs:** what a test needs from the configuration (`Need`: `ADMIN_ACCOUNT`, `USER_ACCOUNT`, `GATEWAY`,
-  `REVOCABLE_LOGIN`; a parameter marked `NEEDED_TO_RUN`) is declared; the engine checks it in one place
+- **Needs:** what a test needs from the configuration (`Need`, listed with its dependent tests in the
+  [assessment model](03-assessment-model.md#needs-what-the-configuration-must-hold); or a parameter marked
+  `NEEDED_TO_RUN`) is declared; the engine checks it in one place
   (`src/core/test_needs.py`), records SKIP before the test runs with a uniform reason and warns before the first
   test; what only the target can reveal stays a SKIP inside the test.
 - **Generated documentation:** catalogue, page headers, tests by strategy and priority, the tests chapter of
@@ -279,7 +282,7 @@ gateway adapters knew tests 3.3, 4.3 and 7.2 by name.
 - **Integration:** `apiguard list-tests [--config] [--json]` gives every declaration, the parameters' JSON Schema
   and, for a configuration, which tests run and why the others SKIP.
 - **Names:** a parameter the user gives about the target is named by what it is, not by what the test does with it
-  (owner): `protected_endpoint` (1.4, an endpoint that requires authentication), `url_accepting_endpoint` (7.2, an
+  (owner): `url_accepting_endpoint` (7.2, an
   endpoint that accepts a URL, with its `path`, `body` and `resource` together), `http_url` (1.5),
   `session_cookie_paths` (1.6). Thresholds and probe settings may describe the test's behaviour (`max_requests`).
 
@@ -336,14 +339,14 @@ only newlines and calls the option "dangerous").
 
 **Consequences.** Any value from the environment arrives exactly as set; a YAML error quotes the file, never a
 value. A run can be repeated from its outputs: on the Forgejo + Kong lab, a run and a second run with its
-`config_used.yaml` gave the same tests, statuses, findings, oracle states and exit code. An unquoted placeholder in
+`config_used.yaml` gave the same tests, statuses, findings, outcomes and exit code. An unquoted placeholder in
 a mapping written on one line (`{count: ${N}}`) is a YAML error (as in Docker Compose): quote it, or write the
 mapping on several lines. A new secret field of the configuration takes `SECRET_VALUE`.
 
 Sources: [compose-go interpolation](https://raw.githubusercontent.com/compose-spec/compose-go/main/interpolation/interpolation.go),
 [OpenTelemetry Collector confmap](https://raw.githubusercontent.com/open-telemetry/opentelemetry-collector/main/confmap/README.md),
 [OpenTelemetry env-vars RFC](https://raw.githubusercontent.com/open-telemetry/opentelemetry-collector/main/docs/rfcs/env-vars.md),
-[Vector environment variables](https://vector.dev/docs/03-reference/environment_variables/).
+[Vector environment variables](https://vector.dev/docs/reference/environment_variables/).
 
 ## D10. `path_seed` makes paths routable, not objects specific
 
@@ -377,4 +380,4 @@ future test requires a specific object through the seed, the path-qualified over
 ## See also
 
 - [Overview](01-overview.md) · [Security model](04-security-model.md) · [Configuration reference](../03-reference/01-configuration.md)
-- [`roadmap.md`](../project/roadmap.md): what is implemented, the backlog, and open decisions
+- [`roadmap.md`](../project/roadmap.md): what is still open, and what was deliberately dropped

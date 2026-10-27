@@ -27,8 +27,9 @@ Oracle (per payload):
 Honesty boundary (owner decision 2026-10-23): a 2xx means the endpoint accepted
 the URL, which is *not* proof the server made the outbound call. Confirming the
 call needs an out-of-band listener (a URL the tool controls; a hit on it proves
-the SSRF) -- a deferred follow-up. Until then an
-accepted URL is NOT_VERIFIABLE, never a PASS and never an unproven VIOLATION.
+the SSRF), which is not built and not planned, so an accepted URL is
+NOT_VERIFIABLE, never a PASS and never an unproven VIOLATION. This is a
+permanent boundary of the test, not a gap waiting to be filled.
 
 GREY_BOX (the endpoint usually needs a credential), effect CHANGES_DATA (it
 creates webhooks / submits URLs on the target; with a `resource` the object is
@@ -521,15 +522,16 @@ class Test72SSRFPrevention(BaseTest[Test72Params]):
 
 
 # One note added to the result when any URL was accepted: it names the deferred
-# out-of-band listener that would turn OUTBOUND_NOT_CONFIRMED into a verdict.
+# out-of-band listener that would be needed to turn OUTBOUND_NOT_CONFIRMED
+# into a verdict.
 _LISTENER_NOTE: InfoNote = InfoNote(
     title="SSRF outbound call not confirmed",
     detail=(
         "One or more SSRF URLs were accepted by the endpoint (a 2xx). Acceptance is not proof "
         "that the server made the outbound call: confirming that needs an out-of-band listener "
-        "(a URL the tool controls; a hit on it proves the SSRF), a deferred follow-up. Until "
-        "then an accepted URL is reported NOT_VERIFIABLE, never a pass. Review these endpoints by "
-        "hand, or point the configured URL at a listener you control."
+        "(a URL the tool controls; a hit on it proves the SSRF), which this tool does not "
+        "provide. An accepted URL is therefore reported NOT_VERIFIABLE, never a pass. Review "
+        "these endpoints by hand, or point the configured URL at a listener you control."
     ),
     references=[Reference(standard=Standard.OWASP_API_TOP10, id="API7:2023")],
 )

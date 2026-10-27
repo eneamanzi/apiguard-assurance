@@ -66,10 +66,10 @@ hand against the lab.
 | a configuration parameter | [`docs/03-reference/01-configuration.md`](docs/03-reference/01-configuration.md) and `config.example.yaml` (checked by `hatch run dev:check`: every key must be listed) |
 | the report or evidence format | [`report-schema.md`](docs/03-reference/04-report-schema.md), [`evidence-format.md`](docs/03-reference/05-evidence-format.md) |
 | the lab | [`first-assessment.md`](docs/01-getting-started/02-first-assessment.md) (commands and expected output) |
-| what is implemented | [`docs/project/roadmap.md`](docs/project/roadmap.md) and [`CHANGELOG.md`](CHANGELOG.md) |
+| what is implemented | [`docs/05-tests/README.md`](docs/05-tests/README.md) (generated from the tests' declarations) and [`CHANGELOG.md`](CHANGELOG.md) |
 
 Documentation states only facts checked against the code or a run. A doubt, or a behaviour that looks wrong, is
-raised with the project owner with its evidence; open decisions are recorded in
+raised with the project owner with its evidence; the decisions still open are recorded in
 [`docs/project/roadmap.md`](docs/project/roadmap.md).
 
 ## Commits
@@ -79,4 +79,5 @@ followed by a short summary. Never commit `.env` (it is ignored by git) or anyth
 
 ## Project state
 
-What is implemented, the backlog and the open decisions: [`docs/project/roadmap.md`](docs/project/roadmap.md).
+What is implemented: [`docs/05-tests/README.md`](docs/05-tests/README.md), generated from the tests' declarations.
+What is still open, and what was deliberately dropped: [`docs/project/roadmap.md`](docs/project/roadmap.md).

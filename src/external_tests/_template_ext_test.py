@@ -91,7 +91,7 @@ _TOOL_PROBLEMS: frozenset[str] = frozenset({"example-engine-problem"})
 
 class TemplateExtTest(ExternalToolTest):
     """
-    External test for <Garanzia X.Y> -- <brief description>.
+    External test for <guarantee X.Y> -- <brief description>.
 
     <One paragraph describing what this test verifies, which section of the
     methodology it implements, and how it relates to any native test with the

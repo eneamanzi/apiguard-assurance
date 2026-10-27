@@ -99,8 +99,7 @@ direction core <- connectors <- tests/external_tests <- engine; core, connectors
 `config`, `discovery`, `report`, `cli`; native tests never use connectors. To fix formatting: `hatch run dev:ruff format .`.
 
 Update the documentation in the same change: the test page in `docs/05-tests/`, then `hatch run dev:gen` (catalogue,
-page headers, parameter tables and `config.example.yaml` are generated from the code), and
-`docs/project/roadmap.md`.
+page headers, parameter tables and `config.example.yaml` are generated from the code).
 
 ## See also
 

@@ -98,8 +98,8 @@ answer. crAPI's identity service validates the JWT itself.
 ## 11. Configuration
 
 None. Covering the key-based attacks would need the operator to supply a signing key or a JWKS (a new input);
-that is deferred until it is needed, and those cases stay `NEEDS_KEY_MATERIAL` meanwhile (owner, 2026-10-22: native,
-no speculative jwt_tool and no key parameter now).
+that input is not planned (owner, 2026-10-22: native, no speculative jwt_tool and no key parameter; confirmed
+2026-10-27), so those cases stay `NEEDS_KEY_MATERIAL`.
 
 ## 12. Validation
 

@@ -3,8 +3,8 @@
 ## Project
 
 Python CLI for automated security assessment of REST APIs behind an API gateway. Born as a Master's thesis in
-Cybersecurity; v0.1.0 released 2026-05-18 (15 native + 3 external tests), then the block-6 test review rebuilt and
-extended the suite to 29 native + 3 external tests (`apiguard list-tests` is the ground truth). Current phase:
+Cybersecurity; v0.1.0 released 2026-05-18, then the block-6 test review rebuilt and extended the suite
+(`apiguard list-tests` is the ground truth for what exists; the generated catalogue is `docs/05-tests/README.md`). Current phase:
 documentation and hardening for production use and integration into another product.
 
 **Development targets:** three labs in `test-environments/`: Forgejo behind Kong (DB-less, `forgejo-kong/`, the
@@ -19,19 +19,20 @@ in `docs/03-reference/06-compatibility.md` (Test portability).
 | Need | Read |
 |---|---|
 | Map of all documentation | `docs/index.md` |
-| What is implemented, the backlog, open decisions | `docs/project/roadmap.md` (single source of truth) |
+| What is still open, and what was deliberately dropped | `docs/project/roadmap.md` |
 | The test-design rules every test follows ("rule N") | `docs/04-architecture/03-assessment-model.md` ("Rules every test follows") |
 | Pipeline, modules, dependencies, components | `docs/04-architecture/01-overview.md` |
 | Data models, assessment model, security model | `docs/04-architecture/02-data-model.md`, `assessment-model.md`, `security-model.md` |
-| Why a design choice was made (decisions D1-D9) | `docs/04-architecture/05-design-decisions.md` |
+| Why a design choice was made (decisions D1-D10) | `docs/04-architecture/05-design-decisions.md` |
 | Coding rules (English) | `docs/02-guides/03-extending/01-coding-rules.md` |
 | Adding a native test / external test / gateway adapter | `docs/02-guides/03-extending/02-add-a-native-test.md`, `add-an-external-test.md`, `add-a-gateway-adapter.md` |
 | What each test does, its oracle, its effects on the target | `docs/05-tests/` (index `docs/05-tests/README.md`) |
 | Verified facts: configuration, CLI, exit codes, report and evidence formats, compatibility | `docs/03-reference/` (check here before answering "what does X do") |
-| Methodology framework (gradient, priorities) | `docs/06-knowledge/03-methodology.md` |
-| Methodology catalogue of the guarantees (oracles, test logic; translated, not yet aligned with the tool) | `docs/06-knowledge/04-guarantees.md` |
+| Which document to quote about the tool, and which about the methodology | `docs/index.md` ("Two kinds of document") |
+| Methodology framework (gradient, priorities) | `docs/06-knowledge/02-methodology.md` |
+| Methodology catalogue of the guarantees (concept, failure scenarios, test logic; priorities and strategies are the code's) | `docs/06-knowledge/03-guarantees.md` |
 
-No Italian source is left in the repository (the originals are recoverable: `docs/06-knowledge/README.md`). The guarantees catalogue is a translation of the thesis text, to be aligned with the tool in the test review (block 6, phase 0b).
+No Italian source is left in the repository (the originals are recoverable: `docs/06-knowledge/README.md`). The guarantees catalogue was aligned to the tool after the test review: every priority and strategy in it is the one the test declares, and each guarantee links to its test page.
 
 ## Directory Layout
 
@@ -164,13 +165,13 @@ Missing external tool → `TestResult(SKIP)` via `_skip_reason_from_registry`. N
 
 ## Session Startup
 
-1. Read `docs/project/roadmap.md` for what is implemented, the backlog and the open decisions.
-2. For code work, check `docs/project/roadmap.md` and read the relevant files from "Where things are":
-   - implementing a test: the matching guide in `docs/02-guides/extending/`, then the methodology;
+1. Read `docs/project/roadmap.md` for what is still open and what was dropped on purpose.
+2. For code work, read the relevant files from "Where things are":
+   - implementing a test: the matching guide in `docs/02-guides/03-extending/`, then the methodology;
    - touching infrastructure: `docs/04-architecture/01-overview.md`.
 3. State the file you are about to write. Wait for confirmation.
 4. Write one file. Explain internal logic and rationale.
 5. Verify against the lab with only the affected tests (`execution.test_ids` in a copy of `test-environments/forgejo-kong/config.yaml`), not the
    full assessment.
-6. After completing a test, update `docs/project/roadmap.md`, the test page in `docs/05-tests/` and `CHANGELOG.md`, then
-   `hatch run dev:gen` (the generated documentation: catalogue, page headers, parameter tables, `config.example.yaml`).
+6. After completing a test, update the test page in `docs/05-tests/` and `CHANGELOG.md`, then `hatch run dev:gen`
+   (the generated documentation: catalogue, page headers, parameter tables, `config.example.yaml`).

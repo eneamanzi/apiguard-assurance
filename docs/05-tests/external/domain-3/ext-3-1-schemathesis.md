@@ -37,7 +37,7 @@ bad input (the input reached the logic), an invalid input accepted, or a non-con
 | Sub-test | Methodology (guarantee 3.1) |
 |---|---|
 | `input_validated` | Schemathesis generates valid and invalid inputs from the spec and runs `not_a_server_error`, `negative_data_rejection`, `response_schema_conformance` |
-| deferred follow-up | the deep injection confirmation (sqlmap, NoSQLMap, Dalfox, commix, SSTImap) and an authenticated run |
+| left out | the deep injection confirmation (sqlmap, NoSQLMap, Dalfox, commix, SSTImap) and an authenticated run; neither is planned (2026-10-27) |
 
 ## 3. Inputs
 
@@ -104,11 +104,12 @@ a bad input, and never a 500 (OWASP API10:2023, ASVS v5.0.0-2.2.1).
 
 ## 14. Limitations
 
-- Unauthenticated: the validation of authenticated-only operations (and write bodies) is a deferred follow-up (an
-  authenticated run), as is the deep injection confirmation (sqlmap, NoSQLMap, Dalfox, commix).
+- Unauthenticated, and it stays so (2026-10-27): the validation of authenticated-only operations, and of write
+  bodies, is never exercised, so a validation gap behind the credential is not seen. Deep injection confirmation
+  (sqlmap, NoSQLMap, Dalfox, commix) is not planned either.
 - Bounded by `max_examples`: a validation gap that needs a specific generated value may be missed at a low setting.
 - Schemathesis flags a 500 or a non-conformant response; whether a flagged input actually executes an injection is
-  the deferred deep-confirmation tools' job.
+  outside what this test can say: it reports a suspicious response, never a confirmed injection.
 
 ## 15. Sources
 

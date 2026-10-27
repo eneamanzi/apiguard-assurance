@@ -71,7 +71,7 @@ _ORIGIN_PATTERN: re.Pattern[str] = re.compile(r"^https?://[^/\s?#]+$")
 # ---------------------------------------------------------------------------
 
 # Default timeout values in seconds, applied to every request unless overridden.
-# These defaults satisfy the Garanzia 4.2 oracle:
+# These defaults satisfy the guarantee 4.2 oracle:
 #   connect_timeout <= 5s, read_timeout <= 30s.
 DEFAULT_CONNECT_TIMEOUT_SECONDS: float = 5.0
 DEFAULT_READ_TIMEOUT_SECONDS: float = 30.0

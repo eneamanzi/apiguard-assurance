@@ -37,20 +37,23 @@ needs a webhook receiver.
 | Sub-test | Methodology (guarantee 5.2) |
 |---|---|
 | `anomalous_event_alerted` | the brute-force alert, deduplication and threshold checks: all need alert-rule access and a webhook receiver |
-| deferred follow-up | those behavioural checks, once an alert webhook the tool can observe exists (shared with 7.2/7.4) |
+| left out | those behavioural checks: each needs an alert receiver the tool can observe, which does not exist and is not planned (2026-10-27) |
 
 ## 3. Inputs
 
-None available from outside: the alert rules are in the SIEM, and no alert channel is configured for the tool to
-observe.
+Two things the tool would need and has no interface for: the alert rules (a SIEM, Grafana Alert Manager or
+CloudWatch alarms) and an alert channel it can watch. Neither is part of a gateway's admin plane, so no adapter
+concept exposes them.
 
 ## 4. Preconditions and reference responses
 
-Alert-rule or alert-channel access, which the tool does not have from outside.
+Read access to the alert rules, or a webhook the tool can receive on. No reference responses: there is nothing to
+calibrate against.
 
 ## 5. Probes
 
-None: the test cannot run from outside.
+None. Provoking an alert would need the events that trigger it (a burst of failed logins) **and** a receiver to
+observe the alert on; the events alone prove nothing, so the test does not send them.
 
 ## 6. Oracle (`anomalous_event_alerted`)
 
@@ -60,11 +63,12 @@ None: the test cannot run from outside.
 
 ## 7. Outcomes
 
-SKIP: real-time alerting cannot be verified from outside without the SIEM's rules and a webhook receiver.
+Always SKIP today, with the reason. The test exists so that the guarantee appears in the report as unverified
+instead of silently missing from it: a reader sees that alerting was not checked, and why.
 
 ## 8. Findings
 
-None (SKIP). A note points to the deferred behavioural checks.
+None (SKIP). A note names the behavioural checks the test cannot make.
 
 ## 9. Effects on the target
 
@@ -87,8 +91,8 @@ Runs of 2026-10-23:
 | Forgejo + Kong, crAPI + Kong, Forgejo + APISIX | **SKIP** | no alert-rule or alert-channel access; alerting cannot be verified from outside |
 
 Rule 9: the guarantee is out of reach from outside on every lab (SKIP with the reason). The behavioural checks (a
-brute-force alert within seconds, deduplication, a threshold) are a deferred follow-up that needs an alert webhook
-the tool can observe.
+brute-force alert within seconds, deduplication, a threshold) need an alert receiver the tool can observe; that
+receiver is not planned (2026-10-27), so the SKIP is the test's permanent answer, not a temporary one.
 
 ## 13. Remediation
 
@@ -97,8 +101,10 @@ deduplication and tuned thresholds to avoid alert fatigue (NIST SP 800-61).
 
 ## 14. Limitations
 
-- The test cannot verify alerting from outside: it SKIPs. A real check needs read access to the alert rules and a
-  webhook receiver (the deferred follow-up).
+- The whole guarantee is out of reach from outside, so the test verifies nothing: a SKIP here is neither a pass nor
+  a fail, it is an admitted gap.
+- Even with the alert rules readable, reading them would prove a rule exists, not that an alert is delivered in
+  time; that needs an alert receiver the tool can observe, which is not planned (2026-10-27).
 
 ## 15. Sources
 

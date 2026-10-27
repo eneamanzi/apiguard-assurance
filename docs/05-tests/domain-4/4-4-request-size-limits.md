@@ -62,6 +62,7 @@ is changed (unauthenticated: the backend would reject it on auth, but the gatewa
 | the gateway's configured limit was read and the body above it is not rejected | `VIOLATION/NO_SIZE_LIMIT` | CERTAIN |
 | no configured limit readable; a body of the default size is not rejected | `VIOLATION/NO_SIZE_LIMIT` | FIRM (a larger limit may exist) |
 | the endpoint answers 5xx / unavailable | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` | - |
+| the probe gets no answer at all (the connection is closed or times out), so nothing can be read | `NOT_VERIFIABLE/NO_RESPONSE` | - |
 
 ## 7. Outcomes
 
@@ -82,10 +83,16 @@ available, to send a body just above it.
 
 ## 11. Configuration
 
-| Parameter | What it is | Derived when left out |
-|---|---|---|
-| `body_size_bytes` | the body size when the limit is not readable (default 2 MB) | - |
-| `probe_path` | the write path to probe | the shortest documented write |
+<!-- [[[cog import generate_docs as g; cog.out(g.test_params("4.4", page=cog.inFile)) ]]] -->
+
+Section [`tests.domain_4.test_4_4`](../../03-reference/01-configuration.md#testsdomain_4test_4_4) of `config.yaml`:
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `body_size_bytes` | int ≥1024 | `2000000` | The size of the body sent when the gateway's configured limit cannot be read. A body above a sane API limit (default 2 MB); a gateway that accepts it has no small body-size limit. |
+| `probe_path` | string | `""` | The documented write path to probe; empty derives the shortest documented write. |
+
+<!-- [[[end]]] -->
 
 ## 12. Validation
 

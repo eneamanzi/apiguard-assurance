@@ -3,8 +3,10 @@
 > **Audience:** readers of the research, contributors choosing a connector · **Status:** the consolidated decisions
 > of the thesis tool review (version 3.0, May 2026), adapted to English; tools are described by their role, the
 > detailed technique lists of the thesis are in the Italian original
-> (`git show 694f89a:docs/knowledge/tools/decisions.it.md`; also tag `v0.1.0`, `docs/priv/TOOLS_decisions.md`); the column "Implemented" is the state of the code on 2026-10-20 · **Detail of
-> each tool:** [`06-tool-catalog.md`](06-tool-catalog.md) · **Verified:** 2026-10-20
+> (`git show 694f89a:docs/knowledge/tools/decisions.it.md`; also tag `v0.1.0`, `docs/priv/TOOLS_decisions.md`).
+> Which tests exist and at what priority is not repeated here: it is in
+> [`../05-tests/README.md`](../05-tests/README.md) · **Detail of
+> each tool:** [`05-tool-catalog.md`](05-tool-catalog.md) · **Verified:** 2026-10-27
 
 For each guarantee of the methodology: whether Python covers it alone or with external tools, which tools were
 chosen, and why. How the tool runs the chosen ones: [`assessment-model.md`](../04-architecture/03-assessment-model.md#native-hybrid-and-external-tools),
@@ -16,7 +18,7 @@ chosen, and why. How the tool runs the chosen ones: [`assessment-model.md`](../0
 could not be verified (no verifiable repository); tools for protocols outside the scope of v1.0 (GraphQL, gRPC,
 WebSocket, HTTP/3); IaC and cloud-specific tools (deck already removed in v2.0); encyclopaedic appendices.
 
-**Categories (v2.0).** The full classification, category C included, is in the [catalog](06-tool-catalog.md); the table
+**Categories (v2.0).** The full classification, category C included, is in the [catalog](05-tool-catalog.md); the table
 below lists the tools of category A and B.
 
 | Category | Meaning |
@@ -55,48 +57,50 @@ uses external connectors. A NATIVE test with optional Cat B tools stays NATIVE.
 
 ## Decisions by guarantee
 
-"Implemented" is the code today. "Priority" is the one the implemented test declares; for a guarantee with no test
-yet it is the thesis review's, marked "(thesis)" (the thesis gave 1.4 and 2.1 as P1, the tests declare P2).
+This table answers one question only: which external tool serves which guarantee, and why. The priority of a test
+and whether it exists are not written here, so that they cannot drift from the code: they are in the generated
+catalogue [`../05-tests/README.md`](../05-tests/README.md) and in `apiguard list-tests`.
 
-| ID | Guarantee | Priority | Classification | Cat A | Cat B | Implemented |
-|---|---|---|---|---|---|---|
-| 0.1 | Shadow API discovery | P0 | HYBRID | ffuf, katana, nuclei | gau, cherrybomb | native 0.1, ext.0.1.ffuf |
-| 0.2 | Deny-by-default | P0 | NATIVE + optional | - | cherrybomb | native 0.2 |
-| 0.3 | Deprecated APIs | P0 | NATIVE + optional | - | oasdiff | native 0.3 |
-| 1.1 | Authentication required | P0 | NATIVE | - | - | native 1.1 |
-| 1.2 | Credentials cryptographically valid | P0 (thesis) | HYBRID | jwt_tool | - | no |
-| 1.3 | Credentials not expired | P0 (thesis) | HYBRID | jwt_tool | - | no |
-| 1.4 | Credentials not revoked | P2 | NATIVE | - | - | native 1.4 |
-| 1.5 | Credentials not on insecure channels | P2 | HYBRID | testssl.sh | - | native 1.5, ext.1.5.testssl |
-| 1.6 | Session management | P3 | NATIVE | - | - | native 1.6 |
-| 2.1 | RBAC on privileged endpoints | P2 | NATIVE | - | - | native 2.1 |
-| 2.2 | BOLA prevention | P1 (thesis) | NATIVE + optional | - | OFFAT, cherrybomb | no |
-| 2.3 | Destructive operations | P1 (thesis) | NATIVE + optional | - | OFFAT | no |
-| 2.4 | Consistent policies | P1 (thesis) | NATIVE | - | - | no |
-| 2.5 | Excessive data exposure | P2 (thesis) | NATIVE | - | - | no |
-| 3.1 | Input validation | P2 (thesis) | HYBRID | Schemathesis, nuclei | sqlmap, NoSQLMap, Dalfox, commix, SSTImap | no |
-| 3.3 | Request signing (HMAC) | P3 | NATIVE | - | - | native 3.3 |
-| 4.1 | Rate limiting | P0 | HYBRID | vegeta | - | native 4.1 |
-| 4.2 | Timeouts | P1 | NATIVE | - | - | native 4.2 |
-| 4.3 | Circuit breaker | P1 | NATIVE | - | - | native 4.3 |
-| 5.1 | Audit logging | P1 (thesis) | NATIVE | - | - | no |
-| 5.2 | Real-time alerts | P2 (thesis) | NATIVE | - | - | no |
-| 6.1 | Error handling and information disclosure | P2 (thesis) | NATIVE | - | - | no |
-| 6.2 | Security headers | P3 | NATIVE | - | - | native 6.2 |
-| 6.3 | Gateway layer-7 hardening | P1 (thesis) | HYBRID | (Python connector on sockets) | http2smugl | no |
-| 6.4 | Hard-coded credentials | P2 | NATIVE + optional | - | trufflehog, gitleaks, detect-secrets | native 6.4 |
-| 7.1 | Anti-automation | P2 (thesis) | NATIVE | - | - | no |
-| 7.2 | SSRF prevention | P0 | HYBRID | nuclei, interactsh | - | native 7.2 |
-| 7.3 | Race conditions | P2 (thesis) | HYBRID | vegeta | - | no |
-| 7.4 | Safe consumption of external services | P2 (thesis) | HYBRID | interactsh | - | no |
+| ID | Guarantee | Classification | Cat A | Cat B |
+|---|---|---|---|---|
+| 0.1 | Shadow API discovery | HYBRID | ffuf, katana, nuclei | gau, cherrybomb |
+| 0.2 | Deny-by-default | NATIVE + optional | - | cherrybomb |
+| 0.3 | Deprecated APIs | NATIVE + optional | - | oasdiff |
+| 1.1 | Authentication required | NATIVE | - | - |
+| 1.2 | Credentials cryptographically valid | HYBRID | jwt_tool | - |
+| 1.3 | Credentials not expired | HYBRID | jwt_tool | - |
+| 1.4 | Credentials not revoked | NATIVE | - | - |
+| 1.5 | Credentials not on insecure channels | HYBRID | testssl.sh | - |
+| 1.6 | Session management | NATIVE | - | - |
+| 2.1 | RBAC on privileged endpoints | NATIVE | - | - |
+| 2.2 | BOLA prevention | NATIVE + optional | - | OFFAT, cherrybomb |
+| 2.3 | Destructive operations | NATIVE + optional | - | OFFAT |
+| 2.4 | Consistent policies | NATIVE | - | - |
+| 2.5 | Excessive data exposure | NATIVE | - | - |
+| 3.1 | Input validation | HYBRID | Schemathesis, nuclei | sqlmap, NoSQLMap, Dalfox, commix, SSTImap |
+| 3.3 | Request signing (HMAC) | NATIVE | - | - |
+| 4.1 | Rate limiting | HYBRID | vegeta | - |
+| 4.2 | Timeouts | NATIVE | - | - |
+| 4.3 | Circuit breaker | NATIVE | - | - |
+| 5.1 | Audit logging | NATIVE | - | - |
+| 5.2 | Real-time alerts | NATIVE | - | - |
+| 6.1 | Error handling and information disclosure | NATIVE | - | - |
+| 6.2 | Security headers | NATIVE | - | - |
+| 6.3 | Gateway layer-7 hardening | HYBRID | (Python connector on sockets) | http2smugl |
+| 6.4 | Hard-coded credentials | NATIVE + optional | - | trufflehog, gitleaks, detect-secrets |
+| 7.1 | Anti-automation | NATIVE | - | - |
+| 7.2 | SSRF prevention | HYBRID | nuclei, interactsh | - |
+| 7.3 | Race conditions | HYBRID | vegeta | - |
+| 7.4 | Safe consumption of external services | HYBRID | interactsh | - |
 
-This is the tool-research classification (which tool for which guarantee, and why), not the record of what is
-implemented. The "Implemented" column is a thesis-era snapshot and is now out of date after the block-6 review (for
-example it does not show 1.2, 1.3, 2.2, 7.3 as implemented); **the authoritative, current implementation status is
-in [`roadmap.md`](../project/roadmap.md)** and `apiguard list-tests`. In short: the wired connectors are testssl.sh,
-ffuf, nuclei (connector present, no test wired now) and Schemathesis; sslyze was implemented in Milestone 1 and
-removed in the review (AGPL v3, no added value over testssl.sh for 1.5); katana, jwt_tool, vegeta, interactsh and
-every Cat B connector are not implemented.
+The Cat A and Cat B columns say which tool *would* serve a guarantee, not which one the tool ships. Of the
+connectors above, three are wired to a test: testssl.sh (`ext.1.5.testssl`), ffuf (`ext.0.1.ffuf`) and Schemathesis
+(`ext.3.1.schemathesis`). `NucleiConnector` is in the codebase but no test uses it ([`roadmap.md`](../project/roadmap.md)).
+sslyze was implemented in Milestone 1 and removed in the review (AGPL v3, no added value over testssl.sh for 1.5).
+katana, jwt_tool, vegeta, interactsh and every Cat B connector have no connector at all, and none is planned: they
+were dropped on 2026-10-27 because the native path already covers the guarantee, the guarantee is outside the tool's
+perimeter, or the blocker is what the target exposes rather than the code
+([`roadmap.md`](../project/roadmap.md#nothing-else-is-planned)).
 
 ## Reasons by guarantee
 
@@ -123,11 +127,11 @@ every Cat B connector are not implemented.
   Python would mean continuous maintenance of applied cryptography. It also covers what jwtXploiter covered.
 - **1.3.** jwt_tool, already the connector for 1.2, builds tokens with arbitrary expiry claims at no extra cost.
   The thesis drew the line between a native forging helper for context-aware cases (those needing the
-  `TargetContext`) and jwt_tool for standardised claim manipulation; that helper (`jwt_forge.py`) is planned, it does
-  not exist.
+  `TargetContext`) and jwt_tool for standardised claim manipulation; neither exists, and neither is planned: both
+  need signing-key or JWKS material the target must supply.
 - **1.4.** No external tool: the sequence is stateful Python logic on the `TestContext` (as implemented: a
   credential obtained through the configured login, revoked with the login's configured delete request, then replayed
-  on `protected_endpoint`). IDP-specific clients
+  on a derived anchor endpoint). IDP-specific clients
   (Keycloak, Auth0, Cognito) are C.2: the tool is agnostic by design.
 - **1.5.** testssl.sh is the de facto standard for TLS analysis (protocol versions, cipher suites, forward secrecy,
   certificate checks, known TLS vulnerabilities); replicating it in Python would need hundreds of custom
@@ -183,9 +187,10 @@ every Cat B connector are not implemented.
   data are Python logic over the `AttackSurface`. Fingerprinting tools give context, not structured evidence (C.4).
 - **6.2.** No external tool: Python checks a handful of headers against expected values; a dependency is not
   justified for a P3 test.
-- **6.3.** The two classic desynchronisation patterns are to be implemented directly in a Python connector on
-  standard library sockets (planned: `ext_test_6_3_smuggling.py` does not exist), because `httpx` refuses ambiguous framing by design; the thesis also valued that the connector's
-  code makes the mechanism readable. http2smugl (Cat B, actively maintained) covers HTTP/2 downgrade, a distinct
+- **6.3.** The two classic desynchronisation patterns would be implemented directly in a Python connector on
+  standard library sockets, because `httpx` refuses ambiguous framing by design, and the thesis also valued that the
+  connector's code makes the mechanism readable. It does not exist and is not planned (2026-10-27): of guarantee 6.3,
+  the CORS and timeout parts are covered by tests 6.2 and 4.2, and the smuggling probe is the part left out. http2smugl (Cat B, actively maintained) covers HTTP/2 downgrade, a distinct
   angle, and can become Cat A when the target exposes HTTP/2.
 - **6.4.** Native. trufflehog brings hundreds of community-maintained detectors for API key formats, which would
   need a dedicated team to maintain in Python; gitleaks scans the history of the repository holding the
@@ -232,4 +237,4 @@ Tools used by more than one test: the external test registry creates each once.
 trufflehog, gitleaks, detect-secrets, oasdiff, http2smugl.
 
 **Total:** 9 Cat A + 13 Cat B = 22 operational connectors (3 implemented). About 77 tools in category C, documented in
-the [catalog](06-tool-catalog.md).
+the [catalog](05-tool-catalog.md).

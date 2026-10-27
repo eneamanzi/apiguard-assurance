@@ -23,7 +23,7 @@
 
 <!-- [[[end]]] -->
 
-**Same group:** tests `6.2`, `6.4` (what a response lets out). `6.3` (layer-7 smuggling) is deferred.
+**Same group:** tests `6.2`, `6.4` (what a response lets out). Guarantee `6.3` (layer-7 hardening) has no test of its own; its CORS and timeout parts are covered by `6.2` and `4.2`.
 
 ## 1. Guarantee
 
@@ -101,7 +101,7 @@ Runs of 2026-10-23:
 Rule 9: the ENFORCED side is proven on the three labs. The VIOLATION branches (a stack trace, a leaky header) are
 lab-unproven: the labs leak none, and injecting a leaky header through the gateway proved fiddly (Kong strips the
 injection). The detectors are the well-tested `response_inspector` helpers, and test 6.2 proves the header-reading
-path end-to-end on crAPI; producing a live leak is offered as a follow-up.
+path end-to-end on crAPI. Producing a live leak would need an announced change to a lab and has not been done.
 
 ## 13. Remediation
 

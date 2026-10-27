@@ -17,12 +17,16 @@ Previous page: [First assessment](../../01-getting-started/02-first-assessment.m
 The tool runs with only a URL and an OpenAPI specification. Each extra piece of information enables more tests;
 without it those tests return SKIP (a missing precondition, not a pass).
 
-| Information | Enables | Without it |
-|---|---|---|
-| Base URL of the API + its OpenAPI specification | 0.1, 0.2, 0.3, 1.1, 1.5, 1.6, 4.1, 6.2, 6.4 (sub-test A), and the external tests | nothing runs |
-| Accounts: an admin and an ordinary user (`user_a`) | 1.4 (admin, WHITE_BOX: also a login that can revoke a token, and `protected_endpoint`), 2.1 (`user_a`, GREY_BOX: also `admin_endpoint_paths`), 7.2 (`user_a`, GREY_BOX: also `url_accepting_endpoint`) | SKIP |
-| Real identifiers of existing resources (`path_seed`) | meaningful results on endpoints with `{parameters}` (mainly 1.1) | those probes end `INCONCLUSIVE_PARAMETRIC` |
-| Gateway Admin API (Kong or APISIX) | 3.3, 4.2, 4.3, 6.4 sub-test B | SKIP |
+Which tests each piece of information enables, and which ones use it only when it is there, is the generated
+table in [test portability](../../03-reference/06-compatibility.md#test-portability).
+
+Two more pieces of information are not needs, so they are not in the table and no test skips without them:
+
+- **real identifiers of existing resources** (`target.path_seed`): without them a probe on a path with
+  `{parameters}` gets a `404` at the router and is judged `NOT_VERIFIABLE/NOT_FOUND_LIKE_UNKNOWN` instead of
+  reaching the control behind it (mainly test 1.1);
+- **the gateway's block message** (`gateway_block_body_fragment`): test 6.4's first sub-test compares a blocked
+  response against it, and without it says so in a note instead of skipping.
 
 For your configuration, `apiguard list-tests -c my-api.yaml` says which tests the run selects and why each other one
 would SKIP; what every test needs: [test portability](../../03-reference/06-compatibility.md#test-portability).
@@ -49,11 +53,12 @@ Check it:
 hatch run apiguard validate-config -c my-api.yaml
 ```
 
-Expected: `Configuration valid. Target: https://api.example.com/`, followed by `6 of the 15 selected tests will SKIP
-(what they need is not configured):` and one line per test with its reason (1.4 needs the admin account, 2.1 and 7.2
-a user account and their parameters, 3.3, 4.2 and 4.3 a gateway). They are not errors: the next steps give the
-tests what they need, and `apiguard list-tests -c my-api.yaml` shows the same for every test (verified
-2026-10-17).
+Expected: `Configuration valid. Target: https://api.example.com/`, followed by `18 of the 29 selected tests will
+SKIP (what they need is not configured):` and one line per test with its reason: the gateway for 0.4, 3.3, 4.2, 4.3
+and 5.1, a user account for 1.2, 1.3, 1.6, 1.7, 2.1, 6.1, 7.2 and 7.3, a second account for 2.2, a revocable login
+for 1.4, and a parameter for 2.2, 2.5, 7.1, 7.2, 7.3 and 7.4. The 29 are the native tests: the external ones are
+off until you enable them. They are not errors: the next steps give the tests what they need, and
+`apiguard list-tests -c my-api.yaml` shows the same for every test (verified 2026-10-27).
 
 `validate-config` checks the file and the certificate files of the `tls` blocks: it does not contact the API and does
 not check that the specification exists (that happens when the run starts).
@@ -262,7 +267,7 @@ Rules:
 
 Many endpoints contain parameters, such as `/repos/{owner}/{repo}/issues/{index}`. Without real values the tool
 fills them with placeholders (usually `1`), the API answers `404` before checking authentication, and the probe
-says nothing (`INCONCLUSIVE_PARAMETRIC`).
+says nothing (`NOT_VERIFIABLE/NOT_FOUND_LIKE_UNKNOWN`, or `NOT_FOUND_OWN_ANSWER` when the `404` is the API's own).
 
 Generate the list of parameter names from the specification:
 
@@ -321,7 +326,7 @@ Some test defaults are written for the lab. On another target review them:
 |---|---|---|
 | 7.2 | no endpoint that accepts a URL by default: SKIP until configured | set `url_accepting_endpoint` (its `path`, and its `body` with `"{ssrf_url}"`) to an endpoint of your API that accepts a URL; if the endpoint belongs to an object that must exist first, add a [prepared resource](../../03-reference/01-configuration.md#resources) and name it in the endpoint's `resource` ([reference](../../03-reference/01-configuration.md#testsdomain_7test_7_2)) |
 | 2.1 | needs a user account; the privileged endpoints are derived from the specification (an `admin`/`management` segment), so there is no list to configure | provide credentials; an admin account, if given, strengthens the positive control |
-| 1.4 | needs `auth_type: login` with a login resource that has a delete request, and `protected_endpoint` (an endpoint that requires authentication) | SKIP otherwise, naming what is missing |
+| 1.4 | needs a user account and `auth_type: login` with a login resource that has a delete request; the endpoint it replays the revoked credential on is derived, not configured | SKIP otherwise, naming what is missing |
 | 6.4 | sub-test A compares a blocked response against the gateway's block message | set `gateway_block_body_fragment` ([`tests.domain_6.test_6_4`](../../03-reference/01-configuration.md#testsdomain_6test_6_4)); without it the block is attributed to the application, same verdict |
 | 2.2, 2.5, 7.1, 7.4 | each needs the object or flow it acts on (an owned-object resource, a sensitive flow, a webhook with its secret) | see the full per-test list in [test portability](../../03-reference/06-compatibility.md#test-portability) |
 
@@ -330,20 +335,34 @@ The complete, current list of what each test needs from a target, and what happe
 
 ## Effects on the target
 
-The tool is not read-only. Before the first run on a system that matters, know what it does (details in the
-"Prerequisites and effects on the target" section of each [test page](../../05-tests/README.md)):
+The tool is not read-only. Every test declares what it does to the target, and the engine runs them in that order,
+read-only first:
 
-| Test | Effect |
-|---|---|
-| 1.1 | `POST`/`PUT`/`PATCH`/`DELETE` without credentials on every protected endpoint, including the `path_seed` resources |
-| 1.4 | creates a credential with the login resource on the admin account and revokes it |
-| 2.1 | sends the configured method with a `user_a` token (default `GET`, read-only) |
-| 4.1 | up to 300 requests in a burst against one endpoint: it can trip the rate limit for the tool's IP |
-| 7.2 | up to 73 `POST` requests with a valid token. With the endpoint's `resource` the resource is deleted at teardown, and objects created under it usually go with it (Forgejo webhooks); without it, on a vulnerable API each request may create an object that is **not removed** afterwards |
+<!-- [[[cog import generate_docs as g; cog.out(g.effects_table()) ]]] -->
+
+| Effect | What it does to the target | Tests |
+|---|---|---|
+| `READ_ONLY` | Reads only: no state of the target changes | `0.2`, `0.3`, `0.4`, `1.2`, `1.3`, `1.5`, `1.6`, `2.1`, `2.4`, `3.3`, `4.2`, `4.3`, `5.1`, `5.2`, `6.1`, `6.2`, `6.4`, `ext.1.5.testssl` |
+| `CHANGES_DATA` | Creates, modifies or deletes data on the target | `1.1`, `1.4`, `2.2`, `2.5`, `7.1`, `7.2`, `7.4` |
+| `STRESSES_TARGET` | Bursts of requests, or payloads that can degrade the target | `0.1`, `1.7`, `4.1`, `4.4`, `7.3`, `ext.0.1.ffuf`, `ext.3.1.schemathesis` |
+
+<!-- [[[end]]] -->
+
+What each test does concretely is the "Prerequisites and effects on the target" section of its
+[test page](../../05-tests/README.md). Four are worth knowing before the first run on a system that matters:
+
+- **1.1** sends write methods without credentials on every protected endpoint, including the `path_seed`
+  resources, then deletes what it created and reports in a note what it could not delete.
+- **1.4** creates a credential with the login resource on the `user_a` account and revokes it.
+- **4.1** sends a burst against one endpoint, up to `max_burst` (150 by default): it can trip the rate limit for
+  the tool's IP address.
+- **7.2** sends about 75 `POST` requests with a valid token. With the endpoint's `resource` the resource is deleted
+  at teardown, and objects created under it usually go with it (Forgejo webhooks); without it, on a vulnerable API
+  each request may create an object that is **not removed** afterwards.
 
 ## 7. First run
 
-Start without the external tools (nuclei, testssl.sh): the run takes seconds instead of minutes and shows
+Start without the external tools (testssl.sh, ffuf, Schemathesis): the run takes seconds instead of minutes and shows
 whether the configuration works. The external tools are off unless your file enables them; if you copied a section
 from the lab's configuration (`test-environments/forgejo-kong/config.yaml`), set:
 
@@ -367,7 +386,7 @@ Then check, in this order:
 1. No test in **ERROR**: an ERROR means the check could not be completed (wrong URL, rejected credentials, a Forgejo
    default on another target). Its message says why.
 2. The **SKIP** tests are the ones you expect from the table at the top.
-3. Few `INCONCLUSIVE_PARAMETRIC` probes in test 1.1: if there are many, fill in more of `path_seed`.
+3. Few `NOT_FOUND_LIKE_UNKNOWN` judgements in test 1.1: if there are many, fill in more of `path_seed`.
 
 Then enable the external tools ([reference](../../03-reference/01-configuration.md#external_tools)) for a complete
 assessment.

@@ -18,8 +18,9 @@ A failing operation (a <testcase> with a <failure> in the JUnit output) is
 returned as a finding; the calling test's oracle decides the outcome.
 
 The tool is run unauthenticated (no credential is injected): its write requests
-are refused, so nothing is created; a deep authenticated run is a deferred
-follow-up (the backlog in docs/project/roadmap.md).
+are refused, so nothing is created.  An authenticated run is not planned, so the
+validation of authenticated-only operations is outside what this connector's
+test can report (see the Limitations of its page).
 
 Discovery: `schemathesis` on PATH (installed by the `[schemathesis]` extra).
 

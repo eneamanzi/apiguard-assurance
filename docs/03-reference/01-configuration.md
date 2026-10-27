@@ -25,7 +25,7 @@ configurations hold only their own values.
      Unquoted and alone (`count: ${VAR}`), it takes the type of a number, a boolean or an empty value, as if
      written in its place (`VAR=5` gives `5`, `true` gives `true`, empty gives `null`); any other value stays the
      exact text. It matters in free data such as a resource `body`; a configuration field converts the text
-     itself (`timeout_seconds: "${NUCLEI_TIMEOUT}"` is 600). Write passwords and tokens quoted: an unquoted
+     itself (`timeout_seconds: "${FFUF_TIMEOUT}"` is read as the number). Write passwords and tokens quoted: an unquoted
      `12345678` is a number, and a password field rejects it.
    - In a mapping written on one line (`body: {count: ${VAR}}`) the placeholder must be quoted, or the braces
      are a YAML error; for a number there, write the mapping on several lines.
@@ -35,7 +35,7 @@ configurations hold only their own values.
    - `.env` is loaded first: the one in the working directory, or the file given with `--env-file`
      ([details](02-cli.md#environment-and-env)); variables already in the environment win.
 3. **Relative paths** (`specification.path`, the files of the `tls` blocks, `output.directory`,
-   `external_tools.nuclei.template_dir`) are resolved against the **working directory**, not the location of
+   `external_tools.ffuf.wordlist_dir`) are resolved against the **working directory**, not the location of
    `config.yaml`.
 4. **Unknown keys are rejected.** Every section with a schema forbids keys it does not declare: a misspelled key
    (e.g. `min_prioriti`) stops the tool at Phase 1 with exit `10`. The message lists every error with its
@@ -125,8 +125,9 @@ for files): save the specification and its referenced files locally and use `pat
 
 ## `gateway`
 
-The API gateway in front of the API, for the WHITE_BOX configuration audits (3.3, 4.2, 4.3, 6.4 sub-test B).
-Optional: without it those audits return SKIP. With it, `adapter` and `admin.url` are required.
+The API gateway in front of the API. Some tests cannot run without it and others read it when it is there and judge
+less without it: which ones is in [test portability](06-compatibility.md#test-portability), generated from their
+declarations. Optional: without it the first group returns SKIP. With it, `adapter` and `admin.url` are required.
 
 <!-- [[[cog import generate_docs as g; cog.out(g.configuration_table("gateway")) ]]] -->
 
@@ -199,8 +200,9 @@ whether a client certificate was used.
 
 ## `credentials`
 
-Accounts used by the tests that log in to the API: `user_a` (a normal user) by the GREY_BOX tests, `admin` (the
-API's administrator account) by the WHITE_BOX test 1.4. Always provide values through `${VAR}` placeholders.
+Accounts used by the tests that log in to the API: `user_a` (a normal user) by every GREY_BOX test and by 1.4,
+`user_b` (a second, unrelated user) by 2.2, and `admin` (the API's administrator account) only by 2.1, which uses
+it when it is there to confirm that an endpoint really is privileged. Always provide values through `${VAR}` placeholders.
 
 <!-- [[[cog import generate_docs as g; cog.out(g.configuration_table("credentials")) ]]] -->
 
@@ -316,7 +318,7 @@ Every run writes `config_used.yaml` in `output.directory` before contacting the 
 run stops later (`src/config/config_used.py`; `apiguard validate-config --show-config` prints the same text). It
 holds every key of the schema, the parameters of every test included, each marked `# specified` (written in your
 file) or `# default`. Passed back with `apiguard run --config config_used.yaml`, with the same environment, it runs
-the same assessment (verified on the Forgejo + Kong lab: same tests, statuses, findings, oracle states, exit code).
+the same assessment (verified on the Forgejo + Kong lab: same tests, statuses, findings, outcomes, exit code).
 
 - A value written with a `${VAR}` placeholder is written as you wrote it, quoted or not, never resolved: the tool
   cannot know whether a variable holds a secret, and the re-run resolves it from the same environment.
@@ -331,8 +333,8 @@ the same assessment (verified on the Forgejo + Kong lab: same tests, statuses, f
 
 Per-test tuning. Defaults produce a complete assessment; set only what you need to change. Structure:
 `tests.domain_<D>.test_<D>_<N>.<key>`, derived from the test ID. Each test declares its parameter model in its own
-module (`src/tests/domain_<D>/test_<D>_<N>_*.py`, the class `Test<D><N>Params`); 0.3 and the external tests have
-none. The section is checked right after the rest of the configuration, once the tests are discovered (also by
+module (`src/tests/domain_<D>/test_<D>_<N>_*.py`, the class `Test<D><N>Params`). Most tests have none and are
+absent from the tables below; `ext.0.1.ffuf` is the only external test with a parameter. The section is checked right after the rest of the configuration, once the tests are discovered (also by
 `validate-config`): an unknown test or parameter is reported like any unknown key, with the closest name.
 
 The tables below are generated from the parameter models (`scripts/generate_docs.py`); the full default lists
@@ -522,8 +524,8 @@ true (`src/external_tests/registry.py`):
 
 <!-- [[[end]]] -->
 
-Binary installation: `install_tools.sh` (testssl.sh 3.2.3, nuclei 3.8.0). schemathesis is a Python extra:
-`pip install "apiguard-assurance[schemathesis]"`.
+Binary installation: `install_tools.sh` (testssl.sh 3.2.3, ffuf 2.3.0 and the SecLists wordlists it uses, plus the
+unused nuclei). schemathesis is a Python extra: `pip install "apiguard-assurance[schemathesis]"`.
 
 ---
 
@@ -540,15 +542,12 @@ Phase 1 rejects the configuration (exit `10`) when:
 | The login resource exists, has the value `credential`, and its create request does not use `auth: credential` | `credentials.login_resource`, `resources` |
 | Resource names (letters, digits, `_`, `-`); paths start with `/`; methods `GET` `POST` `PUT` `PATCH` `DELETE`; placeholders well formed, known where used (no response value in `create`), quoted in YAML; value names not `username` / `password` / `random` | `resources.*` |
 | 7.2: `url_accepting_endpoint` has `path` and `body`; its `resource` is defined; path and body placeholders known; `{ssrf_url}` exactly once (checked with the tests section, against `resources`) | `tests.domain_7.test_7_2.url_accepting_endpoint` |
-| 1.4: `protected_endpoint` path starts with `/`, supported method | `tests.domain_1.test_1_4.protected_endpoint` |
 | Username and password set together per role | `credentials.*` |
 | The credentials determine where they are sent (`security_scheme`, `send_as` against the specification's schemes; checked after the specification is read) | `credentials.security_scheme`, `credentials.send_as` |
 | `strategies` not empty | `execution.strategies` |
 | `test_ids` format `X.Y` or `ext.X.Y.tool` | `execution.test_ids` |
 | `test_ids` entries exist and their tool is enabled (checked right after Phase 1, also by `validate-config`) | `execution.test_ids` |
 | Enabled tool has `timeout_seconds` | `external_tools.<tool>.*` |
-| `session_cookie_names` not empty | `tests.domain_1.test_1_6` |
-| min ≤ max ranges | `tests.domain_4.test_4_3` |
 | Numeric ranges and types in the tables above | all |
 
 A test that needs something the configuration does not give (`Needs` in the [test catalogue](../05-tests/README.md):

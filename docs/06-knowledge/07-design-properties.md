@@ -124,8 +124,9 @@ returning a read, "not supported" or "not accessible" outcome. Adapters exist fo
 `gateway.adapter` from a registry (`GATEWAY_ADAPTERS`). A test that needs the gateway declares `Need.GATEWAY` and is
 recorded as SKIP before it runs when there is none.
 
-**Consequences.** Tests 3.3, 4.2, 4.3 and 6.4 contain no Kong or APISIX knowledge; a new gateway is a new adapter
-class and a registry entry, with no change to the tests. Each concept read is kept once as evidence, after masking.
+**Consequences.** No test contains Kong or APISIX knowledge, including the ones that read the gateway
+([test portability](../03-reference/06-compatibility.md#test-portability) lists them); a new gateway is a new
+adapter class and a registry entry, with no change to the tests. Each concept read is kept once as evidence, after masking.
 
 **Evidence.** Empirical: Forgejo behind Kong and behind APISIX give the same native results with the same tests.
 
@@ -245,7 +246,7 @@ same guarantee still runs.
 completes a HYBRID guarantee.
 
 **In the docs.** [Native, hybrid and external tools](../04-architecture/03-assessment-model.md#native-hybrid-and-external-tools),
-[`tools/`](05-tool-decisions.md).
+[`tools/`](04-tool-decisions.md).
 
 ### D2.P7 Path seed for parametric paths
 
@@ -255,9 +256,9 @@ writes a template with every parameter name; `src/tests/helpers/path_resolver.py
 falls back to `"1"` (`PATH_PARAM_FALLBACK_DEFAULT`) or, for DELETE, to `"apiguard-probe"`
 (`PATH_PARAM_FALLBACK_SAFE_DELETE`); constrained parameters such as `{id:[0-9]+}` are read by name.
 
-**Consequences.** Without a seed, a probe on a parametric path often gets `404` and is labelled
-`INCONCLUSIVE_PARAMETRIC` instead of reaching the authentication check; with a seed the same paths give `ENFORCED` or
-`AUTH_BYPASS`. The DELETE fallback is a non-numeric value unlikely to match a real object: a request that slips past the
+**Consequences.** Without a seed, a probe on a parametric path often gets `404` and is judged
+`NOT_VERIFIABLE/NOT_FOUND_LIKE_UNKNOWN` instead of reaching the authentication check; with a seed the same paths give `ENFORCED/CREDENTIAL_REQUIRED` or
+`VIOLATION/SERVED_WITHOUT_CREDENTIAL`. The DELETE fallback is a non-numeric value unlikely to match a real object: a request that slips past the
 gateway finds nothing to delete.
 
 **Evidence.** Empirical: test 1.1 on Forgejo with and without `path_seed`.
@@ -311,8 +312,9 @@ profiles per environment.
 
 ### D3.P2 Single sources of truth
 
-**Definition.** Each kind of fact has one source: `docs/project/roadmap.md` for the implementation state (the thesis
-used `PROJECT_status.md`), `config.yaml` for operational parameters, the `AttackSurface` built from the specification
+**Definition.** Each kind of fact has one source: the tests' own declarations for the implementation state, read by
+`apiguard list-tests` and by the generated catalogue `docs/05-tests/README.md` (the thesis used `PROJECT_status.md`,
+then `roadmap.md`, both hand-written), `config.yaml` for operational parameters, the `AttackSurface` built from the specification
 for the target's topology, and `src/config/loader.py` as the only reader of the environment. Since the thesis the two
 documented exceptions are gone (the tool-as-a-service variable and the Docker URL override, see
 [Removed](#properties-removed-since-the-thesis)): no other module reads `os.environ`.
@@ -345,7 +347,7 @@ TLS and response headers can be observed from outside.
 **Possible developments.** Graduated assessments: P0 at every deploy, P0 and P1 at every release, everything at a
 periodic review.
 
-**In the docs.** [`03-methodology.md`](03-methodology.md#knowledge-and-privilege-gradient),
+**In the docs.** [`02-methodology.md`](02-methodology.md#knowledge-and-privilege-gradient),
 [Strategies](../04-architecture/03-assessment-model.md#strategies-knowledge-and-privilege-of-the-tester).
 
 ### D3.P4 Reproducibility
@@ -358,7 +360,8 @@ generated IDs aside: a condition for an assurance tool, since a result that cann
 
 **Evidence.** By construction (sorting in the registries, `src/core/dag.py`). Empirical, since the thesis:
 `scripts/compare_reports.py` compares two reports; fresh labs give identical results run after run (for example
-test 1.1 on 2026-10-06: 78 `AUTH_BYPASS`, 63 `INCONCLUSIVE_PARAMETRIC`, 311 `ENFORCED` on two independent Forgejo
+test 1.1 on 2026-10-06, with the detail names of the time: 78 `AUTH_BYPASS`, 63 `INCONCLUSIVE_PARAMETRIC`,
+311 `ENFORCED` on two independent Forgejo
 labs).
 
 **Possible developments.** With traceability (D5.P1), two `evidence.json` of the same target compared over time to
@@ -489,12 +492,13 @@ inside another is removed before its container. A failure is an operational warn
 
 ### D4.P7 Safe HTTP probing
 
-**Definition.** Test 1.1 does not reduce a response to PASS or FAIL: it labels each probe `ENFORCED` (`401`/`403`),
-`AUTH_BYPASS` (`2xx` without credentials) or one of several inconclusive states (`404`/`405`/`410` on a parametric path or
-not, redirect, rate limited, server error, transport error), and separates paths without parameters from parametric
-ones. Destructive methods are treated apart: a parametric DELETE uses the safe fallback `"apiguard-probe"`, a DELETE
-without parameters (for example `/api/delete-all`) is never sent and is labelled
-`INCONCLUSIVE_UNPROBED_DESTRUCTIVE`.
+**Definition.** Test 1.1 does not reduce a response to PASS or FAIL: it judges each probe
+`ENFORCED/CREDENTIAL_REQUIRED` (`401`/`403`), `VIOLATION/SERVED_WITHOUT_CREDENTIAL` (`2xx` without credentials) or
+one of several `NOT_VERIFIABLE` outcomes (not found on a parametric path or not, a request validated without a
+credential, a redirect, rate limited, server error, transport error), and separates paths without parameters from
+parametric ones. Destructive methods are treated apart: a parametric DELETE uses the safe fallback `"apiguard-probe"`, a DELETE
+without parameters (for example `/api/delete-all`) is never sent and is judged
+`NOT_VERIFIABLE/DESTRUCTIVE_NOT_PROBED`.
 
 **Consequences.** The tool does not destroy data even when the gateway lets unauthenticated requests through. "The
 gateway does not protect this endpoint" (a FAIL with HTTP evidence) is kept apart from "this could not be checked"

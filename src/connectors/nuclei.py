@@ -3,13 +3,19 @@ src/connectors/nuclei.py
 
 NucleiConnector: subprocess-based connector for nuclei template-based scanning.
 
+Status (2026-10-27): dormant, no test uses this connector.
+    The block-6 test review replaced ext.0.1.nuclei with ext.0.1.ffuf, which
+    searches a wordlist and re-verifies every hit against the specification, so
+    the shadow-API guarantee no longer needs template matching.  The connector
+    is kept ready for a future test, not abandoned: it is complete, version
+    pinned and installed by install_tools.sh.  Nothing is missing here.
+
 Responsibility (connector layer):
     This module is responsible exclusively for invoking the nuclei binary as a
     subprocess, parsing its JSON export file, and returning a structured
     ConnectorResult.  It does NOT decide what constitutes a FAIL, a note, or
-    noise: all severity-based policy decisions are the exclusive responsibility
-    of ExtTest01ShadowApiNuclei._evaluate() in
-    ext_test_0_1_shadow_api_nuclei.py.
+    noise: every severity-based policy decision belongs to the external test
+    that uses the connector, never to the connector itself.
 
     The connector passes every finding from nuclei verbatim in ``results``,
     regardless of severity.  This upholds the "dumb pipe" contract.

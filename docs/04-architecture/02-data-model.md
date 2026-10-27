@@ -112,7 +112,7 @@ Helpers: `endpoint_base_url()` and `admin_endpoint_base_url()` (string URLs with
 ## Test parameters: declared by the test
 
 A test with tunable values declares **one** model in its own module, `Test<D><N>Params` (frozen, with its
-constraints and validators), and names it in its class declaration: `class Test21RbacEnforcement(BaseTest[Test21Params])`
+constraints and validators), and names it in its class declaration: `class Test42TimeoutConfigAudit(BaseTest[Test42Params])`
 (`src/core/assessment_test.py`, block 10b decision 6.2). A test without parameters writes `BaseTest` alone. The
 same model:
 

@@ -658,14 +658,17 @@ class EvidenceStore:
         Called internally by pin_artifact() when self._tools_dir is not None.
         Never raises: all OSError exceptions are caught and logged as WARNING.
 
-        File naming: tool_output_<testId_safe>.json, where testId_safe replaces
+        File naming: <label_safe>_output.json, where label_safe replaces the
         characters unsafe in filenames (dots, slashes, backslashes, spaces) with
-        underscores.  The prefix ``tool_output_`` and the test_id (not the
-        label) are used so that the filename matches exactly what the HTML
-        report's "Download as JSON" button produces in the browser, giving the
-        operator a 1:1 correspondence between disk artefacts and downloads.
+        underscores.  The label is the test_id itself, so the name sorts by
+        domain and test number and names the tool without opening the file.
 
-        Example: test_id "ext.0.1.ffuf" → file "tool_output_ext_0_1_ffuf.json".
+        Example: label "ext.0.1.ffuf" → file "ext_0_1_ffuf_output.json".
+
+        The HTML report's "Download as JSON" button derives its filename the
+        same way but appends ``_output_report`` instead
+        ("ext_0_1_ffuf_output_report.json"), so a download never overwrites the
+        artefact written here while the two stay recognisably paired.
 
         The envelope structure mirrors the one reconstructed by the HTML
         template's export function so that the two files are content-identical

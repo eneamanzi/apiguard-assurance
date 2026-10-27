@@ -3,27 +3,28 @@
 > **Audience:** analysts, integrators, contributors · **Status:** v0.1.0 · **Source of truth:** test class metadata
 > (`src/tests/`, `src/external_tests/`), `src/config/schema/tool_config.py` (`ExecutionConfig`), `src/engine.py`,
 > `src/core/models/results.py`; methodology concepts from
-> [`06-knowledge/03-methodology.md`](../06-knowledge/03-methodology.md) · **Verified:** 2026-10-20
+> [`06-knowledge/02-methodology.md`](../06-knowledge/02-methodology.md) · **Verified:** 2026-10-20
 
 How the tool organises, selects and judges its checks. Per-test details: [`tests/`](../05-tests/README.md).
 
 ## Guarantees, domains, tests
 
-The methodology ([framework](../06-knowledge/03-methodology.md)) defines **29 security guarantees in 8 domains** (0 API discovery and inventory, 1 identity and
-authentication, 2 authorization, 3 data integrity, 4 availability and resilience, 5 visibility and auditing,
-6 configuration and hardening, 7 business logic and sensitive flows). A test verifies one guarantee:
+The methodology defines the security guarantees and the 8 domains they are grouped in
+([framework](../06-knowledge/02-methodology.md), [catalogue](../06-knowledge/03-guarantees.md)); this page does not
+repeat them. A test verifies one guarantee:
 
 - native test `X.Y` = guarantee `Y` of domain `X`, implemented in Python (`BaseTest`);
 - external test `ext.X.Y.tool` = the same guarantee checked with an external tool (`ExternalToolTest` +
   connector). Several tools may cover one guarantee.
 
-The tool implements 29 native and 3 external tests across the 8 domains (`apiguard list-tests`).
+Every test the tool implements, with its priority, strategy and effect, is in the generated
+[catalogue](../05-tests/README.md) (`apiguard list-tests` is the ground truth).
 
 ## Strategies (knowledge and privilege of the tester)
 
 The strategy says what the tester has, and so what a test may use: only a `WHITE_BOX` test reads the gateway
 configuration or acts as administrator; the others observe responses (the gradient and its rationale:
-[framework](../06-knowledge/03-methodology.md#knowledge-and-privilege-gradient)). Each test is labelled with the
+[framework](../06-knowledge/02-methodology.md#knowledge-and-privilege-gradient)). Each test is labelled with the
 access it needs to run in full (`src/core/models/enums.py`, `TestStrategy`).
 
 | Strategy | Tester has |
@@ -32,13 +33,14 @@ access it needs to run in full (`src/core/models/enums.py`, `TestStrategy`).
 | `GREY_BOX` | a normal user: credentials of an ordinary account (`user_a`) |
 | `WHITE_BOX` | a super user: the API's administrator account (`admin`), or internal access (gateway Admin API, files, internal systems) |
 
-Among the WHITE_BOX tests, 1.4 needs the admin account; 3.3, 4.2, 4.3 and 6.4 the gateway Admin API (6.4 sub-test A
-needs only the network). The tests by strategy and priority are in the table under [Priorities](#priorities).
+A WHITE_BOX test reaches that access either through the API's administrator account or through the gateway's Admin
+API; which test needs which is in [test portability](../03-reference/06-compatibility.md#test-portability), generated
+from the declarations. The tests by strategy and priority are in the table under [Priorities](#priorities).
 
 ## Priorities
 
 A guarantee's priority says how important it is: how serious a violation is for an API in general (the criterion,
-after the OWASP risk rating: [framework](../06-knowledge/03-methodology.md#priorities)).
+after the OWASP risk rating: [framework](../06-knowledge/02-methodology.md#priorities)).
 
 | Priority | Importance |
 |---|---|
@@ -75,11 +77,16 @@ Configured in `execution` ([`reference/configuration.md`](../03-reference/01-con
 4. Prerequisites (`depends_on`, `requires_pass`) order the run; a test whose prerequisite is not met, including
    one left out by the selection, returns SKIP ([dependencies between tests](#dependencies-between-tests)).
 
-A test declares what it needs from the configuration (`TestInfo.needs`: `ADMIN_ACCOUNT`, `USER_ACCOUNT`, `GATEWAY`,
-`REVOCABLE_LOGIN`; and its parameters marked needed to run). When one is missing the engine records the test as
-SKIP before running it, with the reason (`src/core/test_needs.py`), and warns about it before the first test; 6.4
-needs no gateway and skips its sub-test B without one. The strategy says who the tester is; the needs say what the
-configuration must hold.
+### Needs: what the configuration must hold
+
+A test declares what it needs from the configuration, as required (`TestInfo.needs`) or as useful when present
+(`TestInfo.optional_needs`), plus its parameters marked needed to run. When a required need is missing the engine
+records the test as SKIP before running it, with the reason (`src/core/test_needs.py`), and warns about it before
+the first test; an optional need that is missing only makes the sub-tests that use it record `NOT_APPLICABLE`. The
+strategy says who the tester is; the needs say what the configuration must hold.
+
+The needs, and the tests that depend on each one, are generated from the declarations into
+[test portability](../03-reference/06-compatibility.md#test-portability).
 
 ## Dependencies between tests
 
@@ -137,8 +144,9 @@ an item requiring manual verification.
 **Transaction judgement.** Each judged HTTP transaction in a test's audit trail carries four fields: a `category`
 (what the response is, common to every test: `SERVED`, `NOT_FOUND`, `UNAUTHENTICATED`, ...), the `sub_test` it
 belongs to, an `outcome` (what it means for the guarantee: `VIOLATION`, `ENFORCED`, `NOT_VERIFIABLE`,
-`NOT_APPLICABLE`) and a test-specific `detail` (e.g. `AUTH_BYPASS`, `PATH_NOT_FOUND`), read together as
-`outcome/detail` (`VIOLATION/AUTH_BYPASS`). Categories and outcomes are common to all tests; the details are
+`NOT_APPLICABLE`) and a test-specific `detail` (e.g. `SERVED_WITHOUT_CREDENTIAL`,
+`NOT_FOUND_LIKE_UNKNOWN`), read together as `outcome/detail`
+(`VIOLATION/SERVED_WITHOUT_CREDENTIAL`). Categories and outcomes are common to all tests; the details are
 defined per test and listed on each test page. A request that is not judged (a login, an object created for the
 test) carries a null `outcome`.
 
@@ -166,14 +174,14 @@ reporting still run; tests not yet started are listed in the report's `not_run` 
 
 ## Native, hybrid and external tools
 
-The tool research classifies each guarantee and each candidate tool ([`06-knowledge/`](../06-knowledge/05-tool-decisions.md)):
+The tool research classifies each guarantee and each candidate tool ([`06-knowledge/`](../06-knowledge/04-tool-decisions.md)):
 
 | Term | Meaning |
 |---|---|
 | NATIVE | Python covers the guarantee; an external tool would add no value. |
 | NATIVE + optional | Native, with an optional Cat B tool as complement. |
 | HYBRID | Python covers part of the guarantee; Cat A external tools cover the rest. |
-| Cat A tool | Connector to implement; needed for full coverage of a HYBRID guarantee (implemented: nuclei, testssl.sh). |
+| Cat A tool | Connector to implement; needed for full coverage of a HYBRID guarantee (implemented: testssl.sh, ffuf, Schemathesis). |
 | Cat B tool | Optional connector, a native fallback exists. |
 | Cat C tool | Evaluated and discarded (abandoned, out of scope, or no added value). |
 

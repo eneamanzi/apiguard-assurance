@@ -92,8 +92,8 @@ execution:
   min_priority: 0
 ```
 
-It applies to native and external tests: with `0`, the run includes the P0 native tests (0.1, 0.2, 0.3, 0.4, 1.1,
-1.2, 1.3, 2.2, 4.1, 7.2) and `ext.0.1.ffuf`. Priorities per test: [assessment model](../../04-architecture/03-assessment-model.md#priorities).
+It applies to native and external tests. Which tests each priority holds is the P0 column of the generated matrix
+in the [assessment model](../../04-architecture/03-assessment-model.md#strategies-knowledge-and-privilege-of-the-tester).
 
 ### By strategy
 
@@ -105,14 +105,16 @@ execution:
     - BLACK_BOX
 ```
 
-With only `BLACK_BOX` (no credentials, no gateway access) the run has the network-only tests: 0.1, 0.2, 0.3, 1.1,
-1.5, 2.4, 4.1, 4.4, 6.2, 6.4, 7.1, 7.4 and the three external tests, if their tools are enabled.
-Strategies per test: [assessment model](../../04-architecture/03-assessment-model.md#strategies-knowledge-and-privilege-of-the-tester).
+With only `BLACK_BOX` the run has the tests that need no credential and no gateway access: the `BLACK_BOX` row of
+the generated matrix in the
+[assessment model](../../04-architecture/03-assessment-model.md#strategies-knowledge-and-privilege-of-the-tester),
+minus any external test whose tool is disabled.
 
 ### One external tool only
 
 Each tool has its own `enabled` under `external_tools` (`testssl`, `nuclei`, `ffuf`, `schemathesis`). Set the ones you do not want
-to `false` and keep the master switch on. A tool that is enabled but not installed returns SKIP.
+to `false` and keep the master switch on. A tool that is enabled but not installed returns SKIP. Enabling `nuclei`
+changes nothing: its connector is in the codebase but no test uses it ([roadmap](../../project/roadmap.md)).
 
 ## Things to know
 

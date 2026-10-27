@@ -9,8 +9,8 @@ guarantee cannot be checked empirically from outside." So the test audits the
 one thing it can see from outside, the gateway's configuration: is a
 request-logging plugin enabled? The log-content checks (the required fields,
 the redaction of secrets, the real source IP, log-injection resistance) need
-read access to the logs and are a deferred follow-up, stated as a note, not
-faked as a pass.
+read access to the logs, which the tool does not have on any target, so they
+are permanently out of reach: stated as a note, never faked as a pass.
 
     request_logging_configured  a known logging plugin (Kong http-log/file-log/
                                syslog/..., APISIX http-logger/syslog/...) is
@@ -64,14 +64,15 @@ _LOGGING_PLUGIN_MARKERS: tuple[str, ...] = (
     "kafka-log",
 )
 
-# What the tool cannot check from outside (a deferred follow-up).
+# What the tool cannot check from outside, permanently.
 _CONTENT_CHECKS_NOTE: InfoNote = InfoNote(
     title="Log-content checks need log access (not done)",
     detail=(
         "This test audits only that a request-logging plugin is enabled on the gateway. The "
         "methodology's log-content checks (the required fields, redaction of secrets, the real "
         "source IP, log-injection resistance) need read access to the logs, which the tool does "
-        "not have from outside: they are a deferred follow-up, not a pass."
+        "not have from outside. They are outside this test for good, so check them by hand on "
+        "the log stream: a gateway that logs unredacted tokens still passes here."
     ),
 )
 

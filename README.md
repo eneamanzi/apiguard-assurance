@@ -37,7 +37,7 @@ hatch run apiguard version
 ```
 
 Then follow [First assessment](docs/01-getting-started/02-first-assessment.md): it starts a local lab (Forgejo + Kong in
-Docker), runs the tool against it and shows how to read the result, in about 10 minutes.
+Docker), runs the tool against it and shows how to read the result, in about 8 minutes.
 
 Full installation steps, including how to clean up a previous setup: [Installation](docs/01-getting-started/01-installation.md).
 
@@ -56,7 +56,9 @@ run ([details](docs/03-reference/03-exit-codes.md)).
 
 ## Documentation
 
-Start at the [documentation map](docs/index.md). The main entry points:
+Start at the [documentation map](docs/index.md), which also says
+[which document to quote](docs/index.md#two-kinds-of-document-and-which-one-to-quote) about the tool's behaviour and
+which about the methodology behind it: the second is deliberately broader than the first. The main entry points:
 
 | I want to… | Read |
 |---|---|

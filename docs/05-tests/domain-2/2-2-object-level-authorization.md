@@ -92,9 +92,15 @@ credential.
 
 ## 11. Configuration
 
-| Parameter | What it is |
-|---|---|
-| `owned_object_resources` | the `resources:` resource that creates a disposable object owned by user_a (e.g. Forgejo's `repository`); its `values` name the object's by-id path parameters. Required. |
+<!-- [[[cog import generate_docs as g; cog.out(g.test_params("2.2", page=cog.inFile)) ]]] -->
+
+Section [`tests.domain_2.test_2_2`](../../03-reference/01-configuration.md#testsdomain_2test_2_2) of `config.yaml`:
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `owned_object_resources` | list | empty, **needed to run** | The config.yaml `resources:` resources that each create a disposable object owned by user_a, whose identifiers (its `values`) name the path parameters of the object's by-id operations. Each is tested in turn, so several object types are covered. Without any the test cannot run (BOLA needs an owned object). |
+
+<!-- [[[end]]] -->
 
 ## 12. Validation
 
@@ -116,8 +122,10 @@ the same answer (404) for "not yours" and "not found" so existence is not disclo
 
 ## 14. Limitations
 
-- The object comes from a configured resource; an API with no creatable, by-id object is SKIP. Delete is optional: an
-  object type with no delete operation (a crAPI order) is not cleaned up by the tool, the lab reset removes it.
+- The object comes from a configured resource and always will: deriving candidate objects from the target (listing a
+  collection and taking an owned id) is not planned (2026-10-27), so an API with no creatable, by-id object in
+  `owned_object_resources` is SKIP. Delete is optional: an object type with no delete operation (a crAPI order) is
+  not cleaned up by the tool, the lab reset removes it.
 - Sequential ID enumeration is not performed (it is object discovery, not an enforcement question).
 - Only one object is tested; a per-endpoint ownership gap on a different object type is not covered.
 

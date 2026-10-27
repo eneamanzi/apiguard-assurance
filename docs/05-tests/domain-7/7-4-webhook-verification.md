@@ -37,7 +37,7 @@ consumption of an external service; CWE-347): without verification anyone who ca
 |---|---|
 | `absent_signature_rejected` | "a delivery with no signature must be rejected" |
 | `invalid_signature_rejected` | "a delivery with a wrong signature must be rejected" |
-| left out | **replay protection** (timestamp window, event-ID dedup) and the blind-callback case: both need the deferred out-of-band listener / a second delivery; constant-time comparison is not observable from outside |
+| left out | **replay protection** (timestamp window, event-ID dedup) and the blind-callback case: both need an out-of-band listener the tool controls, which is not built and not planned (decided 2026-10-27); constant-time comparison is not observable from outside |
 
 ## 3. Inputs
 
@@ -91,9 +91,21 @@ Independent of the adapter: the receiver is probed from outside.
 
 ## 11. Configuration
 
-| Parameter | What it is | Default |
-|---|---|---|
-| `webhook_endpoint` | the receiver (`path`, `method`, `body`, `signature_header`, `signing_secret`, `signature_format`) | none (SKIP) |
+<!-- [[[cog import generate_docs as g; cog.out(g.test_params("7.4", page=cog.inFile)) ]]] -->
+
+Section [`tests.domain_7.test_7_4`](../../03-reference/01-configuration.md#testsdomain_7test_7_4) of `config.yaml`:
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `webhook_endpoint` | object \| null | none, **needed to run** | The webhook receiver to probe for signature verification. No default: unset, the engine records the test as SKIP before it runs. |
+| `webhook_endpoint.path` | string | required | Path of the webhook receiver. |
+| `webhook_endpoint.method` | string | `POST` | HTTP method of the receiver (default POST). |
+| `webhook_endpoint.body` | object | required | The webhook payload sent as the JSON body on every delivery. |
+| `webhook_endpoint.signature_header` | string | required | Name of the header that carries the signature (e.g. 'X-Hub-Signature-256'). |
+| `webhook_endpoint.signing_secret` | string | `""` | The shared secret the sender signs with, for the valid-signature positive control. A ${VAR} reference from the environment; never a literal in the repo. Empty: the positive control is skipped and enforcement is inferred, not confirmed. |
+| `webhook_endpoint.signature_format` | string | `{signature}` | How the header value is built from the hex digest, e.g. 'sha256={signature}' (GitHub). '{signature}' is the lowercase hex HMAC-SHA256 of the raw body. |
+
+<!-- [[[end]]] -->
 
 ## 12. Validation
 
@@ -105,8 +117,10 @@ Runs of 2026-10-26:
 
 Rule 9: the live branches (`VIOLATION/UNSIGNED_ACCEPTED`, `VIOLATION/BAD_SIGNATURE_ACCEPTED`,
 `ENFORCED/SIGNATURE_REQUIRED`) are lab-unproven (the labs host no webhook receiver with a known signing scheme) and
-listed in the backlog (`../../project/roadmap.md`), together with replay protection and the blind-callback case, which need the
-out-of-band listener.
+lab-unproven, and the decision whether to produce one live is part of the test-by-test review
+([`../../project/roadmap.md`](../../project/roadmap.md#next-work)). Replay protection and the blind-callback case are
+a different matter: they need an out-of-band listener that is not planned, so they stay permanently outside what this
+test covers (see Limitations).
 
 ## 13. Remediation
 
@@ -116,8 +130,10 @@ OWASP Webhook Security Cheat Sheet).
 
 ## 14. Limitations
 
-- Only the inbound-verification case is tested; replay protection, constant-time comparison, and blind callbacks are
-  not (the last two are not observable from outside / need the listener).
+- Only the inbound-verification case is tested. Constant-time comparison is not observable from outside. Replay
+  protection and blind callbacks need an out-of-band listener the tool controls, which is not built and not planned
+  (decided 2026-10-27), so both stay permanently outside this test: a receiver that verifies its HMAC correctly but
+  accepts a replayed delivery still passes here.
 - Only the `{signature}` placeholder is supported in `signature_format`; schemes that sign a timestamp+body tuple
   need an extension.
 

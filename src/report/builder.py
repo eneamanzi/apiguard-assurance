@@ -175,7 +175,7 @@ class TestResultRow(BaseModel):
     )
     tool_name: str = Field(
         default="",
-        description=("External tool name (e.g. `nuclei`); empty for native tests."),
+        description=("External tool name (e.g. `ffuf`); empty for native tests."),
     )
     tool_artifact: dict[str, Any] | None = Field(
         default=None,

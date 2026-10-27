@@ -1,11 +1,12 @@
 # First Assessment
 
-> **Audience:** users, contributors · **Status:** v0.1.0 · **Verified:** 2026-10-15 (certificates generated at
-> start, ports, readiness through Kong), 2026-10-06 in the repository folder on Linux, Python 3.12.3, Docker 29.3.1 /
+> **Audience:** users, contributors · **Status:** v0.1.0 · **Verified:** 2026-10-27 (the run: its duration, the
+> progress counter and the summary, measured on the lab), 2026-10-15 (certificates generated at start, ports,
+> readiness through Kong), 2026-10-06 in the repository folder on Linux, Python 3.12.3, Docker 29.3.1 /
 > Compose v5.1.1, Hatch 1.16.5, with the values of `.env.example`
 
 You will start a local test target (Forgejo behind Kong, in Docker), run the tool against it, and read the result.
-About 10 minutes, 5 of them waiting for the assessment.
+About 8 minutes, 3 of them waiting for the assessment.
 
 Previous page: [Installation](01-installation.md). Do this **only against systems you are allowed to test**; the lab
 is local and disposable.
@@ -142,11 +143,12 @@ Run the assessment:
 hatch run apiguard run -c test-environments/forgejo-kong/config.yaml
 ```
 
-About 5 minutes. The terminal shows one line per test with its result and, at the end, a summary with the paths
+About three minutes. The terminal shows one line per test with its result and, at the end, a summary with the paths
 of the reports (add `--log-level info` to see the steps of the run, `--log-level debug` to see every HTTP request).
 
-**Do not interrupt it.** Almost all of the 5 minutes are spent in the external-tool tests (nuclei, testssl.sh;
-the native tests take about 30 seconds). The test in progress is shown with its position (`[16/18]`) and,
+**Do not interrupt it.** Almost all of that time is spent in the three external-tool tests (on this lab testssl.sh
+takes about 75 seconds, Schemathesis about 31 and ffuf about 30; all the native tests together take about 18
+seconds). The test in progress is shown with its position (`[18/32]`) and,
 on a terminal, the time elapsed against its limit (`0:01:40 (limit 600s)`); with the output redirected to a file,
 an external tool prints a `running (limit 600s)` line when it starts.
 Reports are written only at the very end: if you press `Ctrl+C` the tool removes what the tests created on the
@@ -164,9 +166,20 @@ tool found violations, which is the normal result on this lab ([exit codes](../0
 
 ## 6. Check the result
 
-On this lab with the full run: exit code `1`, no `ERROR`; the tests the lab does not give the inputs for return
-`SKIP` (for example 0.3, no deprecated endpoint declared, and 1.6, no session cookie), the rest PASS or FAIL. The
-exact number of tests and findings depends on the lab data and on which external tools are installed.
+On this lab with the full run: exit code `1`, no `ERROR`, and eight tests return `SKIP` for three
+different reasons.
+
+- A parameter the test cannot work without is not set in the lab's configuration: 7.1 (`sensitive_flow`), 7.3
+  (`race_operation`), 7.4 (`webhook_endpoint`). The run warns about these before it starts.
+- The target has nothing the test applies to: 1.2 and 1.3, because Forgejo's API token is an opaque value and not
+  a JWT, so there is no signature to break and no `exp` claim to read (the test says so in a note on its card);
+  1.6, because the login sets no cookie; 2.4, because the one sibling version the specification suggests
+  (`/api/v2`, next to the documented `/api/v1`) does not exist on the target. The report explains each of these four
+  by itself: 1.2, 1.3 and 2.4 in a note on the card, 1.6 in its skip reason.
+- The guarantee cannot be verified from outside at all: 5.2, because the alerting rules live in the SIEM.
+
+The rest PASS or FAIL. The exact number of tests and findings depends on the lab data and on which external tools
+are installed.
 
 Results are written to `outputs/forgejo/` (a previous run's files are replaced): the HTML report to open below, the
 same data in `apiguard_report.json`, the evidence and `config_used.yaml`. What each file is for:
@@ -244,5 +257,5 @@ Labs](../project/maintainer-commands.md#test-labs)).
 | `up` stops with `service "pki" didn't complete successfully` | `docker logs forgejo_kong_pki` shows why (e.g. `lock ... held`: a lab start was interrupted; remove `test-environments/pki/.lock` and start again) |
 | the run stops with `Exit 10` and `Reason ... certificate is not trusted` | the certificates were regenerated and Kong still serves the old one: restart Kong as in [If you regenerate the certificates](#if-you-regenerate-the-certificates) |
 | `Configuration invalid: Environment variable(s) not set: X` | `.env` has no value for `X` (also checked for `${X}` written inside YAML comments) |
-| many `INCONCLUSIVE_PARAMETRIC` states in the report | the test repository is missing: check the setup output (step 3) |
+| many `NOT_VERIFIABLE/NOT_FOUND_LIKE_UNKNOWN` judgements in the report | the test repository is missing: check the setup output (step 3) |
 | `bind: address already in use` | a port is taken: see [If a port is already in use](#if-a-port-is-already-in-use) |

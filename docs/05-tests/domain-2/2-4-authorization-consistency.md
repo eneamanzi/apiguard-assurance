@@ -70,8 +70,10 @@ the documented path without a credential, then the sibling without a credential.
 
 ## 7. Outcomes
 
-SKIP when no protected operation has a version sibling. Otherwise FAIL on a version that drops the check, PASS when
-every existing sibling enforces the same policy.
+SKIP when no protected operation has a version sibling, and when every candidate version the specification
+suggests is absent from the target: in that second case the test adds the note "No second version to compare",
+naming the candidate it probed, so the SKIP is not silent. Otherwise FAIL on a version that drops the check, PASS
+when every existing sibling enforces the same policy.
 
 ## 8. Findings
 
@@ -98,7 +100,7 @@ Runs of 2026-10-23:
 | Lab | Status | Basis |
 |---|---|---|
 | crAPI + Kong | **PASS** | the `v1`/`v3` siblings of the protected `community/api/v2` operations are refused or absent (no auth drop) |
-| Forgejo + Kong, Forgejo + APISIX | **SKIP** | Forgejo documents only `/api/v1`; the candidate `/api/v2` is entirely absent (`VERSION_ABSENT`), one probe |
+| Forgejo + Kong, Forgejo + APISIX | **SKIP** | Forgejo documents only `/api/v1`; the candidate `/api/v2` is entirely absent (`VERSION_ABSENT`), one probe. The note names it (verified 2026-10-27) |
 
 Rule 9: enforced (crAPI siblings refuse) and version-absent (Forgejo) are proven. The **VIOLATION branch** (a version
 that serves without the auth the documented one requires) is not present on the labs: crAPI's version drift

@@ -45,6 +45,7 @@ from src.core.models import (
     Confidence,
     EvidenceRecord,
     Finding,
+    InfoNote,
     Outcome,
     Reference,
     ResponseCategory,
@@ -140,8 +141,28 @@ class Test24AuthorizationConsistency(BaseTest):
             if not groups:
                 self._record(_SUB, Outcome.NOT_APPLICABLE, "NO_VERSION_SIBLING")
                 return self._finish(message="No protected operation has a version sibling.")
-            for candidate, pairs in groups.items():
-                self._compare_version(client, store, target, candidate, pairs)
+            absent: list[str] = [
+                candidate
+                for candidate, pairs in groups.items()
+                if self._compare_version(client, store, target, candidate, pairs)
+            ]
+            if len(absent) == len(groups):
+                # Every candidate version the specification suggested is absent
+                # from the target: there is no second version whose policy could
+                # disagree, and the test would otherwise SKIP without a reason.
+                suggested = ", ".join(sorted(absent))
+                return self._finish(
+                    notes=[
+                        InfoNote(
+                            title="No second version to compare",
+                            detail=(
+                                f"The specification suggests {suggested} next to the "
+                                "documented version, but the target answers 404 there, so no "
+                                "two versions of the same operation exist to compare."
+                            ),
+                        )
+                    ]
+                )
             return self._finish()
         except SecurityClientError as exc:
             return self._error(exc)
@@ -192,7 +213,7 @@ class Test24AuthorizationConsistency(BaseTest):
         target: TargetContext,
         candidate: str,
         pairs: list[tuple[str, str, str]],
-    ) -> None:
+    ) -> bool:
         """
         Compare every pair of one version candidate, after checking the version
         exists at all.
@@ -209,6 +230,10 @@ class Test24AuthorizationConsistency(BaseTest):
             target:    The run's target (path seed).
             candidate: The candidate version prefix, e.g. `/identity/api/v3`.
             pairs:     The (method, documented, sibling) triples of this version.
+
+        Returns:
+            True when the candidate version is absent from the target, so the
+            whole group was judged NOT_APPLICABLE without probing each pair.
         """
         method, _documented, sibling = pairs[0]
         probe_path = resolve_path_with_seed(sibling, target.path_seed)
@@ -216,9 +241,10 @@ class Test24AuthorizationConsistency(BaseTest):
         if representative is not None and category_of(representative) == ResponseCategory.NOT_FOUND:
             self._step(representative)
             self._record(_SUB, Outcome.NOT_APPLICABLE, "VERSION_ABSENT")
-            return
+            return True
         for method, documented, sibling in pairs:
             self._compare(client, store, method, documented, sibling, target)
+        return False
 
     def _compare(
         self,

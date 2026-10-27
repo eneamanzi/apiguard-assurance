@@ -1,7 +1,7 @@
 # Methodology Framework
 
 > **Audience:** analysts, contributors, readers of the research · **Status:** adapted from the thesis methodology
-> (chapter 3, now [`04-guarantees.md`](04-guarantees.md)), corrected against the tool · **Source of truth:** the owner's
+> (chapter 3, now [`03-guarantees.md`](03-guarantees.md)), corrected against the tool · **Source of truth:** the owner's
 > decisions of 2026-10-20; for the tool:
 > `src/core/test_metadata.py` (`TestInfo`, `Need`), `src/core/models/enums.py` (`TestStrategy`) · **Verified:**
 > 2026-10-20
@@ -9,15 +9,30 @@
 The method behind the tool's checks: what a guarantee is, who the tester is, what a check may use, and how
 guarantees are ranked. How the tool applies it (strategy labels, selection, verdicts):
 [`architecture/assessment-model.md`](../04-architecture/03-assessment-model.md). The guarantees themselves, one by
-one: the [catalogue](04-guarantees.md) (a translation of the thesis text, not yet aligned with the tool).
+one: the [catalogue](03-guarantees.md), whose priorities and strategies are the ones the tests declare.
 
 ## Guarantees
 
 The methodology does not start from attacks but from **security guarantees**: properties that an API exposed
 through a gateway must hold, each one stated so that a test can confirm or refute it (for example "only
-authenticated requests reach protected resources"). There are 29 guarantees in 8 domains: 0 API discovery and
-inventory, 1 identity and authentication, 2 authorization, 3 data integrity, 4 availability and resilience,
-5 visibility and auditing, 6 configuration and hardening, 7 business logic and sensitive flows.
+authenticated requests reach protected resources"). Every guarantee belongs to one of eight domains, named as the
+reports name them (`DOMAIN_NAMES`, `src/report/builder.py`); the [catalogue](03-guarantees.md) lists the guarantees
+of each.
+
+<!-- [[[cog import generate_docs as g; cog.out(g.domain_names_table()) ]]] -->
+
+| `domain` | `domain_name` |
+|---|---|
+| 0 | API Discovery and Inventory Management |
+| 1 | Identity and Authentication |
+| 2 | Authorization and Access Control |
+| 3 | Data Integrity |
+| 4 | Availability and Resilience |
+| 5 | Visibility and Auditing |
+| 6 | Configuration and Hardening |
+| 7 | Business Logic and Sensitive Flows |
+
+<!-- [[[end]]] -->
 
 Each guarantee is described with the same parts:
 
@@ -58,9 +73,10 @@ show something the configuration states (a backend timeout, a circuit breaker th
 algorithm), reading the configuration is deterministic, reproducible and documentable: the same configuration
 gives the same verdict, and the value read is the evidence.
 
-In the tool: every test declares its strategy (`TestStrategy`) and its needs (`Need`: `USER_ACCOUNT`,
-`ADMIN_ACCOUNT`, `SECOND_USER_ACCOUNT`, `GATEWAY`, `REVOCABLE_LOGIN`). Every test uses only what its strategy
-grants, and a need fixes the minimum strategy the test requires (`src/core/test_metadata.py`).
+In the tool: every test declares its strategy (`TestStrategy`) and its needs (`Need`, listed with the tests that
+depend on each one in the [assessment model](../04-architecture/03-assessment-model.md#needs-what-the-configuration-must-hold)).
+Every test uses only what its strategy grants, and a need fixes the minimum strategy the test requires
+(`src/core/test_metadata.py`).
 
 ## Prerequisites and effects on the target
 
@@ -94,8 +110,9 @@ the priority leaves out the impact on a particular business, which only the orga
 | P3 Low | best practice and compliance: hardening whose absence weakens other controls rather than opening a flaw by itself | security headers, request signing beyond TLS, distributed sessions |
 
 Which priority each guarantee has is part of the catalogue; it was checked against this criterion in the block-6
-test review (now complete). The tool's declared priorities are authoritative ([`roadmap.md`](../project/roadmap.md));
-the thesis catalogue keeps its own tags for the record.
+test review (now complete). The tool's declared priorities are authoritative (the generated table in
+[`../05-tests/README.md`](../05-tests/README.md), printed by `apiguard list-tests`); the thesis catalogue keeps its
+own tags for the record.
 
 In the tool the priority orders the work and nothing else: `execution.min_priority` keeps the tests up to a
 priority, and `execution.fail_fast` stops after the first P0 test that fails or errs

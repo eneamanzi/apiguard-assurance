@@ -324,7 +324,7 @@ URL_PARSER_CONFUSION_URLS: tuple[tuple[str, str], ...] = (
 # ---------------------------------------------------------------------------
 # Open redirect / SSRF via redirect chain
 #
-# Methodology ref: Garanzia 7.2 -- Redirect Following Validation.
+# Methodology ref: guarantee 7.2 -- redirect following validation.
 # The consuming test substitutes the operator-controlled redirect server URL
 # at runtime via cfg.ssrf_redirect_server_url.  This sentinel documents the
 # attack pattern without embedding a runtime URL.

@@ -92,10 +92,19 @@ certificate or its key; their result then notes that the chain was trusted throu
 - Commands are run with `subprocess.run` and an argument list (no shell). Binaries are resolved from
   `./tools/<tool>/` or `PATH`.
 - Pinned versions are installed by `install_tools.sh`; `expected_version` logs a warning on mismatch.
-- nuclei runs with `-duc` (no update check) and `-ni` (no interactsh out-of-band callbacks, so no traffic to third
-  parties).
 - `extra_flags` are appended verbatim; they must not contain secrets.
 - `dev_mode: true` replays cached tool output instead of running the tool: never use it in a real assessment.
+
+How each tool that a run can execute treats the server's certificate and the run's credentials:
+
+| Tool | Certificate | Credentials |
+|---|---|---|
+| testssl.sh | the authorities of `target.tls.ca_bundle` through `--add-ca`; its result records that the chain was trusted through them | never: not the client certificate, not its key |
+| Schemathesis | verifies, through `--request-tls-verify` set to `target.tls.ca_bundle` when one is configured | unauthenticated run |
+| ffuf | **never verifies**: `InsecureSkipVerify` is fixed in ffuf v2.3.0 and it exposes no option to change it | never, precisely because of the line above: the connector would be handing a credential to a connection it cannot authenticate. ffuf sends unauthenticated `GET` only, and every path it reports is requested again by the test with the tool's own verified client |
+
+nuclei's connector sets `-duc` (no update check) and `-ni` (no interactsh out-of-band callbacks, so no traffic to
+third parties), but no test uses it, so a run never executes it ([roadmap](../project/roadmap.md)).
 
 ## Known gaps
 

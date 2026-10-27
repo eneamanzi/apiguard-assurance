@@ -79,8 +79,8 @@ jq -r '.all_rows[] | select(.test_id=="1.1") | .findings[] | "\(.evidence_ref)  
 ```
 
 ```
-1.1_054  Protected endpoint accessible without authentication
-1.1_056  Protected endpoint accessible without authentication
+1.1_054  Served without a credential: GET /api/v1/gitignore/templates
+1.1_056  Served without a credential: GET /api/v1/label/templates
 ...
 ```
 
@@ -102,14 +102,15 @@ test stored as FAIL evidence:
 jq -r '.all_rows[] | select(.test_id=="1.1") | .transaction_log[] | select(.is_fail_evidence) | .record_id' outputs/forgejo/apiguard_report.json
 ```
 
-A finding from a gateway-configuration audit (3.3, 4.2, 4.3) references the gateway concept it read instead of an
-HTTP transaction.
+A finding from a gateway-configuration check references the gateway concept it read instead of an
+HTTP transaction: its `evidence_ref` starts with `artifact-` (3.3, 4.2, 4.3, 5.1, and the route-drift part of 0.1
+and 0.2).
 
 ## 4. Every request of a test: the transaction log
 
 `transaction_log` lists **all** the requests of a test, PASS included. Each judged request carries an `outcome`
-(`VIOLATION`, `ENFORCED`, `NOT_VERIFIABLE`, `NOT_APPLICABLE`), a test-specific `detail` (e.g. `AUTH_BYPASS`,
-`PATH_NOT_FOUND`) and a common `category` (what the response is). The details are defined per test, on each
+(`VIOLATION`, `ENFORCED`, `NOT_VERIFIABLE`, `NOT_APPLICABLE`), a test-specific `detail` (e.g. `SERVED_WITHOUT_CREDENTIAL`,
+`NOT_FOUND_LIKE_UNKNOWN`) and a common `category` (what the response is). The details are defined per test, on each
 [test page](../../05-tests/README.md). To count the outcomes:
 
 ```bash
@@ -139,10 +140,11 @@ The same output is in `tools/<test>_output.json` and, as one record, in `evidenc
 Open it through a local web server:
 
 ```bash
-cd outputs && python3 -m http.server 8080
+cd outputs/forgejo && python3 -m http.server 8080
 ```
 
-and browse to `http://localhost:8080/assessment_report.html` (`Ctrl+C` stops the server, then `cd ..`). If the tool
+and browse to `http://localhost:8080/assessment_report.html` (serve the folder that `output.directory` names,
+or the URL needs its subfolder) (`Ctrl+C` stops the server, then `cd ..`). If the tool
 runs on a remote machine opened with VS Code Remote, VS Code forwards port 8080 to your browser (Ports panel); with
 plain SSH, connect with `ssh -L 8080:localhost:8080 <host>`.
 
@@ -170,4 +172,4 @@ plain SSH, connect with `ssh -L 8080:localhost:8080 <host>`.
 
 - [Report schema](../../03-reference/04-report-schema.md) · [Evidence format](../../03-reference/05-evidence-format.md) ·
   [Exit codes](../../03-reference/03-exit-codes.md)
-- Consuming the JSON from another program: *planned:* `guides/integration/`.
+- Consuming the JSON from another program: [integrate APIGuard Assurance](../02-integration/01-integrate-apiguard.md).
