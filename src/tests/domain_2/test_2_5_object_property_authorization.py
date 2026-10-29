@@ -19,7 +19,7 @@ configured resource, as in test 2.2):
                         body (`role`, `owner`, `user_id`, ...), each a unique
                         string sentinel, must ignore them. The object is read
                         back; if a sentinel appears, the server bound a
-                        client-controlled field (ASVS v5.0.0-8.2.2). Only string
+                        client-controlled field (ASVS v5.0.0-8.2.3, CWE-915). Only string
                         sentinels are used, so a legitimately-true boolean is
                         never mistaken for a bound value.
 
@@ -111,11 +111,13 @@ _MASS_FIELDS: dict[str, object] = {
 
 _REFERENCES: tuple[Reference, ...] = (
     # Read on the ASVS v5.0.0 source 2026-10-22: 14.2.6 (no sensitive data in a
-    # response beyond what the consumer needs); 8.2.2 (data-specific access).
+    # response beyond what the consumer needs); 8.2.3 (field-level access,
+    # which ASVS writes for broken object property level authorization).
     Reference(standard=Standard.OWASP_API_TOP10, id="API3:2023"),
     Reference(standard=Standard.ASVS, id="v5.0.0-14.2.6"),
-    Reference(standard=Standard.ASVS, id="v5.0.0-8.2.2"),
-    Reference(standard=Standard.NIST_SP, id="800-53", section="3"),
+    Reference(standard=Standard.ASVS, id="v5.0.0-8.2.3"),
+    Reference(standard=Standard.CWE, id="CWE-915"),
+    Reference(standard=Standard.NIST_SP, id="800-53r5", section="3.1"),
 )
 
 
@@ -277,8 +279,9 @@ class Test25ObjectPropertyAuthorization(BaseTest[Test25Params]):
                             f"An object created by user_a with extra body field(s) "
                             f"{', '.join(reflected)} kept the injected value when read back. The "
                             "server binds a client-controlled privileged or ownership property "
-                            "(mass assignment, OWASP API3:2023, ASVS v5.0.0-8.2.2). Bind only the "
-                            "fields the consumer may set (an allowlist), never the whole body."
+                            "(mass assignment, OWASP API3:2023, ASVS v5.0.0-8.2.3, CWE-915). "
+                            "Bind only the fields the consumer may set (an allowlist), never "
+                            "the whole body."
                         ),
                         confidence=Confidence.CERTAIN,
                     ),

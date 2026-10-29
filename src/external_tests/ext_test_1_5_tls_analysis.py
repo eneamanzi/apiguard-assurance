@@ -77,9 +77,17 @@ _NOTE_SEVERITIES: frozenset[str] = frozenset({"WARN", "MEDIUM"})
 # NOT_VERIFIABLE with a note instead of failing the test (owner, 2026-10-22).
 _REVOCATION_MARKERS: tuple[str, ...] = ("revocation",)
 
+# API8:2023, not API2:2023 (2026-10-28): this test carries no credential and
+# judges the gateway's TLS stack (protocol versions, cipher suites, forward
+# secrecy, the certificate chain). Read on the source, API8 lists "Transport
+# Layer Security (TLS) is missing" and "appropriate security hardening is
+# missing across any part of the API stack", while API2's own list says nothing
+# about the handshake: its "weak encryption keys" and "plain text passwords"
+# are about the credentials themselves. The native test 1.5 keeps API2, and
+# gains API8, because a credential exposed on a plain channel is both.
 _REFERENCES: tuple[Reference, ...] = (
-    Reference(standard=Standard.OWASP_API_TOP10, id="API2:2023"),
-    Reference(standard=Standard.NIST_SP, id="800-52"),
+    Reference(standard=Standard.OWASP_API_TOP10, id="API8:2023"),
+    Reference(standard=Standard.NIST_SP, id="800-52r2"),
     Reference(standard=Standard.ASVS, id="v5.0.0-12.1.1"),
 )
 

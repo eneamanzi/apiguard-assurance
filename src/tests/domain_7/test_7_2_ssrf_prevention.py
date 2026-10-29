@@ -321,10 +321,13 @@ class Test72SSRFPrevention(BaseTest[Test72Params]):
         cwe="CWE-918",
         references=(
             Reference(standard=Standard.OWASP_API_TOP10, id="API7:2023"),
-            # WSTG-INPV-19 (SSRF) and NIST SP 800-204 S3.2.2 are the sources of
-            # the payload catalogue (src/tests/data/ssrf_payloads.py).
+            # WSTG-INPV-19 (SSRF) is the source of the payload catalogue
+            # (src/tests/data/ssrf_payloads.py), with PayloadsAllTheThings.
+            # NIST SP 800-204 was cited here until 2026-10-28 and was dropped:
+            # its section 3.2.2 is "Internet-based Attacks", about the inbound
+            # surface of a microservices application, and the publication never
+            # mentions SSRF, server-side request forgery or an outbound call.
             Reference(standard=Standard.WSTG, id="WSTG-v42-INPV-19"),
-            Reference(standard=Standard.NIST_SP, id="800-204", section="3.2.2"),
         ),
         tags=("ssrf", "business-logic"),
         needs=(Need.USER_ACCOUNT,),

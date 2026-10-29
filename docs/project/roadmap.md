@@ -11,11 +11,10 @@
 ## Next work
 
 **Test-by-test review (every one of the 32).** Go through the suite one test at a time with the owner and decide, for
-each, whether it earns its place: does it add value a reader of the report would act on, is its oracle sound, is what
-it needs from a target reasonable. A test that does not earn it is removed, not weakened. Where a branch of a test is
-proven only by the detector's logic and no lab ever produced it live (6.1, 6.4, 2.4, 2.5, 4.3, 7.1, 7.3, 7.4), the
-same pass decides whether to produce it live with an announced lab change or to accept the detector's logic as the
-evidence and say so on the page. One test per discussion, the owner decides.
+each, whether it earns its place, whether its oracle is sound, and whether every branch of it has been seen. A test
+that does not earn it is removed, not weakened. How the pass is run, the per-test checklist and the progress:
+[`test-review.md`](test-review.md) (a temporary file, deleted when the pass is over). One test per discussion, the
+owner decides.
 
 ## Owner decisions
 

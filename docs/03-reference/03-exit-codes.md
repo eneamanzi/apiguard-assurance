@@ -40,16 +40,19 @@ Ctrl+C (SIGINT) and SIGTERM are handled alike during `apiguard run`:
    resources created on the target. Please wait.`;
 2. teardown (Phase 6) runs: the tokens, repositories and other resources created by the tests are removed; a
    running external tool (testssl.sh, ffuf, Schemathesis) is stopped;
-3. any further Ctrl+C or SIGTERM does not interrupt the cleanup, it only repeats `Still removing the resources
-   created on the target. Please wait.`;
+3. no signal interrupts the cleanup: while Phase 6 runs, Ctrl+C and SIGTERM are **held back** and delivered only
+   once it is over, and a further signal arriving before that repeats `Still removing the resources created on the
+   target. Please wait.`. Until 2026-10-28 the first signal was not held back, so one arriving inside the teardown
+   loop left the resources not yet deleted on the target: measured on the reference lab, a SIGTERM delivered the
+   instant Phase 6 started left 3 of 8 resources behind, 3 API tokens among them;
 4. the process ends by the **first** signal received: exit `130` (SIGINT) or `143` (SIGTERM), 128 + the signal
    number. A calling program sees a process terminated by that signal (Python `subprocess`: `returncode` `-2` or
    `-15`). **No report files are written** (Phase 7 does not run; there is no partial report).
 
 Do not use SIGKILL (`kill -9`): it cannot be intercepted, so teardown does not run and the resources the tests
 created on the target are left behind. Leave the tool a few seconds to clean up: `docker stop` sends SIGKILL 10
-seconds after SIGTERM by default; on the lab teardown took about a second for three resources, and it grows with
-the number of resources the tests created (verified 2026-10-27). Other commands
+seconds after SIGTERM by default; on the lab teardown took about a second for three resources and two seconds for
+eight, and it grows with the number of resources the tests created (verified 2026-10-28). Other commands
 (`validate-config`, `list-tests`, `generate-seed`, `version`) keep Python's default behaviour.
 
 **Fail-fast:** with `execution.fail_fast: true`, the run stops after the first P0 test that returns FAIL **or

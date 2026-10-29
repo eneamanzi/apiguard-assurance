@@ -287,12 +287,13 @@ sends on purpose as `Authorization` (e.g. a malformed token) is not a secret: de
 | Module | Provides |
 |---|---|
 | `auth.py` | `acquire_tokens(target, context, client, required_roles=...)`: obtains each role's credential with the method of `credentials.auth_type` (`auth_static.py`: `basic`, `static_token`; `auth_login.py`: `login`, from a prepared resource) and stores it in `TestContext`. `auth_parts(target, context, role)`: the headers and query parameters that carry it, as the run's credential placement says; never write `Authorization: Bearer` in a test. `revocation_capability(target)`: the method when, as configured, it can revoke a credential (test 1.4), else `None` |
-| `path_resolver.py` | `resolve_path_with_seed(path, seed, fallback)`, `extract_param_names_from_path(path)`; constants `PATH_PARAM_FALLBACK_DEFAULT` (`"1"`), `PATH_PARAM_FALLBACK_SAFE_DELETE` (`"apiguard-probe"`) |
+| `path_resolver.py` | `resolve_path_with_seed(path, seed, fallback)`, `extract_param_names_from_path(path)`; the constant `PATH_PARAM_FALLBACK_DEFAULT` (`"1"`). For a probe whose method **writes**, do not resolve the path here: use `random_sibling_path` (`src/core/references.py`), which fills every parameter with a random value so the request cannot reach an object that exists |
 | `resources.py` | `create_resource(target, context, client, name, role, test_id)`: creates a [prepared resource](../../03-reference/01-configuration.md#resources) of `config.yaml` for a role, reads its values, registers its deletion for teardown and the credential as a secret; `delete_resource(...)`: sends its delete request at once. A test that needs an object on the target takes a resource name from its configuration (as 7.2's `url_accepting_endpoint.resource`), never a path written in the code |
-| `response_inspector.py` | `contains_stack_trace`, `contains_sensitive_fields`, `extract_debug_fields`, `check_security_headers`, `find_missing_security_headers`, `find_invalid_security_headers`, `find_leaky_headers`, `auth_errors_are_uniform` |
+| `response_inspector.py` | `contains_stack_trace(body)`, `extract_debug_fields(data)`, `find_leaky_headers(headers)`: the three detectors of test 6.1, pure and without HTTP. Five more functions (a security-header policy, sensitive field names, the uniformity of authentication errors) were removed on 2026-10-28: no test called them, and each job belongs to a test that does it better or has decided not to (6.2, 2.5, 1.7) |
 
-**Payload data** (`src/tests/data/`): `auth_payloads.py`, `inspector_patterns.py`, `shadow_wordlists.py`,
-`ssrf_payloads.py`. Put reusable payload lists there, not in the test.
+**Payload data** (`src/tests/data/`): `inspector_patterns.py` (the stack-trace patterns of test 6.1),
+`ssrf_payloads.py` (the SSRF payloads of test 7.2). Put a reusable payload list there, not in the test; a list only
+one test uses may stay in that test, as test 1.1's malformed credential values do.
 
 **Gateway configuration** (WHITE_BOX audits): declare `needs=(Need.GATEWAY,)` in `info` (without a gateway the
 engine records SKIP before `execute()`), then read the neutral concepts you need (`target.gateway.backend_timeouts()`, `health_checks()`, `signing_policies()`, ...; [add a gateway

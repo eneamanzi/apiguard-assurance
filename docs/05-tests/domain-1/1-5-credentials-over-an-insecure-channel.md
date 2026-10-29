@@ -15,7 +15,7 @@
 | Priority / strategy | P2 / BLACK_BOX |
 | Effect | READ_ONLY |
 | CWE | CWE-319 |
-| Standards | `OWASP API2:2023`, `RFC 9110, Section 4.2.2`, `NIST SP 800-52`, `OWASP ASVS v5.0.0-3.4.1`, `OWASP ASVS v5.0.0-12.2.1` |
+| Standards | `OWASP API2:2023`, `OWASP API8:2023`, `RFC 9110, Section 4.2.2`, `NIST SP 800-52r2`, `OWASP ASVS v5.0.0-3.4.1`, `OWASP ASVS v5.0.0-12.2.1` |
 | Tags | `transport-security`, `tls`, `hsts` |
 | Prerequisites | none |
 | Needs | - |
@@ -36,7 +36,7 @@ A PASS promises two things: a plain-HTTP request to a documented API path was re
 an `https` URL, and an HTTPS response carried a sound HSTS header. It promises nothing about the strength of the TLS
 handshake itself (protocols, ciphers, certificate): that is `ext.1.5.testssl`. The threat is a man in the middle on
 the network path who reads a credential sent in cleartext, or downgrades a connection a browser would otherwise keep
-on HTTPS. OWASP API2:2023; ASVS v5.0.0-3.4.1 (HSTS) and v5.0.0-12.2.1 (TLS on all connectivity).
+on HTTPS. OWASP API2:2023 (the credential exposed) and API8:2023 (the configuration that exposes it); ASVS v5.0.0-3.4.1 (HSTS) and v5.0.0-12.2.1 (TLS on all connectivity).
 
 ## 2. Sub-tests and coverage of the methodology
 
@@ -164,7 +164,10 @@ processed, and to send `Strict-Transport-Security: max-age=31536000; includeSubD
 
 ## 15. Sources
 
-- OWASP API2:2023 Broken Authentication: https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/
+- OWASP API2:2023 Broken Authentication (the credential this test exposes): https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/
+- OWASP API8:2023 Security Misconfiguration (the configuration that exposes it: its list names "Transport Layer
+  Security (TLS) is missing" and "security directives are not sent to clients"):
+  https://owasp.org/API-Security/editions/2023/en/0xa8-security-misconfiguration/
 - RFC 9110 section 4.2.2 (http and https URIs are different origins): https://www.rfc-editor.org/rfc/rfc9110.html#section-4.2.2
 - NIST SP 800-52 Rev.2 (TLS configuration): https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-52r2.pdf
 - OWASP ASVS v5.0.0-3.4.1 (Strict-Transport-Security on all responses, max-age >= 1 year, subdomains for L2+): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x12-V3-Web-Frontend-Security.md

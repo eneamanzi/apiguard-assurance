@@ -61,6 +61,64 @@ honest `INCONCLUSIVE` status. No test or helper contains Forgejo paths: what is 
 login, the objects a test needs, the request that checks a revoked token) is configuration
 ([`resources`](01-configuration.md#resources)); the Forgejo values are in the lab configurations.
 
+## What the tool detects, measured against a vulnerable target
+
+[Test portability](#test-portability) says what each test needs from a target; this section says what the tests
+**find** when a target is known to be vulnerable. The target is the [crAPI lab](#crapi--kong), an API vulnerable by
+design that publishes the list of the weaknesses it was built to contain, so the measure is a ground truth nobody
+here wrote: `docs/challenges.md`, at the commit the lab's images come from (`700f03d`), declares **18 numbered
+challenges** in 11 categories, plus three it keeps secret. Measured on 2026-10-29 with a full assessment (32 tests, external tools
+included) on a lab reset first: 15 FAIL, 10 PASS, 6 SKIP, 1 INCONCLUSIVE, 39 findings.
+
+| # | crAPI challenge | Weakness | What the tool did, measured | Verdict |
+|---|---|---|---|---|
+| 1 | Another user's vehicle details (`/identity/api/v2/vehicle/{id}/location`) | BOLA | not probed, and **the object does not exist in this lab**: a crAPI vehicle is claimed with a VIN and a pincode sent by email, which the setup never does, so `GET /identity/api/v2/vehicle/vehicles` answers `200 []` for both roles (measured 2026-10-29) | **missed, lab-blocked** |
+| 2 | Mechanic reports of other users (hidden `report_link`) | BOLA | not probed, same reason | **missed** |
+| 3 | Reset another user's password by brute force | anti-automation | 7.1 FAIL: "No anti-automation control on POST /identity/api/auth/forget-password", the challenge's own endpoint; 1.7 FAIL: "Failed authentication attempts are not limited" | **caught** |
+| 4 | An endpoint leaks other users' sensitive data | excessive data exposure | 2.5 FAIL: "Response carries sensitive field(s): card_number" on the configured order. The challenge's own endpoint (`/community/.../posts/recent`, which leaks `vehicleid`) is not probed | **class caught, endpoint missed** |
+| 5 | An internal property of a video is exposed | excessive data exposure | not probed: 2.5 reads the configured object only | **missed** |
+| 6 | Layer-7 DoS through 'contact mechanic' | rate limiting | 4.1 FAIL: "No rate limit on /workshop/api/mechanic/", the challenge's own feature | **caught** |
+| 7 | Delete another user's video (admin endpoint) | BFLA | 2.1 derived `DELETE /identity/api/v2/admin/videos/{video_id}` as privileged (segment `admin`), **named it in the report and did not send it** (`DESTRUCTIVE_NOT_PROBED`, rule 5). On the other privileged endpoint it found a real BFLA: `GET /workshop/api/management/users/all` | **found, not exploited by design** |
+| 8 | Get an item for free (negative `quantity`) | business logic | not caught: `ProductQuantity.quantity` is `integer` with no minimum, so a negative value conforms to the schema and `ext.3.1.schemathesis` has nothing to flag. No test checks a business invariant | **out of scope** |
+| 9 | Increase your balance by $1,000 or more | business logic | same as 8 | **out of scope** |
+| 10 | Update internal video properties | mass assignment | not probed: 2.5's `mass_assignment` acts on the configured object | **missed** |
+| 11 | Make crAPI call an external host | SSRF | 7.2 probed `contact_mechanic` with 73 payloads; crAPI's synchronous outbound call hangs the gateway, so every probe is `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` and the test is INCONCLUSIVE | **attempted, not concludable** |
+| 12 | Free coupons without the code | NoSQL injection | no test: deep injection confirmation is a documented non-goal | **out of scope** |
+| 13 | Redeem a claimed coupon | SQL injection | no test, same | **out of scope** |
+| 14 | An endpoint with no authentication check | missing authentication | 1.1 FAIL on two: `GET /workshop/api/shop/orders/1` and `GET /workshop/api/shop/return_qr_code` | **caught** |
+| 15 | Forge a valid JWT | JWT validation | 1.2 FAIL: "Invalid token accepted: ALG_NONE", a variant crAPI does not even list among its four; `algorithm_confusion` is honestly `NEEDS_KEY_MATERIAL` | **caught** |
+| 16 | Prompt injection in the chatbot | LLM | the chatbot and chromadb are left out of the lab on purpose (an OpenAI key, reachable only through crapi-web), so the surface does not exist here; the tool has no LLM test either | **absent from the deployment** |
+| 17 | Extract another user's credentials with the chatbot | LLM | same | **absent from the deployment** |
+| 18 | Make the chatbot act for another user | LLM | same | **absent from the deployment** |
+
+Of the 18, three are **absent from this deployment** (the chatbot is left out) and four are **outside the tool's
+scope** by decisions already recorded: deep injection confirmation (12, 13) and business invariants (8, 9, where
+crAPI's own solution sends a negative `quantity` that the specification's `integer` with no minimum accepts, so
+there is nothing for an input-validation test to flag). Of the **eleven that remain**, the tool caught four outright
+(3, 6, 14, 15), caught the weakness class of a fifth on another endpoint (4), named the endpoint of a sixth and
+refused to exploit it because the operation is destructive (7), and attempted the seventh without being able to
+conclude (11, where crAPI's synchronous outbound call hangs the gateway).
+
+**The four it missed share a cause but not a remedy** (1, 2, 5, 10): tests 2.2 and 2.5 act on the object named in
+`owned_object_resources`, so a BOLA or a property exposure on any other object is never probed. Deriving a candidate
+object from the target instead, the backlog's "coverage option (b)", was designed and probed against the three labs
+on 2026-10-29 with reads only, and **found no owned object on any of them**: challenge 1's own collection answers
+`200 []` because the lab never claims a vehicle, the order is the object already configured, the community posts
+are public, and on both Forgejo labs the collections a user owns are empty on a fresh deployment while the four that
+do return an identifier are public collections an ownership check must reject. So of the four misses, one is blocked
+by the lab (1), one would need objects addressed by a query parameter (2, the mechanic report), one has no listing
+to derive from (5, the video), and one is a write on an object the tool did not create, which it must never send
+(10). The measurement is a statement about the problem rather than about this tool: **establishing ownership cannot
+be made target-agnostic**, which is why these two tests ask for a configured object and say nothing without one
+([test 2.2's limitations](../05-tests/domain-2/2-2-object-level-authorization.md#14-limitations)).
+
+**The lab degrades with use, and a stale lab hides findings.** Each run creates a shop order for tests 2.2 and 2.5,
+and each order spends 10 of user A's 100 starting credit: after about ten runs the creation answers
+`400 Insufficient Balance`, both tests report `OBJECT_NOT_CREATED` and the run shows 9 FAIL instead of 15. The
+full reset of the [maintainer commands](../project/maintainer-commands.md#test-labs) restores it; the tool stays
+honest in the meantime, reporting INCONCLUSIVE and never a PASS. **A measurement taken on a worn lab is not this
+table**: the table above was taken right after a reset.
+
 ## Test lab
 
 Three labs, each pinning every image to an exact version, so that an assessment on them can be repeated with the same

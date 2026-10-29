@@ -16,6 +16,11 @@ attributes to the tool something it does not do.
 Each guarantee links to its test page, and each test page states the part of the methodology it does not implement,
 so the gap between the two is visible wherever it exists.
 
+**What the tool actually finds** is a third question, and it has one answer:
+[what the tool detects, measured against a vulnerable target](03-reference/06-compatibility.md#what-the-tool-detects-measured-against-a-vulnerable-target).
+OWASP crAPI publishes the weaknesses it was built to contain, so the measure is not ours: that section takes its 18
+declared challenges one by one and says what the tool did with each, including the ones it misses and why.
+
 ## By role
 
 | I want to… | Go to |

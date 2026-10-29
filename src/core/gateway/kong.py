@@ -30,7 +30,11 @@ from typing import Any
 
 import structlog
 
-from src.core.gateway.base import BaseGatewayAdapter, collect_text_values
+from src.core.gateway.base import (
+    BaseGatewayAdapter,
+    collect_text_values,
+    sorted_config_values,
+)
 from src.core.gateway.concepts import (
     ActiveCheck,
     BackendTimeout,
@@ -81,13 +85,22 @@ _SIGNING_FIELD_HEADERS: str = "enforce_headers"
 # passive health checks): the third-party breaker plugins recognised, in
 # priority order, and their field names, tried in order. A new plugin is added
 # here, its name together with its fields (docs/04-architecture/05-design-decisions.md, D8).
+#
+# The one plugin recognised is dream11/kong-circuit-breaker, whose plugin name
+# is `circuit-breaker` (https://github.com/dream11/kong-circuit-breaker, read
+# 2026-10-28). Its own field names come first in each tuple: without them the
+# concept answered "not stated" for a threshold the plugin does state, and the
+# note of test 4.3 printed "threshold None". The other names stay for a plugin
+# that uses them.
 _BREAKER_PLUGINS: tuple[str, ...] = ("circuit-breaker",)
 _BREAKER_THRESHOLD_FIELDS: tuple[str, ...] = (
+    "failure_percent_threshold",
     "failure_threshold",
     "consecutive_errors",
     "error_threshold_percentage",
 )
 _BREAKER_OPEN_FIELDS: tuple[str, ...] = (
+    "wait_duration_in_open_state",
     "timeout",
     "sleep_time",
     "recovery_time",
@@ -292,17 +305,17 @@ class KongGatewayAdapter(BaseGatewayAdapter):
         return ConceptRead[SigningPolicy].read(tuple(items))
 
     def _read_config_values(self) -> ConceptRead[ConfigValue]:
-        """Collect the Service URLs and every text value of the plugin configurations."""
+        """Collect the Service addresses and every text value of the plugin configurations."""
         items: list[ConfigValue] = []
         for service in self._fetch_paginated(_PATH_SERVICES):
-            url = service.get("url")
-            if isinstance(url, str) and url:
+            address = _service_address(service)
+            if address is not None:
                 items.append(
                     ConfigValue(
                         kind=ConfigValueKind.BACKEND,
                         location=f"service {service.get('name', '<unnamed>')}",
                         key="url",
-                        value=url,
+                        value=address,
                     )
                 )
         for plugin in self._fetch_paginated(_PATH_PLUGINS):
@@ -314,7 +327,7 @@ class KongGatewayAdapter(BaseGatewayAdapter):
                 items.extend(
                     collect_text_values(config, ConfigValueKind.PLUGIN, location, "config")
                 )
-        return ConceptRead[ConfigValue].read(tuple(items))
+        return ConceptRead[ConfigValue].read(sorted_config_values(items))
 
     def _plugin_scope(self, plugin: dict[str, Any]) -> tuple[ConceptScope, str]:
         """
@@ -416,6 +429,34 @@ class KongGatewayAdapter(BaseGatewayAdapter):
 # ---------------------------------------------------------------------------
 # Module helpers for the concept mappings
 # ---------------------------------------------------------------------------
+
+
+def _service_address(service: dict[str, Any]) -> str | None:
+    """
+    The address of a Kong Service, assembled from the fields Kong stores.
+
+    Kong accepts `url` when a Service is written but never answers with it: the
+    Admin API holds `protocol`, `host`, `port` and `path` (GET /schemas/services
+    declares no `url` field), so reading `service["url"]` collected nothing at
+    all. The address is rebuilt from those fields, so that a credential written
+    into a backend address is a value test 6.4 can scan.
+
+    Args:
+        service: One Service object of the Admin API.
+
+    Returns:
+        The address, or None when the Service states no host.
+    """
+    host = service.get("host")
+    if not isinstance(host, str) or not host:
+        return None
+    protocol = service.get("protocol")
+    port = service.get("port")
+    path = service.get("path")
+    scheme = f"{protocol}://" if isinstance(protocol, str) and protocol else ""
+    authority = f"{host}:{port}" if isinstance(port, int) else host
+    tail = path if isinstance(path, str) and path else ""
+    return f"{scheme}{authority}{tail}"
 
 
 def _ms_to_seconds(value: int | float | None) -> float | None:

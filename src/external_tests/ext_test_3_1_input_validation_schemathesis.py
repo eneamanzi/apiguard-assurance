@@ -2,8 +2,10 @@
 src/external_tests/ext_test_3_1_input_validation_schemathesis.py
 
 Test ext.3.1.schemathesis: the input-validation part of guarantee 3.1, driven
-by Schemathesis. OWASP API10:2023,
-CWE-20.
+by Schemathesis. CWE-20, OWASP ASVS v5.0.0-2.2.1,
+NIST SP 800-53 Rev.5 SI-10. The OWASP API Top 10 2023 has no category for
+the validation of a client's input: API10:2023 is the API's trust in data it
+consumes from third-party APIs, which this test does not exercise.
 
 Schemathesis generates valid and invalid requests from the OpenAPI
 specification and checks that the server rejects the invalid ones (a 4xx), does
@@ -55,8 +57,8 @@ _SUB: str = "input_validated"
 _MAX_FINDINGS: int = 20
 
 _REFERENCES: tuple[Reference, ...] = (
-    Reference(standard=Standard.OWASP_API_TOP10, id="API10:2023"),
     Reference(standard=Standard.ASVS, id="v5.0.0-2.2.1"),
+    Reference(standard=Standard.NIST_SP, id="800-53r5", section="3.19"),
 )
 
 
@@ -140,9 +142,10 @@ class ExtTest31InputValidationSchemathesis(ExternalToolTest):
                     detail=(
                         f"Schemathesis found that {operation} does not validate its input: "
                         f"{detail}. A generated request caused a server error (500), an invalid "
-                        "input was accepted, or the response did not match the schema (OWASP "
-                        "API10:2023, CWE-20, ASVS v5.0.0-2.2.1). Validate every input against its "
-                        "type, format, range and pattern before the business logic."
+                        "input was accepted, or the response did not match the schema "
+                        "(CWE-20, ASVS v5.0.0-2.2.1, NIST SP 800-53 Rev.5 SI-10). Validate "
+                        "every input against its type, format, range and pattern before the "
+                        "business logic."
                     ),
                     confidence=Confidence.FIRM,
                     evidence_ref=run.artifact_ref,

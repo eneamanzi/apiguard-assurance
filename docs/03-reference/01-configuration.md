@@ -95,7 +95,7 @@ The API under test, as exposed through the gateway proxy, and how the tool conne
 | `base_url` | URL | **required** | Base URL of the API as exposed through the gateway proxy, e.g. https://api.example.com. |
 | `connect_timeout` | number 1-30 | `5.0` | TCP connect timeout (s) for requests to the API. |
 | `read_timeout` | number 5-120 | `30.0` | Read timeout (s) for requests to the API. |
-| `max_retry_attempts` | int 1-10 | `3` | Total attempts (initial + retries). Only transport errors are retried, never HTTP status codes and never a TLS failure. |
+| `max_retry_attempts` | int 1-10 | `3` | Total attempts (initial + retries). Only transport errors are retried, never HTTP status codes and never a TLS failure. A POST or a PATCH is retried only after a failure that proves the request never reached the application (connection refused, connect or pool timeout): after a read timeout it may already have been applied, so it is not sent again whatever this value says. |
 | `tls` | [tls block](#tls-certificates-of-a-connection) | none | Certificate settings of the API connection, also used by the HTTP-redirect probe of test 1.5 and given to the external TLS tests (`ca_bundle`). |
 | `path_seed` | map string → string | `{}` | Real values for OpenAPI path parameters (`{owner}` → `"alice"`). Unlisted parameters fall back to the test's placeholder (typically `1`; `apiguard-probe` in a DELETE, so that it matches no real resource). Generate with `apiguard generate-seed`. **Use only test resources you can lose:** the values are used for every request, including `DELETE` and writes sent without credentials (test 1.1); on an API without protection on those endpoints they are deleted or changed. |
 

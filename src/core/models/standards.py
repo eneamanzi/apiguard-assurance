@@ -57,7 +57,17 @@ class StandardFormat:
     """
     How a standard's identifiers are written and shown: the standard's name,
     the identifier pattern and an example, the text put before the identifier
-    when shown, and an example section (None: the identifiers take no section).
+    when shown, an example section (None: the identifiers take no section) and
+    the one version of that standard the tool cites.
+
+    The tool cites one version of each standard, the most recent stable one,
+    and every reference points to it: a mixture would make two citations of the
+    same tool disagree on what a requirement says. Where the version is part of
+    the identifier (ASVS, WSTG, the OWASP Top 10 editions) the pattern below
+    pins it, so a reference on another version is refused when it is built.
+    Where every document carries its own version instead (RFC, NIST SP) the
+    version belongs to the identifier of each document (`800-53r5`,
+    `800-63B-4`) and this field is None.
     """
 
     name: str
@@ -65,6 +75,8 @@ class StandardFormat:
     example: str
     prefix: str
     section_example: str | None
+    version: str | None = None
+    version_source: str = ""
 
 
 # A section of a document: numbers joined by dots, optionally starting with an
@@ -80,34 +92,51 @@ STANDARD_FORMATS: dict[Standard, StandardFormat] = {
         example="CWE-285",
         prefix="",
         section_example=None,
+        version="4.20",
+        version_source="cwe.mitre.org, the current CWE List release (read 2026-10-28)",
     ),
     Standard.OWASP_API_TOP10: StandardFormat(
         name="OWASP API Security Top 10",
-        pattern=re.compile(r"^API([1-9]|10):20[0-9]{2}$"),
+        pattern=re.compile(r"^API([1-9]|10):2023$"),
         example="API5:2023",
         prefix="OWASP ",
         section_example=None,
+        version="2023",
+        version_source="the current edition of the OWASP API Security Top 10",
     ),
     Standard.OWASP_TOP10: StandardFormat(
         name="OWASP Top 10",
-        pattern=re.compile(r"^A(0[1-9]|10):20[0-9]{2}$"),
+        pattern=re.compile(r"^A(0[1-9]|10):2025$"),
         example="A01:2025",
         prefix="OWASP ",
         section_example=None,
+        version="2025",
+        version_source="the current edition of the OWASP Top 10 (the project page states 2025)",
     ),
     Standard.ASVS: StandardFormat(
         name="OWASP ASVS",
-        pattern=re.compile(r"^v[0-9]+\.[0-9]+\.[0-9]+-[1-9][0-9]*\.[1-9][0-9]*\.[1-9][0-9]*$"),
+        pattern=re.compile(r"^v5\.0\.0-[1-9][0-9]*\.[1-9][0-9]*\.[1-9][0-9]*$"),
         example="v5.0.0-1.2.5",
         prefix="OWASP ASVS ",
         section_example=None,
+        version="v5.0.0",
+        version_source=(
+            "the latest numbered ASVS release (2025-05-30); the repository's `latest` tag is a "
+            "bleeding-edge build of master and is not a release"
+        ),
     ),
     Standard.WSTG: StandardFormat(
         name="OWASP WSTG",
-        pattern=re.compile(r"^WSTG-v[0-9]+-[A-Z]{4}-[0-9]{2}$"),
+        pattern=re.compile(r"^WSTG-v42-[A-Z]{4}-[0-9]{2}$"),
         example="WSTG-v42-ATHN-01",
         prefix="OWASP ",
         section_example=None,
+        version="v4.2",
+        version_source=(
+            "the latest stable WSTG release; the categories were reorganised afterwards on "
+            "master, where `INPV` no longer exists, so the version in the identifier is what "
+            "keeps a citation findable"
+        ),
     ),
     Standard.RFC: StandardFormat(
         name="IETF RFC",
@@ -115,6 +144,9 @@ STANDARD_FORMATS: dict[Standard, StandardFormat] = {
         example="9110",
         prefix="RFC ",
         section_example="15.5.2",
+        version_source=(
+            "an RFC is never revised: a newer one obsoletes it, and none of those cited is"
+        ),
     ),
     Standard.NIST_SP: StandardFormat(
         name="NIST Special Publication",
@@ -122,6 +154,11 @@ STANDARD_FORMATS: dict[Standard, StandardFormat] = {
         example="800-204A",
         prefix="NIST SP ",
         section_example="4.3",
+        version_source=(
+            "each publication carries its own revision, which belongs to the identifier "
+            "(`800-53r5`, `800-63B-4`, `800-61r3`): the section numbering changes between "
+            "revisions, so a citation without it cannot be checked"
+        ),
     ),
 }
 

@@ -175,10 +175,15 @@ in `pyproject.toml`).
 ## Components
 
 **SecurityClient** (`src/core/client.py`). Wraps httpx. Usable only as a context manager (the underlying client
-is created in `__enter__`; using it outside raises `RuntimeError`). Never follows redirects. Retries only transport
+is created in `__enter__`; using it outside raises `RuntimeError`). Never follows redirects, and keeps no state
+between requests: the cookies a response sets are dropped at once, so no request carries what the calling test did
+not ask for (they stay in the evidence, which is what test 1.6 judges). Retries only transport
 errors (`ConnectError`, `ConnectTimeout`, `ReadTimeout`, `WriteTimeout`, `PoolTimeout`, `RemoteProtocolError`)
 with exponential backoff and jitter (0.5 s min, 8 s max, 1 s jitter), up to `target.max_retry_attempts`
-attempts; HTTP status codes and TLS failures are never retried. Uses the TLS context of `target.tls`. Each request returns the response and an `EvidenceRecord`
+attempts; HTTP status codes and TLS failures are never retried. **A method that is not idempotent (`POST`,
+`PATCH`, RFC 9110 section 9.2.2) is retried only when the failure proves the request never reached the application**
+(`ConnectError`, `ConnectTimeout`, `PoolTimeout`): after a read or write timeout, or a protocol error, the request
+may already have been applied, so it is reported as a failure instead of being sent again, and the message says so. Uses the TLS context of `target.tls`. Each request returns the response and an `EvidenceRecord`
 (`record_id` `{test_id}_{NNN}`). Not thread-safe; execution is sequential.
 
 **EvidenceStore** (`src/core/evidence.py`). Three ways in: `add_fail_evidence()` (mandatory for each FAIL

@@ -15,7 +15,7 @@
 | Priority / strategy | P1 / WHITE_BOX |
 | Effect | READ_ONLY |
 | CWE | CWE-778 |
-| Standards | `OWASP ASVS v5.0.0-16.2.1`, `NIST SP 800-92`, `NIST SP 800-53, Section 2` |
+| Standards | `OWASP ASVS v5.0.0-16.3.3`, `OWASP ASVS v5.0.0-16.4.3`, `NIST SP 800-92`, `NIST SP 800-53r5, Section 3.3` |
 | Tags | `logging`, `auditing` |
 | Prerequisites | none |
 | Needs | `GATEWAY` |
@@ -28,7 +28,8 @@
 ## 1. Guarantee
 
 Every request is logged with its metadata. A PASS promises a request-logging plugin is enabled on the gateway. The
-threat (NIST SP 800-92, ASVS v5.0.0-16.2.1): without logging, a security incident or a brute-force attempt leaves no
+threat (NIST SP 800-92, ASVS v5.0.0-16.3.3 and 16.4.3, NIST SP 800-53r5 AU-2): without logging, a security incident
+or a brute-force attempt leaves no
 trail for investigation. The methodology states the limit: "without access to the logs this guarantee cannot be
 checked empirically from outside", so the test audits the gateway's configuration, not the log content.
 
@@ -100,7 +101,8 @@ the log-content checks are permanently outside this test (see Limitations).
 ## 13. Remediation
 
 Enable a request-logging plugin that ships structured logs (timestamp, request id, method, path, real IP, user,
-status, latency) to the log store, with sensitive values redacted (NIST SP 800-92, ASVS v5.0.0-16.2.1).
+status, latency) to the log store, with sensitive values redacted (NIST SP 800-92, ASVS v5.0.0-16.3.3 and 16.4.3,
+NIST SP 800-53r5 AU-2).
 
 ## 14. Limitations
 
@@ -114,6 +116,10 @@ status, latency) to the log store, with sensitive values redacted (NIST SP 800-9
 ## 15. Sources
 
 - NIST SP 800-92 (Guide to Computer Security Log Management): https://nvlpubs.nist.gov/nistpubs/legacy/sp/nistspecialpublication800-92.pdf
-- OWASP ASVS v5.0.0-16.2.1 (log entry metadata): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x25-V16-Security-Logging-and-Error-Handling.md
+- OWASP ASVS v5.0.0-16.3.3 (the security events of the documentation are logged, bypass attempts included) and
+  v5.0.0-16.4.3 (the logs reach a logically separate system for analysis, detection and alerting), which is what a
+  gateway logging plugin does: https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x25-V16-Security-Logging-and-Error-Handling.md
+- The per-entry content of a log (ASVS v5.0.0-16.2.1) is what this test cannot see, and the methodology does ask for
+  it: guarantee 5.1 of the catalogue keeps that requirement, this test does not claim it.
 - NIST SP 800-53 Rev.5 AU-2 (event logging): https://csrc.nist.gov/projects/cprt/catalog#/cprt/framework/version/SP_800_53_5_1_1/home
 - CWE-778 Insufficient Logging: https://cwe.mitre.org/data/definitions/778.html

@@ -15,7 +15,7 @@
 | Priority / strategy | P0 / GREY_BOX |
 | Effect | CHANGES_DATA |
 | CWE | CWE-639 |
-| Standards | `OWASP API1:2023`, `OWASP ASVS v5.0.0-8.2.2`, `NIST SP 800-162, Section 2.2` |
+| Standards | `OWASP API1:2023`, `OWASP ASVS v5.0.0-8.2.2`, `NIST SP 800-162, Section 2.3` |
 | Tags | `authorization`, `bola` |
 | Prerequisites | none |
 | Needs | `USER_ACCOUNT`, `SECOND_USER_ACCOUNT`, `owned_object_resources` |
@@ -122,10 +122,21 @@ the same answer (404) for "not yours" and "not found" so existence is not disclo
 
 ## 14. Limitations
 
-- The object comes from a configured resource and always will: deriving candidate objects from the target (listing a
-  collection and taking an owned id) is not planned (2026-10-27), so an API with no creatable, by-id object in
-  `owned_object_resources` is SKIP. Delete is optional: an object type with no delete operation (a crAPI order) is
-  not cleaned up by the tool, the lab reset removes it.
+- **The object comes from a configured resource, and automatic derivation was measured and rejected.** Deriving a
+  candidate object from the target instead (list a collection as one role, take an identifier, check it is not in
+  the other role's listing) was designed and probed against the three labs on 2026-10-29, with reads only: it found
+  **no owned object on any of them**. On crAPI the vehicle listing of challenge 1 answers `200 []`, because a crAPI
+  vehicle must be claimed with a VIN and a pincode sent by email and the lab never claims one; the order collection
+  is the object already configured; the community posts are public, so the ownership check rejects them. On both
+  Forgejo labs the collections a user owns (`/user/keys`, `/user/hooks`, `/user/gpg_keys`, `/user/starred`) answer
+  `200 []` on a fresh deployment, and the four that do return an identifier (`/orgs`, `/licenses`, `/repos/search`,
+  `/users/search`) are public collections the ownership check rejects, correctly. The measurement says something
+  about the problem, not about this tool: **establishing ownership cannot be made target-agnostic**, because it
+  needs either an object the tool created or the knowledge of which collection one role owns, and a fresh
+  deployment offers neither. Hence the object stays configured, and an API with no creatable, by-id object in
+  `owned_object_resources` gets no verdict from this test.
+- Delete is optional: an object type with no delete operation (a crAPI order) is not cleaned up by the tool, the lab
+  reset removes it.
 - Sequential ID enumeration is not performed (it is object discovery, not an enforcement question).
 - Only one object is tested; a per-endpoint ownership gap on a different object type is not covered.
 
@@ -133,5 +144,6 @@ the same answer (404) for "not yours" and "not found" so existence is not disclo
 
 - OWASP API1:2023 Broken Object Level Authorization: https://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/
 - OWASP ASVS v5.0.0-8.2.2 (data-specific access, IDOR/BOLA): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x17-V8-Authorization.md
-- NIST SP 800-162 section 2.2 (ABAC object attributes): https://csrc.nist.gov/pubs/sp/800/162/upd2/final
+- NIST SP 800-162 section 2.3 (Basic ABAC Concepts: an access decision evaluates the attributes of the subject and
+  **of the object**, `Owner` among them, which is the ownership this test checks): https://csrc.nist.gov/pubs/sp/800/162/upd2/final
 - CWE-639 Authorization Bypass Through User-Controlled Key: https://cwe.mitre.org/data/definitions/639.html

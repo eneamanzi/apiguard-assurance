@@ -84,6 +84,7 @@ class Test62SecurityHeadersAudit(BaseTest):
         priority=3,
         strategy=TestStrategy.BLACK_BOX,
         references=_REFERENCES,
+        cwe="CWE-1021",
         tags=("security-headers", "cors"),
         effect=Effect.READ_ONLY,
         sub_tests=(_SUB_CTO, _SUB_FRAME, _SUB_CORS),

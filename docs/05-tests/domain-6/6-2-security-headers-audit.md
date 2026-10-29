@@ -14,7 +14,7 @@
 | Domain | 6 - Configuration and Hardening |
 | Priority / strategy | P3 / BLACK_BOX |
 | Effect | READ_ONLY |
-| CWE | none |
+| CWE | CWE-1021 |
 | Standards | `OWASP API8:2023`, `OWASP ASVS v5.0.0-3.4.3`, `OWASP ASVS v5.0.0-3.4.4`, `OWASP ASVS v5.0.0-3.4.6` |
 | Tags | `security-headers`, `cors` |
 | Prerequisites | none |
@@ -31,7 +31,9 @@ The defensive security headers are present, sound, and consistent across the ser
 `X-Content-Type-Options: nosniff`, a framing protection (CSP `frame-ancestors` or X-Frame-Options), and a CORS policy
 that does not allow an arbitrary origin with credentials, on every sampled endpoint. OWASP API8:2023; ASVS
 v5.0.0-3.4.3 (CSP), 3.4.4 (nosniff), 3.4.6 (frame-ancestors). HSTS moved to 1.5; Permissions-Policy dropped (not in
-ASVS 3.4). No primary CWE (CWE-16 is a prohibited mapping category).
+ASVS 3.4). Primary CWE: CWE-1021 (improper restriction of rendered UI layers or frames), the weakness the framing
+sub-test looks for, allowed for mapping in CWE 4.20; CWE-16 is not used because it is a category prohibited for
+mapping.
 
 ## 2. Sub-tests and coverage of the methodology
 
@@ -92,11 +94,11 @@ None.
 
 ## 12. Validation
 
-Runs of 2026-10-23:
+Runs of 2026-10-28 (the coverage column was added when a skipped sub-test began to lower it):
 
 | Lab | Status | Basis |
 |---|---|---|
-| Forgejo + Kong, Forgejo + APISIX | **PASS** | nosniff and framing present and consistent across the sampled services; no CORS |
+| Forgejo + Kong, Forgejo + APISIX | **PASS**, `partial` | nosniff and framing present and consistent across the sampled services; no sampled response carried a CORS header, so `cors_not_wildcard` judged its case `NOT_APPLICABLE/NO_CORS`, verified nothing, and the coverage is partial |
 | crAPI + Kong | **FAIL**, 2 findings | nosniff and framing are **inconsistent** across crAPI's services (present on some, absent on others): a selective misconfiguration the single-endpoint check missed; CORS bounded |
 
 Rule 9, both sides proven, agnostically: ENFORCED on Forgejo, VIOLATION (inconsistency) on crAPI. The sampling (one

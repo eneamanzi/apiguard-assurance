@@ -71,9 +71,11 @@ Dependency rule:
 
 from __future__ import annotations
 
+import signal
 import ssl
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -138,6 +140,39 @@ from src.tests.helpers.auth import acquire_tokens
 from src.tests.registry import TestRegistry
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
+
+
+@contextmanager
+def _stop_signals_deferred() -> Iterator[None]:
+    """
+    Hold back Ctrl+C and SIGTERM for the duration of the block.
+
+    Phase 6 removes from the target what the run created, and the exit-code
+    reference promises it runs whole ("teardown removes the resources created
+    on the target"). The stop handlers of the CLI keep that promise for every
+    signal after the first, which they answer without raising; the **first**
+    signal, however, raises wherever the main thread happens to be, and when
+    that is inside the teardown loop the remaining resources are never
+    deleted. Measured on the reference lab on 2026-10-28: a SIGTERM delivered
+    the instant Phase 6 started left 3 of 8 resources behind, 3 API tokens
+    among them, while the tool reported "Teardown ran".
+
+    Blocking the two signals defers them instead: the cleanup finishes, the
+    mask is restored, the pending signal is delivered at once and unwinds as
+    before, so the exit code and the message do not change. On a platform
+    without `pthread_sigmask` (Windows) the block runs unprotected, as it did
+    before. Only the thread that runs the engine is masked, which is the main
+    thread under the CLI.
+    """
+    if not hasattr(signal, "pthread_sigmask"):
+        yield
+        return
+    previous = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM})
+    try:
+        yield
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+
 
 # Similarity threshold for suggesting a test ID in place of an unknown one.
 # Higher than for configuration keys (0.6): test IDs are short and close to
@@ -897,15 +932,19 @@ class AssessmentEngine:
                     config=config,
                 )
             finally:
-                if self._observer is not None:
-                    self._observer.cleanup_started()
-                removed, failed = self._phase_6_teardown(
-                    context=context,
-                    client=client,
-                    target=target,
-                )
-                if self._observer is not None:
-                    self._observer.cleanup_finished(removed=removed, failed=failed)
+                # Ctrl+C and SIGTERM are held back until the cleanup is over
+                # (_stop_signals_deferred): a signal delivered inside the loop
+                # left resources on the target.
+                with _stop_signals_deferred():
+                    if self._observer is not None:
+                        self._observer.cleanup_started()
+                    removed, failed = self._phase_6_teardown(
+                        context=context,
+                        client=client,
+                        target=target,
+                    )
+                    if self._observer is not None:
+                        self._observer.cleanup_finished(removed=removed, failed=failed)
 
         result_set.completed_at = datetime.now(UTC)
         not_run_by_reason: dict[str, int] = {}

@@ -15,7 +15,7 @@
 | Priority / strategy | P1 / GREY_BOX |
 | Effect | CHANGES_DATA |
 | CWE | CWE-213 |
-| Standards | `OWASP API3:2023`, `OWASP ASVS v5.0.0-14.2.6`, `OWASP ASVS v5.0.0-8.2.2`, `NIST SP 800-53, Section 3` |
+| Standards | `OWASP API3:2023`, `OWASP ASVS v5.0.0-14.2.6`, `OWASP ASVS v5.0.0-8.2.3`, `CWE-915`, `NIST SP 800-53r5, Section 3.1` |
 | Tags | `authorization`, `excessive-data`, `mass-assignment` |
 | Prerequisites | none |
 | Needs | `USER_ACCOUNT`, `owned_object_resources` |
@@ -31,7 +31,8 @@ The API exposes only the properties a user may see, and accepts only the propert
 that an object's response carried no sensitive field, and that an object created with extra privileged fields ignored
 them. The threat is Broken Object Property Level Authorization (OWASP API3:2023): excessive data exposure (a
 `passwordHash` in the response) and mass assignment (a client sets `role` or `owner` through the body). ASVS
-v5.0.0-14.2.6 (return only the minimum sensitive data), v5.0.0-8.2.2.
+v5.0.0-14.2.6 (return only the minimum sensitive data), v5.0.0-8.2.3 (field-level access, the requirement ASVS
+writes for broken object property level authorization), CWE-915.
 
 ## 2. Sub-tests and coverage of the methodology
 
@@ -137,12 +138,15 @@ request fields, never the whole body (mass assignment, CWE-915).
 - Mass assignment probes a fixed set of common ownership field names with string sentinels; a boolean-only privileged
   field, or a field name outside the set, is not caught (to avoid false positives).
 - The scan descends a few levels into the response; a deeply nested sensitive field is missed.
-- The object comes from `owned_object_resources` and always will: deriving candidate objects from the target is not
-  planned (2026-10-27), so without a configured resource the test is SKIP (the same boundary as test 2.2).
+- The object comes from `owned_object_resources` and always will: deriving a candidate object from the target was
+  designed and measured against the three labs on 2026-10-29 and found none, because establishing ownership cannot
+  be made target-agnostic (the measurement and what it means are in
+  [test 2.2's limitations](2-2-object-level-authorization.md#14-limitations)). Without a configured resource this
+  test gives no verdict.
 
 ## 15. Sources
 
 - OWASP API3:2023 Broken Object Property Level Authorization: https://owasp.org/API-Security/editions/2023/en/0xa3-broken-object-property-level-authorization/
-- OWASP ASVS v5.0.0-14.2.6 (minimum sensitive data), v5.0.0-8.2.2: https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x23-V14-Data-Protection.md
+- OWASP ASVS v5.0.0-14.2.6 (minimum sensitive data), v5.0.0-8.2.3 (field-level access, BOPLA): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x23-V14-Data-Protection.md
 - CWE-213 Exposure of Sensitive Information Due to Incompatible Policies: https://cwe.mitre.org/data/definitions/213.html
 - CWE-915 Improperly Controlled Modification of Dynamically-Determined Object Attributes (mass assignment): https://cwe.mitre.org/data/definitions/915.html

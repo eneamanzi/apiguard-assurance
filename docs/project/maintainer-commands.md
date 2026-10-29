@@ -331,6 +331,15 @@ seconds later. A run started within that window gets 503 from the workshop endpo
 without having checked them (seen 2026-10-14). Before the next run, the last command of the crAPI check below
 must print `"health":"HEALTHY"`.
 
+**The crAPI lab, however, wears out: reset it about every ten runs.** Tests 2.2 and 2.5 create a shop order (the
+`order` resource), and each order spends 10 of user A's 100 starting credit, which crAPI never gives back. Once it
+runs out, the creation answers `400 Insufficient Balance`, both tests report `OBJECT_NOT_CREATED` and come back
+INCONCLUSIVE: a full assessment then shows 9 FAIL where a reset lab shows 15, and the two authorization findings
+crAPI exists to expose (a BOLA on an order, `card_number` in its response) disappear. Nothing is wrong with the
+tool when this happens, it says INCONCLUSIVE rather than PASS, but a result measured on a worn lab is not the
+lab's reference result. The balance is visible in `GET /identity/api/v2/user/dashboard`; the full reset below
+restores it (measured 2026-10-29).
+
 **Check that a lab is ready**, from the repository root, through the gateway and with the certificates verified
 (each line must print `200`):
 

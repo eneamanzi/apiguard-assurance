@@ -15,7 +15,7 @@
 | Priority / strategy | P3 / WHITE_BOX |
 | Effect | READ_ONLY |
 | CWE | CWE-347 |
-| Standards | `NIST SP 800-107` |
+| Standards | `NIST SP 800-107r1` |
 | Tags | `integrity`, `request-signing` |
 | Prerequisites | none |
 | Needs | `GATEWAY` |

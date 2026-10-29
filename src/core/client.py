@@ -140,9 +140,66 @@ def transport_error_of(exc: BaseException | None) -> TransportError:
     return TransportError.PROTOCOL_ERROR
 
 
+# RFC 9110 section 9.2.2: GET, HEAD, PUT, DELETE, OPTIONS and TRACE are
+# idempotent, POST and PATCH are not. Sending a non-idempotent request twice
+# can apply it twice.
+_IDEMPOTENT_METHODS: frozenset[str] = frozenset(
+    {"GET", "HEAD", "PUT", "DELETE", "OPTIONS", "TRACE"}
+)
+
+# The failures that prove the request never reached the application: no
+# connection was opened (ConnectError, ConnectTimeout) or none was free in the
+# pool (PoolTimeout). A ReadTimeout means it was sent and the answer did not
+# come, a WriteTimeout that it was partly sent, a RemoteProtocolError that the
+# server broke the exchange after receiving something: in all three the
+# request may already have been applied.
+_NOT_SENT_EXCEPTIONS: tuple[type[Exception], ...] = (
+    httpx.ConnectError,
+    httpx.ConnectTimeout,
+    httpx.PoolTimeout,
+)
+
+# The other half of RETRYABLE_EXCEPTIONS: the failures after which the request
+# may already have been applied. For an idempotent method they are retried and
+# a failure ends in a RetryError; for POST and PATCH they are not retried, so
+# they leave the retry loop as they are and _send_with_retries() turns them
+# into a SecurityClientError of their own.
+_MAY_HAVE_BEEN_APPLIED: tuple[type[Exception], ...] = (
+    httpx.ReadTimeout,
+    httpx.WriteTimeout,
+    httpx.RemoteProtocolError,
+)
+
+
 def _is_transient(exc: BaseException) -> bool:
     """A transport failure worth retrying; a TLS failure is not (retrying cannot fix it)."""
     return isinstance(exc, RETRYABLE_EXCEPTIONS) and certificate_failure(exc, TARGET_TLS) is None
+
+
+def _may_retry(exc: BaseException, method: str) -> bool:
+    """
+    Whether a failed attempt of this method may be sent again.
+
+    A transport failure is retried, except that a method which is not
+    idempotent (POST, PATCH) is retried only when the failure proves the
+    request never reached the application. Measured against a server that
+    counts what it receives and answers too late: a POST that timed out on
+    read was sent three times and applied three times, so a slow create
+    endpoint left two objects the tool knew nothing about, with no teardown
+    registered for them. An honest ERROR is better than that.
+
+    Args:
+        exc:    The exception of the attempt.
+        method: The request's method, upper case.
+
+    Returns:
+        True when another attempt is allowed.
+    """
+    if not _is_transient(exc):
+        return False
+    if method in _IDEMPOTENT_METHODS:
+        return True
+    return isinstance(exc, _NOT_SENT_EXCEPTIONS)
 
 
 # ---------------------------------------------------------------------------
@@ -533,7 +590,7 @@ class SecurityClient:
 
         try:
             for attempt in Retrying(
-                retry=retry_if_exception(_is_transient),
+                retry=retry_if_exception(lambda exc: _may_retry(exc, method)),
                 stop=stop_after_attempt(self._max_retry_attempts),
                 wait=wait_exponential_jitter(
                     initial=self._retry_wait_min,
@@ -559,6 +616,21 @@ class SecurityClient:
                         content=content,
                         params=params,
                     )
+                    # Every cookie the target set is dropped at once, so that no
+                    # request carries state the calling test did not ask for.
+                    # httpx keeps a cookie jar per client and replays it on every
+                    # later request to the host: measured on the reference lab,
+                    # Forgejo answers a probe with `Set-Cookie: i_like_gitea=...`
+                    # and from then on the jar travelled with each request,
+                    # absent from the evidence. A session cookie there would
+                    # authenticate the probes a test sends *without* a credential
+                    # (1.1, 1.2, 1.3) and could carry one role's session into
+                    # another's request (2.2). A cookie is never a credential
+                    # for this tool (`credentials.auth_type` has no cookie
+                    # method), so nothing needs the jar; test 1.6 judges the
+                    # Set-Cookie of the response, which is recorded as evidence
+                    # and not touched by this.
+                    self._http_client.cookies.clear()
                     # httpx does not raise on 4xx/5xx by default.
                     # We do NOT call response.raise_for_status() here:
                     # error status codes are valid responses for security tests.
@@ -575,6 +647,27 @@ class SecurityClient:
                 status_code=None,
                 attempt_count=attempt_count,
                 record=failed_record(TransportError.TLS_ERROR),
+            ) from exc
+        except _MAY_HAVE_BEEN_APPLIED as exc:
+            # Reached only for a method that is not idempotent (POST, PATCH):
+            # the request may already have been applied, so it is not sent
+            # again (_may_retry) and the failure is reported as it is.
+            bound_log.error(
+                "security_client_not_retried_method_not_idempotent",
+                attempt_count=attempt_count,
+                error=str(exc),
+            )
+            raise SecurityClientError(
+                message=(
+                    f"HTTP {method} {path} failed: {exc}. Not sent again: {method} is not "
+                    "idempotent (RFC 9110 section 9.2.2) and the request may already have been "
+                    "applied on the target."
+                ),
+                method=method,
+                url=display_url,
+                status_code=None,
+                attempt_count=attempt_count,
+                record=failed_record(transport_error_of(exc)),
             ) from exc
         except RetryError as retry_exc:
             # All attempts exhausted. Extract the last underlying exception

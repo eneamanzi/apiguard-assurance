@@ -252,14 +252,21 @@ completes a HYBRID guarantee.
 
 **Definition.** Paths with parameters (`/repos/{owner}/{repo}/issues/{index}`) are filled from `target.path_seed`,
 a map of parameter names to real values on the deployment. `apiguard generate-seed` reads the specification and
-writes a template with every parameter name; `src/tests/helpers/path_resolver.py` resolves a path with the seed, and
-falls back to `"1"` (`PATH_PARAM_FALLBACK_DEFAULT`) or, for DELETE, to `"apiguard-probe"`
-(`PATH_PARAM_FALLBACK_SAFE_DELETE`); constrained parameters such as `{id:[0-9]+}` are read by name.
+writes a template with every parameter name; `src/tests/helpers/path_resolver.py` resolves a path with the seed and
+falls back to `"1"` (`PATH_PARAM_FALLBACK_DEFAULT`); constrained parameters such as `{id:[0-9]+}` are read by name.
 
 **Consequences.** Without a seed, a probe on a parametric path often gets `404` and is judged
 `NOT_VERIFIABLE/NOT_FOUND_LIKE_UNKNOWN` instead of reaching the authentication check; with a seed the same paths give `ENFORCED/CREDENTIAL_REQUIRED` or
-`VIOLATION/SERVED_WITHOUT_CREDENTIAL`. The DELETE fallback is a non-numeric value unlikely to match a real object: a request that slips past the
-gateway finds nothing to delete.
+`VIOLATION/SERVED_WITHOUT_CREDENTIAL`.
+
+**What keeps a write off a real object.** The seed and its fallback are for a probe that reads. Test 1.1, the one
+that probes every documented operation, sends a method that writes to `random_sibling_path`
+(`src/core/references.py`) instead: every parameter gets a random value, so the request cannot address an object
+that exists. Tests 6.1 and 4.4 do resolve a write path with the seed, but each excludes DELETE and sends a body
+built to be refused (malformed JSON, a body above the size limit); the other tests that write act on an object they
+created themselves, through a prepared resource. A `PATH_PARAM_FALLBACK_SAFE_DELETE` constant (`"apiguard-probe"`)
+was declared in the resolver for a DELETE probe until 2026-10-28: no caller ever passed it, so it described a
+protection that was not in force, and it was removed in favour of the random sibling, which is stronger.
 
 **Evidence.** Empirical: test 1.1 on Forgejo with and without `path_seed`.
 
@@ -270,14 +277,16 @@ test 0.1: a self-configuring loop.
 
 ### D2.P8 Test data catalogues
 
-**Definition.** Attack payloads, wordlists and recognition patterns live in pure-data modules in `src/tests/data/`
-(stdlib only, no logic): `ssrf_payloads.py` (73 SSRF payloads in six categories), `auth_payloads.py` (5 malformed
-tokens), `shadow_wordlists.py` (shadow API candidates), `inspector_patterns.py` (27 stack trace patterns, 33
-sensitive field names). Consumers import them; they import no consumer.
+**Definition.** Attack payloads and recognition patterns live in pure-data modules in `src/tests/data/`
+(stdlib only, no logic): `ssrf_payloads.py` (73 SSRF payloads in six categories, for test 7.2) and
+`inspector_patterns.py` (27 stack-trace patterns, for test 6.1). Consumers import them; they import no consumer.
+A list only one test uses stays in that test, which is where the review of 2026-10-28 left the malformed credential
+values of test 1.1 and the sensitive field names of test 2.5: `auth_payloads.py` and `shadow_wordlists.py` held
+copies no test read any more and were removed with them, so the property now covers two modules, not four.
 
 **Consequences.** A new payload (a new cloud metadata endpoint) is one line, with no change to the test logic.
-Structures are built once at import (for example the normalised sensitive names as a `frozenset`) for constant-time
-lookups. Test 7.2 selects payload categories from configuration.
+Structures are built once at import, as a `frozenset` or a compiled pattern, for a constant-time check per call.
+Test 7.2 selects payload categories from configuration.
 
 **Evidence.** By construction (the modules contain only data). Empirical: the number of 7.2 probes follows its
 configured categories.

@@ -7,11 +7,15 @@ Extracted from src/tests/helpers/response_inspector.py to follow the project
 convention that raw test data (wordlists, payload sets, pattern tuples) lives
 in src/tests/data/ rather than inside helper modules that contain logic.
 
-Sibling data modules in this package:
-    auth_payloads.py    -- JWT manipulation payloads for test 1.1 / 1.2
-    injection_payloads.py -- SQL / NoSQL / command injection strings
-    shadow_wordlists.py -- Path wordlists for shadow API discovery
-    ssrf_payloads.py    -- SSRF target URLs and encoding variants
+Sibling data module in this package:
+    ssrf_payloads.py    -- SSRF target URLs and encoding variants, for test 7.2
+
+Three names stood in this list and are gone (2026-10-28): `injection_payloads.py`
+never existed, while `auth_payloads.py` and `shadow_wordlists.py` were removed
+with their contents, which no test read any more (test 1.1 keeps its own
+malformed credential values, 1.2 builds its JWT variants, and the shadow-API
+paths come from the specification, the gateway's routes and, for ffuf, SecLists
+with src/core/sensitive_paths.py).
 
 Dependency rule
 ---------------
@@ -22,8 +26,13 @@ only constant definitions evaluated once at import time.
 Consumers
 ---------
     src/tests/helpers/response_inspector.py
-        -- imports STACK_TRACE_PATTERNS and SENSITIVE_FIELD_NAMES and uses
-           them in contains_stack_trace() and contains_sensitive_fields().
+        -- imports STACK_TRACE_PATTERNS and uses it in contains_stack_trace(),
+           for test 6.1.
+
+SENSITIVE_FIELD_NAMES lived here until 2026-10-28 and was removed with its only
+consumer, response_inspector.contains_sensitive_fields(), which no test called:
+the sensitive field names the tool really applies are test 2.5's own list, in
+src/tests/domain_2/test_2_5_object_property_authorization.py.
 """
 
 from __future__ import annotations
@@ -74,54 +83,4 @@ STACK_TRACE_PATTERNS: tuple[str, ...] = (
     "IndexOutOfBoundsException",
     "StackOverflowError",
     "OutOfMemoryError",
-)
-
-# ---------------------------------------------------------------------------
-# Sensitive field names
-# ---------------------------------------------------------------------------
-
-# Field names that must never appear in API responses visible to the caller.
-# Methodology reference: guarantee 2.5 -- excessive data exposure
-# (docs/06-knowledge/03-guarantees.md, Section 2.5, OWASP API3:2023).
-#
-# The set uses normalised lowercase names without separators.  The scanner in
-# response_inspector._scan_dict_for_sensitive_fields() strips underscores and
-# hyphens before comparing, so "password_hash", "passwordHash", and
-# "passwordhash" all match the entry "passwordhash".
-SENSITIVE_FIELD_NAMES: frozenset[str] = frozenset(
-    {
-        "password",
-        "passwordhash",
-        "password_hash",
-        "hashedpassword",
-        "hashed_password",
-        "passwd",
-        "secret",
-        "secretkey",
-        "secret_key",
-        "apikey",
-        "api_key",
-        "privatekey",
-        "private_key",
-        "ssn",
-        "socialsecuritynumber",
-        "social_security_number",
-        "creditcard",
-        "credit_card",
-        "cardnumber",
-        "card_number",
-        "cvv",
-        "pin",
-        "otp",
-        "totpsecret",
-        "totp_secret",
-        "accesstoken",
-        "access_token",
-        "refreshtoken",
-        "refresh_token",
-        "authtoken",
-        "auth_token",
-        "salt",
-        "pepper",
-    }
 )

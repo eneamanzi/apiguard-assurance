@@ -75,7 +75,7 @@ from pydantic import BaseModel, Field
 from src.core.client import SecurityClient
 from src.core.evidence import EvidenceStore
 from src.core.exceptions import SecurityClientError
-from src.core.models import Confidence, EvidenceRecord, ParameterInfo, ResponseCategory
+from src.core.models import EvidenceRecord, ParameterInfo, ResponseCategory
 from src.core.response_category import categorize
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -160,24 +160,6 @@ class Existence(StrEnum):
     INDICATED = "INDICATED"
     NOT_PROVEN = "NOT_PROVEN"
     NOT_CHECKED = "NOT_CHECKED"
-
-
-def confidence_of(existence: Existence) -> Confidence:
-    """
-    The confidence an existence gives a verdict that rests on it.
-
-    Args:
-        existence: The existence from response_facts().
-
-    Returns:
-        CERTAIN for PROVEN (a positive control), FIRM for INDICATED (one
-        assumption), TENTATIVE otherwise (nothing proves the endpoint).
-    """
-    if existence == Existence.PROVEN:
-        return Confidence.CERTAIN
-    if existence == Existence.INDICATED:
-        return Confidence.FIRM
-    return Confidence.TENTATIVE
 
 
 class ResponseFacts(BaseModel):

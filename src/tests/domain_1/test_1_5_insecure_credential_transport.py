@@ -107,9 +107,14 @@ _REFERENCES: tuple[Reference, ...] = (
     # boundary); ASVS 3.4.1 (Strict-Transport-Security on all responses, max-age
     # at least one year, subdomains for L2+); 12.2.1 (TLS on all connectivity to
     # external HTTP services, no fallback to cleartext).
+    # Both categories, each on its own ground (read on the source 2026-10-28):
+    # API2:2023 for the credential this test exposes, API8:2023 for the
+    # configuration that exposes it, whose list names "Transport Layer Security
+    # (TLS) is missing" and "security directives are not sent to clients".
     Reference(standard=Standard.OWASP_API_TOP10, id="API2:2023"),
+    Reference(standard=Standard.OWASP_API_TOP10, id="API8:2023"),
     Reference(standard=Standard.RFC, id="9110", section="4.2.2"),
-    Reference(standard=Standard.NIST_SP, id="800-52"),
+    Reference(standard=Standard.NIST_SP, id="800-52r2"),
     Reference(standard=Standard.ASVS, id="v5.0.0-3.4.1"),
     Reference(standard=Standard.ASVS, id="v5.0.0-12.2.1"),
 )

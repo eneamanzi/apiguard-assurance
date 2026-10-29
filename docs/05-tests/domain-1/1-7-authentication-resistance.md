@@ -15,7 +15,7 @@
 | Priority / strategy | P1 / GREY_BOX |
 | Effect | STRESSES_TARGET |
 | CWE | CWE-307 |
-| Standards | `OWASP API2:2023`, `OWASP ASVS v5.0.0-6.3.8`, `OWASP ASVS v5.0.0-6.3.1`, `CWE-204`, `CWE-208`, `NIST SP 800-63B, Section 3.2.2` |
+| Standards | `OWASP API2:2023`, `OWASP ASVS v5.0.0-6.3.8`, `OWASP ASVS v5.0.0-6.3.1`, `CWE-204`, `CWE-208`, `NIST SP 800-63B-4, Section 3.2.2` |
 | Tags | `authentication`, `brute-force` |
 | Prerequisites | none |
 | Needs | `USER_ACCOUNT` |

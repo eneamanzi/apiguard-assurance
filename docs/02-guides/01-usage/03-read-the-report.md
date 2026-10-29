@@ -59,8 +59,10 @@ jq -r '.all_rows[] | "\(.test_id)\t\(.status)\t\(.finding_count)\t\(.message)"' 
 | `SKIP` | a precondition was missing; `skip_reason` says which | not a pass: provide the precondition or accept the gap |
 | `ERROR` | the check did not complete; the message says why | fix the cause (URL, credentials, tool) and run again |
 
-A PASS can be **partial** (`coverage: PARTIAL`): the guarantee held for the cases checked, but some could not be
-verified; the notes and the per-request `outcome` (step 4) say which. A test excluded by the
+A PASS can be **partial** (`coverage: PARTIAL`): it is `COMPLETE` only when every declared sub-test verified
+something, so `PARTIAL` means a sub-test could not decide (`INCONCLUSIVE`) or judged nothing at all (`SKIP`, for
+instance a check whose precondition the configuration does not give). The sub-test table says which one, and the
+notes and the per-request `outcome` (step 4) say why. On the reference lab 6 of the 15 passing tests are partial. A test excluded by the
 [selection](02-select-tests.md) or stopped by fail-fast is not a result: it is listed in `not_run` (HTML: "Not Run"
 section) with the reason.
 

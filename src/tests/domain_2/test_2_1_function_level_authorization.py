@@ -99,9 +99,10 @@ _REFERENCES: tuple[Reference, ...] = (
     # Read on the ASVS v5.0.0 source 2026-10-22: 8.1.1 (a documented and enforced
     # access-control policy), 8.3.1 (function-level access control at the server).
     Reference(standard=Standard.OWASP_API_TOP10, id="API5:2023"),
+    Reference(standard=Standard.ASVS, id="v5.0.0-8.2.1"),
     Reference(standard=Standard.ASVS, id="v5.0.0-8.1.1"),
     Reference(standard=Standard.ASVS, id="v5.0.0-8.3.1"),
-    Reference(standard=Standard.NIST_SP, id="800-53", section="3"),
+    Reference(standard=Standard.NIST_SP, id="800-53r5", section="3.1"),
 )
 
 

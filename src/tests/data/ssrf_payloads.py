@@ -322,17 +322,6 @@ URL_PARSER_CONFUSION_URLS: tuple[tuple[str, str], ...] = (
 )
 
 # ---------------------------------------------------------------------------
-# Open redirect / SSRF via redirect chain
-#
-# Methodology ref: guarantee 7.2 -- redirect following validation.
-# The consuming test substitutes the operator-controlled redirect server URL
-# at runtime via cfg.ssrf_redirect_server_url.  This sentinel documents the
-# attack pattern without embedding a runtime URL.
-# ---------------------------------------------------------------------------
-
-REDIRECT_SSRF_SENTINEL: str = "REQUIRES_REDIRECT_SERVER"
-
-# ---------------------------------------------------------------------------
 # Aggregated catalogue
 #
 # ALL_SSRF_PAYLOADS is the complete set iterated by test 7.2.

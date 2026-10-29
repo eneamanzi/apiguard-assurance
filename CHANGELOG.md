@@ -10,18 +10,26 @@ Before 1.0.0 a breaking change raises the minor version.
 
 Since 0.1.0 the infrastructure for production and integration landed first (blocks 1-5d, 7-10, below), and then the
 **block-6 test review** rewrote the test suite on a new assessment model and extended it. Lab results therefore
-differ from 0.1.0 by the tests' own logic, not only by the lab's data. The full list of tests now implemented is in
-[`roadmap.md`](docs/project/roadmap.md); `apiguard list-tests` is the ground truth.
+differ from 0.1.0 by the tests' own logic, not only by the lab's data. The full list of tests now implemented is the
+generated catalogue [`docs/05-tests/README.md`](docs/05-tests/README.md); `apiguard list-tests` is the ground truth.
 
 ### Added
 
+- **What the tool detects of crAPI's declared vulnerabilities, measured** (`06-compatibility.md`, 2026-10-29). crAPI
+  publishes the 18 weaknesses it was built to contain, so the measure is not ours: on a reset lab, with the full
+  32-test assessment, the tool caught four outright (an unprotected password reset, no rate limit on the very
+  feature the challenge names, two endpoints served without a credential, a JWT with `alg: none` that crAPI does not
+  even list among its four JWT flaws), caught the class of a fifth on another endpoint, **named the endpoint of a
+  sixth and refused to exploit it** because the operation is destructive, attempted a seventh without being able to
+  conclude, missed four, and four more are outside its scope by decisions already recorded while three are absent
+  from this deployment. The row for each challenge says which, and why.
 - **Block-6 test review: the test suite was reviewed and extended.** New guarantees: 0.4 (a backend answers only
   through the gateway), 1.2 and 1.3 (JWT cryptographic validity and expiry), 1.7 (authentication endpoints resist
   guessing), 2.2 (object-level authorization, BOLA), 2.4 and 2.5 (authorization consistency and object-property
   level), 4.4 (request size limits), 5.1 and 5.2 (request-logging and security-alerting audits), 6.1 (error and
   information disclosure), 7.1, 7.3 and 7.4 (sensitive-flow anti-automation, race conditions, webhook verification);
   `ext.0.1.ffuf` and `ext.3.1.schemathesis` as new external tests. The full set, with each test's strategy and
-  priority, is in `roadmap.md`.
+  priority, is in the generated catalogue `docs/05-tests/README.md`.
 - **A new assessment model under every test** (block 6): each judged response carries an `outcome` (`VIOLATION`,
   `ENFORCED`, `NOT_VERIFIABLE`, `NOT_APPLICABLE`) and a test-specific `detail`; each finding carries a `confidence`
   (`CERTAIN`, `FIRM`, `TENTATIVE`); a test's status is computed from its sub-tests' outcomes, with a new
@@ -130,6 +138,138 @@ differ from 0.1.0 by the tests' own logic, not only by the lab's data. The full 
 
 ### Fixed
 
+- **The crAPI lab wears out, and `maintainer-commands.md` said it needed no reset** (pass C of the test-by-test
+  review, 2026-10-29). Tests 2.2 and 2.5 create a shop order and each order spends 10 of user A's 100 starting
+  credit, which crAPI never gives back: after about ten runs the creation answers `400 Insufficient Balance`, both
+  tests report `OBJECT_NOT_CREATED`, and a full assessment shows 9 FAIL where a reset lab shows 15, losing the two
+  authorization findings crAPI exists to expose (a BOLA on an order, `card_number` in its response). The tool stays
+  honest throughout, reporting INCONCLUSIVE and never a PASS. The maintainer commands now say to reset about every
+  ten runs, with the measurement and how to read the balance.
+- **One version of each standard, and every citation verified on its source** (pass B of the test-by-test review,
+  2026-10-28). The tool cited a mixture: the NIST identifiers omitted the revision (`800-53`, `800-63B`, `800-61`,
+  `800-52`, `800-107`) while the pages named it, so the report printed a reference a reader could not check, and the
+  section numbering of a NIST publication changes between revisions. Every identifier now carries its revision, and
+  `StandardFormat` holds the one version of each standard the tool cites (ASVS v5.0.0, OWASP API Top 10 2023, OWASP
+  Top 10 2025, WSTG v4.2, CWE 4.20), pinned in the pattern so a reference on another version is refused when it is
+  built; `report-schema.md` states each version and how it was established. All 141 citations (106 distinct) were
+  then checked against the sources: the 40 ASVS requirements exist in v5.0.0 (indexed from the 17 chapters of the
+  OWASP repository), the 37 CWEs exist with the titles of release 4.20, the 11 RFCs are none of them obsolete and
+  every cited section carries the title the test uses it for, the 4 WSTG identifiers resolve on the v4.2 tag, and
+  the NIST sections were read from the publications themselves.
+- **The TLS scan was filed under Broken Authentication.** `ext.1.5.testssl` cited OWASP API2:2023, and the test
+  carries no credential: it judges the gateway's TLS stack (protocol versions, cipher suites, forward secrecy, the
+  certificate chain). Read on the source, API8:2023 lists "Transport Layer Security (TLS) is missing" and
+  "appropriate security hardening is missing across any part of the API stack", while API2's own list says nothing
+  about the handshake, its "weak encryption keys" and "plain text passwords" being about the credentials themselves.
+  The external test now cites API8:2023; the native test 1.5 cites **both**, API2:2023 for the credential it exposes
+  and API8:2023 for the configuration that exposes it.
+- **Two more citations named a section whose content is about something else**, found by reading the body of each
+  NIST section instead of its title (2026-10-28): test 7.2 cited `NIST SP 800-204 §3.2.2` as a source of its SSRF
+  payload catalogue, and that section is "Internet-based Attacks", about the inbound surface of a microservices
+  application, while the publication never mentions SSRF, server-side request forgery or an outbound call (the
+  reference is dropped; the catalogue's real sources, PayloadsAllTheThings and WSTG-v42-INPV-19, are the ones its own
+  module names). Test 2.2 cited `800-162 §2.2`, a survey of ABAC definitions that never mentions object attributes,
+  where §2.3 "Basic ABAC Concepts" evaluates "attributes of the object", `Owner` among them, which is the ownership
+  the test checks.
+- **Eight citations named the wrong thing**, each replaced by one verified on the source: test 6.4 cited
+  `NIST SP 800-53 §5.4` and its page `800-204 §5.4`, and **neither publication has a §5.4** (now 800-53r5 §3.7,
+  control IA-5(7), "no embedded unencrypted static authenticators", which is the test's guarantee verbatim); tests
+  2.1, 2.4, 2.5 and 5.1 carried a control identifier in the `section` field, so the report printed "Section 3" where
+  the pages meant AC-3 and AU-2 (now §3.1 Access Control and §3.3 Audit and Accountability, the families those
+  controls belong to); test 1.7's `800-63B §3.2.2` exists only in revision 4 (now `800-63B-4`, whose §3.2.2 is "Rate
+  Limiting (Throttling)"; in the base SP 800-63-4 that number is "Identify Potential Impact Levels"); test 5.1 cited
+  ASVS 16.2.1, per-entry log metadata, the one thing it cannot see (now 16.3.3 and 16.4.3, which describe what a
+  gateway logging plugin does); test 2.5 cited ASVS 8.2.2, data-specific access, where 8.2.3 is written for broken
+  object property level authorization, and gains CWE-915 for mass assignment; test 2.1 gains ASVS 8.2.1, the
+  function-level requirement it verifies; `ext.3.1.schemathesis` loses API10:2023, which is the API's trust in data
+  it consumes from third parties, and rests on CWE-20, ASVS 2.2.1 and SI-10; test 5.2's `800-61 §2.3` is
+  "Incident Response Policies, Processes, and Procedures", not alerting (now §3.2, CSF outcome DE.AE-06); and test
+  6.2 declares CWE-1021, which its own page already cited and which CWE 4.20 allows for mapping. **Changed
+  results**: the `references` of those tests in the report and the catalogue; no status, coverage or finding count
+  changes.
+- **A `POST` or `PATCH` that timed out was sent again, so one request could be applied several times** (found
+  reviewing the client's retry policy, 2026-10-28). Every transport failure was retried for every method: measured
+  against a server that counts what it receives and answers too late, a `POST` was sent **three times** and applied
+  three times. On a target whose create endpoint is slow, `create_resource` would leave two objects behind that the
+  tool never learned of, with no teardown registered for them, and the retry is not theoretical: on crAPI a run
+  retried `POST /workshop/api/shop/orders` twice. A method that is not idempotent (`POST`, `PATCH`, RFC 9110
+  section 9.2.2) is now retried only when the failure proves the request never reached the application (connection
+  refused, connect or pool timeout); after a read or write timeout or a protocol error it is reported as a failure
+  whose message says the request may already have been applied. Verified against the same server: `POST` and
+  `PATCH` one attempt, `PUT`, `DELETE` and `GET` three, and with the connection refused all of them three.
+- **Every cookie the target set was replayed on every later request of the run** (found reviewing the authentication
+  helpers, 2026-10-28). `SecurityClient` wraps an `httpx.Client`, which keeps a cookie jar and sends it to the host
+  on each request: measured on the reference lab, Forgejo answers a probe with `Set-Cookie: i_like_gitea=...` and
+  from then on every request carried it, absent from the evidence (the record holds the headers the test set, not
+  the ones the transport adds). A cookie is never a credential for this tool (`credentials.auth_type` has no cookie
+  method, and the compatibility table says session cookies are not implemented), so a session cookie on a target
+  that sets one at login would have authenticated the probes the tests send **without** a credential (1.1, 1.2,
+  1.3) and could have carried one role's session into another role's request (2.2). The jar is now cleared after
+  each response; the `Set-Cookie` of the response is still recorded as evidence, which is what test 1.6 judges.
+  No change on the three labs (29, 29 and 28 native tests: identical statuses, coverages and finding counts).
+- **Ctrl+C or SIGTERM arriving during the teardown left resources on the target, while the tool reported the
+  cleanup had run** (found reviewing the resource helper, 2026-10-28). The CLI's stop handler raises wherever the
+  main thread is, so a first signal delivered inside the Phase 6 loop aborted the deletions still pending: measured
+  on the reference lab by signalling the instant Phase 6 started, 3 of 8 resources were left behind, 3 Forgejo API
+  tokens among them, and the run still logged `assessment_interrupted detail='Teardown ran'`. The engine now defers
+  both signals for the duration of Phase 6 (`_stop_signals_deferred`, `signal.pthread_sigmask`): the same
+  experiment now logs `teardown_completed success_count=8 failure_count=0` and leaves nothing on the target, with
+  the exit code unchanged (`143`) and the same message. The exit-code reference promised this behaviour already.
+- **The configuration values concept came back in a different order on every read.** Both gateways answer a plugin
+  configuration as a serialised Lua table, whose key order is not stable, so the pinned evidence of the concept and
+  the order of test 6.4's findings changed between two runs against an unchanged target. The order is now defined
+  once, in `sorted_config_values` (by location, then key), and both adapters return their values through it. Checked
+  by reading all seven concepts three times on the three labs: every concept now identical, byte for byte.
+- **The Kong circuit-breaker concept looked for field names the plugin it recognises does not use.** The adapter
+  recognises `circuit-breaker` (dream11/kong-circuit-breaker) by name, but read its threshold and open-state from
+  `failure_threshold` / `consecutive_errors` / `timeout` / `sleep_time`, while that plugin states
+  `failure_percent_threshold` and `wait_duration_in_open_state`: the concept answered "not stated" for values the
+  gateway does state, and the note of test 4.3 printed "threshold None". The plugin's own names come first now,
+  checked against its README (read 2026-10-28). Proven by reading the reference Kong through a proxy that adds such
+  a plugin with its documented configuration: "threshold 51".
+- **The gateway configuration scan of test 6.4 read nothing at all on Kong** (found reviewing the adapters,
+  2026-10-28), so its PASS rested on an empty scan. Two causes, both in the shared code. The Kong reader collected
+  `service["url"]`, a field Kong's Service object does not have (`GET /schemas/services` holds `protocol`, `host`,
+  `port`, `path`): the address is now rebuilt from those fields. And `collect_text_values` descended into arrays
+  only for items that are objects, skipping a string that is an item of an array, which is exactly how a gateway
+  plugin states a header (`config.add.headers[0] = "Authorization: Bearer ..."`): such strings are now collected,
+  with an indexed key. The values the scan reads went from 0 to 11 on Forgejo + Kong, 0 to 25 on crAPI + Kong and
+  11 to 15 on Forgejo + APISIX. Proven by planting a GitHub-PAT-shaped token in a plugin header list of the
+  reference lab: **FAIL**, `VIOLATION/CONFIG_SECRET` naming `config.add.headers[3]`, where the old reader collected
+  0 values and saw nothing. The lab change was undone and verified. **Changed results**: none on the labs as
+  configured (6.4 still PASS on all three, no false positive from the newly read values).
+- **A PASS could claim `complete` coverage while part of the test never ran** (found reviewing the verdict
+  arithmetic, 2026-10-28). `coverage` became `partial` only when cases were not verifiable, so a declared sub-test
+  that verified nothing did not lower it: on the reference lab, 6.2 passed `complete` with its CORS sub-test judged
+  `NOT_APPLICABLE` and 6.4 passed `complete` with its debug-endpoint sub-test never made. A `PASS` is now `complete`
+  only when every declared sub-test verified something, so both report `partial`. **Changed results**: coverage of
+  6.2 and 6.4 (statuses, finding counts and exit codes unchanged, verified by re-running the 29 native tests on all
+  three labs).
+- **The report did not honour its own schema for `sub_tests`.** `report-schema.md` states that the array holds every
+  declared sub-test, but a test that skipped before judging (1.6, 5.2, 7.1, 7.3, 7.4 on the reference lab) returned
+  it empty, while a test that ran and applied to nothing (1.2, 1.3, 2.4) returned its sub-tests as SKIP: the same
+  situation in two shapes, which an integrator cannot rely on. `_skip()` now reports the declared sub-tests at zero
+  counters, so the shape no longer depends on the outcome. A caller that had already judged something keeps the
+  result it had.
+- **Test 4.3 passed a Kong gateway with no health check at all** (found in the test-by-test review, 2026-10-27).
+  The oracle accepted a backend as protected when its `active` health-check record existed, but Kong answers
+  `GET /upstreams` with its defaults filled in, so a backend with nothing configured comes back with a complete
+  `active` record whose intervals are zero, which means it is never probed. Any Kong gateway with at least one
+  upstream was therefore reported `ENFORCED/HEALTH_CHECK`, CERTAIN, with a note claiming a failing backend was taken
+  out of rotation, and the `VIOLATION` branch was unreachable. A health check now counts only when it can notice a
+  failure: a passive threshold above zero, or an active probe on healthy targets. Proven on the lab by removing the
+  upstream's `healthchecks` block (**FAIL**, where the old oracle said PASS).
+- **Test 4.3 could report a violation it had not established.** The SKIP needed *both* gateway concepts to be
+  unreadable, so a gateway that answered `/upstreams` but refused `/plugins` fell through to
+  `VIOLATION/NO_CIRCUIT_BREAKER` with CERTAIN confidence, stating the gateway had no breaker without having read the
+  breakers. The test now distinguishes the two answers the adapter already separated: a concept the gateway does not
+  have (`NOT_SUPPORTED`) counts as absent, while a concept that could not be read (`NOT_ACCESSIBLE`) gives
+  `NOT_VERIFIABLE/GATEWAY_READ_FAILED` and an INCONCLUSIVE status. The SKIP reason now names both concepts, not only
+  the breakers.
+- **Test 4.3's note stated a Kong fact on every gateway:** "Kong has no breaker plugin, this is its mechanism" was
+  printed on an APISIX run, where `api-breaker` exists. The note is now gateway-neutral and says instead which
+  backends are not re-enabled by themselves (`HealthCheck.recovers_automatically`), which the oracle computed and
+  never reported.
 - `config.example.yaml` did not load as written (exit `10`, `tests.domain_1.test_1_4: Input should be a valid
   dictionary`) since it was created: a block with every line commented is `null` for YAML, and a block rejected
   `null` (Q-70). A declared block written empty now takes its defaults, as if it were not written (sections, tools,
@@ -171,6 +311,38 @@ differ from 0.1.0 by the tests' own logic, not only by the lab's data. The full 
   `specification.timeout` the run stops with exit `10`.
 
 ### Removed
+
+- **Two data modules and six symbols nothing referenced**, found by a sweep over every module-level symbol of
+  `src/` and `scripts/` (126 modules, 1,250 symbols) at the close of the infrastructure review, 2026-10-28:
+  `src/tests/data/auth_payloads.py` (57 lines, only `MALFORMED_TOKENS`, which test 1.1 replaced with its own
+  `_MALFORMED_VALUES`), `src/tests/data/shadow_wordlists.py` (119 lines: tests 0.1 and 0.2 derive their paths from
+  the specification and the gateway's routes, and ffuf uses SecLists with `src/core/sensitive_paths.py`),
+  `REDIRECT_SSRF_SENTINEL` (the redirect-chain SSRF that test 7.2 leaves out), `references.confidence_of`,
+  `cli.DEFAULT_LOG_LEVEL`, `loader.DEFAULT_CONFIG_FILENAME`, and `evidence.EVIDENCE_OUTPUT_FILENAME` with
+  `evidence.RESPONSE_BODY_MAX_CHARS` — the latter a second copy of the live truncation limit
+  (`_EVIDENCE_RECORD_BODY_MAX_CHARS` in `core/models/http.py`, same value), so editing it changed nothing. Three
+  stale claims went with them: two docstrings named `injection_payloads.py`, which never existed, and the design
+  property D2.P8 and the extending guide listed four payload modules of which two were dead. The 29 native tests
+  give identical statuses, coverages and finding counts after the deletions.
+- **`PATH_PARAM_FALLBACK_SAFE_DELETE`, a safety constant no caller ever passed** (2026-10-28). The resolver declared
+  `"apiguard-probe"` as the fallback for a parametric DELETE probe, and the design properties described it as a
+  protection in force ("a request that slips past the gateway finds nothing to delete"), but no test ever passed it:
+  the claim described a protection that did not exist. What does keep a write off a real object was already there
+  and is stronger: test 1.1 sends every write method to `random_sibling_path`, which fills each parameter with a
+  random value. The design property and the helper list say that instead now.
+- **Five functions of `response_inspector.py` and one data list, none of them called by any test** (found reviewing
+  the shared helpers, 2026-10-28): `check_security_headers`, `find_missing_security_headers`,
+  `find_invalid_security_headers`, `contains_sensitive_fields`, `auth_errors_are_uniform`, with
+  `SECURITY_HEADER_DEFINITIONS`, `_NORMALIZED_SENSITIVE_FIELD_NAMES`, `_scan_dict_for_sensitive_fields` and
+  `SENSITIVE_FIELD_NAMES` in `src/tests/data/inspector_patterns.py`. They were written before the block-6 test
+  review and left behind by it, so the repository held two definitions of "a sensitive field" and two of "the
+  security headers the tool checks", the dead ones wider than the live ones. Each job is done elsewhere: the header
+  policy by test 6.2, whose scope was decided in the review (HSTS moved to 1.5, which checks `max-age` against a
+  bound; Permissions-Policy dropped as outside ASVS 3.4) and whose framing check already refuses the deprecated
+  `allow-from`; the sensitive field names by test 2.5's own list; the uniformity of authentication errors by test
+  1.7, which compares a fingerprint of the body and the response times rather than the bodies as they are. The
+  module keeps the three detectors test 6.1 uses: 411 lines to 195, and 127 to 82 in the data module. The 29 native
+  tests give identical statuses, coverages and finding counts on the reference lab.
 
 - The sslyze connector and the `[sslyze]` optional extra (Q-11, Q-24): `SslyzeConnector`, `SslyzeConfig`, the
   `external_tools.sslyze` configuration, the `ext.1.5.sslyze` external test and the Hatch default-environment

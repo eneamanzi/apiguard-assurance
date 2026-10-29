@@ -89,7 +89,7 @@ _REFERENCES: tuple[Reference, ...] = (
     # enforced the same everywhere).
     Reference(standard=Standard.OWASP_API_TOP10, id="API8:2023"),
     Reference(standard=Standard.ASVS, id="v5.0.0-8.1.1"),
-    Reference(standard=Standard.NIST_SP, id="800-53", section="3"),
+    Reference(standard=Standard.NIST_SP, id="800-53r5", section="3.1"),
 )
 
 

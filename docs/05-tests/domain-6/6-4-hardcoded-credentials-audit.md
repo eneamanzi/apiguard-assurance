@@ -15,7 +15,7 @@
 | Priority / strategy | P2 / BLACK_BOX |
 | Effect | READ_ONLY |
 | CWE | CWE-798 |
-| Standards | `OWASP API8:2023`, `OWASP ASVS v5.0.0-13.3.1`, `NIST SP 800-53, Section 5.4` |
+| Standards | `OWASP API8:2023`, `OWASP ASVS v5.0.0-13.3.1`, `NIST SP 800-53r5, Section 3.7` |
 | Tags | `hardcoded-credentials`, `secret-management` |
 | Prerequisites | none |
 | Needs | `GATEWAY` (optional) |
@@ -108,17 +108,21 @@ Section [`tests.domain_6.test_6_4`](../../03-reference/01-configuration.md#tests
 
 ## 12. Validation
 
-Runs of 2026-10-23:
+Runs of 2026-10-28 (the coverage column was added when a skipped sub-test began to lower it):
 
 | Lab | Status | Basis |
 |---|---|---|
-| Forgejo + Kong, crAPI + Kong, Forgejo + APISIX | **PASS** | no `debug_endpoint_paths` configured (sub-test A not applicable); the gateway config holds no credential pattern (sub-test B enforced) |
+| Forgejo + Kong, crAPI + Kong, Forgejo + APISIX | **PASS**, `partial` | no `debug_endpoint_paths` configured, so `debug_endpoint_no_secret` judged its case `NOT_APPLICABLE` and verified nothing: the coverage is partial, because the check was never made rather than made and passed. The config scan read 11, 25 and 15 values respectively and matched no credential pattern (`gateway_config_no_secret` enforced) |
+| Forgejo + Kong, a synthetic token planted in a plugin header list and then removed | **FAIL**, 1 finding | `config.add.headers[3]` of the `response-transformer` plugin held a GitHub-PAT-shaped value: `VIOLATION/CONFIG_SECRET`, FIRM, the finding naming the exact key |
 
-Rule 9: the ENFORCED side is proven. The VIOLATION branches are lab-unproven: the labs expose no credential, Kong
-strips user:password from a service URL (so a credentialled URL cannot be injected into the config), and a Kong
-DB-less config carries few scannable string values (the review's own note). The detectors are deterministic regexes;
-producing a live exposure (a debug endpoint that returns a secret, a gateway that keeps a credentialled config value)
-would need an announced change to a lab and has not been done.
+Rule 9: both sides of `gateway_config_no_secret` are proven on a real gateway. The VIOLATION of
+`debug_endpoint_no_secret` stays unproven: it needs a target with a debug endpoint that returns a secret.
+
+**How many values the scan actually reads**, measured on 2026-10-28 after the review of the adapters: 11 on
+Forgejo + Kong, 25 on crAPI + Kong, 15 on Forgejo + APISIX. Until that review it was **zero on every Kong
+gateway**, so the ENFORCED side rested on an empty scan: the Kong reader looked for a `url` field that Kong's
+Service object does not have, and the shared scanner skipped strings that are items of an array, which is the shape
+a gateway plugin states a header in. The planted token above was invisible to the old reader and is the proof.
 
 ## 13. Remediation
 
@@ -133,10 +137,16 @@ v5.0.0-13.3.1, CWE-798); make debug endpoints return 401/403 or remove them in p
   surface (Kong DB-less) is not reached.
 - The semantic-key rule is a heuristic (TENTATIVE): a long non-secret value in a credential-named key is a false
   positive, a secret in a differently-named key a false negative.
+- The pattern set is six shapes (credentials inside a URL, AWS access key, Stripe live and test keys, GitHub
+  personal access token, PEM private key). There is no generic rule for a bearer token or an API key, so
+  `Authorization: Bearer <opaque>` in a plugin header is caught only by the semantic-key rule, if the key is named
+  like a credential.
 
 ## 15. Sources
 
 - OWASP API8:2023 Security Misconfiguration: https://owasp.org/API-Security/editions/2023/en/0xa8-security-misconfiguration/
 - OWASP ASVS v5.0.0-13.3.1 (secrets management): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x22-V13-Configuration.md
-- NIST SP 800-204 section 5.4 (secret management for microservices): https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-204.pdf
+- NIST SP 800-53 Rev.5 section 3.7, control IA-5(7) ("no embedded unencrypted static authenticators": ensure that
+  unencrypted static authenticators are not embedded in applications or other forms of static storage):
+  https://csrc.nist.gov/projects/cprt/catalog#/cprt/framework/version/SP_800_53_5_1_1/home
 - CWE-798 Use of Hard-coded Credentials: https://cwe.mitre.org/data/definitions/798.html

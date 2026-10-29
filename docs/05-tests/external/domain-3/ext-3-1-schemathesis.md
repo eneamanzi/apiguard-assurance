@@ -15,7 +15,7 @@
 | Priority / strategy | P2 / BLACK_BOX |
 | Effect | STRESSES_TARGET |
 | CWE | CWE-20 |
-| Standards | `OWASP API10:2023`, `OWASP ASVS v5.0.0-2.2.1` |
+| Standards | `OWASP ASVS v5.0.0-2.2.1`, `NIST SP 800-53r5, Section 3.19` |
 | Tags | `input-validation`, `injection`, `fuzzing` |
 | Prerequisites | none |
 | Needs | - |
@@ -29,8 +29,11 @@
 ## 1. Guarantee
 
 Every input is validated against its type, format, range and pattern before the business logic. A PASS promises
-Schemathesis found no operation that mishandles a generated input. The threat (OWASP API10:2023, CWE-20): a 500 on a
-bad input (the input reached the logic), an invalid input accepted, or a non-conformant response. ASVS v5.0.0-2.2.1.
+Schemathesis found no operation that mishandles a generated input. The threat (CWE-20, ASVS v5.0.0-2.2.1, NIST SP
+800-53r5 SI-10): a 500 on a bad input (the input reached the logic), an invalid input accepted, or a non-conformant
+response. The OWASP API Top 10 2023 has no category for the validation of a client's input (API10:2023 is the API's
+trust in data it consumes from third-party APIs, which this test does not exercise), so the guarantee rests on the
+three references above.
 
 ## 2. Sub-tests and coverage of the methodology
 
@@ -100,7 +103,7 @@ Forgejo 12.6 s at `max_examples` 1-2).
 ## 13. Remediation
 
 Validate every input against its type, format, range and pattern (allow-list) at the edge, returning a clean 400 on
-a bad input, and never a 500 (OWASP API10:2023, ASVS v5.0.0-2.2.1).
+a bad input, and never a 500 (CWE-20, ASVS v5.0.0-2.2.1, NIST SP 800-53r5 SI-10).
 
 ## 14. Limitations
 
@@ -113,7 +116,7 @@ a bad input, and never a 500 (OWASP API10:2023, ASVS v5.0.0-2.2.1).
 
 ## 15. Sources
 
-- OWASP API10:2023 Unsafe Consumption of APIs / input validation: https://owasp.org/API-Security/editions/2023/en/0xaa-unsafe-consumption-of-apis/
+- NIST SP 800-53 Rev.5 SI-10 (information input validation): https://csrc.nist.gov/projects/cprt/catalog#/cprt/framework/version/SP_800_53_5_1_1/home
 - OWASP ASVS v5.0.0-2.2.1 (input validated against expectations): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x11-V2-Validation-and-Business-Logic.md
 - CWE-20 Improper Input Validation: https://cwe.mitre.org/data/definitions/20.html
 - Schemathesis: https://schemathesis.readthedocs.io/

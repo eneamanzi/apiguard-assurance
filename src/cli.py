@@ -78,7 +78,6 @@ TOOL_DESCRIPTION: str = (
 
 # Default paths, relative to the working directory.
 DEFAULT_CONFIG_PATH: Path = Path("config.yaml")
-DEFAULT_LOG_LEVEL: str = "warning"
 # The exit codes listed at the end of `run --help`, from their single definition.
 _EXIT_CODES_EPILOG: str = "Exit codes:\n\n" + "\n\n".join(
     f"{code}  {exit_code_text(code)}" for code in EXIT_CODES
@@ -208,6 +207,11 @@ def _handle_stop_signal(signum: int, _frame: object) -> None:
     main thread: KeyboardInterrupt for Ctrl+C, _TerminationRequestedError
     for SIGTERM. Both unwind through the engine's try/finally, which runs
     Phase 6 (teardown); run_assessment() then calls _exit_by_signal().
+
+    This handler raises wherever the main thread happens to be, the teardown
+    loop included, so the engine blocks both signals for the duration of
+    Phase 6 (engine._stop_signals_deferred): the signal that arrives there is
+    delivered when the cleanup is over, and reaches this handler then.
 
     Args:
         signum: The signal number (SIGINT or SIGTERM).

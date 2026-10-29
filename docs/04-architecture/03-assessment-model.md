@@ -132,8 +132,10 @@ they differ from the specification. If they are intended, the specification is w
 
 The status is computed from the sub-tests, not chosen by the test (`combine_sub_tests`; a violation makes it FAIL,
 a verified case PASS, a not-verifiable case INCONCLUSIVE). A PASS is bounded by what the test covers: it carries
-`coverage` (`COMPLETE`, or `PARTIAL` when some cases were not verifiable), and each test page lists the methodology
-sub-tests that are not implemented and the test's known limitations.
+`coverage`, `COMPLETE` only when every declared sub-test verified something and `PARTIAL` as soon as one judged
+nothing (`SKIP`) or could not decide (`INCONCLUSIVE`), and each test page lists the methodology sub-tests that are
+not implemented and the test's known limitations. A skipped sub-test lowers the coverage on purpose: calling such a
+run complete would promise the reader a check that was never made.
 
 **Finding vs InfoNote.** A Finding is a violation, with references (the standard and its identifier: OWASP, ASVS, WSTG, NIST, RFC; by
 default the test's) and, for an HTTP probe, an

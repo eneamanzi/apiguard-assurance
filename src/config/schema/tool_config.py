@@ -154,7 +154,10 @@ class TargetConfig(BaseModel):
         default=RETRY_MAX_ATTEMPTS_DEFAULT,
         description=(
             "Total attempts (initial + retries). Only transport errors are retried, never "
-            "HTTP status codes and never a TLS failure."
+            "HTTP status codes and never a TLS failure. A POST or a PATCH is retried only "
+            "after a failure that proves the request never reached the application "
+            "(connection refused, connect or pool timeout): after a read timeout it may "
+            "already have been applied, so it is not sent again whatever this value says."
         ),
     )
     tls: TlsSettings | None = Field(

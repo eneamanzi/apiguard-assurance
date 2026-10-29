@@ -74,7 +74,28 @@ Rules:
   `GatewayAdapterError`, with a message naming the interface and its configuration key; a TLS problem (refused
   handshake, or an nginx 400 page for a missing client certificate) names the `tls` key to set.
 - **`collect_text_values(data, kind, location, prefix)`**: the text values of a configuration object, with dotted
-  keys, for the configuration values concept.
+  keys, for the configuration values concept. It descends into objects and into arrays, and collects a string that
+  is an item of an array (`config.add.headers[0]`), which is how a plugin states a header and therefore where a
+  credential written by hand usually sits.
+- **`sorted_config_values(values)`**: the one order of the configuration values concept, by location then key. A
+  reader returns its values through it: both gateways answer a plugin configuration as a serialised Lua table whose
+  key order changes between two reads, so without it the pinned evidence and the order of test 6.4's findings
+  changed from run to run with nothing changed on the target.
+
+### Two traps, both found in a real adapter
+
+A reader stands between what the gateway stores and what a test judges, and two mistakes there are invisible from
+the test:
+
+1. **A filled-in default is not a configuration.** Both gateways answer with their schema defaults applied, so a
+   record exists even where the operator configured nothing: a Kong upstream with no health check comes back with a
+   complete `active` block whose intervals are zero. A reader that maps "the record is present" to "the feature is
+   configured" turns every such gateway into a pass. Map the values, not the presence, and let the model say what
+   zero means (`ActiveCheck`: "0 or None: not probed").
+2. **Read the fields the gateway answers with, not the ones it accepts.** Kong takes `url` when a Service is
+   written but never returns it: the Admin API holds `protocol`, `host`, `port` and `path`. A reader asking for
+   `service["url"]` collects nothing, silently, on every gateway. Check the field against
+   `GET /schemas/<entity>` (Kong) or the entity schema (APISIX), not against the file the lab was written with.
 
 ## Steps
 
@@ -96,7 +117,7 @@ Rules:
 | health checks | `GET /upstreams` | `healthchecks.passive` / `.active` |
 | live target health | `GET /upstreams/{name}/health` | `HEALTHY` / `UNHEALTHY`, else unknown |
 | routes | `GET /routes` (+ `/services` for names) | |
-| circuit breakers | `GET /plugins` | the third-party breaker plugins the adapter knows (`_BREAKER_PLUGINS`, today `circuit-breaker`), in that order, first instance of each; Kong OSS has none |
+| circuit breakers | `GET /plugins` | the third-party breaker plugins the adapter knows (`_BREAKER_PLUGINS`, today `circuit-breaker`, the plugin name of [dream11/kong-circuit-breaker](https://github.com/dream11/kong-circuit-breaker)), in that order, first instance of each; Kong OSS ships none. The threshold and open-state fields are tried by name, that plugin's own names first (`failure_percent_threshold`, `wait_duration_in_open_state`) |
 | signing policies | `GET /plugins` | every `hmac-auth` plugin, fields `clock_skew`, `algorithms`, `validate_request_body`, `enforce_headers` (Kong's schema; Kong requires `clock_skew` > 0) |
 | configuration values | `GET /services`, `GET /plugins` | service `url` (absent in DB-less), plugin configuration strings |
 

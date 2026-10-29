@@ -15,7 +15,7 @@
 | Priority / strategy | P2 / BLACK_BOX |
 | Effect | READ_ONLY |
 | CWE | CWE-326 |
-| Standards | `OWASP API2:2023`, `NIST SP 800-52`, `OWASP ASVS v5.0.0-12.1.1` |
+| Standards | `OWASP API8:2023`, `NIST SP 800-52r2`, `OWASP ASVS v5.0.0-12.1.1` |
 | Tags | `transport-security`, `tls`, `cipher-suite`, `protocol-version` |
 | Prerequisites | none |
 | Needs | - |
@@ -36,7 +36,7 @@ present. testssl.sh performs the scan; we point it at the gateway's HTTPS listen
 reimplement the handshake (rule 11).
 
 A PASS promises that testssl.sh reported no HIGH or CRITICAL weakness on the target. It promises nothing about the
-HTTP redirect or HSTS (test `1.5`). OWASP API2:2023; NIST SP 800-52 Rev.2; ASVS v5.0.0-12.1.1 (only the latest TLS
+HTTP redirect or HSTS (test `1.5`). OWASP API8:2023 (the hardening of the API stack, whose list names TLS); NIST SP 800-52 Rev.2; ASVS v5.0.0-12.1.1 (only the latest TLS
 versions enabled).
 
 ## 2. Sub-tests and coverage of the methodology
@@ -137,7 +137,10 @@ clients trust (NIST SP 800-52 Rev.2, ASVS v5.0.0-12.1.1).
 
 ## 15. Sources
 
-- OWASP API2:2023 Broken Authentication: https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/
+- OWASP API8:2023 Security Misconfiguration, whose list of weaknesses names "Transport Layer Security (TLS) is
+  missing" and "appropriate security hardening is missing across any part of the API stack". API2:2023 was cited
+  here until 2026-10-28: this test carries no credential and judges a TLS stack, and API2's own list says nothing
+  about the handshake: https://owasp.org/API-Security/editions/2023/en/0xa8-security-misconfiguration/
 - NIST SP 800-52 Rev.2 (TLS configuration): https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-52r2.pdf
 - OWASP ASVS v5.0.0-12.1.1 (only the latest TLS versions enabled, e.g. TLS 1.2/1.3): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x21-V12-Secure-Communication.md
 - CWE-326 Inadequate Encryption Strength: https://cwe.mitre.org/data/definitions/326.html

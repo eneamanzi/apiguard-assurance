@@ -73,11 +73,6 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # and is unlikely to match a real resource ID in any database.
 PATH_PARAM_FALLBACK_DEFAULT: str = "1"
 
-# Safe fallback for DELETE probes.  A non-numeric, application-specific string
-# minimises the probability of matching a real resource ID, bounding the risk
-# of accidental deletion to near-zero.
-PATH_PARAM_FALLBACK_SAFE_DELETE: str = "apiguard-probe"
-
 # Regex that matches an OpenAPI path template parameter.
 # Capture group 1: the full content between braces (e.g. "owner" or "id:[0-9]+").
 # The pattern deliberately does NOT use a named group to keep the substitution
@@ -107,10 +102,14 @@ def resolve_path_with_seed(
           layer.
 
         - If the extracted parameter name is NOT in ``seed``, the ``fallback``
-          string is substituted.  The caller selects the appropriate fallback
-          for the probe context (generic ``"1"`` for read probes, the
-          ``PATH_PARAM_FALLBACK_SAFE_DELETE`` constant for parametric DELETE
-          probes).
+          string is substituted (``"1"`` by default).
+
+    This resolver is for a probe that reads. A probe whose method writes does
+    not come here: it is sent to ``random_sibling_path`` (src/core/references.py),
+    which fills every parameter with a random value, so that a write cannot
+    reach an object that exists (test 1.1). A ``PATH_PARAM_FALLBACK_SAFE_DELETE``
+    constant stood here for that purpose until 2026-10-28 and no caller ever
+    passed it; the random sibling replaces it and is stronger.
 
     Non-parametric paths (no ``{...}`` segments) are returned unchanged.
 

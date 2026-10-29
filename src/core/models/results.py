@@ -298,10 +298,15 @@ def combine_sub_tests(sub_tests: list[SubTestResult]) -> tuple[TestStatus, Cover
     """
     The status and coverage of a finished test, from its sub-tests.
 
-    A sub-test FAIL gives FAIL; otherwise a sub-test PASS gives PASS, partial
-    when another sub-test is INCONCLUSIVE or a PASS sub-test is partial;
-    otherwise a sub-test INCONCLUSIVE gives INCONCLUSIVE; otherwise SKIP
-    (nothing the test applies to).
+    A sub-test FAIL gives FAIL; otherwise a sub-test PASS gives PASS, complete
+    only when every declared sub-test verified something: another sub-test
+    INCONCLUSIVE or SKIP, or a PASS sub-test that is itself partial, makes it
+    partial. Otherwise a sub-test INCONCLUSIVE gives INCONCLUSIVE; otherwise
+    SKIP (nothing the test applies to).
+
+    A SKIP sub-test counts against the coverage because it judged no case at
+    all: calling that complete would promise the reader a check the run never
+    made (e.g. test 6.2 passing with its CORS sub-test skipped).
 
     Args:
         sub_tests: Every declared sub-test's result.
@@ -313,9 +318,8 @@ def combine_sub_tests(sub_tests: list[SubTestResult]) -> tuple[TestStatus, Cover
     if TestStatus.FAIL in statuses:
         return TestStatus.FAIL, None
     if TestStatus.PASS in statuses:
-        partial = TestStatus.INCONCLUSIVE in statuses or any(
-            sub.coverage == Coverage.PARTIAL for sub in sub_tests
-        )
+        unverified = {TestStatus.INCONCLUSIVE, TestStatus.SKIP} & statuses
+        partial = bool(unverified) or any(sub.coverage == Coverage.PARTIAL for sub in sub_tests)
         return TestStatus.PASS, Coverage.PARTIAL if partial else Coverage.COMPLETE
     if TestStatus.INCONCLUSIVE in statuses:
         return TestStatus.INCONCLUSIVE, None
@@ -378,15 +382,17 @@ class TestResult(BaseModel):
     coverage: Coverage | None = Field(
         default=None,
         description=(
-            "For a PASS: `complete` when every applicable case was verified, `partial` when "
-            "some could not be (a sub-test `INCONCLUSIVE`, or not verifiable cases)."
+            "For a PASS: `complete` only when every declared sub-test verified something, "
+            "`partial` when one judged nothing (`SKIP`) or could not decide (`INCONCLUSIVE`), "
+            "or when a `PASS` sub-test is itself partial."
         ),
     )
     sub_tests: list[SubTestResult] = Field(
         default_factory=list,
         description=(
-            "One entry per sub-test the test declares, with its counters and status; empty "
-            "when the test stopped before judging (SKIP before the start, ERROR)."
+            "One entry per sub-test the test declares, with its counters and status, whatever "
+            "the test's status: a test that stopped before judging (a SKIP before the start) "
+            "reports them all at zero, so the shape of the list never depends on the outcome."
         ),
     )
     duration_ms: float | None = Field(

@@ -2,7 +2,8 @@
 src/tests/domain_5/test_5_2_security_alerting_audit.py
 
 Test 5.2: guarantee "anomalous security events trigger real-time alerts"
-. NIST SP 800-61.
+. NIST SP 800-61 Rev.3 section 3.2 (CSF outcome
+DE.AE-06: alerts reach the staff and the tools that respond).
 
 Alerting lives in the SIEM or the notification channel, not in the gateway, and
 the methodology says it is "only partly checkable from outside": its tests
@@ -35,7 +36,7 @@ _SUB: str = "anomalous_event_alerted"
 
 _REFERENCES: tuple[Reference, ...] = (
     Reference(standard=Standard.OWASP_API_TOP10, id="API8:2023"),
-    Reference(standard=Standard.NIST_SP, id="800-61", section="2.3"),
+    Reference(standard=Standard.NIST_SP, id="800-61r3", section="3.2"),
 )
 
 

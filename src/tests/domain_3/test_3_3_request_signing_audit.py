@@ -62,7 +62,7 @@ _REFERENCES: tuple[Reference, ...] = (
     # NIST SP 800-107 (HMAC algorithm strength, replay window). ASVS v5.0.0-4.1.5
     # to add once verified on source (WebFetch rate-limited 2026-10-23; see the
     # group-F draft).
-    Reference(standard=Standard.NIST_SP, id="800-107"),
+    Reference(standard=Standard.NIST_SP, id="800-107r1"),
 )
 
 

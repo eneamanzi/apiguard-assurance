@@ -88,18 +88,6 @@ from src.core.models import EvidenceFile, EvidenceRecord
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-# Maximum length of response_body stored per record, in characters.
-# The actual truncation is enforced by EvidenceRecord's field_validator
-# in models.py.  This constant is kept here as a documentation anchor.
-RESPONSE_BODY_MAX_CHARS: int = 10_000
-
-# Default output filename for the merged evidence archive produced in Phase 7.
-EVIDENCE_OUTPUT_FILENAME: str = "evidence.json"
-
 # Extension for per-test streaming files inside evidence_tmp/.
 _JSONL_EXTENSION: str = ".jsonl"
 

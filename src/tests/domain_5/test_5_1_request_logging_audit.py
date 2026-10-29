@@ -2,7 +2,8 @@
 src/tests/domain_5/test_5_1_request_logging_audit.py
 
 Test 5.1: guarantee "every request is logged with its metadata"
-. NIST SP 800-92, OWASP ASVS v5.0.0-16.2.1.
+. NIST SP 800-92, OWASP ASVS v5.0.0-16.3.3 and 16.4.3,
+NIST SP 800-53 Rev.5 AU-2.
 
 The methodology states the limit plainly: "without access to the logs this
 guarantee cannot be checked empirically from outside." So the test audits the
@@ -77,11 +78,15 @@ _CONTENT_CHECKS_NOTE: InfoNote = InfoNote(
 )
 
 _REFERENCES: tuple[Reference, ...] = (
-    # Read on the ASVS v5.0.0 source 2026-10-23: 16.2.1 (each log entry carries
+    # Read on the ASVS v5.0.0 source 2026-10-28: 16.3.3 (the security events of
+    # the documentation are logged, bypass attempts included) and 16.4.3 (the
+    # logs reach a logically separate system for analysis and alerting), which
+    # is what a gateway logging plugin does. 16.2.1 (each log entry carries
     # the metadata needed to investigate: time, source, who, what, outcome).
-    Reference(standard=Standard.ASVS, id="v5.0.0-16.2.1"),
+    Reference(standard=Standard.ASVS, id="v5.0.0-16.3.3"),
+    Reference(standard=Standard.ASVS, id="v5.0.0-16.4.3"),
     Reference(standard=Standard.NIST_SP, id="800-92"),
-    Reference(standard=Standard.NIST_SP, id="800-53", section="2"),
+    Reference(standard=Standard.NIST_SP, id="800-53r5", section="3.3"),
 )
 
 
@@ -167,7 +172,8 @@ class Test51RequestLoggingAudit(BaseTest):
                         "The gateway has no request-logging plugin enabled (Kong http-log, "
                         "file-log, syslog, ...; APISIX http-logger, syslog, ...), so requests are "
                         "not logged at the gateway: a security incident or a brute-force attempt "
-                        "leaves no trail for investigation (NIST SP 800-92, ASVS v5.0.0-16.2.1). "
+                        "leaves no trail for investigation (NIST SP 800-92, ASVS "
+                        "v5.0.0-16.3.3 and 16.4.3, NIST SP 800-53 Rev.5 AU-2). "
                         "Enable a logging plugin that ships structured logs to the log store."
                     ),
                     confidence=Confidence.CERTAIN,

@@ -86,7 +86,7 @@ _REFERENCES: tuple[Reference, ...] = (
     # restricted to consumers with explicit permissions: IDOR/BOLA).
     Reference(standard=Standard.OWASP_API_TOP10, id="API1:2023"),
     Reference(standard=Standard.ASVS, id="v5.0.0-8.2.2"),
-    Reference(standard=Standard.NIST_SP, id="800-162", section="2.2"),
+    Reference(standard=Standard.NIST_SP, id="800-162", section="2.3"),
 )
 
 

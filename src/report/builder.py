@@ -118,11 +118,17 @@ class TestResultRow(BaseModel):
     )
     coverage: Coverage | None = Field(
         default=None,
-        description="For a `PASS`: `complete`, or `partial` when cases were not verifiable.",
+        description=(
+            "For a `PASS`: `complete` only when every declared sub-test verified something, "
+            "`partial` when one judged nothing (`SKIP`) or could not decide (`INCONCLUSIVE`)."
+        ),
     )
     sub_tests: list[SubTestResult] = Field(
         default_factory=list,
-        description="Every declared sub-test with its counters and status.",
+        description=(
+            "Every declared sub-test with its counters and status, whatever the test's status: "
+            "a test that stopped before judging reports them all at zero."
+        ),
     )
     message: str = Field(description="One-line outcome.")
     skip_reason: str | None = Field(

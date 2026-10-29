@@ -529,6 +529,25 @@ def _answer_preview(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def sorted_config_values(values: list[ConfigValue]) -> tuple[ConfigValue, ...]:
+    """
+    The configuration values in one stable order: by location, then by key.
+
+    Both gateways answer a plugin configuration as a serialised Lua table,
+    whose key order changes between two reads of the same gateway, so the
+    concept came back in a different order each run: the pinned evidence and
+    the order of the findings of test 6.4 changed with no change on the target.
+    The order is defined here, once, for every adapter.
+
+    Args:
+        values: The values an adapter collected, in any order.
+
+    Returns:
+        The same values, ordered.
+    """
+    return tuple(sorted(values, key=lambda value: (value.location, value.key)))
+
+
 def collect_text_values(
     data: dict[str, Any],
     kind: ConfigValueKind,
@@ -539,10 +558,13 @@ def collect_text_values(
     """
     Collect the text values of a gateway configuration, with their dotted keys.
 
-    Descends into objects and into objects inside arrays, up to
-    _CONFIG_VALUES_MAX_DEPTH levels; only strings are collected (the rules
-    test 6.4 applied to the raw configuration). Used by the adapters for the
-    configuration values concept.
+    Descends into objects and into arrays, up to _CONFIG_VALUES_MAX_DEPTH
+    levels; only strings are collected (the rules test 6.4 applied to the raw
+    configuration), including a string that is an item of an array: a gateway
+    plugin states a header as one string per item, which is where a credential
+    put into the configuration by hand usually sits
+    (`config.add.headers[0] = "Authorization: Bearer ..."`). Used by the
+    adapters for the configuration values concept.
 
     Args:
         data:     The configuration object (e.g. a plugin configuration).
@@ -567,6 +589,12 @@ def collect_text_values(
                 if isinstance(item, dict):
                     values.extend(
                         collect_text_values(item, kind, location, f"{path}[{index}]", depth + 1)
+                    )
+                elif isinstance(item, str):
+                    values.append(
+                        ConfigValue(
+                            kind=kind, location=location, key=f"{path}[{index}]", value=item
+                        )
                     )
         elif isinstance(value, str):
             values.append(ConfigValue(kind=kind, location=location, key=path, value=value))

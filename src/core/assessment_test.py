@@ -466,6 +466,12 @@ class AssessmentTest(ABC, Generic[ParamsT]):
         """
         SKIP before the start: something the test needs is missing.
 
+        The declared sub-tests are reported, at zero counters, so that
+        `sub_tests` holds every declared sub-test whatever the status, as the
+        report schema states. A caller that has already judged something keeps
+        the result it would have had: its counters would contradict the SKIP,
+        and that is a programming error of the test, not something to hide.
+
         Args:
             reason: Why the test did not run, naming what is missing.
             notes:  Annotations still worth reporting (e.g. what to check by hand).
@@ -473,7 +479,15 @@ class AssessmentTest(ABC, Generic[ParamsT]):
         Returns:
             TestResult with status SKIP.
         """
-        return self._result(TestStatus.SKIP, reason, notes=notes, skip_reason=reason)
+        declared = self._sub_test_results()
+        nothing_judged = all(sub.status == TestStatus.SKIP for sub in declared)
+        return self._result(
+            TestStatus.SKIP,
+            reason,
+            notes=notes,
+            skip_reason=reason,
+            sub_tests=declared if nothing_judged else None,
+        )
 
     def _error(self, exc: Exception, message: str | None = None) -> TestResult:
         """

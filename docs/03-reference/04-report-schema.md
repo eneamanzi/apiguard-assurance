@@ -143,8 +143,8 @@ precondition, a not-run test was not selected or was stopped (`src/core/models/r
 | `strategy` | string | `BLACK_BOX`, `GREY_BOX` or `WHITE_BOX`. |
 | `effect` | string | What the test does to the target: `READ_ONLY`, `CHANGES_DATA` or `STRESSES_TARGET`. |
 | `status` | string | `PASS`, `FAIL`, `INCONCLUSIVE`, `SKIP` or `ERROR` (see Status semantics below). |
-| `coverage` | string \| null | For a `PASS`: `complete`, or `partial` when cases were not verifiable. |
-| `sub_tests` | array of [`SubTestResult`](#subtestresult) | Every declared sub-test with its counters and status. |
+| `coverage` | string \| null | For a `PASS`: `complete` only when every declared sub-test verified something, `partial` when one judged nothing (`SKIP`) or could not decide (`INCONCLUSIVE`). |
+| `sub_tests` | array of [`SubTestResult`](#subtestresult) | Every declared sub-test with its counters and status, whatever the test's status: a test that stopped before judging reports them all at zero. |
 | `message` | string | One-line outcome. |
 | `skip_reason` | string \| null | Set only for `SKIP`: the missing precondition. |
 | `duration_ms` | number \| null | Execution time of the test. |
@@ -167,7 +167,7 @@ precondition, a not-run test was not selected or was stopped (`src/core/models/r
 
 | Status | Meaning | Exit-code effect |
 |---|---|---|
-| `PASS` | No violation, at least one case verified; `coverage` says whether every applicable case was verified (`complete`) or some could not be (`partial`). | none |
+| `PASS` | No violation, at least one case verified; `coverage` says whether **every declared sub-test** verified something (`complete`) or one of them judged nothing or could not decide (`partial`). | none |
 | `FAIL` | Guarantee violated; at least one finding. | → `1` |
 | `INCONCLUSIVE` | Run to the end, no violation, nothing verified: every judged case was not verifiable (the sub-tests give the reasons). | → `3` if no FAIL |
 | `ERROR` | The verification did not complete (transport failure, rejected credentials, tool failure). Findings may be present. | → `3` if no FAIL |
@@ -175,9 +175,13 @@ precondition, a not-run test was not selected or was stopped (`src/core/models/r
 
 `PASS`, `FAIL` and `INCONCLUSIVE` are computed from the sub-tests, never chosen by the test: a sub-test with a
 violation is `FAIL`; otherwise one with a verified case is `PASS`; otherwise one with a case not verifiable is
-`INCONCLUSIVE`; otherwise `SKIP`. The test is `FAIL` if a sub-test is, otherwise `PASS` (partial if another
-sub-test is `INCONCLUSIVE` or a `PASS` sub-test is partial) if a sub-test is, otherwise `INCONCLUSIVE` if a sub-test
-is, otherwise `SKIP`.
+`INCONCLUSIVE`; otherwise `SKIP`. The test is `FAIL` if a sub-test is, otherwise `PASS` if a sub-test is, otherwise
+`INCONCLUSIVE` if a sub-test is, otherwise `SKIP`.
+
+A `PASS` is `complete` only when **every** declared sub-test verified something. A sub-test that is `INCONCLUSIVE`,
+one that is `SKIP` (it judged no case at all), or a `PASS` sub-test that is itself partial, each make the test
+`partial`. A skipped sub-test counts because `complete` would otherwise promise a check the run never made: test
+`6.2` passes with its CORS sub-test skipped when no cross-origin probe could be sent, and the reader must see that.
 
 ## `SubTestResult`
 
@@ -241,20 +245,39 @@ of a test is in `cwe_id`, not repeated among its references.
 
 <!-- [[[end]]] -->
 
+**One version of each standard, for the whole tool.** A reference points to the version in the table below and to no
+other: two citations of the same tool must not disagree on what a requirement says. Where the version is part of the
+identifier the pattern pins it, so a reference on another version is refused when it is built; where every document
+carries its own version instead (RFC, NIST SP), the version belongs to the document's identifier (`800-53r5`,
+`800-63B-4`, `800-61r3`), because the section numbering changes between revisions. The versions were established on
+2026-10-28, each on its own source:
+
+- **ASVS v5.0.0**, the latest numbered release (2025-05-30). The repository's `latest` tag is a bleeding-edge build
+  of `master` and calls itself so, which is why it is not used.
+- **OWASP API Security Top 10 2023** and **OWASP Top 10 2025**, the current editions.
+- **WSTG v4.2**, the latest stable release. The categories were reorganised afterwards on `master`, where `INPV` no
+  longer exists, so writing the version in the identifier is what keeps a citation findable.
+- **CWE 4.20**, the current CWE List release: the titles quoted and the mapping rules applied (`CWE-16` is
+  prohibited for mapping, `CWE-1021` and `CWE-915` are allowed) are that release's.
+- **IETF RFC**: an RFC is never revised, a newer one obsoletes it. None of those cited is obsolete.
+- **NIST SP**: the revision is part of the identifier. The tool cites SP 800-53 Rev.5, 800-63B-4, 800-61 Rev.3,
+  800-52 Rev.2, 800-107 Rev.1, 800-92 (the 2006 publication: Rev.1 is still an initial public draft), 800-204,
+  800-204A, 800-162 and 800-228 (June 2025 with the updates of 2026-03-13, which superseded its first release).
+
 The formats, checked when a reference is built, so a declaration with a malformed reference stops the start
 (`TestDefinitionError`):
 
 <!-- [[[cog import generate_docs as g; cog.out(g.standards_table()) ]]] -->
 
-| `standard` | Standard | `id` example | Section | Shown as |
-|---|---|---|---|---|
-| `CWE` | CWE | `CWE-285` | no | `CWE-285` |
-| `OWASP_API_TOP10` | OWASP API Security Top 10 | `API5:2023` | no | `OWASP API5:2023` |
-| `OWASP_TOP10` | OWASP Top 10 | `A01:2025` | no | `OWASP A01:2025` |
-| `ASVS` | OWASP ASVS | `v5.0.0-1.2.5` | no | `OWASP ASVS v5.0.0-1.2.5` |
-| `WSTG` | OWASP WSTG | `WSTG-v42-ATHN-01` | no | `OWASP WSTG-v42-ATHN-01` |
-| `RFC` | IETF RFC | `9110` | optional, e.g. `15.5.2` | `RFC 9110, Section 15.5.2` |
-| `NIST_SP` | NIST Special Publication | `800-204A` | optional, e.g. `4.3` | `NIST SP 800-204A, Section 4.3` |
+| `standard` | Standard | Version cited | `id` example | Section | Shown as |
+|---|---|---|---|---|---|
+| `CWE` | CWE | **4.20** | `CWE-285` | no | `CWE-285` |
+| `OWASP_API_TOP10` | OWASP API Security Top 10 | **2023** | `API5:2023` | no | `OWASP API5:2023` |
+| `OWASP_TOP10` | OWASP Top 10 | **2025** | `A01:2025` | no | `OWASP A01:2025` |
+| `ASVS` | OWASP ASVS | **v5.0.0** | `v5.0.0-1.2.5` | no | `OWASP ASVS v5.0.0-1.2.5` |
+| `WSTG` | OWASP WSTG | **v4.2** | `WSTG-v42-ATHN-01` | no | `OWASP WSTG-v42-ATHN-01` |
+| `RFC` | IETF RFC | per document | `9110` | optional, e.g. `15.5.2` | `RFC 9110, Section 15.5.2` |
+| `NIST_SP` | NIST Special Publication | per document | `800-204A` | optional, e.g. `4.3` | `NIST SP 800-204A, Section 4.3` |
 
 <!-- [[[end]]] -->
 

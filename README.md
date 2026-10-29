@@ -66,6 +66,7 @@ which about the methodology behind it: the second is deliberately broader than t
 | Run it on my API | [Configure a target](docs/02-guides/01-usage/01-configure-a-target.md), [Select tests](docs/02-guides/01-usage/02-select-tests.md), [Read the report](docs/02-guides/01-usage/03-read-the-report.md) |
 | Integrate it into another product or a pipeline | [Integrate APIGuard Assurance](docs/02-guides/02-integration/01-integrate-apiguard.md) |
 | Know what each test checks | [Test catalogue](docs/05-tests/README.md) |
+| See what it finds on a target known to be vulnerable | [What the tool detects, measured](docs/03-reference/06-compatibility.md#what-the-tool-detects-measured-against-a-vulnerable-target): the 18 weaknesses OWASP crAPI declares, one by one |
 | Look up a parameter, command or file format | [Configuration](docs/03-reference/01-configuration.md), [CLI](docs/03-reference/02-cli.md), [Report schema](docs/03-reference/04-report-schema.md), [Exit codes](docs/03-reference/03-exit-codes.md) |
 | Understand how it works | [Architecture](docs/04-architecture/01-overview.md) |
 | Add a test or support another gateway | [Add a native test](docs/02-guides/03-extending/02-add-a-native-test.md), [Add an external test](docs/02-guides/03-extending/03-add-an-external-test.md), [Add a gateway adapter](docs/02-guides/03-extending/04-add-a-gateway-adapter.md) |

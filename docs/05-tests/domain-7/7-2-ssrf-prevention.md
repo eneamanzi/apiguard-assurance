@@ -15,7 +15,7 @@
 | Priority / strategy | P0 / GREY_BOX |
 | Effect | CHANGES_DATA |
 | CWE | CWE-918 |
-| Standards | `OWASP API7:2023`, `OWASP WSTG-v42-INPV-19`, `NIST SP 800-204, Section 3.2.2` |
+| Standards | `OWASP API7:2023`, `OWASP WSTG-v42-INPV-19` |
 | Tags | `ssrf`, `business-logic` |
 | Prerequisites | none |
 | Needs | `USER_ACCOUNT`, `url_accepting_endpoint` |
@@ -156,5 +156,8 @@ Validate the resolved IP of a client URL against the full set of private/loopbac
 - OWASP API7:2023 Server-Side Request Forgery: https://owasp.org/API-Security/editions/2023/en/0xa7-server-side-request-forgery/
 - OWASP WSTG v4.2 WSTG-INPV-19 (Testing for SSRF): https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/07-Input_Validation_Testing/19-Testing_for_Server-Side_Request_Forgery
 - OWASP SSRF Prevention Cheat Sheet: https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html
-- NIST SP 800-204 section 3.2.2: https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-204.pdf
+- The payload catalogue's own sources are PayloadsAllTheThings and WSTG-v42-INPV-19
+  (`src/tests/data/ssrf_payloads.py`). NIST SP 800-204 section 3.2.2 was cited here until 2026-10-28 and was
+  dropped: that section is "Internet-based Attacks", about the inbound surface of a microservices application,
+  and the publication never mentions SSRF, server-side request forgery or an outbound call.
 - CWE-918 Server-Side Request Forgery: https://cwe.mitre.org/data/definitions/918.html

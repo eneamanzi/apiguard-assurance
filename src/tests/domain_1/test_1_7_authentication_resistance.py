@@ -156,7 +156,7 @@ _REFERENCES: tuple[Reference, ...] = (
     Reference(standard=Standard.ASVS, id="v5.0.0-6.3.1"),
     Reference(standard=Standard.CWE, id="CWE-204"),
     Reference(standard=Standard.CWE, id="CWE-208"),
-    Reference(standard=Standard.NIST_SP, id="800-63B", section="3.2.2"),
+    Reference(standard=Standard.NIST_SP, id="800-63B-4", section="3.2.2"),
 )
 
 

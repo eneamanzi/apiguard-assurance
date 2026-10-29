@@ -140,7 +140,7 @@ _CREDENTIAL_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
 _REFERENCES: tuple[Reference, ...] = (
     Reference(standard=Standard.OWASP_API_TOP10, id="API8:2023"),
     Reference(standard=Standard.ASVS, id="v5.0.0-13.3.1"),
-    Reference(standard=Standard.NIST_SP, id="800-53", section="5.4"),
+    Reference(standard=Standard.NIST_SP, id="800-53r5", section="3.7"),
 )
 
 

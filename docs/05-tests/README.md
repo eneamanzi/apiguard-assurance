@@ -51,7 +51,7 @@ methodology's own claims are broader
 | `5.2` | Security Alerting Audit | P2 | WHITE_BOX | READ_ONLY | CWE-778 | - | [5.2](domain-5/5-2-security-alerting-audit.md) |
 | **Domain 6 - Configuration and Hardening** | | | | | | | |
 | `6.1` | Error and Information Disclosure | P2 | GREY_BOX | READ_ONLY | CWE-209 | `USER_ACCOUNT` | [6.1](domain-6/6-1-information-disclosure.md) |
-| `6.2` | Security Headers Audit | P3 | BLACK_BOX | READ_ONLY | - | - | [6.2](domain-6/6-2-security-headers-audit.md) |
+| `6.2` | Security Headers Audit | P3 | BLACK_BOX | READ_ONLY | CWE-1021 | - | [6.2](domain-6/6-2-security-headers-audit.md) |
 | `6.4` | Hardcoded Credentials Audit | P2 | BLACK_BOX | READ_ONLY | CWE-798 | `GATEWAY` (optional) | [6.4](domain-6/6-4-hardcoded-credentials-audit.md) |
 | **Domain 7 - Business Logic and Sensitive Flows** | | | | | | | |
 | `7.1` | Sensitive Business Flow Protection | P1 | BLACK_BOX | CHANGES_DATA | CWE-799 | `sensitive_flow` | [7.1](domain-7/7-1-sensitive-flow-protection.md) |
@@ -84,6 +84,14 @@ Each page has the same sections: summary table, then (1) Guarantee, (2) Sub-test
 (3) Inputs, (4) Preconditions and reference responses, (5) Probes, (6) Oracle, (7) Outcomes (the test status and
 the per-transaction `outcome`/`detail` in `transaction_log`), (8) Findings, (9) Effects on the target,
 (10) Per gateway, (11) Configuration, (12) Validation, (13) Remediation, (14) Limitations, (15) Sources.
+
+## Do these tests find real weaknesses?
+
+Each page's Validation section records what its test did on the three labs. Across the suite, the answer is measured
+against a target whose weaknesses are published by someone else: [what the tool detects, measured against a
+vulnerable target](../03-reference/06-compatibility.md#what-the-tool-detects-measured-against-a-vulnerable-target)
+takes the 18 challenges OWASP crAPI declares and says, challenge by challenge, what the tool did, what it missed and
+why.
 
 ## See also
 

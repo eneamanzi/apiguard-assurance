@@ -115,10 +115,6 @@ _KEY_SUGGESTION_CUTOFF: float = 0.6
 # remaining ones are only counted, to keep the message readable.
 _MAX_LISTED_VALIDATION_ERRORS: int = 20
 
-# Default config file name, resolved relative to the caller's working directory.
-# The CLI passes an explicit Path, but this constant documents the convention.
-DEFAULT_CONFIG_FILENAME: str = "config.yaml"
-
 
 # ---------------------------------------------------------------------------
 # Public interface

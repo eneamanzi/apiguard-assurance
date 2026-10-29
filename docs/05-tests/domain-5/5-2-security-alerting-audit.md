@@ -15,7 +15,7 @@
 | Priority / strategy | P2 / WHITE_BOX |
 | Effect | READ_ONLY |
 | CWE | CWE-778 |
-| Standards | `OWASP API8:2023`, `NIST SP 800-61, Section 2.3` |
+| Standards | `OWASP API8:2023`, `NIST SP 800-61r3, Section 3.2` |
 | Tags | `alerting`, `monitoring` |
 | Prerequisites | none |
 | Needs | - |
@@ -109,5 +109,7 @@ deduplication and tuned thresholds to avoid alert fatigue (NIST SP 800-61).
 ## 15. Sources
 
 - OWASP API8:2023 Security Misconfiguration: https://owasp.org/API-Security/editions/2023/en/0xa8-security-misconfiguration/
-- NIST SP 800-61 Rev.3 section 2.3 (detection and analysis): https://csrc.nist.gov/pubs/sp/800/61/r3/final
+- NIST SP 800-61 Rev.3 section 3.2 (incident response; CSF outcome DE.AE-06, "information on adverse events is
+  provided to authorized staff and tools", whose recommendation is to generate alerts and deliver them to the
+  response tools and staff): https://csrc.nist.gov/pubs/sp/800/61/r3/final
 - CWE-778 Insufficient Logging (and monitoring): https://cwe.mitre.org/data/definitions/778.html

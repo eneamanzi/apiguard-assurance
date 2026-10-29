@@ -580,7 +580,9 @@ sensitive fields that should not be exposed.
 
 ### 3.1 Every input is validated against schema and constraints `[P2]`
 
-**References:** OWASP API10:2023, CWE-20, OWASP ASVS 5.0.0 V2.2.1 and V1.2, NIST SP 800-53 Rev. 5 SI-10.
+**References:** CWE-20, OWASP ASVS 5.0.0 V2.2.1 and V1.2, NIST SP 800-53 Rev. 5 SI-10. (The thesis cited
+API10:2023 here; that category is the API's trust in data it consumes from third-party APIs, so it was dropped on
+2026-10-28: the OWASP API Top 10 2023 has no category for the validation of a client's input.)
 
 **Concept.** Every input (body, query parameter, path parameter, header) is validated against the expected type,
 format, range, length and pattern before reaching the business logic. The allow-list approach, accepting only

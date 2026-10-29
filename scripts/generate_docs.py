@@ -833,14 +833,15 @@ def _standards(info: TestInfo) -> str:
 def standards_table() -> str:
     """The format of each standard a reference may cite (report-schema.md): STANDARD_FORMATS."""
     lines = [
-        "| `standard` | Standard | `id` example | Section | Shown as |",
-        "|---|---|---|---|---|",
+        "| `standard` | Standard | Version cited | `id` example | Section | Shown as |",
+        "|---|---|---|---|---|---|",
     ]
     for standard, spec in STANDARD_FORMATS.items():
         example = Reference(standard=standard, id=spec.example, section=spec.section_example)
         section = f"optional, e.g. `{spec.section_example}`" if spec.section_example else "no"
+        version = f"**{spec.version}**" if spec.version else "per document"
         lines.append(
-            f"| `{standard.value}` | {spec.name} | `{spec.example}` | {section} "
+            f"| `{standard.value}` | {spec.name} | {version} | `{spec.example}` | {section} "
             f"| `{example.text}` |"
         )
     return _block(lines)

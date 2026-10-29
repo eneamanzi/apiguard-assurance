@@ -60,6 +60,7 @@ from src.core.gateway.base import (
     BaseGatewayAdapter,
     GatewayAdapterError,
     collect_text_values,
+    sorted_config_values,
 )
 from src.core.gateway.concepts import (
     ActiveCheck,
@@ -356,7 +357,7 @@ class ApisixGatewayAdapter(BaseGatewayAdapter):
                         _as_dict(config), ConfigValueKind.CLIENT_CREDENTIAL, location, "config"
                     )
                 )
-        return ConceptRead[ConfigValue].read(tuple(items))
+        return ConceptRead[ConfigValue].read(sorted_config_values(items))
 
     # ------------------------------------------------------------------
     # Admin API reads (each collection and schema read once per run)

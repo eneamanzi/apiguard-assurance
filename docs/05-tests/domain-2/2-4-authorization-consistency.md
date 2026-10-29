@@ -15,7 +15,7 @@
 | Priority / strategy | P1 / BLACK_BOX |
 | Effect | READ_ONLY |
 | CWE | CWE-285 |
-| Standards | `OWASP API8:2023`, `OWASP ASVS v5.0.0-8.1.1`, `NIST SP 800-53, Section 3` |
+| Standards | `OWASP API8:2023`, `OWASP ASVS v5.0.0-8.1.1`, `NIST SP 800-53r5, Section 3.1` |
 | Tags | `authorization`, `consistency` |
 | Prerequisites | none |
 | Needs | - |
