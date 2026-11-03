@@ -170,8 +170,8 @@ execution:
 output:
   directory: "outputs/forgejo"
 
-# Test review (branch test-review): the parameters of the tests not rewritten yet are commented out;
-# each block returns, uncommented, with its test (docs/project/test-review.md).
+# Parameters of the tests. Only the keys this lab needs are set here; the full list, with every
+# default and description, is in config.example.yaml at the repository root.
 tests:
   domain_1:
     test_1_5:
@@ -205,30 +205,25 @@ tests:
             - "push"
           active: false
           branch_filter: "*"
-# domain_2:
-#   (2.1: returns with test 2.1)
-#   test_2_1:
-#     # Forgejo admin-only endpoint.
-#     admin_endpoint_paths:
-#       - "/api/v1/admin/users"
-#     admin_endpoint_method: "GET"
-# domain_6:
-#   (6.4: returns with test 6.4)
-#   test_6_4:
-#     debug_endpoint_paths:
-#       # Routed through Kong to Forgejo (/api prefix)
-#       - /api/v1/settings/api    # Forgejo: public server settings endpoint (no auth required)
-#       - /api/debug/config
-#       - /api/debug/users
-#       # Not routed by Kong (Kong answers 404): checks the gateway's deny-by-default
-#       - /actuator/env
-#       - /actuator/configprops
-#       - /actuator/health
-#       - /debug/vars
-#       - /debug/pprof
-#       - /api/config
-#       - /admin/config
-#       - /_debug
+  domain_6:
+    test_6_4:
+      # Paths probed unauthenticated for an exposed credential. Measured on 2026-10-29:
+      # /api/v1/settings/api answers 200 (Forgejo's public API settings, no credential),
+      # the three /api/* below answer 404 from Forgejo, the rest 404 from Kong.
+      debug_endpoint_paths:
+        # Routed through Kong to Forgejo (/api prefix)
+        - /api/v1/settings/api    # Forgejo: public server settings endpoint (no auth required)
+        - /api/debug/config
+        - /api/debug/users
+        # Not routed by Kong (Kong answers 404): checks the gateway's deny-by-default
+        - /actuator/env
+        - /actuator/configprops
+        - /actuator/health
+        - /debug/vars
+        - /debug/pprof
+        - /api/config
+        - /admin/config
+        - /_debug
 # External tools (installed by install_tools.sh): all three, about 5 minutes more.
 external_tools:
   # Master switch: false skips every external test in one line.

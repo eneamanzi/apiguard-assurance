@@ -28,9 +28,13 @@ Oracle (sub-test tls_configuration):
                                                                           NO_TLS_WEAKNESS
     the scan could not connect / timed out                                ERROR (base handles it)
 
-The tool's severity is kept in the finding's text as information; it is not the
-oracle by itself (the id's meaning is). A finding's confidence is FIRM: the tool
-observed the weakness on the target, and we did not re-derive it ourselves.
+The severity class is the oracle (rule 11: the tool's own judgement of the
+target). testssl.sh rates what it finds instead of naming checks, so HIGH and
+CRITICAL fail and WARN and MEDIUM become notes; the finding's id is read only to
+recognise the certificate-revocation case, which is reported and not failed. The
+severity is printed in the finding's text as well. A finding's confidence is
+FIRM: the tool observed the weakness on the target, and we did not re-derive it
+ourselves.
 
 Dependency rule:
     Imports from: stdlib, structlog, src.connectors, src.core,

@@ -129,7 +129,7 @@ _DEV_CACHE_UNSAFE_CHARS: str = "./\\ "
 # ---------------------------------------------------------------------------
 # The limit only stops a tool that hangs; a tool that ends after more than this
 # share of its limit is warned about, so that the limit is raised before a slower
-# run (a larger API, a loaded machine) ends in a false ERROR (Q-67).
+# run (a larger API, a loaded machine) ends in a false ERROR.
 _TIME_LIMIT_WARNING_RATIO: float = 0.7
 _MS_PER_SECOND: int = 1000
 _PERCENT: int = 100

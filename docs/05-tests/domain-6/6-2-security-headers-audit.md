@@ -67,7 +67,9 @@ READ_ONLY.
 | absent on all sampled endpoints | `VIOLATION/MISSING` | CERTAIN |
 | present on some, absent on others | `VIOLATION/INCONSISTENT` | CERTAIN |
 | (CORS) an arbitrary origin or `*` is allowed with credentials | `VIOLATION/CORS_WILDCARD_CREDENTIALS` | CERTAIN |
-| (CORS) no sampled endpoint sends CORS headers | `NOT_APPLICABLE/NO_CORS` | - |
+| (CORS) sampled endpoints send CORS headers and none allows an arbitrary origin with credentials | `ENFORCED/CORS_BOUNDED` | - |
+| (CORS) no usable answer grants any cross-origin access to the arbitrary `Origin` | `ENFORCED/ORIGIN_NOT_ALLOWED`: a browser refuses that origin the response | - |
+| (CORS) no usable answer at all to the cross-origin probe (no response, `429`, `5xx`) | `NOT_VERIFIABLE/NO_RESPONSE` | - |
 
 ## 7. Outcomes
 
@@ -77,7 +79,11 @@ across the sample.
 ## 8. Findings
 
 "X-Content-Type-Options: nosniff missing/inconsistent", "Clickjacking protection ... missing/inconsistent", "Unsafe
-CORS: an arbitrary origin is allowed with credentials", each naming how many sampled endpoints and an example.
+CORS: an arbitrary origin is allowed with credentials", each naming how many sampled endpoints and an example. The
+proof (`evidence_ref`) is the response of that example endpoint, and for CORS the answer to the cross-origin probe on
+it. Until 2026-11-03 it was the last response sampled, which for an inconsistent header could be an endpoint that
+carries it: crAPI's two findings named `/community/api/v2/community/posts/recent` and pointed at
+`/workshop/api/mechanic/`, a response with both headers present.
 
 ## 9. Effects on the target
 
@@ -98,7 +104,7 @@ Runs of 2026-10-28 (the coverage column was added when a skipped sub-test began 
 
 | Lab | Status | Basis |
 |---|---|---|
-| Forgejo + Kong, Forgejo + APISIX | **PASS**, `partial` | nosniff and framing present and consistent across the sampled services; no sampled response carried a CORS header, so `cors_not_wildcard` judged its case `NOT_APPLICABLE/NO_CORS`, verified nothing, and the coverage is partial |
+| Forgejo + Kong, Forgejo + APISIX | **PASS**, `complete` (2026-11-03) | nosniff and framing present and consistent across the sampled services; no response to the arbitrary `Origin` carried a CORS grant, so `cors_not_wildcard` is `ENFORCED/ORIGIN_NOT_ALLOWED`. Until that day the same answer was judged `NOT_APPLICABLE/NO_CORS` and left the test `partial` |
 | crAPI + Kong | **FAIL**, 2 findings | nosniff and framing are **inconsistent** across crAPI's services (present on some, absent on others): a selective misconfiguration the single-endpoint check missed; CORS bounded |
 
 Rule 9, both sides proven, agnostically: ENFORCED on Forgejo, VIOLATION (inconsistency) on crAPI. The sampling (one

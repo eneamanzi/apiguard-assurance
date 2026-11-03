@@ -101,6 +101,7 @@ thought about. Measured 2026-10-22: crAPI declares per operation (9 of its opera
 | a credential that cannot be valid is accepted | `VIOLATION/ACCEPTED_<case>` | CERTAIN |
 | a path variant is served without a credential | `VIOLATION/SERVED_AS_<kind>` | CERTAIN |
 | a variant is refused or not routed | `ENFORCED/VARIANT_NOT_SERVED` | - |
+| no endpoint has a proven control to sample, so the malformed-credential and path-variant sub-tests have nothing to probe | `NOT_VERIFIABLE/NO_PROVEN_CONTROL` on both | - |
 
 A note states once whether the document declares security per operation, so that a heap of TENTATIVE findings is
 read for what it is.

@@ -106,7 +106,7 @@ def build_ssl_context(settings: TlsSettings | None, where: str) -> ssl.SSLContex
     if not tls.verify:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE  # nosec B501 -- the user asked for verify: false
+        context.verify_mode = ssl.CERT_NONE  # the user asked for verify: false  # nosec B501
     elif tls.ca_bundle is not None:
         try:
             context = ssl.create_default_context(cafile=str(tls.ca_bundle))

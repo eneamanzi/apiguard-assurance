@@ -85,6 +85,7 @@ as a disclosure.
 | a `429` within the bound | `ENFORCED/ATTEMPTS_LIMITED` | - |
 | answers become slow within the bound | `ENFORCED/ATTEMPTS_SLOWED` | - |
 | 101 attempts answered as quickly as the first | `VIOLATION/ATTEMPTS_NOT_LIMITED` | FIRM |
+| the login endpoint did not answer the first attempt | `NOT_VERIFIABLE/LOGIN_NOT_ANSWERING` | - |
 | unavailable, no response, server error | `NOT_VERIFIABLE/` the reason | - |
 
 **How a deliberate delay is told from ordinary variation.** The baseline is the median of the first 10 answers; an
@@ -112,8 +113,11 @@ exists, `supporting_refs` the attempt for the one that cannot.
 ## 9. Effects on the target
 
 `STRESSES_TARGET`: 6 failed attempts for the comparison and up to 101 more, all but three of them against an
-account that cannot exist. The run order puts this test last (rule 7). On a target that logs or alerts on failed
-authentication, this test will appear in those logs, which is the point of test `5.2`.
+account that cannot exist. Those three carry a wrong password for **the operator's own account**, so on a target
+that locks an account after a few failures they can count towards that lockout; the 101 cannot, which is why they
+go to an account that does not exist. The run order puts this test last (rule 7). On a target that logs or alerts on failed
+authentication, this test will appear in those logs and may raise an alert; whether it does is guarantee 5.2, which
+no test of the tool can check from outside.
 
 ## 10. Per gateway
 

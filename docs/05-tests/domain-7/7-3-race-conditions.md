@@ -65,9 +65,11 @@ others, rule 7) and it changes data on the target: announce it on a shared targe
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| at most `max_successful` of the N requests succeeded (`2xx`) | `ENFORCED/CONCURRENCY_SERIALIZED` | - |
-| more than `max_successful` succeeded | `VIOLATION/RACE_DOUBLE_EFFECT` | CERTAIN |
-| none succeeded (the operation did not run) | `NOT_VERIFIABLE/OPERATION_FAILED` | - |
+| at most `max_successful` of the N requests succeeded (`2xx`) and the others were refused | `ENFORCED/CONCURRENCY_SERIALIZED` | - |
+| at most `max_successful` succeeded but others failed (`5xx`, `429`, no answer): the server fell over, it did not serialize | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`, `SERVER_ERROR`, `RATE_LIMITED`, `NO_RESPONSE` | - |
+| more than `max_successful` were accepted (`2xx`) | `VIOLATION/RACE_DOUBLE_EFFECT` | FIRM: the test counts acceptances, not effects (a server answering `2xx` to a duplicate it does not apply would look the same) |
+| none succeeded, the target unavailable, failing or throttling | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`, `SERVER_ERROR`, `RATE_LIMITED`, `NO_RESPONSE` | - |
+| none succeeded otherwise (the operation refused every attempt) | `NOT_VERIFIABLE/OPERATION_FAILED` | - |
 
 ## 7. Outcomes
 
@@ -108,15 +110,18 @@ Section [`tests.domain_7.test_7_3`](../../03-reference/01-configuration.md#tests
 
 ## 12. Validation
 
-Runs of 2026-10-26:
+Runs of 2026-11-03:
 
 | Lab | Status | Basis |
 |---|---|---|
-| Forgejo + Kong, crAPI + Kong, Forgejo + APISIX | **SKIP** | no once-only operation declared (`race_operation` unset): honest SKIP |
+| crAPI + Kong, the test run on its own, first time the coupon is applied | **FAIL**, 1 finding | the lab's configuration creates the coupon `APIGUARD-RACE` through crAPI's own API and fires 15 simultaneous `POST /workshop/api/shop/apply_coupon` as user A: **all 15 accepted** (`200`) for a coupon that may be applied once. User A's credit went from 0.0 to 60.0, so 6 applications took effect: the race is real, and the count of effects is not the count of acceptances, which is why the finding is FIRM and says to confirm on the target's state |
+| crAPI + Kong, in a full assessment of a freshly reset lab | **INCONCLUSIVE** | the coupon is created, then all 15 applications meet `503 failure to get a peer from the ring-balancer`: by the time the stressing tests run, crAPI's workshop service no longer answers (the same load effect as test 4.1), so `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
+| crAPI + Kong, any later run | **INCONCLUSIVE** | the coupon is already claimed by user A: 15 answers `400`, `NOT_VERIFIABLE/OPERATION_FAILED`. Only the first run after a lab reset tests the race, the same wear as the order of tests 2.2 and 2.5 |
+| Forgejo + Kong, Forgejo + APISIX | **SKIP** | no once-only operation declared (`race_operation` unset): Forgejo has no operation of that kind to name |
 
-Rule 9: the live branches (`VIOLATION/RACE_DOUBLE_EFFECT`, `ENFORCED/CONCURRENCY_SERIALIZED`) are lab-unproven and
-lab-unproven, together with a check of the HTTP client's thread-safety on a real concurrent run; the decision whether to produce the case live is part of the test-by-test review ([`../../project/roadmap.md`](../../project/roadmap.md#next-work))
-(crAPI's coupon-apply flow is a candidate, once a valid coupon code is seeded).
+Rule 9: `VIOLATION/RACE_DOUBLE_EFFECT` and `NOT_VERIFIABLE/OPERATION_FAILED` are seen on crAPI, and the run is also
+the first real concurrent use of the HTTP client (its record counter is now locked, measured separately).
+`ENFORCED/CONCURRENCY_SERIALIZED` has not been seen: no lab has a once-only operation that serializes.
 
 ## 13. Remediation
 

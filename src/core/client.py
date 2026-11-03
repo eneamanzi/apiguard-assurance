@@ -39,6 +39,7 @@ from __future__ import annotations
 import json
 import re
 import ssl
+import threading
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -313,6 +314,18 @@ class SecurityClient:
         # Reset to {} at each pipeline run (client is constructed per run).
         self._sequence_counters: dict[str, int] = {}
 
+        # Test 7.3 sends one burst from several threads through this client: the
+        # counter and the collector are read and written under one lock, else two
+        # concurrent requests can get the same record ID (measured 2026-11-03:
+        # about half the IDs duplicated under frequent thread switches).
+        self._lock = threading.Lock()
+
+        # The records built for the test the engine is running, so that the
+        # engine can list in its transaction log every request it sent, also
+        # those the test did not record itself (collect_requests_of()).
+        self._collecting_for: str | None = None
+        self._collected: list[EvidenceRecord] = []
+
         # httpx.Client is None until __enter__ is called.
         self._http_client: httpx.Client | None = None
 
@@ -471,15 +484,18 @@ class SecurityClient:
 
         def failed_record(transport_error: TransportError) -> EvidenceRecord:
             """The record of this request without a response, for SecurityClientError."""
-            return self._build_failed_record(
-                record_id=record_id,
-                timestamp=timestamp,
-                method=method_upper,
-                display_url=display_url,
-                request_headers=headers or {},
-                request_json=json,
-                transport_error=transport_error,
-                elapsed_ms=(time.monotonic() - wall_start) * 1000.0,
+            return self._keep(
+                test_id,
+                self._build_failed_record(
+                    record_id=record_id,
+                    timestamp=timestamp,
+                    method=method_upper,
+                    display_url=display_url,
+                    request_headers=headers or {},
+                    request_json=json,
+                    transport_error=transport_error,
+                    elapsed_ms=(time.monotonic() - wall_start) * 1000.0,
+                ),
             )
 
         response, attempt_count = self._execute_with_retry(
@@ -514,7 +530,42 @@ class SecurityClient:
             elapsed_ms=wall_elapsed_ms,
         )
 
-        return response, record
+        return response, self._keep(test_id, record)
+
+    def collect_requests_of(self, test_id: str) -> None:
+        """
+        Start keeping every record built for one test, until collected_requests().
+
+        The engine calls it before a test runs: a test lists the requests it
+        judges or marks as steps, and the engine adds the ones it did not, so that
+        the report's transaction log holds every request sent to the target.
+        Requests of another id (the login, the reference responses) are not kept.
+
+        Args:
+            test_id: The test about to run.
+        """
+        self._collecting_for = test_id
+        self._collected = []
+
+    def collected_requests(self) -> list[EvidenceRecord]:
+        """
+        Stop collecting and return the records built for the test, in the order sent.
+
+        Returns:
+            Every record of the test given to collect_requests_of(), responses and
+            transport failures alike; empty when nothing was being collected.
+        """
+        records = self._collected
+        self._collecting_for = None
+        self._collected = []
+        return records
+
+    def _keep(self, test_id: str, record: EvidenceRecord) -> EvidenceRecord:
+        """Keep a record when it belongs to the test being collected; return it unchanged."""
+        with self._lock:
+            if test_id == self._collecting_for:
+                self._collected.append(record)
+        return record
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -535,8 +586,9 @@ class SecurityClient:
         Returns:
             A string record ID unique within this pipeline run.
         """
-        current = self._sequence_counters.get(test_id, 0) + 1
-        self._sequence_counters[test_id] = current
+        with self._lock:
+            current = self._sequence_counters.get(test_id, 0) + 1
+            self._sequence_counters[test_id] = current
         return f"{test_id}_{current:03d}"
 
     def _execute_with_retry(

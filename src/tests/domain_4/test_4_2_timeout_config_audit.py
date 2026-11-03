@@ -20,9 +20,10 @@ Strategy: WHITE_BOX -- Configuration Audit through the gateway adapter.
 Priority: P1 -- a missing timeout on any upstream service is a resource-lock
     vulnerability that cascades into full pool exhaustion (CWE-400).
 
-Pilot of the test review: the
-oracle is the v0.1.0 one, moved onto the computed result; its review (e.g.
-whether a timeout the gateway does not state is a violation, Q-29) is phase 1.
+A timeout the gateway does not state is a violation: the guarantee asks for a
+bound, and no stated bound means none is enforced at that layer. Which branches
+a gateway can reach is on the test page (Kong always reports its defaults and
+refuses 0; APISIX omits an unset field).
 
 Sub-tests: connect_timeout, read_timeout, write_timeout. For each backend (or
 route that overrides its backend's timeouts) and each timeout:

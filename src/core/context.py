@@ -498,7 +498,7 @@ class TestContext(BaseModel):
         return self._references
 
     # ------------------------------------------------------------------
-    # Secret interface (redaction in evidence and reports, Q-31)
+    # Secret interface (redaction in evidence and reports)
     # ------------------------------------------------------------------
 
     @property

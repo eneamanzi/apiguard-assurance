@@ -28,7 +28,7 @@ and what is expected; the full text is in the thesis original.
 |---|---|
 | P0 | 0.1, 0.2, 0.3, 0.4, 1.1, 1.2, 1.3, 2.2, 4.1, 7.2 |
 | P1 | 1.7, 2.1, 2.4, 2.5, 4.2, 4.3, 4.4, 5.1, 7.1, 7.3, 7.4 |
-| P2 | 1.4, 1.5, 3.1, 5.2, 6.1, 6.4 |
+| P2 | 1.4, 1.5, 3.1, 6.1, 6.4 |
 | P3 | 1.6, 3.3, 6.2 |
 
 <!-- [[[end]]] -->
@@ -843,7 +843,7 @@ the logs this guarantee cannot be checked empirically from outside.
 
 ---
 
-### 5.2 Anomalous security events trigger real-time alerts `[P2]`
+### 5.2 Anomalous security events trigger real-time alerts `[P2 proposed, no test]`
 
 **References:** NIST SP 800-61 Rev. 3 §2.3, OWASP ASVS 5.0.0 V7.1.1, GDPR Article 33.
 
@@ -859,10 +859,17 @@ outside.
 - **Alert fatigue.** The system alerts on every single `401`; 1000 alerts a day, mostly false positives. The team
   ignores them and misses real events.
 
-**Assumptions and prerequisites.** The test declares **white box** ([`5.2`](../05-tests/domain-5/5-2-security-alerting-audit.md)). Read access to the alert
-rules (SIEM, Grafana Alert Manager, CloudWatch alarms) to check thresholds and correlation logic; for the behavioural
-tests, a webhook endpoint or notification channel in the test environment to receive the alerts and check their
-latency and content.
+**Coverage by the tool.** No test declares this guarantee. Alerting lives in the SIEM or the notification channel,
+which the tool cannot read from outside, and every check below needs an alert receiver the tool can observe, which
+is not built and not planned (decided 2026-10-27). A test for it existed until 2026-11-03 and returned SKIP on every
+target, so it was removed. Two neighbours cover adjacent ground without answering the question:
+[5.1](../05-tests/domain-5/5-1-request-logging-audit.md) checks that the gateway logs requests at all, and
+[1.7](../05-tests/domain-1/1-7-authentication-resistance.md) that repeated failed authentications are limited.
+Neither says whether anyone is alerted: verify the alerting rules by hand on the gateway or the SIEM.
+
+**Assumptions and prerequisites.** White box: read access to the alert rules (SIEM, Grafana Alert Manager, CloudWatch
+alarms) to check thresholds and correlation logic; for the behavioural tests, a webhook endpoint or notification
+channel in the test environment to receive the alerts and check their latency and content.
 
 **Test logic.**
 

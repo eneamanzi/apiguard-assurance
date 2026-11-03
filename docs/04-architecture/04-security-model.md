@@ -104,7 +104,7 @@ How each tool that a run can execute treats the server's certificate and the run
 | ffuf | **never verifies**: `InsecureSkipVerify` is fixed in ffuf v2.3.0 and it exposes no option to change it | never, precisely because of the line above: the connector would be handing a credential to a connection it cannot authenticate. ffuf sends unauthenticated `GET` only, and every path it reports is requested again by the test with the tool's own verified client |
 
 nuclei's connector sets `-duc` (no update check) and `-ni` (no interactsh out-of-band callbacks, so no traffic to
-third parties), but no test uses it, so a run never executes it ([roadmap](../project/roadmap.md)).
+third parties), but no test uses it, so a run never executes it (declared dormant in `src/connectors/nuclei.py`).
 
 ## Known gaps
 

@@ -327,7 +327,11 @@ class Test01ShadowApiDiscovery(BaseTest):
             Outcome.VIOLATION,
             "UNDECLARED_METHOD_HANDLED" if served else "UNDECLARED_METHOD_KNOWN",
             finding=Finding(
-                title=f"Undeclared method handled: {method} {endpoint.path}",
+                title=(
+                    f"Undeclared method handled: {method} {endpoint.path}"
+                    if served
+                    else f"Undeclared method known: {method} {endpoint.path}"
+                ),
                 detail=(
                     f"{method} {path} (no credential) answered {record.response_status_code} "
                     f"({category.value}), while the same method on random paths under the same "

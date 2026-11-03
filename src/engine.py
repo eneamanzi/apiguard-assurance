@@ -88,7 +88,13 @@ from src.config.config_used import config_used_yaml
 from src.config.loader import closest_match, read_config
 from src.config.schema import ToolConfig
 from src.config.tests_section import validate_tests_section
-from src.core.assessment_test import NEEDED_TO_RUN, REFERS_TO_RESOURCE, AssessmentTest, has_marker
+from src.core.assessment_test import (
+    NEEDED_TO_RUN,
+    REFERS_TO_RESOURCE,
+    AssessmentTest,
+    category_of,
+    has_marker,
+)
 from src.core.auth_placement import CredentialPlacement, resolve_placement
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
@@ -107,12 +113,14 @@ from src.core.exceptions import (
 from src.core.gateway import GATEWAY_ADAPTERS
 from src.core.models import (
     AttackSurface,
+    EvidenceRecord,
     ExitCode,
     NotRunEntry,
     NotRunReason,
     ResultSet,
     TestResult,
     TestStatus,
+    TransactionSummary,
 )
 from src.core.redaction import SecretRegistry
 from src.core.references import ReferenceResponses
@@ -140,6 +148,37 @@ from src.tests.helpers.auth import acquire_tokens
 from src.tests.registry import TestRegistry
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
+
+
+def _complete_transaction_log(
+    logged: list[TransactionSummary], sent: list[EvidenceRecord]
+) -> list[TransactionSummary]:
+    """
+    A test's transaction log with every request it sent and did not record itself.
+
+    The report promises every request a test sends to the target (the report
+    schema, the evidence format, the closing line of a run). A test records the
+    requests it judges or marks as steps; measured on 2026-11-03, eight tests
+    left some out (6.2 recorded none of its two, 4.1 one of its 150). Each one
+    missing is added as an unjudged step, and the log is put in the order the
+    requests were sent.
+
+    Args:
+        logged: The log the test built.
+        sent:   Every record the client built for the test (collected_requests()).
+
+    Returns:
+        The log unchanged when nothing is missing, else the completed log.
+    """
+    present = {entry.record_id for entry in logged}
+    missing = [
+        TransactionSummary.from_evidence_record(record=record, category=category_of(record))
+        for record in sent
+        if record.record_id not in present
+    ]
+    if not missing:
+        return logged
+    return sorted([*logged, *missing], key=lambda entry: entry.timestamp_utc)
 
 
 @contextmanager
@@ -1583,17 +1622,26 @@ class AssessmentEngine:
 
         wall_start = time.monotonic()
 
-        if isinstance(test, ExternalToolTest):
-            result = test.execute(target, context, client, store)
-        else:
-            store.begin_test(test_id)
-            try:
+        client.collect_requests_of(test_id)
+        try:
+            if isinstance(test, ExternalToolTest):
                 result = test.execute(target, context, client, store)
-            finally:
-                store.end_test()
+            else:
+                store.begin_test(test_id)
+                try:
+                    result = test.execute(target, context, client, store)
+                finally:
+                    store.end_test()
+        finally:
+            sent = client.collected_requests()
 
         elapsed_ms = (time.monotonic() - wall_start) * 1000.0
-        result = result.model_copy(update={"duration_ms": round(elapsed_ms, 2)})
+        result = result.model_copy(
+            update={
+                "duration_ms": round(elapsed_ms, 2),
+                "transaction_log": _complete_transaction_log(result.transaction_log, sent),
+            }
+        )
 
         log.info(
             "test_execution_completed",

@@ -355,7 +355,10 @@ class Test21FunctionLevelAuthorization(BaseTest):
                             f"On the privileged path {path} the methods did not agree for user_a "
                             f"(served/refused: {decided}). One method enforces the role while "
                             "another does not, so the check is bypassed by changing the method "
-                            "(OWASP API5:2023). Apply the same authorization to every method."
+                            "(OWASP API5:2023). Apply the same authorization to every method. "
+                            "This finding rests on several answers rather than one, so it names "
+                            "no single record: each probed method is in this test's transaction "
+                            "log."
                         ),
                         confidence=Confidence.CERTAIN,
                     ),

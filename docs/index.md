@@ -48,7 +48,7 @@ declared challenges one by one and says what the tool did with each, including t
 | Secrets, outputs, traffic and TLS | [`04-security-model`](04-architecture/04-security-model.md) |
 | Why the tool is built this way (configuration by connection, TLS, credentials, prepared resources, gateway concepts) | [`05-design-decisions`](04-architecture/05-design-decisions.md) |
 | Why a test or a design choice exists (research) | [`06-knowledge/`](06-knowledge/README.md) (repository only) |
-| What is still open, what was dropped, the v0.1.0 audit | [`roadmap`](project/roadmap.md), [`audit-v0.1.0`](project/audit-v0.1.0.md) (repository only) |
+| What was dropped, the v0.1.0 audit | [`CHANGELOG`](../CHANGELOG.md), [`audit-v0.1.0`](project/audit-v0.1.0.md) (repository only) |
 | Run the labs, regenerate the documentation, check a release | [`maintainer-commands`](project/maintainer-commands.md) (repository only) |
 
 ## Structure

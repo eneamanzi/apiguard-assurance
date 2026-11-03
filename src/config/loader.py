@@ -34,7 +34,7 @@ Loading pipeline (four sequential, non-overlapping phases):
         Replace ${VAR_NAME} inside the parsed string values with the variable's
         value (never in keys). A value from the environment is never read as
         YAML structure, so any character in a password arrives unchanged, and
-        a placeholder in a comment is ignored (Q-69). An unquoted placeholder
+        a placeholder in a comment is ignored. An unquoted placeholder
         that is the whole value takes the type of its value when that is a
         number, a boolean or empty, as if written in its place; quoted, it is
         always text. Raises ConfigurationError
@@ -317,7 +317,7 @@ class _UniqueKeyLoader(yaml.SafeLoader):
     """
     PyYAML's safe loader, rejecting a key repeated in the same mapping.
 
-    PyYAML keeps the last value of a repeated key and says nothing (Q-68), so a
+    PyYAML keeps the last value of a repeated key and says nothing, so a
     setting written twice would silently lose its first value. Each mapping is
     checked on its own: the same key under different parents, or in different
     items of a list, is not a repetition; a merge key (<<) is not checked.
@@ -480,7 +480,7 @@ def _interpolate_env_vars(written: dict[str, object], config_path: Path) -> dict
 
     The replacement works on values already parsed, never on the text: a value
     from the environment is not read as YAML structure, so it cannot add keys,
-    end in a comment, or appear in a YAML error (Q-69). A placeholder is a
+    end in a comment, or appear in a YAML error. A placeholder is a
     whole value or part of one ("Bearer ${TOKEN}"); in a key or a comment it
     is not replaced. Unquoted and alone, it takes the type of a number, a
     boolean or an empty value, as if written in its place (count: ${N} with

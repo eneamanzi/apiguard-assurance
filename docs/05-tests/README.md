@@ -14,7 +14,7 @@ methodology's own claims are broader
 
 <!-- [[[cog import generate_docs as g; cog.out(g.catalogue()) ]]] -->
 
-32 tests: 29 native, 3 external.
+31 tests: 28 native, 3 external.
 
 | ID | Name | Pri. | Strategy | Effect | CWE | Needs | Page |
 |---|---|---|---|---|---|---|---|
@@ -48,9 +48,8 @@ methodology's own claims are broader
 | `4.4` | Request Size Limits | P1 | BLACK_BOX | STRESSES_TARGET | CWE-400 | `GATEWAY` (optional) | [4.4](domain-4/4-4-request-size-limits.md) |
 | **Domain 5 - Visibility and Auditing** | | | | | | | |
 | `5.1` | Request Logging Audit | P1 | WHITE_BOX | READ_ONLY | CWE-778 | `GATEWAY` | [5.1](domain-5/5-1-request-logging-audit.md) |
-| `5.2` | Security Alerting Audit | P2 | WHITE_BOX | READ_ONLY | CWE-778 | - | [5.2](domain-5/5-2-security-alerting-audit.md) |
 | **Domain 6 - Configuration and Hardening** | | | | | | | |
-| `6.1` | Error and Information Disclosure | P2 | GREY_BOX | READ_ONLY | CWE-209 | `USER_ACCOUNT` | [6.1](domain-6/6-1-information-disclosure.md) |
+| `6.1` | Error and Information Disclosure | P2 | GREY_BOX | CHANGES_DATA | CWE-209 | `USER_ACCOUNT` | [6.1](domain-6/6-1-information-disclosure.md) |
 | `6.2` | Security Headers Audit | P3 | BLACK_BOX | READ_ONLY | CWE-1021 | - | [6.2](domain-6/6-2-security-headers-audit.md) |
 | `6.4` | Hardcoded Credentials Audit | P2 | BLACK_BOX | READ_ONLY | CWE-798 | `GATEWAY` (optional) | [6.4](domain-6/6-4-hardcoded-credentials-audit.md) |
 | **Domain 7 - Business Logic and Sensitive Flows** | | | | | | | |

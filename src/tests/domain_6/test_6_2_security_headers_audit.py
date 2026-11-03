@@ -32,6 +32,7 @@ from __future__ import annotations
 import httpx
 import structlog
 
+from src.core.assessment_test import category_of
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
@@ -42,6 +43,7 @@ from src.core.models import (
     Finding,
     Outcome,
     Reference,
+    ResponseCategory,
     Standard,
     TestResult,
     TestStrategy,
@@ -120,48 +122,57 @@ class Test62SecurityHeadersAudit(BaseTest):
                 return self._skip("No documented GET endpoint to read the security headers from.")
             cto: dict[str, bool] = {}
             frame: dict[str, bool] = {}
-            cors: dict[str, bool | None] = {}
-            last: EvidenceRecord | None = None
+            cors: dict[str, str] = {}
+            # Each sampled response, and each answer to the cross-origin probe, is
+            # kept by path: a finding names one endpoint, and its proof must be
+            # that endpoint's response (rule 6), not the last one sampled.
+            records: dict[str, EvidenceRecord] = {}
+            cors_records: dict[str, EvidenceRecord] = {}
             for _method, path, _template in sample:
                 response, record = _send(client, path, {})
                 if response is None or record is None:
                     continue
-                last = record
+                records[path] = record
                 headers = {k.lower(): v for k, v in response.headers.items()}
                 cto[path] = headers.get("x-content-type-options", "").strip().lower() == "nosniff"
                 frame[path] = _framing_ok(headers)
-                cors[path] = self._cors_ok(client, path)
-            self._judge_header(store, _SUB_CTO, cto, last, _CTO_MSG)
-            self._judge_header(store, _SUB_FRAME, frame, last, _FRAME_MSG)
-            self._judge_cors(store, cors, last)
+                cors[path], cors_record = self._cors_ok(client, path)
+                if cors_record is not None:
+                    cors_records[path] = cors_record
+            self._judge_header(store, _SUB_CTO, cto, records, _CTO_MSG)
+            self._judge_header(store, _SUB_FRAME, frame, records, _FRAME_MSG)
+            self._judge_cors(store, cors, cors_records)
             return self._finish(message=f"{len(sample)} endpoint(s) sampled.")
         except SecurityClientError as exc:
             return self._error(exc)
 
-    def _cors_ok(self, client: SecurityClient, path: str) -> bool | None:
+    def _cors_ok(self, client: SecurityClient, path: str) -> tuple[str, EvidenceRecord | None]:
         """
-        Whether CORS is safe at a path: True safe, False unsafe, None not used.
+        What the answer to an arbitrary Origin says about CORS at a path, and the answer.
 
-        Unsafe = the response to an arbitrary Origin reflects it (or '*') together
-        with Access-Control-Allow-Credentials: true.
+        One of _CORS_UNSAFE (it reflects the origin, or '*', together with
+        Access-Control-Allow-Credentials: true), _CORS_BOUNDED (a CORS grant that is
+        not unsafe), _CORS_NO_GRANT (no Access-Control-Allow-Origin at all: a browser
+        refuses that origin the response) or _CORS_UNKNOWN (no answer, or one from a
+        target unavailable, failing or throttling, which says nothing about CORS).
         """
-        response, _record = _send(client, path, {"Origin": _PROBE_ORIGIN})
-        if response is None:
-            return None
+        response, record = _send(client, path, {"Origin": _PROBE_ORIGIN})
+        if response is None or record is None or category_of(record) in _CORS_SILENT:
+            return _CORS_UNKNOWN, record
         headers = {k.lower(): v for k, v in response.headers.items()}
         acao = headers.get("access-control-allow-origin", "").strip()
         acac = headers.get("access-control-allow-credentials", "").strip().lower()
         if not acao:
-            return None
+            return _CORS_NO_GRANT, record
         unsafe = (acao in {_PROBE_ORIGIN, "*"}) and acac == "true"
-        return not unsafe
+        return (_CORS_UNSAFE if unsafe else _CORS_BOUNDED), record
 
     def _judge_header(
         self,
         store: EvidenceStore,
         sub_test: str,
         results: dict[str, bool],
-        record: EvidenceRecord | None,
+        records: dict[str, EvidenceRecord],
         message: str,
     ) -> None:
         """ENFORCED if present everywhere; VIOLATION if absent everywhere or inconsistent."""
@@ -184,17 +195,22 @@ class Test62SecurityHeadersAudit(BaseTest):
             detail=f"{message} is {where}. {_REMEDY[sub_test]}",
             confidence=Confidence.CERTAIN,
         )
-        self._violation(store, sub_test, detail, finding, record)
+        # The proof is the response of the endpoint the finding names.
+        self._violation(store, sub_test, detail, finding, records.get(absent[0]))
 
     def _judge_cors(
-        self, store: EvidenceStore, results: dict[str, bool | None], record: EvidenceRecord | None
+        self,
+        store: EvidenceStore,
+        results: dict[str, str],
+        records: dict[str, EvidenceRecord],
     ) -> None:
         """VIOLATION if any sampled endpoint has unsafe CORS; N/A if none use CORS."""
         if not results:
             self._record(_SUB_CORS, Outcome.NOT_VERIFIABLE, "NO_RESPONSE")
             return
-        unsafe = [p for p, ok in results.items() if ok is False]
-        used = [p for p, ok in results.items() if ok is not None]
+        unsafe = [p for p, state in results.items() if state == _CORS_UNSAFE]
+        evaluated = [p for p, state in results.items() if state != _CORS_UNKNOWN]
+        granted = [p for p, state in results.items() if state == _CORS_BOUNDED]
         if unsafe:
             finding = Finding(
                 title="Unsafe CORS: an arbitrary origin is allowed with credentials",
@@ -207,10 +223,19 @@ class Test62SecurityHeadersAudit(BaseTest):
                 ),
                 confidence=Confidence.CERTAIN,
             )
-            self._violation(store, _SUB_CORS, "CORS_WILDCARD_CREDENTIALS", finding, record)
+            # The proof is the answer to the cross-origin probe on the endpoint named.
+            self._violation(
+                store, _SUB_CORS, "CORS_WILDCARD_CREDENTIALS", finding, records.get(unsafe[0])
+            )
             return
-        if not used:
-            self._record(_SUB_CORS, Outcome.NOT_APPLICABLE, "NO_CORS")
+        if not evaluated:
+            # No usable answer to the cross-origin probe: nothing was learnt.
+            self._record(_SUB_CORS, Outcome.NOT_VERIFIABLE, "NO_RESPONSE")
+            return
+        if not granted:
+            # The answers to an arbitrary Origin grant no cross-origin access at
+            # all: that origin is not allowed, which is what this check asks.
+            self._record(_SUB_CORS, Outcome.ENFORCED, "ORIGIN_NOT_ALLOWED")
             return
         self._record(_SUB_CORS, Outcome.ENFORCED, "CORS_BOUNDED")
 
@@ -228,6 +253,22 @@ class Test62SecurityHeadersAudit(BaseTest):
         else:
             self._record(sub_test, Outcome.VIOLATION, detail, finding)
 
+
+# What the answer to the cross-origin probe says (_cors_ok).
+_CORS_UNSAFE: str = "unsafe"
+_CORS_BOUNDED: str = "bounded"
+_CORS_NO_GRANT: str = "no_grant"
+_CORS_UNKNOWN: str = "unknown"
+# Answers that say nothing about CORS: the target was unavailable, failing,
+# throttling or silent (rule 1).
+_CORS_SILENT: frozenset[ResponseCategory] = frozenset(
+    {
+        ResponseCategory.UPSTREAM_UNAVAILABLE,
+        ResponseCategory.SERVER_ERROR,
+        ResponseCategory.RATE_LIMITED,
+        ResponseCategory.NO_RESPONSE,
+    }
+)
 
 _CTO_MSG: str = "X-Content-Type-Options: nosniff"
 _FRAME_MSG: str = "Clickjacking protection (CSP frame-ancestors or X-Frame-Options)"

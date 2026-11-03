@@ -17,9 +17,16 @@ controls.
                           VIOLATION/IP_SPOOF_BYPASS.
 
 The budget (how many requests the burst sends before giving up) is the gateway's
-own configured limit plus a margin, read through the adapter when it is
-available (`Need.GATEWAY`, optional); otherwise a configured cap. The burst
-stops at the first 429, so a working limit is not flooded past its threshold.
+own configured limit plus a margin, when the adapter can read it (`Need.GATEWAY`,
+optional), and otherwise the `max_burst` cap. On the two supported gateways the
+limit is stated as a number (Kong's `rate-limiting.minute`, APISIX's
+`limit-count.count`, checked on their schemas 2026-11-03) and the configuration
+scan collects strings only, so in practice the budget is the cap. A burst that
+meets no 429 therefore proves "no limit at or below this many requests", not "no
+limit": the finding is FIRM and says so, and CERTAIN only when a configured limit
+was read and the budget went past it. A limit read above the cap cannot be
+reached and gives NOT_VERIFIABLE/LIMIT_ABOVE_BUDGET. The burst stops at the
+first 429, so a working limit is not flooded past its threshold.
 
 BLACK_BOX (no credential: an anonymous flood), effect `STRESSES_TARGET` (it runs
 after every other test, rule 7).
@@ -150,9 +157,9 @@ class Test41RateLimiting(BaseTest[Test41Params]):
             path = self._probe_path(target)
             if path is None:
                 return self._skip("No documented GET endpoint to probe for a rate limit.")
-            budget = self._budget(target)
+            budget, limit = self._budget(target)
             plain = self._burst(client, path, budget, spoof=False)
-            self._judge_limit(store, path, plain, budget)
+            self._judge_limit(store, path, plain, budget, limit)
             self._judge_spoofing(client, store, path, budget, plain)
             return self._finish(message=f"Burst budget {budget} on {path}.")
         except Exception as exc:  # noqa: BLE001 -- top-level guard (BaseTest contract)
@@ -173,16 +180,14 @@ class Test41RateLimiting(BaseTest[Test41Params]):
         shortest = min(gets, key=lambda e: (len(e.path), e.path))
         return resolve_path_with_seed(shortest.path, target.path_seed)
 
-    def _budget(self, target: TargetContext) -> int:
-        """The burst size: the gateway's configured limit plus a margin, or the cap."""
+    def _budget(self, target: TargetContext) -> tuple[int, int | None]:
+        """The burst size (the configured limit plus a margin, or the cap) and the limit read."""
         cap = self.params(target).max_burst
         gateway = target.gateway
-        if gateway is None:
-            return cap
-        limit = _configured_limit(gateway)
+        limit = _configured_limit(gateway) if gateway is not None else None
         if limit is None:
-            return cap
-        return min(cap, limit + _BUDGET_MARGIN)
+            return cap, None
+        return min(cap, limit + _BUDGET_MARGIN), limit
 
     def _burst(
         self,
@@ -228,24 +233,43 @@ class Test41RateLimiting(BaseTest[Test41Params]):
         )
 
     def _judge_limit(
-        self, store: EvidenceStore, path: str, plain: _BurstResult, budget: int
+        self,
+        store: EvidenceStore,
+        path: str,
+        plain: _BurstResult,
+        budget: int,
+        limit: int | None,
     ) -> None:
-        """Judge whether the plain burst met a rate limit."""
+        """Judge whether the plain burst met a rate limit (module docstring: the confidence)."""
         if plain.upstream_failing:
             self._record(_SUB_LIMIT, Outcome.NOT_VERIFIABLE, "UPSTREAM_UNAVAILABLE")
             return
         if plain.limited_record is not None:
             self._judge(plain.limited_record, store, _SUB_LIMIT, Outcome.ENFORCED, "RATE_LIMITED")
             return
+        if limit is not None and budget <= limit:
+            # A configured limit the capped burst cannot reach: its silence says
+            # nothing about whether the limit is enforced.
+            self._record(_SUB_LIMIT, Outcome.NOT_VERIFIABLE, "LIMIT_ABOVE_BUDGET")
+            return
+        configured = limit is not None
         finding = Finding(
             title=f"No rate limit on {path}",
             detail=(
                 f"{budget} requests to {path} in a burst all answered without a 429 Too Many "
-                "Requests. The gateway does not limit the request rate, so a loop can exhaust "
-                "the backend's resources or brute-force a credential (OWASP API4:2023, ASVS "
-                "v5.0.0-2.4.1). Configure a rate-limiting plugin on the gateway."
+                "Requests"
+                + (
+                    f", although the gateway states a limit of {limit}: the limit is configured "
+                    "and not enforced."
+                    if configured
+                    else ". No limit applies at or below that rate; a higher limit would not be "
+                    "seen by this burst (raise max_burst to look further)."
+                )
+                + " Without a rate limit a loop can exhaust the backend's resources or "
+                "brute-force a credential (OWASP API4:2023, ASVS v5.0.0-2.4.1). Configure a "
+                "rate-limiting plugin on the gateway."
             ),
-            confidence=Confidence.CERTAIN,
+            confidence=Confidence.CERTAIN if configured else Confidence.FIRM,
         )
         self._violation(store, _SUB_LIMIT, "NO_RATE_LIMIT", finding, plain.last_record)
 
@@ -331,6 +355,8 @@ def _configured_limit(gateway: BaseGatewayAdapter) -> int | None:
         return None
     limits: list[int] = []
     for item in answer.items:
+        if not item.enabled:
+            continue
         location = item.location.lower()
         if not any(marker in location for marker in _RATE_LIMIT_MARKERS):
             continue

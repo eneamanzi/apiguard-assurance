@@ -23,7 +23,8 @@
 
 <!-- [[[end]]] -->
 
-**Same group:** test `5.2` (visibility and auditing).
+**Same group:** none. Guarantee 5.2 (real-time alerting) has no test: it needs the SIEM or an alert receiver the tool
+cannot reach ([guarantee 5.2](../../06-knowledge/03-guarantees.md#52-anomalous-security-events-trigger-real-time-alerts-p2-proposed-no-test)).
 
 ## 1. Guarantee
 
@@ -58,14 +59,16 @@ None: a configuration audit. `config_values` is read and pinned as evidence.
 | Case | Outcome / detail | Confidence |
 |---|---|---|
 | a known logging plugin is enabled | `ENFORCED/LOGGING_CONFIGURED` (a note names it) | CERTAIN |
-| none | `VIOLATION/NO_REQUEST_LOGGING` | CERTAIN |
+| none, among values that were read | `VIOLATION/NO_REQUEST_LOGGING` | CERTAIN |
+| the read succeeded and returned **no value at all** | `NOT_VERIFIABLE/NO_CONFIG_VALUE` (a note says so) | - |
 | the configuration cannot be read | SKIP | - |
 
 A note on every result states the log-content checks need log access and were not done.
 
 ## 7. Outcomes
 
-SKIP when the configuration cannot be read. FAIL when no logging plugin is enabled, PASS when one is.
+SKIP when the configuration cannot be read, INCONCLUSIVE when it reads as empty. FAIL when no logging plugin is
+enabled among the values read, PASS when one is.
 
 ## 8. Findings
 
@@ -79,6 +82,11 @@ SKIP when the configuration cannot be read. FAIL when no logging plugin is enabl
 
 The logging plugins differ by gateway (Kong vs APISIX); the audit matches a set of known plugin names. A gateway
 whose logging is configured outside the Admin API's view is a coverage limit.
+
+Only an active plugin counts. Kong marks a plugin off with its own `enabled: false`, APISIX with `_meta.disable: true`
+in the plugin's configuration; both adapters carry that state on every configuration value they report, and this
+test skips the values of a disabled plugin. Until 2026-11-03 it did not, so a gateway whose only logging plugin was
+switched off passed with "a logging plugin is configured".
 
 ## 11. Configuration
 
@@ -97,6 +105,19 @@ Runs of 2026-10-23:
 `test-environments/forgejo-kong/kong/kong.yml`, reload Kong (`docker compose ... up -d --force-recreate --wait
 kong`); undo with `git checkout` and the same command. The lab was checked back to FAIL. Rule 9: both sides proven;
 the log-content checks are permanently outside this test (see Limitations).
+
+**The empty read, and the false finding it used to produce** (2026-10-29). Until that date, no logging plugin
+*among the values read* and no value read at all were the same case, so a gateway the adapter returned nothing for
+was reported `FAIL` with the finding "No request-logging plugin on the gateway": an accusation resting on nothing.
+Seen against a stand-in Admin API on `127.0.0.1` answering every endpoint with an empty collection (a local
+process, no lab touched): before the fix `FAIL`, 1 finding; after it `INCONCLUSIVE`, 0 findings, with a note saying
+the read was empty. The three real gateways are unchanged, still `FAIL` from 11, 25 and 15 values read.
+
+**The disabled plugin, and the false pass it used to produce** (2026-11-03). Against a stand-in Kong Admin API on
+`127.0.0.1` whose only logging plugin is `http-log` (no lab touched): with the plugin `enabled: false`, the test
+reported **PASS** before the fix and reports **FAIL**, "No request-logging plugin on the gateway", after it; with the
+plugin `enabled: true` it reports PASS, so the enforced branch still holds. The three real gateways carry no
+disabled plugin and are unchanged.
 
 ## 13. Remediation
 

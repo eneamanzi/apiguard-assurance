@@ -41,7 +41,7 @@ import json
 import structlog
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.core.assessment_test import NEEDED_TO_RUN
+from src.core.assessment_test import NEEDED_TO_RUN, category_of
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
@@ -53,6 +53,7 @@ from src.core.models import (
     InfoNote,
     Outcome,
     Reference,
+    ResponseCategory,
     Standard,
     TestResult,
     TestStrategy,
@@ -67,6 +68,15 @@ _SUB_INVALID: str = "invalid_signature_rejected"
 
 # A delivery the endpoint acted on: a 2xx.
 _ACCEPTED_STATUS: frozenset[int] = frozenset({200, 201, 202, 204})
+
+# Answers that say nothing about signature verification: the receiver was
+# unavailable, failing, throttling or silent (rule 1). Never ENFORCED.
+_SPOILING: dict[ResponseCategory, str] = {
+    ResponseCategory.UPSTREAM_UNAVAILABLE: "UPSTREAM_UNAVAILABLE",
+    ResponseCategory.RATE_LIMITED: "RATE_LIMITED",
+    ResponseCategory.NO_RESPONSE: "NO_RESPONSE",
+    ResponseCategory.SERVER_ERROR: "SERVER_ERROR",
+}
 
 # The invalid signature: a well-formed but wrong HMAC-SHA256 hex digest.
 _INVALID_SIGNATURE: str = "0" * 64
@@ -121,7 +131,7 @@ class Test74Params(BaseModel):
                 "method": "POST",
                 "body": {"event": "payment.succeeded", "amount": 100},
                 "signature_header": "X-Hub-Signature-256",
-                "signing_secret": "${WEBHOOK_SECRET}",  # nosec B105 -- a doc example, an env ref
+                "signing_secret": "${WEBHOOK_SECRET}",  # a doc example, an env ref  # nosec B105
                 "signature_format": "sha256={signature}",
             }
         ],
@@ -239,6 +249,10 @@ class Test74WebhookVerification(BaseTest[Test74Params]):
         record = self._send(client, endpoint, raw, signature)
         if record is None:
             self._record(sub_test, Outcome.NOT_VERIFIABLE, "NO_RESPONSE")
+            return
+        category = category_of(record)
+        if category in _SPOILING:
+            self._judge(record, store, sub_test, Outcome.NOT_VERIFIABLE, _SPOILING[category])
             return
         if record.response_status_code not in _ACCEPTED_STATUS:
             self._judge(record, store, sub_test, Outcome.ENFORCED, "SIGNATURE_REQUIRED")

@@ -346,7 +346,11 @@ class ApisixGatewayAdapter(BaseGatewayAdapter):
                     location = f"{label} {holder.get('id')}, plugin {name}"
                     items.extend(
                         collect_text_values(
-                            _as_dict(config), ConfigValueKind.PLUGIN, location, "config"
+                            _as_dict(config),
+                            ConfigValueKind.PLUGIN,
+                            location,
+                            "config",
+                            enabled=not _plugin_disabled(config),
                         )
                     )
         for consumer in self._collection(_PATH_CONSUMERS):
@@ -354,7 +358,11 @@ class ApisixGatewayAdapter(BaseGatewayAdapter):
                 location = f"consumer {consumer.get('username')}, plugin {name}"
                 items.extend(
                     collect_text_values(
-                        _as_dict(config), ConfigValueKind.CLIENT_CREDENTIAL, location, "config"
+                        _as_dict(config),
+                        ConfigValueKind.CLIENT_CREDENTIAL,
+                        location,
+                        "config",
+                        enabled=not _plugin_disabled(config),
                     )
                 )
         return ConceptRead[ConfigValue].read(sorted_config_values(items))
@@ -587,6 +595,11 @@ class _PluginInstance:
 def _as_dict(value: object) -> dict[str, Any]:
     """The value when it is a JSON object, else an empty dict."""
     return value if isinstance(value, dict) else {}
+
+
+def _plugin_disabled(config: object) -> bool:
+    """Whether a plugin configuration switches itself off (APISIX's common `_meta.disable`)."""
+    return _as_dict(_as_dict(config).get("_meta")).get("disable") is True
 
 
 def _object_name(obj: dict[str, Any]) -> str:

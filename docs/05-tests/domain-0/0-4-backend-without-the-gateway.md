@@ -91,6 +91,7 @@ other lab's gateway, not that backend.
 | the gateway gives no address | - | `NOT_VERIFIABLE/NO_BACKEND_ADDRESS`, `ADDRESSES_NOT_READABLE`; `NOT_APPLICABLE/ADDRESSES_NOT_READABLE` when the gateway has no such concept | - |
 | the specification declares no path without parameters for `GET` | - | `NOT_VERIFIABLE/NO_PROBE_PATH` | - |
 | the target itself did not answer the probe path | - | `NOT_VERIFIABLE/TARGET_NOT_ANSWERING` | - |
+| no attempt left a record to judge (every attempt failed before a response could be read) | either | `NOT_VERIFIABLE/NO_ATTEMPT` | - |
 
 The comparison of two answers uses the status, the media type and the shape of the body. The `Server` header is left
 out on purpose: a gateway sets or removes it, so the same application answers with a different one through the
@@ -152,8 +153,15 @@ authorization rule), and have the backend authenticate the gateway rather than t
 - The verdict holds for the network the run started on, and the message says so. A backend unreachable from here may
   be reachable from inside the infrastructure.
 - Two candidates per backend are tried; a backend published on another host or another port is not found.
+- A hostname is tried as the gateway states it (`forgejo:3000`). Kong's health endpoint also reports the IP it
+  resolved, which the adapter does not keep, so a name that does not resolve from where the tool runs is
+  `NOT_VERIFIABLE/ADDRESS_NOT_RESOLVABLE` and not retried by IP (an internal container IP is usually unreachable
+  from outside anyway).
 - At a port of the target's host another service may be listening: such an answer is reported as another service,
   not as the backend.
+- A timeout counts as unreachable (`ENFORCED/BACKEND_UNREACHABLE`), because the transport vocabulary has a single
+  `timeout` and does not say whether the connection was ever accepted. A backend that accepts the connection and
+  then never answers therefore reads as unreachable rather than as listening.
 - A gateway that rewrites the path before forwarding (stripping a prefix) makes the direct answer differ from the
   gateway's, so the finding is FIRM instead of CERTAIN.
 - Whether the backend **authenticates** its callers once reached is a different guarantee, which no test covers

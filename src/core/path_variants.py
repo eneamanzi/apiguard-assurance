@@ -32,7 +32,7 @@ Sources of the list:
     RFC 9110 section 4.2.3                  the comparison of URIs;
     OWASP WSTG-v42-ATHZ-01                  directory traversal and path
                                             bypass variants;
-    Q-32 (2026-10-14)                       double encoding and "../" seen on
+    measured on the labs, 2026-10-14        double encoding and "../" seen on
                                             the labs; ';' in the path.
 
 Dependency rule: imports only from the standard library. No test logic: the

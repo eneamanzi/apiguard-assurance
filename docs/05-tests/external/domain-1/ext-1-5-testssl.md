@@ -74,8 +74,10 @@ the report for manual verification; its findings are read from the JSON output.
 | no HIGH/CRITICAL weakness | `ENFORCED/NO_TLS_WEAKNESS` | - |
 | the scan could not connect / timed out | ERROR (the base class handles the tool error) | - |
 
-The tool's own severity is kept in the finding text as information; the oracle reads the finding's id and severity
-class, not the severity alone (rule 11).
+The oracle is testssl.sh's own severity class (`HIGH`/`CRITICAL` fails, `WARN`/`MEDIUM` becomes a note), which is
+what rule 11 means by the tool's own judgement: this scanner rates what it finds instead of naming checks. The
+finding's id is read for one purpose, to recognise the certificate-revocation case and record it `NOT_VERIFIABLE`
+instead of failing on it. The severity is also printed in the finding text.
 
 ## 7. Outcomes
 

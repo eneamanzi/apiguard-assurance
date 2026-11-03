@@ -38,7 +38,7 @@ from typing import Annotated
 import structlog
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.core.assessment_test import NEEDED_TO_RUN, REFERS_TO_RESOURCE
+from src.core.assessment_test import NEEDED_TO_RUN, REFERS_TO_RESOURCE, category_of
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
@@ -49,6 +49,7 @@ from src.core.models import (
     Finding,
     Outcome,
     Reference,
+    ResponseCategory,
     Standard,
     TestResult,
     TestStrategy,
@@ -68,6 +69,15 @@ _SUCCESS_STATUS: frozenset[int] = frozenset({200, 201, 202, 204})
 
 _RACE: str = "RACE_DOUBLE_EFFECT"
 _OPERATION_FAILED: str = "OPERATION_FAILED"
+
+# Answers of the other concurrent requests that show the server failing rather
+# than refusing: one success among them does not prove serialization (rule 1).
+_SPOILING: dict[ResponseCategory, str] = {
+    ResponseCategory.UPSTREAM_UNAVAILABLE: "UPSTREAM_UNAVAILABLE",
+    ResponseCategory.RATE_LIMITED: "RATE_LIMITED",
+    ResponseCategory.NO_RESPONSE: "NO_RESPONSE",
+    ResponseCategory.SERVER_ERROR: "SERVER_ERROR",
+}
 
 
 class Test73RaceOperation(BaseModel):
@@ -260,23 +270,46 @@ class Test73RaceConditions(BaseTest[Test73Params]):
         successes = [r for r in records if r.response_status_code in _SUCCESS_STATUS]
         self._log_others(records, successes)
         if not successes:
+            # No success: say why. A server that was unavailable or failing is not an
+            # operation that refused to run (crAPI's workshop answers 503 by the time
+            # a full assessment reaches this test, 2026-11-03).
+            spoiled = next((r for r in records if category_of(r) in _SPOILING), None)
+            if spoiled is not None:
+                self._judge(
+                    spoiled, store, _SUB, Outcome.NOT_VERIFIABLE, _SPOILING[category_of(spoiled)]
+                )
+                return
             self._record(_SUB, Outcome.NOT_VERIFIABLE, _OPERATION_FAILED)
             return
         if len(successes) <= max_successful:
+            # Serialized means the others were refused (a 409, "already redeemed"),
+            # not that the server fell over under the burst.
+            spoiled = next(
+                (r for r in records if r not in successes and category_of(r) in _SPOILING), None
+            )
+            if spoiled is not None:
+                self._judge(
+                    spoiled, store, _SUB, Outcome.NOT_VERIFIABLE, _SPOILING[category_of(spoiled)]
+                )
+                return
             self._judge(successes[0], store, _SUB, Outcome.ENFORCED, "CONCURRENCY_SERIALIZED")
             return
+        # FIRM, not CERTAIN: the test counts accepted requests (2xx), not effects. A
+        # server that answers 2xx to a duplicate it does not apply would look the
+        # same; on crAPI 15 accepted coupon applications credited 6 (2026-11-03).
         finding = Finding(
-            title=f"Race condition: {op.method} {path} took effect {len(successes)} times",
+            title=f"Race condition: {op.method} {path} accepted {len(successes)} times",
             detail=(
                 f"{concurrency} identical requests to {op.method} {path} were fired at the same "
-                f"instant; {len(successes)} succeeded, above the allowed maximum of "
+                f"instant; {len(successes)} were accepted (2xx), above the allowed maximum of "
                 f"{max_successful}. A once-only operation that is not serialized lets concurrent "
-                "requests all pass the check and all act (a TOCTOU race, CWE-362, ASVS "
-                "v5.0.0-15.4.2), so the effect (a coupon, an order, a withdrawal) happens several "
-                "times. Make the check-then-act atomic (a database transaction, a unique "
-                "constraint, or a lock)."
+                "requests all pass the check and act (a TOCTOU race, CWE-362, ASVS "
+                "v5.0.0-15.4.2), so the effect (a coupon, an order, a withdrawal) can happen "
+                "several times. This test sees acceptances, not effects: confirm how many took "
+                "effect on the target's own state. Make the check-then-act atomic (a database "
+                "transaction, a unique constraint, or a lock)."
             ),
-            confidence=Confidence.CERTAIN,
+            confidence=Confidence.FIRM,
         )
         self._judge(successes[0], store, _SUB, Outcome.VIOLATION, _RACE, finding)
         log.info("test_7_3_race_detected", path=path, successes=len(successes), fired=concurrency)

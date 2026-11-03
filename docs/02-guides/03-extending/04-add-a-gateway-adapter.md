@@ -49,6 +49,10 @@ Rules:
 - **Read-only.** Never change the gateway.
 - **Names:** a backend has the same `name` in every concept (a route's `backend` too), so tests can relate them.
 - **Secrets:** `ConfigValue.value` is a `SecretStr`; never log the values you read.
+- **Disabled objects:** keep a disabled plugin's values in `config_values()` and mark them `enabled=False`
+  (pass `enabled=` to `collect_text_values`). Test 6.4 still scans them, since a credential in a disabled plugin is
+  still in the configuration; tests 4.1, 4.4 and 5.1 ignore them, since a disabled plugin enforces nothing. Kong
+  states the state as the plugin's `enabled`, APISIX as the plugin configuration's `_meta.disable`.
 - **Protected interfaces:** the base sends `admin_headers` (from `gateway.admin.headers`) on every Admin API
   request, and never to the health interface.
 - **Values the gateway does not return:** if the gateway's interface returns only what was written and not the

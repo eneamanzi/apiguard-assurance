@@ -64,7 +64,8 @@ Up to three deliveries of the same raw body: (optionally) validly signed, then u
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| the delivery is rejected (not `2xx`) | `ENFORCED/SIGNATURE_REQUIRED` | - |
+| the delivery is refused (a `4xx` other than `429`) | `ENFORCED/SIGNATURE_REQUIRED` | - |
+| the receiver was unavailable, failing or throttling (`5xx`, `429`) | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`, `SERVER_ERROR`, `RATE_LIMITED`: it never judged the signature | - |
 | the unsigned delivery is accepted (`2xx`) | `VIOLATION/UNSIGNED_ACCEPTED` | CERTAIN |
 | the wrongly signed delivery is accepted (`2xx`) | `VIOLATION/BAD_SIGNATURE_ACCEPTED` | CERTAIN |
 | a valid signature was itself rejected | `NOT_VERIFIABLE/REJECTS_ALL` (both sub-tests) | - |
@@ -115,12 +116,14 @@ Runs of 2026-10-26:
 |---|---|---|
 | Forgejo + Kong, crAPI + Kong, Forgejo + APISIX | **SKIP** | no webhook receiver declared (`webhook_endpoint` unset): honest SKIP |
 
-Rule 9: the live branches (`VIOLATION/UNSIGNED_ACCEPTED`, `VIOLATION/BAD_SIGNATURE_ACCEPTED`,
-`ENFORCED/SIGNATURE_REQUIRED`) are lab-unproven (the labs host no webhook receiver with a known signing scheme) and
-lab-unproven, and the decision whether to produce one live is part of the test-by-test review
-([`../../project/roadmap.md`](../../project/roadmap.md#next-work)). Replay protection and the blind-callback case are
-a different matter: they need an out-of-band listener that is not planned, so they stay permanently outside what this
-test covers (see Limitations).
+**This test has never run on a lab.** It needs the address of an incoming webhook receiver and, for its positive
+control, the receiver's signing secret; none of the three lab applications has such a receiver (Forgejo sends
+webhooks, it does not receive signed ones; crAPI has none), and building one would be new lab machinery, so none was
+built (owner's decision, 2026-11-03). Its logic was read and corrected on that day (a `5xx`, a `429` or a dropped
+connection no longer counts as "signature required"), but none of its verdicts (`UNSIGNED_ACCEPTED`,
+`BAD_SIGNATURE_ACCEPTED`, `SIGNATURE_REQUIRED`, `REJECTS_ALL`) has been observed on a live target. Replay protection
+and the blind-callback case are a different matter: they need an out-of-band listener that is not planned, so they
+stay permanently outside what this test covers (see Limitations).
 
 ## 13. Remediation
 

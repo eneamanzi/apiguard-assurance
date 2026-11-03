@@ -16,9 +16,10 @@ configured resource, as in test 2.2):
                         covered here: a field a user must not see is caught by
                         its name, with no need to label an "admin-only" field.
     mass_assignment     an object created with extra ownership fields in the
-                        body (`role`, `owner`, `user_id`, ...), each a unique
-                        string sentinel, must ignore them. The object is read
-                        back; if a sentinel appears, the server bound a
+                        body (`role`, `owner`, `user_id`, ...), each carrying
+                        one string sentinel unlikely to appear by chance, must
+                        ignore them. The object is read back; if the sentinel
+                        appears in one of those fields, the server bound a
                         client-controlled field (ASVS v5.0.0-8.2.3, CWE-915). Only string
                         sentinels are used, so a legitimately-true boolean is
                         never mistaken for a bound value.
@@ -36,7 +37,7 @@ import httpx
 import structlog
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.core.assessment_test import NEEDED_TO_RUN, REFERS_TO_RESOURCE
+from src.core.assessment_test import NEEDED_TO_RUN, REFERS_TO_RESOURCE, category_of
 from src.core.auth_placement import RequestAuthParts
 from src.core.client import SecurityClient
 from src.core.context import ROLE_USER_A, TargetContext, TestContext
@@ -44,9 +45,11 @@ from src.core.evidence import EvidenceStore
 from src.core.exceptions import AuthenticationSetupError, SecurityClientError
 from src.core.models import (
     Confidence,
+    EvidenceRecord,
     Finding,
     Outcome,
     Reference,
+    ResponseCategory,
     Standard,
     TestResult,
     TestStrategy,
@@ -93,12 +96,14 @@ _SENSITIVE_NAMES: tuple[str, ...] = (
 # How deep the field-name scan descends into a JSON response.
 _SCAN_DEPTH: int = 3
 
-# The privileged or ownership fields injected by the mass-assignment probe, each
-# with a unique string sentinel. Only a string sentinel is used: a boolean such
-# as `admin: true` reflected in the response cannot be told apart from a field
-# that is legitimately true (e.g. the owner's `permissions.admin` on their own
-# object), which would be a false positive. A unique string never appears by
-# chance, so a field echoing it was bound from the request body.
+# The privileged or ownership fields injected by the mass-assignment probe, all
+# carrying the same string sentinel: what identifies a bound field is its own
+# name in the read-back object, so one sentinel value is enough. Only a string
+# sentinel is used: a boolean such as `admin: true` reflected in the response
+# cannot be told apart from a field that is legitimately true (e.g. the owner's
+# `permissions.admin` on their own object), which would be a false positive.
+# This string never appears by chance, so a field echoing it was bound from the
+# request body.
 _MASS_SENTINEL: str = "apiguard-mass-probe"
 _MASS_FIELDS: dict[str, object] = {
     "role": _MASS_SENTINEL,
@@ -184,52 +189,64 @@ class Test25ObjectPropertyAuthorization(BaseTest[Test25Params]):
                 return missing
             user_a = auth_parts(target, context, ROLE_USER_A)
             for name in self.params(target).owned_object_resources:
-                self._run_resource(target, context, client, name, user_a)
+                self._run_resource(target, context, client, store, name, user_a)
             return self._finish()
         except AuthenticationSetupError as exc:
             return self._error(exc)
         except SecurityClientError as exc:
             return self._error(exc)
 
-    def _run_resource(
+    def _run_resource(  # noqa: PLR0913 -- both sub-tests need all of it
         self,
         target: TargetContext,
         context: TestContext,
         client: SecurityClient,
+        store: EvidenceStore,
         name: str,
         user_a: RequestAuthParts,
     ) -> None:
         """Run both property sub-tests on one owned-object resource."""
         try:
-            self._sensitive(target, context, client, name, user_a)
+            self._sensitive(target, context, client, store, name, user_a)
         except ResourceSetupError as exc:
             log.warning("test_2_5_object_not_created", resource=name, error=str(exc))
             self._record(_SUB_SENSITIVE, Outcome.NOT_VERIFIABLE, "OBJECT_NOT_CREATED")
         try:
-            self._mass_assignment(target, context, client, name, user_a)
+            self._mass_assignment(target, context, client, store, name, user_a)
         except ResourceSetupError as exc:
             log.warning("test_2_5_object_not_created", resource=name, error=str(exc))
             self._record(_SUB_MASS, Outcome.NOT_VERIFIABLE, "OBJECT_NOT_CREATED")
 
-    def _sensitive(
+    def _sensitive(  # noqa: PLR0913 -- the probe needs all of it
         self,
         target: TargetContext,
         context: TestContext,
         client: SecurityClient,
+        store: EvidenceStore,
         resource: str,
         user_a: RequestAuthParts,
     ) -> None:
         """Create the object, read it, and scan its fields for sensitive names."""
         owned = create_owned_object(target, context, client, resource, ROLE_USER_A, self.info.id)
         try:
-            response = self._read_object(target, client, owned.values, user_a)
-            if response is None:
+            read = self._read_object(target, client, owned.values, user_a)
+            if read is None:
                 self._record(_SUB_SENSITIVE, Outcome.NOT_VERIFIABLE, "OBJECT_NOT_READABLE")
+                return
+            response, record = read
+            if category_of(record) != ResponseCategory.SERVED:
+                # A refused, missing or failing read shows no field at all: it
+                # proves neither a leak nor its absence.
+                self._judge(
+                    record, store, _SUB_SENSITIVE, Outcome.NOT_VERIFIABLE, "OBJECT_NOT_READABLE"
+                )
                 return
             body = _json(response)
             leaked = sorted(_sensitive_fields(body))
             if leaked:
-                self._record(
+                self._judge(
+                    record,
+                    store,
                     _SUB_SENSITIVE,
                     Outcome.VIOLATION,
                     "SENSITIVE_FIELD",
@@ -246,15 +263,16 @@ class Test25ObjectPropertyAuthorization(BaseTest[Test25Params]):
                     ),
                 )
             else:
-                self._record(_SUB_SENSITIVE, Outcome.ENFORCED, "NO_SENSITIVE_FIELD")
+                self._judge(record, store, _SUB_SENSITIVE, Outcome.ENFORCED, "NO_SENSITIVE_FIELD")
         finally:
             self._cleanup(target, context, client, owned)
 
-    def _mass_assignment(
+    def _mass_assignment(  # noqa: PLR0913 -- the probe needs all of it
         self,
         target: TargetContext,
         context: TestContext,
         client: SecurityClient,
+        store: EvidenceStore,
         resource: str,
         user_a: RequestAuthParts,
     ) -> None:
@@ -263,13 +281,20 @@ class Test25ObjectPropertyAuthorization(BaseTest[Test25Params]):
             target, context, client, resource, ROLE_USER_A, self.info.id, extra_body=_MASS_FIELDS
         )
         try:
-            response = self._read_object(target, client, owned.values, user_a)
-            if response is None:
+            read = self._read_object(target, client, owned.values, user_a)
+            if read is None:
                 self._record(_SUB_MASS, Outcome.NOT_VERIFIABLE, "OBJECT_NOT_READABLE")
+                return
+            response, record = read
+            if category_of(record) != ResponseCategory.SERVED:
+                # Not read back: no sentinel can be seen, so no conclusion either way.
+                self._judge(record, store, _SUB_MASS, Outcome.NOT_VERIFIABLE, "OBJECT_NOT_READABLE")
                 return
             reflected = sorted(_reflected_fields(_json(response)))
             if reflected:
-                self._record(
+                self._judge(
+                    record,
+                    store,
                     _SUB_MASS,
                     Outcome.VIOLATION,
                     "MASS_ASSIGNMENT",
@@ -287,7 +312,7 @@ class Test25ObjectPropertyAuthorization(BaseTest[Test25Params]):
                     ),
                 )
             else:
-                self._record(_SUB_MASS, Outcome.ENFORCED, "NO_MASS_ASSIGNMENT")
+                self._judge(record, store, _SUB_MASS, Outcome.ENFORCED, "NO_MASS_ASSIGNMENT")
         finally:
             self._cleanup(target, context, client, owned)
 
@@ -297,8 +322,8 @@ class Test25ObjectPropertyAuthorization(BaseTest[Test25Params]):
         client: SecurityClient,
         values: dict[str, str],
         user_a: RequestAuthParts,
-    ) -> httpx.Response | None:
-        """GET the created object as user_a; its response, or None if unreadable."""
+    ) -> tuple[httpx.Response, EvidenceRecord] | None:
+        """GET the created object as user_a; its response and record, or None if unreadable."""
         reads = object_operations(target, values, SAFE_METHODS)
         if not reads:
             return None
@@ -313,8 +338,7 @@ class Test25ObjectPropertyAuthorization(BaseTest[Test25Params]):
             )
         except SecurityClientError:
             return None
-        self._step(record)
-        return response
+        return response, record
 
     def _cleanup(
         self,
@@ -369,7 +393,7 @@ def _reflected_fields(node: object, depth: int = 0) -> set[str]:
         return found
     if isinstance(node, dict):
         for key, value in node.items():
-            if key in _MASS_FIELDS and _matches_sentinel(key, value):
+            if key in _MASS_FIELDS and _matches_sentinel(value):
                 found.add(str(key))
             found |= _reflected_fields(value, depth + 1)
     elif isinstance(node, list):
@@ -378,7 +402,6 @@ def _reflected_fields(node: object, depth: int = 0) -> set[str]:
     return found
 
 
-def _matches_sentinel(key: str, value: object) -> bool:
-    """Whether a read-back value echoes the unique string sentinel injected for that field."""
-    del key
+def _matches_sentinel(value: object) -> bool:
+    """Whether a read-back value echoes the sentinel the probe injected."""
     return isinstance(value, str) and _MASS_SENTINEL in value

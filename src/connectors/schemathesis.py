@@ -34,7 +34,7 @@ from __future__ import annotations
 import os
 import tempfile
 import time
-import xml.etree.ElementTree as ET  # noqa: S405  # nosec B405 -- our own tool's output
+import xml.etree.ElementTree as ET  # noqa: S405  # our own tool's output  # nosec B405
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -194,7 +194,7 @@ def _parse_junit(path: str) -> list[dict[str, str]]:
         ExternalToolError: when the file is missing or not valid XML.
     """
     try:
-        tree = ET.parse(path)  # noqa: S314  # nosec B314 -- our own tool's output, a temp file we control
+        tree = ET.parse(path)  # noqa: S314  # our tool's output, a temp file we control  # nosec B314
     except (OSError, ET.ParseError) as exc:
         raise ExternalToolError(
             message=f"schemathesis JUnit output could not be read from '{path}': {exc}",

@@ -323,7 +323,7 @@ profiles per environment.
 
 **Definition.** Each kind of fact has one source: the tests' own declarations for the implementation state, read by
 `apiguard list-tests` and by the generated catalogue `docs/05-tests/README.md` (the thesis used `PROJECT_status.md`,
-then `roadmap.md`, both hand-written), `config.yaml` for operational parameters, the `AttackSurface` built from the specification
+then a hand-written roadmap, both since removed), `config.yaml` for operational parameters, the `AttackSurface` built from the specification
 for the target's topology, and `src/config/loader.py` as the only reader of the environment. Since the thesis the two
 documented exceptions are gone (the tool-as-a-service variable and the Docker URL override, see
 [Removed](#properties-removed-since-the-thesis)): no other module reads `os.environ`.
@@ -710,7 +710,7 @@ inside `run()`, so the package still imports when the extra is not installed. To
 an optional extra so a standard installation carried no AGPL code. In the test review sslyze was removed entirely
 (AGPL, and no added value over testssl.sh for guarantee 1.5), which resolves the licence concern at the source
 rather than isolating it in an extra. The project's own licence is still undecided (`pyproject.toml` leaves it
-unspecified on purpose; the choice is tracked in `roadmap.md`).
+unspecified on purpose; the owner chooses it before any public release or distribution).
 
 **Evidence.** By construction: a non-required tool is absent from `[project] dependencies` and present among the
 optional ones.

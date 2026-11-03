@@ -66,8 +66,9 @@ drives the real flow (announce it on a shared target); the burst is kept small.
 |---|---|---|
 | a `429` (throttle) within the burst | `ENFORCED/ANTI_AUTOMATION_THROTTLE` | - |
 | a `4xx` whose body is a CAPTCHA / human-verification challenge | `ENFORCED/ANTI_AUTOMATION_CHALLENGE` | - |
-| the whole burst accepted, no control | `VIOLATION/NO_ANTI_AUTOMATION` | CERTAIN |
-| the flow never returns a usable response | `NOT_VERIFIABLE/FLOW_UNAVAILABLE` | - |
+| every submission of the burst accepted (`2xx`), no control | `VIOLATION/NO_ANTI_AUTOMATION` | CERTAIN |
+| the flow refused submissions without a challenge (a `401`, a `404`, a validation error): the burst did not exercise it | `NOT_VERIFIABLE/FLOW_NOT_ACCEPTED` | - |
+| the target was unavailable, failed or did not answer during the burst | `NOT_VERIFIABLE/FLOW_UNAVAILABLE` | - |
 
 ## 7. Outcomes
 
@@ -105,15 +106,35 @@ Section [`tests.domain_7.test_7_1`](../../03-reference/01-configuration.md#tests
 
 ## 12. Validation
 
-Runs of 2026-10-26:
+Runs of 2026-10-26 and 2026-11-03:
 
 | Lab | Status | Basis |
 |---|---|---|
 | crAPI + Kong | **FAIL** | 12 `POST /identity/api/auth/forget-password` all accepted with no throttle and no challenge: crAPI's forgot-password flow has no anti-automation (`VIOLATION/NO_ANTI_AUTOMATION`) |
 | Forgejo + Kong, Forgejo + APISIX | **SKIP** | no sensitive business flow declared (`sensitive_flow` unset): honest SKIP |
+| Forgejo + Kong, a scratch flow `POST /api/v1/orgs` with no credential (2026-11-03) | **INCONCLUSIVE** | all 12 submissions answered `401`, nothing created: `NOT_VERIFIABLE/FLOW_NOT_ACCEPTED`. Until that day the same burst gave **FAIL**, CERTAIN, with the finding "12 identical submissions ... were all accepted": the oracle reported a violation whenever no control was seen, whatever the answers |
+| Forgejo + Kong, a scratch flow `POST /api/v1/markdown` as user A, no throttle (2026-11-03) | **FAIL** | 12 submissions accepted (`200`): Forgejo's Markdown preview has no anti-automation, and it stores nothing |
+| Forgejo + Kong, the same flow with the case below | **PASS** | answers `200, 200, 200, 429`: `ENFORCED/ANTI_AUTOMATION_THROTTLE` at the fourth submission |
 
-Rule 9: the `VIOLATION` side is proven on crAPI; the `ENFORCED` sides (a `429` throttle, a CAPTCHA challenge) are
-lab-unproven: proving it live needs a target with a CAPTCHA or a hard throttle on the flow, and the decision whether to produce one is part of the test-by-test review ([`../../project/roadmap.md`](../../project/roadmap.md#next-work)).
+**The case, and how to undo it** (2026-11-03). At the end of `test-environments/forgejo-kong/kong/kong.yml` add a
+global plugin:
+
+```yaml
+plugins:
+  - name: rate-limiting
+    config:
+      minute: 5
+      policy: local
+```
+
+then `cd test-environments/forgejo-kong && docker compose --env-file ../../.env up -d --force-recreate --wait kong`.
+The limit also throttles the run's own clean-up: the tool could not delete its login token and said so ("1 of 1
+resources NOT removed from the target: remove them by hand"), so the token was deleted by hand. Undo by restoring the
+file and the same command; the lab was checked back to FAIL with its clean-up working and no token left.
+
+Rule 9: `VIOLATION/NO_ANTI_AUTOMATION` is seen on crAPI and on the Forgejo scratch flow, `ENFORCED/ANTI_AUTOMATION_THROTTLE`
+with the throttle above, and `NOT_VERIFIABLE/FLOW_NOT_ACCEPTED` with the refused scratch flow. Not seen:
+`ENFORCED/ANTI_AUTOMATION_CHALLENGE` (no lab has a CAPTCHA) and `FLOW_UNAVAILABLE`.
 
 ## 13. Remediation
 

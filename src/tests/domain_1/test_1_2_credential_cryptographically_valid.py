@@ -207,9 +207,11 @@ class Test12CredentialCryptographicallyValid(BaseTest):
                 detail=(
                     "Algorithm confusion (the public key verified as an HMAC secret) needs the "
                     "target's public key, and a token re-signed with a chosen claim needs its "
-                    "signing key; this target exposes neither, so those cases are not verifiable "
-                    "here (not by this tool and not by any other). They are reported "
-                    "NEEDS_KEY_MATERIAL rather than passed."
+                    "signing key. This test fetches neither and implements neither, so those "
+                    "cases are reported NEEDS_KEY_MATERIAL rather than passed. Where a target "
+                    "publishes its public key (a JWKS endpoint), algorithm confusion can be "
+                    "tried with a dedicated tool; keeping that catalogue was decided against for "
+                    "this tool."
                 ),
             )
         ]

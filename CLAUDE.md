@@ -19,7 +19,7 @@ in `docs/03-reference/06-compatibility.md` (Test portability).
 | Need | Read |
 |---|---|
 | Map of all documentation | `docs/index.md` |
-| What is still open, and what was deliberately dropped | `docs/project/roadmap.md` |
+| Why something changed, or was deliberately dropped | search `CHANGELOG.md` for it (do not read it whole: it is long); a test's permanent limits are in the Limitations of its page |
 | The test-design rules every test follows ("rule N") | `docs/04-architecture/03-assessment-model.md` ("Rules every test follows") |
 | Pipeline, modules, dependencies, components | `docs/04-architecture/01-overview.md` |
 | Data models, assessment model, security model | `docs/04-architecture/02-data-model.md`, `assessment-model.md`, `security-model.md` |
@@ -165,13 +165,12 @@ Missing external tool → `TestResult(SKIP)` via `_skip_reason_from_registry`. N
 
 ## Session Startup
 
-1. Read `docs/project/roadmap.md` for what is still open and what was dropped on purpose.
-2. For code work, read the relevant files from "Where things are":
+1. For code work, read the relevant files from "Where things are":
    - implementing a test: the matching guide in `docs/02-guides/03-extending/`, then the methodology;
    - touching infrastructure: `docs/04-architecture/01-overview.md`.
-3. State the file you are about to write. Wait for confirmation.
-4. Write one file. Explain internal logic and rationale.
-5. Verify against the lab with only the affected tests (`execution.test_ids` in a copy of `test-environments/forgejo-kong/config.yaml`), not the
+2. State the file you are about to write. Wait for confirmation.
+3. Write one file. Explain internal logic and rationale.
+4. Verify against the lab with only the affected tests (`execution.test_ids` in a copy of `test-environments/forgejo-kong/config.yaml`), not the
    full assessment.
-6. After completing a test, update the test page in `docs/05-tests/` and `CHANGELOG.md`, then `hatch run dev:gen`
+5. After completing a test, update the test page in `docs/05-tests/` and `CHANGELOG.md`, then `hatch run dev:gen`
    (the generated documentation: catalogue, page headers, parameter tables, `config.example.yaml`).

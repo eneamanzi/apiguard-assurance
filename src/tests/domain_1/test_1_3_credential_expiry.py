@@ -143,18 +143,29 @@ class Test13CredentialExpiry(BaseTest):
                         )
                     ]
                 )
-            self._judge_claims(view.claims)
+            # Rule 6: the findings below rest on the token the login returned,
+            # so that response is pinned and named as their proof. A credential
+            # configured as a static token has no login record, and the findings
+            # then carry none (the report schema allows it).
+            artefact = context.login_artefact(ROLE_USER_A)
+            evidence_ref: str | None = None
+            if artefact is not None:
+                store.pin_evidence(artefact.record)
+                evidence_ref = artefact.record.record_id
+            self._judge_claims(view.claims, evidence_ref)
             self._record(_SUB_EXPIRED, Outcome.NOT_VERIFIABLE, "NEEDS_KEY_MATERIAL")
             return self._finish(notes=[_expired_note()])
         except AuthenticationSetupError as exc:
             return self._error(exc)
 
-    def _judge_claims(self, claims: dict[str, object]) -> None:
+    def _judge_claims(self, claims: dict[str, object], evidence_ref: str | None) -> None:
         """
         Judge the `exp` and `iat` claims of the obtained token.
 
         Args:
-            claims: The token's payload.
+            claims:       The token's payload.
+            evidence_ref: The login response that carried the token, as the
+                          findings' proof; None when no login produced it.
         """
         exp = _timestamp(claims.get("exp"))
         if exp is None:
@@ -170,6 +181,7 @@ class Test13CredentialExpiry(BaseTest):
                         "session lifetime can be enforced (ASVS v5.0.0-7.3.2). Add an `exp` "
                         "claim and keep it short."
                     ),
+                    evidence_ref=evidence_ref,
                     confidence=Confidence.FIRM,
                 ),
             )
@@ -195,6 +207,7 @@ class Test13CredentialExpiry(BaseTest):
                         "analysis). Issue a short-lived access token and renew it. Reported with "
                         "lower confidence because the token's purpose cannot be read from it."
                     ),
+                    evidence_ref=evidence_ref,
                     confidence=Confidence.TENTATIVE,
                 ),
             )

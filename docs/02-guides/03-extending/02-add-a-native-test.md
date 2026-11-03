@@ -173,13 +173,17 @@ verdict, and a catch-all:
 def execute(self, target: TargetContext, context: TestContext,
             client: SecurityClient, store: EvidenceStore) -> TestResult:
     try:
-        # info.needs=(Need.USER_ACCOUNT,) and admin_endpoint_paths NEEDED_TO_RUN:
-        # the engine has already recorded SKIP if either is missing, and has
-        # acquired the account; auth_parts() reads its credential.
+        # info.needs=(Need.USER_ACCOUNT,): the engine has already recorded SKIP
+        # if the account is missing, and has acquired it; auth_parts() reads its
+        # credential. What to probe is derived (rule 5), not configured.
         user_a = auth_parts(target, context, ROLE_USER_A)
-        cfg = self.params(target)
-        for path in cfg.admin_endpoint_paths:
-            self._probe_admin_endpoint(client, store, user_a, path)
+        privileged = self._privileged_operations(target)
+        if not privileged:
+            self._record(_SUB_REFUSES, Outcome.NOT_APPLICABLE, "NO_PRIVILEGED_ENDPOINT")
+            self._record(_SUB_METHOD, Outcome.NOT_APPLICABLE, "NO_PRIVILEGED_ENDPOINT")
+            return self._finish(message="No privileged operation found.")
+        for method, path, requires_auth in privileged:
+            self._probe(client, store, user_a, method, path, requires_auth)
         return self._finish()
     except (AuthenticationSetupError, SecurityClientError) as exc:
         return self._error(exc)
@@ -264,7 +268,10 @@ stays a SKIP inside the test. `_requires_attack_surface(target)` remains for the
 
 <!-- [[[end]]] -->
 
-Every response is judged (`_judge`) or logged as a preparation step (`_step`). A judgement is an outcome
+A response that answers the test's question is judged (`_judge`); one that only prepares the probe can be logged as
+a step (`_step`). The transaction log does not depend on either: the engine collects every request the client
+sends for the running test and adds to the log, as an unjudged step and in the order sent, any the test did not
+record itself, so the report lists everything the tool sent to the target. A judgement is an outcome
 (`VIOLATION`, `ENFORCED`, `NOT_VERIFIABLE`, `NOT_APPLICABLE`) with the test's detail in `UPPER_SNAKE_CASE`, read as
 `VIOLATION/SERVED_WITHOUT_CREDENTIAL`; the category of the response comes from `category_of(record)` (`src/tests/base.py`). The
 test page documents the oracle table.

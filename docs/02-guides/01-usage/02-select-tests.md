@@ -114,7 +114,7 @@ minus any external test whose tool is disabled.
 
 Each tool has its own `enabled` under `external_tools` (`testssl`, `nuclei`, `ffuf`, `schemathesis`). Set the ones you do not want
 to `false` and keep the master switch on. A tool that is enabled but not installed returns SKIP. Enabling `nuclei`
-changes nothing: its connector is in the codebase but no test uses it ([roadmap](../../project/roadmap.md)).
+changes nothing: its connector is in the codebase but no test uses it (declared dormant in `src/connectors/nuclei.py`).
 
 ## Things to know
 

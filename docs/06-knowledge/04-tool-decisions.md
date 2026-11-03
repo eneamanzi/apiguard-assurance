@@ -95,12 +95,11 @@ catalogue [`../05-tests/README.md`](../05-tests/README.md) and in `apiguard list
 
 The Cat A and Cat B columns say which tool *would* serve a guarantee, not which one the tool ships. Of the
 connectors above, three are wired to a test: testssl.sh (`ext.1.5.testssl`), ffuf (`ext.0.1.ffuf`) and Schemathesis
-(`ext.3.1.schemathesis`). `NucleiConnector` is in the codebase but no test uses it ([`roadmap.md`](../project/roadmap.md)).
+(`ext.3.1.schemathesis`). `NucleiConnector` is in the codebase but no test uses it (declared dormant in `src/connectors/nuclei.py`).
 sslyze was implemented in Milestone 1 and removed in the review (AGPL v3, no added value over testssl.sh for 1.5).
 katana, jwt_tool, vegeta, interactsh and every Cat B connector have no connector at all, and none is planned: they
 were dropped on 2026-10-27 because the native path already covers the guarantee, the guarantee is outside the tool's
-perimeter, or the blocker is what the target exposes rather than the code
-([`roadmap.md`](../project/roadmap.md#nothing-else-is-planned)).
+perimeter, or the blocker is what the target exposes rather than the code.
 
 ## Reasons by guarantee
 

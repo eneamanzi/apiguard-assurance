@@ -148,7 +148,7 @@ of the reports (add `--log-level info` to see the steps of the run, `--log-level
 
 **Do not interrupt it.** Almost all of that time is spent in the three external-tool tests (on this lab testssl.sh
 takes about 75 seconds, Schemathesis about 31 and ffuf about 30; all the native tests together take about 18
-seconds). The test in progress is shown with its position (`[18/32]`) and,
+seconds). The test in progress is shown with its position (`[18/31]`) and,
 on a terminal, the time elapsed against its limit (`0:01:40 (limit 600s)`); with the output redirected to a file,
 an external tool prints a `running (limit 600s)` line when it starts.
 Reports are written only at the very end: if you press `Ctrl+C` the tool removes what the tests created on the

@@ -342,6 +342,13 @@ class ConfigValue(BaseModel):
     location: str = Field(min_length=1, description="Which object, e.g. 'service forgejo-service'.")
     key: str = Field(min_length=1, description="Where the value is inside the object, e.g. 'url'.")
     value: SecretStr = Field(description="The text; shown masked unless asked for explicitly.")
+    enabled: bool = Field(
+        default=True,
+        description=(
+            "Whether the object holding the value is active. A disabled plugin's value is still "
+            "configuration (a credential in it is still exposed), but it enforces nothing."
+        ),
+    )
 
 
 class HealthCounters(BaseModel):

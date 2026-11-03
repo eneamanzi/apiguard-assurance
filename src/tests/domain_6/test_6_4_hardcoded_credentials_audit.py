@@ -127,6 +127,15 @@ _SEMANTIC_CREDENTIAL_KEY_FRAGMENTS: frozenset[str] = frozenset(
     }
 )
 
+# The answer categories that say nothing about whether a debug endpoint is
+# blocked: the target was unavailable or protecting itself (rule 1).
+_SPOILING: dict[ResponseCategory, str] = {
+    ResponseCategory.UPSTREAM_UNAVAILABLE: "UPSTREAM_UNAVAILABLE",
+    ResponseCategory.RATE_LIMITED: "RATE_LIMITED",
+    ResponseCategory.NO_RESPONSE: "NO_RESPONSE",
+    ResponseCategory.SERVER_ERROR: "SERVER_ERROR",
+}
+
 # Credential patterns, applied to both debug bodies and config values.
 _CREDENTIAL_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"://[^:@\s\"']{1,64}:[^@\s\"']{8,}@"), "URL-embedded credentials"),
@@ -228,7 +237,13 @@ class Test64HardcodedCredentialsAudit(BaseTest[Test64Params]):
                     record := exc.record, store, _SUB_DEBUG, Outcome.NOT_VERIFIABLE, "NO_RESPONSE"
                 )
                 continue
-            if category_of(record) != ResponseCategory.SERVED:
+            category = category_of(record)
+            if category in _SPOILING:
+                # An unavailable, rate-limited or failing endpoint was not blocked:
+                # it did not answer the question (rule 1).
+                self._judge(record, store, _SUB_DEBUG, Outcome.NOT_VERIFIABLE, _SPOILING[category])
+                continue
+            if category != ResponseCategory.SERVED:
                 self._judge(record, store, _SUB_DEBUG, Outcome.ENFORCED, "DEBUG_BLOCKED")
                 continue
             matched = _scan_text(response.text)
@@ -264,6 +279,13 @@ class Test64HardcodedCredentialsAudit(BaseTest[Test64Params]):
         evidence_ref = self._record_gateway_concept(target, store, CONCEPT_CONFIG_VALUES, answer)
         if answer.status != ConceptStatus.READ:
             self._record(_SUB_CONFIG, Outcome.NOT_VERIFIABLE, "CONFIG_NOT_READABLE")
+            return
+        if not answer.items:
+            # The read succeeded and returned nothing: a gateway with no service
+            # and no plugin, or a reader that found no value where there are some
+            # (the shape of the Kong defect fixed on 2026-10-28). Either way the
+            # scan examined nothing, so it cannot say a credential is absent.
+            self._record(_SUB_CONFIG, Outcome.NOT_VERIFIABLE, "NO_CONFIG_VALUE")
             return
         found = False
         for item in answer.items:

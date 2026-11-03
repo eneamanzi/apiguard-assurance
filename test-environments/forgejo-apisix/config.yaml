@@ -168,8 +168,8 @@ execution:
 output:
   directory: "outputs/forgejo-apisix"
 
-# Test review (branch test-review): the parameters of the tests not rewritten yet are commented out;
-# each block returns, uncommented, with its test (docs/project/test-review.md).
+# Parameters of the tests. Only the keys this lab needs are set here; the full list, with every
+# default and description, is in config.example.yaml at the repository root.
 tests:
   domain_1:
     test_1_5:
@@ -201,31 +201,26 @@ tests:
             - "push"
           active: false
           branch_filter: "*"
-# domain_2:
-#   (2.1: returns with test 2.1)
-#   test_2_1:
-#     # Forgejo admin-only endpoint, as in the Forgejo + Kong lab.
-#     admin_endpoint_paths:
-#       - "/api/v1/admin/users"
-#     admin_endpoint_method: "GET"
-# domain_6:
-#   (6.4: returns with test 6.4)
-#   test_6_4:
-#     # Body of APISIX's own 404 (no route matched): {"error_msg":"404 Route Not Found"}.
-#     gateway_block_body_fragment: "404 Route Not Found"
-#     # Same paths as the Forgejo + Kong lab.
-#     debug_endpoint_paths:
-#       - /api/v1/settings/api
-#       - /api/debug/config
-#       - /api/debug/users
-#       - /actuator/env
-#       - /actuator/configprops
-#       - /actuator/health
-#       - /debug/vars
-#       - /debug/pprof
-#       - /api/config
-#       - /admin/config
-#       - /_debug
+  domain_6:
+    test_6_4:
+      # The same paths as the Forgejo + Kong lab. Measured on 2026-10-29 through APISIX:
+      # /api/v1/settings/api answers 200 (Forgejo's public API settings, no credential),
+      # the three /api/* below answer 404 from Forgejo ("Not found."), the rest 404 from
+      # APISIX itself ({"error_msg":"404 Route Not Found"}).
+      debug_endpoint_paths:
+        # Routed through APISIX to Forgejo (/api prefix)
+        - /api/v1/settings/api
+        - /api/debug/config
+        - /api/debug/users
+        # Not routed by APISIX: checks the gateway's deny-by-default
+        - /actuator/env
+        - /actuator/configprops
+        - /actuator/health
+        - /debug/vars
+        - /debug/pprof
+        - /api/config
+        - /admin/config
+        - /_debug
 
 # External tools (installed by install_tools.sh): all three, about 5 minutes more.
 external_tools:

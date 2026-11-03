@@ -99,6 +99,13 @@ at all still comes back with a complete `active` record whose intervals are zero
 and zero means the target is never probed. Reading "the record exists" as "a check is configured" would pass every
 Kong gateway that has at least one upstream, so the test requires a threshold or an interval above zero.
 
+**On Kong a health check lives on an Upstream object, never on a Service.** A service that points straight at a
+host therefore has no health check at all, and when no Upstream exists the adapter's answer is an empty list. That
+empty answer is a true statement, not a read that found nothing: those backends are unprotected, and the test
+reports `VIOLATION/NO_CIRCUIT_BREAKER`. The
+one case where an empty answer would say nothing, a gateway that fronts no backend whatsoever, leaves every other
+test of the run without a target too, so the test does not treat it apart.
+
 ## 11. Configuration
 
 None.

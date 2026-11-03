@@ -82,6 +82,17 @@ _CHALLENGE_STATUS: frozenset[int] = frozenset({400, 401, 403, 409, 422})
 _ENFORCED_THROTTLE: str = "ANTI_AUTOMATION_THROTTLE"
 _ENFORCED_CHALLENGE: str = "ANTI_AUTOMATION_CHALLENGE"
 _FLOW_BROKEN: str = "FLOW_UNAVAILABLE"
+_FLOW_REFUSED: str = "FLOW_NOT_ACCEPTED"
+
+# Answers that mean the flow could not be exercised at all: the target was
+# unavailable, failed, or did not answer (rule 1).
+_SPOILING: frozenset[ResponseCategory] = frozenset(
+    {
+        ResponseCategory.UPSTREAM_UNAVAILABLE,
+        ResponseCategory.SERVER_ERROR,
+        ResponseCategory.NO_RESPONSE,
+    }
+)
 
 
 class Test71SensitiveFlow(BaseModel):
@@ -214,21 +225,38 @@ class Test71SensitiveFlowProtection(BaseTest[Test71Params]):
         headers: dict[str, str],
         params: dict[str, str],
     ) -> None:
-        """Send the burst, judging ENFORCED at the first control or VIOLATION at the end."""
-        last: EvidenceRecord | None = None
+        """
+        Send the burst: ENFORCED at the first control, else VIOLATION only if every
+        submission was accepted.
+
+        A burst the flow refused (a 401, a 404, a validation error without a
+        challenge) did not exercise the flow, and one the target could not serve
+        (unavailable, a server error, no answer) proves nothing about a control:
+        both are NOT_VERIFIABLE, never "all accepted".
+        """
+        records: list[EvidenceRecord] = []
         for sent in range(1, burst_size + 1):
             record = self._send(client, flow, headers, params)
             if record is None:
                 continue
-            last = record
+            records.append(record)
             detail = self._control(record)
             if detail is not None:
                 self._judge(record, store, _SUB, Outcome.ENFORCED, detail)
                 log.info("test_7_1_control_seen", path=flow.path, after=sent, detail=detail)
                 return
-        if last is None:
+        if not records:
             self._record(_SUB, Outcome.NOT_VERIFIABLE, _FLOW_BROKEN)
             return
+        spoiled = next((r for r in records if category_of(r) in _SPOILING), None)
+        if spoiled is not None:
+            self._judge(spoiled, store, _SUB, Outcome.NOT_VERIFIABLE, _FLOW_BROKEN)
+            return
+        refused = next((r for r in records if category_of(r) != ResponseCategory.SERVED), None)
+        if refused is not None:
+            self._judge(refused, store, _SUB, Outcome.NOT_VERIFIABLE, _FLOW_REFUSED)
+            return
+        last = records[-1]
         finding = Finding(
             title=f"No anti-automation control on {flow.method} {flow.path}",
             detail=(

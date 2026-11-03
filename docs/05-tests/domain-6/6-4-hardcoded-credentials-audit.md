@@ -64,6 +64,7 @@ READ_ONLY.
 | a debug path answers 2xx and its body matches a credential pattern | `VIOLATION/DEBUG_SECRET` | FIRM |
 | it is refused (non-2xx) | `ENFORCED/DEBUG_BLOCKED` | - |
 | 2xx with no credential | `ENFORCED/DEBUG_NO_SECRET` | - |
+| the debug path answers unavailable, rate limited or a server error | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`, `RATE_LIMITED`, `SERVER_ERROR` (not a block: it did not answer) | - |
 | no debug path configured | `NOT_APPLICABLE/NO_DEBUG_PATH` | - |
 
 **`gateway_config_no_secret`**
@@ -72,7 +73,8 @@ READ_ONLY.
 |---|---|---|
 | a config value matches a credential pattern | `VIOLATION/CONFIG_SECRET` | FIRM |
 | a credential-named key holds a long non-placeholder value | `VIOLATION/CONFIG_SECRET` | TENTATIVE |
-| none found | `ENFORCED/CONFIG_NO_SECRET` | - |
+| none found among the values read | `ENFORCED/CONFIG_NO_SECRET` | - |
+| the read succeeded and returned **no value at all** | `NOT_VERIFIABLE/NO_CONFIG_VALUE` | - |
 | no gateway, or config not readable | `NOT_APPLICABLE` / `NOT_VERIFIABLE` | - |
 
 ## 7. Outcomes
@@ -108,15 +110,32 @@ Section [`tests.domain_6.test_6_4`](../../03-reference/01-configuration.md#tests
 
 ## 12. Validation
 
-Runs of 2026-10-28 (the coverage column was added when a skipped sub-test began to lower it):
+Runs of 2026-10-29 (the coverage column was added when a skipped sub-test began to lower it):
 
 | Lab | Status | Basis |
 |---|---|---|
-| Forgejo + Kong, crAPI + Kong, Forgejo + APISIX | **PASS**, `partial` | no `debug_endpoint_paths` configured, so `debug_endpoint_no_secret` judged its case `NOT_APPLICABLE` and verified nothing: the coverage is partial, because the check was never made rather than made and passed. The config scan read 11, 25 and 15 values respectively and matched no credential pattern (`gateway_config_no_secret` enforced) |
+| Forgejo + Kong, Forgejo + APISIX | **PASS**, `complete` | `debug_endpoint_no_secret`: 11 configured paths probed unauthenticated, 11 `ENFORCED`. `/api/v1/settings/api` answers 200 with Forgejo's public API settings and matches no credential pattern (`ENFORCED/DEBUG_NO_SECRET`); the other ten are not served (`ENFORCED/DEBUG_BLOCKED`), three refused by Forgejo (404 `Not found.`) and seven by the gateway itself, which is its deny-by-default (Kong: `no Route matched with those values`; APISIX: `{"error_msg":"404 Route Not Found"}`). `gateway_config_no_secret` matched no credential pattern |
+| crAPI + Kong | **PASS**, `partial` | no `debug_endpoint_paths` configured for this lab, so `debug_endpoint_no_secret` judged its case `NOT_APPLICABLE` and verified nothing: the coverage is partial, because the check was never made rather than made and passed. The config scan matched no credential pattern (`gateway_config_no_secret` enforced) |
 | Forgejo + Kong, a synthetic token planted in a plugin header list and then removed | **FAIL**, 1 finding | `config.add.headers[3]` of the `response-transformer` plugin held a GitHub-PAT-shaped value: `VIOLATION/CONFIG_SECRET`, FIRM, the finding naming the exact key |
 
-Rule 9: both sides of `gateway_config_no_secret` are proven on a real gateway. The VIOLATION of
-`debug_endpoint_no_secret` stays unproven: it needs a target with a debug endpoint that returns a secret.
+Rule 9: both sides of `gateway_config_no_secret` are proven on a real gateway. Of
+`debug_endpoint_no_secret`, the three `ENFORCED` cases (served and clean, blocked by the application, blocked by
+the gateway) and the `NOT_APPLICABLE` case are proven on the labs; the VIOLATION stays unproven, because it needs a
+target with a debug endpoint that returns a secret. What that case would add is the few lines handing a served body
+to the matcher: the matcher itself is `_scan_text` over `_CREDENTIAL_PATTERNS`, shared with `gateway_config_no_secret`
+and proven by the planted token in the table above.
+
+**Until 2026-10-29 this sub-test verified nothing on any lab.** The `debug_endpoint_paths` block of the two Forgejo
+labs was commented out during the test review and never uncommented, so the sub-test judged `NOT_APPLICABLE`
+everywhere and the test was `partial` on all three labs. Uncommenting it was checked against a full assessment of
+the three labs taken immediately before and after: 31 of 32 tests identical on each lab, this test the only
+difference.
+
+**The empty read** (2026-10-29). An answer with no value at all used to count as "no credential found" and give
+`ENFORCED`, so the verdict rested on having examined nothing. It is now `NOT_VERIFIABLE/NO_CONFIG_VALUE`. Seen
+against a stand-in Admin API on `127.0.0.1` answering every endpoint with an empty collection (a local process, no
+lab touched): before the fix `PASS complete`, after it `PASS partial` with the configuration sub-test not
+verifiable. The three real gateways are unchanged.
 
 **How many values the scan actually reads**, measured on 2026-10-28 after the review of the adapters: 11 on
 Forgejo + Kong, 25 on crAPI + Kong, 15 on Forgejo + APISIX. Until that review it was **zero on every Kong
@@ -131,6 +150,12 @@ v5.0.0-13.3.1, CWE-798); make debug endpoints return 401/403 or remove them in p
 
 ## 14. Limitations
 
+- **Consumer credentials are scanned on APISIX and not on Kong.** The APISIX adapter reads the consumers' plugin
+  values, so a consumer's key stored in clear is flagged (TENTATIVE when only its name and length speak; APISIX can
+  hold it as a secret reference instead). The Kong adapter does not read `/consumers/{id}/<plugin>`, where a Kong
+  consumer's `key-auth`, `hmac-auth` or `basic-auth` secret lives, so on a production Kong those secrets are outside
+  this test. The labs have no consumers, so the difference shows on none of them; adding the Kong reader would be a
+  new capability and was not done (2026-11-03).
 - The debug sub-test probes only the configured paths; an undocumented debug endpoint is not found here (that is
   test 0.1 / ffuf).
 - The config scan sees only what the adapter's `config_values` exposes; a secret in a file the Admin API does not

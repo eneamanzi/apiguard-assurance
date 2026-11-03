@@ -25,8 +25,9 @@ Two more pieces of information are not needs, so they are not in the table and n
 - **real identifiers of existing resources** (`target.path_seed`): without them a probe on a path with
   `{parameters}` gets a `404` at the router and is judged `NOT_VERIFIABLE/NOT_FOUND_LIKE_UNKNOWN` instead of
   reaching the control behind it (mainly test 1.1);
-- **the gateway's block message** (`gateway_block_body_fragment`): test 6.4's first sub-test compares a blocked
-  response against it, and without it says so in a note instead of skipping.
+- **paths of debug or actuator endpoints** (`tests.domain_6.test_6_4.debug_endpoint_paths`): test 6.4's first
+  sub-test probes them unauthenticated for an exposed credential, and with none configured judges `NOT_APPLICABLE`,
+  which lowers the test's coverage to `partial` instead of skipping it (its gateway configuration scan still runs).
 
 For your configuration, `apiguard list-tests -c my-api.yaml` says which tests the run selects and why each other one
 would SKIP; what every test needs: [test portability](../../03-reference/06-compatibility.md#test-portability).
@@ -327,7 +328,7 @@ Some test defaults are written for the lab. On another target review them:
 | 7.2 | no endpoint that accepts a URL by default: SKIP until configured | set `url_accepting_endpoint` (its `path`, and its `body` with `"{ssrf_url}"`) to an endpoint of your API that accepts a URL; if the endpoint belongs to an object that must exist first, add a [prepared resource](../../03-reference/01-configuration.md#resources) and name it in the endpoint's `resource` ([reference](../../03-reference/01-configuration.md#testsdomain_7test_7_2)) |
 | 2.1 | needs a user account; the privileged endpoints are derived from the specification (an `admin`/`management` segment), so there is no list to configure | provide credentials; an admin account, if given, strengthens the positive control |
 | 1.4 | needs a user account and `auth_type: login` with a login resource that has a delete request; the endpoint it replays the revoked credential on is derived, not configured | SKIP otherwise, naming what is missing |
-| 6.4 | sub-test A compares a blocked response against the gateway's block message | set `gateway_block_body_fragment` ([`tests.domain_6.test_6_4`](../../03-reference/01-configuration.md#testsdomain_6test_6_4)); without it the block is attributed to the application, same verdict |
+| 6.4 | sub-test A has no debug path to probe by default, so it judges `NOT_APPLICABLE` and the test is `partial` | list your debug or actuator endpoints in `debug_endpoint_paths` ([`tests.domain_6.test_6_4`](../../03-reference/01-configuration.md#testsdomain_6test_6_4)); include paths your gateway does not route, to see its deny-by-default |
 | 2.2, 2.5, 7.1, 7.4 | each needs the object or flow it acts on (an owned-object resource, a sensitive flow, a webhook with its secret) | see the full per-test list in [test portability](../../03-reference/06-compatibility.md#test-portability) |
 
 The complete, current list of what each test needs from a target, and what happens without it, is in
@@ -342,8 +343,8 @@ read-only first:
 
 | Effect | What it does to the target | Tests |
 |---|---|---|
-| `READ_ONLY` | Reads only: no state of the target changes | `0.2`, `0.3`, `0.4`, `1.2`, `1.3`, `1.5`, `1.6`, `2.1`, `2.4`, `3.3`, `4.2`, `4.3`, `5.1`, `5.2`, `6.1`, `6.2`, `6.4`, `ext.1.5.testssl` |
-| `CHANGES_DATA` | Creates, modifies or deletes data on the target | `1.1`, `1.4`, `2.2`, `2.5`, `7.1`, `7.2`, `7.4` |
+| `READ_ONLY` | Reads only: no state of the target changes | `0.2`, `0.3`, `0.4`, `1.2`, `1.3`, `1.5`, `1.6`, `2.1`, `2.4`, `3.3`, `4.2`, `4.3`, `5.1`, `6.2`, `6.4`, `ext.1.5.testssl` |
+| `CHANGES_DATA` | Creates, modifies or deletes data on the target | `1.1`, `1.4`, `2.2`, `2.5`, `6.1`, `7.1`, `7.2`, `7.4` |
 | `STRESSES_TARGET` | Bursts of requests, or payloads that can degrade the target | `0.1`, `1.7`, `4.1`, `4.4`, `7.3`, `ext.0.1.ffuf`, `ext.3.1.schemathesis` |
 
 <!-- [[[end]]] -->

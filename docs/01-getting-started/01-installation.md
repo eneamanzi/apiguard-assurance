@@ -122,7 +122,7 @@ hatch run apiguard version
    skipped, and ffuf's archive is checked against the project's published checksum. Only needed for the external
    tests (`ext.*`); without them those tests return SKIP and the native tests run normally. nuclei also creates
    `~/.pdcp` in your home directory. nuclei is downloaded but no test uses it: its connector is in the codebase
-   and `ext.0.1.nuclei` was replaced by `ext.0.1.ffuf` ([roadmap](../project/roadmap.md)). The third external
+   and `ext.0.1.nuclei` was replaced by `ext.0.1.ffuf` (the connector is kept, dormant). The third external
    test, `ext.3.1.schemathesis`, is a Python library, not a binary: it comes from the `[schemathesis]` extra.
 
 Run the check of section 1 again: everything except `.env` and the lab should now be `ok`.

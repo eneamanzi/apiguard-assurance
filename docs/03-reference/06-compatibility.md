@@ -51,9 +51,10 @@ configuration of each test are on its page (`docs/05-tests/`, "Preconditions" an
 <!-- [[[end]]] -->
 
 Two requirements are not in the table because they are not declared needs: **0.3** runs only where the
-specification marks an operation `deprecated`, and **6.4**'s first sub-test compares a blocked response against the
-gateway's block message (`gateway_block_body_fragment`), running without it and saying so in a note. A test whose
-need is unmet is recorded SKIP before it runs, with the reason naming what is missing.
+specification marks an operation `deprecated`, and **6.4**'s first sub-test probes the paths listed in
+`debug_endpoint_paths`, judging `NOT_APPLICABLE` with none configured, which lowers the test's coverage to
+`partial` while its gateway configuration scan still runs. A test whose need is unmet is recorded SKIP before it
+runs, with the reason naming what is missing.
 
 Reaching a verdict is not the same as the verdict being right: verdict correctness was the subject of the block-6
 test review (groups A-J), now complete, which rebuilt each test's oracle with calibration, positive controls and the
@@ -67,8 +68,18 @@ login, the objects a test needs, the request that checks a revoked token) is con
 **find** when a target is known to be vulnerable. The target is the [crAPI lab](#crapi--kong), an API vulnerable by
 design that publishes the list of the weaknesses it was built to contain, so the measure is a ground truth nobody
 here wrote: `docs/challenges.md`, at the commit the lab's images come from (`700f03d`), declares **18 numbered
-challenges** in 11 categories, plus three it keeps secret. Measured on 2026-10-29 with a full assessment (32 tests, external tools
-included) on a lab reset first: 15 FAIL, 10 PASS, 6 SKIP, 1 INCONCLUSIVE, 39 findings.
+challenges** in 11 categories, plus three it keeps secret. Measured on 2026-11-03 with a full assessment (31 tests, external tools
+included) on a lab reset first, with no other lab running: 13 FAIL, 10 PASS, 4 INCONCLUSIVE, 4 SKIP, 37 and 34 findings in two runs (the difference is schemathesis's, below).
+**Three of those tests cannot conclude on this target in a full assessment**, and the reason is crAPI's own
+deployment, not the tool: by the time the stressing tests run, crAPI's workshop service no longer answers through the
+gateway (Kong: `503 failure to get a peer from the ring-balancer`). 4.1 and 7.3 report it as
+`NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`; run on their own right after a reset, 4.1 reproduces its FAIL and 7.3 finds a
+race on the coupon flow (its page). 4.4's oversized body meets a service that answers `401` and resets the
+connection, in some runs before the upload finishes, which since the retry rule of 2026-10-28 is reported rather than
+retried (8 isolated runs: 5 INCONCLUSIVE, 3 FAIL; the FAIL is the gateway's real state). The fourth INCONCLUSIVE is
+7.2, challenge 11 below. The number of findings also moves between runs because `ext.3.1.schemathesis` reports a
+variable count (7 and 20 in two runs of the same day). The statuses are stable apart from 4.1, 4.4 and 7.3, whose
+outcome on this target depends on load (4.1, 7.3) and on a race (4.4).
 
 | # | crAPI challenge | Weakness | What the tool did, measured | Verdict |
 |---|---|---|---|---|
@@ -77,7 +88,7 @@ included) on a lab reset first: 15 FAIL, 10 PASS, 6 SKIP, 1 INCONCLUSIVE, 39 fin
 | 3 | Reset another user's password by brute force | anti-automation | 7.1 FAIL: "No anti-automation control on POST /identity/api/auth/forget-password", the challenge's own endpoint; 1.7 FAIL: "Failed authentication attempts are not limited" | **caught** |
 | 4 | An endpoint leaks other users' sensitive data | excessive data exposure | 2.5 FAIL: "Response carries sensitive field(s): card_number" on the configured order. The challenge's own endpoint (`/community/.../posts/recent`, which leaks `vehicleid`) is not probed | **class caught, endpoint missed** |
 | 5 | An internal property of a video is exposed | excessive data exposure | not probed: 2.5 reads the configured object only | **missed** |
-| 6 | Layer-7 DoS through 'contact mechanic' | rate limiting | 4.1 FAIL: "No rate limit on /workshop/api/mechanic/", the challenge's own feature | **caught** |
+| 6 | Layer-7 DoS through 'contact mechanic' | rate limiting | 4.1 FAIL: "No rate limit on /workshop/api/mechanic/", the challenge's own feature, measured with the test run on its own after a reset; in a full assessment the workshop service no longer answers and the same test reports `UPSTREAM_UNAVAILABLE` | **caught** |
 | 7 | Delete another user's video (admin endpoint) | BFLA | 2.1 derived `DELETE /identity/api/v2/admin/videos/{video_id}` as privileged (segment `admin`), **named it in the report and did not send it** (`DESTRUCTIVE_NOT_PROBED`, rule 5). On the other privileged endpoint it found a real BFLA: `GET /workshop/api/management/users/all` | **found, not exploited by design** |
 | 8 | Get an item for free (negative `quantity`) | business logic | not caught: `ProductQuantity.quantity` is `integer` with no minimum, so a negative value conforms to the schema and `ext.3.1.schemathesis` has nothing to flag. No test checks a business invariant | **out of scope** |
 | 9 | Increase your balance by $1,000 or more | business logic | same as 8 | **out of scope** |
@@ -114,10 +125,12 @@ be made target-agnostic**, which is why these two tests ask for a configured obj
 
 **The lab degrades with use, and a stale lab hides findings.** Each run creates a shop order for tests 2.2 and 2.5,
 and each order spends 10 of user A's 100 starting credit: after about ten runs the creation answers
-`400 Insufficient Balance`, both tests report `OBJECT_NOT_CREATED` and the run shows 9 FAIL instead of 15. The
-full reset of the [maintainer commands](../project/maintainer-commands.md#test-labs) restores it; the tool stays
-honest in the meantime, reporting INCONCLUSIVE and never a PASS. **A measurement taken on a worn lab is not this
-table**: the table above was taken right after a reset.
+`400 Insufficient Balance`, both tests report `OBJECT_NOT_CREATED` and two findings crAPI exists to expose
+disappear. The full reset of the [maintainer commands](../project/maintainer-commands.md#test-labs) restores it; the
+tool stays honest in the meantime, reporting INCONCLUSIVE and never a PASS. **A measurement taken on a worn lab is
+not this table**: the table above was taken right after a reset, with the two Forgejo labs stopped. Even then, two
+tests of the 32 cannot conclude for the reason given under the table, so a run that reports 4.1 or 4.4 as FAIL on
+this target is a run where crAPI's workshop service was still answering, not a different tool.
 
 ## Test lab
 
@@ -267,7 +280,7 @@ certificates declare no CRL or OCSP address).
 | ffuf | 2.3.0 (pinned, checksum verified) | `install_tools.sh` → `tools/ffuf/` | `ext.0.1.ffuf` |
 | SecLists wordlists | 2026.1 (pinned, two lists only) | `install_tools.sh` → `tools/seclists/` | `ext.0.1.ffuf` |
 | Schemathesis | `>=3.39,<4` | `pip install "apiguard-assurance[schemathesis]"` | `ext.3.1.schemathesis` |
-| nuclei | 3.8.0 (pinned) | `install_tools.sh` → `tools/nuclei/` | no test ([roadmap](../project/roadmap.md)) |
+| nuclei | 3.8.0 (pinned) | `install_tools.sh` → `tools/nuclei/` | no test (the connector is kept, dormant: `src/connectors/nuclei.py`) |
 | nuclei-templates | 10.4.3 (pinned) | `install_tools.sh` → `tools/nuclei-templates/` | no test |
 
 `external_tools.<tool>.expected_version` lets the tool warn when the installed version differs. Schemathesis is a
@@ -320,4 +333,4 @@ accepted inputs. Until then the project is 0.x.
 
 ## See also
 
-- [`../project/roadmap.md`](../project/roadmap.md)
+- [`../../CHANGELOG.md`](../../CHANGELOG.md)

@@ -43,8 +43,10 @@ backend or brute-force a credential. ASVS v5.0.0-2.4.1 (anti-automation controls
 ## 3. Inputs
 
 The documented GET endpoint to flood (derived: the shortest documented GET, or `probe_path`). The burst budget is
-the gateway's configured rate-limit (read through `config_values` where available, `Need.GATEWAY` optional) plus a
-margin, else `max_burst`.
+the gateway's configured rate-limit plus a margin when the adapter can read it (`config_values`, `Need.GATEWAY`
+optional), else `max_burst`. **In practice it is `max_burst`**: both supported gateways state a limit as a number
+(Kong's `rate-limiting.minute`, APISIX's `limit-count.count`, checked on their schemas 2026-11-03), and the
+configuration scan collects strings only (section 10).
 
 ## 4. Preconditions and reference responses
 
@@ -64,7 +66,9 @@ others (rule 7), and the burst stops at the 429 so a working limit is not floode
 | Case | Outcome / detail | Confidence |
 |---|---|---|
 | a 429 within the budget | `ENFORCED/RATE_LIMITED` | - |
-| no 429 within the budget | `VIOLATION/NO_RATE_LIMIT` | CERTAIN |
+| no 429 within the budget, no configured limit read | `VIOLATION/NO_RATE_LIMIT`, the finding saying no limit applies at or below the budget | FIRM: a limit above the budget would not be seen |
+| no 429 within the budget, which went past a configured limit that was read | `VIOLATION/NO_RATE_LIMIT`, the finding naming the configured limit | CERTAIN: the limit is configured and not enforced |
+| a configured limit was read above `max_burst`, so the capped burst cannot reach it | `NOT_VERIFIABLE/LIMIT_ABOVE_BUDGET` | - |
 | the endpoint answers 5xx / unavailable | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` | - |
 
 **`ip_spoofing_resisted`**
@@ -91,8 +95,11 @@ burst's last request.
 
 ## 10. Per gateway
 
-Independent of the adapter: the 429 is observed from outside; the configured limit is read through the adapter when
-available, to size the burst.
+Independent of the adapter: the 429 is observed from outside. The configured limit would size the burst, but
+neither adapter delivers it: the configuration scan collects only string values (it was built for test 6.4's
+credential search), and Kong and APISIX both state a rate limit as a number. Making the scan collect numbers was
+not done: `_configured_limit` takes the smallest positive number of the plugin's configuration, which on Kong's
+`rate-limiting` would also see its Redis port and timeouts.
 
 ## 11. Configuration
 
@@ -113,14 +120,24 @@ Runs of 2026-10-23:
 
 | Lab | Status | Basis |
 |---|---|---|
-| Forgejo + Kong, crAPI + Kong, Forgejo + APISIX | **FAIL** | 150 requests to the shortest documented GET, no 429: no rate limit configured (a real gap of the default labs) |
+| Forgejo + Kong, Forgejo + APISIX | **FAIL** | 150 requests to the shortest documented GET, no 429: no rate limit configured (a real gap of the default labs) |
+| crAPI + Kong | **FAIL** on its own after a reset, **INCONCLUSIVE** in a full assessment | the same burst and the same gap, but in a full assessment crAPI's workshop service has stopped answering through the gateway by the time the stressing tests run, so the burst meets `5xx` and the test does not conclude (the paragraph below) |
 | Forgejo + Kong, with the plugin below | **PASS** | the 6th request answers 429 (`limit_enforced`), and the same burst with a random X-Forwarded-For still meets the 429 (`ip_spoofing_resisted`: Kong keys on the real connection) |
 
 **The case the labs lack, and how to undo it.** Add a global `rate-limiting` plugin (minute: 5, policy: local) to
 `test-environments/forgejo-kong/kong/kong.yml`, then `cd test-environments/forgejo-kong && docker compose --env-file
 ../../.env up -d --force-recreate --wait kong`; undo with `git checkout` of that file and the same command. The lab
-was checked back to FAIL afterwards. Rule 9: both sides proven; `IP_SPOOF_BYPASS` and the transport reasons are not
-exercised (Kong resisted the spoof; a gateway trusting X-Forwarded-For would show the bypass).
+was checked back to FAIL afterwards. Rule 9: both sides proven; `IP_SPOOF_BYPASS` is not exercised (Kong resisted
+the spoof; a gateway trusting X-Forwarded-For would show the bypass).
+
+**The third situation, measured on 2026-10-29 without being produced on purpose.** On crAPI the burst meets an
+unavailable backend: `limit_enforced` records one `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` and the test reports
+INCONCLUSIVE with no finding, instead of reading the missing 429 as a violation. Narrowed down the same day: run on
+its own on a freshly reset lab the burst answers 150 times without a 429 and the test reports **FAIL**, while in a
+full assessment of the same reset lab it reports **INCONCLUSIVE**, because by the time the stressing tests run
+crAPI's workshop service no longer answers through the gateway. Nothing changes on the Forgejo labs, where the
+backend holds. That is rule 4 working: a gateway that cannot reach its backend says nothing about rate limiting, so
+the test refuses to conclude rather than call the missing 429 a violation.
 
 ## 13. Remediation
 
@@ -129,8 +146,10 @@ client header), with a `Retry-After` on the 429 (OWASP API4:2023, ASVS v5.0.0-2.
 
 ## 14. Limitations
 
-- The budget bounds the burst: a limit higher than the budget is reported as "no limit" (raise `max_burst` or let
-  the gateway config supply the limit).
+- The budget bounds the burst: a limit higher than `max_burst` (150 by default) is not reached, so a gateway that
+  does limit, but above that rate, is reported `NO_RATE_LIMIT` with FIRM confidence and a finding that says "at or
+  below 150 requests". Raise `max_burst` to look further; the gateway's configuration cannot supply the limit
+  (section 10).
 - Retry-After reset and the per-user-vs-per-IP distinction are not tested.
 - A rate limit expressed per hour or per day is not reached by a short burst.
 

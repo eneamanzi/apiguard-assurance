@@ -47,9 +47,9 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
+from src.core.references import random_sibling_path
 from src.core.test_metadata import Effect, Need, TestInfo
 from src.tests.base import BaseTest
-from src.tests.helpers.path_resolver import resolve_path_with_seed
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -187,7 +187,13 @@ class Test44RequestSizeLimits(BaseTest[Test44Params]):
         if not writes:
             return None
         shortest = min(writes, key=lambda e: (not e.requires_auth, len(e.path), e.path, e.method))
-        return resolve_path_with_seed(shortest.path, target.path_seed)
+        # Parameters get a random sibling, never the operator's resource from the
+        # seed: the gateway applies its size limit to the route before anything
+        # looks the object up, so a path that exists adds nothing and risks the
+        # oversized body reaching a real object.
+        if "{" in shortest.path:
+            return random_sibling_path(shortest.path, shortest.parameters)
+        return shortest.path
 
     def _size(self, target: TargetContext) -> tuple[int, bool]:
         """The body size to send, and whether it came from the gateway's config."""
@@ -251,6 +257,8 @@ def _configured_limit(gateway: BaseGatewayAdapter) -> int | None:
         return None
     limits: list[int] = []
     for item in answer.items:
+        if not item.enabled:
+            continue
         location = item.location.lower()
         if not any(marker in location for marker in _SIZE_LIMIT_MARKERS):
             continue

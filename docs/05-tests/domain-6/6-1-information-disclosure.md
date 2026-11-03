@@ -13,7 +13,7 @@
 | Name | Error and Information Disclosure |
 | Domain | 6 - Configuration and Hardening |
 | Priority / strategy | P2 / GREY_BOX |
-| Effect | READ_ONLY |
+| Effect | CHANGES_DATA |
 | CWE | CWE-209 |
 | Standards | `OWASP API8:2023`, `OWASP ASVS v5.0.0-13.4.2`, `OWASP ASVS v5.0.0-13.4.6`, `OWASP ASVS v5.0.0-16.5.1` |
 | Tags | `information-disclosure`, `error-handling` |
@@ -55,16 +55,18 @@ user_a is required (GREY_BOX). No reference responses: the detection is on the r
 ## 5. Probes
 
 For each sampled endpoint, a normal GET (debug fields in the body, leaky headers). One malformed-JSON request to a
-write endpoint to provoke an error (stack trace in the body). READ_ONLY.
+write endpoint, declared `Content-Type: application/json` so that the server's JSON parser runs, to provoke an error
+(stack trace in the body). CHANGES_DATA, for the reason in section 9.
 
 ## 6. Oracle (per sub-test)
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| a provoked error carries an internal-detail marker | `VIOLATION/STACK_TRACE` | FIRM (a keyword heuristic) |
+| the answer to the malformed body carries an internal-detail marker | `VIOLATION/STACK_TRACE` | FIRM (a keyword heuristic) |
+| the malformed body was not parsed into an error (`401`, `403`, `404`, `415`, `429`, unavailable, or accepted) | `NOT_VERIFIABLE/ERROR_NOT_PROVOKED`: a clean body proves nothing when no error happened | - |
 | a sampled response carries a debug field | `VIOLATION/DEBUG_FIELD` | FIRM |
 | a sampled response carries a leaky header | `VIOLATION/LEAKY_HEADER` | CERTAIN |
-| none found | `ENFORCED` | - |
+| none found | `ENFORCED/CLEAN` for the debug-field and leaky-header sub-tests; `ENFORCED/NO_STACK_TRACE` when the malformed body was rejected by the parser (`400`, `422`) or caused a server error (`5xx`) | - |
 | no endpoint to probe | `NOT_APPLICABLE` | - |
 
 ## 7. Outcomes
@@ -75,11 +77,17 @@ clean.
 ## 8. Findings
 
 "Error response leaks internal detail", "Response carries a debug field: ...", "Response carries a leaky header:
-...", each with the sampled response as evidence.
+...", each with, as its proof, the response of the endpoint the finding names as its example (until 2026-11-03
+it was the last response sampled, which need not be the one that leaked).
 
 ## 9. Effects on the target
 
-`READ_ONLY`: sampled reads plus one malformed request (rejected, nothing created).
+`CHANGES_DATA`: sampled reads plus one request with a malformed body (`{"apiguard": "unterminated`) to the
+shortest documented write operation. No JSON parser can build an object from it, so a `POST` creates nothing, and
+on the three labs nothing was created or changed. The declaration is `CHANGES_DATA` all the same, because on a
+target whose shortest documented write is a `PUT` on an existing object, a server that read an unparseable body as
+an empty one would replace that object: what the test sends is a write, and the effects table an operator reads
+before a production run says what is sent, not what a well-behaved server does with it.
 
 ## 10. Per gateway
 
@@ -92,13 +100,15 @@ None.
 
 ## 12. Validation
 
-Runs of 2026-10-23:
+Runs of 2026-11-03:
 
 | Lab | Status | Basis |
 |---|---|---|
-| Forgejo + Kong, crAPI + Kong, Forgejo + APISIX | **PASS** | the sampled responses carry no debug field or leaky header; the provoked error carries no stack trace |
+| crAPI + Kong | **PASS**, `complete` | the sampled responses carry no debug field or leaky header; the malformed body to `POST /identity/api/auth/login` reaches the parser and is rejected with `400 "Failed to read request"`, a problem-details body with no trace (`ENFORCED/NO_STACK_TRACE`). Before the probe declared `Content-Type: application/json` the same request got `415` and was counted a pass anyway |
+| Forgejo + Kong, Forgejo + APISIX | **PASS**, `partial` | no debug field or leaky header; the malformed body to `POST /api/v1/orgs` is refused with `403` (the token lacks the `write:organization` scope) before anything parses it, so no error was provoked: `NOT_VERIFIABLE/ERROR_NOT_PROVOKED`. Until 2026-11-03 that refusal counted as "no stack trace" and the test reported `complete` |
 
-Rule 9: the ENFORCED side is proven on the three labs. The VIOLATION branches (a stack trace, a leaky header) are
+Rule 9: the ENFORCED sides are proven on the labs (no trace on crAPI, no debug field or leaky header on all three),
+and so is `ERROR_NOT_PROVOKED` (Forgejo). The VIOLATION branches (a stack trace, a leaky header) are
 lab-unproven: the labs leak none, and injecting a leaky header through the gateway proved fiddly (Kong strips the
 injection). The detectors are the well-tested `response_inspector` helpers, and test 6.2 proves the header-reading
 path end-to-end on crAPI. Producing a live leak would need an announced change to a lab and has not been done.

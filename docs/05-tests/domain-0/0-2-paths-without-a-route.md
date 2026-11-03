@@ -72,7 +72,12 @@ is processed by the business logic"; a path with no route is not in the schema a
    three for `PREFIX`, one for `EXACT` (a cheap check that the gateway is not more tolerant than its configuration
    says), none for `REGEX`, which cannot be turned into a neighbouring path without interpreting it;
 4. **one judgement per route path**, not per probe: the neighbours are several proofs of the same fact, so the first
-   proof decides and the rest are not sent;
+   proof of something answering decides and the rest are not sent. When no neighbour proves anything, the best news
+   wins: one neighbour the gateway refused with its own answer gives `ENFORCED` even if another answered `401`,
+   which is ambiguous (`REFUSED_BEFORE_ROUTING`). The reason is that a `401` from the over-matched route's own
+   plugin is the gateway answering, not forwarding, so it is not evidence against the guarantee; it is simply not
+   evidence for it either, which is why a route path whose neighbours *all* answer that way is `NOT_VERIFIABLE`
+   (measured on both Kong labs);
 5. sampling, when a gateway has many route paths: they are grouped by their first segment and taken group by group,
    shortest of each group first, up to 50. The shortest path of a group is the one whose neighbours are most likely
    to be forwarded;
@@ -98,6 +103,7 @@ than the API documents, which is what CWE-183 describes.
 | no documented path gave a reliable backend refusal for the guard | `NOT_VERIFIABLE/BACKEND_REFUSAL_UNKNOWN` | - |
 | a route covers every path (a `/` prefix) | `NOT_VERIFIABLE/CATCH_ALL_ROUTE`, with the route named | - |
 | the routes cannot be read | `NOT_VERIFIABLE/ROUTES_NOT_READABLE`; `NOT_APPLICABLE/ROUTES_NOT_SUPPORTED`, `NO_GATEWAY` | - |
+| the measured refusal cannot be trusted (the two probes at the root did not establish what the gateway answers where nothing matches) | `NOT_VERIFIABLE/REFUSAL_NOT_TRUSTED` for the neighbours sub-test, which rests on that refusal | - |
 | unavailable, rate limited, no response, server error | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`, `RATE_LIMITED`, `NO_RESPONSE`, `SERVER_ERROR` | - |
 
 The `Server` header is not used. Measured on the labs (2026-10-22): neither Kong lab sends one and APISIX sends

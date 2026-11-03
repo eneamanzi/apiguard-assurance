@@ -69,8 +69,7 @@ hand against the lab.
 | what is implemented | [`docs/05-tests/README.md`](docs/05-tests/README.md) (generated from the tests' declarations) and [`CHANGELOG.md`](CHANGELOG.md) |
 
 Documentation states only facts checked against the code or a run. A doubt, or a behaviour that looks wrong, is
-raised with the project owner with its evidence; the decisions still open are recorded in
-[`docs/project/roadmap.md`](docs/project/roadmap.md).
+raised with the project owner with its evidence.
 
 ## Commits
 
@@ -80,4 +79,5 @@ followed by a short summary. Never commit `.env` (it is ignored by git) or anyth
 ## Project state
 
 What is implemented: [`docs/05-tests/README.md`](docs/05-tests/README.md), generated from the tests' declarations.
-What is still open, and what was deliberately dropped: [`docs/project/roadmap.md`](docs/project/roadmap.md).
+What changed, and what was deliberately dropped: [`CHANGELOG.md`](CHANGELOG.md); a test's permanent limits are in the
+Limitations section of its own page.

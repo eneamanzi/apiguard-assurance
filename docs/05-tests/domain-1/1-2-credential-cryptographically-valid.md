@@ -42,7 +42,7 @@ not give us (below).
 | `unsigned_rejected` | "unsigned tokens accepted (`alg: none`)" |
 | `tampered_rejected` | "payload not verified": a claim changed, the original signature kept |
 | `stripped_rejected` | "signature stripping" |
-| `algorithm_confusion` | "algorithm confusion (RS256 to HS256)": needs the public key, reported `NEEDS_KEY_MATERIAL` where none is exposed |
+| `algorithm_confusion` | "algorithm confusion (RS256 to HS256)": needs the public key, and this test neither fetches one nor implements the attack, so the case is always reported `NEEDS_KEY_MATERIAL` |
 | left out | key rotation, `kid` mismatch: need a JWKS with the signing key, which no target gives us |
 
 ## 3. Inputs
@@ -107,7 +107,7 @@ Runs of 2026-10-22, the three tests of the group together:
 
 | Lab | Status | Basis |
 |---|---|---|
-| crAPI + Kong | **FAIL, 1 finding** | `alg: none` accepted at the anchor `GET /workshop/api/mechanic/` (HTTP 200): crAPI's identity service honours an unsigned token (OWASP crAPI challenge 15, "forge a JWT"). The tampered and stripped variants are correctly refused (401), so the server does verify the signature for those but trusts `alg: none`. `algorithm_confusion` is `NEEDS_KEY_MATERIAL` (no JWKS) |
+| crAPI + Kong | **FAIL, 1 finding** | `alg: none` accepted at the anchor `GET /workshop/api/mechanic/` (HTTP 200): crAPI's identity service honours an unsigned token (OWASP crAPI challenge 15, "forge a JWT"). The tampered and stripped variants are correctly refused (401), so the server does verify the signature for those but trusts `alg: none`. `algorithm_confusion` is `NEEDS_KEY_MATERIAL`, and not because the key is unavailable: crAPI publishes an RSA public key at `GET /identity/api/auth/jwks.json` (checked 2026-10-29), so the attack is testable in principle and this test does not try it, by the decision in section 11 |
 | Forgejo + Kong, Forgejo + APISIX | SKIP | the API token is opaque: `NOT_APPLICABLE/NOT_A_JWT` on every sub-test |
 | any | ENFORCED | a target that refuses all three: not on the labs (crAPI accepts `alg: none`) |
 
@@ -126,7 +126,10 @@ on an allowlist (never `none`): ASVS v5.0.0-9.1.1 and 9.1.2.
 ## 14. Limitations
 
 - Only the key-free forgeries are tried. Algorithm confusion, a token re-signed with a chosen claim, `kid` and key
-  rotation need key material the target does not give us, and are reported `NEEDS_KEY_MATERIAL` rather than passed.
+  rotation need key material, and are reported `NEEDS_KEY_MATERIAL` rather than passed. **This is a limit of the
+  test, not always of the target**: a signing key is never exposed, but a public key often is, and crAPI publishes
+  one (section 12). The test does not fetch a JWKS and does not implement those attacks, by the decision in
+  section 11.
 - A target that issues an opaque token is not examined here (its validation is the server's business).
 - The anchor is a documented read; an API with no protected documented read cannot be tested this way.
 

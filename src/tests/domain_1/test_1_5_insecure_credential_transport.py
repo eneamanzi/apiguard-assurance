@@ -227,7 +227,9 @@ class Test15InsecureCredentialTransport(BaseTest[Test15Params]):
                     f"The configured base URL is {base_url!r}, plain HTTP: there is no TLS "
                     "layer, so every credential, token and session value is sent in cleartext "
                     "and is readable by anyone on the network path. Serve the API over HTTPS "
-                    "(TLS 1.2+) and set the target to its `https://` URL."
+                    "(TLS 1.2+) and set the target to its `https://` URL. This finding rests on "
+                    "the configuration, not on a response, so it names no evidence record: the "
+                    "base URL as the run used it is in config_used.yaml."
                 ),
                 confidence=Confidence.CERTAIN,
             ),

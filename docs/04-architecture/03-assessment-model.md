@@ -57,7 +57,7 @@ The implemented tests by strategy and priority (generated from the tests' declar
 |---|---|---|---|---|
 | `BLACK_BOX` | `0.1`, `0.2`, `0.3`, `1.1`, `4.1`, `ext.0.1.ffuf` | `2.4`, `4.4`, `7.1`, `7.4` | `1.5`, `6.4`, `ext.1.5.testssl`, `ext.3.1.schemathesis` | `6.2` |
 | `GREY_BOX` | `1.2`, `1.3`, `2.2`, `7.2` | `1.7`, `2.1`, `2.5`, `7.3` | `6.1` | `1.6` |
-| `WHITE_BOX` | `0.4` | `4.2`, `4.3`, `5.1` | `1.4`, `5.2` | `3.3` |
+| `WHITE_BOX` | `0.4` | `4.2`, `4.3`, `5.1` | `1.4` | `3.3` |
 
 <!-- [[[end]]] -->
 
@@ -201,12 +201,12 @@ The contract the block-6 review built every test on; the code and the test pages
 | 3 | **Reference responses.** A verdict that depends on "does this exist, is this refused" rests on calibration (random siblings) and, where a credential exists, a positive control; a reference that cannot decide gives `NOT_VERIFIABLE`. | `src/core/references.py`, `TestContext.references` |
 | 4 | **Transport errors** (timeout, refused, TLS, protocol) are recorded and judged `NOT_VERIFIABLE`, never skipped. | `SecurityClientError.record`, `TransportError` |
 | 5 | **Derive first, configure on top.** What a test probes comes from the specification (named derivation rules, Phase 2) and the gateway, then the configuration adds or corrects; no destructive request on a derived candidate the configuration has not confirmed; sampling by a stated rule, never "the first N". | `src/discovery/derivation.py`, `AttackSurface.derived` |
-| 6 | **Evidence and confidence.** Every finding has its proof (`evidence_ref`) and the references it rests on (`supporting_refs`); confidence `CERTAIN`, `FIRM` or `TENTATIVE` by stated criteria; no severity. | `Finding`, `BaseTest._judge` |
+| 6 | **Evidence and confidence.** Every finding names its proof (`evidence_ref`, the record in `evidence.json`) and the references it rests on (`supporting_refs`); confidence `CERTAIN`, `FIRM` or `TENTATIVE` by stated criteria; no severity. Two findings rest on something other than one response and name no record, saying in their detail where the proof is: `1.5`'s `PLAIN_HTTP`, whose proof is the configured base URL in `config_used.yaml`, and `2.1`'s `METHOD_CONFUSION`, whose proof is the set of per-method answers in the test's transaction log. | `Finding`, `BaseTest._judge` |
 | 7 | **Effect.** `READ_ONLY`, `CHANGES_DATA` or `STRESSES_TARGET`, declared; the run order follows it; who creates cleans up or states what is left. | `TestInfo.effect`, `src/core/dag.py` |
 | 8 | **Standards.** The guarantee's other standards in `TestInfo.references`, each the standard and its official identifier (ASVS 5.0.0 L2, WSTG with its version, OWASP API Top 10 2023, RFC, NIST SP), each verified on its source. | `src/core/models/standards.py` |
 | 9 | **Three situations on the labs.** A test is trusted once seen giving the right answer where the weakness is present, where it is absent, and where the check cannot be made; a case the labs lack is produced by the crAPI case of the category, the tool's configuration, or a documented change to a lab's gateway configuration. | the page's "Validation" section |
 | 10 | **One question, one test.** Data two tests need is written once and shared (path variants, sensitive paths); the gateway's own answer is recognised by the references, not by lists of gateways. | `src/core/path_variants.py`, `src/core/sensitive_paths.py` |
-| 11 | **External tools.** The oracle is the tool's check, not its severity (kept as information); only results on the target count; the tool's own problems are `NOT_VERIFIABLE`; the command shown for manual verification runs. | `src/external_tests/` |
+| 11 | **External tools.** The oracle is the tool's own judgement of the target, never our re-reading of its output: where a tool reports named checks the check decides (`ext.3.1.schemathesis`), where it rates what it finds the rating decides (`ext.1.5.testssl`, whose severity class is the oracle with the exceptions its page states), and where it only proposes candidates the test verifies each one itself (`ext.0.1.ffuf`); only results on the target count; the tool's own problems are `NOT_VERIFIABLE`; the command shown for manual verification runs. | `src/external_tests/` |
 | 12 | **Needs and strategy.** What a test needs is declared (`TestInfo.needs`), with a minimum strategy per need; the gateway reaches only the tests that declare it. | `src/core/test_metadata.py` |
 
 ## See also

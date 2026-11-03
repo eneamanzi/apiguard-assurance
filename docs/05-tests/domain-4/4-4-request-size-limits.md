@@ -100,7 +100,8 @@ Runs of 2026-10-23:
 
 | Lab | Status | Basis |
 |---|---|---|
-| Forgejo + Kong, crAPI + Kong, Forgejo + APISIX | **FAIL** | a 2 MB body to the shortest documented write is forwarded (not 413): no body-size limit on the gateway (FIRM: a larger limit may exist) |
+| Forgejo + Kong, Forgejo + APISIX | **FAIL** | a 2 MB body to the shortest documented write is forwarded (not 413): no body-size limit on the gateway (FIRM: a larger limit may exist) |
+| crAPI + Kong | **INCONCLUSIVE or FAIL, by a race** (8 isolated runs on 2026-11-03: 5 INCONCLUSIVE, 3 FAIL) | the probe is `POST /workshop/api/shop/orders`, and crAPI's workshop service answers `401` and closes the connection, sometimes before the 2 MB upload has finished and sometimes after. When the close comes first, httpx raises `RemoteProtocolError`, and since the retry rule of 2026-10-28 a non-idempotent request that may already have been applied is not sent again, so the test records `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`. When the upload finishes first, the test reads the `401`, sees the body was forwarded without a `413` and reports `VIOLATION/NO_SIZE_LIMIT`. Both answers are correct for what each run saw; the second is the gateway's real state |
 | Forgejo + Kong, with the plugin below | **PASS** | a `request-size-limiting` plugin (1 MB) answers 413 to the 2 MB body |
 
 **The case the labs lack, and how to undo it.** Add a global `request-size-limiting` plugin (`allowed_payload_size:
@@ -115,8 +116,16 @@ oversized body is rejected with 413 before it reaches the backend (OWASP API4:20
 ## 14. Limitations
 
 - Without a readable configured limit, the test asserts only "no limit at the tested size" (FIRM): a limit above the
-  tested size is not detected (raise `body_size_bytes`).
+  tested size is not detected (raise `body_size_bytes`). On the two supported gateways that is always the case:
+  Kong's `request-size-limiting.allowed_payload_size` is an integer (checked on its schema 2026-11-03) and the
+  configuration scan collects strings only, so the CERTAIN branch is not reached today.
 - Only the request body is checked, not the response size or header size.
+- **A target that answers before the upload finishes cannot be judged.** A service that sends its response (a `401`,
+  for instance) and closes the connection mid-upload makes the client raise a protocol error, and a non-idempotent
+  request that may already have been applied is never sent again (RFC 9110 section 9.2.2), so the status never
+  reaches the oracle: the result is `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`. crAPI does this in some runs and not in
+  others, depending on whether the upload finishes before the close (section 12). The
+  gateway did forward the oversized body in that case, which would be a violation, but this test does not see it.
 - A backend that happens to reject the body for another reason before the gateway's size check would read as a limit
   only if it answers 413.
 - The probe prefers a write that requires authentication (unauthenticated -> 401, nothing created). Where only a

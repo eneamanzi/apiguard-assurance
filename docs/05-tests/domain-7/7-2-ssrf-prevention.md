@@ -76,7 +76,8 @@ never an unproven violation. This is a permanent boundary of the test, not a gap
 
 | Case | Outcome / detail |
 |---|---|
-| rejected (`4xx`) and the benign control was accepted | `ENFORCED/SSRF_BLOCKED_{SCHEME,MALFORMED,VALIDATION,UNKNOWN}` |
+| rejected (`4xx` other than `429`) and the benign control was accepted | `ENFORCED/SSRF_BLOCKED_{SCHEME,MALFORMED,VALIDATION,UNKNOWN}` |
+| throttled (`429`), the payload or the benign control: the URL was never evaluated | `NOT_VERIFIABLE/RATE_LIMITED` |
 | rejected (`4xx`) but the benign control was also rejected | `NOT_VERIFIABLE/BASELINE_REJECTED` |
 | accepted (`2xx`) | `NOT_VERIFIABLE/OUTBOUND_NOT_CONFIRMED` |
 | `5xx` / upstream unavailable | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |

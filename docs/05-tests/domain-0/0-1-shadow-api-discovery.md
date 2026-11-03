@@ -92,7 +92,6 @@ ASVS v5.0.0-4.1.4: only the HTTP methods the API supports can be used, and unuse
 | Case | Outcome / detail | Confidence |
 |---|---|---|
 | `METHOD_NOT_ALLOWED` (405, 501), the standard refusal | `ENFORCED/METHOD_REJECTED` | - |
-
 | the same answer as the same method on random siblings, and that answer is a refusal of the request itself (401, 403): the target did not look at the method | `NOT_VERIFIABLE/REFUSED_BEFORE_ROUTING` | - |
 | the same answer as the same method on random siblings | `ENFORCED/METHOD_NOT_SERVED` | - |
 | `SERVED` (2xx): the method was executed | `VIOLATION/UNDECLARED_METHOD_HANDLED` | CERTAIN: the observed behaviour |

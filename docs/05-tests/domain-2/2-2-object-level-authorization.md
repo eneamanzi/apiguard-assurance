@@ -68,6 +68,7 @@ is user_a's own, created and destroyed within the run.
 | user_b refused | `ENFORCED/REFUSED` | - |
 | user_a not served its own object | `NOT_VERIFIABLE/OWNER_NOT_SERVED` | - |
 | no read / modify / delete operation on the object | `NOT_APPLICABLE/NO_*_OPERATION` | - |
+| the prepared resource did not create the object (on crAPI, a worn lab answers `400 Insufficient Balance`) | `NOT_VERIFIABLE/OBJECT_NOT_CREATED` | - |
 | unavailable, rate limited, no response, server error | `NOT_VERIFIABLE/<reason>` | - |
 
 ## 7. Outcomes
@@ -138,7 +139,7 @@ the same answer (404) for "not yours" and "not found" so existence is not disclo
 - Delete is optional: an object type with no delete operation (a crAPI order) is not cleaned up by the tool, the lab
   reset removes it.
 - Sequential ID enumeration is not performed (it is object discovery, not an enforcement question).
-- Only one object is tested; a per-endpoint ownership gap on a different object type is not covered.
+- Only one object is tested, and one operation of each kind: where the object documents several reads, modifications or deletions, the first of each is probed, so an ownership gap on another of them is not covered. A per-endpoint gap on a different object type is not covered either.
 
 ## 15. Sources
 

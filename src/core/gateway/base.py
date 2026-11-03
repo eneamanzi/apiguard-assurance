@@ -554,6 +554,8 @@ def collect_text_values(
     location: str,
     prefix: str,
     depth: int = 0,
+    *,
+    enabled: bool = True,
 ) -> list[ConfigValue]:
     """
     Collect the text values of a gateway configuration, with their dotted keys.
@@ -572,6 +574,8 @@ def collect_text_values(
         location: Which object, e.g. 'route 5, plugin http-logger'.
         prefix:   Dotted key of data itself, e.g. 'config'.
         depth:    Current depth (0 for the caller).
+        enabled:  Whether the object holding the values is active (a disabled
+                  plugin), carried by every value collected.
 
     Returns:
         One ConfigValue per string found.
@@ -583,19 +587,29 @@ def collect_text_values(
     for key, value in data.items():
         path = f"{prefix}.{key}"
         if isinstance(value, dict):
-            values.extend(collect_text_values(value, kind, location, path, depth + 1))
+            values.extend(
+                collect_text_values(value, kind, location, path, depth + 1, enabled=enabled)
+            )
         elif isinstance(value, list):
             for index, item in enumerate(value):
                 if isinstance(item, dict):
                     values.extend(
-                        collect_text_values(item, kind, location, f"{path}[{index}]", depth + 1)
+                        collect_text_values(
+                            item, kind, location, f"{path}[{index}]", depth + 1, enabled=enabled
+                        )
                     )
                 elif isinstance(item, str):
                     values.append(
                         ConfigValue(
-                            kind=kind, location=location, key=f"{path}[{index}]", value=item
+                            kind=kind,
+                            location=location,
+                            key=f"{path}[{index}]",
+                            value=item,
+                            enabled=enabled,
                         )
                     )
         elif isinstance(value, str):
-            values.append(ConfigValue(kind=kind, location=location, key=path, value=value))
+            values.append(
+                ConfigValue(kind=kind, location=location, key=path, value=value, enabled=enabled)
+            )
     return values

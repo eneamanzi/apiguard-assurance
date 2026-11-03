@@ -148,6 +148,7 @@ _BLOCKED_UNKNOWN: str = "SSRF_BLOCKED_UNKNOWN"
 _OUTBOUND_NOT_CONFIRMED: str = "OUTBOUND_NOT_CONFIRMED"
 _PROBE_TIMEOUT: str = "SSRF_PROBE_TIMEOUT"
 _UPSTREAM_UNAVAILABLE: str = "UPSTREAM_UNAVAILABLE"
+_RATE_LIMITED: str = "RATE_LIMITED"
 _BASELINE_REJECTED: str = "BASELINE_REJECTED"
 
 # A well-formed, non-internal control URL. The endpoint's answer to it is the
@@ -171,6 +172,10 @@ _SITUATION_ACCEPTED: str = "accepted"
 _SITUATION_REJECTED: str = "rejected"
 _SITUATION_UPSTREAM: str = "upstream"
 _SITUATION_TIMEOUT: str = "timeout"
+# A 429: the target throttled the request before evaluating its URL. Counting it
+# as a rejection would let a rate limiter pass for an SSRF defence on a burst of
+# 75 payloads.
+_SITUATION_RATE_LIMITED: str = "rate_limited"
 
 
 class Test72UrlAcceptingEndpoint(BaseModel):
@@ -383,9 +388,14 @@ class Test72SSRFPrevention(BaseTest[Test72Params]):
             baseline = _situation(control)
             if control is not None:
                 self._step(control)
-            if baseline in (_SITUATION_UPSTREAM, _SITUATION_TIMEOUT):
+            if baseline in (_SITUATION_UPSTREAM, _SITUATION_TIMEOUT, _SITUATION_RATE_LIMITED):
+                # A control the endpoint did not evaluate (down, silent or throttled)
+                # leaves nothing to compare the payloads with.
+                detail = (
+                    _RATE_LIMITED if baseline == _SITUATION_RATE_LIMITED else _UPSTREAM_UNAVAILABLE
+                )
                 for category in enabled:
-                    self._record(category, Outcome.NOT_VERIFIABLE, _UPSTREAM_UNAVAILABLE)
+                    self._record(category, Outcome.NOT_VERIFIABLE, detail)
                 return self._finish(
                     notes=[_UPSTREAM_NOTE], message=f"endpoint not evaluating URLs at {path}."
                 )
@@ -481,6 +491,8 @@ class Test72SSRFPrevention(BaseTest[Test72Params]):
                                      BASELINE_REJECTED (the endpoint rejects every
                                      URL alike -- not a proof of SSRF defence);
             upstream (5xx, down)  -> NOT_VERIFIABLE / UPSTREAM_UNAVAILABLE;
+            throttled (429)       -> NOT_VERIFIABLE / RATE_LIMITED (the URL was
+                                     never evaluated);
             no response (timeout) -> NOT_VERIFIABLE / SSRF_PROBE_TIMEOUT.
 
         Returns:
@@ -497,6 +509,9 @@ class Test72SSRFPrevention(BaseTest[Test72Params]):
             return False
         if situation == _SITUATION_UPSTREAM:
             self._judge(record, store, category, Outcome.NOT_VERIFIABLE, _UPSTREAM_UNAVAILABLE)
+            return False
+        if situation == _SITUATION_RATE_LIMITED:
+            self._judge(record, store, category, Outcome.NOT_VERIFIABLE, _RATE_LIMITED)
             return False
         if situation == _SITUATION_ACCEPTED:
             self._judge(record, store, category, Outcome.NOT_VERIFIABLE, _OUTBOUND_NOT_CONFIRMED)
@@ -580,6 +595,8 @@ def _situation(record: EvidenceRecord | None) -> str:
     status = record.response_status_code
     if status in _ACCEPTED_STATUS_CODES:
         return _SITUATION_ACCEPTED
+    if category_of(record) == ResponseCategory.RATE_LIMITED:
+        return _SITUATION_RATE_LIMITED
     if category_of(record) in _SPOILING or 500 <= status < 600:
         return _SITUATION_UPSTREAM
     return _SITUATION_REJECTED

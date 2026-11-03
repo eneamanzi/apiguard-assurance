@@ -125,7 +125,7 @@ _REFUSING: frozenset[ResponseCategory] = frozenset(
 )
 
 # The answer categories that say nothing about the guarantee (rule 1). The old
-# test counted 14 endpoints answering 503 as a PASS (Q-29).
+# test counted 14 endpoints answering 503 as a PASS.
 _SPOILING: dict[ResponseCategory, str] = {
     ResponseCategory.UPSTREAM_UNAVAILABLE: "UPSTREAM_UNAVAILABLE",
     ResponseCategory.RATE_LIMITED: "RATE_LIMITED",

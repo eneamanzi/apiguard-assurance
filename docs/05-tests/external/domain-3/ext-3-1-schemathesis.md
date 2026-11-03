@@ -77,7 +77,12 @@ Schemathesis); `evidence_ref` the tool output artifact.
 
 ## 9. Effects on the target
 
-`STRESSES_TARGET`: many generated requests, unauthenticated (no data created). Runs last.
+`STRESSES_TARGET`: many generated requests, unauthenticated, and they include the writes the specification
+declares. **Whether data is created depends on the target, not on this test**: on the three labs nothing was, because
+every operation served without a credential there is a `GET` (measured by test 1.1 on 2026-10-29, 78 findings, all
+`GET`), but an API with an unauthenticated write will have it exercised. The declaration stays `STRESSES_TARGET`
+because that is the last slot in the run order (rule 7) and the vocabulary has no value that says both; an operator
+who cannot accept a write on the target disables the external tools (`external_tools.enabled: false`).
 
 ## 10. Per gateway
 

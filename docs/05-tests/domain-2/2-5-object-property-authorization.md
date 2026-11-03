@@ -46,7 +46,7 @@ writes for broken object property level authorization), CWE-915.
 ## 3. Inputs
 
 A disposable object owned by user_a, created through a configured `resources:` resource (`owned_object_resources`,
-the same as test 2.2). For mass assignment the create body is extended with unique string sentinels
+the same as test 2.2). For mass assignment the create body is extended with a string sentinel unlikely to appear by chance
 (`src/tests/helpers/resources.py`, `extra_body`).
 
 ## 4. Preconditions and reference responses
@@ -57,7 +57,7 @@ assignment by reading the object back and finding a unique sentinel, so the verd
 ## 5. Probes
 
 Create the object as user_a, read it, scan its field names for sensitive ones; create a second object injecting
-ownership fields (`role`, `owner`, `user_id`, ... each a unique string sentinel), read it back, and see whether a
+ownership fields (`role`, `owner`, `user_id`, ... each carrying that sentinel; a bound field is recognised by its own name in the read-back object), read it back, and see whether a
 sentinel was kept. Both objects are deleted. CHANGES_DATA.
 
 ## 6. Oracle
@@ -68,7 +68,7 @@ sentinel was kept. Both objects are deleted. CHANGES_DATA.
 |---|---|---|
 | a field whose name is sensitive is in the response | `VIOLATION/SENSITIVE_FIELD` | FIRM (the name is a heuristic) |
 | no sensitive field | `ENFORCED/NO_SENSITIVE_FIELD` | - |
-| the object could not be read | `NOT_VERIFIABLE/OBJECT_NOT_READABLE` | - |
+| the object could not be read, or the read was not served (`2xx`) | `NOT_VERIFIABLE/OBJECT_NOT_READABLE` | - |
 
 **`mass_assignment`**
 
@@ -76,7 +76,10 @@ sentinel was kept. Both objects are deleted. CHANGES_DATA.
 |---|---|---|
 | an injected sentinel was kept in the object | `VIOLATION/MASS_ASSIGNMENT` | CERTAIN (the unique sentinel was read back) |
 | no sentinel kept | `ENFORCED/NO_MASS_ASSIGNMENT` | - |
-| the object could not be read | `NOT_VERIFIABLE/OBJECT_NOT_READABLE` | - |
+| the object could not be read, or the read was not served (`2xx`) | `NOT_VERIFIABLE/OBJECT_NOT_READABLE` | - |
+
+When the prepared resource does not create the object, neither sub-test has anything to judge and both record
+`NOT_VERIFIABLE/OBJECT_NOT_CREATED` (on crAPI, a worn lab answers `400 Insufficient Balance`).
 
 Only unique **string** sentinels are injected: a boolean such as `admin: true` reflected in a response cannot be told
 from a field that is legitimately true (the owner's own permissions), which would be a false positive.
@@ -124,7 +127,7 @@ Runs of 2026-10-23:
 Rule 9: `no_sensitive_field` is proven on both sides, VIOLATION on crAPI (the order's `card_number`) and ENFORCED on
 Forgejo. `mass_assignment` is ENFORCED on both labs; its VIOLATION branch is not present on these objects (its
 matcher was exercised by the false-positive fix below). A self-review caught and fixed that false positive: a boolean
-sentinel matched the repo's legitimate `permissions.admin: true`; the matcher now uses unique string sentinels only.
+sentinel matched the repo's legitimate `permissions.admin: true`; the matcher now accepts a string sentinel only.
 
 ## 13. Remediation
 

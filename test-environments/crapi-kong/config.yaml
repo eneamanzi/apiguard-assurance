@@ -79,6 +79,19 @@ resources:
         quantity: 1
     values:
       order_id: id
+  # A coupon for test 7.3 (race conditions), created through crAPI's own API before
+  # the burst. crAPI's service wants `amount` as a string (its specification says
+  # integer), accepts the same code again on every run and answers with a plain
+  # string, so the code is fixed and written in both places. A user may apply a
+  # given code once: the first run after a lab reset tests the race, later runs
+  # report OPERATION_FAILED (already claimed). No delete exists; the reset removes it.
+  coupon:
+    create:
+      path: /community/api/v2/coupon/new-coupon
+      auth: credential
+      body:
+        coupon_code: "APIGUARD-RACE"
+        amount: "10"
 
 # What runs: every test by default, native and external (same in the three labs).
 # To run only a part, change one line:
@@ -98,8 +111,8 @@ execution:
 output:
   directory: "outputs/crapi"
 
-# Test review (branch test-review): the parameters of the tests not rewritten yet are commented out;
-# each block returns, uncommented, with its test (docs/project/test-review.md).
+# Parameters of the tests. Only the keys this lab needs are set here; the full list, with every
+# default and description, is in config.example.yaml at the repository root.
 tests:
   domain_1:
     test_1_5:
@@ -134,6 +147,17 @@ tests:
           number_of_repeats: 1
           repeat_request_if_failed: false
           vin: "3W2H568SN8025H9WA"
+    # 7.3 (race conditions): applying a coupon must take effect once; the burst
+    # applies the coupon above from 15 threads at the same instant.
+    test_7_3:
+      race_operation:
+        path: "/workshop/api/shop/apply_coupon"
+        method: "POST"
+        body:
+          coupon_code: "APIGUARD-RACE"
+          amount: 10
+        role: user_a
+        resource: coupon
 
 # External tools (installed by install_tools.sh): all three, about 5 minutes more.
 external_tools:

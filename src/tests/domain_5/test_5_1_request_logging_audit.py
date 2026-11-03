@@ -144,11 +144,33 @@ class Test51RequestLoggingAudit(BaseTest):
                         f"({answer.reason or 'not supported'}). Evidence: {evidence_ref}."
                     )
                 )
+            if not answer.items:
+                # The read succeeded and returned nothing: a gateway with no
+                # service and no plugin, or a reader that found no value where
+                # there are some (the shape of the Kong defect fixed on
+                # 2026-10-28). Saying "no logging plugin" on that basis would
+                # accuse the target of a gap this run never looked for.
+                self._record(_SUB, Outcome.NOT_VERIFIABLE, "NO_CONFIG_VALUE")
+                return self._finish(
+                    notes=[
+                        InfoNote(
+                            title="The gateway configuration read was empty",
+                            detail=(
+                                "The gateway answered its configuration endpoints with no value "
+                                "at all, so this run cannot say whether requests are logged. "
+                                f"Evidence: {evidence_ref}."
+                            ),
+                        )
+                    ]
+                )
             plugins = sorted(
                 {
                     item.location
                     for item in answer.items
-                    if any(marker in item.location.lower() for marker in _LOGGING_PLUGIN_MARKERS)
+                    # A disabled plugin logs nothing (Kong `enabled: false`,
+                    # APISIX `_meta.disable: true`).
+                    if item.enabled
+                    and any(marker in item.location.lower() for marker in _LOGGING_PLUGIN_MARKERS)
                 }
             )
             if plugins:

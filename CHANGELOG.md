@@ -138,6 +138,249 @@ generated catalogue [`docs/05-tests/README.md`](docs/05-tests/README.md); `apigu
 
 ### Fixed
 
+- **What a code review of this review's own changes found** (2026-11-03). The uncommitted changes were reviewed
+  for correctness; of ten findings, seven held and were fixed, one did not hold and two were left on purpose. Fixed:
+  6.2's new CORS verdict counted "no usable answer" as "origin not allowed" (a probe that failed or met a `429`
+  or `5xx` now gives `NOT_VERIFIABLE/NO_RESPONSE`); 7.3's rendering of its body, added for consistency with 7.2,
+  made a body with a literal brace fail at run time after a resource had been created, and was taken back out,
+  since the crAPI configuration never needed it; 2.5 judged a read-back that was refused or failed as proof that
+  nothing leaked (now `NOT_VERIFIABLE/OBJECT_NOT_READABLE`); 6.1's error probe sent its malformed body without a
+  `Content-Type`, so on the labs it never reached a JSON parser (crAPI `415`, Forgejo `403`), and any answer without
+  a trace counted as "no stack trace" (it now declares `application/json`, counts only a provoked error, `400`,
+  `422` or `5xx`, and reports `ERROR_NOT_PROVOKED` otherwise); 6.1's sampled responses were keyed by path, so a
+  `HEAD` could stand as a `GET`'s proof; `evidence.json` could hold one record id twice, when one response proves
+  two findings or two tests pin the same record (it now keeps one, preferring the proof of a finding); and a
+  garbled docstring in 2.5 and a misplaced comment in 6.4. Not held: the review took the path check in 6.1 and 4.4
+  for redundant, but `random_sibling_path` replaces the last segment even without parameters. Left on purpose: the
+  numeric limits 4.1 and 4.4 cannot read (stated on their pages), and the copies of the "answers that say nothing"
+  table across tests (some differ deliberately, 7.1 counts a `429` as the control it looks for). **Changed
+  results**: 6.1 goes from PASS `complete` to PASS `partial` on both Forgejo labs; nothing else moved on the three
+  labs, and no evidence file holds a duplicated id.
+- **Clean reference results** (2026-11-03). `outputs/` was emptied (52 MB of review leftovers: `baseline/`,
+  `pilot/`, `review/`, nothing referred to them) and the three reference results regenerated, crAPI after a reset
+  and with the Forgejo labs stopped: Forgejo + Kong and Forgejo + APISIX 15 PASS, 9 FAIL, 7 SKIP, 89 findings (the
+  earlier result less the removed 5.2); crAPI 13 FAIL, 10 PASS, 4 INCONCLUSIVE, 4 SKIP, 34 to 37 findings, recorded in
+  `06-compatibility.md`. In that run 7.3 met crAPI's workshop answering `503` for its whole burst and reported
+  `OPERATION_FAILED`, "the operation did not run", which pointed at the configuration; with no success and the
+  target unavailable it now reports the reason (`UPSTREAM_UNAVAILABLE`), as 7.1 does. `docs/project/roadmap.md` and
+  `docs/project/test-review.md` were removed (owner, 2026-11-03): the review is complete, and the two items left (the
+  licence and the 1.0.0 tag) are the owner's to settle; the ten links to the roadmap now point where each fact lives.
+- **The last open questions of the review, settled** (test-by-test review, 2026-11-03). 6.2 judged an answer to an
+  arbitrary `Origin` that grants no cross-origin access as `NOT_APPLICABLE/NO_CORS`, which understated it: that answer
+  is the evidence the origin is not allowed, so it is now `ENFORCED/ORIGIN_NOT_ALLOWED`. **Changed results**: 6.2
+  goes from PASS `partial` to PASS `complete` on both Forgejo labs; crAPI unchanged. The other three were settled
+  without code: 6.4's page now states that consumer credentials are scanned on APISIX but not on Kong (the Kong
+  reader does not read `/consumers/{id}/<plugin>`, a new capability not added); 0.4's that a hostname is not retried by
+  the IP Kong resolved; and `HealthCounters`, which no test reads, stays because 0.4 pins the whole live-health
+  answer as evidence and a reader sees the counters there.
+- **Test 7.3 ran for the first time, and found a real race in crAPI** (test-by-test review, owner's decision of
+  2026-11-03). It had never run on any lab: it needs a once-only operation named in the configuration, and the labs
+  named none. crAPI has one in its own API, applying a coupon, so crAPI's lab configuration now prepares a coupon
+  through crAPI's API (`resources.coupon`) and points `race_operation` at `POST /workshop/api/shop/apply_coupon`; the
+  tool's code learned nothing about coupons. The first run fired 15 simultaneous applications as user A and **all 15
+  were accepted** for a coupon allowed once; user A's credit went from 0.0 to 60.0, so 6 took effect. Two corrections
+  follow from that measurement: the finding said the operation "took effect" as many times as it was accepted,
+  which the test cannot see, so it now says "accepted" and is FIRM rather than CERTAIN, telling the reader to
+  confirm on the target's state. A later run reports `OPERATION_FAILED` (the coupon is already claimed),
+  the same wear as the order of tests 2.2 and 2.5. crAPI's own specification is wrong on one point met on the way:
+  its coupon service wants `amount` as a string, not the integer it declares.
+- **Test 7.1's passing side was seen for the first time** (test-by-test review, 2026-11-03). With a scratch flow
+  (Forgejo's Markdown preview, as user A, which stores nothing) and a temporary global rate limit on the reference
+  lab's Kong, the answers were `200, 200, 200, 429` and the test passed on `ANTI_AUTOMATION_THROTTLE`. The throttle
+  also stopped the run's own clean-up, which the tool reported ("1 of 1 resources NOT removed"); the token was
+  removed by hand, the gateway restored and checked, and the recipe is on the test's page. Test 7.4 still has never
+  run on a lab, because none of the three applications receives signed webhooks; its page now says so plainly
+  instead of deferring a decision.
+- **Test 7.1 reported, with certainty, that a burst the flow had refused "was all accepted"** (test-by-test review,
+  2026-11-03). Its page promised a violation only when "the whole burst accepted" and its module promised
+  `NOT_VERIFIABLE` when "the flow errors for another reason"; the code reported `VIOLATION/NO_ANTI_AUTOMATION`,
+  CERTAIN, whenever no throttle or challenge was seen, whatever the answers, and `FLOW_UNAVAILABLE` could not fire
+  because a transport failure still returns a record. Proven with a scratch flow on the reference lab, `POST
+  /api/v1/orgs` without a credential: 12 answers `401`, nothing created, and the finding said "12 identical
+  submissions ... were all accepted". A violation now needs every submission accepted; a refused burst is
+  `NOT_VERIFIABLE/FLOW_NOT_ACCEPTED` and one the target could not serve `NOT_VERIFIABLE/FLOW_UNAVAILABLE`. crAPI's
+  forgot-password flow, accepted twelve times, still fails.
+- **Three tests counted a failing or throttling target as a defence** (test-by-test review, 2026-11-03). 7.2, the P0
+  SSRF test, classified a `429` as "the URL was rejected", so on a rate-limited target every payload past the limit
+  of its 75-payload burst counted as a defended SSRF attempt; 7.4 gave `ENFORCED/SIGNATURE_REQUIRED` to any answer
+  that was not a `2xx`, a `503` or a dropped connection included; 7.3 read one success among concurrent requests
+  that otherwise failed as "concurrency serialized", which is also what a server collapsing under the burst
+  produces. All three now give `NOT_VERIFIABLE` with the reason, as every other test does (rule 1). No lab exercises
+  these branches (7.3 and 7.4 have no configured case, the labs do not throttle).
+- **Concurrent requests could share a record ID** (test-by-test review, 2026-11-03). Test 7.3 sends its burst from
+  several threads through the one HTTP client, whose record counter was a read-modify-write without a lock. Calling
+  the real method from 32 threads under frequent thread switches duplicated about half of 64,000 IDs; with the lock
+  added, none in three runs. Two records under one ID would have made a finding's proof ambiguous and, since the
+  transaction log is now completed by ID, hidden requests of the very burst 7.3 judges.
+- **The report now lists every request the tool sent to the target** (test-by-test review, owner's decision of
+  2026-11-03). The report schema calls a test's `transaction_log` "every HTTP request of the test", the evidence
+  reference calls it "the full list of requests", and every run ends with "Every finding, request and response is in
+  the reports". The log was filled by each test by hand, and counting on the reference lab what each test sent
+  against what it listed showed eight of 31 leaving requests out: 6.2 listed none of its two behind its PASS, 4.1 one
+  of its 150, 1.4 three of seven, and 0.2, 2.2, 2.5, 6.1 and 7.2 some. Now the client keeps every record it builds
+  for the test the engine is running (`collect_requests_of()`, `collected_requests()`), and the engine adds to the
+  test's log, as an unjudged step and in the order sent, every one the test did not record itself; a test can no
+  longer forget one. Requests of the login and of the reference responses keep their own ids and stay out of a
+  test's log. **Changed results**: transaction logs grow (4.1's by 149 entries); statuses and findings unchanged.
+- **Test 6.4 counted an unavailable debug endpoint as blocked** (test-by-test review, 2026-11-03). Any answer to a
+  debug path that was not a `2xx` gave `ENFORCED/DEBUG_BLOCKED`, a `503`, `429` or `500` included, while every
+  other test treats those as saying nothing (rule 1). They now give `NOT_VERIFIABLE` with the reason. No lab
+  exercises it: the configured debug paths answer only `200` or `404`.
+- **Tests 6.1 and 6.2 attached as proof a response that contradicted the finding** (test-by-test review,
+  2026-11-03). Both sample one endpoint per service and record one judgement per check, and the finding pointed at
+  the *last* response sampled. For an inconsistent header that can be an endpoint where the header is present: on
+  crAPI, 6.2's two findings said `X-Content-Type-Options` and the framing header are absent on
+  `/community/api/v2/community/posts/recent` and pointed at `/workshop/api/mechanic/`, whose response carries
+  `nosniff` and `X-Frame-Options: DENY`. Each finding now points at the response of the endpoint it names (and, for
+  CORS, at the answer to the cross-origin probe on it); verified on crAPI, statuses unchanged on the three labs.
+- **Tests 6.1 and 4.4 could send their write probe to one of the operator's real objects** (test-by-test review,
+  2026-11-03; it settles an open question of the review). Both pick the shortest documented write and filled its
+  path parameters from the path seed, which holds the operator's existing resources; 6.1 sends a malformed body with
+  user_a's credential, so on a target whose shortest write is a `PUT` on an object, a server reading an unparseable
+  body as empty would replace a real object. 6.1 now prefers a write without path parameters and otherwise addresses
+  a random sibling, an object that does not exist; 4.4 addresses a random sibling too, which costs it nothing because
+  the gateway applies its size limit to the route before the object is looked up. On the three labs both already
+  probed parameter-free writes (`/api/v1/orgs`, `/identity/api/auth/login`, `/workshop/api/shop/orders`), so no
+  result moves. 6.1's module also still said READ_ONLY, missed when its declaration changed.
+- **4.4's crAPI result is a race, not a stable INCONCLUSIVE** (test-by-test review, 2026-11-03). The entry below of
+  2026-10-29 described crAPI's early `401` and connection reset as what always happens; eight isolated runs gave 5
+  INCONCLUSIVE and 3 FAIL, depending on whether the 2 MB upload finishes before the close. Both outcomes are right for
+  what each run saw, the FAIL being the gateway's real state. Test 4.4's page, its limitations and the crAPI
+  measurement in `06-compatibility.md` now say so, and that measurement no longer calls every status stable.
+- **Test 5.1 passed a gateway whose only logging plugin was switched off** (test-by-test review, 2026-11-03). Its
+  page promised "a known logging plugin is enabled", but neither adapter read a plugin's state: Kong's reader took
+  every entry of `/plugins` regardless of its `enabled`, APISIX's every plugin regardless of `_meta.disable`. A
+  disabled `http-log` therefore gave `ENFORCED/LOGGING_CONFIGURED`. `ConfigValue` now carries `enabled` (the
+  pattern `CircuitBreaker.enabled` already followed), both readers set it from the gateway's own field (verified on
+  Kong's plugin object and APISIX's plugin schema), and 5.1 ignores the values of a disabled plugin, as do the limit
+  readers of 4.1 and 4.4. Test 6.4 still scans them: a credential in a disabled plugin is still in the
+  configuration. Seen against a stand-in Kong Admin API on `127.0.0.1` (no lab touched): disabled `http-log`, PASS
+  before and FAIL after; enabled, PASS. The three real gateways carry no disabled plugin (2, 4 and 5 plugins,
+  checked) and are unchanged on 4.1, 4.4, 5.1 and 6.4.
+- **Test 4.1 reported "the gateway does not limit the request rate" as CERTAIN after a burst that could not reach a
+  normal production limit** (test-by-test review, 2026-11-03). The burst size was meant to be the gateway's
+  configured limit plus a margin, read through the adapter. Neither adapter can deliver it: both gateways state a
+  rate limit as a number (Kong's `rate-limiting.minute` is `number`, APISIX's `limit-count.count` is
+  `integer`, read on their own schemas) and the configuration scan collects strings only. So the burst was always
+  `max_burst`, 150 requests, and a gateway limiting at 1,000 requests per minute was told, with certainty, that it
+  had no limit. The finding is now FIRM and says "no limit applies at or below 150 requests; a higher limit would
+  not be seen", CERTAIN only where a configured limit was read and the burst went past it, and a limit read above
+  the cap gives `NOT_VERIFIABLE/LIMIT_ABOVE_BUDGET` instead of a violation. The scan was deliberately not taught to
+  collect numbers: the limit reader takes the smallest positive number of the plugin's configuration, which on
+  Kong would also see the Redis port and its timeouts. Test 4.4 has the same blind spot
+  (`request-size-limiting.allowed_payload_size` is an integer) but already reported it honestly as FIRM; its
+  limitations now say the CERTAIN branch is not reached today. **Changed results**: the confidence and the text of
+  4.1's `NO_RATE_LIMIT` finding, CERTAIN to FIRM on all three labs; statuses unchanged.
+- **Domain 4, the rest** (test-by-test review, 2026-11-03). Test 4.2's module still described its oracle as the
+  unreviewed v0.1.0 one, pending a "Q-29" in a "phase 1"; the page already justified `NOT_STATED` as a violation and
+  said when it can occur, so the module now says the same. Eight code comments cited question ids (`Q-29`, `Q-31`,
+  `Q-32`, `Q-67`, `Q-68`, `Q-69`) from a tracker that no longer exists and resolved nowhere; each sentence already
+  stated its fact, so the tag was removed. Test 4.3's page now explains why an empty health-check answer on Kong is
+  a true finding and not an empty read: a health check lives on an Upstream object, so a service pointing straight
+  at a host has none. Domain re-run on the reference lab: 4.1, 4.2, 4.3 and 4.4 statuses identical.
+- **Domain 3 read test by test: `ext.3.1.schemathesis` promised the target's behaviour as its own** (test-by-test
+  review, 2026-10-29). Its effects section said "many generated requests, unauthenticated (no data created)", which
+  is a fact about the target: the requests it generates include the writes the specification declares. Nothing was
+  created on the three labs because every operation served without a credential there is a `GET` (measured by test
+  1.1 the same day, 78 findings, all `GET`), but an API with an unauthenticated write has it exercised. The page and
+  the module now say so, and say why the declaration stays `STRESSES_TARGET`: that is the last slot of the run order
+  and the vocabulary has no value for "stresses and may write", so an operator who cannot accept it disables the
+  external tools. Test 3.3 needed nothing, and reading it settled an open question of this review: its two
+  violation branches were already proven on the reference lab with the lab change documented and undone, so the
+  question asked how to produce what the page already records. Both tests re-run: identical.
+- **Domain 2 read test by test: two findings had no proof, and rule 6 promised more than the suite delivers**
+  (test-by-test review, 2026-10-29). Every finding of every test was checked for the `evidence_ref` rule 6 demands.
+  Two carried none, both on crAPI: test 2.5's `SENSITIVE_FIELD`, which is the `card_number` finding the tool exists
+  to make there, and test 1.3's `LIFETIME_EXCESSIVE`. Both now name their proof: 2.5 judges the read response with
+  `_judge`, so the record reaches `evidence.json` (`2.5_002`), and 1.3 pins the login response that carried the
+  token and points at it (`auth_setup_001`), the pattern test 1.6 already used. Two more findings rest on something
+  that is not a single response and cannot name a record without a dangling reference, since an `ENFORCED` record is
+  not written to `evidence.json`: 1.5's `PLAIN_HTTP`, whose proof is the configured base URL, and 2.1's
+  `METHOD_CONFUSION`, whose proof is the set of per-method answers. Rule 6 now states those two exceptions, and each
+  finding's detail says where its proof is. Also in 2.5: the comment and the page claimed "a unique string sentinel"
+  per injected field while all six share one value, and a bound field is in fact recognised by its own name in the
+  read-back object; the wording is corrected and an unused parameter of the matcher removed. Test 2.2's limitations
+  now say that one operation of each kind is probed, not all. Verdicts unchanged everywhere: the five tests re-run
+  on crAPI (4 findings, each naming its record) and six on the reference lab, identical to the baseline.
+- **Domain 1 read test by test: 1.2 claimed an attack was impossible that its own lab makes possible, and rule 11
+  described only two of the three external tests** (test-by-test review, 2026-10-29). Test 1.2 told the reader, in
+  the report itself, that the key-based JWT attacks are "not verifiable here (not by this tool and not by any
+  other)", and its page explained crAPI's `NEEDS_KEY_MATERIAL` as "(no JWKS)". crAPI publishes an RSA public key at
+  `GET /identity/api/auth/jwks.json` (checked 2026-10-29), so algorithm confusion is testable there with a
+  dedicated tool; what is true is that this test neither fetches key material nor implements the attack, by the
+  decision of 2026-10-22. The note, the sub-test description, the crAPI row and the limitations now say that.
+  Rule 11 said "the oracle is the tool's check, not its severity", which `ext.1.5.testssl` cannot follow because
+  testssl.sh rates findings instead of naming checks: the rule now distinguishes a tool that names checks
+  (`ext.3.1.schemathesis`), one that rates what it finds (`ext.1.5.testssl`, severity class as the oracle, the id
+  read only to recognise the revocation case) and one that merely proposes candidates the test verifies itself
+  (`ext.0.1.ffuf`), and that page's self-contradiction is gone. Test 1.7's effects section now says that three of
+  its failed attempts carry a wrong password for the operator's own account and can count towards a lockout, while
+  the 101 cannot. Tests 1.1, 1.3, 1.4, 1.5 and 1.6 needed nothing; 1.6 is the suite's model, with every branch of
+  its oracle seen on a lab. The seven native tests re-run on the reference lab: identical to the baseline, 78
+  findings on 1.1 and 3 on 1.7 included.
+- **Domain 0 read test by test: two defects in 0.1, two statements added** (test-by-test review, 2026-10-29).
+  Test 0.1 titled every finding of its method probe "Undeclared method handled", including the case its own oracle
+  calls `UNDECLARED_METHOD_KNOWN`, where the method was *not* served and the evidence is only that the path answers
+  differently from unknown paths: the title now says "known" for that case. Its page's oracle table was also split
+  in two by a blank line, so the rows after the first rendered without a header; repaired, and every other page
+  checked for the same break (none). Test 0.2's per-route-path precedence ("the best news wins": one neighbour the
+  gateway refused with its own answer gives ENFORCED even when another answered 401) was in the code and on no
+  page, and is now stated with the reason. Test 0.4 counts a timeout as `BACKEND_UNREACHABLE`, because the
+  transport vocabulary has one `timeout` and cannot say whether the connection was accepted: a backend that accepts
+  and never answers therefore reads as unreachable, now in its limitations. Tests 0.3 and `ext.0.1.ffuf` needed
+  nothing. Checked on the reference lab: 0.1, 0.2, 0.3 and 0.4 identical to the baseline, down to every sub-test
+  counter.
+- **Three crAPI claims in the documentation no longer reproduced, and one of them was a consequence of our own
+  retry rule** (test-by-test review, 2026-10-29). Comparing every page's validation table against three fresh full
+  assessments, 44 of 47 claims reproduced exactly; the three that did not were all on crAPI. 2.5's came back after a
+  lab reset (user A's credit was 0.0). 4.1's depends on load: run on its own after a reset it reports FAIL as its
+  page says, in a full assessment of the same lab the workshop service no longer answers and it reports
+  `UPSTREAM_UNAVAILABLE`. 4.4's claim was wrong for a subtler reason: crAPI answers `401` and resets the connection,
+  in some runs while the 2 MB body is still uploading, and since the retry rule of 2026-10-28 that non-idempotent
+  request is not sent again, so in those runs the test cannot conclude where it used to report a violation (it is a
+  race: 8 isolated runs on 2026-11-03 gave 5 INCONCLUSIVE and 3 FAIL). The pages now state each case, 4.4
+  has the limitation spelled out, and the crAPI matrix of `06-compatibility.md` carries today's measurement
+  (13 FAIL, 10 PASS, 6 SKIP, 3 INCONCLUSIVE) with the reason two tests cannot conclude there and the note that
+  `ext.3.1.schemathesis` reports a variable number of findings.
+- **Nine oracle cases a test can report were on no page** (test-by-test review, 2026-10-29). Every `outcome` and
+  `detail` the 32 test modules record was extracted from the code and looked for on the test's page. Most absences
+  were wildcard rows that already cover the case in prose (`NO_*_OPERATION`, `NOT_VERIFIABLE/<reason>`, a transport
+  failure). Nine were real: 6.2 documented the CORS violation and the no-CORS case but never the enforced one
+  (`CORS_BOUNDED`); 2.1 never mentioned that nothing privileged being derived gives `NO_PRIVILEGED_ENDPOINT`, the
+  likeliest outcome on a target with no `admin` segment, nor `SINGLE_SAFE_METHOD`; 1.1 never said its
+  malformed-credential and path-variant sub-tests verify nothing without a proven control (`NO_PROVEN_CONTROL`);
+  0.2's `REFUSAL_NOT_TRUSTED`, 0.4's `NO_ATTEMPT`, 1.7's `LOGIN_NOT_ANSWERING`, 2.4's `NO_VERSION_SIBLING` and
+  2.2's and 2.5's `OBJECT_NOT_CREATED`, which is what a worn crAPI produces, were equally absent. Each page now has
+  its row, and 6.1's enforced row names both its details (`CLEAN` and `NO_STACK_TRACE`).
+- **Test 6.1 declared `READ_ONLY` and sent a write** (test-by-test review, 2026-10-29). Its error probe posts a
+  malformed body (`{"apiguard": "unterminated`) to the shortest documented `POST`/`PUT`/`PATCH` of the target's own
+  specification. No JSON parser can build an object from it, and nothing was created on any lab, but on a target
+  whose shortest documented write is a `PUT` on an existing object a server treating an unparseable body as an empty
+  one would replace that object. The test now declares `CHANGES_DATA`: the effects table an operator reads before a
+  production run says what the tool sends, not what a well-behaved server does with it. `Effect` only orders the run
+  and informs the operator, so no verdict changes; 6.1 moves from the read-only group into the data-changing one.
+- **A gateway configuration that reads as empty gave a verdict in both directions: a false finding in 5.1, a false
+  reassurance in 6.4** (test-by-test review, 2026-10-29). Four tests read the gateway's configuration values. 4.1
+  and 4.4 only look for a configured limit there and decide from the live burst, so an empty answer costs them
+  nothing. The other two treated "nothing matched among the values read" and "no value was read at all" as the same
+  case: 5.1 reported `VIOLATION/NO_REQUEST_LOGGING`, accusing the target of having no logging plugin on the basis of
+  having read nothing, and 6.4 reported `ENFORCED/CONFIG_NO_SECRET`, a pass earned by scanning nothing. Both now
+  record `NOT_VERIFIABLE/NO_CONFIG_VALUE`, 5.1 with a note saying the read was empty. Seen against a stand-in Admin
+  API answering every endpoint with an empty collection (a local process on `127.0.0.1`, no lab touched): before,
+  5.1 `FAIL` with 1 finding and 6.4 `PASS complete`; after, 5.1 `INCONCLUSIVE` with 0 findings and 6.4 `PASS
+  partial`. The three real gateways are unchanged, 11, 25 and 15 values read.
+- **Test 6.4's debug probe verified nothing on any lab, and three lab configurations carried the review's
+  scaffolding** (pass D of the test-by-test review, 2026-10-29). The `debug_endpoint_paths` block of the two Forgejo
+  labs was commented out during the test review and never uncommented, so `debug_endpoint_no_secret` judged
+  `NOT_APPLICABLE` everywhere and 6.4 was `partial` on all three labs: the page had to say the check "verified
+  nothing". The block is live again on both Forgejo labs and the sub-test now judges 11 paths (one served and clean,
+  three refused by the application, seven by the gateway's deny-by-default), taking 6.4 to `PASS complete` there;
+  crAPI configures no debug path and stays `partial`. Removed in the same pass: the stale sentence announcing that
+  parameters return uncommented with their test, and three commented blocks setting keys that no longer exist
+  (`test_2_1.admin_endpoint_paths`, `admin_endpoint_method`, `gateway_block_body_fragment`), one of which would have
+  created a duplicate `domain_2:` key and silently dropped the resources of tests 2.2 and 2.5 if believed. Checked
+  with a full assessment of the three labs immediately before and after: 31 of 32 tests identical on each lab, 6.4
+  the only difference.
 - **The crAPI lab wears out, and `maintainer-commands.md` said it needed no reset** (pass C of the test-by-test
   review, 2026-10-29). Tests 2.2 and 2.5 create a shop order and each order spends 10 of user A's 100 starting
   credit, which crAPI never gives back: after about ten runs the creation answers `400 Insufficient Balance`, both
@@ -311,6 +554,16 @@ generated catalogue [`docs/05-tests/README.md`](docs/05-tests/README.md); `apigu
   `specification.timeout` the run stops with exit `10`.
 
 ### Removed
+
+- **Test 5.2, Security Alerting Audit** (test-by-test review, owner's decision of 2026-11-03). It could not produce
+  a verdict on any target: its `execute()` returned SKIP unconditionally, because alerting lives in the SIEM or the
+  notification channel and observing an alert needs a receiver the tool controls, which was decided "not built and
+  not planned" on 2026-10-27, while its module still promised that follow-up. By the review's own rule (a test that
+  does not earn its place is removed) and the precedent of guarantees 2.3 and 6.3, the guarantee stays in the
+  methodology catalogue as `[P2 proposed, no test]` with a **Coverage by the tool** block naming the neighbours
+  that cover adjacent ground (5.1 request logging, 1.7 attempt limiting) and saying to verify the alerting rules by
+  hand. The suite has 31 tests; a full run has one SKIP fewer on every lab. Measurements dated before today keep
+  the count they were taken with.
 
 - **Two data modules and six symbols nothing referenced**, found by a sweep over every module-level symbol of
   `src/` and `scripts/` (126 modules, 1,250 symbols) at the close of the infrastructure review, 2026-10-28:

@@ -66,6 +66,7 @@ the documented path without a credential, then the sibling without a credential.
 | documented refused, sibling absent (404) | `NOT_APPLICABLE/SIBLING_ABSENT` | - |
 | the candidate version is entirely absent | `NOT_APPLICABLE/VERSION_ABSENT` (one per version) | - |
 | documented not refused without a credential (public) | `NOT_APPLICABLE/DOCUMENTED_NOT_PROTECTED` (that is 1.1's question) | - |
+| the surface has no version sibling at all (the `version_siblings` rule found no pair) | `NOT_APPLICABLE/NO_VERSION_SIBLING` | - |
 | unavailable, rate limited, no response, server error, other | `NOT_VERIFIABLE/<reason>` | - |
 
 ## 7. Outcomes

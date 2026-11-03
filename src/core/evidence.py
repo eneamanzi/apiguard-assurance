@@ -171,6 +171,30 @@ _ARTIFACT_FILENAME_UNSAFE_CHARS: str = "./\\ "
 # ---------------------------------------------------------------------------
 
 
+def _one_per_record_id(records: list[EvidenceRecord]) -> list[EvidenceRecord]:
+    """
+    Keep each record id once: the evidence file is looked up by `record_id`.
+
+    A record is written more than once when one response proves two findings
+    (test 1.7: the same answer shows the disclosure by its text and by its
+    timing) or when two tests pin the same shared record (the login response,
+    pinned by 1.3 and 1.6). The copy stored as the proof of a finding is kept in
+    preference to a pinned one, so `is_pinned` stays false for FAIL evidence.
+
+    Args:
+        records: Every record read from the per-test files, in file order.
+
+    Returns:
+        The records with one entry per record id, in their first order.
+    """
+    kept: dict[str, EvidenceRecord] = {}
+    for record in records:
+        existing = kept.get(record.record_id)
+        if existing is None or (existing.is_pinned and not record.is_pinned):
+            kept[record.record_id] = record
+    return list(kept.values())
+
+
 class EvidenceStore:
     """
     Streaming per-test evidence recorder with unbounded on-disk capacity.
@@ -439,6 +463,7 @@ class EvidenceStore:
                 record_count=len(file_records),
             )
 
+        all_records = _one_per_record_id(all_records)
         all_records.sort(key=lambda r: r.timestamp_utc)
 
         output_path.parent.mkdir(parents=True, exist_ok=True)

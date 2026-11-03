@@ -325,7 +325,13 @@ class KongGatewayAdapter(BaseGatewayAdapter):
                     f"plugin {plugin.get('name', '<unnamed>')} (id: {plugin.get('id', '<no-id>')})"
                 )
                 items.extend(
-                    collect_text_values(config, ConfigValueKind.PLUGIN, location, "config")
+                    collect_text_values(
+                        config,
+                        ConfigValueKind.PLUGIN,
+                        location,
+                        "config",
+                        enabled=bool(plugin.get("enabled", True)),
+                    )
                 )
         return ConceptRead[ConfigValue].read(sorted_config_values(items))
 

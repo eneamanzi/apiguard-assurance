@@ -380,4 +380,4 @@ future test requires a specific object through the seed, the path-qualified over
 ## See also
 
 - [Overview](01-overview.md) · [Security model](04-security-model.md) · [Configuration reference](../03-reference/01-configuration.md)
-- [`roadmap.md`](../project/roadmap.md): what is still open, and what was deliberately dropped
+- [`CHANGELOG.md`](../../CHANGELOG.md): what changed, and what was deliberately dropped

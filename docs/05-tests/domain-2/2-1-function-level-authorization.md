@@ -44,9 +44,10 @@ failure.
 
 ## 3. Inputs
 
-The privileged operations are derived (Phase-2 rule `privileged_endpoints`: a path segment `admin` or `management`);
-the configuration's `admin_endpoint_paths` add or correct. The specification's `requires_auth` tells a public path
-apart from a protected one. The admin account (optional) is the positive control.
+The privileged operations are derived (Phase-2 rule `privileged_endpoints`: a path segment `admin` or `management`).
+This test takes no parameter, so there is nothing to add or correct by hand (section 11). The specification's
+`requires_auth` tells a public path apart from a protected one. The admin account (optional) is the positive
+control.
 
 ## 4. Preconditions and reference responses
 
@@ -71,6 +72,8 @@ resolved from `path_seed`. A destructive method on a derived candidate is not se
 | user_a 404, admin served it | `ENFORCED/REFUSED_HIDDEN` | - |
 | user_a 404, admin also non-2xx or no admin | `NOT_VERIFIABLE/ENDPOINT_NOT_CONFIRMED` | - |
 | a destructive method, not sent | `NOT_VERIFIABLE/DESTRUCTIVE_NOT_PROBED` | - |
+| no privileged operation was derived (no documented path has an `admin` or `management` segment) | `NOT_APPLICABLE/NO_PRIVILEGED_ENDPOINT` on both sub-tests, the run saying "No privileged operation found" | - |
+| no privileged path offered more than one safe method, so consistency between methods cannot be judged | `NOT_APPLICABLE/SINGLE_SAFE_METHOD` | - |
 | unavailable, rate limited, no response, server error, other | `NOT_VERIFIABLE/<reason>` | - |
 
 **`method_not_confused`**: safe methods of one path give user_a different outcomes -> `VIOLATION/METHOD_CONFUSION`
