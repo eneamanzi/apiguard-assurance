@@ -67,6 +67,13 @@ For each payload, one request to the endpoint with the payload URL in the body (
 with a `resource` a disposable object (a repository on the Forgejo labs) is created once and its webhooks go with it
 at teardown; the webhooks are created inactive so they never fire.
 
+**The series stops at the first sign that the backend hung or is out of service** (owner decision 2026-11-04,
+external audit D467-1): no answer, or the gateway's `502`, `503` or `504`. Every further URL would add a timeout,
+and a gateway's passive health check counts them: on crAPI three made Kong take the workshop backend out of service,
+and the tests that ran next (0.1, 4.1, 4.4, 7.3, Schemathesis) got `503` and measured nothing. The URLs not sent are
+recorded `NOT_VERIFIABLE/NOT_SENT_AFTER_TIMEOUT`, and a note says why. A `500` is the backend's own answer and does
+not stop the series.
+
 ## 6. Oracle
 
 Honesty boundary (owner decision 2026-10-23): a `2xx` means the endpoint *accepted* the URL, which is not proof the
@@ -82,19 +89,23 @@ never an unproven violation. This is a permanent boundary of the test, not a gap
 | accepted (`2xx`) | `NOT_VERIFIABLE/OUTBOUND_NOT_CONFIRMED` |
 | `5xx` / upstream unavailable | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
 | no response (the server may have blocked on the outbound call) | `NOT_VERIFIABLE/SSRF_PROBE_TIMEOUT` |
+| not sent, after a payload got no answer or the gateway's `502`, `503`, `504` (Probes) | `NOT_VERIFIABLE/NOT_SENT_AFTER_TIMEOUT` |
 
 The confirmed-SSRF `VIOLATION` requires the deferred listener; the test never emits it on its own.
 
 ## 7. Outcomes
 
-SKIP without `url_accepting_endpoint`. PASS when the probed payloads were rejected with a baseline that accepts;
-INCONCLUSIVE when nothing was verifiable (all accepted/upstream/baseline-rejected). It never FAILs without the
+SKIP without `url_accepting_endpoint`. PASS when payloads were rejected with a baseline that accepts, **and at least
+one of them is a cloud-metadata or private-IP URL**: these two sub-tests are declared essential, so payloads rejected
+only in the other classes (malformed, a forbidden scheme) leave the test INCONCLUSIVE (owner decision 2026-11-04,
+external audit D467-2). INCONCLUSIVE also when nothing was verifiable (all accepted/upstream/baseline-rejected). It never FAILs without the
 listener.
 
 ## 8. Findings
 
 None without the listener (an accepted URL is `NOT_VERIFIABLE`). An `InfoNote` is added when any URL was accepted (the
-listener would confirm it), when the baseline was rejected, or when the endpoint was unavailable.
+listener would confirm it), when the baseline was rejected, when the endpoint was unavailable, or when the series
+stopped after a timeout.
 
 ## 9. Effects on the target
 
@@ -124,12 +135,12 @@ Section [`tests.domain_7.test_7_2`](../../03-reference/01-configuration.md#tests
 
 ## 12. Validation
 
-Runs of 2026-10-26:
+Runs of 2026-10-26; measured again on 2026-11-04 (7.2 alone), after the stop rule:
 
 | Lab | Status | Basis |
 |---|---|---|
-| Forgejo + Kong | **PASS** (partial) | repository webhook creation: 15 payloads rejected by Go's URL parser (`ENFORCED`), 58 accepted -> `NOT_VERIFIABLE/OUTBOUND_NOT_CONFIRMED` (Forgejo validates the URL only when the webhook fires, which this test never triggers) |
-| crAPI + Kong | **INCONCLUSIVE** | `contact_mechanic`: crAPI's synchronous outbound attempts hang the gateway (`504`), so the endpoint cannot evaluate the URLs -> 73 `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`. No false `ENFORCED` (the bug the benign control and the 5xx rule fix) |
+| Forgejo + Kong, Forgejo + APISIX | **INCONCLUSIVE** (PASS partial until 2026-11-04) | repository webhook creation: 15 payloads rejected by Go's URL parser or for their scheme (`ENFORCED`, in `encoding_bypass`, `forbidden_protocol`, `url_parser_confusion`), 58 accepted -> `NOT_VERIFIABLE/OUTBOUND_NOT_CONFIRMED`, among them every cloud-metadata and private-IP URL (Forgejo validates the URL only when the webhook fires, which this test never triggers): no essential class verified |
+| crAPI + Kong | **INCONCLUSIVE** | `contact_mechanic`: crAPI's synchronous outbound attempt to the first cloud-metadata URL hangs, and the gateway answers `504`: `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`, then the other 72 `NOT_SENT_AFTER_TIMEOUT`, in 30 s; the workshop backend stays in service (it answers `401` right after). Before the stop rule the 73 URLs all ended `UPSTREAM_UNAVAILABLE` in 90 s, and Kong took the backend out of service for the tests that followed. No false `ENFORCED` (the bug the benign control and the 5xx rule fix) |
 
 The baseline control and the 5xx rule were added after the first crAPI run scored the gateway's `504`s as a false
 `ENFORCED`; they are what keeps a down/erroring upstream honest. Rule 9: the `ENFORCED` and the `NOT_VERIFIABLE`
@@ -149,8 +160,9 @@ Validate the resolved IP of a client URL against the full set of private/loopbac
   (decided 2026-10-27): the test reports what it can observe from the response alone, and this limit is permanent.
   A confirmed SSRF therefore needs a manual check, or a scanner with its own listener, on every
   `OUTBOUND_NOT_CONFIRMED` URL the report lists.
-- `contact_mechanic`-style endpoints that call synchronously can hang the gateway; the run is slow and lands on
-  `UPSTREAM_UNAVAILABLE`.
+- An endpoint that fetches the URL synchronously and hangs on an internal address leaves the payloads after the first
+  hang unsent (`NOT_SENT_AFTER_TIMEOUT`): the price of not taking the backend out of service. Verifying them needs
+  a re-run with fewer `payload_categories`, each run stopping again at its first hang.
 
 ## 15. Sources
 

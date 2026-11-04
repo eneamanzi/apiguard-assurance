@@ -65,10 +65,14 @@ as a disclosure.
    reason that has nothing to do with the account (corrected 2026-10-22; the labs use both shapes, `user-a` on
    Forgejo and an address on crAPI). Three readings because one reading of a duration is noise; the median is
    kept;
-2. **up to 101 further failed attempts against the account that cannot exist.** NIST SP 800-63B-4 section 3.2.2
-   requires a verifier to limit consecutive failed attempts "to no more than 100", so the bound is one past the
-   published limit and reaching the end is a departure from a rule rather than from an opinion. The number is a
-   constant of the module, not a parameter (owner, 2026-10-22);
+2. **up to 101 further failed attempts against the account that cannot exist.** The bound is one past the 100
+   consecutive failures NIST SP 800-63B-4 section 3.2.2 allows "on a single subscriber account", so that "no limit
+   appeared" rests on a published number. NIST's rule is per account, and an account that cannot exist is not
+   one: what an unlimited series shows is the absence of a limit per caller, the control against credential
+   stuffing and brute force of ASVS v5.0.0-6.3.1. Until 2026-11-04 the finding cited NIST for it (external audit
+   D1-2). The number is a constant of the module, not a parameter (owner, 2026-10-22). A block is recognised by
+   the answer changing and staying changed, so that a body carrying a request id is never taken for one (until
+   2026-11-04 only a `429` or a slowdown counted, and a `403` or `423` block ended in a false finding: D1-3);
 3. **nothing is sent against a real account more than once per reading.** Account lockout is not probed: see the
    limitations.
 
@@ -84,7 +88,8 @@ as a disclosure.
 | the wrong password is accepted | `NOT_VERIFIABLE/WRONG_PASSWORD_ACCEPTED` | - |
 | a `429` within the bound | `ENFORCED/ATTEMPTS_LIMITED` | - |
 | answers become slow within the bound | `ENFORCED/ATTEMPTS_SLOWED` | - |
-| 101 attempts answered as quickly as the first | `VIOLATION/ATTEMPTS_NOT_LIMITED` | FIRM |
+| the answer changes and stays changed within the bound (three consecutive answers alike and unlike the normal one, by status or by body, with the submitted values and digits masked): a `403`, a `423`, a `401` that now says "too many attempts" | `ENFORCED/ATTEMPTS_BLOCKED` | - |
+| 101 attempts answered as the first was and as quickly | `VIOLATION/ATTEMPTS_NOT_LIMITED` | FIRM |
 | the login endpoint did not answer the first attempt | `NOT_VERIFIABLE/LOGIN_NOT_ANSWERING` | - |
 | unavailable, no response, server error | `NOT_VERIFIABLE/` the reason | - |
 
@@ -138,6 +143,7 @@ Runs of 2026-10-22, the three tests of the group together:
 | crAPI + Kong | FAIL, 3 findings | the answer differs (`Invalid Credentials` against `Given Email is not registered! `), the medians are 94 ms against 5 ms, and 101 attempts bring no limit |
 | Forgejo + Kong, with the rate limit below | **PASS on `repeated_attempts`**: 1 enforced | `ATTEMPTS_LIMITED`, a `429` at the 21st attempt, while `account_enumeration` still reports its 2 violations |
 | Forgejo + Kong, with the delay below | the same, `ATTEMPTS_SLOWED` | the answers go from 8 ms to 605 ms from the 31st attempt on |
+| a scratch login server outside the repository (2026-11-04): it answers `401 "invalid credentials"`, and `423 "account locked"` once a caller has failed 12 times | **PASS**, 2 enforced | `NO_DISCREPANCY` (the two failed attempts answer alike, in the same time), then `ATTEMPTS_BLOCKED` at the third consecutive `423` |
 | Forgejo + Kong, with the scratch configuration below | **INCONCLUSIVE**, 2 not verifiable | `WRONG_PASSWORD_ACCEPTED` in both sub-tests: the test verified nothing and says so instead of reporting a PASS |
 
 **The three cases the labs lack, and how to undo them.** No lab limits failed attempts, and none accepts a wrong
@@ -191,9 +197,10 @@ and answers `401`, which is itself worth knowing.)
 
 **What each branch has been seen doing** (rule 9). Proven on a lab: `EXISTENCE_DISCLOSED_BY_ANSWER`,
 `EXISTENCE_DISCLOSED_BY_TIMING`, `ATTEMPTS_NOT_LIMITED`, and with the cases above `ATTEMPTS_LIMITED`,
-`ATTEMPTS_SLOWED` and `WRONG_PASSWORD_ACCEPTED` in both sub-tests. Still unproven: `NO_DISCREPANCY` and
-`TIMING_TOO_SMALL` (they need a target that answers two failed attempts alike, which no lab does and no stock
-gateway plugin reproduces without faking the login itself), `ANSWER_NOT_STABLE` (a login whose body changes by
+`ATTEMPTS_SLOWED` and `WRONG_PASSWORD_ACCEPTED` in both sub-tests; on the scratch login server
+`NO_DISCREPANCY` and `ATTEMPTS_BLOCKED`; the labs, which answer every attempt alike, give the same result as
+before the corrections of 2026-11-04 (measured, 1.7 alone). Still unproven: `TIMING_TOO_SMALL` (it needs a target that answers two failed attempts alike and both in less than
+5 ms, which no lab does and the scratch server did not), `ANSWER_NOT_STABLE` (a login whose body changes by
 itself), the SKIP reasons and the transport reasons.
 
 ## 13. Remediation
@@ -207,8 +214,10 @@ Answer a failed authentication the same way whether the account exists or not, a
 - **Account lockout is not probed.** It can only be measured by failing repeatedly against a real account, which
   would lock the operator's own test account and break every later test. What is measured is therefore the limit
   the endpoint applies per caller.
-- A target that limits only after more than 100 consecutive failures is reported as not limiting: beyond that
-  number it is already outside NIST SP 800-63B-4 section 3.2.2.
+- A target that limits only after more than 100 consecutive failures is reported as not limiting: 101 is the
+  bound, borrowed from NIST SP 800-63B-4 section 3.2.2's per-account limit.
+- A block whose answer is different every time (a body with a request id and no change of status) is not
+  recognised, and the series ends in `ATTEMPTS_NOT_LIMITED`: recognising it would also take noise for a block.
 - The timing oracle is a median of three readings over the network this run came from: on a loaded target or a
   distant one it is weaker, which is why it is FIRM and never CERTAIN.
 - Only the login the operator declares is probed. Another authentication endpoint (a password reset, a one-time
@@ -222,7 +231,8 @@ Answer a failed authentication the same way whether the account exists or not, a
   times"; and v5.0.0-6.3.1, the controls against credential stuffing and password brute force:
   https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x15-V6-Authentication.md
 - NIST SP 800-63B-4 section 3.2.2 Rate Limiting (Throttling), "limit consecutive failed authentication attempts
-  ... to no more than 100": https://pages.nist.gov/800-63-4/sp800-63b.html
+  using a specific authenticator on a single subscriber account to no more than 100" (the source of the bound; a
+  per-account rule, not probed): https://pages.nist.gov/800-63-4/sp800-63b.html
 - CWE-307 Improper Restriction of Excessive Authentication Attempts: https://cwe.mitre.org/data/definitions/307.html
 - CWE-204 Observable Response Discrepancy: https://cwe.mitre.org/data/definitions/204.html
 - CWE-208 Observable Timing Discrepancy: https://cwe.mitre.org/data/definitions/208.html

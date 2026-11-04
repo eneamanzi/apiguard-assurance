@@ -213,13 +213,17 @@ Sources: [Nuclei extractors](https://docs.projectdiscovery.io/templates/referenc
 gateway they could not run.
 
 **Decision.** The adapters expose **neutral concepts** (`src/core/gateway/concepts.py`): backend timeouts, health
-checks, circuit breakers, request signing policies, routes, configuration text values, live target health. Rules:
+checks, circuit breakers, request signing policies, routes, configuration text values, live target health, the
+plugins that ship request logs (added 2026-11-04, so that 5.1 names no gateway). Rules:
 
 - one reader per concept; a test asks only for what it needs;
 - each reader answers **read**, **not supported** (the gateway has no such concept) or **not accessible** (it exists
-  but cannot be read), with the reason; a test that cannot judge returns SKIP with that reason ("Not applicable to
-  this gateway" / "Not verifiable: no access to ..."), a test that can judge only part adds an InfoNote; no new
-  report status;
+  but cannot be read), with the reason. A test that cannot judge returns SKIP for **not supported** ("Not
+  applicable to this gateway": nothing to apply), and INCONCLUSIVE for **not accessible** (every sub-test
+  `NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE`, with a note giving the reason): the run was asked for a check it could
+  not make, which exit code 3 reports (`BaseTest._unread_concept`; owner decision 2026-11-04, external audit
+  CORE-6, after some tests gave SKIP and others NOT_VERIFIABLE for the same case). A test that can judge only part
+  adds an InfoNote; no new report status;
 - a concept is read once per run and stored as evidence, configuration values masked (both Kong and APISIX return
   plugin secrets in clear through their Admin API);
 - an adapter answers with the **effective** configuration: where a gateway returns only what was written, the

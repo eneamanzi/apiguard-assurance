@@ -242,6 +242,7 @@ def build_attack_surface(
         spec_version=spec_version,
         dialect=dialect,
         endpoints=endpoints,
+        base_path=base_path_prefix,
         security_schemes=security_schemes,
     )
 

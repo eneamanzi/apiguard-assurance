@@ -33,6 +33,8 @@ src.tests.base and src.tests.helpers.
 
 from __future__ import annotations
 
+import re
+
 import httpx
 import structlog
 from pydantic import BaseModel, ConfigDict, Field
@@ -71,8 +73,12 @@ _SUB_SENSITIVE: str = "no_sensitive_field"
 _SUB_MASS: str = "mass_assignment"
 
 # A response field whose name matches one of these is sensitive: it should not
-# be in an API response (ASVS v5.0.0-14.2.6). Matched against the field name in
-# lower case, as a substring.
+# be in an API response (ASVS v5.0.0-14.2.6). A marker of up to
+# _MAX_WORD_MARKER characters must be a whole word of the field name (split on
+# '_', '-' and camelCase, lower case, a plural 's' ignored): as a substring
+# 'ssn' matched 'classname' and 'hash' 'hashtag' (audit D235-6). A longer marker
+# is a substring of the name in lower case without '_' and '-', so that
+# 'passwordhash', 'accessToken' and 'API-Key' are all caught.
 _SENSITIVE_NAMES: tuple[str, ...] = (
     "password",
     "passwd",
@@ -92,6 +98,17 @@ _SENSITIVE_NAMES: tuple[str, ...] = (
     "cvv",
     "salt",
 )
+
+# The words of a field name: a capitalised or lower-case run, an upper-case
+# run (an acronym), or digits.
+_NAME_WORD: re.Pattern[str] = re.compile(r"[A-Z]?[a-z]+|[A-Z]+(?![a-z])|\d+")
+_MAX_WORD_MARKER: int = 4
+# A value made of these characters, with at most _MAX_CLEAR characters left in
+# clear, is masked ('XXXXXXXXXXXX0796', '****'): it discloses nothing, as a null
+# or empty value does not (crAPI returns its owner's card number masked so).
+_MASK_CHARACTERS: frozenset[str] = frozenset("*xX#\u2022")
+_MIN_MASKED: int = 4
+_MAX_CLEAR: int = 4
 
 # How deep the field-name scan descends into a JSON response.
 _SCAN_DEPTH: int = 3
@@ -277,6 +294,13 @@ class Test25ObjectPropertyAuthorization(BaseTest[Test25Params]):
         user_a: RequestAuthParts,
     ) -> None:
         """Create an object with injected privileged fields, read it, check reflection."""
+        definition = target.resources.get(resource)
+        if definition is None or not isinstance(definition.create.json_body(), dict):
+            # The fields are merged only into a JSON object body (helpers/
+            # resources.py): with any other body nothing is injected, and a
+            # clean read-back would prove nothing (audit D235-5).
+            self._record(_SUB_MASS, Outcome.NOT_VERIFIABLE, "FIELDS_NOT_INJECTED")
+            return
         owned = create_owned_object(
             target, context, client, resource, ROLE_USER_A, self.info.id, extra_body=_MASS_FIELDS
         )
@@ -290,7 +314,13 @@ class Test25ObjectPropertyAuthorization(BaseTest[Test25Params]):
                 # Not read back: no sentinel can be seen, so no conclusion either way.
                 self._judge(record, store, _SUB_MASS, Outcome.NOT_VERIFIABLE, "OBJECT_NOT_READABLE")
                 return
-            reflected = sorted(_reflected_fields(_json(response)))
+            body = _json(response)
+            if not _exposed_fields(body):
+                # The representation shows none of the injected properties:
+                # whether they were bound cannot be seen (audit D235-4).
+                self._judge(record, store, _SUB_MASS, Outcome.NOT_VERIFIABLE, "FIELDS_NOT_EXPOSED")
+                return
+            reflected = sorted(_reflected_fields(body))
             if reflected:
                 self._judge(
                     record,
@@ -376,14 +406,35 @@ def _sensitive_fields(node: object, depth: int = 0) -> set[str]:
         return found
     if isinstance(node, dict):
         for key, value in node.items():
-            low = str(key).lower()
-            if any(marker in low for marker in _SENSITIVE_NAMES):
+            if _sensitive_name(str(key)) and not _discloses_nothing(value):
                 found.add(str(key))
             found |= _sensitive_fields(value, depth + 1)
     elif isinstance(node, list):
         for item in node[:5]:
             found |= _sensitive_fields(item, depth + 1)
     return found
+
+
+def _sensitive_name(name: str) -> bool:
+    """Whether a field name holds a sensitive marker (_SENSITIVE_NAMES, see there)."""
+    words = {word.lower() for word in _NAME_WORD.findall(name)}
+    words |= {word.removesuffix("s") for word in words}
+    compact = name.lower().replace("_", "").replace("-", "")
+    for marker in _SENSITIVE_NAMES:
+        bare = marker.replace("_", "")
+        if bare in words if len(bare) <= _MAX_WORD_MARKER else bare in compact:
+            return True
+    return False
+
+
+def _discloses_nothing(value: object) -> bool:
+    """Whether a field's value is null, empty or masked (_MASK_CHARACTERS)."""
+    if value is None or value == "":
+        return True
+    if not isinstance(value, str):
+        return False
+    masked = sum(character in _MASK_CHARACTERS for character in value)
+    return masked >= _MIN_MASKED and len(value) - masked <= _MAX_CLEAR
 
 
 def _reflected_fields(node: object, depth: int = 0) -> set[str]:
@@ -399,6 +450,21 @@ def _reflected_fields(node: object, depth: int = 0) -> set[str]:
     elif isinstance(node, list):
         for item in node[:5]:
             found |= _reflected_fields(item, depth + 1)
+    return found
+
+
+def _exposed_fields(node: object, depth: int = 0) -> set[str]:
+    """The injected mass-assignment field names present in a JSON value, any value."""
+    found: set[str] = set()
+    if depth > _SCAN_DEPTH:
+        return found
+    if isinstance(node, dict):
+        found |= {str(key) for key in node if key in _MASS_FIELDS}
+        for value in node.values():
+            found |= _exposed_fields(value, depth + 1)
+    elif isinstance(node, list):
+        for item in node[:5]:
+            found |= _exposed_fields(item, depth + 1)
     return found
 
 

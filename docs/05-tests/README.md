@@ -45,7 +45,7 @@ methodology's own claims are broader
 | `4.1` | Rate Limiting | P0 | BLACK_BOX | STRESSES_TARGET | CWE-770 | `GATEWAY` (optional) | [4.1](domain-4/4-1-rate-limiting.md) |
 | `4.2` | Timeout Configuration Audit -- Prevention of Resource Lock | P1 | WHITE_BOX | READ_ONLY | CWE-400 | `GATEWAY` | [4.2](domain-4/4-2-timeout-config-audit.md) |
 | `4.3` | Circuit Breaker Audit | P1 | WHITE_BOX | READ_ONLY | CWE-400 | `GATEWAY` | [4.3](domain-4/4-3-circuit-breaker-audit.md) |
-| `4.4` | Request Size Limits | P1 | BLACK_BOX | STRESSES_TARGET | CWE-400 | `GATEWAY` (optional) | [4.4](domain-4/4-4-request-size-limits.md) |
+| `4.4` | Request Size Limits | P1 | BLACK_BOX | STRESSES_TARGET | CWE-400 | `GATEWAY` (optional), `USER_ACCOUNT` (optional) | [4.4](domain-4/4-4-request-size-limits.md) |
 | **Domain 5 - Visibility and Auditing** | | | | | | | |
 | `5.1` | Request Logging Audit | P1 | WHITE_BOX | READ_ONLY | CWE-778 | `GATEWAY` | [5.1](domain-5/5-1-request-logging-audit.md) |
 | **Domain 6 - Configuration and Hardening** | | | | | | | |

@@ -24,6 +24,12 @@ Oracle (per payload):
                           / SSRF_PROBE_TIMEOUT (ambiguous: the server may have
                           blocked on the outbound call).
 
+The series stops at the first payload left without an answer or answered 502,
+503 or 504 by the gateway: further URLs would add timeouts, which a gateway's
+health check counts (on crAPI, three took the backend out of service for the
+tests that ran next). The rest -> NOT_VERIFIABLE / NOT_SENT_AFTER_TIMEOUT
+(owner decision 2026-11-04, audit D467-1).
+
 Honesty boundary (owner decision 2026-10-23): a 2xx means the endpoint accepted
 the URL, which is *not* proof the server made the outbound call. Confirming the
 call needs an out-of-band listener (a URL the tool controls; a hit on it proves
@@ -94,6 +100,10 @@ _CATEGORIES: tuple[str, ...] = (
     "dns_bypass",
     "url_parser_confusion",
 )
+# The two classes SSRF is about: internal addresses reached through the server.
+# Without one ENFORCED among them the test is INCONCLUSIVE, however many other
+# payloads were rejected as malformed (owner decision 2026-11-04, audit D467-2).
+_ESSENTIAL: tuple[str, ...] = ("cloud_metadata", "private_ip")
 
 # Placeholders the test fills in the configured body (src/core/templating.py).
 _PLACEHOLDER_SSRF_URL: str = "ssrf_url"
@@ -147,6 +157,9 @@ _BLOCKED_VALIDATION: str = "SSRF_BLOCKED_VALIDATION"
 _BLOCKED_UNKNOWN: str = "SSRF_BLOCKED_UNKNOWN"
 _OUTBOUND_NOT_CONFIRMED: str = "OUTBOUND_NOT_CONFIRMED"
 _PROBE_TIMEOUT: str = "SSRF_PROBE_TIMEOUT"
+# The payloads not sent once the endpoint hung or its backend went out of
+# service (owner decision 2026-11-04, audit D467-1).
+_NOT_SENT: str = "NOT_SENT_AFTER_TIMEOUT"
 _UPSTREAM_UNAVAILABLE: str = "UPSTREAM_UNAVAILABLE"
 _RATE_LIMITED: str = "RATE_LIMITED"
 _BASELINE_REJECTED: str = "BASELINE_REJECTED"
@@ -338,6 +351,7 @@ class Test72SSRFPrevention(BaseTest[Test72Params]):
         needs=(Need.USER_ACCOUNT,),
         effect=Effect.CHANGES_DATA,
         sub_tests=_CATEGORIES,
+        essential_sub_tests=_ESSENTIAL,
     )
 
     def execute(
@@ -401,8 +415,9 @@ class Test72SSRFPrevention(BaseTest[Test72Params]):
                 )
             baseline_accepts = baseline == _SITUATION_ACCEPTED
             accepted_any = False
-            for payload in payloads:
-                accepted_any |= self._probe(
+            stopped = False
+            for index, payload in enumerate(payloads):
+                accepted, stop = self._probe(
                     client,
                     store,
                     path,
@@ -413,12 +428,32 @@ class Test72SSRFPrevention(BaseTest[Test72Params]):
                     params,
                     baseline_accepts,
                 )
+                accepted_any |= accepted
+                if stop:
+                    # The backend hung on an internal URL, or the gateway took it
+                    # out of service: each further URL would add a timeout, and a
+                    # gateway's health check counts them (on crAPI, Kong's took the
+                    # backend out after three, and the tests that ran next got
+                    # 503). Not sent; not verifiable (owner decision 2026-11-04).
+                    for unsent in payloads[index + 1 :]:
+                        self._record(unsent.category, Outcome.NOT_VERIFIABLE, _NOT_SENT)
+                    stopped = len(payloads) > index + 1
+                    log.warning("test_7_2_stopped", sent=index + 1, total=len(payloads))
+                    break
             notes: list[InfoNote] = []
+            if stopped:
+                notes.append(_STOPPED_NOTE)
             if accepted_any:
                 notes.append(_LISTENER_NOTE)
             if not baseline_accepts:
                 notes.append(_BASELINE_NOTE)
-            return self._finish(notes=notes or None, message=f"{len(payloads)} payloads on {path}.")
+            return self._finish(
+                notes=notes or None,
+                message=(
+                    f"{len(payloads)} payloads on {path}; a PASS needs a cloud-metadata or "
+                    "private-IP URL seen rejected."
+                ),
+            )
         except Exception as exc:  # noqa: BLE001 -- top-level guard (BaseTest contract)
             log.exception("test_7_2_unexpected_error", error=str(exc))
             return self._error(exc)
@@ -480,9 +515,9 @@ class Test72SSRFPrevention(BaseTest[Test72Params]):
         headers: dict[str, str],
         params: dict[str, str],
         baseline_accepts: bool,
-    ) -> bool:
+    ) -> tuple[bool, bool]:
         """
-        Send one payload and judge it. Return True when the URL was accepted.
+        Send one payload and judge it.
 
         Oracle (module docstring):
             accepted (2xx)        -> NOT_VERIFIABLE / OUTBOUND_NOT_CONFIRMED;
@@ -496,7 +531,9 @@ class Test72SSRFPrevention(BaseTest[Test72Params]):
             no response (timeout) -> NOT_VERIFIABLE / SSRF_PROBE_TIMEOUT.
 
         Returns:
-            True when the endpoint accepted the URL (a 2xx), else False.
+            (accepted, stop): whether the endpoint accepted the URL (a 2xx), and
+            whether to send no more (no response, or the gateway's 502, 503 or
+            504: the backend hung or is out of service).
         """
         record = self._request(
             client, path, body_template, resource_values, payload.url, headers, params
@@ -506,23 +543,23 @@ class Test72SSRFPrevention(BaseTest[Test72Params]):
         if record is None or situation == _SITUATION_TIMEOUT:
             self._judge_or_record(store, category, Outcome.NOT_VERIFIABLE, _PROBE_TIMEOUT, record)
             log.warning("test_7_2_probe_timeout", category=category, url=payload.url)
-            return False
+            return False, True
         if situation == _SITUATION_UPSTREAM:
             self._judge(record, store, category, Outcome.NOT_VERIFIABLE, _UPSTREAM_UNAVAILABLE)
-            return False
+            return False, category_of(record) == ResponseCategory.UPSTREAM_UNAVAILABLE
         if situation == _SITUATION_RATE_LIMITED:
             self._judge(record, store, category, Outcome.NOT_VERIFIABLE, _RATE_LIMITED)
-            return False
+            return False, False
         if situation == _SITUATION_ACCEPTED:
             self._judge(record, store, category, Outcome.NOT_VERIFIABLE, _OUTBOUND_NOT_CONFIRMED)
             log.info("test_7_2_url_accepted", category=category, url=payload.url)
-            return True
+            return True, False
         if not baseline_accepts:
             self._judge(record, store, category, Outcome.NOT_VERIFIABLE, _BASELINE_REJECTED)
-            return False
+            return False, False
         detail = _classify_rejection(payload.url, record.response_body or "")
         self._judge(record, store, category, Outcome.ENFORCED, detail)
-        return False
+        return False, False
 
     def _judge_or_record(
         self,
@@ -569,6 +606,18 @@ _BASELINE_NOTE: InfoNote = InfoNote(
 )
 
 # Added when the endpoint did not evaluate URLs at all (down / erroring).
+_STOPPED_NOTE: InfoNote = InfoNote(
+    title="Payloads not sent after a timeout",
+    detail=(
+        "A payload left the endpoint without an answer, or the gateway answered 502, 503 or "
+        "504: the backend hung on the URL or is out of service. The remaining payloads were not "
+        "sent (NOT_SENT_AFTER_TIMEOUT), because each would add a timeout and a gateway's health "
+        "check counts them: it can take the backend out of service for every client. Re-run "
+        "with fewer payload_categories, or once the endpoint answers again, to verify them."
+    ),
+    references=[Reference(standard=Standard.OWASP_API_TOP10, id="API7:2023")],
+)
+
 _UPSTREAM_NOTE: InfoNote = InfoNote(
     title="URL-accepting endpoint unavailable",
     detail=(

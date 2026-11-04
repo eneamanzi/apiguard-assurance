@@ -44,10 +44,13 @@ What is probed, and what is deliberately not.
       account of the operator's can be locked out. What is measured is
       therefore the limit the endpoint applies per caller, not the lockout of
       one account;
-    - NIST SP 800-63B-4 section 3.2.2 requires a verifier to limit consecutive
-      failed attempts "to no more than 100". The bound here is one attempt
-      past that, so that "no limit appeared" is a departure from a published
-      rule and not from an opinion;
+    - the bound is 101 attempts, one past the upper bound NIST SP 800-63B-4
+      section 3.2.2 sets for consecutive failures "on a single subscriber
+      account" (100), so that "no limit appeared" rests on a published number.
+      That rule is per account, which this test does not probe: what an
+      unlimited series shows is the absence of a per-caller limit, the control
+      against credential stuffing and brute force of ASVS v5.0.0-6.3.1 (audit
+      D1-2: the finding cited NIST for it);
     - exactly one failed attempt is sent with the operator's real account, for
       the comparison. Three timings of each are taken, the median kept, since
       one reading of a duration is noise.
@@ -98,10 +101,10 @@ _SUB_ENUMERATION: str = "account_enumeration"
 _SUB_ATTEMPTS: str = "repeated_attempts"
 
 # How many consecutive failed attempts are sent to the account that cannot
-# exist: one past the limit NIST SP 800-63B-4 section 3.2.2 requires a verifier
-# to apply ("no more than 100"), so that reaching the end is a departure from a
-# published rule. Not a parameter (owner, 2026-10-22): the number comes from
-# the standard, not from taste.
+# exist: one past the upper bound NIST SP 800-63B-4 section 3.2.2 sets per
+# account ("no more than 100"), borrowed as the bound of a per-caller series
+# (NIST's rule itself is per account, not probed here). Not a parameter (owner,
+# 2026-10-22): the number comes from the standard, not from taste.
 _MAX_ATTEMPTS: int = 101
 
 # How many times each of the two failed attempts is repeated for the timing
@@ -127,6 +130,12 @@ _TIMING_FLOOR_MS: float = 5.0
 _BASELINE_ATTEMPTS: int = 10
 _SLOWDOWN_FLOOR_MS: float = 250.0
 _SLOW_CONFIRMATIONS: int = 2
+# A block (403, 423, or a 401 that now says "too many attempts") is an answer
+# that changes and stays changed: this many consecutive answers identical to
+# each other and different from the first one, by status or by masked body. A
+# body that differs on every request (a request id) never repeats, so it is
+# never taken for a block (audit D1-3).
+_BLOCK_CONFIRMATIONS: int = 3
 
 # The header that carries HTTP Basic, and its scheme.
 _AUTHORIZATION_HEADER: str = "Authorization"
@@ -287,6 +296,9 @@ class Test17AuthenticationResistance(BaseTest):
             self._judge(known, store, _SUB_ENUMERATION, Outcome.NOT_VERIFIABLE, "ANSWER_NOT_STABLE")
             return "ANSWER_NOT_STABLE"
         if known_shapes != other_shapes:
+            # The finding cites the other account's answer as its support (rule 6):
+            # it must be in evidence.json, which keeps only judged or pinned records.
+            store.pin_evidence(other)
             self._judge(
                 known,
                 store,
@@ -318,6 +330,7 @@ class Test17AuthenticationResistance(BaseTest):
             self._judge(known, store, _SUB_ENUMERATION, Outcome.ENFORCED, "TIMING_TOO_SMALL")
             return None
         if known_ms >= other_ms * _TIMING_FACTOR:
+            store.pin_evidence(other)  # cited as support, as above
             self._judge(
                 known,
                 store,
@@ -373,8 +386,10 @@ class Test17AuthenticationResistance(BaseTest):
         durations: list[float] = []
         baseline: float | None = None
         slow_in_a_row = 0
+        blocks = _BlockWatch()
         for attempt in range(1, _MAX_ATTEMPTS + 1):
-            record = self._attempt(client, login, unknown, random_token())
+            password = random_token()
+            record = self._attempt(client, login, unknown, password)
             if first is None:
                 first = record
             category = category_of(record)
@@ -395,6 +410,10 @@ class Test17AuthenticationResistance(BaseTest):
                 return
             if first is not record:
                 self._step(record)
+            if blocks.blocked(_answer(record, unknown, password)):
+                self._judge(record, store, _SUB_ATTEMPTS, Outcome.ENFORCED, "ATTEMPTS_BLOCKED")
+                log.info("test_1_7_blocked", attempt=attempt, status=record.response_status_code)
+                return
             durations.append(record.elapsed_ms or 0.0)
             if attempt == _BASELINE_ATTEMPTS:
                 baseline = statistics.median(durations)
@@ -423,14 +442,15 @@ class Test17AuthenticationResistance(BaseTest):
             Finding(
                 title="Failed authentication attempts are not limited",
                 detail=(
-                    f"{_MAX_ATTEMPTS} consecutive failed attempts were answered the same way and "
-                    "as quickly as the first: no 429, no growing delay, no block. NIST SP "
-                    "800-63B-4 section 3.2.2 requires a verifier to limit consecutive failed "
-                    "attempts to no more than 100, so guessing passwords against this endpoint "
-                    "costs an attacker nothing. The attempts were made against an account that "
-                    "cannot exist, so what is measured is the limit applied per caller; whether "
-                    "a single account is locked out after repeated failures was not probed, "
-                    "because doing so would lock a real account."
+                    f"{_MAX_ATTEMPTS} consecutive failed attempts were answered as the first was "
+                    "and as quickly: no 429, no growing delay, no lasting change of the answer "
+                    "(a block, a lockout). The attempts were made against an account that "
+                    "cannot exist, so what is missing is a limit per caller: trying passwords "
+                    "across many accounts (credential stuffing, password spraying) costs an "
+                    "attacker nothing (OWASP ASVS v5.0.0-6.3.1). The bound is one past the "
+                    "100 consecutive failures NIST SP 800-63B-4 section 3.2.2 allows on a "
+                    "single account; whether one account is locked out, which is what NIST "
+                    "requires, was not probed, because doing so would lock a real account."
                 ),
                 confidence=Confidence.FIRM,
             ),
@@ -533,7 +553,78 @@ def _login_request(target: TargetContext) -> CreateRequest | None:
     return resource.create
 
 
-def _answer(record: EvidenceRecord, submitted: str) -> tuple[int | None, str]:
+class _BlockWatch:
+    """
+    Whether the answers to repeated failures turned into a block (_BLOCK_CONFIRMATIONS).
+
+    Status and masked body are watched separately: a target whose body is noisy
+    can still show its block in the status (401 then 423), and one that keeps
+    its status shows it in the body (401 "invalid" then 401 "too many
+    attempts").
+    """
+
+    def __init__(self) -> None:
+        """Start with no answer seen."""
+        self._status = _Watch()
+        self._body = _Watch()
+
+    def blocked(self, shape: tuple[int | None, str]) -> bool:
+        """
+        Add one answer; whether the last answers are a lasting change.
+
+        Args:
+            shape: The answer as _answer returns it (status, masked body).
+
+        Returns:
+            True when the status or the body changed and stayed changed.
+        """
+        status_changed = self._status.changed(shape[0])
+        body_changed = self._body.changed(shape)
+        return status_changed or body_changed
+
+
+class _Watch:
+    """
+    One watched value: its reference, then the run of agreeing answers that differ.
+
+    The reference is the first value two consecutive answers agree on, so that
+    a first answer that is unlike every other is not taken for the normal one;
+    a value that never repeats (noise) never sets a reference nor a run.
+    """
+
+    def __init__(self) -> None:
+        """Start with no value seen."""
+        self._reference: object | None = None
+        self._last: object | None = None
+        self._seen = False
+        self._run = 0
+
+    def changed(self, value: object) -> bool:
+        """
+        Add one value; whether _BLOCK_CONFIRMATIONS consecutive values agree and differ.
+
+        Args:
+            value: The status, or the whole (status, masked body).
+
+        Returns:
+            True when the run of agreeing values unlike the reference is long
+            enough.
+        """
+        same_as_last = self._seen and value == self._last
+        if self._reference is None:
+            if same_as_last:
+                self._reference = value
+        elif value == self._reference:
+            self._run = 0
+        else:
+            self._run = self._run + 1 if same_as_last and self._run > 0 else 1
+        self._last, self._seen = value, True
+        return self._run >= _BLOCK_CONFIRMATIONS
+
+
+def _answer(
+    record: EvidenceRecord, submitted: str, password: str | None = None
+) -> tuple[int | None, str]:
     """
     What an answer says, for the comparison of the two cases.
 
@@ -546,11 +637,15 @@ def _answer(record: EvidenceRecord, submitted: str) -> tuple[int | None, str]:
     Args:
         record:    The answer.
         submitted: The account name that was sent, to mask.
+        password:  The password that was sent, to mask (it changes on every
+                   repeated attempt).
 
     Returns:
         (status, the masked body).
     """
     body = record.response_body or ""
+    if password:
+        body = body.replace(password, _MASK)
     body = body.replace(submitted, _MASK)
     local = submitted.split("@", 1)[0]
     if local:

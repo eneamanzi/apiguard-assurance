@@ -138,6 +138,214 @@ generated catalogue [`docs/05-tests/README.md`](docs/05-tests/README.md); `apigu
 
 ### Fixed
 
+- **Test 5.1 knew the gateways' plugin names** (external audit of 2026-11-03, D235-2; owner decision 2026-11-04).
+  Against design decision D7, 5.1 matched fragments of Kong and APISIX plugin names inside the test and named both
+  gateways in its finding; the fragment `-logger` also matched APISIX's `file-logger`, which writes on the gateway's
+  own host. A new neutral concept, `log_shipping()` (`LogShipper`), answers which plugins ship request logs: the
+  Kong and APISIX adapters each hold their list, read on the gateways' sources (Kong 3.9.0 `constants.lua`, APISIX
+  `config.yaml.example`), without the local ones (Kong `file-log`, `syslog`; APISIX `file-logger`). 5.1 only asks it.
+  Checked on the three labs: FAIL as before; Forgejo + Kong with a temporary global `http-log` gives PASS, the lab
+  then restored (FAIL again).
+- **Schemathesis's per-request timeout was fixed in the code** (external audit of 2026-11-03, EXT-17; owner decision
+  2026-11-04). It is now `external_tools.schemathesis.request_timeout_seconds` (default 5, the value it had, 1 to
+  300). Checked on Forgejo + Kong: the command still carries `--request-timeout 5000`. The same run gave one finding
+  (`GET /api/v1/users/search` accepting an input generated as invalid) where the morning's run with the same
+  configuration gave PASS: the inputs are drawn at random on every run, now stated on the page.
+- **Test 2.1 promised configuration it does not have** (external audit of 2026-11-03, D235-17; owner decision
+  2026-11-04). Its docstring and page said the configuration "adds or corrects" the privileged operations and can
+  confirm a destructive one so that it is sent, and that the test subsumes guarantee 2.3; no such key exists, the
+  operations come from the specification only and destructive methods are never sent. The docs now state those
+  limits; no code change.
+- **The docs presented the strategy as an access boundary** (external audit of 2026-11-03, DOCS-8; owner decision
+  2026-11-04). They said the gateway's Admin API serves the WHITE_BOX audits, while five BLACK_BOX tests (0.1, 0.2,
+  4.1, 4.4, 6.4) read it when a gateway is configured and 2.1 uses the admin account when given, so
+  `execution.strategies: [BLACK_BOX]` does not keep a run away from them. The strategy is what a test needs at
+  least: the assessment model, the configuration reference, the overview, the adapter guide, the compatibility page
+  and CLAUDE.md now say so, and how to keep a run away from the Admin API (leave the `gateway` section out). No code
+  change.
+- **A run in which every test was SKIP exited 0** (external audit of 2026-11-03, PIPE-4; owner decision
+  2026-11-04). Nothing verified, and a pipeline saw success, against the exit-codes page ("a run never ends 0
+  without running at least one test"). Such a run now exits `3`; a run in which at least one test ran keeps the
+  rule that a SKIP does not affect the code. Checked on Forgejo + Kong: 7.4 alone (SKIP, no webhook configured)
+  exits 3, 7.4 with 3.3 exits 0.
+- **Test 0.4 did not try the address Kong resolved a backend to** (external audit of 2026-11-03, CORE-8; owner
+  decision 2026-11-04). Kong declares a backend by name (`forgejo:3000`), which does not resolve where the tool
+  runs, while its health endpoint also states the IP it resolved it to; the adapter dropped it, so on the Kong labs
+  0.4 could not reach a backend that APISIX's resolved node showed answering. The live-health concept now carries
+  `resolved` (the addresses the gateway states, filled by the Kong adapter), and 0.4 tries them as declared
+  addresses. The labs, 0.4 alone: Forgejo + Kong FAIL (`172.22.0.3:3000` answers like the gateway, CERTAIN), crAPI +
+  Kong FAIL with 3 findings, Forgejo + APISIX FAIL as before; both Kong labs were a PASS before the corrections of
+  that day.
+- **An unreadable gateway concept gave SKIP in some tests and INCONCLUSIVE in others** (external audit of
+  2026-11-03, CORE-6; owner decision 2026-11-04). With an Admin API that does not answer or refuses, 3.3, 4.2 and
+  5.1 returned SKIP (exit 0: a pipeline saw nothing wrong) while 0.2, 0.4, 4.3 and 6.4 recorded NOT_VERIFIABLE.
+  Now a concept the gateway has but that cannot be read makes every sub-test
+  `NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE`, INCONCLUSIVE with a note (`BaseTest._unread_concept`, which replaces
+  `_skip_for_concept`); a concept the gateway does not have stays SKIP. D7 rewritten. Checked on a scratch Forgejo +
+  Kong configuration with the Admin API pointed at a closed port: 3.3, 4.2, 5.1 INCONCLUSIVE, exit 3 (SKIP, exit 0
+  before); the lab as configured unchanged.
+- **Test 1.5 rewarded a redirect that OWASP ASVS forbids on API endpoints** (external audit of 2026-11-03, D1-4;
+  owner decision 2026-11-04). A plain-HTTP request to an API path answered `301`/`308` to `https` was ENFORCED, and
+  the finding recommended the redirect. ASVS v5.0.0-4.1.2 allows a transparent redirect only on endpoints meant
+  for a browser: the first request, with its credential, has already crossed in cleartext, and an API client that
+  wrongly uses HTTP is never told. Such a redirect is now `VIOLATION/TRANSPARENT_REDIRECT`, CERTAIN, ASVS 4.1.2
+  added to the references, and the remediation says to refuse plain HTTP on API endpoints. The labs, 1.5 alone:
+  FAIL on all three (their gateways redirect on purpose), HSTS still PASS.
+- **Test 4.4 read a gateway's own authentication as "body forwarded"** (external audit of 2026-11-03, D467-3; owner
+  decision 2026-11-04). The oversized body is sent without a credential, and any answer other than 413 meant
+  "forwarded": a gateway that authenticates before its size check (Kong runs `key-auth` before
+  `request-size-limiting`) would get a false FIRM finding on its 401. After a 401 or 403 the same body is now sent
+  with user_a's credential (optional need `USER_ACCOUNT`) and that answer judged; when it is refused too, a forged
+  credential tells who refused (same status: `REFUSED_BEFORE_SIZE_CHECK`; different: past the refuser, no 413).
+  Without a credential: `NO_CREDENTIAL_TO_RETRY`. The labs, 4.4 alone: FAIL on all three, now proven past
+  authentication (Forgejo `403` for the token's scope, crAPI `400` "product_id is required"); a scratch server that
+  authenticates before its size check gives PASS with its key and `REFUSED_BEFORE_SIZE_CHECK` without, where both
+  were false FAILs before.
+- **Test 7.2 passed on malformed URLs while every internal address was accepted** (external audit of 2026-11-03,
+  D467-2; owner decision 2026-11-04). On the Forgejo labs 7.2 was PASS partial on 15 payloads rejected as malformed
+  or for their scheme, while every cloud-metadata and private-IP URL was accepted (not verifiable without a
+  listener). A test can now declare **essential sub-tests** (`TestInfo.essential_sub_tests`, carried as `essential`
+  on each sub-test's result, so the status stays recomputable): without a violation, a test none of whose
+  essential sub-tests passed is INCONCLUSIVE. 7.2 declares `cloud_metadata` and `private_ip`; no other test
+  declares any, so no other verdict changes. The labs, 7.2 alone: both Forgejo labs go from PASS partial to
+  INCONCLUSIVE, crAPI stays INCONCLUSIVE.
+- **Test 7.2 took crAPI's backend out of service for the tests after it** (external audit of 2026-11-03, D467-1;
+  owner decision 2026-11-04). Each cloud-metadata URL hung crAPI's `contact_mechanic` until the gateway answered
+  `504`; after three, Kong's passive health check took the workshop backend out of service, and 0.1, 4.1, 4.4, 7.3
+  and Schemathesis, which ran next, got `503` and measured nothing (the pages blamed load or a race). 7.2 now stops
+  at the first payload left without an answer or answered `502`, `503` or `504`, and records the rest
+  `NOT_VERIFIABLE/NOT_SENT_AFTER_TIMEOUT` with a note. The labs, 7.2 alone: crAPI INCONCLUSIVE as before, in 30 s
+  instead of 90, with the backend still in service afterwards; the Forgejo labs unchanged (PASS partial).
+- **Test 3.3 read a replay window the gateway does not state as unbounded** (external audit of 2026-11-03,
+  D235-14). A signing policy without a stated window was a CERTAIN `REPLAY_UNBOUNDED` violation, whether the
+  gateway said the date is never checked (APISIX `clock_skew` 0) or simply did not say; only the first is now a
+  violation, the second is `NOT_VERIFIABLE/REPLAY_WINDOW_NOT_STATED`, as unstated algorithms already were. The
+  labs, 3.3 alone: PASS as before (their policies state a window).
+- **Test 0.4 passed on a guess at the backend's address** (external audit of 2026-11-03, D0-3). For each backend it
+  tries the address the gateway declares and a derived one (the target's host with the backend's port). On the
+  Kong labs the declared names do not resolve from the run host, and the derived ports refuse: 0.4 was PASS, while
+  the backends answer from that host at their container address. A refusal at the derived address now counts only
+  when the declared one refused too, otherwise `NOT_VERIFIABLE/DERIVED_REFUSAL_ONLY`. The labs, 0.4 alone: both
+  Kong labs go from PASS to INCONCLUSIVE, Forgejo + APISIX stays FAIL. Whether the Kong adapter should keep the
+  resolved IP, so that 0.4 can try it, is left to the owner (CORE-8).
+- **Test 5.1 claimed that requests are not logged, which it cannot see** (external audit of 2026-11-03, D235-1).
+  Its finding said "requests are not logged at the gateway", CERTAIN, on the sole basis that no logging plugin is
+  enabled, while every gateway writes its own access log, which the Admin API does not show (the Kong labs set
+  `KONG_PROXY_ACCESS_LOG=/dev/stdout`). It now says what it observes: no plugin ships the request logs to a
+  separate system (ASVS v5.0.0-16.4.3), FIRM, since a collector on the gateway's host would be invisible; Kong's
+  `file-log`, which writes on that host, no longer counts as shipping. The details are now `LOGS_SHIPPED` and
+  `LOGS_NOT_SHIPPED` (were `LOGGING_CONFIGURED`, `NO_REQUEST_LOGGING`). The three labs, 5.1 alone: FAIL as before,
+  with the new finding.
+- **Test 1.7 missed a block, and cited NIST for a rule it does not probe** (external audit of 2026-11-03, D1-3,
+  D1-2). The repeated attempts stopped only on a `429`, a server error or a slowdown: a `403` or `423` block, or a
+  `401` that started saying "too many attempts", ran on to a FIRM `ATTEMPTS_NOT_LIMITED` finding. A block is now
+  recognised when the answer changes and stays changed (three consecutive answers alike and unlike the normal one,
+  by status or by body with the submitted values and digits masked), `ENFORCED/ATTEMPTS_BLOCKED`; a body that
+  changes on every request is never taken for one. The finding cited NIST SP 800-63B-4 §3.2.2, whose limit is per
+  account, while the attempts go to an account that cannot exist: it now names the missing per-caller limit (ASVS
+  v5.0.0-6.3.1) and keeps NIST as the source of the 101 bound only. Checked on a scratch login server that answers
+  `423` after 12 failures: PASS, `ATTEMPTS_BLOCKED` at the third `423`, and `NO_DISCREPANCY` seen for the first
+  time; the labs, 1.7 alone, are unchanged (FAIL, 3 findings each).
+- **Test 1.1 did not test a credential placed in the query, and no record showed a query** (external audit of
+  2026-11-03, D1-5). With a credential placement in a query parameter, 1.1's malformed credentials were sent as
+  headers named after the parameter, so the target's refusal (the credential was simply missing) counted as
+  ENFORCED; they are now sent in the query. The HTTP client recorded the path without its query, so on such a target
+  no record showed what was sent; `request_url` now carries the query parameters the tool added, each value redacted
+  before it is written (a query is not encoded there, so a registered secret cannot escape the redaction by being
+  encoded). Checked on a scratch Forgejo + Kong configuration with `security_scheme: AccessToken`: the malformed
+  values go as `?access_token=...` and are refused, user_a's and admin's tokens appear as `[REDACTED: ...]` only; the
+  labs in their own configuration (credential in a header) are unchanged.
+- **Test 7.4 counted a rejected delivery as signature verification without a positive control** (external audit of
+  2026-11-03, D467-4). Without `signing_secret`, or when the validly signed delivery got no answer, any rejection of
+  the unsigned and wrongly signed deliveries was ENFORCED (only a note said "inferred"): a wrong path's 404 or a
+  gateway's 401 made 7.4 PASS. A rejection is now ENFORCED only when a validly signed delivery was accepted, and
+  `NOT_VERIFIABLE/SIGNATURE_NOT_CONFIRMED` otherwise; an accepted forged delivery is still a violation. Checked
+  against a scratch HMAC receiver (outside the repository) and the Forgejo lab: every verdict of the test observed
+  for the first time (`SIGNATURE_REQUIRED`, `REJECTS_ALL`, `SIGNATURE_NOT_CONFIRMED`, `UNSIGNED_ACCEPTED`,
+  `BAD_SIGNATURE_ACCEPTED`); the wrong-path, no-secret and Forgejo cases, PASS before, are now not verifiable.
+- **Tests 2.1 and 2.2 counted refusals that did not prove the user was refused** (external audit of 2026-11-03,
+  D235-7, D235-8). Test 2.2 took any non-2xx answer of user_b as a refusal, including a 422 from body validation
+  (its modify sends an empty body), a 405 or a redirect; only 401, 403 and 404 are now a refusal, any other answer
+  is `NOT_VERIFIABLE/NOT_A_REFUSAL`. Both tests also took a 401 or 403 as enforcement without anything proving the
+  role's credential was accepted (a static token is stored as configured, and may have expired). A forged
+  credential, a random value placed as the run's credential is, is now sent on the same safe request (2.2: the
+  object's read; 2.1: the privileged function, only when user_a is refused); a refusal in the same category as its
+  answer is `NOT_VERIFIABLE/CREDENTIAL_NOT_CONFIRMED`, and when the forged credential is not refused a 401 is not
+  counted. Checked on the three labs, each test alone: the same verdicts as before (the forged credential gets 401,
+  the user 403 or 404). With an invalid token in a scratch crAPI configuration, 2.2's modify and 2.1 are now not
+  verifiable, where they counted a refusal before.
+- **Test 2.5 reported a masked card number, and mass assignment as refused without evidence** (external audit of
+  2026-11-03, D235-4, D235-5, D235-6). A sensitive name was matched as a substring of the field name (`ssn` in
+  `classname`) and the value was ignored, so crAPI's order, which shows its owner the card number masked
+  (`XXXXXXXXXXXX0796`), was a FAIL; a short marker (`ssn`, `hash`, `pwd`, `cvv`, `salt`) must now be a whole word
+  of the name, a longer one is still found inside it (separators ignored, so nothing caught before is lost), and a
+  null, empty or masked value discloses nothing. `mass_assignment` was ENFORCED when the object read back showed none of the injected fields
+  (crAPI's order), and when the create body was not a JSON object the fields were silently not injected at all; both
+  are now not verifiable (`FIELDS_NOT_EXPOSED`, `FIELDS_NOT_INJECTED`). Checked on the labs, 2.5 alone: crAPI goes
+  from FAIL to PASS partial, Forgejo is unchanged (PASS). Compatibility: crAPI challenge 4 is now "missed".
+- **Test 0.1 judged undeclared methods on paths with parameters without evidence** (external audit of 2026-11-03,
+  D0-1 and D0-4). On such a path the probe and its random siblings are the same route with other values, so the
+  calibration compared the method with itself, and an answer like a 404 on the non-existent object was counted as
+  "method not served" (ENFORCED), although a handled method answers it too. There only a 2xx or a 405 is evidence
+  now; any other answer is `NOT_VERIFIABLE/NONEXISTENT_OBJECT`. Checked on the labs, 0.1 alone: Forgejo goes from
+  1046 to 951 enforced, 95 judgements not verified, still PASS partial; crAPI is unchanged (its paths with
+  parameters answer 405, or 401 before routing). The page also described a reference method (`APIGUARDPROBE`, a
+  log key `test_0_1_method_reference`) that the code never had: removed.
+- **Test 0.1 counted a version as absent when the target refused before routing** (external audit of 2026-11-03,
+  D0-2). A version probe answered like a random sibling was judged ENFORCED (`VERSION_ABSENT`) even when that
+  shared answer was a refusal of the request itself: crAPI's identity service answers 401 to every path, so its v1
+  and v3 probes proved nothing. Such a probe is now `NOT_VERIFIABLE/REFUSED_BEFORE_ROUTING`, as the undeclared
+  methods already were. Checked on the labs, 0.1 alone: crAPI's versions go from 6 ENFORCED ("complete") to 4
+  ENFORCED and 2 not verifiable ("partial"); Forgejo is unchanged.
+- **A cited record missing from the evidence, and a configuration read without its defaults** (external audit of
+  2026-11-03, CORE-2 and CORE-3). Test 1.7's two enumeration findings cite the answer for the account that does not
+  exist as their support, and that record was never stored, so `evidence.json` lacked it on every lab (rule 6); it is
+  now pinned before it is cited, and 1.7's findings resolve completely. The APISIX adapter, unable to read a
+  plugin's or an upstream's schema, carried on with an empty one, so a signing policy, a breaker or a health check
+  read as configured but without the defaults APISIX applies; such a concept is now "not accessible". Checked on the
+  APISIX lab with the plugin-schema address pointed nowhere in scratch copies: 3.3 reported PASS on the incomplete
+  configuration before and "not verifiable: no access to request signing policies" after; with the schemas readable,
+  3.3 and 4.3 are unchanged.
+
+- **Two ways a secret could reach the outputs** (external audit of 2026-11-03, D1-1 and PIPE-3). Test 1.2's three
+  degraded tokens each keep parts of the genuine one (the tampered token its signature, the unsigned one its
+  payload), so together they rebuild it. In `Authorization` the whole value is always redacted, which is why the
+  labs never showed it; but with the credential in a header of its own or a query parameter they were written in
+  clear. Each variant is now registered as a secret before it is sent, so it is redacted wherever it travels, and the
+  evidence names it (`[REDACTED: user_a token, ALG_NONE variant]`), which also makes the three variants
+  distinguishable. And test 7.4's `signing_secret` was not marked as a secret, so a literal value was copied to
+  `config_used.yaml`; it now becomes a variable name with the instruction to export it, as passwords do. Checked:
+  a variant in an `X-API-Key` header, in clear before and redacted after; crAPI's 1.2 FAIL unchanged with no
+  JWT-shaped string left in its outputs; a literal secret in a scratch configuration, in clear before and a
+  placeholder after.
+
+- **One unexpected error ended the whole run with no report** (external audit of 2026-11-03, PIPE-1 and CORE-1; a
+  regression from v0.1.0). A test must return its result and never raise, but 16 tests catch only the tool's own
+  errors and the engine had no guard around them, so anything else ended the run with exit 10, no report, and every
+  verdict already reached lost. The likeliest trigger was in the HTTP client itself: of `httpx`'s request errors only
+  six were handled, so a connection reset escaped as a raw `httpx.ReadError`, with no record. Every request error is
+  now reported as the tool's own error with its record (`transport_error: protocol_error` for a reset), and the
+  engine turns any error a test lets through into that test's ERROR and carries on. Proven without touching a lab:
+  a local server resetting every connection gave a raw `ReadError` before and the client's error with record
+  `check_001` after; and with an error injected into a scratch copy of test 0.3, the committed engine ended the run
+  with "no security verdict" and no report, losing 0.2's FAIL, while the new one marked 0.3 ERROR, kept 0.2's FAIL
+  and wrote both reports.
+
+- **`ext.3.1.schemathesis` tested nothing on Forgejo and turned crAPI's outage into findings** (external audit of
+  2026-11-03, findings EXT-1 to EXT-4). Schemathesis takes the base path from its `--base-url` and drops the
+  specification's own, so on both Forgejo labs every generated request went to `/<path>` instead of
+  `/api/v1/<path>`, answered `404`, and the test reported PASS: with Schemathesis limited to `GET`, all 241
+  operations answered only `4xx` before and 142 after (the rest are reached; those 142 need a credential). The base
+  URL now carries the specification's base path, kept on the discovered surface (`AttackSurface.base_path`, empty
+  when there is none). On crAPI, 24 of the 27 failures were Kong's `503` once its health check had marked the
+  backend unhealthy, each a FIRM finding: a failure whose only quoted statuses are `502`, `503` or `504` is now
+  `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`. Schemathesis generated valid data only (its default), so the
+  `negative_data_rejection` check the documentation describes never ran; it now generates both
+  (`--data-generation-method all`). Its report's errored and skipped operations were counted as passes; they are now
+  `OPERATION_NOT_CHECKED`, and "input validated" needs at least one operation checked. **Changed results**: crAPI
+  3 findings instead of 20 (two `500`s on `check-otp`, one response outside crAPI's schema); Forgejo still PASS,
+  now on requests that reach the API, in 45 s instead of 26.
+
 - **What a code review of this review's own changes found** (2026-11-03). The uncommitted changes were reviewed
   for correctness; of ten findings, seven held and were fixed, one did not hold and two were left on purpose. Fixed:
   6.2's new CORS verdict counted "no usable answer" as "origin not allowed" (a probe that failed or met a `429`

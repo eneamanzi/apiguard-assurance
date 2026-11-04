@@ -72,9 +72,10 @@ can occur depends on the gateway (section 10).
 
 ## 7. Outcomes
 
-SKIP without a gateway adapter, when the gateway has no such concept, when the Admin API cannot be read, or when no
-backend is registered. FAIL on any violation, one finding each. PASS otherwise, always with `coverage: complete`:
-every field read is judged, so this test has no not-verifiable case.
+SKIP without a gateway adapter, when the gateway has no such concept, or when no backend is registered.
+INCONCLUSIVE when the Admin API cannot be read: `CONCEPT_NOT_ACCESSIBLE` on every sub-test (until 2026-11-04 a
+SKIP, external audit CORE-6). FAIL on any violation, one finding each. PASS otherwise, always with `coverage:
+complete`: every field read is judged, so a run that read the timeouts has no not-verifiable case.
 
 ## 8. Findings
 

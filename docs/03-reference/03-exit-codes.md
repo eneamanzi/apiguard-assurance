@@ -9,10 +9,10 @@
 
 | Code | Label | Meaning |
 |---|---|---|
-| `0` | CLEAN | No test returned FAIL, ERROR or INCONCLUSIVE: no violation detected (a SKIP verifies nothing). |
+| `0` | CLEAN | No test returned FAIL, ERROR or INCONCLUSIVE, and at least one test ran: no violation detected (a SKIP verifies nothing). |
 | `1` | FAIL | At least one security guarantee is violated. |
 | `2` | USAGE | Invalid invocation: the assessment did not start. |
-| `3` | ERROR | At least one verification did not complete (a test returned ERROR or INCONCLUSIVE) and no test returned FAIL; an ERROR result may carry findings. |
+| `3` | ERROR | At least one verification did not complete (a test returned ERROR or INCONCLUSIVE, or every test returned SKIP) and no test returned FAIL; an ERROR result may carry findings. |
 | `10` | INFRA | The assessment did not run or did not complete: no security verdict. |
 | `130` | INTERRUPTED | Stopped by Ctrl+C: teardown removes the resources created on the target, no report. |
 | `143` | TERMINATED | Stopped by SIGTERM: teardown removes the resources created on the target, no report. |
@@ -27,7 +27,8 @@ A run never ends `0` without running at least one test. `130` and `143`: [stoppi
 (`kill`, `docker stop`, a CI timeout or a calling program sends SIGTERM).
 
 **Precedence:** FAIL > ERROR > CLEAN. A single FAIL yields `1` regardless of how many ERRORs occurred.
-SKIP never affects the exit code.
+A SKIP never affects the exit code, except in a run whose every test was SKIP: nothing was verified, so it exits `3`
+(owner decision 2026-11-04, external audit PIPE-4; it exited `0` before).
 
 **Exit 10 means no security verdict.** Phases 1-4 are blocking; when one fails, no test has run and the
 output files are not produced. Never treat `10` as "clean".

@@ -5,7 +5,8 @@
 > `src/core/gateway/apisix.py`, `src/core/gateway/__init__.py` (`GATEWAY_ADAPTERS`), `src/engine.py` (Phase 3) ·
 > **Verified:** 2026-10-12
 
-A gateway adapter gives the WHITE_BOX audit tests read-only access to the gateway's configuration. Tests use it as
+A gateway adapter gives the tests read-only access to the gateway's configuration: the WHITE_BOX audits that need it,
+and the tests that use it when a gateway is configured (0.1, 0.2, 4.1, 4.4, 6.4). Tests use it as
 `target.gateway` (`None` when no adapter is configured) and never see the gateway's own objects: they read
 **neutral concepts**, and the adapter translates. Design and field mappings: [gateway
 concepts](../../04-architecture/05-design-decisions.md#d7-neutral-gateway-concepts).
@@ -20,6 +21,7 @@ concepts](../../04-architecture/05-design-decisions.md#d7-neutral-gateway-concep
 | `circuit_breakers()` | `_read_circuit_breakers()` | `CircuitBreaker` | 4.3 |
 | `config_values()` | `_read_config_values()` | `ConfigValue` | 4.1, 4.4, 5.1, 6.4 |
 | `health_checks()` | `_read_health_checks()` | `HealthCheck` | 4.3 |
+| `log_shipping()` | `_read_log_shipping()` | `LogShipper` | 5.1 |
 | `routes()` | `_read_routes()` | `GatewayRoute` | 0.1, 0.2 |
 | `signing_policies()` | `_read_signing_policies()` | `SigningPolicy` | 3.3 |
 | `target_health()` | `_read_target_health()` | `TargetHealth` | 0.4 |
@@ -27,7 +29,9 @@ concepts](../../04-architecture/05-design-decisions.md#d7-neutral-gateway-concep
 <!-- [[[end]]] -->
 
 The tests use them as: 4.3 `target_health()` for observability, 3.3 `routes()` for coverage, 6.4 `config_values()` in
-sub-test B.
+sub-test B. In `TargetHealth`, fill `resolved` with the addresses the gateway states it resolved a target name to,
+when it gives them apart from the name (Kong's health endpoint does, under `data.addresses`): test 0.4 asks them
+when the name does not resolve where the tool runs.
 
 Plus the property `adapter_name` (short lowercase id, e.g. `"kong"`).
 
@@ -159,8 +163,8 @@ certificate (`admin_api_mtls`) and the key.
 3. Run the WHITE_BOX audits only (`execution.test_ids: ["3.3", "4.2", "4.3", "6.4"]`): no SKIP with "Gateway
    adapter not configured"; findings reflect the real configuration and point to the stored concepts
    (`evidence_ref`).
-4. Make the interface unreachable (or remove its credential): the audits SKIP with "Not verifiable: no access to
-   ...", 6.4 adds a note.
+4. Make the interface unreachable (or remove its credential): the audits are INCONCLUSIVE with
+   `CONCEPT_NOT_ACCESSIBLE` and a note "No access to ...", 6.4 adds a note.
 
 ## See also
 

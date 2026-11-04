@@ -351,6 +351,18 @@ class ConfigValue(BaseModel):
     )
 
 
+class LogShipper(BaseModel):
+    """A plugin that ships request logs to a system apart from the gateway."""
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    scope: ConceptScope = Field(description="GLOBAL, BACKEND or ROUTE.")
+    name: str = Field(min_length=1, description="Backend or route name; 'global' for GLOBAL.")
+    plugin: str = Field(min_length=1, description="The gateway's own name for the plugin.")
+    enabled: bool = Field(description="Whether the plugin is active.")
+    source: str = Field(min_length=1, description=_SOURCE_DESCRIPTION)
+
+
 class HealthCounters(BaseModel):
     """Successes and failures a gateway has observed for one target."""
 
@@ -369,6 +381,13 @@ class TargetHealth(BaseModel):
 
     backend: str = Field(min_length=1, description="Backend name.")
     target: str = Field(min_length=1, description="Target address, e.g. 'forgejo:3000'.")
+    resolved: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "The addresses the gateway states it resolved the target to, 'ip:port' ('[ip]:port' "
+            "for IPv6), when it gives them apart from the target (Kong); empty otherwise."
+        ),
+    )
     state: TargetState = Field(description="Current state.")
     counters: HealthCounters | None = Field(
         description="Observed counters, when the gateway gives them."

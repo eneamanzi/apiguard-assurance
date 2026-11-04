@@ -119,7 +119,11 @@ class EvidenceRecord(BaseModel):
         )
     )
     request_url: str = Field(
-        description="Full URL. For a tool output: `external://{test_id}/{label}`."
+        description=(
+            "Full URL, with the query parameters the tool added (a credential placed in the "
+            "query), each value already redacted and the query not encoded. For a tool output: "
+            "`external://{test_id}/{label}`."
+        )
     )
     request_headers: dict[str, str] = Field(
         default_factory=dict,
@@ -325,7 +329,12 @@ class TransactionSummary(BaseModel):
     )
     timestamp_utc: datetime = Field(description="Dispatch time.")
     request_method: str = Field(description="HTTP method of the request.")
-    request_url: str = Field(description=("Full URL of the request."))
+    request_url: str = Field(
+        description=(
+            "Full URL of the request, with the query parameters the tool added, redacted (as in "
+            "`evidence.json`)."
+        )
+    )
     response_status_code: int | None = Field(
         description="HTTP status of the response; null when no response arrived."
     )

@@ -434,7 +434,9 @@ class ExecutionConfig(BaseModel):
         ],
         description=(
             "Tests, native and external, whose strategy is not listed are excluded (ignored "
-            "when `test_ids` is set). Not empty."
+            "when `test_ids` is set). Not empty. It selects tests and is not an access "
+            "boundary: a selected test still uses the gateway or the admin account when the "
+            "configuration gives them (leave them out to keep a run away from them)."
         ),
     )
     fail_fast: bool = Field(

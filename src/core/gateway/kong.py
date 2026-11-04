@@ -45,6 +45,7 @@ from src.core.gateway.concepts import (
     ConfigValueKind,
     GatewayRoute,
     HealthCheck,
+    LogShipper,
     PassiveCheck,
     RouteMatch,
     RoutePath,
@@ -77,6 +78,10 @@ _KONG_TARGET_STATES: dict[str, TargetState] = {
 # kong/plugins/hmac-auth/schema.lua). Kong requires clock_skew > 0 (gt = 0), so
 # a Kong policy always has a replay window.
 _SIGNING_PLUGINS: frozenset[str] = frozenset({"hmac-auth"})
+# The bundled plugins that send request logs over the network (Kong 3.9.0,
+# kong/constants.lua, read 2026-11-04). file-log writes a file and syslog the
+# syslog of the gateway's own host: not a separate system (ASVS v5.0.0-16.4.3).
+_LOG_SHIPPING_PLUGINS: frozenset[str] = frozenset({"http-log", "tcp-log", "udp-log", "loggly"})
 _SIGNING_FIELD_ALGORITHMS: str = "algorithms"
 _SIGNING_FIELD_REPLAY_WINDOW: str = "clock_skew"
 _SIGNING_FIELD_BODY: str = "validate_request_body"
@@ -217,6 +222,7 @@ class KongGatewayAdapter(BaseGatewayAdapter):
                     TargetHealth(
                         backend=name,
                         target=str(target.get("target", "")),
+                        resolved=_resolved_addresses(target),
                         state=_KONG_TARGET_STATES.get(
                             str(target.get("health", "")), TargetState.UNKNOWN
                         ),
@@ -303,6 +309,25 @@ class KongGatewayAdapter(BaseGatewayAdapter):
                 )
             )
         return ConceptRead[SigningPolicy].read(tuple(items))
+
+    def _read_log_shipping(self) -> ConceptRead[LogShipper]:
+        """Map every log-shipping plugin (_LOG_SHIPPING_PLUGINS)."""
+        items: list[LogShipper] = []
+        for plugin in self._fetch_paginated(_PATH_PLUGINS):
+            name = str(plugin.get("name", "")).lower()
+            if name not in _LOG_SHIPPING_PLUGINS:
+                continue
+            scope, owner = self._plugin_scope(plugin)
+            items.append(
+                LogShipper(
+                    scope=scope,
+                    name=owner,
+                    plugin=name,
+                    enabled=bool(plugin.get("enabled", False)),
+                    source=f"plugin {plugin.get('name')} (id: {plugin.get('id', '<unknown>')})",
+                )
+            )
+        return ConceptRead[LogShipper].read(tuple(items))
 
     def _read_config_values(self) -> ConceptRead[ConfigValue]:
         """Collect the Service addresses and every text value of the plugin configurations."""
@@ -484,3 +509,30 @@ def _first_number(config: dict[str, Any], fields: tuple[str, ...]) -> int | None
         return int(float(str(config[field])))
     except (ValueError, TypeError):
         return None
+
+
+def _resolved_addresses(target: dict[str, Any]) -> tuple[str, ...]:
+    """
+    The addresses Kong states it resolved a target to (its health endpoint).
+
+    Kong's /upstreams/{name}/health gives each target as written
+    ("forgejo:3000") and, under data.addresses, the IP and port it resolved it
+    to (measured on the Forgejo lab 2026-11-04: 172.22.0.3, 3000), which test 0.4
+    asks when the name does not resolve where the tool runs (owner decision
+    2026-11-04, audit CORE-8).
+
+    Args:
+        target: One entry of the health endpoint's data.
+
+    Returns:
+        "ip:port" per address ("[ip]:port" for IPv6), in Kong's order.
+    """
+    data = target.get("data")
+    addresses = data.get("addresses") if isinstance(data, dict) else None
+    resolved: list[str] = []
+    for address in addresses if isinstance(addresses, list) else []:
+        if not isinstance(address, dict) or not address.get("ip") or not address.get("port"):
+            continue
+        ip, port = str(address["ip"]), address["port"]
+        resolved.append(f"[{ip}]:{port}" if ":" in ip else f"{ip}:{port}")
+    return tuple(resolved)

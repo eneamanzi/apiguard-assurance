@@ -15,7 +15,7 @@
 | Priority / strategy | P2 / BLACK_BOX |
 | Effect | READ_ONLY |
 | CWE | CWE-319 |
-| Standards | `OWASP API2:2023`, `OWASP API8:2023`, `RFC 9110, Section 4.2.2`, `NIST SP 800-52r2`, `OWASP ASVS v5.0.0-3.4.1`, `OWASP ASVS v5.0.0-12.2.1` |
+| Standards | `OWASP API2:2023`, `OWASP API8:2023`, `RFC 9110, Section 4.2.2`, `NIST SP 800-52r2`, `OWASP ASVS v5.0.0-3.4.1`, `OWASP ASVS v5.0.0-12.2.1`, `OWASP ASVS v5.0.0-4.1.2` |
 | Tags | `transport-security`, `tls`, `hsts` |
 | Prerequisites | none |
 | Needs | - |
@@ -29,11 +29,14 @@ versions, cipher suites, certificate, known TLS CVEs); this test covers the HTTP
 ## 1. Guarantee
 
 A credential never travels on an insecure channel. A target that keeps the guarantee forces every request onto
-TLS: the plain-HTTP listener refuses the request or permanently redirects it to HTTPS before it is processed, and
-every HTTPS response carries an HSTS header so a browser never tries plain HTTP again.
+TLS: nothing answers a plain-HTTP request to an API path, and every HTTPS response carries an HSTS header so a
+browser never tries plain HTTP again. A redirect to HTTPS is not enough on an API path: OWASP ASVS v5.0.0-4.1.2
+allows it only on endpoints meant for a browser, since the first request, with its credential, has already crossed
+in cleartext, and an API client that wrongly uses HTTP is never told and keeps doing it (owner decision 2026-11-04,
+external audit D1-4; until then a `301`/`308` to `https` counted as enforced).
 
-A PASS promises two things: a plain-HTTP request to a documented API path was refused or `301`/`308`-redirected to
-an `https` URL, and an HTTPS response carried a sound HSTS header. It promises nothing about the strength of the TLS
+A PASS promises two things: nothing answered a plain-HTTP request to a documented API path, and an HTTPS response
+carried a sound HSTS header. It promises nothing about the strength of the TLS
 handshake itself (protocols, ciphers, certificate): that is `ext.1.5.testssl`. The threat is a man in the middle on
 the network path who reads a credential sent in cleartext, or downgrades a connection a browser would otherwise keep
 on HTTPS. OWASP API2:2023 (the credential exposed) and API8:2023 (the configuration that exposes it); ASVS v5.0.0-3.4.1 (HSTS) and v5.0.0-12.2.1 (TLS on all connectivity).
@@ -75,7 +78,7 @@ Two read-only requests, both through the client so they are recorded:
 | Case | Outcome / detail | Confidence |
 |---|---|---|
 | no response over HTTP (refused, reset, unreachable) | `ENFORCED/HTTP_PORT_UNREACHABLE` | - |
-| `301`/`308` whose `Location` scheme is `https` | `ENFORCED/HTTP_REDIRECT_ENFORCED` | - |
+| `301`/`308` whose `Location` scheme is `https` | `VIOLATION/TRANSPARENT_REDIRECT` (ASVS v5.0.0-4.1.2) | CERTAIN |
 | `301`/`308` whose `Location` is not `https` | `VIOLATION/WEAK_REDIRECT` | CERTAIN |
 | a temporary redirect (`302`, `307`) | `VIOLATION/TEMPORARY_REDIRECT` | CERTAIN |
 | any `2xx` (served in cleartext) | `VIOLATION/HTTP_SERVED_CLEARTEXT` | CERTAIN |
@@ -95,7 +98,7 @@ Two read-only requests, both through the client so they are recorded:
 ## 7. Outcomes
 
 Never SKIP a reachable target (a plain-HTTP target is a FAIL, not a SKIP, so the worst state is not hidden). FAIL on
-any violation; PASS when the HTTP request is refused or redirected to HTTPS and the HSTS header is sound.
+any violation; PASS when nothing answers the HTTP request and the HSTS header is sound.
 
 ## 8. Findings
 
@@ -131,27 +134,30 @@ HTTPS on a non-standard port; a real deployment with HTTPS on 443 and HTTP on 80
 
 ## 12. Validation
 
-Runs of 2026-10-22:
+Runs of 2026-10-22; measured again on 2026-11-04 (1.5 alone) after the decision on redirects, with the same answers:
 
 | Lab | Status | Basis |
 |---|---|---|
-| Forgejo + Kong | **PASS** complete | HTTP `GET /api/v1/orgs` -> `301` to `https`; HTTPS `GET /api/v1/orgs` -> `200` with `max-age=31536000; includeSubDomains` |
-| crAPI + Kong | **PASS** complete | HTTP `GET /workshop/api/mechanic/` -> `301` to `https`; HTTPS -> `401` with a compliant HSTS header (HSTS is on every response) |
-| Forgejo + APISIX | **PASS** complete | HTTP `GET /api/v1/orgs` -> `301`; HTTPS -> `200` with a compliant HSTS header |
+| Forgejo + Kong | **FAIL**, 1 finding (PASS complete until 2026-11-04) | HTTP `GET /api/v1/orgs` -> `301` to `https`: `TRANSPARENT_REDIRECT`; HTTPS `GET /api/v1/orgs` -> `200` with `max-age=31536000; includeSubDomains` |
+| crAPI + Kong | **FAIL**, 1 finding (PASS complete until 2026-11-04) | HTTP `GET /workshop/api/mechanic/` -> `301` to `https`: `TRANSPARENT_REDIRECT`; HTTPS -> `401` with a compliant HSTS header (HSTS is on every response) |
+| Forgejo + APISIX | **FAIL**, 1 finding (PASS complete until 2026-11-04) | HTTP `GET /api/v1/orgs` -> `301`: `TRANSPARENT_REDIRECT`; HTTPS -> `200` with a compliant HSTS header |
+
+The labs' gateways redirect on purpose (their HTTP listeners are configured to): the finding is what a production
+API configured the same way would get.
 
 **The weakness-present side (rule 9), by tool configuration, no gateway change.**
 
 - `PLAIN_HTTP`: with `base_url` set to the gateway's plain-HTTP listener (`http://localhost:8000`) and the
   specification kept on HTTPS, the test is **FAIL**, one finding "The API is served over plain HTTP". Reproduce by
   pointing `base_url` at the HTTP listener and `specification.url` at the HTTPS spec.
-- The redirect and HSTS violation branches (`HTTP_SERVED_CLEARTEXT`, `HSTS_MISSING`, ...) are the logic exercised on
-  a target that does not enforce TLS; the labs enforce it, so they are not seen on a lab. They need a gateway that
+- The other plain-HTTP and HSTS violation branches (`HTTP_SERVED_CLEARTEXT`, `HSTS_MISSING`, ...) are the logic
+  exercised on a target that does not enforce TLS; the labs enforce it, so they are not seen on a lab. They need a gateway that
   serves the API over HTTP or omits HSTS.
 
 ## 13. Remediation
 
-Configure the gateway to refuse plain HTTP or answer a `301`/`308` to the `https` URL before the request is
-processed, and to send `Strict-Transport-Security: max-age=31536000; includeSubDomains` on every HTTPS response
+Configure the gateway to refuse plain HTTP on API endpoints (no HTTP listener for them, or an error before the
+request is processed; a `301`/`308` to `https` only on endpoints meant for a browser, ASVS v5.0.0-4.1.2), and to send `Strict-Transport-Security: max-age=31536000; includeSubDomains` on every HTTPS response
 (RFC 9110 section 4.2.2, NIST SP 800-52 Rev.2, ASVS v5.0.0-3.4.1 and v5.0.0-12.2.1).
 
 ## 14. Limitations

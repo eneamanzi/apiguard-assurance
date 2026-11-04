@@ -8,12 +8,16 @@ gateway must do so that it is never carried in cleartext, each the subject of
 one sub-test:
 
     credential_forced_onto_tls  a plain-HTTP request to a documented API path
-                                is refused or permanently redirected to HTTPS
-                                before it is processed; any cleartext answer
-                                (served, a weak/temporary redirect, or an error
-                                that the server produced) is a VIOLATION, because
-                                the request with its credential crossed the
-                                cleartext channel. The path is derived from the
+                                is refused (nothing answers on HTTP); any
+                                answer is a VIOLATION, because the request with
+                                its credential crossed the cleartext channel. A
+                                redirect to HTTPS is one too (TRANSPARENT_REDIRECT):
+                                ASVS v5.0.0-4.1.2 lets only browser-facing
+                                endpoints redirect, since an API client that
+                                wrongly uses HTTP is then never told and keeps
+                                sending its credential in cleartext (owner
+                                decision 2026-11-04, audit D1-4; until then a
+                                301/308 to https was ENFORCED). The path is derived from the
                                 specification (where a credential actually
                                 travels), not `/`: a gateway redirects to HTTPS
                                 only on a path it has a route for, and answers
@@ -117,6 +121,10 @@ _REFERENCES: tuple[Reference, ...] = (
     Reference(standard=Standard.NIST_SP, id="800-52r2"),
     Reference(standard=Standard.ASVS, id="v5.0.0-3.4.1"),
     Reference(standard=Standard.ASVS, id="v5.0.0-12.2.1"),
+    # 4.1.2 (read on the source 2026-11-04): only user-facing endpoints
+    # redirect from HTTP to HTTPS; other endpoints implement no transparent
+    # redirect, so that a client sending cleartext requests is not hidden.
+    Reference(standard=Standard.ASVS, id="v5.0.0-4.1.2"),
 )
 
 
@@ -179,7 +187,7 @@ class Test15InsecureCredentialTransport(BaseTest[Test15Params]):
         store: EvidenceStore,
     ) -> TestResult:
         """
-        Probe the HTTP listener for a redirect, and an HTTPS response for HSTS.
+        Probe the HTTP listener (it should not answer), and an HTTPS response for HSTS.
 
         Args:
             target:  The run's target (base URL, surface, path seed).
@@ -326,8 +334,8 @@ class Test15InsecureCredentialTransport(BaseTest[Test15Params]):
         probe_path: str,
     ) -> None:
         """
-        Judge a plain-HTTP response: an https redirect enforces, anything else is
-        a cleartext exposure.
+        Judge a plain-HTTP response: any answer is a cleartext exposure, a
+        redirect to https included (ASVS v5.0.0-4.1.2).
 
         Args:
             headers:    The response headers (for the Location of a redirect).
@@ -340,7 +348,26 @@ class Test15InsecureCredentialTransport(BaseTest[Test15Params]):
         category = category_of(record)
         location = _header(headers, _LOCATION_HEADER)
         if status in _PERMANENT_REDIRECTS and location.lower().startswith("https://"):
-            self._judge(record, store, _SUB_TLS, Outcome.ENFORCED, "HTTP_REDIRECT_ENFORCED")
+            self._judge(
+                record,
+                store,
+                _SUB_TLS,
+                Outcome.VIOLATION,
+                "TRANSPARENT_REDIRECT",
+                Finding(
+                    title=f"API endpoint redirects plain HTTP to HTTPS: {origin}{probe_path}",
+                    detail=(
+                        f"A plain-HTTP GET to {origin}{probe_path} was redirected to HTTPS (HTTP "
+                        f"{status}). The request, with any credential it carried, had already "
+                        "crossed the network in cleartext, and a client that wrongly uses HTTP "
+                        "is never told: the redirect makes it work, so it keeps sending its "
+                        "credential in cleartext. OWASP ASVS v5.0.0-4.1.2 allows the redirect "
+                        "only on endpoints meant for a browser. Refuse plain HTTP on API "
+                        "endpoints (close the HTTP listener for them, or answer an error)."
+                    ),
+                    confidence=Confidence.CERTAIN,
+                ),
+            )
             return
         if category == ResponseCategory.REDIRECT:
             detail, why = (
@@ -369,9 +396,10 @@ class Test15InsecureCredentialTransport(BaseTest[Test15Params]):
                 detail=(
                     f"A plain-HTTP GET to {origin}{probe_path} {why}. A client sending its "
                     "credential to this URL transmits it in cleartext: a man in the middle reads "
-                    "or downgrades the connection. The gateway must refuse plain HTTP or answer a "
-                    "301/308 redirect to the `https` URL before the request is processed "
-                    "(RFC 9110 section 4.2.2, NIST SP 800-52 Rev.2)."
+                    "or downgrades the connection. Refuse plain HTTP on API endpoints (close the "
+                    "HTTP listener for them, or answer an error): a redirect, even to HTTPS, is "
+                    "allowed only on endpoints meant for a browser (OWASP ASVS v5.0.0-4.1.2, "
+                    "RFC 9110 section 4.2.2, NIST SP 800-52 Rev.2)."
                 ),
                 confidence=Confidence.CERTAIN,
             ),

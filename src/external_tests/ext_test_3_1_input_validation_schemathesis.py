@@ -37,6 +37,8 @@ Dependency rule:
 
 from __future__ import annotations
 
+import re
+
 import structlog
 
 from src.connectors.base import BaseConnector, ConnectorResult
@@ -60,6 +62,12 @@ _SUB: str = "input_validated"
 
 # How many failing operations to report as findings (the rest are summarised).
 _MAX_FINDINGS: int = 20
+
+# The statuses that mean the gateway could not reach the backend (RFC 9110:
+# 502 Bad Gateway, 503 Service Unavailable, 504 Gateway Timeout).
+_UNAVAILABLE_STATUSES: frozenset[str] = frozenset({"502", "503", "504"})
+# How Schemathesis quotes a response status in a failure message: "[503]".
+_QUOTED_STATUS: re.Pattern[str] = re.compile(r"\[(\d{3})\]")
 
 _REFERENCES: tuple[Reference, ...] = (
     Reference(standard=Standard.ASVS, id="v5.0.0-2.2.1"),
@@ -111,12 +119,18 @@ class ExtTest31InputValidationSchemathesis(ExternalToolTest):
         cfg = target.external_tools.schemathesis
         timeout_seconds: int = cfg.timeout_seconds  # type: ignore[assignment]
         assert isinstance(connector, SchemathesisConnector)
+        # Schemathesis takes its base path from the base URL and drops the
+        # specification's own (basePath '/api/v1' on Forgejo): without it every
+        # generated request missed the API and answered 404 (audit EXT-1).
+        surface = target.attack_surface
+        base_path = surface.base_path if surface is not None else ""
         return connector.run(
-            target_url=target_url,
+            target_url=target_url.rstrip("/") + base_path,
             timeout_seconds=timeout_seconds,
             schema_source=target.get_openapi_source(),
             ca_bundle=target.tls_ca_bundle,
             max_examples=cfg.max_examples,
+            request_timeout_seconds=cfg.request_timeout_seconds,
         )
 
     def _evaluate(self, result: ConnectorResult, run: ToolRun) -> TestResult:
@@ -131,10 +145,27 @@ class ExtTest31InputValidationSchemathesis(ExternalToolTest):
             self._finish(): ENFORCED when nothing failed, a VIOLATION per failing
             operation otherwise.
         """
-        failures: list[dict[str, str]] = result.raw_output.get("results", [])
+        reported: list[dict[str, str]] = result.raw_output.get("results", [])
+        unchecked: list[str] = result.raw_output.get("errored", [])
+        operations: int = result.raw_output.get("operations", 0)
+        # A failure quoting only 502/503/504 is the gateway reporting an
+        # unavailable backend, not the API failing to validate (rule 1): on crAPI
+        # 24 of 27 failures were Kong's 503 after its health check tripped.
+        unavailable = [f for f in reported if _only_unavailable(f.get("finding", ""))]
+        failures = [f for f in reported if f not in unavailable]
+        for _ in unavailable:
+            self._record(_SUB, Outcome.NOT_VERIFIABLE, "UPSTREAM_UNAVAILABLE")
+        for _ in unchecked:
+            self._record(_SUB, Outcome.NOT_VERIFIABLE, "OPERATION_NOT_CHECKED")
         if not failures:
+            checked = operations - len(unavailable) - len(unchecked)
+            if checked <= 0:
+                self._record(_SUB, Outcome.NOT_VERIFIABLE, "NOTHING_CHECKED")
+                return self._finish(message="Schemathesis checked no operation.")
             self._record(_SUB, Outcome.ENFORCED, "INPUT_VALIDATED")
-            return self._finish(message="Schemathesis found no unvalidated input.")
+            return self._finish(
+                message=f"Schemathesis found no unvalidated input in {checked} operation(s)."
+            )
         for failure in failures[:_MAX_FINDINGS]:
             operation = str(failure.get("id", "unknown operation"))
             detail = str(failure.get("finding", "a check failed")).replace("\n", " ")[:300]
@@ -165,3 +196,9 @@ class ExtTest31InputValidationSchemathesis(ExternalToolTest):
         return self._finish(
             message=f"Schemathesis flagged {len(failures)} operation(s) with unvalidated input."
         )
+
+
+def _only_unavailable(message: str) -> bool:
+    """Whether every status a failure message quotes is an unavailable backend."""
+    statuses = set(_QUOTED_STATUS.findall(message))
+    return bool(statuses) and statuses <= _UNAVAILABLE_STATUSES

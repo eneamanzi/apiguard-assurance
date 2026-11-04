@@ -73,6 +73,7 @@ from src.core.gateway.concepts import (
     GatewayRoute,
     HealthCheck,
     HealthCounters,
+    LogShipper,
     PassiveCheck,
     RouteMatch,
     RoutePath,
@@ -105,6 +106,29 @@ _ETCD_KEY_ROUTE: str = "/apisix/routes/{id}"
 _ETCD_KEY_SERVICE: str = "/apisix/services/{id}"
 
 _PLUGIN_SIGNING: str = "hmac-auth"
+# The plugins that send request logs over the network (APISIX 3.12,
+# conf/config.yaml.example, read 2026-11-04). file-logger writes on the gateway's
+# own host: not a separate system (ASVS v5.0.0-16.4.3). syslog sends to a
+# configured host.
+_LOG_SHIPPING_PLUGINS: frozenset[str] = frozenset(
+    {
+        "clickhouse-logger",
+        "elasticsearch-logger",
+        "google-cloud-logging",
+        "http-logger",
+        "kafka-logger",
+        "loggly",
+        "loki-logger",
+        "rocketmq-logger",
+        "skywalking-logger",
+        "sls-logger",
+        "splunk-hec-logging",
+        "syslog",
+        "tcp-logger",
+        "tencent-cloud-cls",
+        "udp-logger",
+    }
+)
 # hmac-auth checks the request's date only when clock_skew > 0
 # (apisix/plugins/hmac-auth.lua: "if conf.clock_skew and conf.clock_skew > 0");
 # 3.13.0 rejects 0 in its schema (minimum = 1), earlier versions allowed it.
@@ -321,6 +345,22 @@ class ApisixGatewayAdapter(BaseGatewayAdapter):
             )
         return ConceptRead[SigningPolicy].read(tuple(items))
 
+    def _read_log_shipping(self) -> ConceptRead[LogShipper]:
+        """Every instance in effect of a log-shipping plugin (_LOG_SHIPPING_PLUGINS)."""
+        items: list[LogShipper] = []
+        for plugin in sorted(_LOG_SHIPPING_PLUGINS):
+            for instance in self._plugin_instances(plugin):
+                items.append(
+                    LogShipper(
+                        scope=instance.scope,
+                        name=instance.name,
+                        plugin=plugin,
+                        enabled=instance.enabled,
+                        source=instance.source,
+                    )
+                )
+        return ConceptRead[LogShipper].read(tuple(items))
+
     def _read_config_values(self) -> ConceptRead[ConfigValue]:
         """Upstream node addresses, plugin configuration texts, consumer plugin texts."""
         items: list[ConfigValue] = []
@@ -385,7 +425,7 @@ class ApisixGatewayAdapter(BaseGatewayAdapter):
 
     @cached_property
     def _schemas(self) -> dict[str, dict[str, Any]]:
-        """Schemas already read (or found unreadable: empty) in this run, by path."""
+        """Schemas already read in this run, by path."""
         return {}
 
     def _collection(self, path: str) -> list[dict[str, Any]]:
@@ -418,13 +458,17 @@ class ApisixGatewayAdapter(BaseGatewayAdapter):
         return self._collections[path]
 
     def _schema(self, path: str) -> dict[str, Any]:
-        """Return a schema of the running APISIX, or {} when it cannot be read."""
+        """
+        Return a schema of the running APISIX.
+
+        Raises:
+            GatewayAdapterError: When it cannot be read. Without its schema a
+                configuration lacks the defaults APISIX applies, so a replay window
+                or a health check it does apply would read as absent: the concept
+                is then not accessible, never read without them.
+        """
         if path not in self._schemas:
-            try:
-                self._schemas[path] = self._get_json_object(f"{self._admin_url}{path}", path)
-            except GatewayAdapterError as exc:
-                log.warning("apisix_gateway_schema_not_read", path=path, reason=exc.message)
-                self._schemas[path] = {}
+            self._schemas[path] = self._get_json_object(f"{self._admin_url}{path}", path)
         return self._schemas[path]
 
     def _upstream_schema(self) -> dict[str, Any]:

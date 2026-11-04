@@ -10,18 +10,23 @@ ordinary user. The test probes every privileged operation with the user_a
 credential and expects a refusal; a 2xx is the violation (an authenticated but
 unprivileged user reached a function meant for an administrator).
 
-What counts as privileged is derived from the specification (the Phase-2 rule
-`privileged_endpoints`: a path with an `admin` or `management` segment), and the
-configuration adds or corrects. The old test took the list from the
+What counts as privileged is derived from the specification only (the Phase-2
+rule `privileged_endpoints`: a path with an `admin` or `management` segment); no
+configuration adds to the list (audit D235-17: the docs promised one, owner
+decision 2026-11-04 to state the limit instead). The old test took the list from the
 configuration and counted a `404` as enforced, which passed a wrong path; here a
 `404` is enforced only when the admin positive control proves the operation
 exists, otherwise it is NOT_VERIFIABLE.
 
-Only safe methods (GET, HEAD) of a derived privileged operation are sent: a
-destructive method on a candidate the configuration has not confirmed is not
-probed (rule 5). Where a privileged path documents a destructive method we did
-not probe, `method_not_confused` records that the method's authorization was
-not verified, so the coverage gap is visible rather than hidden.
+A refusal counts only when it differs from what the same request answers with
+a forged credential (a random value placed as the run's credential is):
+otherwise user_a's credential may simply not have been accepted (audit D235-8).
+
+Only safe methods (GET, HEAD) of a privileged operation are sent: a
+destructive method is never probed (rule 5). Where a privileged path documents
+a destructive method we did not probe, `method_not_confused` records that the
+method's authorization was not verified, so the coverage gap is visible rather
+than hidden.
 
 Sub-tests:
 
@@ -60,10 +65,10 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
-from src.core.references import Credential
+from src.core.references import Credential, random_token
 from src.core.test_metadata import Effect, Need, TestInfo
 from src.tests.base import BaseTest
-from src.tests.helpers.auth import auth_parts
+from src.tests.helpers.auth import auth_parts, credential_parts
 from src.tests.helpers.path_resolver import resolve_path_with_seed
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -77,9 +82,9 @@ _RULE_PRIVILEGED: str = "privileged_endpoints"
 _SUB_REFUSES: str = "privileged_function_refuses_user"
 _SUB_METHOD: str = "method_not_confused"
 
-# The methods probed on a derived privileged operation: the safe ones. A
-# destructive method (POST, PUT, PATCH, DELETE) on a candidate the configuration
-# has not confirmed is not sent (rule 5): it would change the target.
+# The methods probed on a privileged operation: the safe ones. A destructive
+# method (POST, PUT, PATCH, DELETE) is never sent (rule 5): it would change the
+# target.
 _SAFE_METHODS: frozenset[str] = frozenset({"GET", "HEAD"})
 
 # Categories that say nothing about the guarantee (rule 1).
@@ -94,6 +99,9 @@ _SPOILING: dict[ResponseCategory, str] = {
 _REFUSED: frozenset[ResponseCategory] = frozenset(
     {ResponseCategory.FORBIDDEN, ResponseCategory.UNAUTHENTICATED}
 )
+# What a forged credential's answer must be for the control to say something
+# (_credential_confirmed): a refusal, including a 404.
+_CONTROL_REFUSALS: frozenset[ResponseCategory] = _REFUSED | {ResponseCategory.NOT_FOUND}
 
 _REFERENCES: tuple[Reference, ...] = (
     # Read on the ASVS v5.0.0 source 2026-10-22: 8.1.1 (a documented and enforced
@@ -153,6 +161,7 @@ class Test21FunctionLevelAuthorization(BaseTest):
             if missing is not None:
                 return missing
             user_a = auth_parts(target, context, ROLE_USER_A)
+            forged = credential_parts(target, random_token())
             admin = self._admin_credential(target, context)
             privileged = self._privileged_operations(target)
             if not privileged:
@@ -171,7 +180,15 @@ class Test21FunctionLevelAuthorization(BaseTest):
                     continue
                 concrete = resolve_path_with_seed(path, target.path_seed)
                 verdict = self._probe(
-                    client, store, context, user_a, method, path, concrete, requires_auth, admin
+                    client,
+                    store,
+                    context,
+                    (user_a, forged),
+                    method,
+                    path,
+                    concrete,
+                    requires_auth,
+                    admin,
                 )
                 served.setdefault(path, {})[method] = verdict
             self._judge_methods(target, served)
@@ -230,7 +247,7 @@ class Test21FunctionLevelAuthorization(BaseTest):
         client: SecurityClient,
         store: EvidenceStore,
         context: TestContext,
-        user_a: RequestAuthParts,
+        credentials: tuple[RequestAuthParts, RequestAuthParts],
         method: str,
         template_path: str,
         concrete_path: str,
@@ -240,10 +257,15 @@ class Test21FunctionLevelAuthorization(BaseTest):
         """
         Probe one privileged operation with the user_a credential and judge it.
 
+        credentials is (user_a, forged): the forged one is a random value placed
+        as the run's credential is, sent only when user_a is refused
+        (_credential_confirmed).
+
         Returns:
             True when user_a was served (a violation or a public endpoint),
             False when refused, None when the probe could not decide.
         """
+        user_a, forged = credentials
         record = _send(client, method, concrete_path, user_a, self.info.id)
         if record is None:
             self._record(_SUB_REFUSES, Outcome.NOT_VERIFIABLE, "NO_RESPONSE")
@@ -256,6 +278,12 @@ class Test21FunctionLevelAuthorization(BaseTest):
             return self._served(
                 store, context, method, template_path, concrete_path, requires_auth, admin, record
             )
+        if category in _REFUSED or category == ResponseCategory.NOT_FOUND:
+            if not self._credential_confirmed(client, method, concrete_path, forged, category):
+                self._judge(
+                    record, store, _SUB_REFUSES, Outcome.NOT_VERIFIABLE, "CREDENTIAL_NOT_CONFIRMED"
+                )
+                return None
         if category in _REFUSED:
             self._judge(record, store, _SUB_REFUSES, Outcome.ENFORCED, "REFUSED")
             return False
@@ -264,6 +292,42 @@ class Test21FunctionLevelAuthorization(BaseTest):
         # A method not allowed, a redirect, an invalid request: no decision.
         self._judge(record, store, _SUB_REFUSES, Outcome.NOT_VERIFIABLE, category.name)
         return None
+
+    def _credential_confirmed(
+        self,
+        client: SecurityClient,
+        method: str,
+        path: str,
+        forged: RequestAuthParts,
+        category: ResponseCategory,
+    ) -> bool:
+        """
+        Whether user_a's refusal can be about the role, not about the credential.
+
+        Nothing else in the run proves that user_a's credential was accepted (a
+        static token is stored as configured, and may have expired: audit
+        D235-8). The same safe request is sent with a forged credential: a
+        refusal in the same category as its answer could be a credential not
+        accepted. When the forged credential is not refused, or gets no answer,
+        the control says nothing, and a 401 is then not taken as a refusal.
+
+        Args:
+            client:   The HTTP client.
+            method:   The (safe) method probed.
+            path:     The concrete path probed.
+            forged:   The forged credential's request parts.
+            category: The category of user_a's answer.
+
+        Returns:
+            True when the refusal can be counted.
+        """
+        record = _send(client, method, path, forged, self.info.id)
+        if record is not None:
+            self._step(record)
+        control = category_of(record) if record is not None else None
+        if control not in _CONTROL_REFUSALS:
+            return category != ResponseCategory.UNAUTHENTICATED
+        return category != control
 
     def _served(
         self,

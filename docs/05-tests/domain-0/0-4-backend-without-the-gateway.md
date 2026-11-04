@@ -35,7 +35,8 @@ enforced by that gateway. This can be mitigated with techniques like service-to-
 that applications only receive traffic via the centralized gateway".
 
 A PASS promises only what the vantage point allows: from the network this run started on, the backend addresses the
-gateway declares did not answer. It promises nothing about another network, and nothing about what a backend would
+gateway declares refused the connection. A refusal at the derived address alone (the target's host with the
+backend's port) is not enough for a PASS. It promises nothing about another network, and nothing about what a backend would
 answer once reached.
 
 ## 2. Sub-tests and coverage of the methodology
@@ -66,9 +67,12 @@ refuses us" and "we are not there to ask".
 1. one `GET` of the probe path through the gateway. The probe path is chosen by a stated rule: the shortest
    documented path with no parameters that the specification declares for `GET`, the alphabetically first among
    equals, so that two runs on one target ask the same path;
-2. for each backend, two candidate addresses:
+2. for each backend, the candidate addresses:
    - **the address the gateway declares** (Kong gives the name and port the operator configured, `forgejo:3000`;
      APISIX's Control API gives the node already resolved, `172.21.0.4:3000`),
+   - **the addresses the gateway states it resolved that name to**, declared as well (Kong's health endpoint gives
+     them apart from the name, `172.22.0.3:3000`; tried since 2026-11-04, owner decision on external audit CORE-8:
+     before, a name that does not resolve where the tool runs ended the attempt),
    - **the target's own host with that backend's port** (`localhost:8443` and `forgejo:3000` give
      `localhost:3000`): the common case of a backend whose port is published on the same machine as the gateway;
 3. each candidate is asked the probe path with no credential, over `http` and, if that attempt fails on TLS or on
@@ -85,7 +89,9 @@ other lab's gateway, not that backend.
 | answers, with the shape the gateway gives for the same path | either | `VIOLATION/BACKEND_ANSWERS_DIRECTLY` | CERTAIN: the same application answered without the gateway |
 | answers something else over HTTP, or opens a connection whose answer cannot be read | the declared address | `VIOLATION/ADDRESS_ANSWERS_DIRECTLY` | FIRM: something is listening where the gateway says the backend is |
 | the same | the derived host and port | `NOT_APPLICABLE/ANOTHER_SERVICE` | - |
-| resolves, connection refused or timed out | either | `ENFORCED/BACKEND_UNREACHABLE` | - |
+| resolves, connection refused or timed out | the declared address | `ENFORCED/BACKEND_UNREACHABLE` | - |
+| the same | the derived host and port, after the declared address refused too | `ENFORCED/BACKEND_UNREACHABLE` | - |
+| the same | the derived host and port, when the declared address did not refuse (it does not resolve, or it answered) | `NOT_VERIFIABLE/DERIVED_REFUSAL_ONLY`: the port is not published on the gateway's host, which does not show the backend out of reach | - |
 | the name does not resolve | either | `NOT_VERIFIABLE/ADDRESS_NOT_RESOLVABLE`: the tool is not on that network, which proves nothing | - |
 | the address has no port | either | `NOT_VERIFIABLE/ADDRESS_WITHOUT_PORT` | - |
 | the gateway gives no address | - | `NOT_VERIFIABLE/NO_BACKEND_ADDRESS`, `ADDRESSES_NOT_READABLE`; `NOT_APPLICABLE/ADDRESSES_NOT_READABLE` when the gateway has no such concept | - |
@@ -126,20 +132,22 @@ its backend somewhere neither candidate reaches, the parameter is added then.
 
 ## 12. Validation
 
-Runs of 2026-10-22, the three tests of the group together:
+Runs of 2026-10-22, the three tests of the group together; measured again on 2026-11-04 (0.4 alone), after the
+correction of the external audit (D0-3):
 
 | Lab | Status | Basis |
 |---|---|---|
-| Forgejo + APISIX | FAIL, 1 finding, CERTAIN | the Control API declares the node `172.21.0.4:3000`, which answers the probe path `200` with the same shape APISIX gives for it: the same Forgejo, without the gateway. The derived `localhost:3000` refuses the connection |
-| Forgejo + Kong | PASS partial: 1 enforced, 1 not verifiable | Kong declares `forgejo:3000`, a name that does not resolve from the host (nothing proven); the derived `localhost:3000` resolves and refuses the connection |
-| crAPI + Kong | PASS partial: 2 enforced, 3 not verifiable, 1 not applicable | the three service names do not resolve; the derived `localhost:8080` and `localhost:8087` refuse; `localhost:8000` answers, but with the other lab's gateway, so it is counted `ANOTHER_SERVICE` and not as a finding |
+| Forgejo + APISIX | FAIL, 1 finding, CERTAIN | the Control API declares the node `172.21.0.4:3000`, which answers the probe path `200` with the same shape APISIX gives for it: the same Forgejo, without the gateway. The derived `localhost:3000` refuses the connection, `DERIVED_REFUSAL_ONLY` |
+| Forgejo + Kong | FAIL, 1 finding, CERTAIN | Kong declares `forgejo:3000`, a name that does not resolve from the host, and states it resolved it to `172.22.0.3:3000`, which answers the probe path `200` with the shape Kong gives: the same Forgejo, without the gateway. The derived `localhost:3000` refuses, `DERIVED_REFUSAL_ONLY`. A PASS until 2026-11-04 on that refusal alone (external audit D0-3, CORE-8) |
+| crAPI + Kong | FAIL, 3 findings | the three service names do not resolve; at the addresses Kong resolved them to, the workshop (`172.23.0.8:8000`) answers like the gateway (CERTAIN), identity (`172.23.0.6:8080`) and community (`172.23.0.7:8087`) answer the workshop's path with their own `401`/`404` (FIRM: something listens where the gateway says the backend is). The derived `localhost:8080` and `localhost:8087` refuse, `DERIVED_REFUSAL_ONLY`; `localhost:8000` answers with the other lab's gateway, `ANOTHER_SERVICE`. A PASS until 2026-11-04 |
 | any | VIOLATION at FIRM | an HTTP answer at the declared address that is not the application: not on the labs |
 
 The same measurement from inside the lab network answers `200` on `http://forgejo:3000`, so the isolation is a
 property of the network the request starts from, which is why the verdict names its vantage point.
 
 **What each branch has been seen doing** (rule 9). Proven on a lab: `BACKEND_ANSWERS_DIRECTLY`,
-`BACKEND_UNREACHABLE`, `ADDRESS_NOT_RESOLVABLE`, `ANOTHER_SERVICE`. Still unproven:
+`ADDRESS_NOT_RESOLVABLE`, `ANOTHER_SERVICE`, `DERIVED_REFUSAL_ONLY`, and `BACKEND_UNREACHABLE` before 2026-11-04 (on
+derived addresses, which no longer give it alone). Still unproven:
 `ADDRESS_ANSWERS_DIRECTLY`, `ADDRESS_WITHOUT_PORT`, `NO_BACKEND_ADDRESS`, `ADDRESSES_NOT_READABLE`,
 `NO_PROBE_PATH`, `TARGET_NOT_ANSWERING`.
 
@@ -152,11 +160,11 @@ authorization rule), and have the backend authenticate the gateway rather than t
 
 - The verdict holds for the network the run started on, and the message says so. A backend unreachable from here may
   be reachable from inside the infrastructure.
-- Two candidates per backend are tried; a backend published on another host or another port is not found.
-- A hostname is tried as the gateway states it (`forgejo:3000`). Kong's health endpoint also reports the IP it
-  resolved, which the adapter does not keep, so a name that does not resolve from where the tool runs is
-  `NOT_VERIFIABLE/ADDRESS_NOT_RESOLVABLE` and not retried by IP (an internal container IP is usually unreachable
-  from outside anyway).
+- The declared and resolved addresses and one derived address are tried per backend; a backend published on another
+  host or another port is not found.
+- A hostname is tried as the gateway states it (`forgejo:3000`) and at the addresses the gateway states it resolved
+  it to, when the gateway gives them (Kong does); a gateway that gives only a name that does not resolve where the
+  tool runs leaves that backend `NOT_VERIFIABLE/ADDRESS_NOT_RESOLVABLE`.
 - At a port of the target's host another service may be listening: such an answer is reported as another service,
   not as the backend.
 - A timeout counts as unreachable (`ENFORCED/BACKEND_UNREACHABLE`), because the transport vocabulary has a single

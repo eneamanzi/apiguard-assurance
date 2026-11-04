@@ -67,9 +67,10 @@ passes it the tests' parameter models). `core/`, `connectors/`, `tests/` and `ex
 Checked automatically by `lint-imports` in `hatch run dev:check` (`[tool.importlinter]` in `pyproject.toml`).
 
 **Gateway adapter pattern:**
-WHITE_BOX tests access the gateway admin plane via `target.gateway` (a `BaseGatewayAdapter`
-injected by engine.py Phase 3). Tests declare `needs=(Need.GATEWAY,)` in their `TestInfo`: without a gateway the
-engine records them as SKIP before they run.
+Tests access the gateway admin plane via `target.gateway` (a `BaseGatewayAdapter`
+injected by engine.py Phase 3). The WHITE_BOX audits declare `needs=(Need.GATEWAY,)` in their `TestInfo`: without a
+gateway the engine records them as SKIP before they run; others (0.1, 0.2, 4.1, 4.4, 6.4) declare it in
+`optional_needs` and use it when configured. The strategy is not an access boundary (assessment model).
 The ABC and all concrete implementations live in `src/core/gateway/` (currently: `KongGatewayAdapter`,
 `ApisixGatewayAdapter`).
 The adapter type is configured via `gateway.adapter` (`kong` or `apisix`) in `config.yaml`, with the Admin API in

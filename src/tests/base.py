@@ -55,9 +55,12 @@ from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.gateway.concepts import ConceptRead, ConceptStatus
-from src.core.models import TestResult
+from src.core.models import InfoNote, Outcome, TestResult
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
+
+# The detail of a sub-test whose gateway concept exists but could not be read.
+_CONCEPT_NOT_ACCESSIBLE: str = "CONCEPT_NOT_ACCESSIBLE"
 
 # Label prefix of the evidence artifact of a gateway concept read by a test
 # (e.g. "gateway_backend_timeouts").
@@ -159,19 +162,23 @@ class BaseTest(AssessmentTest[ParamsT]):
         label = _GATEWAY_CONCEPT_LABEL_PREFIX + concept.replace(" ", "_")
         return store.pin_artifact(label, payload)
 
-    def _skip_for_concept(
+    def _unread_concept(
         self,
         concept: str,
         answer: ConceptRead[Any],
         evidence_ref: str,
     ) -> TestResult:
         """
-        Return the SKIP of a test that cannot judge a gateway concept.
+        Return the result of a test that cannot judge a gateway concept.
 
         Called when the adapter answered "not supported" or "not accessible"
-        for a concept the test needs (owner decision, block 7+8): the reason
-        says which, so that "not applicable to this gateway" and "not
-        verifiable" stay distinguishable in the report.
+        for a concept the test needs. A concept the gateway does not have is
+        nothing to apply: SKIP, "Not applicable to this gateway". A concept it
+        has but that could not be read is a check the run was asked for and
+        could not make: every declared sub-test is NOT_VERIFIABLE
+        (CONCEPT_NOT_ACCESSIBLE), so the test is INCONCLUSIVE and the run's exit
+        code says so (owner decision 2026-11-04, audit CORE-6: until then it was
+        a SKIP here and NOT_VERIFIABLE in other tests).
 
         Args:
             concept:      The concept's name (CONCEPT_* constant).
@@ -179,11 +186,21 @@ class BaseTest(AssessmentTest[ParamsT]):
             evidence_ref: Evidence record of the answer (_record_gateway_concept).
 
         Returns:
-            TestResult(status=SKIP) with the reason.
+            TestResult(status=SKIP) for a concept not supported, else the
+            INCONCLUSIVE result with a note giving the reason.
         """
         why = (answer.reason or "").rstrip(". ")
         if answer.status == ConceptStatus.NOT_SUPPORTED:
             reason = f"Not applicable to this gateway: {concept}: {why}."
-        else:
-            reason = f"Not verifiable: no access to {concept}: {why}."
-        return self._skip(reason=f"{reason} Evidence: {evidence_ref}.")
+            return self._skip(reason=f"{reason} Evidence: {evidence_ref}.")
+        for sub_test in self.info.sub_tests:
+            self._record(sub_test, Outcome.NOT_VERIFIABLE, _CONCEPT_NOT_ACCESSIBLE)
+        return self._finish(
+            notes=[
+                InfoNote(
+                    title=f"Gateway {concept} not readable",
+                    detail=f"No access to {concept}: {why}. Evidence: {evidence_ref}.",
+                )
+            ],
+            message=f"no access to {concept}",
+        )

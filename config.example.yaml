@@ -436,4 +436,6 @@ external_tools:
     # expected_version: "3.39.16"
     # Hypothesis examples generated per operation (low keeps the run bounded).
     max_examples: 5
+    # Seconds Schemathesis waits for each generated request; a slower one counts as failed.
+    request_timeout_seconds: 5
     dev_mode: false

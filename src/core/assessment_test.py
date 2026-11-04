@@ -416,6 +416,7 @@ class AssessmentTest(ABC, Generic[ParamsT]):
                 enforced=tally.enforced,
                 not_applicable=tally.not_applicable,
                 not_verifiable_reasons=tally.not_verifiable_reasons,
+                essential=name in self.info.essential_sub_tests,
             )
             for name, tally in self._tally.items()
         ]

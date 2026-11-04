@@ -51,8 +51,12 @@ the same as test 2.2). For mass assignment the create body is extended with a st
 
 ## 4. Preconditions and reference responses
 
-user_a is required. The object is created and read back as user_a. A sensitive field is judged by its name; a mass
-assignment by reading the object back and finding a unique sentinel, so the verdict rests on the response itself.
+user_a is required. The object is created and read back as user_a. A sensitive field is judged by its name and its
+value. A short marker (`pwd`, `hash`, `ssn`, `cvv`, `salt`) must be a whole word of the name (`user_ssn` matches,
+`classname` does not); a longer one may be part of it, separators ignored (`passwordhash`, `accessToken`,
+`API-Key`). As for the value, a null, empty or masked one (mask characters with at most four in clear, as `XXXXXXXXXXXX0796`) discloses
+nothing. A mass assignment is judged by reading the object back and finding a unique sentinel, so the verdict rests on
+the response itself; it needs the read-back to show at least one of the injected field names.
 
 ## 5. Probes
 
@@ -66,16 +70,18 @@ sentinel was kept. Both objects are deleted. CHANGES_DATA.
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| a field whose name is sensitive is in the response | `VIOLATION/SENSITIVE_FIELD` | FIRM (the name is a heuristic) |
-| no sensitive field | `ENFORCED/NO_SENSITIVE_FIELD` | - |
+| a field whose name is sensitive is in the response with a value that discloses something | `VIOLATION/SENSITIVE_FIELD` | FIRM (the name is a heuristic) |
+| no sensitive field, or only with a null, empty or masked value | `ENFORCED/NO_SENSITIVE_FIELD` | - |
 | the object could not be read, or the read was not served (`2xx`) | `NOT_VERIFIABLE/OBJECT_NOT_READABLE` | - |
 
 **`mass_assignment`**
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
+| the prepared resource's create body is not a JSON object: the fields cannot be injected | `NOT_VERIFIABLE/FIELDS_NOT_INJECTED` | - |
+| the object read back shows none of the injected field names: whether they were bound cannot be seen | `NOT_VERIFIABLE/FIELDS_NOT_EXPOSED` | - |
 | an injected sentinel was kept in the object | `VIOLATION/MASS_ASSIGNMENT` | CERTAIN (the unique sentinel was read back) |
-| no sentinel kept | `ENFORCED/NO_MASS_ASSIGNMENT` | - |
+| an injected field name is shown, and no sentinel kept | `ENFORCED/NO_MASS_ASSIGNMENT` | - |
 | the object could not be read, or the read was not served (`2xx`) | `NOT_VERIFIABLE/OBJECT_NOT_READABLE` | - |
 
 When the prepared resource does not create the object, neither sub-test has anything to judge and both record
@@ -117,16 +123,21 @@ Section [`tests.domain_2.test_2_5`](../../03-reference/01-configuration.md#tests
 
 ## 12. Validation
 
-Runs of 2026-10-23:
+Runs of 2026-10-23; the rows were measured again on 2026-11-04 (2.5 alone), after the corrections of the external
+audit:
 
 | Lab | Status | Basis |
 |---|---|---|
-| Forgejo + Kong, Forgejo + APISIX | **PASS** | the repo response carries no sensitive field; a repo created with injected `role`/`owner`/... sentinels keeps none of them |
-| crAPI + Kong | **FAIL**, 1 finding | the order response carries **`card_number`** (excessive data exposure, a real crAPI weakness); the injected sentinels are not kept (`mass_assignment` ENFORCED) |
+| Forgejo + Kong, Forgejo + APISIX | **PASS** | the repo response carries no sensitive field; a repo created with injected `role`/`owner`/... sentinels shows `owner` (the real owner, not the sentinel) and keeps none of them |
+| crAPI + Kong | **PASS** partial | the order response carries `card_number`, masked (`XXXXXXXXXXXX0796`, shown to its own owner): no exposure. The order shows none of the injected field names (its owner is `user`), so `mass_assignment` is `FIELDS_NOT_EXPOSED` |
 
-Rule 9: `no_sensitive_field` is proven on both sides, VIOLATION on crAPI (the order's `card_number`) and ENFORCED on
-Forgejo. `mass_assignment` is ENFORCED on both labs; its VIOLATION branch is not present on these objects (its
-matcher was exercised by the false-positive fix below). A self-review caught and fixed that false positive: a boolean
+Until 2026-11-04 crAPI was reported FAIL on that masked number, and `mass_assignment` ENFORCED on an order that
+shows none of the injected fields: both corrected (external audit D235-4, D235-6).
+
+Rule 9: `no_sensitive_field` is proven ENFORCED on both labs; its VIOLATION branch was seen on crAPI only through
+the masked number, now excluded, so it is unproven on a lab. `mass_assignment` is ENFORCED on Forgejo and
+`FIELDS_NOT_EXPOSED` on crAPI; its VIOLATION branch is not present on these objects (its matcher was exercised by
+the false-positive fix below), and `FIELDS_NOT_INJECTED` is not reached by the labs' resources. A self-review caught and fixed that false positive: a boolean
 sentinel matched the repo's legitimate `permissions.admin: true`; the matcher now accepts a string sentinel only.
 
 ## 13. Remediation

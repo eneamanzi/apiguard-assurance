@@ -466,6 +466,16 @@ class SecurityClient:
             )
         target_url = f"{origin}{path}" if origin else path
         display_url = f"{origin or self._base_url}{path}"
+        if params:
+            # The query belongs to what was asked (a credential placed in the
+            # query, test 1.1's malformed ones): the record showed the path only
+            # (audit D1-5). Each value is redacted before it is written, and the
+            # query is not encoded, so that a registered secret is matched as it
+            # is: an encoded token would escape the redaction.
+            shown = "&".join(
+                f"{name}={self._secrets.redact(str(value))}" for name, value in params.items()
+            )
+            display_url = f"{display_url}{'&' if '?' in path else '?'}{shown}"
 
         record_id = self._next_record_id(test_id)
         timestamp = datetime.now(UTC)
@@ -715,6 +725,21 @@ class SecurityClient:
                     "idempotent (RFC 9110 section 9.2.2) and the request may already have been "
                     "applied on the target."
                 ),
+                method=method,
+                url=display_url,
+                status_code=None,
+                attempt_count=attempt_count,
+                record=failed_record(transport_error_of(exc)),
+            ) from exc
+        except httpx.RequestError as exc:
+            # Every other failure of the request itself (a connection reset is a
+            # ReadError, then WriteError, CloseError, LocalProtocolError,
+            # ProxyError, UnsupportedProtocol, a body that cannot be decoded):
+            # not retried, and reported with its record like the failures above
+            # instead of escaping raw, which a test would not catch (rule 4).
+            bound_log.error("security_client_request_failed", error=str(exc))
+            raise SecurityClientError(
+                message=f"HTTP {method} {path} failed: {exc}",
                 method=method,
                 url=display_url,
                 status_code=None,

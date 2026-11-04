@@ -10,13 +10,15 @@ skipped. NIST SP 800-228 section 4.1 says it: a gateway at the perimeter "can
 be bypassed (e.g., via an attacker pivoting inside the perimeter), which in
 turn bypasses the policy checks that are enforced by that gateway".
 
-One sub-test, backend_addresses. For every backend the gateway declares, two
+One sub-test, backend_addresses. For every backend the gateway declares, these
 candidate addresses are tried:
 
     the declared address      what the operator configured, as the gateway
                               states it (Kong gives a name and a port,
                               "forgejo:3000"; APISIX's Control API gives the
-                              node already resolved, "172.21.0.4:3000");
+                              node already resolved, "172.21.0.4:3000"), and
+                              the addresses the gateway states it resolved it
+                              to (Kong, "172.22.0.3:3000"), declared as well;
     the target's own host      with that backend's port ("localhost:8443" and
     with the backend's port   "forgejo:3000" give "localhost:3000"): the common
                               case of a backend whose port is published on the
@@ -184,8 +186,9 @@ class Test04BackendWithoutTheGateway(BaseTest):
             if not candidates:
                 self._record(_SUB_ADDRESSES, Outcome.NOT_VERIFIABLE, "NO_BACKEND_ADDRESS")
                 return self._finish()
+            refused: set[str] = set()
             for candidate in candidates:
-                self._try(client, store, candidate, probe_path, through)
+                self._try(client, store, candidate, (probe_path, through), refused)
             return self._finish()
         except SecurityClientError as exc:
             return self._error(exc)
@@ -258,16 +261,26 @@ class Test04BackendWithoutTheGateway(BaseTest):
                 self._record(_SUB_ADDRESSES, Outcome.NOT_VERIFIABLE, "ADDRESS_WITHOUT_PORT")
                 continue
             host, port = parsed
-            for candidate_host, declared in ((host, True), (own_host, False)):
+            # The addresses the gateway states it resolved the target to (Kong
+            # gives the name and, apart, its IP) are declared too: the gateway
+            # says the backend is there (owner decision 2026-11-04, audit
+            # CORE-8). They come before the derived address, which is judged
+            # against the declared ones (_judge_candidate).
+            resolved = [r for r in (_host_port(a) for a in item.resolved) if r is not None]
+            options = [(host, port, True), *((h, p, True) for h, p in resolved)]
+            options.append((own_host, port, False))
+            for candidate_host, candidate_port, declared in options:
                 if not candidate_host:
                     continue
-                if (candidate_host, port) == (own_host, own_port):
+                if (candidate_host, candidate_port) == (own_host, own_port):
                     # The target itself: that is the gateway, not a way around it.
                     continue
-                if (candidate_host, port) in seen:
+                if (candidate_host, candidate_port) in seen:
                     continue
-                seen.add((candidate_host, port))
-                candidates.append(Candidate(item.backend, candidate_host, port, declared=declared))
+                seen.add((candidate_host, candidate_port))
+                candidates.append(
+                    Candidate(item.backend, candidate_host, candidate_port, declared=declared)
+                )
         return candidates
 
     # ------------------------------------------------------------------
@@ -279,19 +292,22 @@ class Test04BackendWithoutTheGateway(BaseTest):
         client: SecurityClient,
         store: EvidenceStore,
         candidate: Candidate,
-        probe_path: str,
-        through: EvidenceRecord,
+        probe: tuple[str, EvidenceRecord],
+        refused: set[str],
     ) -> None:
         """
         Resolve a candidate address, ask it the probe path and judge the answer.
 
         Args:
-            client:     The run's HTTP client.
-            store:      The evidence store.
-            candidate:  The address to try.
-            probe_path: The documented path asked.
-            through:    What the same path answered through the gateway.
+            client:    The run's HTTP client.
+            store:     The evidence store.
+            candidate: The address to try.
+            probe:     The documented path asked, and what it answered through
+                       the gateway.
+            refused:   The backends whose declared address refused the
+                       connection; filled here (_judge_candidate).
         """
+        probe_path, through = probe
         if not _resolves(candidate.host, candidate.port):
             self._record(_SUB_ADDRESSES, Outcome.NOT_VERIFIABLE, "ADDRESS_NOT_RESOLVABLE")
             log.info(
@@ -317,7 +333,7 @@ class Test04BackendWithoutTheGateway(BaseTest):
         if record is None:
             self._record(_SUB_ADDRESSES, Outcome.NOT_VERIFIABLE, "NO_ATTEMPT")
             return
-        self._judge_candidate(store, candidate, record, through)
+        self._judge_candidate(store, candidate, record, through, refused)
 
     def _judge_candidate(
         self,
@@ -325,18 +341,39 @@ class Test04BackendWithoutTheGateway(BaseTest):
         candidate: Candidate,
         record: EvidenceRecord,
         through: EvidenceRecord,
+        refused: set[str],
     ) -> None:
         """
         Say what one candidate's answer means for the guarantee.
+
+        A refusal at the derived address (the target's host with the backend's
+        port) counts only when the declared address refused too: alone it says
+        the port is not published on the gateway's host, not that the backend
+        is out of reach (audit D0-3: on the Kong labs the declared names do not
+        resolve from the run host, the backends answer there, and 0.4 was PASS
+        on the derived refusals alone).
 
         Args:
             store:     The evidence store.
             candidate: The address tried.
             record:    Its answer, or the record of the failed attempt.
             through:   What the same path answered through the gateway.
+            refused:   The backends whose declared address refused; the
+                       declared candidates come first (_candidates).
         """
         failure = record.transport_error
         if failure in _UNREACHABLE:
+            if candidate.declared:
+                refused.add(candidate.backend)
+            elif candidate.backend not in refused:
+                self._judge(
+                    record,
+                    store,
+                    _SUB_ADDRESSES,
+                    Outcome.NOT_VERIFIABLE,
+                    "DERIVED_REFUSAL_ONLY",
+                )
+                return
             self._judge(record, store, _SUB_ADDRESSES, Outcome.ENFORCED, "BACKEND_UNREACHABLE")
             return
         if failure is not None and candidate.declared:

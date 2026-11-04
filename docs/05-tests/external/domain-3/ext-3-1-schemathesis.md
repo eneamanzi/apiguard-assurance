@@ -54,21 +54,27 @@ Schemathesis must be installed (else SKIP). No reference responses: the tool's o
 
 ## 5. Probes
 
-`schemathesis run <spec> --base-url <base> --checks not_a_server_error,negative_data_rejection,response_schema_conformance`
-generates requests per operation (bounded by `max_examples`), unauthenticated. Effect `STRESSES_TARGET` (many
+`schemathesis run <spec> --base-url <base><base path> --data-generation-method all --checks not_a_server_error,negative_data_rejection,response_schema_conformance`
+generates valid and invalid requests per operation (bounded by `max_examples`), unauthenticated. The base URL
+carries the specification's own base path (Forgejo's `/api/v1`), because Schemathesis takes the base path from the
+base URL and drops the one in the specification. Effect `STRESSES_TARGET` (many
 generated requests), run last. Unauthenticated: the write requests it generates are refused, so nothing is created.
 
 ## 6. Oracle (`input_validated`)
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| no operation fails a check | `ENFORCED/INPUT_VALIDATED` | - |
+| no operation fails a check, and at least one was checked | `ENFORCED/INPUT_VALIDATED` | - |
 | an operation fails a check (500 on a bad input, invalid input accepted, non-conformant response) | `VIOLATION/INPUT_NOT_VALIDATED` (one per operation, up to 20 reported) | FIRM (the tool observed it) |
+| an operation's only failure is an unavailable backend (the failure quotes only `502`, `503` or `504`) | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`, no finding | - |
+| Schemathesis reports an operation as errored or skipped | `NOT_VERIFIABLE/OPERATION_NOT_CHECKED` | - |
+| no operation was checked at all | `NOT_VERIFIABLE/NOTHING_CHECKED` | - |
 | the tool could not connect / timed out | ERROR (the base class handles it) | - |
 
 ## 7. Outcomes
 
-SKIP without Schemathesis. FAIL on any failing operation; PASS when every generated input is handled.
+SKIP without Schemathesis. FAIL on any failing operation; PASS when at least one operation was checked and none
+failed (`partial` when some could not be judged); INCONCLUSIVE when nothing could be checked.
 
 ## 8. Findings
 
@@ -95,15 +101,23 @@ cases per operation, default 5).
 
 ## 12. Validation
 
-Runs of 2026-10-23:
+Runs of 2026-11-04:
 
 | Lab | Status | Basis |
 |---|---|---|
-| crAPI + Kong | **FAIL**, 20 findings | e.g. `POST /identity/api/auth/v3/check-otp` returns 500 on a generated input (a leaked exception, not a clean 400); real validation/error-handling gaps |
-| Forgejo + Kong, Forgejo + APISIX | **PASS** | no operation returns a 500 or accepts an invalid input; generated invalid inputs are rejected |
+| crAPI + Kong | **FAIL**, 3 findings | `POST /identity/api/auth/v2/check-otp` and `/v3/check-otp` answer `500` on a generated input (a leaked exception), and `GET /workshop/api/shop/orders/{order_id}` answers outside crAPI's own schema. 15 more operations answered only `503`: `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
+| Forgejo + Kong | **PASS** | 469 operations listed, none failing with valid or invalid data |
+| Forgejo + Kong, a second run the same day, same configuration | **FAIL**, 1 finding | `GET /api/v1/users/search` answered `200` to an input Schemathesis generated as invalid (`negative_data_rejection`, "Accepted negative data"): the inputs are generated at random on every run, so this one was not drawn in the first |
 
-Rule 9, both sides proven agnostically: VIOLATION on crAPI (real 500s), ENFORCED on Forgejo. Fast (crAPI 4.7 s,
-Forgejo 12.6 s at `max_examples` 1-2).
+**What these runs corrected** (an external audit, 2026-11-03). On both Forgejo labs the base URL lacked `/api/v1`,
+so every generated request missed the API: measured with Schemathesis limited to `GET`, all 241 operations answered
+only `4xx` before the fix and 142 after it (the rest are reached; the 142 need a credential this unauthenticated
+test does not carry). The test reported PASS throughout. On crAPI, 24 of the 27 failures of 2026-11-03 were Kong's
+`503` once its health check had marked the backend unhealthy, each reported as a finding; and only valid data was
+generated, so `negative_data_rejection` never had an invalid request to judge.
+
+Rule 9: VIOLATION on crAPI (real `500`s), ENFORCED on Forgejo, `UPSTREAM_UNAVAILABLE` on crAPI. Not seen:
+`OPERATION_NOT_CHECKED` and `NOTHING_CHECKED`.
 
 ## 13. Remediation
 
@@ -112,6 +126,11 @@ a bad input, and never a 500 (CWE-20, ASVS v5.0.0-2.2.1, NIST SP 800-53r5 SI-10)
 
 ## 14. Limitations
 
+- **The inputs are generated at random on every run** (Hypothesis), so the same target and configuration can give
+  different findings from one run to the next: on 2026-11-04 Forgejo + Kong gave PASS, then one finding on
+  `GET /api/v1/users/search`. A finding is a real request the target answered (its reproduction is in the
+  artifact); a PASS says only that the inputs drawn in that run were all handled. Raising `max_examples` draws more.
+- Each generated request is given `request_timeout_seconds` (default 5) to answer; a slower one counts as failed.
 - Unauthenticated, and it stays so (2026-10-27): the validation of authenticated-only operations, and of write
   bodies, is never exercised, so a validation gap behind the credential is not seen. Deep injection confirmation
   (sqlmap, NoSQLMap, Dalfox, commix) is not planned either.

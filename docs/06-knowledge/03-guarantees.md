@@ -409,8 +409,9 @@ It promises nothing about password strength, nothing about what an error disclos
 
 **Test logic.** Compare a failed authentication for an account that exists with one for an account that cannot, by
 the answer (bodies, with the submitted name masked) and by response time; a stable difference in either discloses
-existence. Then send failed attempts up to the bound (NIST SP 800-63B: no more than 100) and check they are slowed,
-blocked or answered `429`. The concrete oracle and thresholds are on the test page.
+existence. Then send failed attempts up to the bound (101: one past the 100 consecutive failures NIST SP 800-63B-4 §3.2.2
+allows on one account, a per-account rule; against an account that cannot exist what is measured is a per-caller
+limit, ASVS v5.0.0-6.3.1) and check they are slowed, blocked or answered `429`. The concrete oracle and thresholds are on the test page.
 
 ---
 

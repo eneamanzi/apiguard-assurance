@@ -37,6 +37,13 @@ A WHITE_BOX test reaches that access either through the API's administrator acco
 API; which test needs which is in [test portability](../03-reference/06-compatibility.md#test-portability), generated
 from the declarations. The tests by strategy and priority are in the table under [Priorities](#priorities).
 
+**The strategy is what a test needs at least, not a boundary on what it uses** (owner decision 2026-11-04,
+external audit DOCS-8). A test also uses what the configuration gives it as an optional need: five BLACK_BOX tests
+(0.1, 0.2, 4.1, 4.4, 6.4) read the gateway's Admin API when a gateway is configured, and 2.1 (GREY_BOX) uses the
+admin account when it is given. So `execution.strategies: [BLACK_BOX]` selects tests, and does not keep a run away
+from the Admin API or the admin account: to do that, leave the `gateway` section or the admin credentials out of the
+configuration.
+
 ## Priorities
 
 A guarantee's priority says how important it is: how serious a violation is for an API in general (the criterion,
@@ -135,7 +142,11 @@ a verified case PASS, a not-verifiable case INCONCLUSIVE). A PASS is bounded by 
 `coverage`, `COMPLETE` only when every declared sub-test verified something and `PARTIAL` as soon as one judged
 nothing (`SKIP`) or could not decide (`INCONCLUSIVE`), and each test page lists the methodology sub-tests that are
 not implemented and the test's known limitations. A skipped sub-test lowers the coverage on purpose: calling such a
-run complete would promise the reader a check that was never made.
+run complete would promise the reader a check that was never made. A test may declare some sub-tests **essential**
+(`essential_sub_tests`, carried as `essential` on each sub-test's result so that the status stays recomputable from
+the result): without a violation, when none of them passed the test is `INCONCLUSIVE`, since a PASS would suggest
+that what the test is mainly about was seen enforced. Test 7.2 declares its cloud-metadata and private-IP classes:
+payloads rejected only for being malformed do not make it a PASS (owner decision 2026-11-04).
 
 **Finding vs InfoNote.** A Finding is a violation, with references (the standard and its identifier: OWASP, ASVS, WSTG, NIST, RFC; by
 default the test's) and, for an HTTP probe, an

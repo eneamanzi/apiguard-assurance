@@ -79,6 +79,7 @@ from src.core.gateway.concepts import (
     ConfigValueKind,
     GatewayRoute,
     HealthCheck,
+    LogShipper,
     SigningPolicy,
     TargetHealth,
 )
@@ -100,6 +101,7 @@ CONCEPT_SIGNING_POLICIES: str = "request signing policies"
 CONCEPT_ROUTES: str = "routes"
 CONCEPT_CONFIG_VALUES: str = "configuration values"
 CONCEPT_TARGET_HEALTH: str = "live target health"
+CONCEPT_LOG_SHIPPING: str = "log shipping"
 
 # Interfaces of a gateway, for error messages: name and the setting holding its address.
 ADMIN_API_INTERFACE: tuple[str, str] = ("Admin API", "gateway.admin.url")
@@ -123,6 +125,7 @@ ItemT = TypeVar(
     GatewayRoute,
     ConfigValue,
     TargetHealth,
+    LogShipper,
 )
 
 # ---------------------------------------------------------------------------
@@ -286,6 +289,10 @@ class BaseGatewayAdapter(ABC):
         """Return the live health of each target of each backend."""
         return self._read_once(CONCEPT_TARGET_HEALTH, TargetHealth, self._read_target_health)
 
+    def log_shipping(self) -> ConceptRead[LogShipper]:
+        """Return the plugins that ship request logs to a system apart from the gateway."""
+        return self._read_once(CONCEPT_LOG_SHIPPING, LogShipper, self._read_log_shipping)
+
     # ------------------------------------------------------------------
     # Neutral concepts: adapter-specific reads (override the ones served)
     # ------------------------------------------------------------------
@@ -317,6 +324,17 @@ class BaseGatewayAdapter(ABC):
     def _read_target_health(self) -> ConceptRead[TargetHealth]:
         """Read the live target health; default: not supported by this adapter."""
         return ConceptRead[TargetHealth].not_supported(self._not_read(CONCEPT_TARGET_HEALTH))
+
+    def _read_log_shipping(self) -> ConceptRead[LogShipper]:
+        """
+        Read the log-shipping plugins; default: not supported by this adapter.
+
+        Which of its plugins send request logs over the network is the
+        adapter's knowledge (a plugin writing on the gateway's own host does
+        not count): test 5.1 only asks (audit D235-2, owner decision
+        2026-11-04).
+        """
+        return ConceptRead[LogShipper].not_supported(self._not_read(CONCEPT_LOG_SHIPPING))
 
     # ------------------------------------------------------------------
     # Neutral concepts: helpers

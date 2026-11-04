@@ -44,7 +44,7 @@ The version policy of `tool_version`: [compatibility](06-compatibility.md#interf
 | `record_id` | string | Unique ID. HTTP records: `{test_id}_{NNN}` (e.g. `1.1_005`), a counter per test. Tool outputs: `artifact-{test_id}-{label}-{HHMMSSffffff}`. |
 | `timestamp_utc` | string, ISO 8601 UTC | When the request was dispatched. |
 | `request_method` | string | HTTP method, uppercase. For a tool output: its label uppercased, the external test's ID (e.g. `EXT.0.1.NUCLEI`). |
-| `request_url` | string | Full URL. For a tool output: `external://{test_id}/{label}`. |
+| `request_url` | string | Full URL, with the query parameters the tool added (a credential placed in the query), each value already redacted and the query not encoded. For a tool output: `external://{test_id}/{label}`. |
 | `request_headers` | object | Lowercase header names; `authorization`, cookie values and the registered secrets replaced with typed placeholders (see Sensitive data below). |
 | `request_body` | string \| null | The JSON body as sent, with the registered secrets replaced; null when the request carried no JSON body. |
 | `response_status_code` | int \| null | HTTP status; `0` for a tool output; null when no response arrived (`transport_error` says why). |

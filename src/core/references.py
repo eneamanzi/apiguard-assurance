@@ -536,7 +536,8 @@ class ReferenceResponses:
         point = self.calibration(pattern, record.request_method, credential)
         if not point.reliable or point.fingerprint is None:
             return Similarity.UNRELIABLE
-        path = "/" + record.request_url.split("://", 1)[-1].split("/", 1)[-1]
+        address = record.request_url.split("://", 1)[-1].split("/", 1)[-1]
+        path = "/" + address.split("?", 1)[0]
         same = fingerprint_of(record, _random_positions(pattern, path)) == point.fingerprint
         return Similarity.SAME_AS_UNKNOWN if same else Similarity.DIFFERENT
 

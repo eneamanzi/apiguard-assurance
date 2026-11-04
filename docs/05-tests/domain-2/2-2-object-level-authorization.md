@@ -54,9 +54,17 @@ user_a and user_b are required. The object is created as user_a and user_a is co
 positive control): without that a user_b refusal says nothing, so the sub-test is NOT_VERIFIABLE. The violation is
 proven by contrast (user_a owns the object, user_b does not).
 
+A refusal is evidence only if user_b's credential was accepted, and nothing else in the run proves that (a static
+token is stored as configured, and may have expired). So the object's read is also sent with a forged credential, a
+random value placed as the run's credential is: when the target refuses it (401, 403, 404), a user_b refusal in the
+same category could be a credential not accepted and is not counted. When the read does not refuse a forged
+credential (crAPI serves its orders without checking one), the control says nothing, and a 401 to user_b is then not
+counted as a refusal either.
+
 ## 5. Probes
 
-Create the object as user_a; confirm user_a reads it; user_b reads it; user_b modifies it (and user_a re-reads to
+Create the object as user_a; read it with a forged credential (the control above); confirm user_a reads it; user_b
+reads it; user_b modifies it (and user_a re-reads to
 confirm); user_b deletes it (last, it may remove the object); delete the object as user_a. CHANGES_DATA: the object
 is user_a's own, created and destroyed within the run.
 
@@ -65,7 +73,9 @@ is user_a's own, created and destroyed within the run.
 | Case | Outcome / detail | Confidence |
 |---|---|---|
 | user_b served (2xx) user_a's object | `VIOLATION/BOLA_READ` \| `BOLA_MODIFY` \| `BOLA_DELETE` | CERTAIN (proven by contrast) |
-| user_b refused | `ENFORCED/REFUSED` | - |
+| user_b refused (401, 403, 404), unlike the forged credential | `ENFORCED/REFUSED` | - |
+| user_b refused in the same category as the forged credential, or 401 when the control says nothing: user_b's credential may not have been accepted | `NOT_VERIFIABLE/CREDENTIAL_NOT_CONFIRMED` | - |
+| any other answer (400 or 422 from body validation, 405, a redirect): not a refusal of the user | `NOT_VERIFIABLE/NOT_A_REFUSAL` | - |
 | user_a not served its own object | `NOT_VERIFIABLE/OWNER_NOT_SERVED` | - |
 | no read / modify / delete operation on the object | `NOT_APPLICABLE/NO_*_OPERATION` | - |
 | the prepared resource did not create the object (on crAPI, a worn lab answers `400 Insufficient Balance`) | `NOT_VERIFIABLE/OBJECT_NOT_CREATED` | - |
@@ -105,16 +115,19 @@ Section [`tests.domain_2.test_2_2`](../../03-reference/01-configuration.md#tests
 
 ## 12. Validation
 
-Runs of 2026-10-23:
+Runs of 2026-10-23; measured again on 2026-11-04 (2.2 alone), after the corrections of the external audit (D235-7,
+D235-8), with the same verdicts:
 
 | Lab | Status | Basis |
 |---|---|---|
-| Forgejo + Kong, Forgejo + APISIX | **PASS** | user_a creates a private repo (the `repository` resource); user_b is refused the read (403), the modify (404) and the delete (404); the repo is deleted (204) |
-| crAPI + Kong | **FAIL**, 1 finding | user_a creates a shop order (the `order` resource); user_b **reads it (GET /workshop/api/shop/orders/7 -> 200): a real BOLA**; the modify is refused (PUT -> 403, crAPI checks ownership on write but not on read); delete is NOT_APPLICABLE (crAPI has no order delete) |
+| Forgejo + Kong, Forgejo + APISIX | **PASS** | user_a creates a private repo (the `repository` resource); user_b is refused the read, the modify and the delete (404 each), while the forged credential gets 401: user_b's credential was accepted; the repo is deleted (204) |
+| crAPI + Kong | **FAIL**, 1 finding | user_a creates a shop order (the `order` resource); user_b **reads it (GET /workshop/api/shop/orders/7 -> 200): a real BOLA**; the modify is refused (PUT -> 403, crAPI checks ownership on write but not on read); delete is NOT_APPLICABLE (crAPI has no order delete). The order's read is served even to the forged credential (crAPI checks no credential there, test 1.1's finding), so the control says nothing and the 403 on the modify counts as a refusal because it is not a 401 |
+| crAPI + Kong, user_b's token invalid (scratch configuration, `static_token`, 2026-11-04) | **FAIL**, 1 finding | the read is still served; the modify answers `401 "Invalid JWT Token!"`: `CREDENTIAL_NOT_CONFIRMED`, where the test reported ENFORCED before the correction |
 
 Rule 9, both sides proven: VIOLATION on crAPI (`cross_user_read` BOLA on an order), ENFORCED on Forgejo (and on
 crAPI's `cross_user_modify`). crAPI shows a real asymmetry: the read drops the ownership check while the write keeps
-it. `cross_user_delete` is NOT_APPLICABLE where the object type has no delete operation.
+it. `cross_user_delete` is NOT_APPLICABLE where the object type has no delete operation. `CREDENTIAL_NOT_CONFIRMED`
+is proven with an invalid user_b token; `NOT_A_REFUSAL` is not reached by the labs.
 
 ## 13. Remediation
 

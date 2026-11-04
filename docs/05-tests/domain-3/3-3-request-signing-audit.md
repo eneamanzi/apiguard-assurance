@@ -69,7 +69,8 @@ None: a configuration audit. Every **enabled** policy is audited (not only the f
 | Case | Outcome / detail | Confidence |
 |---|---|---|
 | a window within the maximum | `ENFORCED/REPLAY_BOUNDED` | - |
-| no window stated | `VIOLATION/REPLAY_UNBOUNDED` | CERTAIN |
+| the gateway states that the request's date is not checked at all (APISIX `clock_skew` 0) | `VIOLATION/REPLAY_UNBOUNDED` | CERTAIN |
+| the gateway states no window (until 2026-11-04 read as unbounded, CERTAIN: external audit D235-14) | `NOT_VERIFIABLE/REPLAY_WINDOW_NOT_STATED` | - |
 | a window above the maximum | `VIOLATION/REPLAY_WINDOW_TOO_LARGE` | CERTAIN |
 
 No enabled policy -> both sub-tests `NOT_APPLICABLE/NO_SIGNING`, with a note (an advanced control absent, a gap to
@@ -77,7 +78,8 @@ assess against the threat model, not a failure).
 
 ## 7. Outcomes
 
-SKIP when the signing policies cannot be read. NOT_APPLICABLE (PASS-neutral) when no policy is configured. FAIL on a
+SKIP when the gateway has no signing policies to read (not supported); INCONCLUSIVE, `CONCEPT_NOT_ACCESSIBLE` on
+both sub-tests, when it has them but they cannot be read (until 2026-11-04 a SKIP, external audit CORE-6). NOT_APPLICABLE (PASS-neutral) when no policy is configured. FAIL on a
 weak algorithm or an unbounded/too-large replay window; PASS when every enabled policy is strong and bounded.
 
 ## 8. Findings

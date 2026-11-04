@@ -52,8 +52,13 @@ _CHECKS: str = "not_a_server_error,negative_data_rejection,response_schema_confo
 # else is an execution error.
 _SUCCESS_EXIT_CODES: frozenset[int] = frozenset({0, 1})
 
-# How long one generated request may take before Schemathesis gives up on it.
-_REQUEST_TIMEOUT_MS: int = 5000
+# Schemathesis takes the request timeout in milliseconds; the configuration
+# gives it in seconds (external_tools.schemathesis.request_timeout_seconds).
+_MS_PER_SECOND: int = 1000
+_DEFAULT_REQUEST_TIMEOUT_SECONDS: int = 5
+# Valid and invalid data: the default ('positive') generates valid data only, so
+# the negative_data_rejection check never had an invalid request to judge.
+_DATA_GENERATION_METHOD: str = "all"
 
 
 class SchemathesisConnector(BaseSubprocessConnector):
@@ -71,6 +76,7 @@ class SchemathesisConnector(BaseSubprocessConnector):
         schema_source: str = "",
         ca_bundle: Path | None = None,
         max_examples: int = 5,
+        request_timeout_seconds: int = _DEFAULT_REQUEST_TIMEOUT_SECONDS,
     ) -> ConnectorResult:
         """
         Run Schemathesis against the specification and return the failing operations.
@@ -81,6 +87,7 @@ class SchemathesisConnector(BaseSubprocessConnector):
             schema_source:  The OpenAPI specification: a URL or a local file path.
             ca_bundle:      target.tls.ca_bundle, for `--request-tls-verify`.
             max_examples:   Hypothesis examples per operation (kept low to bound the run).
+            request_timeout_seconds: How long each generated request may take.
 
         Returns:
             ConnectorResult with raw_output['results'] = one dict per failing
@@ -109,8 +116,10 @@ class SchemathesisConnector(BaseSubprocessConnector):
             tls_verify,
             "--hypothesis-max-examples",
             str(max_examples),
+            "--data-generation-method",
+            _DATA_GENERATION_METHOD,
             "--request-timeout",
-            str(_REQUEST_TIMEOUT_MS),
+            str(request_timeout_seconds * _MS_PER_SECOND),
             "--exclude-deprecated",
             "--no-color",
         ]
@@ -141,7 +150,7 @@ class SchemathesisConnector(BaseSubprocessConnector):
                     tool_name=self.TOOL_NAME,
                     exit_code=exit_code,
                 )
-            results = _parse_junit(junit_path)
+            results, errored, operations = _parse_junit(junit_path)
         except ExternalToolError:
             raise
         except Exception as exc:  # noqa: BLE001 -- re-wrapped with context
@@ -158,6 +167,10 @@ class SchemathesisConnector(BaseSubprocessConnector):
             "command_json": command_json,
             "results": results,
             "all_count": len(results),
+            # Operations Schemathesis could not check (an error or a skip in its
+            # report), and how many operations the report lists in all.
+            "errored": errored,
+            "operations": operations,
         }
         log.info("schemathesis_run_complete", failures=len(results), execution_time_ms=execution_ms)
         return ConnectorResult(
@@ -177,18 +190,21 @@ class SchemathesisConnector(BaseSubprocessConnector):
             log.debug("schemathesis_temp_cleanup_failed", path=path, error=str(exc))
 
 
-def _parse_junit(path: str) -> list[dict[str, str]]:
+def _parse_junit(path: str) -> tuple[list[dict[str, str]], list[str], int]:
     """
-    The failing operations in a Schemathesis JUnit file.
+    The failing and the unchecked operations in a Schemathesis JUnit file.
 
     Each <testcase name="METHOD /path"> with a <failure> child is one failing
-    operation; its failure message is kept (truncated).
+    operation; its failure message is kept (truncated). One with an <error> or a
+    <skipped> child was not checked at all, and is listed apart so that it never
+    counts as a pass.
 
     Args:
         path: The JUnit XML file written by `--junit-xml`.
 
     Returns:
-        One dict {id, finding} per failing operation (empty when all passed).
+        One dict {id, finding} per failing operation (empty when all passed), the
+        names of the operations not checked, and the number of operations listed.
 
     Raises:
         ExternalToolError: when the file is missing or not valid XML.
@@ -202,11 +218,15 @@ def _parse_junit(path: str) -> list[dict[str, str]]:
             exit_code=0,
         ) from exc
     findings: list[dict[str, str]] = []
+    unchecked: list[str] = []
+    operations = 0
     for testcase in tree.iter("testcase"):
-        failure = testcase.find("failure")
-        if failure is None:
-            continue
+        operations += 1
         name = testcase.get("name", "unknown operation")
-        message = (failure.get("message") or failure.text or "check failed").strip()
-        findings.append({"id": name, "finding": message[:500]})
-    return findings
+        failure = testcase.find("failure")
+        if failure is not None:
+            message = (failure.get("message") or failure.text or "check failed").strip()
+            findings.append({"id": name, "finding": message[:500]})
+        elif testcase.find("error") is not None or testcase.find("skipped") is not None:
+            unchecked.append(name)
+    return findings, unchecked, operations

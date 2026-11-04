@@ -48,10 +48,13 @@ HMAC-SHA256 of the raw body.
 
 ## 4. Preconditions and reference responses
 
-**Positive control:** when `signing_secret` is set, a *validly* signed delivery is sent first. If even that is
-rejected the endpoint refuses every delivery (down, or auth elsewhere), so a rejection proves nothing about signature
-verification and both sub-tests are `NOT_VERIFIABLE/REJECTS_ALL`. Without the secret the control cannot run and a note
-records that the enforcement is inferred, not confirmed.
+**Positive control:** when `signing_secret` is set, a *validly* signed delivery is sent first. A rejection of the
+forged deliveries is evidence only when that valid one was accepted (`2xx`). If even the valid one is rejected, the
+endpoint refuses every delivery (down, or auth elsewhere): both sub-tests are `NOT_VERIFIABLE/REJECTS_ALL`. Without
+the secret, or when the valid delivery gets no usable answer (none, `5xx`, `429`), a rejection is
+`NOT_VERIFIABLE/SIGNATURE_NOT_CONFIRMED`, and a note says how to confirm it: a wrong path (404) or a credential
+required elsewhere (401) would be rejected the same way. An accepted forged delivery is a violation with or without
+the control.
 
 ## 5. Probes
 
@@ -64,7 +67,8 @@ Up to three deliveries of the same raw body: (optionally) validly signed, then u
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| the delivery is refused (a `4xx` other than `429`) | `ENFORCED/SIGNATURE_REQUIRED` | - |
+| the delivery is refused (a `4xx` other than `429`), and a validly signed one was accepted | `ENFORCED/SIGNATURE_REQUIRED` | - |
+| the delivery is refused, and no validly signed one was accepted (no secret, or no usable answer to it) | `NOT_VERIFIABLE/SIGNATURE_NOT_CONFIRMED` | - |
 | the receiver was unavailable, failing or throttling (`5xx`, `429`) | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`, `SERVER_ERROR`, `RATE_LIMITED`: it never judged the signature | - |
 | the unsigned delivery is accepted (`2xx`) | `VIOLATION/UNSIGNED_ACCEPTED` | CERTAIN |
 | the wrongly signed delivery is accepted (`2xx`) | `VIOLATION/BAD_SIGNATURE_ACCEPTED` | CERTAIN |
@@ -103,7 +107,7 @@ Section [`tests.domain_7.test_7_4`](../../03-reference/01-configuration.md#tests
 | `webhook_endpoint.method` | string | `POST` | HTTP method of the receiver (default POST). |
 | `webhook_endpoint.body` | object | required | The webhook payload sent as the JSON body on every delivery. |
 | `webhook_endpoint.signature_header` | string | required | Name of the header that carries the signature (e.g. 'X-Hub-Signature-256'). |
-| `webhook_endpoint.signing_secret` | string | `""` | The shared secret the sender signs with, for the valid-signature positive control. A ${VAR} reference from the environment; never a literal in the repo. Empty: the positive control is skipped and enforcement is inferred, not confirmed. |
+| `webhook_endpoint.signing_secret` | string | `""` | The shared secret the sender signs with, for the valid-signature positive control. A ${VAR} reference from the environment; never a literal in the repo. Empty: the positive control is skipped, and a rejected delivery is not verifiable (only an accepted forged one is judged). |
 | `webhook_endpoint.signature_format` | string | `{signature}` | How the header value is built from the hex digest, e.g. 'sha256={signature}' (GitHub). '{signature}' is the lowercase hex HMAC-SHA256 of the raw body. |
 
 <!-- [[[end]]] -->
@@ -116,12 +120,27 @@ Runs of 2026-10-26:
 |---|---|---|
 | Forgejo + Kong, crAPI + Kong, Forgejo + APISIX | **SKIP** | no webhook receiver declared (`webhook_endpoint` unset): honest SKIP |
 
-**This test has never run on a lab.** It needs the address of an incoming webhook receiver and, for its positive
+**Checked against a scratch receiver** (2026-11-04, after the correction of the external audit D467-4): a small
+HTTP server outside the repository that accepts a delivery only with `X-Signature: sha256=<HMAC-SHA256 of the raw
+body>`, plus a path that accepts anything.
+
+| Case | Answers | Status |
+|---|---|---|
+| receiver, correct secret | valid 204, unsigned 401, wrongly signed 401 | **PASS**, `SIGNATURE_REQUIRED` twice |
+| receiver, wrong secret | valid 401 | INCONCLUSIVE, `REJECTS_ALL` |
+| receiver, no secret | 401, 401 | INCONCLUSIVE, `SIGNATURE_NOT_CONFIRMED` (PASS before the correction) |
+| a wrong path, no secret | 404, 404 | INCONCLUSIVE, `SIGNATURE_NOT_CONFIRMED` (PASS before the correction) |
+| the path that accepts anything, with or without the secret | 204 to every delivery | **FAIL**, `UNSIGNED_ACCEPTED` and `BAD_SIGNATURE_ACCEPTED` |
+| Forgejo + Kong lab, `POST /api/v1/markdown`, no secret | 401, 401 (Forgejo requires a token there) | INCONCLUSIVE, `SIGNATURE_NOT_CONFIRMED` (PASS before the correction) |
+
+The same check found a defect in the correction itself before it was kept (the control's answer was read inverted).
+
+**This test has never run on a lab's own webhook receiver.** It needs the address of an incoming webhook receiver and, for its positive
 control, the receiver's signing secret; none of the three lab applications has such a receiver (Forgejo sends
 webhooks, it does not receive signed ones; crAPI has none), and building one would be new lab machinery, so none was
 built (owner's decision, 2026-11-03). Its logic was read and corrected on that day (a `5xx`, a `429` or a dropped
-connection no longer counts as "signature required"), but none of its verdicts (`UNSIGNED_ACCEPTED`,
-`BAD_SIGNATURE_ACCEPTED`, `SIGNATURE_REQUIRED`, `REJECTS_ALL`) has been observed on a live target. Replay protection
+connection no longer counts as "signature required"); its verdicts were observed only on the scratch receiver
+above. Replay protection
 and the blind-callback case are a different matter: they need an out-of-band listener that is not planned, so they
 stay permanently outside what this test covers (see Limitations).
 

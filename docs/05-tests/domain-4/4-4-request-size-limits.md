@@ -18,7 +18,7 @@
 | Standards | `OWASP API4:2023`, `OWASP ASVS v5.0.0-2.4.1`, `RFC 9110, Section 15.5.14` |
 | Tags | `resource-consumption`, `size-limit` |
 | Prerequisites | none |
-| Needs | `GATEWAY` (optional) |
+| Needs | `GATEWAY` (optional), `USER_ACCOUNT` (optional) |
 | Parameters | [`tests.domain_4.test_4_4`](../../03-reference/01-configuration.md#testsdomain_4test_4_4) |
 
 <!-- [[[end]]] -->
@@ -45,14 +45,23 @@ optional), else `body_size_bytes`.
 
 ## 4. Preconditions and reference responses
 
-None beyond the attack surface. The request is unauthenticated: the gateway rejects an oversized body by size before
-the backend's authentication, so a 413 is the gateway's size control and any other answer means it forwarded the
-body.
+None beyond the attack surface; user_a's credential is used when configured (optional need). The first request is
+unauthenticated: a gateway that checks the size before anything else answers 413, and any other answer means it
+forwarded the body, **except a 401 or 403**, which does not say who refused. The application may have refused after
+the gateway forwarded the body, or the gateway itself before its size check (Kong runs `key-auth` before
+`request-size-limiting`). Until 2026-11-04 that refusal was read as "forwarded", a false finding on a gateway that
+authenticates first (external audit D467-3; owner decision of that day). Now the same body is sent once more with
+user_a's credential and that answer is judged; when it is refused too, a forged credential (a random value placed as
+the run's credential is) tells who refused: the same status means user_a's credential did not get past the first
+refuser, a different status that it did, and the body went past it without a 413.
 
 ## 5. Probes
 
-One POST with a body of the chosen size, no credential. Effect `STRESSES_TARGET` (a large body); runs last. No data
-is changed (unauthenticated: the backend would reject it on auth, but the gateway's size check comes first).
+One POST with a body of the chosen size, no credential; after a 401 or 403, the same POST with user_a's credential,
+and after a second refusal the same POST with a forged credential (three at most). Effect `STRESSES_TARGET` (a large
+body); runs last. No data is changed: the body (`{"data": "AAA..."}`) holds no field a real write expects, so an
+application refuses it rather than creating anything (Forgejo answers `403` for the token's scope, crAPI `400`
+"product_id is required").
 
 ## 6. Oracle (`oversized_body_rejected`)
 
@@ -61,6 +70,8 @@ is changed (unauthenticated: the backend would reject it on auth, but the gatewa
 | the body answers `413` | `ENFORCED/SIZE_LIMIT_ENFORCED` | - |
 | the gateway's configured limit was read and the body above it is not rejected | `VIOLATION/NO_SIZE_LIMIT` | CERTAIN |
 | no configured limit readable; a body of the default size is not rejected | `VIOLATION/NO_SIZE_LIMIT` | FIRM (a larger limit may exist) |
+| the unauthenticated body is refused (401, 403) and no user_a credential is configured | `NOT_VERIFIABLE/NO_CREDENTIAL_TO_RETRY` | - |
+| refused with user_a's credential too, with the status a forged credential gets: the credential did not get past the first refuser | `NOT_VERIFIABLE/REFUSED_BEFORE_SIZE_CHECK` | - |
 | the endpoint answers 5xx / unavailable | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` | - |
 | the probe gets no answer at all (the connection is closed or times out), so nothing can be read | `NOT_VERIFIABLE/NO_RESPONSE` | - |
 
@@ -74,7 +85,8 @@ SKIP without a documented write endpoint. FAIL when the oversized body is forwar
 
 ## 9. Effects on the target
 
-`STRESSES_TARGET`: one oversized body. Unauthenticated, nothing created.
+`STRESSES_TARGET`: up to three oversized bodies (unauthenticated, then with user_a's credential, then with a forged
+one). Nothing created: the body holds no field a write expects.
 
 ## 10. Per gateway
 
@@ -96,12 +108,13 @@ Section [`tests.domain_4.test_4_4`](../../03-reference/01-configuration.md#tests
 
 ## 12. Validation
 
-Runs of 2026-10-23:
+Runs of 2026-10-23; the rows were measured again on 2026-11-04 (4.4 alone), after the authenticated retry:
 
 | Lab | Status | Basis |
 |---|---|---|
-| Forgejo + Kong, Forgejo + APISIX | **FAIL** | a 2 MB body to the shortest documented write is forwarded (not 413): no body-size limit on the gateway (FIRM: a larger limit may exist) |
-| crAPI + Kong | **INCONCLUSIVE or FAIL, by a race** (8 isolated runs on 2026-11-03: 5 INCONCLUSIVE, 3 FAIL) | the probe is `POST /workshop/api/shop/orders`, and crAPI's workshop service answers `401` and closes the connection, sometimes before the 2 MB upload has finished and sometimes after. When the close comes first, httpx raises `RemoteProtocolError`, and since the retry rule of 2026-10-28 a non-idempotent request that may already have been applied is not sent again, so the test records `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`. When the upload finishes first, the test reads the `401`, sees the body was forwarded without a `413` and reports `VIOLATION/NO_SIZE_LIMIT`. Both answers are correct for what each run saw; the second is the gateway's real state |
+| Forgejo + Kong, Forgejo + APISIX | **FAIL** | a 2 MB body to `POST /api/v1/orgs`: `401` without a credential, `403` with user_a's ("token does not have at least one of required scope(s)", Forgejo reading the token), `401` with the forged one: the body reached Forgejo without a 413, so no body-size limit on the gateway (FIRM: a larger limit may exist) |
+| crAPI + Kong | **FAIL** (2026-11-04); **INCONCLUSIVE or FAIL, by a race** before (8 isolated runs on 2026-11-03: 5 INCONCLUSIVE, 3 FAIL) | the probe is `POST /workshop/api/shop/orders`: `401` without a credential, then `400` "product_id is required" with user_a's, the application reading the body: forwarded without a 413. The unauthenticated request is subject to a race: crAPI's workshop service answers `401` and closes the connection, sometimes before the 2 MB upload has finished. When the close comes first, httpx raises `RemoteProtocolError`, a non-idempotent request that may already have been applied is not sent again (rule of 2026-10-28), and the test records `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` without retrying with the credential |
+| a scratch server outside the repository (2026-11-04) answering `401 "Invalid authentication credentials"` to any request without its key, and `413` above 1 MB with it, as Kong's `key-auth` before `request-size-limiting` | **PASS** with the key as user_a's token; **INCONCLUSIVE** with a token that is not the key | with the key: `401`, then `413`, `SIZE_LIMIT_ENFORCED` (a false FAIL on the `401` before the correction). Without it: `401` three times, `REFUSED_BEFORE_SIZE_CHECK` |
 | Forgejo + Kong, with the plugin below | **PASS** | a `request-size-limiting` plugin (1 MB) answers 413 to the 2 MB body |
 
 **The case the labs lack, and how to undo it.** Add a global `request-size-limiting` plugin (`allowed_payload_size:
@@ -128,6 +141,8 @@ oversized body is rejected with 413 before it reaches the backend (OWASP API4:20
   gateway did forward the oversized body in that case, which would be a violation, but this test does not see it.
 - A backend that happens to reject the body for another reason before the gateway's size check would read as a limit
   only if it answers 413.
+- A gateway that authenticates before its size check and does not accept user_a's credential (its own API key,
+  for instance) cannot be judged: `REFUSED_BEFORE_SIZE_CHECK`.
 - The probe prefers a write that requires authentication (unauthenticated -> 401, nothing created). Where only a
   public write exists and the gateway has no size limit, a body under the limit could be processed and create an
   object: the oversized probe is still rejected by any size limit, but the absence of one on a public write is a

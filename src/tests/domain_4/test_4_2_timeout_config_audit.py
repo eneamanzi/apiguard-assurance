@@ -38,7 +38,7 @@ Gateway access:
     adapter (target.gateway.backend_timeouts(), src/core/gateway/concepts.py),
     in seconds; the oracle thresholds stay in milliseconds (configuration) and
     the values are converted. A concept not supported or not accessible gives
-    SKIP with the reason (BaseTest._skip_for_concept); no backend gives SKIP.
+    SKIP with the reason (BaseTest._unread_concept); no backend gives SKIP.
 
 EvidenceStore policy:
     No HTTP request is made to the target API. The concept read is stored as
@@ -243,7 +243,7 @@ class Test42TimeoutConfigAudit(BaseTest[Test42Params]):
                 target, store, CONCEPT_BACKEND_TIMEOUTS, answer
             )
             if answer.status != ConceptStatus.READ:
-                return self._skip_for_concept(CONCEPT_BACKEND_TIMEOUTS, answer, evidence_ref)
+                return self._unread_concept(CONCEPT_BACKEND_TIMEOUTS, answer, evidence_ref)
 
             if not answer.items:
                 return self._skip(

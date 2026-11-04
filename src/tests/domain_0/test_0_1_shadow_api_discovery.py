@@ -24,6 +24,11 @@ method specially, which is the evidence the sub-test needs. Measured on the
 labs (2026-10-21): Forgejo answers 405 to a method token it does not know and
 404 to an undeclared POST on a path it serves with GET, so comparing those two
 answers would report every such path; comparing like with like does not.
+On a path with parameters the random siblings are the same route as the probe,
+so the comparison says nothing: there only a 2xx (the method was executed) or a
+405 (it was refused) is evidence, and any other answer is NOT_VERIFIABLE
+(NONEXISTENT_OBJECT), since a handled method on an object that does not exist
+and an ignored one can answer alike.
 
 Where the target refuses an unauthenticated request before it looks at the
 method (crAPI's identity service answers 401 to any path and any method, as
@@ -305,18 +310,24 @@ class Test01ShadowApiDiscovery(BaseTest):
             self._judge(record, store, _SUB_METHODS, Outcome.NOT_VERIFIABLE, "CALIBRATION_UNSTABLE")
             return
         served = category == ResponseCategory.SERVED
-        if similarity == Similarity.SAME_AS_UNKNOWN and not served:
+        # On a path with parameters the random siblings are the same route as
+        # the probe (sibling_pattern keeps the template): the comparison sets
+        # the method against itself, and an answer short of 2xx or 405 cannot
+        # tell a method the route ignores from one it handles on an object
+        # that does not exist (audit D0-1).
+        parametric = _TEMPLATE_PARAMETER.search(endpoint.path) is not None
+        if not served and (similarity == Similarity.SAME_AS_UNKNOWN or parametric):
             refused = (
                 point.fingerprint is not None
                 and categorize(point.fingerprint.status_code) in _REFUSING
             )
-            self._judge(
-                record,
-                store,
-                _SUB_METHODS,
-                Outcome.NOT_VERIFIABLE if refused else Outcome.ENFORCED,
-                "REFUSED_BEFORE_ROUTING" if refused else "METHOD_NOT_SERVED",
-            )
+            if refused:
+                outcome, detail = Outcome.NOT_VERIFIABLE, "REFUSED_BEFORE_ROUTING"
+            elif parametric:
+                outcome, detail = Outcome.NOT_VERIFIABLE, "NONEXISTENT_OBJECT"
+            else:
+                outcome, detail = Outcome.ENFORCED, "METHOD_NOT_SERVED"
+            self._judge(record, store, _SUB_METHODS, outcome, detail)
             return
         if served:
             self._clean_up(record, path, client, store, left_behind)
@@ -528,6 +539,14 @@ class Test01ShadowApiDiscovery(BaseTest):
         if similarity == Similarity.UNRELIABLE:
             self._judge(
                 record, store, _SUB_VERSIONS, Outcome.NOT_VERIFIABLE, "CALIBRATION_UNSTABLE"
+            )
+            return
+        if similarity == Similarity.SAME_AS_UNKNOWN and category in _REFUSING:
+            # The same refusal as any unknown path (crAPI's identity service
+            # answers 401 to every path): the target refused before routing, so
+            # whether the version exists is not known, as for the methods above.
+            self._judge(
+                record, store, _SUB_VERSIONS, Outcome.NOT_VERIFIABLE, "REFUSED_BEFORE_ROUTING"
             )
             return
         if similarity == Similarity.SAME_AS_UNKNOWN or category == ResponseCategory.NOT_FOUND:

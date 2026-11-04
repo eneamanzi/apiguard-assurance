@@ -233,6 +233,13 @@ class SubTestResult(BaseModel):
         default_factory=dict,
         description="Why cases were not verifiable: each detail and how many times.",
     )
+    essential: bool = Field(
+        default=False,
+        description=(
+            "Whether the test declares this sub-test essential: a test whose essential sub-tests "
+            "all verified nothing is `INCONCLUSIVE`, whatever its other sub-tests say."
+        ),
+    )
 
     @classmethod
     def from_counts(
@@ -243,6 +250,7 @@ class SubTestResult(BaseModel):
         enforced: int,
         not_applicable: int,
         not_verifiable_reasons: dict[str, int],
+        essential: bool = False,
     ) -> SubTestResult:
         """
         Build a sub-test's result, computing its status and coverage.
@@ -254,6 +262,8 @@ class SubTestResult(BaseModel):
             not_applicable:         Cases judged NOT_APPLICABLE.
             not_verifiable_reasons: The details of the NOT_VERIFIABLE cases
                                     and their counts.
+            essential:              Whether the test declares it essential
+                                    (TestInfo.essential_sub_tests).
 
         Returns:
             The SubTestResult.
@@ -272,6 +282,7 @@ class SubTestResult(BaseModel):
             not_verifiable=not_verifiable,
             not_applicable=not_applicable,
             not_verifiable_reasons=dict(not_verifiable_reasons),
+            essential=essential,
         )
 
     @model_validator(mode="after")
@@ -308,6 +319,13 @@ def combine_sub_tests(sub_tests: list[SubTestResult]) -> tuple[TestStatus, Cover
     all: calling that complete would promise the reader a check the run never
     made (e.g. test 6.2 passing with its CORS sub-test skipped).
 
+    A test may declare some sub-tests essential (TestInfo.essential_sub_tests):
+    without a FAIL, when none of them is PASS the test is INCONCLUSIVE, since
+    a PASS would suggest that what the test is mainly about was seen enforced
+    (test 7.2: SSRF payloads rejected only for being malformed, while every
+    cloud-metadata and private-IP URL was accepted). A test whose sub-tests
+    all judged nothing stays SKIP.
+
     Args:
         sub_tests: Every declared sub-test's result.
 
@@ -317,6 +335,13 @@ def combine_sub_tests(sub_tests: list[SubTestResult]) -> tuple[TestStatus, Cover
     statuses = {sub.status for sub in sub_tests}
     if TestStatus.FAIL in statuses:
         return TestStatus.FAIL, None
+    essential = [sub for sub in sub_tests if sub.essential]
+    if (
+        essential
+        and statuses != {TestStatus.SKIP}
+        and all(sub.status != TestStatus.PASS for sub in essential)
+    ):
+        return TestStatus.INCONCLUSIVE, None
     if TestStatus.PASS in statuses:
         unverified = {TestStatus.INCONCLUSIVE, TestStatus.SKIP} & statuses
         partial = bool(unverified) or any(sub.coverage == Coverage.PARTIAL for sub in sub_tests)
@@ -659,12 +684,16 @@ class ResultSet(BaseModel):
 
         Priority: FAIL (1) > ERROR or INCONCLUSIVE (3) > CLEAN (0): an
         INCONCLUSIVE test, like an ERROR, is a verification that did not
-        complete. Exit code 10 (infrastructure error) is handled upstream by
-        the engine.
+        complete. A run whose every test was SKIP verified nothing, so it is 3
+        too, not CLEAN (owner decision 2026-11-04, audit PIPE-4); otherwise a
+        SKIP never affects the code. Exit code 10 (infrastructure error) is
+        handled upstream by the engine.
         """
         if any(r.status == TestStatus.FAIL for r in self.results):
             return ExitCode.FAIL
         if any(r.status in (TestStatus.ERROR, TestStatus.INCONCLUSIVE) for r in self.results):
+            return ExitCode.ERROR
+        if self.results and all(r.status == TestStatus.SKIP for r in self.results):
             return ExitCode.ERROR
         return ExitCode.CLEAN
 

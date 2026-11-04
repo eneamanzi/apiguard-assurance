@@ -135,7 +135,7 @@ class Test33RequestSigningAudit(BaseTest[Test33Params]):
                 target, store, CONCEPT_SIGNING_POLICIES, answer
             )
             if answer.status != ConceptStatus.READ:
-                return self._skip_for_concept(CONCEPT_SIGNING_POLICIES, answer, evidence_ref)
+                return self._unread_concept(CONCEPT_SIGNING_POLICIES, answer, evidence_ref)
             enabled = [p for p in answer.items if p.enabled]
             if not enabled:
                 self._record(_SUB_ALGO, Outcome.NOT_APPLICABLE, "NO_SIGNING")
@@ -181,6 +181,12 @@ class Test33RequestSigningAudit(BaseTest[Test33Params]):
     def _audit_replay(self, policy: SigningPolicy, max_seconds: int, evidence_ref: str) -> None:
         """Judge the policy's replay window against the maximum."""
         window = policy.replay_window_seconds
+        if window is None and not policy.replay_unlimited:
+            # Not stated by the gateway is not "no window" (audit D235-14): only
+            # replay_unlimited says the date is never checked. As for the
+            # algorithms, what is not stated is not verifiable.
+            self._record(_SUB_REPLAY, Outcome.NOT_VERIFIABLE, "REPLAY_WINDOW_NOT_STATED")
+            return
         if window is None:
             self._record(
                 _SUB_REPLAY,

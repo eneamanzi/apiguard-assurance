@@ -262,6 +262,15 @@ class SchemathesisConfig(BaseExternalToolConfig):
             "the run bounded; raise it for deeper fuzzing on a staging target."
         ),
     )
+    request_timeout_seconds: int = Field(
+        default=5,
+        ge=1,
+        le=300,
+        description=(
+            "How long Schemathesis waits for each generated request (`--request-timeout`); a "
+            "request slower than this counts as failed. Raise it for a slow API."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------

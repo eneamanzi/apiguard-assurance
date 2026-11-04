@@ -14,6 +14,21 @@ credential is needed and nothing is created.
                              anything else means the gateway forwarded it ->
                              VIOLATION/NO_SIZE_LIMIT.
 
+A 401 or 403 does not say who refused: the application, after the gateway
+forwarded the body, or the gateway itself, before its size check (Kong runs
+key-auth before request-size-limiting). The same body is then sent once more
+with user_a's credential, when the configuration provides it (owner decision
+2026-11-04, audit D467-3), and its answer is judged as above. When that is
+refused too, a forged credential (a random value placed as the run's credential
+is) tells who refused: the same status as the forged one means user_a's
+credential did not get past the first refuser,
+NOT_VERIFIABLE/REFUSED_BEFORE_SIZE_CHECK; a different one means it did, so the
+body went past it without a 413 (Forgejo: forged 401, user_a 403 for a token
+scope). Without a credential the first refusal is
+NOT_VERIFIABLE/NO_CREDENTIAL_TO_RETRY. The body ({"data": "AAA..."})
+holds no field a real write expects, so an application refuses it rather than
+creating anything.
+
 The size sent is the gateway's configured body-size limit plus a margin, read
 through the adapter when available (`Need.GATEWAY`, optional), else a configured
 size. BLACK_BOX, effect `STRESSES_TARGET`.
@@ -30,10 +45,11 @@ import structlog
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.assessment_test import category_of
+from src.core.auth_placement import RequestAuthParts
 from src.core.client import SecurityClient
-from src.core.context import TargetContext, TestContext
+from src.core.context import ROLE_USER_A, TargetContext, TestContext
 from src.core.evidence import EvidenceStore
-from src.core.exceptions import SecurityClientError
+from src.core.exceptions import AuthenticationSetupError, SecurityClientError
 from src.core.gateway.base import BaseGatewayAdapter
 from src.core.gateway.concepts import ConceptStatus
 from src.core.models import (
@@ -47,9 +63,10 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
-from src.core.references import random_sibling_path
+from src.core.references import random_sibling_path, random_token
 from src.core.test_metadata import Effect, Need, TestInfo
 from src.tests.base import BaseTest
+from src.tests.helpers.auth import acquire_tokens, auth_parts, credential_parts
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -72,6 +89,12 @@ _SIZE_LIMIT_MARKERS: tuple[str, ...] = (
     "body_size",
     "size-limit",
     "size_limit",
+)
+
+# Answers that do not say who refused (the application or the gateway before
+# its size check): the probe is retried with a credential.
+_REFUSED: frozenset[ResponseCategory] = frozenset(
+    {ResponseCategory.UNAUTHENTICATED, ResponseCategory.FORBIDDEN}
 )
 
 # Categories that say the endpoint is failing, not enforcing a size limit.
@@ -124,7 +147,7 @@ class Test44RequestSizeLimits(BaseTest[Test44Params]):
             Reference(standard=Standard.RFC, id="9110", section="15.5.14"),
         ),
         tags=("resource-consumption", "size-limit"),
-        optional_needs=(Need.GATEWAY,),
+        optional_needs=(Need.GATEWAY, Need.USER_ACCOUNT),
         effect=Effect.STRESSES_TARGET,
         sub_tests=(_SUB,),
     )
@@ -141,7 +164,7 @@ class Test44RequestSizeLimits(BaseTest[Test44Params]):
 
         Args:
             target:  The run's target (surface, gateway, path seed).
-            context: Unused.
+            context: The run's context (user_a's credential, for the retry).
             client:  The run's HTTP client.
             store:   The test's evidence store.
 
@@ -149,7 +172,6 @@ class Test44RequestSizeLimits(BaseTest[Test44Params]):
             self._finish(), self._requires_attack_surface(...), self._skip(...),
             or self._error(exc).
         """
-        del context
         try:
             missing = self._requires_attack_surface(target)
             if missing is not None:
@@ -159,11 +181,59 @@ class Test44RequestSizeLimits(BaseTest[Test44Params]):
                 return self._skip("No documented write endpoint to probe for a size limit.")
             size, from_gateway = self._size(target)
             record = _send_oversized(client, path, size)
+            if record is not None and category_of(record) in _REFUSED:
+                self._step(record)
+                user_a = self._user_a(target, context, client)
+                if user_a is None:
+                    self._judge(
+                        record, store, _SUB, Outcome.NOT_VERIFIABLE, "NO_CREDENTIAL_TO_RETRY"
+                    )
+                    return self._finish()
+                record = _send_oversized(client, path, size, user_a)
+                if record is not None and category_of(record) in _REFUSED:
+                    forged = _send_oversized(
+                        client, path, size, credential_parts(target, random_token())
+                    )
+                    if forged is not None:
+                        self._step(forged)
+                    if forged is None or forged.response_status_code == record.response_status_code:
+                        self._judge(
+                            record,
+                            store,
+                            _SUB,
+                            Outcome.NOT_VERIFIABLE,
+                            "REFUSED_BEFORE_SIZE_CHECK",
+                        )
+                        return self._finish()
             self._judge_oversized(record, store, path, size, from_gateway)
             return self._finish()
         except Exception as exc:  # noqa: BLE001 -- top-level guard (BaseTest contract)
             log.exception("test_4_4_unexpected_error", error=str(exc))
             return self._error(exc)
+
+    def _user_a(
+        self, target: TargetContext, context: TestContext, client: SecurityClient
+    ) -> RequestAuthParts | None:
+        """
+        user_a's request parts, for the retry after a 401 or 403.
+
+        Args:
+            target:  The run's target (credentials, placement).
+            context: The run's context (the role's credential).
+            client:  The run's HTTP client (the login goes through it).
+
+        Returns:
+            The parts, or None when the role is not configured or its login did
+            not work (logged).
+        """
+        if not target.credentials.has_user_a():
+            return None
+        try:
+            acquire_tokens(target, context, client, required_roles=frozenset({ROLE_USER_A}))
+            return auth_parts(target, context, ROLE_USER_A)
+        except (AuthenticationSetupError, SecurityClientError) as exc:
+            log.warning("test_4_4_no_credential", error=str(exc))
+            return None
 
     def _probe_path(self, target: TargetContext) -> str | None:
         """
@@ -268,11 +338,21 @@ def _configured_limit(gateway: BaseGatewayAdapter) -> int | None:
     return min(limits) if limits else None
 
 
-def _send_oversized(client: SecurityClient, path: str, size: int) -> EvidenceRecord | None:
-    """Send an unauthenticated write with an oversized JSON body; its record or None."""
+def _send_oversized(
+    client: SecurityClient, path: str, size: int, credential: RequestAuthParts | None = None
+) -> EvidenceRecord | None:
+    """Send a write with an oversized JSON body, with a credential if given; its record or None."""
     body = {"data": "A" * size}
+    parts = credential or RequestAuthParts()
     try:
-        _response, record = client.request("POST", path, test_id="4.4", json=body)
+        _response, record = client.request(
+            "POST",
+            path,
+            test_id="4.4",
+            headers=dict(parts.headers) or None,
+            params=dict(parts.params) or None,
+            json=body,
+        )
     except SecurityClientError as exc:
         return exc.record
     return record

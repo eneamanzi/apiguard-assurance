@@ -30,9 +30,8 @@
 A privileged function (an admin or management operation) refuses an ordinary authenticated user. A PASS promises
 that every privileged operation the tool probed turned user_a away. The threat is Broken Function Level Authorization
 (OWASP API5:2023): the interface hides the admin action, but the API does not check the role, so a direct request
-succeeds. ASVS v5.0.0-8.3.1 (enforce authorization at a trusted service layer). This test subsumes guarantee 2.3
-(destructive operations need privilege): a destructive method that bypasses the role check is a function-level
-failure.
+succeeds. ASVS v5.0.0-8.3.1 (enforce authorization at a trusted service layer). It does not cover guarantee 2.3
+(destructive operations need privilege), which has no test: a destructive method is never sent.
 
 ## 2. Sub-tests and coverage of the methodology
 
@@ -55,9 +54,16 @@ user_a is required (GREY_BOX). The admin account is an optional need: when prese
 the operation exists and is genuinely privileged, so a refusal is about the role (CERTAIN) and a `404` is not
 mistaken for enforcement. Without admin, the verdict rests on the path's shape and the spec's `security` (FIRM).
 
+A refusal is evidence only if user_a's credential was accepted, and nothing else in the run proves that (a static
+token is stored as configured, and may have expired). So when user_a is refused, the same safe request is sent with a
+forged credential, a random value placed as the run's credential is: a refusal in the same category as the forged
+credential's answer is not counted. When the forged credential is not refused, the control says nothing, and a `401`
+to user_a is then not counted as a refusal either.
+
 ## 5. Probes
 
-Only safe methods (GET, HEAD) of a privileged operation are sent, with the user_a credential; path parameters are
+Only safe methods (GET, HEAD) of a privileged operation are sent, with the user_a credential, and with the forged
+credential when user_a is refused; path parameters are
 resolved from `path_seed`. A destructive method on a derived candidate is not sent (rule 5). READ_ONLY.
 
 ## 6. Oracle
@@ -68,7 +74,8 @@ resolved from `path_seed`. A destructive method on a derived candidate is not se
 |---|---|---|
 | user_a served (2xx), the op requires auth | `VIOLATION/BFLA` | CERTAIN with the admin control, else FIRM |
 | user_a served (2xx), the op is public in the spec | `NOT_APPLICABLE/PUBLIC_ENDPOINT` (that is 1.1's question) | - |
-| user_a refused (401/403) | `ENFORCED/REFUSED` | - |
+| user_a refused (401/403, or a 404) in the same category as the forged credential, or 401 when the control says nothing: user_a's credential may not have been accepted | `NOT_VERIFIABLE/CREDENTIAL_NOT_CONFIRMED` | - |
+| user_a refused (401/403), unlike the forged credential | `ENFORCED/REFUSED` | - |
 | user_a 404, admin served it | `ENFORCED/REFUSED_HIDDEN` | - |
 | user_a 404, admin also non-2xx or no admin | `NOT_VERIFIABLE/ENDPOINT_NOT_CONFIRMED` | - |
 | a destructive method, not sent | `NOT_VERIFIABLE/DESTRUCTIVE_NOT_PROBED` | - |
@@ -106,12 +113,14 @@ The old parameters that let the operator list privileged paths and their method 
 
 ## 12. Validation
 
-Runs of 2026-10-23:
+Runs of 2026-10-23; measured again on 2026-11-04 (2.1 alone), after the correction of the external audit
+(D235-8), with the same verdicts:
 
 | Lab | Status | Basis |
 |---|---|---|
 | crAPI + Kong | **FAIL** | `GET /workshop/api/management/users/all` answers 200 to user_a (BFLA, crAPI's management plane) |
-| Forgejo + Kong, Forgejo + APISIX | **PASS** partial | the `/api/v1/admin/*` endpoints refuse user_a (403); parametric admin paths whose resource does not exist stay `NOT_VERIFIABLE/ENDPOINT_NOT_CONFIRMED`, and the destructive ones `DESTRUCTIVE_NOT_PROBED` |
+| crAPI + Kong, user_a's token invalid (scratch configuration, `static_token`, 2026-11-04) | INCONCLUSIVE | user_a and the forged credential both get `401 "Invalid JWT Token!"`: `CREDENTIAL_NOT_CONFIRMED`, where the test would have counted a refusal before the correction |
+| Forgejo + Kong, Forgejo + APISIX | **PASS** partial | the `/api/v1/admin/*` endpoints refuse user_a (403) while the forged credential gets 401; parametric admin paths whose resource does not exist stay `NOT_VERIFIABLE/ENDPOINT_NOT_CONFIRMED`, and the destructive ones `DESTRUCTIVE_NOT_PROBED` |
 
 Rule 9: BFLA present (crAPI), enforced (Forgejo). `DESTRUCTIVE_NOT_PROBED` surfaces crAPI's
 `DELETE /identity/api/v2/admin/videos/{id}` (challenge 7) as unverified rather than omitting it. The `404` false PASS
@@ -124,8 +133,11 @@ not rely on the interface hiding the action.
 
 ## 14. Limitations
 
-- Destructive privileged methods are not probed (rule 5); they are reported as not verified, to be confirmed by a
-  configured, confirmed operation.
+- Destructive privileged methods are never probed (rule 5); they are reported as not verified
+  (`DESTRUCTIVE_NOT_PROBED`), and no configuration can authorise them.
+- The privileged operations come only from the specification, by the names of their paths (`admin`,
+  `management`): an administrator function under another name is not probed, and no configuration adds it (until
+  2026-11-04 the docs promised one, external audit D235-17).
 - Role hierarchy beyond user/admin and OAuth scope escalation are out of scope (no lab exercises them).
 - A privileged operation whose resource must exist first stays not verifiable when neither admin nor the seed
   supplies it.

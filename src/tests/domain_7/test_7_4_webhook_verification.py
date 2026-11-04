@@ -18,11 +18,13 @@ webhook payload three ways and watches which are accepted.
                                  BAD_SIGNATURE_ACCEPTED.
 
 Positive control: when the signing secret is configured, a delivery with a
-*valid* signature is sent first. If even that is rejected, the endpoint refuses
-every delivery (it is down, or auth is elsewhere), so a rejection does not prove
-signature verification: both sub-tests are then NOT_VERIFIABLE / REJECTS_ALL,
-never a false ENFORCED. Without the secret the positive control cannot run and a
-note records that the enforcement is inferred, not confirmed.
+*valid* signature is sent first. A rejection of the forged deliveries is
+ENFORCED only when that valid one was accepted (a 2xx). If even the valid one is
+rejected, the endpoint refuses every delivery (it is down, or auth is
+elsewhere): both sub-tests are NOT_VERIFIABLE / REJECTS_ALL. Without the secret,
+or without a usable answer to the valid delivery, a rejection is NOT_VERIFIABLE
+/ SIGNATURE_NOT_CONFIRMED: a 404 from a wrong path or a gateway's 401 would look
+the same (audit D467-4). An accepted forged delivery is a VIOLATION either way.
 
 BLACK_BOX (a webhook receiver is protected by the signature, not a session),
 effect CHANGES_DATA (a processed webhook may change data; a rejected one does
@@ -58,6 +60,7 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
+from src.core.models.runtime import SECRET_VALUE
 from src.core.test_metadata import Effect, TestInfo
 from src.tests.base import BaseTest
 
@@ -102,10 +105,13 @@ class Test74WebhookEndpoint(BaseModel):
     )
     signing_secret: str = Field(
         default="",
+        # A secret: config_used.yaml writes a placeholder, never the value.
+        json_schema_extra=SECRET_VALUE,
         description=(
             "The shared secret the sender signs with, for the valid-signature positive control. "
             "A ${VAR} reference from the environment; never a literal in the repo. Empty: the "
-            "positive control is skipped and enforcement is inferred, not confirmed."
+            "positive control is skipped, and a rejected delivery is not verifiable (only an "
+            "accepted forged one is judged)."
         ),
     )
     signature_format: str = Field(
@@ -192,40 +198,55 @@ class Test74WebhookVerification(BaseTest[Test74Params]):
             if endpoint is None:  # NEEDED_TO_RUN; the engine normally SKIPs first.
                 return self._skip("No webhook_endpoint configured for test 7.4.")
             raw = json.dumps(endpoint.body, separators=(",", ":"), sort_keys=True).encode("utf-8")
-            if self._rejects_all(client, endpoint, raw):
+            control = self._positive_control(client, endpoint, raw)
+            if control is False:
                 self._record(_SUB_ABSENT, Outcome.NOT_VERIFIABLE, _REJECTS_ALL)
                 self._record(_SUB_INVALID, Outcome.NOT_VERIFIABLE, _REJECTS_ALL)
                 return self._finish(message=f"{endpoint.path} rejects a valid signature too.")
-            self._judge_delivery(client, store, endpoint, raw, _SUB_ABSENT, signature=None)
+            confirmed = control is True
             self._judge_delivery(
-                client, store, endpoint, raw, _SUB_INVALID, signature=_INVALID_SIGNATURE
+                client, store, endpoint, raw, _SUB_ABSENT, signature=None, confirmed=confirmed
             )
-            notes = None if endpoint.signing_secret else [_NO_SECRET_NOTE]
+            self._judge_delivery(
+                client,
+                store,
+                endpoint,
+                raw,
+                _SUB_INVALID,
+                signature=_INVALID_SIGNATURE,
+                confirmed=confirmed,
+            )
+            notes = None if confirmed else [_NOT_CONFIRMED_NOTE]
             return self._finish(notes=notes, message=f"{endpoint.method} {endpoint.path}.")
         except Exception as exc:  # noqa: BLE001 -- top-level guard (BaseTest contract)
             log.exception("test_7_4_unexpected_error", error=str(exc))
             return self._error(exc)
 
-    def _rejects_all(
+    def _positive_control(
         self, client: SecurityClient, endpoint: Test74WebhookEndpoint, raw: bytes
-    ) -> bool:
+    ) -> bool | None:
         """
-        True when a *validly* signed delivery is itself rejected.
+        Send a *validly* signed delivery: whether the endpoint accepts it.
 
-        Only runs when the signing secret is configured. If the endpoint rejects
-        a correct signature, a rejection of a bad one proves nothing about
-        signature verification, so the caller records NOT_VERIFIABLE instead of
-        a false ENFORCED.
+        Only a True lets a rejection of the forged deliveries count as ENFORCED.
+
+        Returns:
+            True when it was accepted (a 2xx); False when it was rejected (the
+            endpoint refuses every delivery, REJECTS_ALL); None when the control
+            could not run (no signing secret) or its answer says nothing (no
+            answer, unavailable, rate limited, server error).
         """
         if not endpoint.signing_secret:
-            return False
+            return None
         signature = hmac.new(
             endpoint.signing_secret.encode("utf-8"), raw, hashlib.sha256
         ).hexdigest()
         record = self._send(client, endpoint, raw, signature)
         if record is None:
-            return False
+            return None
         self._step(record)
+        if category_of(record) in _SPOILING:
+            return None
         accepted = record.response_status_code in _ACCEPTED_STATUS
         if not accepted:
             log.info(
@@ -233,7 +254,7 @@ class Test74WebhookVerification(BaseTest[Test74Params]):
                 path=endpoint.path,
                 status=record.response_status_code,
             )
-        return not accepted
+        return accepted
 
     def _judge_delivery(
         self,
@@ -244,8 +265,14 @@ class Test74WebhookVerification(BaseTest[Test74Params]):
         sub_test: str,
         *,
         signature: str | None,
+        confirmed: bool,
     ) -> None:
-        """Send one delivery (unsigned or wrongly signed) and judge its acceptance."""
+        """
+        Send one delivery (unsigned or wrongly signed) and judge its acceptance.
+
+        confirmed: a validly signed delivery was accepted (_positive_control);
+        without it a rejection is not verifiable.
+        """
         record = self._send(client, endpoint, raw, signature)
         if record is None:
             self._record(sub_test, Outcome.NOT_VERIFIABLE, "NO_RESPONSE")
@@ -255,7 +282,12 @@ class Test74WebhookVerification(BaseTest[Test74Params]):
             self._judge(record, store, sub_test, Outcome.NOT_VERIFIABLE, _SPOILING[category])
             return
         if record.response_status_code not in _ACCEPTED_STATUS:
-            self._judge(record, store, sub_test, Outcome.ENFORCED, "SIGNATURE_REQUIRED")
+            if confirmed:
+                self._judge(record, store, sub_test, Outcome.ENFORCED, "SIGNATURE_REQUIRED")
+            else:
+                self._judge(
+                    record, store, sub_test, Outcome.NOT_VERIFIABLE, "SIGNATURE_NOT_CONFIRMED"
+                )
             return
         kind = "without a signature" if signature is None else "with an invalid signature"
         detail = "UNSIGNED_ACCEPTED" if signature is None else "BAD_SIGNATURE_ACCEPTED"
@@ -300,15 +332,16 @@ class Test74WebhookVerification(BaseTest[Test74Params]):
         return record
 
 
-# Added when no signing secret is configured: the enforcement is inferred from
-# the rejection, not confirmed by a valid-signature positive control.
-_NO_SECRET_NOTE: InfoNote = InfoNote(
-    title="Signature enforcement inferred, not confirmed",
+# Added when no valid-signature positive control confirmed the endpoint: a
+# rejection is then not verifiable.
+_NOT_CONFIRMED_NOTE: InfoNote = InfoNote(
+    title="Signature enforcement not confirmed",
     detail=(
-        "No signing secret was configured, so a valid-signature positive control could not run. "
-        "The rejection of the unsigned and wrongly signed deliveries is consistent with signature "
-        "verification, but a blanket rejection (the endpoint down, or auth elsewhere) would look "
-        "the same. Configure webhook_endpoint.signing_secret to confirm the endpoint accepts a "
+        "No validly signed delivery was accepted: no signing secret is configured, or the "
+        "endpoint gave no usable answer to it. A rejection of the unsigned and wrongly signed "
+        "deliveries is then not verifiable, since a wrong path, an endpoint down or a credential "
+        "required elsewhere would be rejected the same way. Configure "
+        "webhook_endpoint.signing_secret so that the test can confirm the endpoint accepts a "
         "correct signature."
     ),
     references=[Reference(standard=Standard.OWASP_API_TOP10, id="API10:2023")],

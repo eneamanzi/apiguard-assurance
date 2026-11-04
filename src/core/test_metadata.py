@@ -316,6 +316,14 @@ class TestInfo(BaseModel):
             "status is computed from them."
         ),
     )
+    essential_sub_tests: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "The sub-tests the test is mainly about, among sub_tests; empty by default. "
+            "Without a violation, a test none of whose essential sub-tests is PASS is "
+            "INCONCLUSIVE, whatever the others say (combine_sub_tests)."
+        ),
+    )
     needs: tuple[Need, ...] = Field(
         default=(),
         description=(
@@ -381,6 +389,9 @@ class TestInfo(BaseModel):
         duplicates = sorted({s for s in self.sub_tests if self.sub_tests.count(s) > 1})
         if duplicates:
             raise ValueError(f"sub_tests: declared more than once: {duplicates}")
+        undeclared = sorted(set(self.essential_sub_tests) - set(self.sub_tests))
+        if undeclared:
+            raise ValueError(f"essential_sub_tests: not among sub_tests: {undeclared}")
         for tag in self.tags:
             if not TAG_PATTERN.match(tag):
                 raise ValueError(

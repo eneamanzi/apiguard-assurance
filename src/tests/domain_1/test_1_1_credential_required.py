@@ -63,6 +63,7 @@ from __future__ import annotations
 import structlog
 
 from src.core.assessment_test import category_of
+from src.core.auth_placement import RequestAuthParts
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
@@ -397,8 +398,10 @@ class Test11CredentialRequired(BaseTest):
         del context
         method = endpoint.method.upper()
         path = resolve_path_with_seed(endpoint.path, target.path_seed)
-        for detail, header, value in _malformed_credentials(target):
-            record = self._ask(client, method, path, {header: value}, endpoint)
+        for detail, parts in _malformed_credentials(target):
+            record = self._ask(
+                client, method, path, dict(parts.headers), endpoint, params=dict(parts.params)
+            )
             category = category_of(record)
             if category in _REFUSING:
                 self._judge(record, store, _SUB_MALFORMED, Outcome.ENFORCED, "CREDENTIAL_REFUSED")
@@ -422,7 +425,7 @@ class Test11CredentialRequired(BaseTest):
                     detail=(
                         f"{method} {endpoint.path} refuses a request with no credential, and "
                         f"answered HTTP {record.response_status_code} to one carrying "
-                        f"`{header}: {value}`. The control checks that the header is there, not "
+                        f"{_shown(parts)}. The control checks that the credential is there, not "
                         "what it holds, so any string passes it."
                     ),
                     confidence=Confidence.CERTAIN,
@@ -496,6 +499,7 @@ class Test11CredentialRequired(BaseTest):
         path: str,
         headers: dict[str, str] | None,
         endpoint: EndpointRecord,
+        params: dict[str, str] | None = None,
     ) -> EvidenceRecord:
         """
         Send one probe, with an empty body where the method carries one.
@@ -506,6 +510,8 @@ class Test11CredentialRequired(BaseTest):
             path:     The concrete path.
             headers:  Headers to add, if any.
             endpoint: The operation (its declared body decides whether one is sent).
+            params:   Query parameters to add, if any (a credential placed in the
+                      query).
 
         Returns:
             The record of the answer, or of the transport failure.
@@ -518,7 +524,12 @@ class Test11CredentialRequired(BaseTest):
         )
         try:
             _response, record = client.request(
-                method, path, test_id=self.info.id, headers=headers, json=body
+                method,
+                path,
+                test_id=self.info.id,
+                headers=headers or None,
+                params=params or None,
+                json=body,
             )
         except SecurityClientError as exc:
             if exc.record is None:
@@ -557,7 +568,7 @@ class Test11CredentialRequired(BaseTest):
             left_behind.append(target_path)
 
 
-def _malformed_credentials(target: TargetContext) -> list[tuple[str, str, str]]:
+def _malformed_credentials(target: TargetContext) -> list[tuple[str, RequestAuthParts]]:
     """
     The credentials that cannot be valid, as the target expects a credential.
 
@@ -571,12 +582,15 @@ def _malformed_credentials(target: TargetContext) -> list[tuple[str, str, str]]:
         target: The run's target (the credential placement).
 
     Returns:
-        (detail, header name, header value) per case. A placement that puts the
-        credential in a query parameter or a cookie yields the header cases
-        only through the fallback, since there is no header name to vary.
+        (detail, request parts) per case. A placement that puts the credential
+        in a query parameter sends each value there (the detail ends in
+        _IN_QUERY), one in a cookie sends the Cookie header; the header-name
+        cases apply only to a header placement, since there is no header name
+        to vary otherwise. Until 2026-11-04 the query values were sent as
+        headers named after the parameter, so nothing was tested (audit D1-5).
     """
     placement = target.credential_placement
-    cases: list[tuple[str, str, str]] = []
+    cases: list[tuple[str, RequestAuthParts]] = []
     if placement is not None and placement.location is CredentialLocation.HEADER:
         name, prefix = placement.name, placement.prefix
     elif placement is not None:
@@ -584,19 +598,23 @@ def _malformed_credentials(target: TargetContext) -> list[tuple[str, str, str]]:
         # are sent there, and the header variants do not apply.
         for detail, value in _MALFORMED_VALUES:
             parts = placement.request_parts(value)
-            for header, sent in parts.headers.items():
-                cases.append((detail, header, sent))
-            for parameter, sent in parts.params.items():
-                cases.append((f"{detail}_IN_QUERY", parameter, sent))
+            cases.append((f"{detail}_IN_QUERY" if parts.params else detail, parts))
         return cases
     else:
         name, prefix = _FALLBACK_HEADER, _FALLBACK_PREFIX
     for detail, value in _MALFORMED_VALUES:
-        cases.append((detail, name, f"{prefix}{value}".rstrip()))
+        cases.append((detail, RequestAuthParts(headers={name: f"{prefix}{value}".rstrip()})))
     arbitrary = f"{prefix}{_MALFORMED_VALUES[-1][1]}"
-    cases.append(("HEADER_LOWERCASE", name.lower(), arbitrary))
-    cases.append(("HEADER_UPPERCASE", name.upper(), arbitrary))
+    cases.append(("HEADER_LOWERCASE", RequestAuthParts(headers={name.lower(): arbitrary})))
+    cases.append(("HEADER_UPPERCASE", RequestAuthParts(headers={name.upper(): arbitrary})))
     return cases
+
+
+def _shown(parts: RequestAuthParts) -> str:
+    """How a malformed credential is named in a finding: its headers and parameters."""
+    shown = [f"`{name}: {value}`" for name, value in parts.headers.items()]
+    shown += [f"the query parameter `{name}={value}`" for name, value in parts.params.items()]
+    return " and ".join(shown)
 
 
 def _sample(enforced: list[EndpointRecord]) -> list[EndpointRecord]:

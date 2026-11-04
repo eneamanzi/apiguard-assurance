@@ -197,6 +197,7 @@ one that is `SKIP` (it judged no case at all), or a `PASS` sub-test that is itse
 | `not_verifiable` | int | Cases judged `NOT_VERIFIABLE`. |
 | `not_applicable` | int | Cases judged `NOT_APPLICABLE`. |
 | `not_verifiable_reasons` | object | Why cases were not verifiable: each detail and how many times. |
+| `essential` | bool | Whether the test declares this sub-test essential: a test whose essential sub-tests all verified nothing is `INCONCLUSIVE`, whatever its other sub-tests say. |
 
 <!-- [[[end]]] -->
 
@@ -306,7 +307,7 @@ test's review.
 | `record_id` | string | `{test_id}_{NNN}`; matches a record in `evidence.json` when `is_fail_evidence` is `true`. |
 | `timestamp_utc` | string, ISO 8601 UTC | Dispatch time. |
 | `request_method` | string | HTTP method of the request. |
-| `request_url` | string | Full URL of the request. |
+| `request_url` | string | Full URL of the request, with the query parameters the tool added, redacted (as in `evidence.json`). |
 | `response_status_code` | int \| null | HTTP status of the response; null when no response arrived. |
 | `transport_error` | string \| null | Why no response arrived (as in the evidence record); null otherwise. |
 | `category` | string \| null | What the response is, common to every test (`SERVED`, `NOT_FOUND`, `UNAUTHENTICATED`, ...). |

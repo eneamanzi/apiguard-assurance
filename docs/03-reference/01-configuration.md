@@ -79,7 +79,7 @@ its timeouts and its certificate settings.
 |---|---|---|
 | the API under test | [`target`](#target) | every test request |
 | the OpenAPI specification | [`specification`](#specification) | Phase 2 (and `validate-config` and `generate-seed`) |
-| the gateway's Admin API | [`gateway.admin`](#gateway) | the WHITE_BOX configuration audits |
+| the gateway's Admin API | [`gateway.admin`](#gateway) | the WHITE_BOX configuration audits, and the tests that use a gateway when one is configured (0.1, 0.2, 4.1, 4.4, 6.4) |
 | the gateway's health interface | [`gateway.health`](#gateway) | test 4.3, on a gateway that keeps it apart (APISIX) |
 
 ---
@@ -146,8 +146,8 @@ declarations. Optional: without it the first group returns SKIP. With it, `adapt
 <!-- [[[end]]] -->
 
 An Admin API the tool cannot read (refused, wrong address, certificate not trusted, client certificate missing) is
-"not accessible": the audits return SKIP with "Not verifiable: no access to ..." and the reason, which names the key to
-set ([security model](../04-architecture/04-security-model.md)).
+"not accessible": the audits are INCONCLUSIVE (`CONCEPT_NOT_ACCESSIBLE`, exit code 3) with a note "No access to ..."
+giving the reason, which names the key to set ([security model](../04-architecture/04-security-model.md)).
 
 ## `tls`: certificates of a connection
 
@@ -293,7 +293,7 @@ credential. `validate-config` lists the resources and who uses them.
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `min_priority` | int 0-3 | `3` | **Highest** priority level included (the name is historical): `0` = P0 only, `3` = all. |
-| `strategies` | list of `BLACK_BOX` \| `GREY_BOX` \| `WHITE_BOX` | `BLACK_BOX`, `GREY_BOX`, `WHITE_BOX` | Tests, native and external, whose strategy is not listed are excluded (ignored when `test_ids` is set). Not empty. |
+| `strategies` | list of `BLACK_BOX` \| `GREY_BOX` \| `WHITE_BOX` | `BLACK_BOX`, `GREY_BOX`, `WHITE_BOX` | Tests, native and external, whose strategy is not listed are excluded (ignored when `test_ids` is set). Not empty. It selects tests and is not an access boundary: a selected test still uses the gateway or the admin account when the configuration gives them (leave them out to keep a run away from them). |
 | `fail_fast` | bool | `false` | Stop after the first P0 test returning FAIL, ERROR or INCONCLUSIVE. |
 | `test_ids` | list | empty | Not empty: run **only** the listed tests, native (`X.Y`) or external (`ext.X.Y.tool`); `min_priority` and `strategies` are then ignored. It chooses only among available tests: an ID that does not exist, or an external test whose tool is disabled (`external_tools`), stops the tool at startup (exit `10`) with the reason and, for an unknown ID, the closest existing ID. |
 
@@ -463,7 +463,7 @@ Test [7.4](../05-tests/domain-7/7-4-webhook-verification.md), Webhook Signature 
 | `webhook_endpoint.method` | string | `POST` | HTTP method of the receiver (default POST). |
 | `webhook_endpoint.body` | object | required | The webhook payload sent as the JSON body on every delivery. |
 | `webhook_endpoint.signature_header` | string | required | Name of the header that carries the signature (e.g. 'X-Hub-Signature-256'). |
-| `webhook_endpoint.signing_secret` | string | `""` | The shared secret the sender signs with, for the valid-signature positive control. A ${VAR} reference from the environment; never a literal in the repo. Empty: the positive control is skipped and enforcement is inferred, not confirmed. |
+| `webhook_endpoint.signing_secret` | string | `""` | The shared secret the sender signs with, for the valid-signature positive control. A ${VAR} reference from the environment; never a literal in the repo. Empty: the positive control is skipped, and a rejected delivery is not verifiable (only an accepted forged one is judged). |
 | `webhook_endpoint.signature_format` | string | `{signature}` | How the header value is built from the hex digest, e.g. 'sha256={signature}' (GitHub). '{signature}' is the lowercase hex HMAC-SHA256 of the raw body. |
 
 ### `tests.domain_0.ext_0_1_ffuf`
@@ -521,6 +521,7 @@ true (`src/external_tests/registry.py`):
 | `schemathesis.expected_version` | string \| null | none | Expected tool version; a mismatch logs a WARNING and the test still runs. |
 | `schemathesis.dev_mode` | bool | `false` | Development only: reuse the output a previous run saved (`<output.directory>/tools/<label>_output.json`) instead of running the tool; without that file the tool runs and saves it. Never enable in a real assessment. |
 | `schemathesis.max_examples` | int 1-100 | `5` | Hypothesis examples generated per operation (`--hypothesis-max-examples`). Low keeps the run bounded; raise it for deeper fuzzing on a staging target. |
+| `schemathesis.request_timeout_seconds` | int 1-300 | `5` | How long Schemathesis waits for each generated request (`--request-timeout`); a request slower than this counts as failed. Raise it for a slow API. |
 
 <!-- [[[end]]] -->
 

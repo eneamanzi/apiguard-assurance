@@ -16,7 +16,8 @@ target-specific values live in `config.yaml`, including what the tool creates on
 (prepared resources, `src/tests/helpers/resources.py`; design [D6](05-design-decisions.md#d6-prepared-resources)). One exception is
 deliberate and isolated:
 
-- **gateway adapters** (`src/core/gateway/`, Kong and APISIX) read the gateway configuration for WHITE_BOX audits.
+- **gateway adapters** (`src/core/gateway/`, Kong and APISIX) read the gateway configuration for the WHITE_BOX audits
+  and for the tests that use a gateway when one is configured.
 
 What each test needs from the target is in [compatibility](../03-reference/06-compatibility.md#test-portability).
 

@@ -1632,6 +1632,12 @@ class AssessmentEngine:
                     result = test.execute(target, context, client, store)
                 finally:
                     store.end_test()
+        except Exception as exc:  # noqa: BLE001 -- one test's failure must not end the run
+            # A test returns its result and never raises (BaseTest contract), but
+            # 16 tests catch only the tool's own errors: anything else would end
+            # the whole run with no report. That test is ERROR (_error() logs the
+            # traceback), the run goes on.
+            result = test._error(exc)  # noqa: SLF001
         finally:
             sent = client.collected_requests()
 

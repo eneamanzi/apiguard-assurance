@@ -75,7 +75,10 @@ than anonymous access, so the operation refused it while serving an anonymous re
    `null`, an arbitrary string, and the last of those with the header's name in lower and in upper case. A value
    sent under another scheme would be refused for being the wrong scheme and would prove nothing about whether the
    content is checked: Forgejo expects `Authorization: token <value>`, so a `Bearer` probe never reaches its check
-   (corrected 2026-10-22). Where no placement is configured, the fallback is `Authorization` with `Bearer`. The sample is one operation per first path segment, which is what
+   (corrected 2026-10-22). A placement in a query parameter sends the three values there and has no header name
+   to vary, so three cases instead of five; one in a cookie sends them in the `Cookie` header. Until 2026-11-04 the
+   query values were sent as headers named after the parameter, so nothing was tested (external audit D1-5). Where
+   no placement is configured, the fallback is `Authorization` with `Bearer`. The sample is one operation per first path segment, which is what
    separates the services behind one gateway, and only operations whose method changes nothing: these sub-tests
    send several requests on the operator's own seeded paths.
 
@@ -143,6 +146,7 @@ Runs of 2026-10-22, the three tests of the group together:
 |---|---|---|
 | crAPI + Kong | FAIL, **2 findings at FIRM** | `GET /workshop/api/shop/orders/{order_id}` and `GET /workshop/api/shop/return_qr_code` answer `200` with no credential, and both declare their own security requirement (crAPI challenge 14). 24 enforced, 9 `DECLARED_PUBLIC` (the operations marked `security: []`), 8 like an unknown sibling; malformed credentials 15 enforced (sent as `Authorization: Bearer ...`, crAPI's own scheme), variants 23 enforced |
 | Forgejo + Kong and + APISIX | FAIL, **78 findings at TENTATIVE** | 78 operations answer `200` with no credential while the specification declares security for the whole document and marks nothing public: `/api/v1/licenses`, `/api/v1/gitignore/templates`, `/api/v1/orgs`, ... all of them genuinely public. 134 enforced, 251 like an unknown sibling, 5 with their own `404`, 5 validated without a credential (`400` for a missing query parameter: the application validates before authenticating, which NIST SP 800-228 REC-API-14 asks to be the other way round); malformed credentials 5 enforced (sent as `Authorization: token ...`, Forgejo's own scheme), variants 8 enforced |
+| Forgejo + Kong, the credential in the query (scratch configuration, `security_scheme: AccessToken`, 2026-11-04) | FAIL, the same 78 findings | malformed credentials 3 enforced, each sent as `?access_token=...` (empty, `null`, an arbitrary string) and refused with `401` |
 | any | ENFORCED everywhere | a target whose declared operations all refuse: not on the labs |
 
 The old test reported the same 78 on Forgejo and the same 2 on crAPI, with no distinction between them and with 14

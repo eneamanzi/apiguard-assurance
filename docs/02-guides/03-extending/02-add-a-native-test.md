@@ -149,7 +149,9 @@ change data, then the ones that stress the target), and `sub_tests` are the name
 status is computed from (`_SUB_REFUSES = "privileged_function_refuses_user"`, `_SUB_METHOD = "method_not_confused"`).
 `needs` lets the engine provide a declared account (the test no longer calls `acquire_tokens()` itself) and SKIP the
 test when the configuration does not supply it; `optional_needs` declares an account the test uses when it is
-configured and does without when it is not.
+configured and does without when it is not. `essential_sub_tests` (optional, a subset of `sub_tests`) names the
+sub-tests the test is mainly about: without a violation, a test none of whose essential sub-tests passed is
+`INCONCLUSIVE`, whatever the others say (test 7.2 declares `cloud_metadata` and `private_ip`).
 
 `TestInfo` is checked when the module is imported, and test discovery (`src/core/test_discovery.py`) checks the
 rest: an invalid declaration (for example `priority` outside 0-3, an ID not of the form `X.Y`, a CWE not of the
@@ -306,7 +308,9 @@ one test uses may stay in that test, as test 1.1's malformed credential values d
 engine records SKIP before `execute()`), then read the neutral concepts you need (`target.gateway.backend_timeouts()`, `health_checks()`, `signing_policies()`, ...; [add a gateway
 adapter](04-add-a-gateway-adapter.md)). Store each answer with `self._record_gateway_concept(target, store, CONCEPT_...,
 answer)` and use the returned id as the findings' `evidence_ref`; when the answer is not READ, return
-`self._skip_for_concept(...)`, or add an InfoNote if the test can still judge another part.
+`self._unread_concept(...)` (SKIP when the gateway has no such concept, INCONCLUSIVE with
+`CONCEPT_NOT_ACCESSIBLE` when it has it but it could not be read), or add an InfoNote if the test can still judge
+another part.
 
 **Resources created on the target** must be registered immediately after creation:
 `context.register_resource_for_teardown(method, path, headers=None)`. Phase 6 deletes them in reverse order.

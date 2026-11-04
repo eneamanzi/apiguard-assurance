@@ -61,21 +61,19 @@ ASVS v5.0.0-4.1.4: only the HTTP methods the API supports can be used, and unuse
 
 ## 4. Preconditions and reference responses
 
-- **How the target refuses an unsupported method** is learned, not assumed: before probing a path, the test asks it
-  with `APIGUARDPROBE`, a method no API implements and no server can act on. That answer is the path's reference.
-  The run logs each one (`test_0_1_method_reference`) and the result carries a note counting them, so that the
-  report says what the target answers.
-- **Calibration** (`src/core/references.py`) for `undocumented_versions`: a version answers when it answers unlike
-  random siblings under the same parent.
+- **Calibration** (`src/core/references.py`): an undeclared method is compared with the same method on random
+  siblings of the path, a version with random siblings under the same parent. On a path with parameters the random
+  siblings are the same route as the probe (only the values change), so there the comparison proves nothing and is
+  not used to judge (Oracle).
 - **No positive control:** the test asks whether something exists, not who may use it.
 
 ## 5. Probes
 
-- **`undeclared_methods`,** per documented path: one `APIGUARDPROBE` (the reference), then each undeclared method.
+- **`undeclared_methods`,** per documented path, each undeclared method:
   - a path with parameters is probed on random values of each parameter's declared type, never on the operator's
-    resources (`path_seed`): the question is whether the endpoint knows the method, which a non-existent object
-    answers just as well (a handled method says "not found", an unsupported one is refused), and nothing real can be
-    changed;
+    resources (`path_seed`), so that nothing real can be changed; the price is that only an executed method (2xx)
+    or a refused one (405) is evidence there: a handled method on an object that does not exist and an ignored one
+    can answer alike (both 404 on Forgejo);
   - a path without parameters is probed as it is, with an empty JSON body for `POST`, `PUT`, `PATCH`;
   - anything a handled write creates (a `2xx` with `Location`, or an accepted `PUT`) is deleted at once; what cannot
     be deleted is named in a note of the result.
@@ -93,9 +91,10 @@ ASVS v5.0.0-4.1.4: only the HTTP methods the API supports can be used, and unuse
 |---|---|---|
 | `METHOD_NOT_ALLOWED` (405, 501), the standard refusal | `ENFORCED/METHOD_REJECTED` | - |
 | the same answer as the same method on random siblings, and that answer is a refusal of the request itself (401, 403): the target did not look at the method | `NOT_VERIFIABLE/REFUSED_BEFORE_ROUTING` | - |
-| the same answer as the same method on random siblings | `ENFORCED/METHOD_NOT_SERVED` | - |
+| a path with parameters, any other answer (not 2xx, not 405): its random siblings are the same route, and an object that does not exist answers a handled method and an ignored one alike | `NOT_VERIFIABLE/NONEXISTENT_OBJECT` | - |
+| a path without parameters, the same answer as the same method on random siblings | `ENFORCED/METHOD_NOT_SERVED` | - |
 | `SERVED` (2xx): the method was executed | `VIOLATION/UNDECLARED_METHOD_HANDLED` | CERTAIN: the observed behaviour |
-| a different answer from the same method on random siblings | `VIOLATION/UNDECLARED_METHOD_KNOWN` | FIRM: it rests on the assumption that a different answer means the endpoint knows the method |
+| a path without parameters, a different answer from the same method on random siblings | `VIOLATION/UNDECLARED_METHOD_KNOWN` | FIRM: it rests on the assumption that a different answer means the endpoint knows the method |
 | unavailable, rate limited, server error, no response | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`, `RATE_LIMITED`, `SERVER_ERROR`, `NO_RESPONSE` | - |
 
 **`undocumented_versions`:**
@@ -103,6 +102,7 @@ ASVS v5.0.0-4.1.4: only the HTTP methods the API supports can be used, and unuse
 | Case | Outcome / detail | Confidence |
 |---|---|---|
 | answers unlike the random siblings of its parent | `VIOLATION/UNDOCUMENTED_VERSION` | TENTATIVE: the candidate comes from a heuristic rule |
+| answers like an unknown sibling, and that answer is a refusal of the request itself (401, 403): the target refused before routing | `NOT_VERIFIABLE/REFUSED_BEFORE_ROUTING` | - |
 | answers like an unknown sibling, or `NOT_FOUND` | `ENFORCED/VERSION_ABSENT` | - |
 | no documented path carries a version segment | `NOT_APPLICABLE/NO_VERSIONED_PATH` | - |
 | the version group documents no operation | `NOT_APPLICABLE/NO_PATH_IN_GROUP` | - |
@@ -154,17 +154,19 @@ None: the test has no parameters and uses no prepared resource.
 ## 12. Validation
 
 Runs of 2026-10-22, the two tests of the guarantee together; every lab healthy afterwards and its test
-resources intact.
+resources intact. The rows on `undeclared_methods` of Forgejo and on `undocumented_versions` of crAPI were measured
+again on 2026-11-04 (0.1 alone), after the two corrections of the external audit (`NONEXISTENT_OBJECT`, and
+`REFUSED_BEFORE_ROUTING` for versions).
 
 | Lab | Sub-test | Result | Basis |
 |---|---|---|---|
-| Forgejo + Kong | `undeclared_methods` | PASS partial (1046 enforced: 907 `METHOD_REJECTED`, 139 `METHOD_NOT_SERVED`; 1 `REFUSED_BEFORE_ROUTING`) | Forgejo refuses an undeclared method with 405, or answers it exactly as it answers an unknown path; on one path it answers 401 to both, which proves nothing |
+| Forgejo + Kong | `undeclared_methods` | PASS partial (951 enforced: 907 `METHOD_REJECTED`, 44 `METHOD_NOT_SERVED`; 95 `NONEXISTENT_OBJECT`, 1 `REFUSED_BEFORE_ROUTING`) | Forgejo refuses an undeclared method with 405, or, on a path without parameters, answers it exactly as it answers an unknown path. On 95 paths with parameters it answers 404 on the random object, which a handled method would answer too: not verified. On one path it answers 401 to both, which proves nothing |
 | Forgejo + Kong | `undocumented_versions` | PASS complete | `/api/v2/orgs` (the only candidate: Forgejo documents `v1` alone) answers as an unknown path |
 | Forgejo + Kong | `gateway_route_drift` | **FAIL**, 1 finding | the lab's route `/hmac-audit-probe-not-a-real-path` (added for test 3.3) has no documented path under it: a true drift |
 | Forgejo + APISIX | all three | the same as Forgejo + Kong | only the gateway changes |
 | crAPI + Kong, identity service | `undeclared_methods` | the honest limit | a service that refuses every unauthenticated request before it looks at the method cannot be judged from outside: its 47 paths are reported as not verified, and the sub-test's coverage says so |
 | crAPI + Kong | `undeclared_methods` | **FAIL**, 1 finding; 107 enforced, 48 not verifiable | `PUT /workshop/api/shop/orders` answers `401 "JWT Token required!"` while `PUT` on random paths under `/workshop/api/shop/` gets the router's 404: the endpoint knows `PUT`, which the specification does not declare (FIRM). The 47 paths of the identity service answer 401 to any method, exactly as their random siblings do: `REFUSED_BEFORE_ROUTING`, not enforced. An undeclared `GET` on the orders path answers 500: `NOT_VERIFIABLE/SERVER_ERROR` |
-| crAPI + Kong | `undocumented_versions` | PASS complete (6 probed) | `/identity/api/v1`, `/v3`, `/community/api/v1`, `/v3` (GET) and `/identity/api/auth/v1`, `/v5` (POST `check-otp`, the group's only method) answer as unknown paths |
+| crAPI + Kong | `undocumented_versions` | PASS partial (4 enforced, 2 not verifiable) | `/community/api/v1`, `/v3` (GET) and `/identity/api/auth/v1`, `/v5` (POST `check-otp`, the group's only method) answer as unknown paths. `/identity/api/v1` and `/v3` answer 401 like any path of the identity service: `REFUSED_BEFORE_ROUTING`, not verified |
 | crAPI + Kong | `gateway_route_drift` | **FAIL**, 1 finding | the same lab route as the Forgejo labs |
 | any | not verifiable | INCONCLUSIVE | a target whose answers cannot be calibrated: not seen on the labs |
 
@@ -173,7 +175,8 @@ crAPI (40). The calibration points are measured once per run and reused across t
 Forgejo, 41 on crAPI (both tests of the guarantee together).
 
 **What each branch has been seen doing** (rule 9). Proven on a lab: `METHOD_REJECTED`, `METHOD_NOT_SERVED`,
-`REFUSED_BEFORE_ROUTING` (crAPI's identity), `UNDECLARED_METHOD_KNOWN` (crAPI's `PUT`), `SERVER_ERROR`,
+`REFUSED_BEFORE_ROUTING` (crAPI's identity, for methods and versions), `NONEXISTENT_OBJECT` (Forgejo),
+`UNDECLARED_METHOD_KNOWN` (crAPI's `PUT`), `SERVER_ERROR`,
 `VERSION_ABSENT`, `NO_PATH_IN_GROUP` (before the rule was widened to any documented method),
 `ROUTE_DOCUMENTED`, `ROUTE_NOT_DOCUMENTED`, and with a configuration of its own `NO_GATEWAY` (the test runs, the
 sub-test is not applicable) and `ROUTES_NOT_READABLE` (an Admin API address where nothing answers).

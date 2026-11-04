@@ -205,15 +205,15 @@ SIGNAL_EXIT_BASE: int = 128
 EXIT_CODES: dict[int, ExitCodeInfo] = {
     ExitCode.CLEAN: ExitCodeInfo(
         "CLEAN",
-        "no test returned FAIL, ERROR or INCONCLUSIVE: no violation detected (a SKIP verifies "
-        "nothing)",
+        "no test returned FAIL, ERROR or INCONCLUSIVE, and at least one test ran: no violation "
+        "detected (a SKIP verifies nothing)",
     ),
     ExitCode.FAIL: ExitCodeInfo("FAIL", "at least one security guarantee is violated"),
     ExitCode.USAGE: ExitCodeInfo("USAGE", "invalid invocation: the assessment did not start"),
     ExitCode.ERROR: ExitCodeInfo(
         "ERROR",
-        "at least one verification did not complete (a test returned ERROR or INCONCLUSIVE) "
-        "and no test returned FAIL; an ERROR result may carry findings",
+        "at least one verification did not complete (a test returned ERROR or INCONCLUSIVE, or "
+        "every test returned SKIP) and no test returned FAIL; an ERROR result may carry findings",
     ),
     ExitCode.INFRASTRUCTURE: ExitCodeInfo(
         "INFRA", "the assessment did not run or did not complete: no security verdict"

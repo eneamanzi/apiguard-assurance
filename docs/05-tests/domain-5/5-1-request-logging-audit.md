@@ -43,8 +43,12 @@ checked empirically from outside", so the test audits the gateway's configuratio
 
 ## 3. Inputs
 
-The gateway's configuration values (`config_values`, read through the adapter), scanned for a known logging plugin
-(Kong `http-log`/`file-log`/`syslog`/...; APISIX `http-logger`/`syslog`/...).
+Two concepts read through the adapter: the configuration values (`config_values`), only to tell an empty read from
+a configuration without the plugin, and the log-shipping plugins (`log_shipping`). Which plugins ship request logs
+is each adapter's knowledge, so this test names no gateway (external audit D235-2, owner decision 2026-11-04; until
+then a list of Kong and APISIX names was inside the test). Kong: `http-log`, `tcp-log`, `udp-log`, `loggly` (its
+`file-log` and `syslog` write on the gateway's own host); APISIX: its `*-logger` and `*-logging` plugins, `syslog`,
+`loggly`, `tencent-cloud-cls`, except `file-logger` (lists read on the gateways' sources 2026-11-04).
 
 ## 4. Preconditions and reference responses
 
@@ -58,21 +62,24 @@ None: a configuration audit. `config_values` is read and pinned as evidence.
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| a known logging plugin is enabled | `ENFORCED/LOGGING_CONFIGURED` (a note names it) | CERTAIN |
-| none, among values that were read | `VIOLATION/NO_REQUEST_LOGGING` | CERTAIN |
+| a plugin the adapter reports as shipping request logs to another system is enabled (Inputs) | `ENFORCED/LOGS_SHIPPED` (a note names it) | - |
+| none, among values that were read (a `file-log` writing on the gateway's own host does not count: ASVS v5.0.0-16.4.3 asks for a logically separate system) | `VIOLATION/LOGS_NOT_SHIPPED` | FIRM: a collector on the gateway's host, invisible to the Admin API, could ship the gateway's own access log |
 | the read succeeded and returned **no value at all** | `NOT_VERIFIABLE/NO_CONFIG_VALUE` (a note says so) | - |
-| the configuration cannot be read | SKIP | - |
+| the gateway has no configuration values to read (not supported) | SKIP | - |
+| the configuration exists but cannot be read (Admin API down, access refused) | `NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE` (a note gives the reason) | - |
 
 A note on every result states the log-content checks need log access and were not done.
 
 ## 7. Outcomes
 
-SKIP when the configuration cannot be read, INCONCLUSIVE when it reads as empty. FAIL when no logging plugin is
+SKIP when the gateway has no such configuration, INCONCLUSIVE when it cannot be read (until 2026-11-04 a SKIP,
+external audit CORE-6) or reads as empty. FAIL when no log-shipping plugin is
 enabled among the values read, PASS when one is.
 
 ## 8. Findings
 
-"No request-logging plugin on the gateway", `evidence_ref` the configuration concept artifact.
+"No gateway plugin ships the request logs to a separate system", `evidence_ref` the configuration concept
+artifact.
 
 ## 9. Effects on the target
 
@@ -98,8 +105,8 @@ Runs of 2026-10-23:
 
 | Lab | Status | Basis |
 |---|---|---|
-| Forgejo + Kong, crAPI + Kong, Forgejo + APISIX | **FAIL** | no logging plugin enabled on the default labs (a real gap) |
-| Forgejo + Kong, with the plugin below | **PASS** | a global `http-log` plugin is detected (`LOGGING_CONFIGURED`) |
+| Forgejo + Kong, crAPI + Kong, Forgejo + APISIX | **FAIL** | no log-shipping plugin enabled on the default labs. The gateways do write their own access log (the Kong labs set `KONG_PROXY_ACCESS_LOG=/dev/stdout`, APISIX writes nginx's), to the container's output and nowhere else: until 2026-11-04 the finding said "requests are not logged at the gateway", CERTAIN, which this contradicts (external audit D235-1) |
+| Forgejo + Kong, with the plugin below | **PASS** | a global `http-log` plugin is detected (`LOGS_SHIPPED`); measured again on 2026-11-04 through the adapter's log-shipping concept, the lab then put back and FAIL again |
 
 **The case the labs lack, and how to undo it.** Add a global `http-log` plugin (any `http_endpoint`) to
 `test-environments/forgejo-kong/kong/kong.yml`, reload Kong (`docker compose ... up -d --force-recreate --wait
@@ -131,8 +138,9 @@ NIST SP 800-53r5 AU-2).
   the real source IP or log-injection resistance needs read access to the log stream, which the tool does not have on
   any target and is not planned (2026-10-27): a gateway that logs every request into a file full of unredacted
   tokens passes this test.
-- Logging configured outside the gateway (at the application, or a sidecar the Admin API does not expose) is not
-  seen.
+- Logging configured outside the gateway's plugins (the gateway's own access log, a collector on its host, the
+  application's logs, a sidecar the Admin API does not expose) is not seen: the finding says no plugin ships the
+  logs, never that requests are not logged.
 
 ## 15. Sources
 

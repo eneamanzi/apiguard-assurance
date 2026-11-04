@@ -10,6 +10,11 @@ object owned by user_a (through a configured resource, config.yaml
 delete it: each must be refused. A 2xx to user_b is the violation, proven by
 contrast (user_a owns the object, user_b does not).
 
+A refusal is 401, 403 or 404 only (a 400 or 422 from body validation, a 405 or
+a redirect says nothing about ownership), and only when it differs from what
+the object's read answers a forged credential: otherwise user_b's credential
+may simply not have been accepted (audit D235-7, D235-8).
+
     cross_user_read    user_b reads user_a's object -> expect non-2xx;
     cross_user_modify  user_b PATCH/PUT user_a's object -> non-2xx, confirmed by
                        a user_a read afterwards (the object was not changed);
@@ -51,9 +56,10 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
+from src.core.references import random_token
 from src.core.test_metadata import Effect, Need, TestInfo
 from src.tests.base import BaseTest
-from src.tests.helpers.auth import auth_parts
+from src.tests.helpers.auth import auth_parts, credential_parts
 from src.tests.helpers.owned_object import (
     SAFE_METHODS,
     PreparedResource,
@@ -80,6 +86,17 @@ _SPOILING: dict[ResponseCategory, str] = {
     ResponseCategory.NO_RESPONSE: "NO_RESPONSE",
     ResponseCategory.SERVER_ERROR: "SERVER_ERROR",
 }
+
+# The answers that refuse the request (RFC 9110 sections 15.5.2, 15.5.4,
+# 15.5.5). Any other non-2xx answer (400 or 422 from body validation, 405, a
+# redirect) does not say that ownership was checked (audit D235-7).
+_REFUSALS: frozenset[ResponseCategory] = frozenset(
+    {
+        ResponseCategory.UNAUTHENTICATED,
+        ResponseCategory.FORBIDDEN,
+        ResponseCategory.NOT_FOUND,
+    }
+)
 
 _REFERENCES: tuple[Reference, ...] = (
     # Read on the ASVS v5.0.0 source 2026-10-22: 8.2.2 (data-specific access
@@ -198,9 +215,46 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
         modifies = object_operations(target, values, _MODIFY_METHODS)
         deletes = object_operations(target, values, frozenset({_DELETE_METHOD}))
         read_op = reads[0] if reads else None
-        self._cross_read(client, store, read_op, user_a, user_b)
-        self._cross_modify(client, store, modifies, read_op, user_a, user_b)
-        self._cross_delete(client, store, deletes, user_a, user_b)
+        forged = self._forged_answer(target, client, read_op)
+        self._cross_read(client, store, read_op, user_a, user_b, forged)
+        self._cross_modify(client, store, modifies, read_op, user_a, user_b, forged)
+        self._cross_delete(client, store, deletes, user_a, user_b, forged)
+
+    def _forged_answer(
+        self,
+        target: TargetContext,
+        client: SecurityClient,
+        read_op: tuple[str, str, str] | None,
+    ) -> ResponseCategory | None:
+        """
+        How the object's read answers a credential that cannot be valid.
+
+        user_b's refusal is evidence of an ownership check only if user_b's
+        credential was accepted: a refusal in the same category as this answer
+        could be a credential the target does not accept (an expired static
+        token, audit D235-8). The read is safe (a GET), placed as the run's
+        credential is.
+
+        Args:
+            target:  The run's target (the credential placement).
+            client:  The HTTP client.
+            read_op: The object's read operation, or None.
+
+        Returns:
+            The answer's category when it is a refusal; None without a read,
+            without an answer, or when the read does not refuse a forged
+            credential (crAPI serves its orders without checking one): then the
+            control says nothing about user_b's credential.
+        """
+        if read_op is None:
+            return None
+        method, path, _template = read_op
+        record = _send(client, method, path, credential_parts(target, random_token()), self.info.id)
+        if record is None:
+            return None
+        self._step(record)
+        category = category_of(record)
+        return category if category in _REFUSALS else None
 
     def _cross_read(
         self,
@@ -209,8 +263,9 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
         read_op: tuple[str, str, str] | None,
         user_a: RequestAuthParts,
         user_b: RequestAuthParts,
+        forged: ResponseCategory | None,
     ) -> None:
-        """user_b reads user_a's object; a 2xx is BOLA."""
+        """user_b reads user_a's object; a 2xx is BOLA (forged: _forged_answer)."""
         if read_op is None:
             self._record(_SUB_READ, Outcome.NOT_APPLICABLE, "NO_READ_OPERATION")
             return
@@ -218,7 +273,9 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
         if not self._owner_served(client, method, path, user_a, _SUB_READ):
             return
         record = _send(client, method, path, user_b, self.info.id)
-        self._judge_cross(record, store, _SUB_READ, method, path, template, "read", "BOLA_READ")
+        self._judge_cross(
+            record, store, _SUB_READ, (method, path, template), forged, "read", "BOLA_READ"
+        )
 
     def _cross_modify(
         self,
@@ -228,6 +285,7 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
         read_op: tuple[str, str, str] | None,
         user_a: RequestAuthParts,
         user_b: RequestAuthParts,
+        forged: ResponseCategory | None,
     ) -> None:
         """user_b modifies user_a's object; a 2xx is BOLA, then user_a re-reads it."""
         if not modifies:
@@ -236,7 +294,7 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
         method, path, template = modifies[0]
         record = _send(client, method, path, user_b, self.info.id, json_body={})
         outcome = self._judge_cross(
-            record, store, _SUB_MODIFY, method, path, template, "modify", "BOLA_MODIFY"
+            record, store, _SUB_MODIFY, (method, path, template), forged, "modify", "BOLA_MODIFY"
         )
         if outcome == Outcome.VIOLATION and read_op is not None:
             # Confirm the object really changed owner-side (the modify was not a
@@ -252,6 +310,7 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
         deletes: list[tuple[str, str, str]],
         user_a: RequestAuthParts,
         user_b: RequestAuthParts,
+        forged: ResponseCategory | None,
     ) -> None:
         """user_b deletes user_a's object; a 2xx is BOLA. Runs last (it may remove the object)."""
         del user_a
@@ -261,7 +320,7 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
         method, path, template = deletes[0]
         record = _send(client, method, path, user_b, self.info.id)
         self._judge_cross(
-            record, store, _SUB_DELETE, method, path, template, "delete", "BOLA_DELETE"
+            record, store, _SUB_DELETE, (method, path, template), forged, "delete", "BOLA_DELETE"
         )
 
     def _owner_served(
@@ -290,19 +349,34 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
         record: EvidenceRecord | None,
         store: EvidenceStore,
         sub_test: str,
-        method: str,
-        path: str,
-        template: str,
+        operation: tuple[str, str, str],
+        forged: ResponseCategory | None,
         verb: str,
         detail: str,
     ) -> Outcome:
-        """Judge user_b's answer on user_a's object; return the recorded outcome."""
+        """
+        Judge user_b's answer on user_a's object; return the recorded outcome.
+
+        A 2xx is BOLA. Only 401, 403 and 404 are a refusal (_REFUSALS), and only
+        when they differ from the answer to a forged credential (forged, from
+        _forged_answer; without it a 401 is not taken as a refusal): otherwise
+        user_b's credential may not have been accepted.
+        """
+        method, path, template = operation
         if record is None:
             self._record(sub_test, Outcome.NOT_VERIFIABLE, "NO_RESPONSE")
             return Outcome.NOT_VERIFIABLE
         category = category_of(record)
         if category in _SPOILING:
             self._judge(record, store, sub_test, Outcome.NOT_VERIFIABLE, _SPOILING[category])
+            return Outcome.NOT_VERIFIABLE
+        if category not in _REFUSALS and category != ResponseCategory.SERVED:
+            self._judge(record, store, sub_test, Outcome.NOT_VERIFIABLE, "NOT_A_REFUSAL")
+            return Outcome.NOT_VERIFIABLE
+        if category != ResponseCategory.SERVED and (
+            category == forged or (forged is None and category == ResponseCategory.UNAUTHENTICATED)
+        ):
+            self._judge(record, store, sub_test, Outcome.NOT_VERIFIABLE, "CREDENTIAL_NOT_CONFIRMED")
             return Outcome.NOT_VERIFIABLE
         if category == ResponseCategory.SERVED:
             self._judge(

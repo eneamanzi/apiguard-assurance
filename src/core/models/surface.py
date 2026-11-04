@@ -256,6 +256,15 @@ class AttackSurface(BaseModel):
         default_factory=list,
         description="All (path, method) operations declared in the spec.",
     )
+    base_path: str = Field(
+        default="",
+        description=(
+            "The prefix the specification puts before every path (Swagger 2.0 basePath, e.g. "
+            "'/api/v1'); empty when there is none. The endpoints' paths already include it; a "
+            "tool that resolves the specification's paths itself (Schemathesis) needs it on "
+            "its base URL."
+        ),
+    )
     security_schemes: list[SecuritySchemeRecord] = Field(
         default_factory=list,
         description="Authentication schemes declared by the spec, in declaration order.",

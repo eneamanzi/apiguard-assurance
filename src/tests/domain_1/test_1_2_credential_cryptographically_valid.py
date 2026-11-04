@@ -162,7 +162,7 @@ class Test12CredentialCryptographicallyValid(BaseTest):
                 self._record_all(Outcome.NOT_VERIFIABLE, "NO_WORKING_ANCHOR")
                 return self._finish()
             self._step(anchor.record)
-            notes = self._probe_variants(client, store, anchor, view, parts)
+            notes = self._probe_variants(client, store, context, anchor, view, parts)
             self._record(
                 _SUB_CONFUSION,
                 Outcome.NOT_VERIFIABLE,
@@ -172,10 +172,11 @@ class Test12CredentialCryptographicallyValid(BaseTest):
         except SecurityClientError as exc:
             return self._error(exc)
 
-    def _probe_variants(
+    def _probe_variants(  # noqa: PLR0913 -- the probe needs all of it
         self,
         client: SecurityClient,
         store: EvidenceStore,
+        context: TestContext,
         anchor: Anchor,
         view: JwtView,
         parts: RequestAuthParts,
@@ -184,9 +185,10 @@ class Test12CredentialCryptographicallyValid(BaseTest):
         Send the three key-free variants to the anchor and judge each.
 
         Args:
-            client: The run's HTTP client.
-            store:  The evidence store.
-            anchor: The documented read the genuine token is accepted on.
+            client:  The run's HTTP client.
+            store:   The evidence store.
+            context: The run's context (the secrets registry).
+            anchor:  The documented read the genuine token is accepted on.
             view:   The decoded genuine token.
             parts:  The genuine credential's request parts (for the placement).
 
@@ -199,6 +201,12 @@ class Test12CredentialCryptographicallyValid(BaseTest):
             (JwtVariant.STRIPPED_SIGNATURE, stripped_signature(view)),
         )
         for variant, degraded in builders:
+            # Each variant keeps parts of the genuine token (the tampered one its
+            # signature, the unsigned one its payload): together they rebuild it.
+            # In Authorization the whole value is always redacted; registered,
+            # it is redacted wherever else the credential travels (a header of
+            # its own, a query parameter).
+            context.register_secret(degraded, f"user_a token, {variant.value} variant")
             record = self._send_as(client, anchor, degraded, parts)
             self._judge_variant(record, store, variant, anchor)
         return [
