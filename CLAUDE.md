@@ -152,7 +152,8 @@ ToolBaseError
 
 `GatewayAdapterError` (in `src/core/gateway/base.py`) extends `ToolBaseError` and is raised
 by gateway adapters on transport failure or unexpected HTTP status from the admin endpoint.
-The concept readers of `BaseGatewayAdapter` catch it and answer "not accessible"; the tests then SKIP or add a note.
+The concept readers of `BaseGatewayAdapter` catch it and answer "not accessible"; the tests then record
+NOT_VERIFIABLE (`CONCEPT_NOT_ACCESSIBLE`, INCONCLUSIVE) or add a note; a concept the gateway does not have is SKIP.
 
 `SeedGeneratorFetchError` and `SeedGeneratorParseError` (in `src/discovery/seed_generator.py`)
 extend `ToolBaseError` and are raised exclusively by the `apiguard generate-seed` CLI helper

@@ -72,8 +72,9 @@ specification:
 # =============================================================================
 # GATEWAY
 # =============================================================================
-# The API gateway, for the configuration audits (WHITE_BOX: 3.3, 4.2, 4.3, 6.4 sub-test B).
-# Without this section those tests return SKIP. Adapters: kong (Kong 3.x), apisix (Apache APISIX 3.x).
+# The API gateway, read through its Admin API. Without this section 0.4, 3.3, 4.2, 4.3 and 5.1
+# return SKIP; 0.1, 0.2, 4.1, 4.4 and 6.4 run and use the gateway when it is configured.
+# Adapters: kong (Kong 3.x), apisix (Apache APISIX 3.x).
 # gateway:
   # adapter: kong
   # admin:
@@ -103,9 +104,10 @@ specification:
 # =============================================================================
 # CREDENTIALS
 # =============================================================================
-# Accounts the tests log in with: admin (the API's administrator, test 1.4), user_a (an ordinary
-# account, tests 2.1 and 7.2), user_b (a second ordinary account, reserved). Without them those
-# tests return SKIP.
+# Accounts the tests log in with: user_a (an ordinary account, required by most GREY_BOX tests),
+# user_b (a second ordinary account, required by test 2.2, P0) and admin (the API's administrator,
+# used by test 2.1 when present). A test whose account is missing returns SKIP. The list of the
+# tests that need each account is in docs/03-reference/06-compatibility.md ("Test portability").
 credentials:
   # How a credential is obtained; required when an account or a token is configured:
   #   basic          HTTP Basic with username and password;
@@ -121,8 +123,8 @@ credentials:
   admin_password: "${MYAPI_ADMIN_PASSWORD}"
   user_a_username: "${MYAPI_USER_A_USERNAME}"
   user_a_password: "${MYAPI_USER_A_PASSWORD}"
-  # user_b_username: "${MYAPI_USER_B_USERNAME}"
-  # user_b_password: "${MYAPI_USER_B_PASSWORD}"
+  user_b_username: "${MYAPI_USER_B_USERNAME}"
+  user_b_password: "${MYAPI_USER_B_PASSWORD}"
 
   # Tokens (static_token only, instead of the accounts above).
   # admin_token: "${MYAPI_ADMIN_TOKEN}"
@@ -168,7 +170,8 @@ resources:
         password: "{password}"
     values:
       credential: "access_token"
-  # A resource for test 7.2 (injection_resource), created as user A and deleted at the end.
+  # An object created for a test, as user A, and deleted at the end: tests 2.2 and 2.5
+  # (owned_object_resources), 7.2 (url_accepting_endpoint.resource), 7.3 (race_operation.resource).
   # repository:
     # create:
       # method: POST
@@ -196,7 +199,7 @@ execution:
     - WHITE_BOX
   # Only these tests (e.g. ["1.1", "ext.1.5.testssl"]); empty = all selected by the two keys above.
   test_ids: []
-  # Stop at the first P0 test that returns FAIL or ERROR.
+  # Stop at the first P0 test that returns FAIL, ERROR or INCONCLUSIVE.
   fail_fast: false
 
 # =============================================================================
@@ -273,9 +276,7 @@ tests:
       max_replay_window_seconds: 300
       # HMAC algorithms treated as weak (compared lowercased).
       forbidden_algorithms:
-        - hmac-sha1
         - hmac-md5
-        - sha1
         - md5
 
   domain_4:
@@ -324,7 +325,7 @@ tests:
       # The sensitive business flow to probe for an anti-automation control (a CAPTCHA, a
       # human-verification challenge, an aggressive throttle).
       # sensitive_flow:
-        # path: /identity/api/auth/forgot-password
+        # path: /api/v1/auth/password-reset
         # method: POST
         # body:
           # email: user@example.com
@@ -338,13 +339,12 @@ tests:
       # fetch-from-URL import): path, body (with "{ssrf_url}" where the URL goes) and, optionally, a
       # prepared resource.
       # url_accepting_endpoint:
-        # path: /api/v1/repos/{owner}/{repo}/hooks
+        # path: /api/v1/projects/{project_id}/webhooks
         # body:
-          # type: gitea
-          # config:
-            # url: '{ssrf_url}'
-            # content_type: json
-        # resource: repository
+          # url: '{ssrf_url}'
+          # events:
+            # - push
+        # resource: project
       # The bypass classes to probe.
       payload_categories:
         - cloud_metadata
@@ -357,10 +357,10 @@ tests:
     test_7_3:
       # The once-only operation to probe for a race condition.
       # race_operation:
-        # path: /workshop/api/shop/apply_coupon
+        # path: /api/v1/cart/coupons
         # method: POST
         # body:
-          # coupon_code: TRAC075
+          # code: WELCOME10
         # role: user_a
         # resource: cart
       # How many identical requests are fired at the same instant.

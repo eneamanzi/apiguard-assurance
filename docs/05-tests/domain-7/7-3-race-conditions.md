@@ -55,8 +55,8 @@ judged on how many of the N concurrent requests succeeded.
 
 ## 5. Probes
 
-`concurrency` identical requests fired at the same instant from native threads (the HTTP client is thread-safe for
-requests); the records are judged afterwards on the main thread. Effect `STRESSES_TARGET` (the test runs after the
+`concurrency` identical requests fired at the same instant from native threads, released together by a barrier (each
+thread waits for the others, up to 10 seconds, before sending; until 2026-11-05 they left as the pool started them); the HTTP client may be called from several threads (its cookie jar keeps nothing); the records are judged afterwards on the main thread. Effect `STRESSES_TARGET` (the test runs after the
 others, rule 7) and it changes data on the target: announce it on a shared target.
 
 ## 6. Oracle
@@ -115,7 +115,8 @@ Runs of 2026-11-03:
 | Lab | Status | Basis |
 |---|---|---|
 | crAPI + Kong, the test run on its own, first time the coupon is applied | **FAIL**, 1 finding | the lab's configuration creates the coupon `APIGUARD-RACE` through crAPI's own API and fires 15 simultaneous `POST /workshop/api/shop/apply_coupon` as user A: **all 15 accepted** (`200`) for a coupon that may be applied once. User A's credit went from 0.0 to 60.0, so 6 applications took effect: the race is real, and the count of effects is not the count of acceptances, which is why the finding is FIRM and says to confirm on the target's state |
-| crAPI + Kong, in a full assessment of a freshly reset lab | **INCONCLUSIVE** | the coupon is created, then all 15 applications meet `503 failure to get a peer from the ring-balancer`: by the time the stressing tests run, crAPI's workshop service no longer answers (the same load effect as test 4.1), so `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
+| crAPI + Kong, in a full assessment of a freshly reset lab, until 2026-11-03 | **INCONCLUSIVE** | the coupon is created, then all 15 applications meet `503 failure to get a peer from the ring-balancer`: by the time the stressing tests run, crAPI's workshop service no longer answers, so `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`. Not load: test 7.2's hanging SSRF probes had made Kong's health check take the workshop out of rotation (found 2026-11-04, the 4.1 page) |
+| crAPI + Kong, in a full assessment of a freshly reset lab, 2026-11-05 | **FAIL**, 1 finding | with 7.2 stopping at its first unanswered payload, the workshop is in service: the 15 simultaneous applications are all accepted (`200`), with the barrier releasing the threads together |
 | crAPI + Kong, any later run | **INCONCLUSIVE** | the coupon is already claimed by user A: 15 answers `400`, `NOT_VERIFIABLE/OPERATION_FAILED`. Only the first run after a lab reset tests the race, the same wear as the order of tests 2.2 and 2.5 |
 | Forgejo + Kong, Forgejo + APISIX | **SKIP** | no once-only operation declared (`race_operation` unset): Forgejo has no operation of that kind to name |
 
@@ -130,8 +131,12 @@ key, or a lock on the resource (CWE-362, ASVS v5.0.0-15.4.2).
 
 ## 14. Limitations
 
-- The oracle counts `2xx` successes; an operation that returns `2xx` but whose effect is itself idempotent at the
-  data layer is not distinguishable from a serialized one (which is the correct, safe reading).
+- The barrier releases the threads together, but each still opens its own connection (TCP and TLS) when it sends:
+  the requests reach the server within the time of a handshake, not at one instant, and a race narrower than that
+  can be missed. Opening the connections beforehand would mean extra requests to the target.
+- The oracle counts `2xx` acceptances, not effects: an operation that answers `2xx` to a duplicate it does not apply
+  (idempotent at the data layer) looks like a race and is reported `RACE_DOUBLE_EFFECT`. That is why the finding is
+  FIRM and asks to confirm the effect on the target's own state (this line said the opposite).
 - Thread-level concurrency reaches the server closely but not with a hardware guarantee of simultaneity.
 
 ## 15. Sources

@@ -82,6 +82,7 @@ from src.core.references import Similarity, random_sibling_path, sibling_pattern
 from src.core.response_category import categorize
 from src.core.test_metadata import Effect, Need, TestInfo
 from src.tests.base import BaseTest
+from src.tests.helpers.sampling import sample_by_service
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -94,8 +95,24 @@ _SUB_ROUTES: str = "gateway_route_drift"
 # HEAD is left out: RFC 9110 §9.3.2 makes it implied by GET.
 PROBED_METHODS: tuple[str, ...] = ("GET", "POST", "PUT", "PATCH", "DELETE")
 
+# TRACE makes a server send back the request it received (RFC 9110 section
+# 9.3.8); enabled, it lets a script read headers it should not (Cross-Site
+# Tracing). Usually a server-wide setting, so it is asked once per service
+# (_trace), not per path, and judged on the echo: a comparison with random
+# paths would read a server echoing everywhere as "like an unknown path".
+_TRACE: str = "TRACE"
+# What a TRACE echo starts with: the request line the server received.
+_TRACE_ECHO: re.Pattern[str] = re.compile(r"^\s*TRACE\s+/", re.IGNORECASE)
+# Answers that refuse TRACE outright.
+_TRACE_REFUSALS: frozenset[int] = frozenset({405, 501})
+
 # The methods that carry a body; an empty JSON object is sent with them.
 _BODY_METHODS: frozenset[str] = frozenset({"POST", "PUT", "PATCH"})
+# Values put in place of a template's parameters when a gateway route is a
+# regular expression (_route_covers): a number and a word.
+_REGEX_PARAMETER_SAMPLES: tuple[str, ...] = ("1", "a")
+# The methods that change something when they are accepted (_clean_up).
+_WRITE_METHODS: frozenset[str] = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 _EMPTY_BODY: dict[str, object] = {}
 
 # The categories in which an answer is a refusal of the request itself: the
@@ -200,7 +217,8 @@ class Test01ShadowApiDiscovery(BaseTest):
         store: EvidenceStore,
     ) -> list[InfoNote]:
         """
-        Probe every method the specification does not declare, path by path.
+        Probe every method the specification does not declare, path by path,
+        and TRACE once per service (_trace).
 
         Args:
             target:  The run's target.
@@ -218,25 +236,94 @@ class Test01ShadowApiDiscovery(BaseTest):
             declared.setdefault(endpoint.path, set()).add(endpoint.method)
             endpoints.setdefault(endpoint.path, endpoint)
         left_behind: list[str] = []
+        captured = _captured_by_a_template(declared)
         for template, methods in declared.items():
             endpoint = endpoints[template]
             path = self._concrete_path(template, endpoint)
             for method in (m for m in PROBED_METHODS if m not in methods):
-                self._probe_method(method, path, endpoint, context, client, store, left_behind)
+                self._probe_method(
+                    method,
+                    path,
+                    endpoint,
+                    context,
+                    client,
+                    store,
+                    left_behind,
+                    sibling_captured=template in captured,
+                )
+        self._trace(target, client, store)
         if not left_behind:
             return []
         more = len(left_behind) - _NOTE_EXAMPLES
         return [
             InfoNote(
-                title=f"{len(left_behind)} object(s) a probe created and could not delete",
+                title=f"{len(left_behind)} accepted write(s) not undone",
                 detail=(
-                    "An undeclared write method was handled and the object it created could not "
-                    f"be removed: {', '.join(left_behind[:_NOTE_EXAMPLES])}"
+                    "An undeclared write method was accepted, and what it created or changed was "
+                    f"not removed: {', '.join(left_behind[:_NOTE_EXAMPLES])}"
                     + (f" and {more} more" if more > 0 else "")
-                    + ". Remove them by hand."
+                    + ". Check them by hand. Only an object the probe surely created (a Location, "
+                    "or a PUT on a random path) is deleted: a DELETE on a real path could remove "
+                    "a real resource."
                 ),
             )
         ]
+
+    def _trace(self, target: TargetContext, client: SecurityClient, store: EvidenceStore) -> None:
+        """
+        Ask TRACE once per service and judge the echo (module docstring, _TRACE).
+
+        A 405 or 501 refuses it; an answer that does not send the request back
+        does not echo it; a 2xx that echoes the request line is the
+        misconfiguration, CERTAIN; a 2xx without the echo is not interpreted.
+
+        Args:
+            target: The run's target (one documented GET per service).
+            client: The HTTP client.
+            store:  The evidence store.
+        """
+        for _method, path, template in sample_by_service(target, frozenset({"GET"})):
+            try:
+                _response, record = client.request(_TRACE, path, test_id=self.info.id)
+            except SecurityClientError as exc:
+                if exc.record is None:
+                    raise
+                self._judge(exc.record, store, _SUB_METHODS, Outcome.NOT_VERIFIABLE, "NO_RESPONSE")
+                continue
+            category = category_of(record)
+            spoiled = _SPOILING.get(category)
+            echoed = _TRACE_ECHO.match(record.response_body or "") is not None
+            if spoiled is not None:
+                self._judge(record, store, _SUB_METHODS, Outcome.NOT_VERIFIABLE, spoiled)
+            elif record.response_status_code in _TRACE_REFUSALS:
+                self._judge(record, store, _SUB_METHODS, Outcome.ENFORCED, "METHOD_REJECTED")
+            elif category == ResponseCategory.SERVED and echoed:
+                self._judge(
+                    record,
+                    store,
+                    _SUB_METHODS,
+                    Outcome.VIOLATION,
+                    "TRACE_ECHOED",
+                    finding=Finding(
+                        title=f"TRACE enabled: {template}",
+                        detail=(
+                            f"TRACE {path} (no credential) answered "
+                            f"{record.response_status_code} with the request sent back in the "
+                            "body. A server that echoes TRACE lets a script in a browser read "
+                            "the headers of its own request, cookies and credentials included "
+                            "(Cross-Site Tracing), and it is a method the specification does "
+                            "not declare. Disable TRACE at the gateway and the server (OWASP "
+                            "ASVS v5.0.0-4.1.4)."
+                        ),
+                        confidence=Confidence.CERTAIN,
+                    ),
+                )
+            elif category == ResponseCategory.SERVED:
+                self._judge(
+                    record, store, _SUB_METHODS, Outcome.NOT_VERIFIABLE, "TRACE_SERVED_NO_ECHO"
+                )
+            else:
+                self._judge(record, store, _SUB_METHODS, Outcome.ENFORCED, "TRACE_NOT_SERVED")
 
     @staticmethod
     def _concrete_path(template: str, endpoint: EndpointRecord) -> str:
@@ -268,9 +355,16 @@ class Test01ShadowApiDiscovery(BaseTest):
         client: SecurityClient,
         store: EvidenceStore,
         left_behind: list[str],
+        *,
+        sibling_captured: bool = False,
     ) -> None:
         """
         Send one undeclared method and judge the answer (module docstring).
+
+        sibling_captured: a documented path with a parameter in place of this
+        path's last segment exists (/users/{id} next to /users/search), so its
+        random siblings reach that route, not an unknown path: a different
+        answer from them is no evidence.
 
         Args:
             method:      The undeclared method.
@@ -314,7 +408,7 @@ class Test01ShadowApiDiscovery(BaseTest):
         # the probe (sibling_pattern keeps the template): the comparison sets
         # the method against itself, and an answer short of 2xx or 405 cannot
         # tell a method the route ignores from one it handles on an object
-        # that does not exist (audit D0-1).
+        # that does not exist.
         parametric = _TEMPLATE_PARAMETER.search(endpoint.path) is not None
         if not served and (similarity == Similarity.SAME_AS_UNKNOWN or parametric):
             refused = (
@@ -329,8 +423,18 @@ class Test01ShadowApiDiscovery(BaseTest):
                 outcome, detail = Outcome.ENFORCED, "METHOD_NOT_SERVED"
             self._judge(record, store, _SUB_METHODS, outcome, detail)
             return
+        if not served and sibling_captured:
+            self._judge(
+                record, store, _SUB_METHODS, Outcome.NOT_VERIFIABLE, "SIBLING_ROUTE_DOCUMENTED"
+            )
+            return
+        if served and similarity == Similarity.SAME_AS_UNKNOWN and not parametric:
+            # Random siblings are served the same 2xx (a catch-all answers every
+            # path): this path does not treat the method specially.
+            self._judge(record, store, _SUB_METHODS, Outcome.NOT_VERIFIABLE, "SERVED_LIKE_UNKNOWN")
+            return
         if served:
-            self._clean_up(record, path, client, store, left_behind)
+            self._clean_up(record, path, client, store, left_behind, parametric=parametric)
         self._judge(
             record,
             store,
@@ -345,13 +449,22 @@ class Test01ShadowApiDiscovery(BaseTest):
                 ),
                 detail=(
                     f"{method} {path} (no credential) answered {record.response_status_code} "
-                    f"({category.value}), while the same method on random paths under the same "
-                    f"parent ({point.pattern}) answered otherwise: this path treats {method} "
-                    "specially, and the specification does not declare it here. Declare it or "
+                    f"({category.value})"
+                    + (
+                        ": the method was executed on a path the specification does not "
+                        "declare it for"
+                        if parametric
+                        else f", while the same method on random paths under the same parent "
+                        f"({point.pattern}) answered otherwise: this path treats {method} "
+                        "specially"
+                    )
+                    + ", and the specification does not declare it here. Declare it or "
                     "block it (OWASP ASVS v5.0.0-4.1.4); whether it requires a credential or the "
                     "right role is judged by tests 1.1 and 2.1."
                 ),
-                confidence=Confidence.CERTAIN if served else Confidence.FIRM,
+                # On a path with parameters nothing was compared (its siblings
+                # are the same route): the 2xx is the observation, FIRM.
+                confidence=Confidence.CERTAIN if served and not parametric else Confidence.FIRM,
             ),
             reference_responses=(point,),
         )
@@ -363,20 +476,34 @@ class Test01ShadowApiDiscovery(BaseTest):
         client: SecurityClient,
         store: EvidenceStore,
         left_behind: list[str],
+        *,
+        parametric: bool,
     ) -> None:
         """
-        Delete what a handled write created, or record it as left behind (rule 7).
+        Delete what a handled write surely created, or name it as not undone (rule 7).
+
+        Only two things are surely new: the object a Location names, and the
+        random path a PUT on a path with parameters wrote to. Anything else (a
+        POST without Location, a PUT or PATCH on a real path, a DELETE) changed
+        something this test cannot undo, and a DELETE on a real path, sent
+        without a credential after an accepted write, could remove a real
+        resource: it is named, never deleted.
 
         Args:
             record:      The answer of the handled write.
             path:        The path probed.
             client:      The HTTP client.
             store:       The evidence store.
-            left_behind: Filled when the object could not be deleted.
+            left_behind: Filled with what was not undone.
+            parametric:  Whether the path was built from random values.
         """
+        method = record.request_method
+        if method not in _WRITE_METHODS:
+            return
         location = record.response_headers.get(_LOCATION_HEADER)
-        created = location or (path if record.request_method == "PUT" else None)
+        created = location or (path if method == "PUT" and parametric else None)
         if created is None:
+            left_behind.append(f"{method} {path}")
             return
         target_path = (
             "/" + created.split("://", 1)[-1].split("/", 1)[-1] if "://" in created else created
@@ -639,6 +766,34 @@ class Test01ShadowApiDiscovery(BaseTest):
         return []
 
 
+def _captured_by_a_template(declared: dict[str, set[str]]) -> frozenset[str]:
+    """
+    The documented paths without parameters whose random siblings another route captures.
+
+    /users/search has the random siblings /users/<random>, which /users/{id}
+    answers when it is documented: the comparison would set two routes against
+    each other (_probe_method, sibling_captured).
+
+    Args:
+        declared: The documented paths and their methods.
+
+    Returns:
+        The paths without parameters next to a documented path that has a
+        single parameter in place of their last segment.
+    """
+    parametric_last = {
+        template.rsplit("/", 1)[0]
+        for template in declared
+        if _TEMPLATE_PARAMETER.fullmatch(template.rsplit("/", 1)[-1])
+    }
+    return frozenset(
+        template
+        for template in declared
+        if not _TEMPLATE_PARAMETER.search(template)
+        and template.rsplit("/", 1)[0] in parametric_last
+    )
+
+
 def _route_covers(route_path: RoutePath, documented: list[str], spec_path: str | None) -> bool:
     """
     Whether a route's path has a documented path (or the specification) under it.
@@ -660,7 +815,15 @@ def _route_covers(route_path: RoutePath, documented: list[str], spec_path: str |
             expression = re.compile(route_path.value)
         except re.error:
             return False
-        return any(expression.search(path) for path in candidates)
+        # A template is not a path a regex can match (/users/{id} against
+        # ^/users/\d+$): it is tried as written and with a number and a word in
+        # place of its parameters.
+        instances = [
+            _TEMPLATE_PARAMETER.sub(sample, path)
+            for path in candidates
+            for sample in _REGEX_PARAMETER_SAMPLES
+        ]
+        return any(expression.search(path) for path in [*candidates, *instances])
     if route_path.match == RouteMatch.EXACT:
         # A path matched exactly is covered by a documented operation on it, or
         # by the documented operations under it: an exact route of a directory

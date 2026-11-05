@@ -32,8 +32,7 @@ A credential never travels on an insecure channel. A target that keeps the guara
 TLS: nothing answers a plain-HTTP request to an API path, and every HTTPS response carries an HSTS header so a
 browser never tries plain HTTP again. A redirect to HTTPS is not enough on an API path: OWASP ASVS v5.0.0-4.1.2
 allows it only on endpoints meant for a browser, since the first request, with its credential, has already crossed
-in cleartext, and an API client that wrongly uses HTTP is never told and keeps doing it (owner decision 2026-11-04,
-external audit D1-4; until then a `301`/`308` to `https` counted as enforced).
+in cleartext, and an API client that wrongly uses HTTP is never told and keeps doing it (owner decision 2026-11-04; until then a `301`/`308` to `https` counted as enforced).
 
 A PASS promises two things: nothing answered a plain-HTTP request to a documented API path, and an HTTPS response
 carried a sound HSTS header. It promises nothing about the strength of the TLS
@@ -77,7 +76,9 @@ Two read-only requests, both through the client so they are recorded:
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| no response over HTTP (refused, reset, unreachable) | `ENFORCED/HTTP_PORT_UNREACHABLE` | - |
+| `base_url` on a port other than 443 and no `http_url`: where the plain-HTTP listener is, is unknown, and asking the HTTPS port in cleartext says nothing about it (Kong answers it `400`) | `NOT_VERIFIABLE/HTTP_LISTENER_UNKNOWN`, nothing sent (until 2026-11-04 the HTTPS port was asked and its answer judged) | - |
+| the connection to the HTTP origin is refused: nothing listens there | `ENFORCED/HTTP_PORT_UNREACHABLE` | - |
+| a timeout or a dropped connection (a slow listener, a filter: not known which) | `NOT_VERIFIABLE/HTTP_PORT_NO_ANSWER` (until 2026-11-04 `ENFORCED`) | - |
 | `301`/`308` whose `Location` scheme is `https` | `VIOLATION/TRANSPARENT_REDIRECT` (ASVS v5.0.0-4.1.2) | CERTAIN |
 | `301`/`308` whose `Location` is not `https` | `VIOLATION/WEAK_REDIRECT` | CERTAIN |
 | a temporary redirect (`302`, `307`) | `VIOLATION/TEMPORARY_REDIRECT` | CERTAIN |
@@ -91,6 +92,7 @@ Two read-only requests, both through the client so they are recorded:
 |---|---|---|
 | header present, `max-age` within the bound, `includeSubDomains` | `ENFORCED/HSTS_COMPLIANT` | - |
 | header absent | `VIOLATION/HSTS_MISSING` | CERTAIN |
+| no answer over HTTPS | `NOT_VERIFIABLE/NO_RESPONSE` | - |
 | `max-age` below the bound (or absent) | `VIOLATION/HSTS_MAX_AGE_LOW` | CERTAIN |
 | `max-age` sufficient but no `includeSubDomains` | `VIOLATION/HSTS_NO_SUBDOMAINS` | FIRM |
 | `base_url` is plain HTTP | `NOT_APPLICABLE/NO_TLS` | - |
@@ -125,7 +127,7 @@ Section [`tests.domain_1.test_1_5`](../../03-reference/01-configuration.md#tests
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `hsts_min_max_age_seconds` | int ≥86400 | `31536000` | Lowest acceptable max-age (seconds) in the Strict-Transport-Security header. NIST SP 800-52 Rev.2, OWASP ASVS v5.0.0-3.4.1 ask for at least one year. Default: 31536000 (one year). |
-| `http_url` | string | `""` | The API in plain HTTP, when its HTTP listener is on a non-standard port: only the origin (scheme://host[:port]) is used, the path is derived from the specification. Empty (default) derives the origin from base_url (scheme to http, port 443 dropped). |
+| `http_url` | string | `""` | The API in plain HTTP, when its HTTP listener is on a non-standard port: only the origin (scheme://host[:port]) is used, the path is derived from the specification. Empty (default) derives the origin from base_url (scheme to http, port 443 dropped); with base_url on another port, the HTTP listener is then unknown and not probed. |
 
 <!-- [[[end]]] -->
 
@@ -162,8 +164,9 @@ request is processed; a `301`/`308` to `https` only on endpoints meant for a bro
 
 ## 14. Limitations
 
-- A filtered or closed HTTP port reads as `ENFORCED` (no credential crossed a cleartext channel): the secure
-  reading, but it does not distinguish a closed port from a slow firewall.
+- Only a refused connection to the HTTP port reads as `ENFORCED` (nothing listens there). A timeout cannot tell a
+  firewall that drops the packets from a slow listener, so it is `NOT_VERIFIABLE/HTTP_PORT_NO_ANSWER` (since
+  2026-11-04).
 - The HTTP probe tests one documented path; a gateway that redirects most paths but serves one in cleartext is seen
   only if that path is the shortest documented one.
 - The TLS handshake (protocols, ciphers, certificate) is not judged here: see `ext.1.5.testssl`.

@@ -10,10 +10,10 @@ guarantee cannot be checked empirically from outside." So the test audits the
 one thing it can see from outside, the gateway's configuration: is a
 plugin enabled that ships the request logs to a separate system (ASVS
 v5.0.0-16.4.3)? Which plugins do that is the gateway adapter's knowledge (the
-log-shipping concept): this test names no gateway (audit D235-2, owner decision
+log-shipping concept): this test names no gateway (owner decision
 2026-11-04). What it cannot see is the gateway's own access log: it is not in
 the Admin API, so the test never claims that requests are not logged, only that
-no plugin ships them (audit D235-1). The log-content checks (the required fields,
+no plugin ships them. The log-content checks (the required fields,
 the redaction of secrets, the real source IP, log-injection resistance) need
 read access to the logs, which the tool does not have on any target, so they
 are permanently out of reach: stated as a note, never faked as a pass.

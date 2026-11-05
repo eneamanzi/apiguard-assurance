@@ -10,13 +10,13 @@ the differences are:
     1. Scanned package: src.external_tests (not src.tests).
     2. Base class: ExternalToolTest (not BaseTest).
     3. File naming convention: ext_test_<D>_<N>_<description>.py
-       Example: ext_test_1_5_tls_analysis.py, ext_test_0_1_shadow_api_nuclei.py.
+       Example: ext_test_1_5_tls_analysis.py, ext_test_0_1_undocumented_paths_ffuf.py.
     4. Master-switch integration: with ExternalToolsConfig.enabled False the
        modules are still scanned (no tool is invoked), so that every external
        test is listed in not_run as tool_disabled; none is scheduled.
 
 Naming convention (non-optional, enables discovery):
-    src/external_tests/ext_test_<tool>_<description>.py
+    src/external_tests/ext_test_<D>_<N>_<description>.py
 
     Modules that do not start with ext_test_ (base.py, registry.py) are not
     test modules. A test module that cannot be used stops the run

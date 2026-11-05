@@ -37,8 +37,7 @@ A WHITE_BOX test reaches that access either through the API's administrator acco
 API; which test needs which is in [test portability](../03-reference/06-compatibility.md#test-portability), generated
 from the declarations. The tests by strategy and priority are in the table under [Priorities](#priorities).
 
-**The strategy is what a test needs at least, not a boundary on what it uses** (owner decision 2026-11-04,
-external audit DOCS-8). A test also uses what the configuration gives it as an optional need: five BLACK_BOX tests
+**The strategy is what a test needs at least, not a boundary on what it uses** (owner decision 2026-11-04). A test also uses what the configuration gives it as an optional need: five BLACK_BOX tests
 (0.1, 0.2, 4.1, 4.4, 6.4) read the gateway's Admin API when a gateway is configured, and 2.1 (GREY_BOX) uses the
 admin account when it is given. So `execution.strategies: [BLACK_BOX]` selects tests, and does not keep a run away
 from the Admin API or the admin account: to do that, leave the `gateway` section or the admin credentials out of the
@@ -101,7 +100,7 @@ A test declares two lists of prerequisites (`src/core/dag.py`). Both make the pr
 
 | Attribute | Use it when | The test runs if each prerequisite | Otherwise |
 |---|---|---|---|
-| `depends_on` | the test **uses data** that only the prerequisite produces (`TestContext` shared data) | completed: `PASS` or `FAIL` | `SKIP` |
+| `depends_on` | the test **uses data** that only the prerequisite produces (`TestContext` shared data) | completed: `PASS`, `FAIL` or `INCONCLUSIVE` (it ran to the end) | `SKIP` |
 | `requires_pass` | the test is **meaningful only if** the prerequisite holds (checking details of a mechanism that does not work proves nothing) | returned `PASS` | `SKIP` |
 
 A prerequisite not in the run (left out by `test_ids`, `min_priority`, `strategies`, or a disabled tool) counts as
@@ -109,9 +108,9 @@ not met: the prerequisite is never added to the run automatically. The `SKIP` re
 `Prerequisite not met: it is meaningful only if 1.1 passes; 1.1 returned FAIL.`, and a skip propagates to the tests
 that depend on the skipped one. The test is not executed.
 
-Declare a prerequisite only when one of the two cases is true. Tokens are not a reason: every test that needs one
-calls `acquire_tokens()` (`src/tests/helpers/auth.py`), which obtains each role's credential once and reuses the one
-stored in `TestContext`, in any order. No test declares a prerequisite today. A prerequisite that names no existing test, or
+Declare a prerequisite only when one of the two cases is true. Tokens are not a reason: before a test runs, the
+engine obtains the credential of every account the test declares (`needs`, `optional_needs`) with `acquire_tokens()`
+(`src/tests/helpers/auth.py`), once per role, reused from `TestContext` by every later test, in any order. No test declares a prerequisite today. A prerequisite that names no existing test, or
 the test itself, stops the tool at startup (exit `10`).
 
 ## Oracles and verdicts
@@ -139,7 +138,7 @@ they differ from the specification. If they are intended, the specification is w
 
 The status is computed from the sub-tests, not chosen by the test (`combine_sub_tests`; a violation makes it FAIL,
 a verified case PASS, a not-verifiable case INCONCLUSIVE). A PASS is bounded by what the test covers: it carries
-`coverage`, `COMPLETE` only when every declared sub-test verified something and `PARTIAL` as soon as one judged
+`coverage`, `complete` only when every declared sub-test verified something and `partial` as soon as one judged
 nothing (`SKIP`) or could not decide (`INCONCLUSIVE`), and each test page lists the methodology sub-tests that are
 not implemented and the test's known limitations. A skipped sub-test lowers the coverage on purpose: calling such a
 run complete would promise the reader a check that was never made. A test may declare some sub-tests **essential**
@@ -182,7 +181,7 @@ PASS when calibration is unreliable or a positive control does not work.
 
 ## Fail-fast
 
-`execution.fail_fast: true` stops Phase 5 after the first **P0** test that returns FAIL or ERROR. Teardown and
+`execution.fail_fast: true` stops Phase 5 after the first **P0** test that returns FAIL, ERROR or INCONCLUSIVE. Teardown and
 reporting still run; tests not yet started are listed in the report's `not_run` with reason `fail_fast`.
 
 ## Native, hybrid and external tools

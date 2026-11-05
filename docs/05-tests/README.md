@@ -39,7 +39,7 @@ methodology's own claims are broader
 | `2.4` | Authorization Consistency | P1 | BLACK_BOX | READ_ONLY | CWE-285 | - | [2.4](domain-2/2-4-authorization-consistency.md) |
 | `2.5` | Object Property-Level Authorization | P1 | GREY_BOX | CHANGES_DATA | CWE-213 | `USER_ACCOUNT`, `owned_object_resources` | [2.5](domain-2/2-5-object-property-authorization.md) |
 | **Domain 3 - Data Integrity** | | | | | | | |
-| `ext.3.1.schemathesis` | Input Validation (Schemathesis) | P2 | BLACK_BOX | STRESSES_TARGET | CWE-20 | - | [ext.3.1.schemathesis](external/domain-3/ext-3-1-schemathesis.md) |
+| `ext.3.1.schemathesis` | Input Validation (Schemathesis) | P2 | BLACK_BOX | STRESSES_TARGET | CWE-20 | `USER_ACCOUNT` (optional) | [ext.3.1.schemathesis](external/domain-3/ext-3-1-schemathesis.md) |
 | `3.3` | Request Signing Audit | P3 | WHITE_BOX | READ_ONLY | CWE-347 | `GATEWAY` | [3.3](domain-3/3-3-request-signing-audit.md) |
 | **Domain 4 - Availability and Resilience** | | | | | | | |
 | `4.1` | Rate Limiting | P0 | BLACK_BOX | STRESSES_TARGET | CWE-770 | `GATEWAY` (optional) | [4.1](domain-4/4-1-rate-limiting.md) |

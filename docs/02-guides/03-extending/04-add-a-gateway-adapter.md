@@ -28,12 +28,16 @@ concepts](../../04-architecture/05-design-decisions.md#d7-neutral-gateway-concep
 
 <!-- [[[end]]] -->
 
-The tests use them as: 4.3 `target_health()` for observability, 3.3 `routes()` for coverage, 6.4 `config_values()` in
-sub-test B. In `TargetHealth`, fill `resolved` with the addresses the gateway states it resolved a target name to,
+Each concept's tests are in the table above. In `BackendTimeout`, a timeout the configuration does not set is
+given the value the gateway then applies, with the field named in `defaulted`, when the gateway's documentation or
+source states that default (APISIX: nginx's 60 s); leave it `None` only when the default is not known, and test
+4.2 then says NOT_VERIFIABLE instead of guessing. In `TargetHealth`, fill `resolved` with the addresses the gateway states it resolved a target name to,
 when it gives them apart from the name (Kong's health endpoint does, under `data.addresses`): test 0.4 asks them
 when the name does not resolve where the tool runs.
 
-Plus the property `adapter_name` (short lowercase id, e.g. `"kong"`).
+Plus the property `adapter_name` (short lowercase id, e.g. `"kong"`), and optionally `secret_reference_prefixes`:
+how the gateway's configuration refers to a secret kept elsewhere (Kong `{vault://`, APISIX `$secret://` and
+`$env://`), so that test 6.4 does not report such a value as a plaintext credential.
 
 Each reader answers with a `ConceptRead` (`src/core/gateway/concepts.py`):
 
@@ -160,8 +164,8 @@ certificate (`admin_api_mtls`) and the key.
 1. `apiguard validate-config` with `gateway.adapter: <name>` and `gateway.admin.url` set (and
    `gateway.admin.headers`, `gateway.admin.tls`, `gateway.health.url` if the gateway needs them).
 2. Read every concept from a lab and compare with the gateway's own configuration.
-3. Run the WHITE_BOX audits only (`execution.test_ids: ["3.3", "4.2", "4.3", "6.4"]`): no SKIP with "Gateway
-   adapter not configured"; findings reflect the real configuration and point to the stored concepts
+3. Run the tests that read the gateway (`execution.test_ids: ["0.1", "0.2", "0.4", "3.3", "4.1", "4.2", "4.3",
+   "4.4", "5.1", "6.4"]`): no SKIP with "Needs GATEWAY: no gateway is configured"; findings reflect the real configuration and point to the stored concepts
    (`evidence_ref`).
 4. Make the interface unreachable (or remove its credential): the audits are INCONCLUSIVE with
    `CONCEPT_NOT_ACCESSIBLE` and a note "No access to ...", 6.4 adds a note.

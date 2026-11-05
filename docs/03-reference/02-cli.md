@@ -14,7 +14,7 @@ The entry point is installed as `apiguard`. From a source checkout without insta
 | Command | Purpose |
 |---|---|
 | [`run`](#run) | Run the assessment against the configured target. |
-| [`validate-config`](#validate-config) | Validate `config.yaml` (Phase 1 and the test checks) without contacting the target. |
+| [`validate-config`](#validate-config) | Validate `config.yaml` (Phase 1 and the test checks) without running a test. |
 | [`list-tests`](#list-tests) | List the tests with their declaration, needs and parameters; with a configuration, which run and which SKIP. |
 | [`generate-seed`](#generate-seed) | Generate a `path_seed` template from an OpenAPI specification. |
 | [`version`](#version) | Print the tool version. |
@@ -111,8 +111,9 @@ Runs Phase 1 (reads the YAML, resolves `${VAR}` placeholders, validates the sche
 test module loads and every test class is declared correctly (`Test definitions invalid: ...`, listing every
 problem with its module) and every
 `execution.test_ids` entry exists and its tool is enabled. When credentials are configured it also reads the OpenAPI
-specification (download or local file, as the run does), to check where the credentials are sent; it never
-contacts the gateway or sends a request to the API. A filter combination that selects no test is detected only by `run` (Phase 4).
+specification (download or local file, as the run does), to check where the credentials are sent: that download
+is its only request, and when the API serves its own specification it goes through the gateway like any request to
+the API. It never reads the gateway's Admin API and sends no test request. A filter combination that selects no test is detected only by `run` (Phase 4).
 
 <!-- [[[cog import generate_docs as g; cog.out(g.cli_options("validate-config")) ]]] -->
 
@@ -168,8 +169,10 @@ JSON output, one object per test (native first, then external, by ID):
 
 | Field | Type | Meaning |
 |---|---|---|
-| `id`, `name`, `priority`, `strategy`, `cwe`, `tags`, `depends_on`, `requires_pass`, `tool` | as in `TestInfo` | the declaration (`tool` is `null` for a native test) |
-| `needs` | list of strings | the `Need` members ([assessment model](../04-architecture/03-assessment-model.md#needs-what-the-configuration-must-hold)) |
+| `id`, `name`, `priority`, `strategy`, `cwe`, `tags`, `depends_on`, `requires_pass`, `tool`, `effect` | as in `TestInfo` | the declaration (`tool` is `null` for a native test) |
+| `references` | list of objects | the standards the test cites, as in `TestInfo` |
+| `sub_tests`, `essential_sub_tests` | list of strings | the sub-tests, and those the test is mainly about |
+| `needs`, `optional_needs` | list of strings | the `Need` members the test requires, and those it uses when present ([assessment model](../04-architecture/03-assessment-model.md#needs-what-the-configuration-must-hold)) |
 | `domain` | int | the methodology domain (first number of the ID) |
 | `source` | string | `native` or `external` |
 | `parameters_key` | string \| null | the test's section in `config.yaml` (`tests.domain_4.test_4_2`), `null` when it has no parameters |

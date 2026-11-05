@@ -77,7 +77,7 @@ than anonymous access, so the operation refused it while serving an anonymous re
    content is checked: Forgejo expects `Authorization: token <value>`, so a `Bearer` probe never reaches its check
    (corrected 2026-10-22). A placement in a query parameter sends the three values there and has no header name
    to vary, so three cases instead of five; one in a cookie sends them in the `Cookie` header. Until 2026-11-04 the
-   query values were sent as headers named after the parameter, so nothing was tested (external audit D1-5). Where
+   query values were sent as headers named after the parameter, so nothing was tested. Where
    no placement is configured, the fallback is `Authorization` with `Bearer`. The sample is one operation per first path segment, which is what
    separates the services behind one gateway, and only operations whose method changes nothing: these sub-tests
    send several requests on the operator's own seeded paths.
@@ -104,6 +104,7 @@ thought about. Measured 2026-10-22: crAPI declares per operation (9 of its opera
 | a credential that cannot be valid is accepted | `VIOLATION/ACCEPTED_<case>` | CERTAIN |
 | a path variant is served without a credential | `VIOLATION/SERVED_AS_<kind>` | CERTAIN |
 | a variant is refused or not routed | `ENFORCED/VARIANT_NOT_SERVED` | - |
+| a variant answers `3xx`, not followed | `ENFORCED/VARIANT_REDIRECTED`: the question is whether that spelling serves the operation, and a redirect serves nothing (a redirect of the endpoint itself is `REDIRECTED` above, because there it leaves open whether the control is a login page) | - |
 | no endpoint has a proven control to sample, so the malformed-credential and path-variant sub-tests have nothing to probe | `NOT_VERIFIABLE/NO_PROVEN_CONTROL` on both | - |
 
 A note states once whether the document declares security per operation, so that a heap of TENTATIVE findings is
@@ -205,7 +206,7 @@ results afterwards (2026-10-22).
 **What each branch has been seen doing** (rule 9). Proven on a lab: `CREDENTIAL_REQUIRED`,
 `SERVED_WITHOUT_CREDENTIAL` at both confidences, `DECLARED_PUBLIC`, `NO_SECURITY_DECLARED`,
 `NOT_FOUND_LIKE_UNKNOWN`, `NOT_FOUND_OWN_ANSWER`, `VALIDATED_WITHOUT_CREDENTIAL`, `CREDENTIAL_REFUSED`,
-`VARIANT_NOT_SERVED`, and with the two cases above every `ACCEPTED_<case>` and `SERVED_AS_UPPER_SEGMENT`. Still
+`VARIANT_NOT_SERVED`, `VARIANT_REDIRECTED` (3 on crAPI, 2026-11-05), and with the two cases above every `ACCEPTED_<case>` and `SERVED_AS_UPPER_SEGMENT`. Still
 unproven: the other seven `SERVED_AS_<kind>` details (the same code path as the one proven, one per variant),
 `REDIRECTED` and the transport reasons.
 

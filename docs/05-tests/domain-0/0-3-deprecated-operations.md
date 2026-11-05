@@ -69,6 +69,8 @@ nothing about what an operation returns.
 | Case | Outcome / detail | Confidence |
 |---|---|---|
 | `410 Gone` | `ENFORCED/SWITCHED_OFF` | - |
+| `405 Method Not Allowed`: the method is no longer available on the path | `ENFORCED/METHOD_SWITCHED_OFF` (until 2026-11-04 read as "still served" when it differed from the siblings) | - |
+| a redirect, or an answer of no class: neither the operation running nor gone | `NOT_VERIFIABLE/ANSWER_NOT_INTERPRETED` | - |
 | served, with a `Sunset` date in the future | `ENFORCED/SUNSET_DECLARED` | - |
 | served, with a `Sunset` date in the past | `VIOLATION/PAST_SUNSET_STILL_SERVED` | FIRM |
 | served, with a `Deprecation` header and no `Sunset` | `VIOLATION/DEPRECATION_WITHOUT_SUNSET`: the deprecation is announced, the deadline is not | FIRM |

@@ -62,7 +62,7 @@ the response itself; it needs the read-back to show at least one of the injected
 
 Create the object as user_a, read it, scan its field names for sensitive ones; create a second object injecting
 ownership fields (`role`, `owner`, `user_id`, ... each carrying that sentinel; a bound field is recognised by its own name in the read-back object), read it back, and see whether a
-sentinel was kept. Both objects are deleted. CHANGES_DATA.
+sentinel was kept. Both objects are deleted when their resource has a delete request. An object whose resource has no delete request (a crAPI order), or whose delete fails, stays on the target and is named in a note of the result (until 2026-11-04 only in the log). CHANGES_DATA.
 
 ## 6. Oracle
 
@@ -73,6 +73,7 @@ sentinel was kept. Both objects are deleted. CHANGES_DATA.
 | a field whose name is sensitive is in the response with a value that discloses something | `VIOLATION/SENSITIVE_FIELD` | FIRM (the name is a heuristic) |
 | no sensitive field, or only with a null, empty or masked value | `ENFORCED/NO_SENSITIVE_FIELD` | - |
 | the object could not be read, or the read was not served (`2xx`) | `NOT_VERIFIABLE/OBJECT_NOT_READABLE` | - |
+| the read got no answer (transport failure) | `NOT_VERIFIABLE/NO_RESPONSE` | - |
 
 **`mass_assignment`**
 
@@ -83,6 +84,7 @@ sentinel was kept. Both objects are deleted. CHANGES_DATA.
 | an injected sentinel was kept in the object | `VIOLATION/MASS_ASSIGNMENT` | CERTAIN (the unique sentinel was read back) |
 | an injected field name is shown, and no sentinel kept | `ENFORCED/NO_MASS_ASSIGNMENT` | - |
 | the object could not be read, or the read was not served (`2xx`) | `NOT_VERIFIABLE/OBJECT_NOT_READABLE` | - |
+| the read got no answer (transport failure) | `NOT_VERIFIABLE/NO_RESPONSE` | - |
 
 When the prepared resource does not create the object, neither sub-test has anything to judge and both record
 `NOT_VERIFIABLE/OBJECT_NOT_CREATED` (on crAPI, a worn lab answers `400 Insufficient Balance`).
@@ -103,7 +105,7 @@ read is in the transaction log.
 ## 9. Effects on the target
 
 `CHANGES_DATA`: creates two disposable objects owned by user_a (one plain, one with injected fields) and deletes
-both.
+both; an object that cannot be deleted (a crAPI order) stays and is named in a note of the result.
 
 ## 10. Per gateway
 
@@ -128,11 +130,11 @@ audit:
 
 | Lab | Status | Basis |
 |---|---|---|
-| Forgejo + Kong, Forgejo + APISIX | **PASS** | the repo response carries no sensitive field; a repo created with injected `role`/`owner`/... sentinels shows `owner` (the real owner, not the sentinel) and keeps none of them |
+| Forgejo + Kong, Forgejo + APISIX | **PASS** | the repo response carries no sensitive field; a repo created with injected `role`/`owner`/... sentinels shows `owner` (the real owner, not the sentinel) and none of the sentinel values |
 | crAPI + Kong | **PASS** partial | the order response carries `card_number`, masked (`XXXXXXXXXXXX0796`, shown to its own owner): no exposure. The order shows none of the injected field names (its owner is `user`), so `mass_assignment` is `FIELDS_NOT_EXPOSED` |
 
 Until 2026-11-04 crAPI was reported FAIL on that masked number, and `mass_assignment` ENFORCED on an order that
-shows none of the injected fields: both corrected (external audit D235-4, D235-6).
+shows none of the injected fields: both corrected.
 
 Rule 9: `no_sensitive_field` is proven ENFORCED on both labs; its VIOLATION branch was seen on crAPI only through
 the masked number, now excluded, so it is unproven on a lab. `mass_assignment` is ENFORCED on Forgejo and
@@ -151,7 +153,8 @@ request fields, never the whole body (mass assignment, CWE-915).
   a sensitive-looking name is a FIRM, not CERTAIN, finding.
 - Mass assignment probes a fixed set of common ownership field names with string sentinels; a boolean-only privileged
   field, or a field name outside the set, is not caught (to avoid false positives).
-- The scan descends a few levels into the response; a deeply nested sensitive field is missed.
+- The scan descends three levels into the response and reads the first five items of each list; a deeper sensitive
+  field, or one only in a later list item, is missed.
 - The object comes from `owned_object_resources` and always will: deriving a candidate object from the target was
   designed and measured against the three labs on 2026-10-29 and found none, because establishing ownership cannot
   be made target-agnostic (the measurement and what it means are in

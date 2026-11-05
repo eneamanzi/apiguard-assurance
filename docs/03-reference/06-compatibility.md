@@ -38,7 +38,7 @@ configuration of each test are on its page (`docs/05-tests/`, "Preconditions" an
 | Need | What the configuration must give | Required by | Used when present by |
 |---|---|---|---|
 | `ADMIN_ACCOUNT` | The credentials of the admin role | - | `2.1` |
-| `USER_ACCOUNT` | The credentials of the user_a role (an ordinary account) | `1.2`, `1.3`, `1.4`, `1.6`, `1.7`, `2.1`, `2.2`, `2.5`, `6.1`, `7.2`, `7.3` | `0.3`, `4.4` |
+| `USER_ACCOUNT` | The credentials of the user_a role (an ordinary account) | `1.2`, `1.3`, `1.4`, `1.6`, `1.7`, `2.1`, `2.2`, `2.5`, `6.1`, `7.2`, `7.3` | `0.3`, `4.4`, `ext.3.1.schemathesis` |
 | `SECOND_USER_ACCOUNT` | The credentials of the user_b role (a second ordinary account, for cross-user tests) | `2.2` | - |
 | `GATEWAY` | A gateway section: adapter and Admin API | `0.4`, `3.3`, `4.2`, `4.3`, `5.1` | `0.1`, `0.2`, `4.1`, `4.4`, `6.4` |
 | `REVOCABLE_LOGIN` | A login method that can revoke a credential (login with a delete request) | `1.4` | - |
@@ -58,7 +58,7 @@ runs, with the reason naming what is missing.
 
 Reaching a verdict is not the same as the verdict being right: verdict correctness was the subject of the block-6
 test review (groups A-J), now complete, which rebuilt each test's oracle with calibration, positive controls and the
-honest `INCONCLUSIVE` status. No test or helper contains Forgejo paths: what is specific to an application (its
+honest `INCONCLUSIVE` status. No test or helper uses a Forgejo path (comments and docstrings cite the labs as measured examples): what is specific to an application (its
 login, the objects a test needs, the request that checks a revoked token) is configuration
 ([`resources`](01-configuration.md#resources)); the Forgejo values are in the lab configurations.
 
@@ -68,18 +68,25 @@ login, the objects a test needs, the request that checks a revoked token) is con
 **find** when a target is known to be vulnerable. The target is the [crAPI lab](#crapi--kong), an API vulnerable by
 design that publishes the list of the weaknesses it was built to contain, so the measure is a ground truth nobody
 here wrote: `docs/challenges.md`, at the commit the lab's images come from (`700f03d`), declares **18 numbered
-challenges** in 11 categories, plus three it keeps secret. Measured on 2026-11-03 with a full assessment (31 tests, external tools
-included) on a lab reset first, with no other lab running: 13 FAIL, 10 PASS, 4 INCONCLUSIVE, 4 SKIP, 37 and 34 findings in two runs (the difference is schemathesis's, below).
-**Three of those tests cannot conclude on this target in a full assessment**, and the reason is crAPI's own
-deployment, not the tool: by the time the stressing tests run, crAPI's workshop service no longer answers through the
-gateway (Kong: `503 failure to get a peer from the ring-balancer`). 4.1 and 7.3 report it as
-`NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`; run on their own right after a reset, 4.1 reproduces its FAIL and 7.3 finds a
-race on the coupon flow (its page). 4.4's oversized body meets a service that answers `401` and resets the
-connection, in some runs before the upload finishes, which since the retry rule of 2026-10-28 is reported rather than
-retried (8 isolated runs: 5 INCONCLUSIVE, 3 FAIL; the FAIL is the gateway's real state). The fourth INCONCLUSIVE is
-7.2, challenge 11 below. The number of findings also moves between runs because `ext.3.1.schemathesis` reports a
-variable count (7 and 20 in two runs of the same day). The statuses are stable apart from 4.1, 4.4 and 7.3, whose
-outcome on this target depends on load (4.1, 7.3) and on a race (4.4).
+challenges** in 11 categories, plus three it keeps secret. Measured on 2026-11-05 with a full assessment (31 tests,
+external tools included) on a lab reset first, the two Forgejo labs running: 16 FAIL, 8 PASS, 3 INCONCLUSIVE, 4 SKIP,
+25 findings (the day before, same conditions: 16 FAIL, 9 PASS, 2 INCONCLUSIVE, 27 findings; 2.4's calibration and
+Schemathesis's credential changed in between, see their pages). The three INCONCLUSIVE:
+- **2.4**: crAPI's identity service refuses every path before routing it, so whether an older version enforces the
+  same policy is not known (`REFUSED_BEFORE_ROUTING`);
+- **4.4**: the oversized body meets a service that answers `401` and resets the connection, in some runs before the
+  upload finishes, which since the retry rule of 2026-10-28 is reported rather than retried (8 isolated runs: 5
+  INCONCLUSIVE, 3 FAIL; the FAIL is the gateway's real state);
+- **7.2**: challenge 11 below.
+
+**4.1 and 7.3 conclude in a full assessment** (FAIL both days). Until 2026-11-03 they reported
+`NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` (Kong: `503 failure to get a peer from the ring-balancer`). That was not load:
+7.2's SSRF probes hang on crAPI's synchronous outbound call, and three timeouts made Kong's passive health check take
+the workshop service out of rotation for the tests that ran next. Since 7.2 stops at the first payload left without an
+answer (2026-11-04), the workshop stays in service. Schemathesis, which runs last, still leaves
+Kong reporting it `UNHEALTHY` after the run (measured 2026-11-05): reset the lab before the next measurement. The
+number of findings moves between runs because `ext.3.1.schemathesis` generates its inputs at random (2 and 4 findings
+on the two days); the statuses are stable apart from 4.4, which depends on a race.
 
 | # | crAPI challenge | Weakness | What the tool did, measured | Verdict |
 |---|---|---|---|---|
@@ -88,7 +95,7 @@ outcome on this target depends on load (4.1, 7.3) and on a race (4.4).
 | 3 | Reset another user's password by brute force | anti-automation | 7.1 FAIL: "No anti-automation control on POST /identity/api/auth/forget-password", the challenge's own endpoint; 1.7 FAIL: "Failed authentication attempts are not limited" | **caught** |
 | 4 | An endpoint leaks other users' sensitive data | excessive data exposure | not probed: the challenge's own endpoint (`/community/.../posts/recent`, which leaks `vehicleid`) is not the configured object. 2.5 reads the configured order, whose `card_number` is masked (`XXXXXXXXXXXX0796`): no exposure, PASS (2026-11-04; reported FAIL before the external audit's correction) | **missed** |
 | 5 | An internal property of a video is exposed | excessive data exposure | not probed: 2.5 reads the configured object only | **missed** |
-| 6 | Layer-7 DoS through 'contact mechanic' | rate limiting | 4.1 FAIL: "No rate limit on /workshop/api/mechanic/", the challenge's own feature, measured with the test run on its own after a reset; in a full assessment the workshop service no longer answers and the same test reports `UPSTREAM_UNAVAILABLE` | **caught** |
+| 6 | Layer-7 DoS through 'contact mechanic' | rate limiting | 4.1 FAIL: "No rate limit on /workshop/api/mechanic/", the challenge's own feature, in a full assessment on a reset lab (2026-11-04 and 2026-11-05; until 2026-11-03 the workshop service had been taken out of rotation by then, see above) | **caught** |
 | 7 | Delete another user's video (admin endpoint) | BFLA | 2.1 derived `DELETE /identity/api/v2/admin/videos/{video_id}` as privileged (segment `admin`), **named it in the report and did not send it** (`DESTRUCTIVE_NOT_PROBED`, rule 5). On the other privileged endpoint it found a real BFLA: `GET /workshop/api/management/users/all` | **found, not exploited by design** |
 | 8 | Get an item for free (negative `quantity`) | business logic | not caught: `ProductQuantity.quantity` is `integer` with no minimum, so a negative value conforms to the schema and `ext.3.1.schemathesis` has nothing to flag. No test checks a business invariant | **out of scope** |
 | 9 | Increase your balance by $1,000 or more | business logic | same as 8 | **out of scope** |
@@ -128,9 +135,8 @@ and each order spends 10 of user A's 100 starting credit: after about ten runs t
 `400 Insufficient Balance`, both tests report `OBJECT_NOT_CREATED` and two findings crAPI exists to expose
 disappear. The full reset of the [maintainer commands](../project/maintainer-commands.md#test-labs) restores it; the
 tool stays honest in the meantime, reporting INCONCLUSIVE and never a PASS. **A measurement taken on a worn lab is
-not this table**: the table above was taken right after a reset, with the two Forgejo labs stopped. Even then, two
-tests of the 32 cannot conclude for the reason given under the table, so a run that reports 4.1 or 4.4 as FAIL on
-this target is a run where crAPI's workshop service was still answering, not a different tool.
+not this table**: the table above was taken right after a reset. Even then, three tests of the 31 cannot conclude
+for the reasons given above it.
 
 ## Test lab
 
@@ -284,7 +290,9 @@ certificates declare no CRL or OCSP address).
 | nuclei-templates | 10.4.3 (pinned) | `install_tools.sh` → `tools/nuclei-templates/` | no test |
 
 `external_tools.<tool>.expected_version` lets the tool warn when the installed version differs. Schemathesis is a
-Python library, not a binary: without its extra `ext.3.1.schemathesis` returns SKIP like a missing binary.
+Python package, installed by an extra rather than by `install_tools.sh`; the tool runs its `schemathesis` command,
+found on PATH or, when the environment is not activated, beside the Python running apiguard. Without the extra
+`ext.3.1.schemathesis` returns SKIP like a missing binary.
 
 ## Python dependencies
 
@@ -308,7 +316,7 @@ raises the version as above. Adding something (a field, a test, an option, a rea
 | Interface | What it covers | Reference |
 |---|---|---|
 | Exit codes | `0`, `1`, `2`, `3`, `10` (`130` / `143` come from the signal) | [`exit-codes.md`](03-exit-codes.md) |
-| `apiguard_report.json` | fields, types and meanings; allowed values: statuses (`PASS`, `FAIL`, `SKIP`, `ERROR`), strategies, `not_run` reasons, domain numbers and names | [`report-schema.md`](04-report-schema.md) |
+| `apiguard_report.json` | fields, types and meanings; allowed values: statuses (`PASS`, `FAIL`, `INCONCLUSIVE`, `SKIP`, `ERROR`), strategies, `not_run` reasons, domain numbers and names | [`report-schema.md`](04-report-schema.md) |
 | `evidence.json` | structure, record ID format (`<test_id>_<NNN>`, the target of `evidence_ref`), redaction placeholders (`[REDACTED: <label>]`, `[public probe] <value>`) | [`evidence-format.md`](05-evidence-format.md) |
 | Output files | names and location: `apiguard_report.json`, `evidence.json`, `assessment_report.html`, `config_used.yaml` in `output.directory`, external-tool outputs in `tools/` | [`report-schema.md`](04-report-schema.md), [`evidence-format.md`](05-evidence-format.md) |
 | Test IDs | `X.Y` and `ext.X.Y.tool` identifiers: renaming or removing a test is breaking, adding one is not | [`../tests/README.md`](../05-tests/README.md) |
@@ -328,7 +336,7 @@ counting as breaking:
 **C. Not a contract** - may change freely: texts (finding titles and details, messages), the per-transaction
 `detail` labels, log event names and fields, the Python modules (`src.*`), the layout of the HTML report.
 
-**When 1.0.0:** after the agnosticism work (plan, block 8), the last one expected to change `config.yaml` keys and
+**When 1.0.0:** after the agnosticism work, the last one expected to change `config.yaml` keys and
 accepted inputs. Until then the project is 0.x.
 
 ## See also

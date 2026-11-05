@@ -170,13 +170,20 @@ class BackendTimeout(BaseModel):
     )
     name: str = Field(min_length=1, description="Backend or route name.")
     connect_seconds: float | None = Field(
-        ge=0, description="Maximum time to open the connection; None: the gateway default applies."
+        ge=0, description="Maximum time to open the connection; None: not stated, value unknown."
     )
     send_seconds: float | None = Field(
-        ge=0, description="Maximum time between two writes; None: the gateway default applies."
+        ge=0, description="Maximum time between two writes; None: not stated, value unknown."
     )
     read_seconds: float | None = Field(
-        ge=0, description="Maximum time between two reads; None: the gateway default applies."
+        ge=0, description="Maximum time between two reads; None: not stated, value unknown."
+    )
+    defaulted: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "The fields above (`connect_seconds`, `send_seconds`, `read_seconds`) whose value "
+            "the configuration does not set and the adapter states as the gateway's own default."
+        ),
     )
     source: str = Field(min_length=1, description=_SOURCE_DESCRIPTION)
 

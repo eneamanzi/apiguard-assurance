@@ -49,7 +49,7 @@ ASVS v5.0.0-13.4.5 (L2): documentation and monitoring endpoints are not exposed 
   (`service_prefixes`: `/api` on Forgejo, `/identity/api`, `/community/api`, `/workshop/api` on crAPI) and the
   version directories of the documented paths (`/api/v1/`, `/identity/api/v2/`, ...).
 - **Words** under every base path: SecLists `Discovery/Web-Content/common-api-endpoints-mazen160.txt` (174 API words)
-  and the tool's 35 sensitive paths (`src/core/sensitive_paths.py`: Spring Boot Actuator, profilers, debuggers,
+  and the tool's 38 sensitive paths (`src/core/sensitive_paths.py`: Spring Boot Actuator, profilers, debuggers,
   status pages, API descriptions, `.env`, `.git`, each with its source); from the root also SecLists
   `Discovery/Web-Content/api/api-endpoints.txt` (285 whole paths); the user's list (`wordlist`), optional.
 - **Specification:** the documented paths (to leave them out) and its own URL.
@@ -92,7 +92,9 @@ No positive control: the test asks whether a path exists, not who may use it.
 ## 7. Outcomes
 
 SKIP when ffuf is not installed or `external_tools.ffuf` is disabled; ERROR when the SecLists lists are missing
-(`install_tools.sh` not run) or ffuf fails or reaches `timeout_seconds`.
+(`install_tools.sh` not run) or ffuf fails or reaches `timeout_seconds`, including during a search: ffuf stops
+itself at its `-maxtime` with exit code 0 and a partial output, which until 2026-11-05 was judged as a finished
+search with nothing found (checked against a slow local server).
 
 ## 8. Findings
 

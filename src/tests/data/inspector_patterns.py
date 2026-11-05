@@ -70,9 +70,10 @@ STACK_TRACE_PATTERNS: tuple[str, ...] = (
     "at Object.",
     "at Module.",
     "at Function.",
-    "at /",
+    # A Node frame on a file ("at /usr/src/app/index.js:10:5") is caught by the
+    # filesystem path pattern of response_inspector; "at /" alone matched plain
+    # text ("look at /docs"), and Ruby's "app/" any URL with that segment.
     # Ruby
-    "app/",
     ".rb:",
     # PHP
     "Stack trace:",

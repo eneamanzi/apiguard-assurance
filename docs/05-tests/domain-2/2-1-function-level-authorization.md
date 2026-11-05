@@ -72,7 +72,7 @@ resolved from `path_seed`. A destructive method on a derived candidate is not se
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| user_a served (2xx), the op requires auth | `VIOLATION/BFLA` | CERTAIN with the admin control, else FIRM |
+| user_a served (2xx), the op requires auth | `VIOLATION/BFLA` | FIRM: that the operation is privileged rests on its path's name; the admin control, when it ran, is cited and shows the operation exists (until 2026-11-04 CERTAIN with the control, and the control not cited) |
 | user_a served (2xx), the op is public in the spec | `NOT_APPLICABLE/PUBLIC_ENDPOINT` (that is 1.1's question) | - |
 | user_a refused (401/403, or a 404) in the same category as the forged credential, or 401 when the control says nothing: user_a's credential may not have been accepted | `NOT_VERIFIABLE/CREDENTIAL_NOT_CONFIRMED` | - |
 | user_a refused (401/403), unlike the forged credential | `ENFORCED/REFUSED` | - |
@@ -84,7 +84,11 @@ resolved from `path_seed`. A destructive method on a derived candidate is not se
 | unavailable, rate limited, no response, server error, other | `NOT_VERIFIABLE/<reason>` | - |
 
 **`method_not_confused`**: safe methods of one path give user_a different outcomes -> `VIOLATION/METHOD_CONFUSION`
-(CERTAIN); two or more agree -> `ENFORCED/METHODS_CONSISTENT`; one safe method only -> `NOT_APPLICABLE`.
+(FIRM, as `BFLA`: that the path is privileged rests on its name); two or more agree -> `ENFORCED/METHODS_CONSISTENT`;
+one safe method only -> `NOT_APPLICABLE`. A method the specification declares public is left out of the comparison:
+served because it is public, it says nothing about the privilege check of another method. No lab
+documents two safe methods on one privileged path (HEAD is rarely documented), so this sub-test is `NOT_APPLICABLE`
+on all three and both of its judged branches are unproven (rule 9).
 
 ## 7. Outcomes
 
@@ -113,8 +117,7 @@ The old parameters that let the operator list privileged paths and their method 
 
 ## 12. Validation
 
-Runs of 2026-10-23; measured again on 2026-11-04 (2.1 alone), after the correction of the external audit
-(D235-8), with the same verdicts:
+Runs of 2026-10-23; measured again on 2026-11-04 (2.1 alone), after the correction of the external audit, with the same verdicts:
 
 | Lab | Status | Basis |
 |---|---|---|
@@ -137,7 +140,7 @@ not rely on the interface hiding the action.
   (`DESTRUCTIVE_NOT_PROBED`), and no configuration can authorise them.
 - The privileged operations come only from the specification, by the names of their paths (`admin`,
   `management`): an administrator function under another name is not probed, and no configuration adds it (until
-  2026-11-04 the docs promised one, external audit D235-17).
+  2026-11-04 the docs promised one).
 - Role hierarchy beyond user/admin and OAuth scope escalation are out of scope (no lab exercises them).
 - A privileged operation whose resource must exist first stays not verifiable when neither admin nor the seed
   supplies it.

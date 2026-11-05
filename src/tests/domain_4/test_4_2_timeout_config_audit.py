@@ -12,26 +12,34 @@ Guarantee (docs/06-knowledge/03-guarantees.md, Section 4.2):
     This test audits the gateway's timeouts towards its backends (connect,
     read, write) against the oracle bounds of the methodology:
 
-        connect_timeout  <=  5 000 ms  (NIST SP 800-204A Section 4.3: <= 5 s)
-        read_timeout     <= 30 000 ms  (NIST SP 800-204A Section 4.3: <= 30 s)
+        connect_timeout  <=  5 000 ms
+        read_timeout     <= 30 000 ms
+
+The bounds are the methodology's: NIST SP 800-204A lists timeouts among the
+resilience features a gateway or mesh configures (SM-DR9, section 4.3, for
+external resources) but sets no value (read on the PDF 2026-11-05).
         write_timeout    <= 30 000 ms
 
 Strategy: WHITE_BOX -- Configuration Audit through the gateway adapter.
 Priority: P1 -- a missing timeout on any upstream service is a resource-lock
     vulnerability that cascades into full pool exhaustion (CWE-400).
 
-A timeout the gateway does not state is a violation: the guarantee asks for a
-bound, and no stated bound means none is enforced at that layer. Which branches
-a gateway can reach is on the test page (Kong always reports its defaults and
-refuses 0; APISIX omits an unset field).
+A timeout the configuration does not set is judged at the value the gateway
+then applies, when its adapter states that default (`defaulted` in the concept:
+APISIX applies nginx's 60 s), with confidence FIRM. A timeout neither stated nor
+defaulted is not known: NOT_VERIFIABLE (until 2026-11-05 a VIOLATION claiming
+"no bound", which on APISIX was false: the bound is nginx's 60 s). Which
+branches a gateway can reach is on the test page (Kong always reports its
+defaults and refuses 0).
 
 Sub-tests: connect_timeout, read_timeout, write_timeout. For each backend (or
 route that overrides its backend's timeouts) and each timeout:
 
     value in (0, maximum]    -> ENFORCED/WITHIN_LIMIT
-    value > maximum          -> VIOLATION/ABOVE_LIMIT
+    value > maximum          -> VIOLATION/ABOVE_LIMIT (FIRM when the value is
+                                the gateway's default, CERTAIN when set)
     value == 0               -> VIOLATION/NOT_CONFIGURED
-    value not stated (None)  -> VIOLATION/NOT_STATED
+    value not stated (None)  -> NOT_VERIFIABLE/NOT_STATED
 
 Gateway access:
     The test reads the neutral concept "backend timeouts" through the gateway
@@ -76,7 +84,7 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # Parameters: tests.domain_4.test_4_2 in config.yaml
 # ---------------------------------------------------------------------------
 
-# Oracle thresholds from methodology section 4.2 (NIST SP 800-204A Section 4.3).
+# Oracle thresholds from methodology section 4.2 (no standard sets a value).
 # Thresholds in milliseconds; test 4.2 converts the backend timeouts the adapter
 # reads (seconds).
 TEST_42_MAX_CONNECT_TIMEOUT_MS_DEFAULT: int = 5_000
@@ -90,8 +98,8 @@ class Test42Params(BaseModel):
     """
     Tuning parameters for Test 4.2 (Timeout Configuration Audit).
 
-    Oracle thresholds are taken directly from the methodology (section 4.2,
-    NIST SP 800-204A Section 4.3):
+    Oracle thresholds are the methodology's (section 4.2; NIST SP 800-204A asks
+    for timeouts but sets no value):
         connect_timeout  <= 5 000 ms  (5 s)
         read_timeout     <= 30 000 ms (30 s)
         write_timeout    <= 30 000 ms (30 s)
@@ -108,7 +116,7 @@ class Test42Params(BaseModel):
         default=TEST_42_MAX_CONNECT_TIMEOUT_MS_DEFAULT,
         description=(
             "Maximum acceptable backend connect timeout of a gateway service, in milliseconds. "
-            "Methodology oracle: connect_timeout <= 5 000 ms (NIST SP 800-204A Section 4.3). "
+            "Methodology oracle: connect_timeout <= 5 000 ms (no standard sets a value). "
             "Services with a higher value will produce a FAIL finding."
         ),
     )
@@ -116,7 +124,7 @@ class Test42Params(BaseModel):
         default=TEST_42_MAX_READ_TIMEOUT_MS_DEFAULT,
         description=(
             "Maximum acceptable backend read timeout of a gateway service, in milliseconds. "
-            "Methodology oracle: read_timeout <= 30 000 ms (NIST SP 800-204A Section 4.3). "
+            "Methodology oracle: read_timeout <= 30 000 ms (no standard sets a value). "
             "Services with a higher value will produce a FAIL finding."
         ),
     )
@@ -292,10 +300,14 @@ class Test42TimeoutConfigAudit(BaseTest[Test42Params]):
             for label, concept_field in _TIMEOUT_LABELS:
                 seconds: float | None = getattr(item, concept_field)
                 value_ms = None if seconds is None else round(seconds * _MS_PER_SECOND)
+                if value_ms is None:
+                    # Neither set nor stated as the gateway's default: unknown (rule 1).
+                    self._record(label, Outcome.NOT_VERIFIABLE, _NOT_STATED)
+                    continue
                 detail, finding = self._judge_single_timeout(
                     subject=subject,
                     label=label,
-                    value_ms=value_ms,
+                    value=(value_ms, concept_field in item.defaulted),
                     max_value_ms=thresholds[label],
                     evidence_ref=evidence_ref,
                 )
@@ -315,38 +327,28 @@ class Test42TimeoutConfigAudit(BaseTest[Test42Params]):
         self,
         subject: str,
         label: str,
-        value_ms: int | None,
+        value: tuple[int, bool],
         max_value_ms: int,
         evidence_ref: str,
     ) -> tuple[str, Finding | None]:
         """
         Judge one timeout of one backend or route.
 
-        Three conditions are a violation: the timeout is not stated (None), it
-        is 0 ("not configured"), it exceeds max_value_ms.
+        Two conditions are a violation: the timeout is 0 ("not configured"), or
+        it exceeds max_value_ms.
 
         Args:
             subject:      "service '<name>'" or "route '<name>'", for the messages.
             label:        Timeout name (the sub-test, e.g. 'connect_timeout').
-            value_ms:     The timeout in milliseconds, or None if not stated.
+            value:        The timeout in milliseconds, and whether it is the
+                          gateway's default (the configuration sets none).
             max_value_ms: Maximum acceptable value in milliseconds.
             evidence_ref: Evidence record of the concept read.
 
         Returns:
             (detail, finding): the finding is None when the timeout is compliant.
         """
-        if value_ms is None:
-            return _NOT_STATED, Finding(
-                title=f"Timeout Field Absent: {label} on {subject}",
-                detail=(
-                    f"The gateway does not state '{label}' for {subject}. Expected a "
-                    f"timeout value. Without it, timeout enforcement for this backend is "
-                    f"unknown and cannot be audited (the gateway's default applies)."
-                ),
-                evidence_ref=evidence_ref,
-                confidence=_CONFIDENCE,
-            )
-
+        value_ms, is_default = value
         if value_ms == _TIMEOUT_UNCONFIGURED:
             return _NOT_CONFIGURED, Finding(
                 title=f"Timeout Not Configured: {label} == 0 on {subject}",
@@ -355,30 +357,36 @@ class Test42TimeoutConfigAudit(BaseTest[Test42Params]):
                     f"not configured. An unconfigured timeout on a backend means a single slow "
                     f"or unresponsive dependency can block a connection-pool thread "
                     f"indefinitely, leading to pool exhaustion and denial of service. "
-                    f"Oracle: {label} must be > 0 and <= {max_value_ms} ms "
-                    f"(NIST SP 800-204A Section 4.3)."
+                    f"Oracle: {label} must be > 0 and <= {max_value_ms} ms (the methodology's "
+                    f"bound; NIST SP 800-204A asks for timeouts, SM-DR9)."
                 ),
                 evidence_ref=evidence_ref,
                 confidence=_CONFIDENCE,
             )
 
         if value_ms > max_value_ms:
+            origin = (
+                " (not set in the configuration: the gateway's own default, as its adapter "
+                "states it; the Admin API does not report it)"
+                if is_default
+                else ""
+            )
             return _ABOVE_LIMIT, Finding(
                 title=(f"Timeout Exceeds Oracle Threshold: {label} = {value_ms} ms on {subject}"),
                 detail=(
-                    f"{subject.capitalize()} has {label} = {value_ms} ms, "
+                    f"{subject.capitalize()} has {label} = {value_ms} ms{origin}, "
                     f"which exceeds the oracle threshold of {max_value_ms} ms "
-                    f"({max_value_ms / 1000:.0f} s) from NIST SP 800-204A Section 4.3. "
+                    f"({max_value_ms / 1000:.0f} s), the methodology's bound. "
                     f"A {label} of {value_ms / 1000:.1f} s means the Gateway will wait "
-                    f"up to {value_ms / 1000:.1f} s before aborting the upstream connection. "
-                    f"Under load ({100} concurrent requests blocked for {value_ms / 1000:.0f} s "
-                    f"each), the connection pool saturates and the Gateway stops accepting new "
-                    f"requests entirely, producing a self-inflicted denial of service. "
+                    f"up to {value_ms / 1000:.1f} s before aborting the upstream connection, "
+                    f"holding a worker for that long on every request to a slow backend: under "
+                    f"load the pool can saturate and the Gateway stop accepting new requests. "
                     f"Recommended action: reduce {label} to <= {max_value_ms} ms in the "
                     f"gateway configuration."
                 ),
                 evidence_ref=evidence_ref,
-                confidence=_CONFIDENCE,
+                # FIRM for a default: stated by the adapter, not read from the gateway.
+                confidence=Confidence.FIRM if is_default else _CONFIDENCE,
             )
 
         return _WITHIN_LIMIT, None

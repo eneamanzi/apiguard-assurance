@@ -16,7 +16,7 @@ one sub-test:
                                 endpoints redirect, since an API client that
                                 wrongly uses HTTP is then never told and keeps
                                 sending its credential in cleartext (owner
-                                decision 2026-11-04, audit D1-4; until then a
+                                decision 2026-11-04; until then a
                                 301/308 to https was ENFORCED). The path is derived from the
                                 specification (where a credential actually
                                 travels), not `/`: a gateway redirects to HTTPS
@@ -70,6 +70,7 @@ from src.core.models import (
     Standard,
     TestResult,
     TestStrategy,
+    TransportError,
 )
 from src.core.test_metadata import Effect, TestInfo
 from src.tests.base import BaseTest
@@ -89,7 +90,8 @@ _PERMANENT_REDIRECTS: frozenset[int] = frozenset({301, 308})
 # HSTS header and its parts (response headers are compared in lower case).
 _HSTS_HEADER: str = "strict-transport-security"
 _HSTS_INCLUDE_SUBDOMAINS: str = "includesubdomains"
-_HSTS_MAX_AGE: re.Pattern[str] = re.compile(r"max-age\s*=\s*(\d+)", re.IGNORECASE)
+# RFC 6797 section 6.1.1: max-age may be written as a quoted string.
+_HSTS_MAX_AGE: re.Pattern[str] = re.compile(r'max-age\s*=\s*"?(\d+)"?', re.IGNORECASE)
 _LOCATION_HEADER: str = "location"
 
 # The HTTPS default port, dropped when deriving the plain-HTTP origin so that it
@@ -154,7 +156,8 @@ class Test15Params(BaseModel):
         description=(
             "The API in plain HTTP, when its HTTP listener is on a non-standard port: only the "
             "origin (scheme://host[:port]) is used, the path is derived from the specification. "
-            "Empty (default) derives the origin from base_url (scheme to http, port 443 dropped)."
+            "Empty (default) derives the origin from base_url (scheme to http, port 443 dropped); "
+            "with base_url on another port, the HTTP listener is then unknown and not probed."
         ),
     )
 
@@ -306,6 +309,13 @@ class Test15InsecureCredentialTransport(BaseTest[Test15Params]):
             probe_path: The documented path to send over HTTP.
         """
         del target
+        if not cfg.http_url and urlsplit(base_url).port not in (None, _HTTPS_DEFAULT_PORT):
+            # The HTTPS listener is on a port of its own and http_url does not
+            # say where the plain-HTTP one is: asking that port in cleartext
+            # (Kong: 400 "plain HTTP request was sent to HTTPS port") says
+            # nothing about a plain-HTTP listener.
+            self._record(_SUB_TLS, Outcome.NOT_VERIFIABLE, "HTTP_LISTENER_UNKNOWN")
+            return
         origin = self._http_origin(cfg, base_url)
         try:
             response, record = client.request(
@@ -315,13 +325,17 @@ class Test15InsecureCredentialTransport(BaseTest[Test15Params]):
                 origin=origin,
             )
         except SecurityClientError as exc:
-            # No response over HTTP: the listener refused or did not answer the
-            # request, so no credential crossed a cleartext channel. The probe's
-            # question is exactly whether the HTTP port serves the request; a
-            # transport failure here is the enforced state, not NOT_VERIFIABLE.
+            # The connection refused: nothing listens there, so no request is
+            # taken in cleartext. A timeout or a dropped connection says less (a
+            # slow listener, a filter): not verifiable (rule 4).
             if exc.record is None:
                 raise
-            self._judge(exc.record, store, _SUB_TLS, Outcome.ENFORCED, "HTTP_PORT_UNREACHABLE")
+            if exc.record.transport_error == TransportError.CONNECTION_FAILED:
+                self._judge(exc.record, store, _SUB_TLS, Outcome.ENFORCED, "HTTP_PORT_UNREACHABLE")
+            else:
+                self._judge(
+                    exc.record, store, _SUB_TLS, Outcome.NOT_VERIFIABLE, "HTTP_PORT_NO_ANSWER"
+                )
             return
         self._judge_http(response.headers, record, store, origin, probe_path)
 
@@ -392,7 +406,7 @@ class Test15InsecureCredentialTransport(BaseTest[Test15Params]):
             Outcome.VIOLATION,
             detail,
             Finding(
-                title=f"Credential-bearing request accepted over plain HTTP: {origin}{probe_path}",
+                title=f"API request accepted over plain HTTP: {origin}{probe_path}",
                 detail=(
                     f"A plain-HTTP GET to {origin}{probe_path} {why}. A client sending its "
                     "credential to this URL transmits it in cleartext: a man in the middle reads "
@@ -421,7 +435,14 @@ class Test15InsecureCredentialTransport(BaseTest[Test15Params]):
             cfg:        The test's parameters (the max-age bound).
             probe_path: The documented path to read.
         """
-        response, record = client.request("GET", probe_path, test_id=self.info.id)
+        try:
+            response, record = client.request("GET", probe_path, test_id=self.info.id)
+        except SecurityClientError as exc:
+            # No answer on HTTPS: no header to judge (rule 4).
+            if exc.record is None:
+                raise
+            self._judge(exc.record, store, _SUB_HSTS, Outcome.NOT_VERIFIABLE, "NO_RESPONSE")
+            return
         value = _header(response.headers, _HSTS_HEADER)
         if not value:
             self._judge(

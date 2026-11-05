@@ -50,7 +50,7 @@ unauthenticated: a gateway that checks the size before anything else answers 413
 forwarded the body, **except a 401 or 403**, which does not say who refused. The application may have refused after
 the gateway forwarded the body, or the gateway itself before its size check (Kong runs `key-auth` before
 `request-size-limiting`). Until 2026-11-04 that refusal was read as "forwarded", a false finding on a gateway that
-authenticates first (external audit D467-3; owner decision of that day). Now the same body is sent once more with
+authenticates first (owner decision of that day). Now the same body is sent once more with
 user_a's credential and that answer is judged; when it is refused too, a forged credential (a random value placed as
 the run's credential is) tells who refused: the same status means user_a's credential did not get past the first
 refuser, a different status that it did, and the body went past it without a 413.

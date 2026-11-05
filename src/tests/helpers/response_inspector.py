@@ -58,9 +58,11 @@ _FRAMEWORK_VERSION_PATTERN: re.Pattern[str] = re.compile(
     re.IGNORECASE,
 )
 
-# Filesystem path patterns that reveal deployment layout.
+# Filesystem path patterns that reveal deployment layout. A Unix path must start
+# there (after a quote, a space, a bracket...), not follow a host or another
+# segment: "https://example.com/home/" is a URL, not a file.
 _FILESYSTEM_PATH_PATTERN: re.Pattern[str] = re.compile(
-    r"(/opt/|/var/|/home/|/usr/|/etc/|/tmp/|C:\\|D:\\|/app/|/srv/)"
+    r"(?<![\w.:/-])(/opt/|/var/|/home/|/usr/|/etc/|/tmp/|/app/|/srv/)|(C:\\|D:\\)"
 )
 
 # ---------------------------------------------------------------------------

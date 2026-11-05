@@ -69,10 +69,9 @@ as a disclosure.
    consecutive failures NIST SP 800-63B-4 section 3.2.2 allows "on a single subscriber account", so that "no limit
    appeared" rests on a published number. NIST's rule is per account, and an account that cannot exist is not
    one: what an unlimited series shows is the absence of a limit per caller, the control against credential
-   stuffing and brute force of ASVS v5.0.0-6.3.1. Until 2026-11-04 the finding cited NIST for it (external audit
-   D1-2). The number is a constant of the module, not a parameter (owner, 2026-10-22). A block is recognised by
+   stuffing and brute force of ASVS v5.0.0-6.3.1. Until 2026-11-04 the finding cited NIST for it. The number is a constant of the module, not a parameter (owner, 2026-10-22). A block is recognised by
    the answer changing and staying changed, so that a body carrying a request id is never taken for one (until
-   2026-11-04 only a `429` or a slowdown counted, and a `403` or `423` block ended in a false finding: D1-3);
+   2026-11-04 only a `429` or a slowdown counted, and a `403` or `423` block ended in a false finding);
 3. **nothing is sent against a real account more than once per reading.** Account lockout is not probed: see the
    limitations.
 
@@ -84,7 +83,7 @@ as a disclosure.
 | the bodies differ once the submitted name is masked, the same way on every reading | `VIOLATION/EXISTENCE_DISCLOSED_BY_ANSWER` (CWE-204) | CERTAIN: the two answers are the proof |
 | the bodies match and the median for the account that exists is at least 3 times the other | `VIOLATION/EXISTENCE_DISCLOSED_BY_TIMING` (CWE-208) | FIRM: a duration is noisy, and both medians are given |
 | the three readings of one case do not agree | `NOT_VERIFIABLE/ANSWER_NOT_STABLE` | - |
-| both medians are under 5 ms | `ENFORCED/TIMING_TOO_SMALL`: the ratio of two very small durations says nothing | - |
+| both medians are under 5 ms | `ENFORCED/TIMING_TOO_SMALL`: the bodies agree; the two durations are too small to compare, so the verdict rests on the bodies alone | - |
 | the wrong password is accepted | `NOT_VERIFIABLE/WRONG_PASSWORD_ACCEPTED` | - |
 | a `429` within the bound | `ENFORCED/ATTEMPTS_LIMITED` | - |
 | answers become slow within the bound | `ENFORCED/ATTEMPTS_SLOWED` | - |

@@ -349,7 +349,7 @@ Test [1.5](../05-tests/domain-1/1-5-credentials-over-an-insecure-channel.md), Cr
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `hsts_min_max_age_seconds` | int ≥86400 | `31536000` | Lowest acceptable max-age (seconds) in the Strict-Transport-Security header. NIST SP 800-52 Rev.2, OWASP ASVS v5.0.0-3.4.1 ask for at least one year. Default: 31536000 (one year). |
-| `http_url` | string | `""` | The API in plain HTTP, when its HTTP listener is on a non-standard port: only the origin (scheme://host[:port]) is used, the path is derived from the specification. Empty (default) derives the origin from base_url (scheme to http, port 443 dropped). |
+| `http_url` | string | `""` | The API in plain HTTP, when its HTTP listener is on a non-standard port: only the origin (scheme://host[:port]) is used, the path is derived from the specification. Empty (default) derives the origin from base_url (scheme to http, port 443 dropped); with base_url on another port, the HTTP listener is then unknown and not probed. |
 
 ### `tests.domain_2.test_2_2`
 
@@ -374,7 +374,7 @@ Test [3.3](../05-tests/domain-3/3-3-request-signing-audit.md), Request Signing A
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `max_replay_window_seconds` | int ≥1 | `300` | The largest acceptable replay window (clock-skew tolerance) in seconds; above it a signed request can be replayed. Default 300 (5 minutes). |
-| `forbidden_algorithms` | list | 4 values (`hmac-sha1`, `hmac-md5`, …) | HMAC algorithms treated as weak (compared lowercased). Default sha1/md5. |
+| `forbidden_algorithms` | list | `hmac-md5`, `md5` | HMAC algorithms treated as weak (compared lowercased). Default md5: RFC 6151 advises against HMAC-MD5 in new designs; HMAC-SHA-1 is not weak (RFC 6194) unless added here. |
 
 ### `tests.domain_4.test_4_1`
 
@@ -391,8 +391,8 @@ Test [4.2](../05-tests/domain-4/4-2-timeout-config-audit.md), Timeout Configurat
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `max_connect_timeout_ms` | int ≥1 | `5000` | Maximum acceptable backend connect timeout of a gateway service, in milliseconds. Methodology oracle: connect_timeout <= 5 000 ms (NIST SP 800-204A Section 4.3). Services with a higher value will produce a FAIL finding. |
-| `max_read_timeout_ms` | int ≥1 | `30000` | Maximum acceptable backend read timeout of a gateway service, in milliseconds. Methodology oracle: read_timeout <= 30 000 ms (NIST SP 800-204A Section 4.3). Services with a higher value will produce a FAIL finding. |
+| `max_connect_timeout_ms` | int ≥1 | `5000` | Maximum acceptable backend connect timeout of a gateway service, in milliseconds. Methodology oracle: connect_timeout <= 5 000 ms (no standard sets a value). Services with a higher value will produce a FAIL finding. |
+| `max_read_timeout_ms` | int ≥1 | `30000` | Maximum acceptable backend read timeout of a gateway service, in milliseconds. Methodology oracle: read_timeout <= 30 000 ms (no standard sets a value). Services with a higher value will produce a FAIL finding. |
 | `max_write_timeout_ms` | int ≥1 | `30000` | Maximum acceptable backend write (send) timeout of a gateway service, in milliseconds. Methodology oracle: write_timeout <= 30 000 ms. Services with a higher value will produce a FAIL finding. |
 
 ### `tests.domain_4.test_4_4`
@@ -410,7 +410,7 @@ Test [6.4](../05-tests/domain-6/6-4-hardcoded-credentials-audit.md), Hardcoded C
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `debug_endpoint_paths` | list | empty | Paths of debug or actuator endpoints to probe unauthenticated for exposed credentials (e.g. /actuator/env, /debug/vars). Empty: the debug sub-test is not applicable. |
+| `debug_endpoint_paths` | list | empty | Paths of debug or actuator endpoints to probe unauthenticated for exposed credentials (e.g. /actuator/env, /debug/vars). Empty: the tool's paths that expose configuration (actuator/env, actuator/configprops, server-info, .env, .git/config, .git/HEAD), under the root and each service prefix. |
 
 ### `tests.domain_7.test_7_1`
 
@@ -432,7 +432,7 @@ Test [7.2](../05-tests/domain-7/7-2-ssrf-prevention.md), Server-Side Request For
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `url_accepting_endpoint` | object \| null | none, **needed to run** | The endpoint that accepts a URL from the client and makes the server call it (a webhook, a fetch-from-URL import): path, body (with "{ssrf_url}" where the URL goes) and, optionally, a prepared resource. No default: unset, the engine records the test as SKIP before it runs. |
-| `url_accepting_endpoint.path` | string | required | Path of the endpoint (POST). With a resource it may hold the resource's values, e.g. '/api/v1/repos/{owner}/{repo}/hooks'. |
+| `url_accepting_endpoint.path` | string | required | Path of the endpoint (POST). With a resource it may hold the resource's values, e.g. '/api/v1/projects/{project_id}/webhooks'. |
 | `url_accepting_endpoint.body` | object | required | JSON body of the request. Must contain "{ssrf_url}" exactly once, replaced by each payload URL; may contain "{random_secret}" (32 hexadecimal characters) and, with a resource, the resource's values. Placeholders in quotes. |
 | `url_accepting_endpoint.resource` | string \| null | none | Name of a prepared resource (resources: in config.yaml) created for user A before probing; its values fill the placeholders of path and body, and it is deleted at teardown. Optional: without it the path is used as written. |
 | `payload_categories` | list | 6 values (`cloud_metadata`, `private_ip`, …) | The bypass classes to probe. Valid values: 'cloud_metadata', 'private_ip', 'encoding_bypass', 'forbidden_protocol', 'dns_bypass', 'url_parser_confusion'. A class left out is not probed and its sub-test stays empty. |
@@ -556,7 +556,7 @@ the credentials of a role, a gateway, a login that can revoke a credential, or a
 in the tables above) is not an error: the engine records it as SKIP without running it, naming what is missing
 ("Needs USER_ACCOUNT: the credentials of the user_a role are not configured (credentials.user_a_*)."). The run
 **warns** before the first test (log event `test_will_skip_unmet_needs`, fields `test_id` and `reason`);
-`validate-config` and `list-tests --config` say the same without contacting the target.
+`validate-config` and `list-tests --config` say the same without running a test.
 
 ## See also
 

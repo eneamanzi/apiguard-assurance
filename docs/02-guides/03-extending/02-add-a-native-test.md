@@ -52,7 +52,7 @@ class Test42Params(BaseModel):
         default=TEST_42_MAX_CONNECT_TIMEOUT_MS_DEFAULT,
         description=(
             "Maximum acceptable backend connect timeout of a gateway service, in milliseconds. "
-            "Methodology oracle: connect_timeout <= 5 000 ms (NIST SP 800-204A Section 4.3). "
+            "Methodology oracle: connect_timeout <= 5 000 ms (no standard sets a value). "
             "Services with a higher value will produce a FAIL finding."
         ),
     )
@@ -147,7 +147,7 @@ class Test21FunctionLevelAuthorization(BaseTest):
 `effect` and `sub_tests` are mandatory: `effect` sets the run order (read-only tests first, then the ones that
 change data, then the ones that stress the target), and `sub_tests` are the named parts whose per-case outcomes the
 status is computed from (`_SUB_REFUSES = "privileged_function_refuses_user"`, `_SUB_METHOD = "method_not_confused"`).
-`needs` lets the engine provide a declared account (the test no longer calls `acquire_tokens()` itself) and SKIP the
+`needs` lets the engine provide a declared account before the test runs and SKIP the
 test when the configuration does not supply it; `optional_needs` declares an account the test uses when it is
 configured and does without when it is not. `essential_sub_tests` (optional, a subset of `sub_tests`) names the
 sub-tests the test is mainly about: without a violation, a test none of whose essential sub-tests passed is
@@ -275,7 +275,7 @@ a step (`_step`). The transaction log does not depend on either: the engine coll
 sends for the running test and adds to the log, as an unjudged step and in the order sent, any the test did not
 record itself, so the report lists everything the tool sent to the target. A judgement is an outcome
 (`VIOLATION`, `ENFORCED`, `NOT_VERIFIABLE`, `NOT_APPLICABLE`) with the test's detail in `UPPER_SNAKE_CASE`, read as
-`VIOLATION/SERVED_WITHOUT_CREDENTIAL`; the category of the response comes from `category_of(record)` (`src/tests/base.py`). The
+`VIOLATION/SERVED_WITHOUT_CREDENTIAL`; the category of the response comes from `category_of(record)` (`src/core/assessment_test.py`). The
 test page documents the oracle table.
 
 **Secrets in the evidence** ([evidence format](../../03-reference/05-evidence-format.md#sensitive-data)): tokens stored with
@@ -336,7 +336,7 @@ There is no automated test suite. Verify against the lab target:
 | `Test definitions invalid: ...`, exit 10 | an invalid `info`, a class without `info`, a duplicate ID, an unknown prerequisite, a module that cannot be imported or that is outside a package (the message names the module or class and the field) |
 | `tests.domain_<D>.test_<D>_<N>.<param>: unknown key`, exit 10 | a parameter the model does not declare (the closest name is suggested), or a parameter given to a test without a model |
 | Pydantic error when building the result | FAIL without findings, PASS with findings, or SKIP without reason |
-| FAIL finding without evidence link | `add_fail_evidence()` not called, or `evidence_ref` not set |
+| FAIL finding without evidence link | the violation recorded with `_record()` instead of `_judge(record, ...)`, which stores the record and sets `evidence_ref` |
 
 ## See also
 

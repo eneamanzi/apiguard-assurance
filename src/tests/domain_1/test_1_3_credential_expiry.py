@@ -17,8 +17,8 @@ JWT:
                       access-token guidance;
     expired_rejected  a token whose `exp` is in the past is refused. Minting
                       one needs the signing key, which the target does not give
-                      us, so this is `NEEDS_KEY_MATERIAL` unless a key is
-                      supplied: the honest answer, not a skipped check.
+                      us, so this is `NEEDS_KEY_MATERIAL`: the honest answer,
+                      not a skipped check.
 
 The lifetime bound is a heuristic (a token's purpose, access or refresh, cannot
 be read from the token), so its finding is TENTATIVE: it reports the measured
@@ -55,7 +55,6 @@ from src.core.models import (
 )
 from src.core.test_metadata import Effect, Need, TestInfo
 from src.tests.base import BaseTest
-from src.tests.helpers.auth import auth_parts
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -125,8 +124,9 @@ class Test13CredentialExpiry(BaseTest):
         """
         del client
         try:
-            parts = auth_parts(target, context, ROLE_USER_A)
-            token = _single_token(dict(parts.headers), dict(parts.params))
+            # The token as obtained, not read back from the request parts (a
+            # list of known prefixes missed any other).
+            token = context.get_token(ROLE_USER_A)
             view = decode(token) if token is not None else None
             if view is None:
                 for sub_test in (_SUB_DECLARED, _SUB_LIFETIME, _SUB_EXPIRED):
@@ -137,8 +137,8 @@ class Test13CredentialExpiry(BaseTest):
                             title="Not a JWT",
                             detail=(
                                 "The credential of role user_a is not a JWT, so it carries no "
-                                "`exp` claim to read. Forgejo's API token is an opaque sha1 "
-                                "value whose lifetime is managed at the server."
+                                "`exp` claim to read: an opaque token's lifetime is managed at "
+                                "the server, out of this test's sight."
                             ),
                         )
                     ]
@@ -167,6 +167,11 @@ class Test13CredentialExpiry(BaseTest):
             evidence_ref: The login response that carried the token, as the
                           findings' proof; None when no login produced it.
         """
+        if "exp" in claims and _timestamp(claims["exp"]) is None:
+            # An `exp` that is not a NumericDate (RFC 7519 section 4.1.4) is not a
+            # missing one: what it means depends on the verifier.
+            self._record(_SUB_DECLARED, Outcome.NOT_VERIFIABLE, "EXP_NOT_NUMERIC")
+            return
         exp = _timestamp(claims.get("exp"))
         if exp is None:
             self._record(
@@ -188,8 +193,11 @@ class Test13CredentialExpiry(BaseTest):
             return
         self._record(_SUB_DECLARED, Outcome.ENFORCED, "EXP_DECLARED")
         iat = _timestamp(claims.get("iat"))
-        if iat is None or exp <= iat:
+        if iat is None:
             self._record(_SUB_LIFETIME, Outcome.NOT_VERIFIABLE, "NO_IAT_CLAIM")
+            return
+        if exp <= iat:
+            self._record(_SUB_LIFETIME, Outcome.NOT_VERIFIABLE, "EXP_NOT_AFTER_IAT")
             return
         lifetime = int(exp - iat)
         if lifetime > _LIFETIME_WARN_SECONDS:
@@ -201,7 +209,8 @@ class Test13CredentialExpiry(BaseTest):
                     title="The credential's lifetime is long",
                     detail=(
                         f"The JWT of role user_a is valid for {_human(lifetime)} "
-                        f"(`exp` - `iat`). A bearer token presented on every request with an "
+                        f"(`iat` {_utc(iat)}, `exp` {_utc(exp)}; the token itself is redacted "
+                        f"in the evidence). A bearer token presented on every request with an "
                         "absolute lifetime this long widens the window in which a stolen token "
                         "is usable (ASVS v5.0.0-7.3.2 asks for an absolute maximum set by risk "
                         "analysis). Issue a short-lived access token and renew it. Reported with "
@@ -215,29 +224,6 @@ class Test13CredentialExpiry(BaseTest):
         self._record(_SUB_LIFETIME, Outcome.ENFORCED, "LIFETIME_BOUNDED")
 
 
-def _single_token(headers: dict[str, str], params: dict[str, str]) -> str | None:
-    """
-    The bare token from the credential parts, if exactly one value carries it.
-
-    Args:
-        headers: The credential's headers.
-        params:  The credential's query parameters.
-
-    Returns:
-        The token without its scheme prefix, or None.
-    """
-    values = list(headers.values()) + list(params.values())
-    if len(values) != 1:
-        return None
-    value = values[0]
-    for prefix in ("Bearer ", "token ", "Token "):
-        if value.startswith(prefix):
-            return value[len(prefix) :]
-    if "=" in value and ";" not in value.rstrip():
-        return value.split("=", 1)[1]
-    return value
-
-
 def _timestamp(value: object) -> float | None:
     """A numeric claim as a number of seconds, or None when it is not numeric."""
     if isinstance(value, bool):
@@ -247,13 +233,41 @@ def _timestamp(value: object) -> float | None:
     return None
 
 
+def _utc(timestamp: float) -> str:
+    """A claim's time in UTC, ISO 8601 to the second: shown in the finding."""
+    return datetime.fromtimestamp(timestamp, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+_UNITS: tuple[tuple[str, int], ...] = (
+    ("day", 86400),
+    ("hour", 3600),
+    ("minute", 60),
+    ("second", 1),
+)
+
+
 def _human(seconds: int) -> str:
-    """A span in the largest plain unit, e.g. '7 days', '2 hours', '45 minutes'."""
-    for unit, size in (("day", 86400), ("hour", 3600), ("minute", 60)):
-        if seconds >= size:
-            count = seconds // size
-            return f"{count} {unit}{'s' if count != 1 else ''}"
-    return f"{seconds} second{'s' if seconds != 1 else ''}"
+    """
+    A span in its two largest plain units, e.g. '7 days', '1 day 23 hours'.
+
+    The largest unit, then the next one when it is not zero, so that 47 hours
+    does not read as '1 day'.
+    """
+    for index, (unit, size) in enumerate(_UNITS):
+        if seconds >= size or size == 1:
+            count, rest = divmod(seconds, size)
+            text = _plural(count, unit)
+            if index + 1 < len(_UNITS):
+                next_unit, next_size = _UNITS[index + 1]
+                if rest // next_size:
+                    text += " " + _plural(rest // next_size, next_unit)
+            return text
+    return _plural(seconds, "second")
+
+
+def _plural(count: int, unit: str) -> str:
+    """'1 day', '2 days'."""
+    return f"{count} {unit}{'s' if count != 1 else ''}"
 
 
 def _expired_note() -> InfoNote:

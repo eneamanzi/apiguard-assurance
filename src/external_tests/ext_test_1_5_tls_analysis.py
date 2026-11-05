@@ -49,7 +49,7 @@ import structlog
 from src.connectors.base import BaseConnector, ConnectorResult
 from src.connectors.testssl import TestsslConnector
 from src.connectors.types import TlsFinding
-from src.core.context import TargetContext
+from src.core.context import TargetContext, TestContext
 from src.core.models import (
     Confidence,
     Finding,
@@ -72,6 +72,15 @@ _SUB_TLS: str = "tls_configuration"
 _FAIL_SEVERITIES: frozenset[str] = frozenset({"HIGH", "CRITICAL"})
 # Severities surfaced as a note, not a violation.
 _NOTE_SEVERITIES: frozenset[str] = frozenset({"WARN", "MEDIUM"})
+# testssl.sh's entries about its own scan, not about the target: its OpenSSL
+# lacks an engine (engine_problem, seen on every lab with the bundled binary),
+# or a check could not be done (scanProblem). A FATAL entry is always one.
+_SCAN_PROBLEM_IDS: frozenset[str] = frozenset({"engine_problem", "scanProblem"})
+_FATAL: str = "FATAL"
+# testssl.sh entries that answer another test's question (rule 10): its HTTP
+# header summary is 6.2's (security headers), not a TLS property. Seen on the
+# labs as MEDIUM with the text "--".
+_OTHER_TESTS_IDS: frozenset[str] = frozenset({"security_headers"})
 # Below these (OK, INFO, LOW) a finding is a positive or informational result
 # and is not shown.
 
@@ -165,6 +174,7 @@ class ExtTest15TlsAnalysis(ExternalToolTest):
         connector: BaseConnector,
         target: TargetContext,
         target_url: str,
+        context: TestContext,
     ) -> ConnectorResult:
         """
         Run testssl.sh against the gateway's HTTPS listener.
@@ -177,6 +187,7 @@ class ExtTest15TlsAnalysis(ExternalToolTest):
         Returns:
             The connector's result (every finding, unfiltered).
         """
+        del context  # this tool sends no credential
         # enabled=True guarantees timeout_seconds is set (Phase 1 validator); the
         # default flags are non-None.
         timeout_seconds: int = target.external_tools.testssl.timeout_seconds  # type: ignore[assignment]
@@ -207,8 +218,19 @@ class ExtTest15TlsAnalysis(ExternalToolTest):
         findings: list[TlsFinding] = result.raw_output.get("results", [])
         notes: list[InfoNote] = []
         weaknesses = 0
+        incomplete = False
+        problems: list[str] = []
         for finding in findings:
             severity = _severity(finding)
+            if str(finding.get("id", "")) in _OTHER_TESTS_IDS:
+                continue
+            if _is_scan_problem(finding):
+                # The tool's own problem (its OpenSSL, a check it could not
+                # finish), not the target's TLS. A FATAL one means
+                # the scan did not finish.
+                problems.append(f"{finding.get('id', 'unknown')} ({severity})")
+                incomplete = incomplete or severity == _FATAL
+                continue
             if severity in _FAIL_SEVERITIES:
                 if _is_revocation(finding):
                     self._record_revocation(finding)
@@ -218,8 +240,15 @@ class ExtTest15TlsAnalysis(ExternalToolTest):
                     weaknesses += 1
             elif severity in _NOTE_SEVERITIES:
                 notes.append(_finding_note(finding))
+        scan_problems = int(result.raw_output.get("scan_problems", 0) or 0)
+        if problems or scan_problems:
+            notes.append(_scan_problems_note(problems, scan_problems))
         if weaknesses == 0:
-            self._record(_SUB_TLS, Outcome.ENFORCED, "NO_TLS_WEAKNESS")
+            if incomplete:
+                # Nothing found in a scan that did not finish is not "no weakness".
+                self._record(_SUB_TLS, Outcome.NOT_VERIFIABLE, "SCAN_INCOMPLETE")
+            else:
+                self._record(_SUB_TLS, Outcome.ENFORCED, "NO_TLS_WEAKNESS")
         return self._finish(notes=notes)
 
     def _record_weakness(self, finding: TlsFinding, artifact_ref: str) -> None:
@@ -242,10 +271,11 @@ class ExtTest15TlsAnalysis(ExternalToolTest):
             Finding(
                 title=f"TLS weakness ({severity.lower()}): {identifier}",
                 detail=(
-                    f"testssl.sh reported {identifier} as {severity}{cve_part}: {text}. A client "
-                    "sending its credential over this TLS configuration can be downgraded or have "
-                    "its traffic decrypted. Disable the weak protocol, cipher or feature in the "
-                    "gateway's TLS configuration (NIST SP 800-52 Rev.2, ASVS v5.0.0-12.1.1)."
+                    f"testssl.sh reported {identifier} as {severity}{cve_part}: {text}. The TLS "
+                    "configuration or certificate a client relies on to keep its credential "
+                    "confidential falls short on this point, as rated by testssl.sh. Fix the "
+                    "protocol, cipher, feature or certificate in the gateway's TLS configuration "
+                    "(NIST SP 800-52 Rev.2, ASVS v5.0.0-12.1.1)."
                 ),
                 confidence=Confidence.FIRM,
                 evidence_ref=artifact_ref,
@@ -274,6 +304,24 @@ def _revocation_note(finding: TlsFinding) -> InfoNote:
             "failed: it is the normal state of an internal gateway with a private CA, and it is "
             "not a cleartext-interception risk the way a weak protocol is. On a certificate "
             "rooted in a public CA, enable OCSP so a compromised certificate can be revoked."
+        ),
+    )
+
+
+def _is_scan_problem(finding: TlsFinding) -> bool:
+    """Whether a testssl.sh entry is about its own scan, not the target (_SCAN_PROBLEM_IDS)."""
+    return str(finding.get("id", "")) in _SCAN_PROBLEM_IDS or _severity(finding) == _FATAL
+
+
+def _scan_problems_note(problems: list[str], scan_problems: int) -> InfoNote:
+    """The note on the problems of testssl.sh's own scan (not judged as the target's)."""
+    named = f": {', '.join(problems)}" if problems else ""
+    return InfoNote(
+        title="testssl.sh met problems of its own during the scan",
+        detail=(
+            f"testssl.sh reported {scan_problems} error(s) or ambiguous result(s) (its exit "
+            f"code){named}. They concern the tool and its scan (its OpenSSL, a check it could not "
+            "finish), not the target's TLS: the details are in the tool's artifact."
         ),
     )
 

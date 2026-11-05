@@ -138,6 +138,249 @@ generated catalogue [`docs/05-tests/README.md`](docs/05-tests/README.md); `apigu
 
 ### Fixed
 
+- **Final consistency pass on the code and the test pages (2026-11-05).**
+  - Every verdict detail the code can record is now in its test page's oracle table, and every detail a page lists is
+    one the code records: added 0.4 `NO_GATEWAY`, 2.4 `CALIBRATION_UNSTABLE`, 6.1 `NO_READ_ENDPOINT`, `NO_ENDPOINT`
+    and `NO_ERROR_PROBE`, 6.4 `NO_GATEWAY` and `CONFIG_NOT_READABLE`.
+  - Comments and pages no longer cite the identifiers of the external audit's working report, which is not kept in
+    the repository: the reason and the date of each change stay, and this file keeps the history.
+  - The coding-rules guide, the maintainer commands, a docstring and a `pyproject.toml` comment name the documents
+    that hold the coding and dependency rules (this guide, the architecture overview).
+  - The Schemathesis page explains `ONLY_4XX` for the run with a credential as well.
+- **A test-by-test review of the oracles (2026-11-05): one verdict with a wrong reason, four checks made more
+  complete, one that checked nothing by default.** Each change is on its test page, with what the labs showed.
+  - **4.2:** an APISIX timeout the configuration does not set was a CERTAIN violation claiming "no bound". APISIX then
+    sets no timeout and nginx's default of 60 s applies (read in `apisix/balancer.lua` and on nginx.org). The adapter
+    now states that default (`BackendTimeout.defaulted`), and the test judges it: still above the threshold, at FIRM.
+    A value neither set nor stated as a default is `NOT_VERIFIABLE/NOT_STATED`, no longer a violation.
+  - **0.1:** `TRACE` is asked once per service and judged on its echo (`TRACE_ECHOED`, CERTAIN): 405 on the three
+    labs, the violation shown on a scratch server.
+  - **1.2:** `alg: none` is also tried as `None`, `NONE` and `nOnE`, until one is accepted.
+  - **2.2:** every documented read of the object is asked, its sub-resources included, once the object's own read
+    refused user_b. A served sub-resource is `BOLA_READ_SUBRESOURCE`, FIRM, citing that refusal. On Forgejo, 35
+    sub-resources were refused.
+  - **4.1:** the spoofed burst carries the random address in `X-Forwarded-For`, `X-Real-IP`, `X-Client-IP`,
+    `True-Client-IP` and `Forwarded`. A limit keyed to `X-Real-IP` was bypassed on a scratch server and reported,
+    where the old burst would have passed it.
+  - **6.4:** without `debug_endpoint_paths`, the debug sub-test asks the tool's six configuration-exposing paths under
+    the root and each service prefix, where it was `NOT_APPLICABLE` (crAPI: 24 requests, nothing exposed). A 404 is
+    `DEBUG_NOT_FOUND`.
+  - **Pages:**
+    - 0.1 and 1.5 had limitations describing behaviour removed on 2026-11-04.
+    - 7.4 said replay needs an out-of-band listener. That is true of the blind callback; an inbound replay is
+      simply not judgeable from the answer.
+- **The Low findings of the external audit of 2026-11-03: verdicts claimed beyond their evidence, and records
+  missing from the transaction log.** Each change is stated on its test page.
+  - **Core** (CORE-9 to CORE-12): a SKIP after a judgement raises (the test's ERROR keeps the findings; it
+    would have hidden a VIOLATION and exited 0), and a SKIP result with findings is refused by the model. A request
+    logged as a step and then judged keeps one entry (7.3 logged one twice); a request two sub-tests judge keeps one
+    per judgement, as the report schema now says, and `total_transaction_count` counts distinct requests. Docstrings
+    of the client, the transaction log and the DAG corrected.
+  - **1.x** (D1-17 to D1-23, D1-25 to D1-27):
+    - 1.7: a 429 on any reading, not only the last, is reported as such; the unlimited-attempts finding points to the
+      101st attempt and cites the first; every attempt is in the transaction log (the first one and the last reading
+      were missing). The finding no longer says the password is masked, and the docstring says three attempts on the
+      real account.
+    - 1.3: a non-numeric `exp` is `EXP_NOT_NUMERIC` (was "no exp"), an `exp` not after `iat` is
+      `EXP_NOT_AFTER_IAT` (was `NO_IAT_CLAIM`), and 47 hours reads "1 day 23 hours" (was "1 day").
+    - 1.1: a path variant's redirect is `VARIANT_REDIRECTED`; the cleanup note covers a DELETE that was not served.
+    - 1.4: the finding says the token stays usable after revocation, not "for the rest of its lifetime" (unmeasured).
+    - The guarantees catalogue cites the ASVS 5.0.0 numbers of 1.5 and 1.6, checked on the source: 7.2.3 and 7.2.4
+      for the session token.
+  - **2.x** (D235-18 to D235-24; D235-25 needs no change, lab names only in comments):
+    - 2.1: a public method is left out of the method comparison (a public GET next to a refused HEAD was a CERTAIN
+      `METHOD_CONFUSION`), which is now FIRM, as BFLA.
+    - 2.4: a version counts as absent only when up to three of its operations answer 404, not one; it cites OWASP
+      API9:2023.
+    - 2.5: a read with no answer is `NO_RESPONSE` (rule 4), and the scan's list limit is a named constant, stated.
+    - The catalogue's references align with the tests (2.1, 2.2 §2.3, 2.4, 2.5).
+  - **4.x, 6.x, 7.x** (D467-15 to D467-25; D467-26 is documented):
+    - 6.2: cites ASVS 3.4.2 (CORS) in place of 3.4.3, a script CSP it never checked. A `frame-ancestors` allowing any
+      site no longer passes. CORS is split: a reflected origin with credentials is `CORS_ORIGIN_REFLECTED`
+      (CERTAIN); `*` with credentials, which browsers refuse, is FIRM and says so.
+    - 7.2: a 401, a redirect or a 404 after the benign URL was accepted is `NOT_VERIFIABLE` (it was an SSRF block);
+      NIST SP 800-204 §3.2.2 is no longer cited.
+    - 7.1: served then refused is `REFUSED_AFTER_SERVED`, and every submission is logged.
+    - 4.3: the finding cites the health-check read it rests on.
+    - The 4.1 and 7.3 limitations are corrected.
+  - **External** (EXT-12, EXT-13, EXT-15, EXT-16, EXT-18, EXT-19):
+    - Schemathesis is also found beside the Python running apiguard (an environment that is not activated SKIPped
+      it), and a local specification or a binary on PATH is shown without a home directory.
+    - ffuf names one word list per job and shows its `-maxtime`; a base URL with a path is no longer prefixed twice
+      when the candidates are re-verified.
+    - testssl's `security_headers` entry (6.2's question) is not shown as a TLS note.
+    - The external-test guide matches the code.
+  - **Pipeline** (PIPE-5 to PIPE-13):
+    - The exit codes of `list-tests` and `generate-seed`, and `validate-config`'s single request (the specification
+      download), are documented.
+    - The console lists only the files this run wrote.
+    - The report states `test_ids` when it replaced `min_priority` and `strategies`.
+    - The docstrings on relative `$ref` and the engine's comments are corrected.
+  - **Docs** (DOCS-11 to DOCS-27):
+    - A password shorter than 8 characters, which is not redacted, is now logged as such by its label; the evidence
+      format says so instead of "passwords never appear".
+    - Also corrected: the sdist contents (measured), the gateway-adapter and native-test guides, `config.example.yaml`'s
+      gateway and resource comments, the seed template's vocabulary, the coverage values (lowercase in the JSON),
+      the methodology's priority examples, and the dangling references to deleted plans.
+    - The lab figures measured again on 2026-11-05 (full runs on the three labs, crAPI reset first):
+      - crAPI: 16 FAIL, 8 PASS, 3 INCONCLUSIVE, 4 SKIP, 25 findings.
+      - 1.1 on Forgejo: 371 and 261 not-verifiable judgements of 486, without and with `path_seed`.
+      - Forgejo: 4 of the 12 passing tests partial.
+    - The crAPI 503s that made 4.1 and 7.3 INCONCLUSIVE in a full assessment were described as load. The cause was
+      Kong's health check, tripped by 7.2's hanging probes. Since 7.2's stop rule, both conclude: FAIL in a full
+      assessment, 7.3 with all 15 concurrent applications accepted.
+- **A credential in the query could reach a debug log, and documentation that said otherwise than the tool**
+  (external audit of 2026-11-03, DOCS-1 to DOCS-6, DOCS-9, DOCS-10, DOCS-23). With `--log-level debug`, httpx
+  logged every request's full URL, so a credential placed in the query reached the log in clear: httpx and httpcore
+  stay at WARNING at every level (checked: no `access_token=` other than redacted in a debug run). The docs now say
+  what the tool does, each fact checked on it: `fail_fast` stops on FAIL, ERROR or INCONCLUSIVE (six documents said
+  FAIL or ERROR); 4.1's default burst is 150; the roles each test needs (`user_b` is required by 2.2, P0, not
+  "reserved"; `config.example.yaml` lists it); 28 native tests and "18 of the 28" in `validate-config` (was 29);
+  seven SKIPs on the reference lab, no test 5.2; a `${VAR}` in a YAML comment is not read (two guides said it
+  stops the tool); the report schema's example is a real 2026-11-04 excerpt, SKIP no longer covers a disabled tool
+  (that is `not_run`), INCONCLUSIVE is among the contract's statuses; `list-tests --json` lists all its fields.
+- **Findings of 1.2, 1.3 and 1.4 without the records they rest on** (external audit of 2026-11-03, D1-10, D1-12).
+  1.2's and 1.4's findings cited no control: the anchor now keeps its request without a credential, and 1.2 cites
+  the genuine token served and that refusal, 1.4 those two and the confirmed revocation, all pinned in the
+  evidence. 1.3's "valid for 7 days" could not be checked, the token being redacted: the finding now gives `iat`
+  and `exp` as dates. Checked on crAPI: 1.2 cites `1.2_001` (genuine, 200) and `1.2_002` (no credential, 401),
+  present in the evidence; 1.3 names both dates.
+- **The HTML report's data block could be broken by a target's answer** (external audit of 2026-11-03, PIPE-2). The
+  report embeds its data as JSON in a `<script>` block and escaped only `</`: a body with `<!--` and `<script`
+  (previews are cut, a closing `-->` can be lost) could put the browser's parser in a state where the block did not
+  end where it should. Every `<`, `>` and `&` is now written as its `\u` escape, which JSON.parse turns back into
+  the same text. Checked on a crAPI report: no `<` left in the block, the data parsed equal to the JSON report, the
+  HTML bodies restored.
+- **A path search cut short by ffuf's own time limit counted as finished** (external audit of 2026-11-03, EXT-9).
+  ffuf stops itself at `-maxtime` with exit code 0 and a partial output; the connector judged it as a finished
+  search, so a cut search could give "no undocumented path". A job that used up its remaining time is now a
+  timeout. Checked against a local server answering after one second: the cut search is an ERROR "the search did
+  not finish"; Forgejo + Kong's search (30 s) is unchanged.
+- **testssl.sh: a hang on a prompt, findings lost on its exit code, the tool's problems shown as the target's**
+  (external audit of 2026-11-03, EXT-6, EXT-7, EXT-8, EXT-10, EXT-11). External tools inherited the terminal's
+  input, and testssl.sh asked "Really proceed?" on a plain-HTTP target, waiting until the timeout: no tool gets an
+  input now, and testssl.sh runs with `--warnings batch` (in the displayed command too). Its exit code counts the
+  errors or ambiguous results of a completed scan (its manual): any code above 1 was an ERROR that dropped the
+  findings; now only 242 and above are, the count going in a note. Its entries about its own scan
+  (`engine_problem`, its bundled OpenSSL without an engine; `scanProblem`; any FATAL) were "TLS notes" about the
+  target carrying the tool's local path: they are a note about the tool, without the path, and a FATAL one makes
+  "no weakness" `NOT_VERIFIABLE/SCAN_INCOMPLETE`. A HIGH finding no longer says the traffic can be "downgraded or
+  decrypted" whatever it is (an expired certificate is neither). A connector's timeout message named
+  `external_tools.schemathesi`. Checked on Forgejo + Kong: PASS partial as before, the `engine_problem` note
+  about the tool and without path.
+- **The Kong adapter read only the first breaker plugin of each name** (external audit of 2026-11-03, CORE-7). A
+  disabled instance listed before an enabled one hid it, and 4.3 reported no breaker. Every instance is now
+  reported, as the APISIX adapter does, and 4.3 judges the enabled ones. The Kong labs, 4.3 alone: PASS as before.
+- **Test 7.3's threads: a cookie jar cleared under them, and requests not released together** (external audit of
+  2026-11-03, CORE-4, D467-14, DOCS-7). The HTTP client cleared its shared cookie jar after every request; with
+  7.3's threads one could clear it while another read it (a possible `RuntimeError`, or a cookie in another thread's
+  request). The jar now keeps no cookie at all (a cookie policy refusing every one), so nothing is cleared;
+  checked on a local server: its `Set-Cookie` is recorded (redacted) and not sent back on the next request. 7.3's
+  threads now wait at a barrier and send together, instead of leaving as the pool started them. The docs saying
+  the client is not thread-safe are corrected. 7.3 itself is checked in the final full runs (its crAPI coupon is
+  claimed once per lab reset).
+- **The labs' paths in what a user copies** (external audit of 2026-11-03, D467-13, PIPE-14). The parameter
+  examples of 7.1, 7.2 and 7.3, generated into `config.example.yaml`, were crAPI's and Forgejo's endpoints
+  (`/workshop/api/shop/apply_coupon` with `TRAC075`, a Forgejo hook of `type: gitea`); they are now neutral examples
+  of the same shape, and `apiguard generate-seed --help` no longer names a lab configuration.
+- **Tests 6.1 and 6.4: findings on URLs and on secret references, a CLEAN on nothing** (external audit of
+  2026-11-03, D467-9 to D467-12). Test 6.1 took a file-system path inside a URL (`https://host/home/...`), any
+  `app/` and the text "at /" for a stack trace: a path now counts only where it starts a value, and the two generic
+  markers are gone (the real traces of Java, Python, Node, Ruby, PHP are still found, checked on samples). A sample
+  whose every answer failed, or was a gateway's `503`/`429`, was CLEAN: those answers are set aside, and with none
+  left the sub-tests are `NOT_VERIFIABLE/NO_USABLE_RESPONSE`. Its texts promised internal `X-*` headers and a
+  type-mismatch probe it never had: they now say what is checked. Test 6.4 reported a reference to a secret kept
+  elsewhere (Kong `{vault://...}`, APISIX `$secret://`, `$ENV://`) as a plaintext credential, which is what its
+  remediation asks for; each adapter now states its gateway's syntax (`secret_reference_prefixes`, read on the
+  gateways' docs) and such a value is not reported. The labs, each test alone: the same verdicts as before.
+- **Tests 4.1 and 4.2: a burst cut short by one error, a limit taken for a failure, numbers no standard sets**
+  (external audit of 2026-11-03, D467-6, D467-7, D467-8, D467-22). Test 4.1 ended its burst on a single 5xx from
+  the third request on, against its own comment; it now takes three failing answers in a row. A run of `503` after
+  served answers, which a limiter rejecting with `503` instead of `429` gives as well as a backend going down, is
+  `NOT_VERIFIABLE/LIMIT_OR_UNAVAILABLE` instead of an unavailable backend. Test 4.2 attributed its 5 s and 30 s
+  bounds to NIST SP 800-204A section 4.3, which asks for timeouts (SM-DR9) but sets no value (read on the PDF): they
+  are the methodology's, and its finding no longer describes "100 concurrent requests" nobody measured. Checked: the
+  labs FAIL on 4.1 as before; a scratch server answering `503` after five requests gives `LIMIT_OR_UNAVAILABLE`.
+- **Tests 2.2 and 2.5 left objects on the target without saying so** (external audit of 2026-11-03, D235-16). An
+  object whose resource has no delete request (a crAPI order), or whose delete failed, went to the log only; the
+  result now names it in a note ("order {'order_id': '9'}"), as rule 7 asks, through one helper
+  (`not_deleted_note`). Checked: crAPI names the orders, Forgejo deletes its repositories and has no note.
+- **Test 3.3 cited RFCs for a forgery they rule out** (external audit of 2026-11-03, D235-15, D235-22; owner
+  decision 2026-11-05). A policy allowing HMAC-MD5 or HMAC-SHA-1 was a CERTAIN finding saying "an attacker can
+  forge a signature", citing RFC 6151 and 6194, which say that HMAC-MD5's attacks "do not seem to indicate a
+  practical vulnerability" and that "HMAC-SHA-1 remains secure". By default only HMAC-MD5 is now forbidden (RFC
+  6151: not in new designs), HMAC-SHA-1 only when the operator adds it to `forbidden_algorithms`; the finding is
+  FIRM with what the RFC says, and the 300-second replay bound is the methodology's, no longer attributed to NIST SP
+  800-107. The labs, 3.3 alone: PASS as before (SHA-256 and stronger).
+- **Domain 2: confidence beyond the evidence, and a PASS on a refusal that said nothing** (external audit of
+  2026-11-03, D235-9 to D235-13). Test 2.2: a 2xx to user_b's modify of user_a's object is FIRM (the write was
+  accepted; with an empty body a change is not shown), its delete CERTAIN only when user_a's read afterwards finds
+  the object gone; the re-read no longer claims to confirm what it does not compare. Test 2.1: a BFLA finding is
+  FIRM (that the operation is privileged rests on its path's name, whatever the admin control shows) and cites the
+  admin control when it ran. Test 2.4: a sibling version's refusal counts only when a random path right under that
+  version is not refused the same way, and a documented operation that answers neither 2xx nor a refusal is not
+  verifiable instead of "not protected". Checked: crAPI's 2.4 goes from PASS to INCONCLUSIVE (its identity service
+  answers 401 to any path under `/v1` and `/v3`, so the 8 comparisons said nothing); 2.1 on crAPI FAIL as before,
+  FIRM, its control cited and present in the evidence.
+- **Domain 1: false verdicts and evidence that hid what was sent** (external audit of 2026-11-03, Medium and Low
+  items D1-6 to D1-9, D1-11, D1-13 to D1-16, D1-24). Test 1.5: with `base_url` on a port other than 443 and no
+  `http_url`, it asked the HTTPS port in cleartext and judged that answer (a false CERTAIN finding on Kong's `400`);
+  the HTTP listener is now `HTTP_LISTENER_UNKNOWN`. A timeout on the HTTP port is no longer "unreachable" (only a
+  refused connection is), the HTTPS request handles a missing answer, a quoted `max-age` is read. The anchor of
+  1.2 and 1.4 must be refused without a credential (401, 403), not merely not served. Test 1.2's tampered token
+  adds a claim instead of changing the subject, so a refusal can only be the signature check; 1.2 and 1.3 take the
+  token as obtained instead of stripping a list of known prefixes. Test 1.6: an empty cookie value is no longer
+  redacted (it is how a cookie is cleared, and the redacted value made the deletion a false finding), and an
+  anti-CSRF cookie is not asked `HttpOnly` (ASVS v5.0.0-3.3.4). Test 1.1's malformed credentials are shown in the
+  evidence as `[public probe] ...` instead of `[REDACTED]`. Messages of 1.2, 1.3, 1.4, 1.6 no longer name the labs.
+  Checked: the labs, each test alone, give the same verdicts; 1.5 without `http_url` on Forgejo + Kong gives
+  `HTTP_LISTENER_UNKNOWN`; 1.6 with a temporary gateway cookie (the lab then restored) gives PASS for an
+  `XSRF-TOKEN` without `HttpOnly` and nothing to judge for a cleared cookie.
+- **Domain 0: an unauthenticated DELETE on a real path, and four false verdicts** (external audit of 2026-11-03,
+  Medium and Low items D0-5, D0-6, D0-7, D0-12, D0-13, D0-14). Test 0.1: after an accepted `PUT` on a path without
+  parameters its cleanup sent a `DELETE` to that real path; only what a probe surely created (a `Location`, or a
+  `PUT` on a random path) is deleted now, any other accepted write is named in the result. A path served exactly
+  as its random siblings (a server answering every path) is `SERVED_LIKE_UNKNOWN`, no longer a CERTAIN finding; on
+  a path with parameters the finding is FIRM, with a text that no longer claims a comparison; a path whose random
+  siblings another documented route captures (`/users/search` next to `/users/{username}`) is
+  `SIBLING_ROUTE_DOCUMENTED`; a gateway route given as a regular expression is tried on the documented paths with
+  values in their parameters (a template never matched it). Test 0.3: a deprecated operation answering `405` is
+  switched off (`METHOD_SWITCHED_OFF`), and a redirect is not verifiable; both were "still served". Test 0.2: its
+  findings cite the backend's refusal that made the gateway's refusal trusted. Checked on the labs, each test
+  alone: the same verdicts as before (the new branches do not occur there); the regex and captured-route rules on
+  Forgejo's specification and sample routes. Docs: 0.2's crAPI workshop 404 is gunicorn's, not Spring's; the
+  catalogue no longer promises a configured backend list for 0.4.
+- **`ext.3.1.schemathesis` reached a small part of the API** (owner decision 2026-11-04). Unauthenticated, it got
+  only `4xx` on most operations: Schemathesis makes up a credential for the security schemes the specification
+  declares (on Forgejo even the public endpoints answered `401`), and fills the path parameters with names that do
+  not exist (`404`). With user_a's credential configured (new optional need `USER_ACCOUNT`) and placed in a header
+  or a cookie, it now sends it (`-H`, shown redacted) and tests reads only (`--include-method GET`: a generated
+  write with a valid credential would change data the tool cannot clean up), with the operator's resources in the
+  path parameters (`--set-path` from `path_seed`). Without a credential, or with one in the query, it runs as
+  before. The credential is replaced in the tool's whole output before it is stored, and a connector timeout no
+  longer chains the command line (credential included) into the logged traceback. External tests' `_invoke_connector`
+  now receives the run's context. The labs: the Forgejo labs reach 110 to 211 of their 241 reads (40 to 89 before),
+  no server error; crAPI gives a new finding, `GET /workshop/api/mechanic/receive_report` answering `500`, reached
+  only with the credential. No JWT in any output.
+- **`ext.3.1.schemathesis` reported findings it does not measure, and counted unreached operations as checked**
+  (found in the review of the audit fixes; owner decisions 2026-11-04). With the reproduction commands visible,
+  two of its three checks turned out to report something other than input validation, all titled "Input not
+  validated": `response_schema_conformance` a response not matching the specification (crAPI's order endpoint),
+  `negative_data_rejection` endpoints without parameters answering `200` to a nameless extra header and query
+  parameter (9 on Forgejo + APISIX, `/api/v1/version` among them). Both are dropped: the test runs
+  `not_a_server_error`, and a finding is "Server error on a generated input" with the request that causes it.
+  Operations whose every generated request got a `4xx` (on Forgejo, Schemathesis's made-up credential answers
+  `401`) were counted as checked: they are now `NOT_VERIFIABLE/ONLY_4XX`, read from Schemathesis's own warning.
+  An unreadable JUnit report now quotes the end of Schemathesis's output instead of the temp file's path (seen
+  once on Forgejo + APISIX, not reproduced). The labs: crAPI FAIL with 4 reproducible `500`s; the Forgejo labs
+  PASS partial on the 56 and 89 operations reached (469 counted before).
+- **Schemathesis's findings lost their proof and could show a 503 as their reason** (found in the review of the
+  audit fixes, 2026-11-04). The connector cut each failure message at 500 characters, which dropped the commands
+  that reproduce the failing requests, and the 502/503/504 filter judged the whole message: an operation whose
+  first case was Kong's 503 and whose second was a real failure was shown as "Server error [503]". The message is
+  now kept whole in the artifact; each test case is judged on its own, the unavailable ones set aside, and the
+  finding quotes every other case with its reproduction command. Checked on crAPI: the same 4 findings and 23 not
+  verifiable, each finding now naming the request that proves it.
 - **Test 5.1 knew the gateways' plugin names** (external audit of 2026-11-03, D235-2; owner decision 2026-11-04).
   Against design decision D7, 5.1 matched fragments of Kong and APISIX plugin names inside the test and named both
   gateways in its finding; the fragment `-logger` also matched APISIX's `file-logger`, which writes on the gateway's

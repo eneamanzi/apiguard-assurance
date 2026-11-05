@@ -32,6 +32,7 @@ src.tests.base and src.tests.helpers.
 
 from __future__ import annotations
 
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Annotated
 
@@ -61,6 +62,9 @@ from src.tests.helpers.auth import acquire_tokens, auth_parts
 from src.tests.helpers.resources import create_resource
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
+
+# How long the burst's threads wait for each other before sending anyway.
+_BARRIER_TIMEOUT_SECONDS: float = 10.0
 
 _SUB: str = "concurrent_requests_safe"
 
@@ -119,9 +123,9 @@ class Test73Params(BaseModel):
         json_schema_extra=NEEDED_TO_RUN,
         examples=[
             {
-                "path": "/workshop/api/shop/apply_coupon",
+                "path": "/api/v1/cart/coupons",
                 "method": "POST",
-                "body": {"coupon_code": "TRAC075"},
+                "body": {"code": "WELCOME10"},
                 "role": "user_a",
                 "resource": "cart",
             }
@@ -239,7 +243,17 @@ class Test73RaceConditions(BaseTest[Test73Params]):
         the tally are not touched from the workers).
         """
 
+        # The threads are released together: each waits at the barrier, so the
+        # requests leave at once instead of as the pool starts its workers one
+        # after the other. A thread that does not arrive in
+        # time breaks the barrier and the others send anyway.
+        start = threading.Barrier(concurrency, timeout=_BARRIER_TIMEOUT_SECONDS)
+
         def one() -> EvidenceRecord | None:
+            try:
+                start.wait()
+            except threading.BrokenBarrierError:
+                log.warning("test_7_3_barrier_broken")
             try:
                 _response, record = client.request(
                     op.method.upper(),
@@ -271,8 +285,8 @@ class Test73RaceConditions(BaseTest[Test73Params]):
         self._log_others(records, successes)
         if not successes:
             # No success: say why. A server that was unavailable or failing is not an
-            # operation that refused to run (crAPI's workshop answers 503 by the time
-            # a full assessment reaches this test, 2026-11-03).
+            # operation that refused to run (crAPI's workshop answered 503 here in a
+            # full assessment until 7.2 stopped tripping Kong's health check, 2026-11-04).
             spoiled = next((r for r in records if category_of(r) in _SPOILING), None)
             if spoiled is not None:
                 self._judge(

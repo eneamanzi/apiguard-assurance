@@ -31,6 +31,11 @@ backend cannot hold the gateway's workers indefinitely. The threat (OWASP API4:2
 without a bound, requests to a hanging dependency accumulate until the worker pool is exhausted and the gateway
 stops serving everyone, including the endpoints that are healthy.
 
+A PASS promises that every timeout the gateway applies towards its backends, set in the configuration or the
+gateway's own default, is within the thresholds. It promises nothing about the application's own timeouts (its
+connection pool, its outbound calls), which the admin plane does not show, and nothing about whether the gateway
+honours the bound: no slow backend is simulated.
+
 ## 2. Sub-tests and coverage of the methodology
 
 | Sub-test | Methodology (guarantee 4.2) |
@@ -55,26 +60,28 @@ None: a configuration audit. The concept is read and pinned as evidence.
 
 ## 6. Oracle (`connect_timeout`, `read_timeout`, `write_timeout`)
 
-Thresholds, from the methodology (NIST SP 800-204A section 4.3): `max_connect_timeout_ms` 5,000,
+Thresholds, from the methodology (NIST SP 800-204A asks for timeouts, recommendation SM-DR9 in section 4.3, but sets no value: read on the PDF 2026-11-05; the bounds were attributed to it until then): `max_connect_timeout_ms` 5,000,
 `max_read_timeout_ms` 30,000, `max_write_timeout_ms` 30,000. Each item gives one judgement in each sub-test, on its
 own field:
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
 | the value is within its threshold | `ENFORCED/WITHIN_LIMIT` | - |
-| the value is above its threshold | `VIOLATION/ABOVE_LIMIT` | CERTAIN |
+| the value is above its threshold | `VIOLATION/ABOVE_LIMIT` | CERTAIN when the value is set; FIRM when it is the gateway's default, which its adapter states (the configuration sets none) |
 | the value is `0` (no bound) | `VIOLATION/NOT_CONFIGURED` | CERTAIN |
-| the gateway states no value for the field | `VIOLATION/NOT_STATED` | CERTAIN |
+| the value is neither set nor stated as a default | `NOT_VERIFIABLE/NOT_STATED` | - |
 
-A timeout the gateway does not state is judged a violation because an unbounded wait is the dangerous case: the
-guarantee asks for a bound, and no stated bound means none is enforced at that layer. Which of the last two branches
-can occur depends on the gateway (section 10).
+A timeout the configuration does not set still has a value: the one the gateway applies by default. When the adapter
+states it (the concept names the field in `defaulted`), it is judged like any other value. When it does not, the
+value is unknown and nothing is concluded. Until 2026-11-05 an unset field was a CERTAIN violation claiming "no
+bound", which was false on APISIX, where the bound is nginx's 60 s. Which branches can occur depends on the gateway
+(section 10).
 
 ## 7. Outcomes
 
 SKIP without a gateway adapter, when the gateway has no such concept, or when no backend is registered.
 INCONCLUSIVE when the Admin API cannot be read: `CONCEPT_NOT_ACCESSIBLE` on every sub-test (until 2026-11-04 a
-SKIP, external audit CORE-6). FAIL on any violation, one finding each. PASS otherwise, always with `coverage:
+SKIP). FAIL on any violation, one finding each. PASS otherwise, always with `coverage:
 complete`: every field read is judged, so a run that read the timeouts has no not-verifiable case.
 
 ## 8. Findings
@@ -97,7 +104,11 @@ practical consequence is the opposite of a gap: a Kong service left at its defau
 60,000 ms is above all three thresholds.
 
 **APISIX** states the timeouts of an upstream, or of a route that overrides them, and omits the field when it is not
-configured; the adapter then reports it as absent, so `NOT_STATED` is reachable there.
+configured. APISIX then sets no timeout at all (`apisix/balancer.lua` sets them only from a route's or an upstream's
+`timeout`, read in the lab's container 2026-11-05), so nginx's own proxy timeouts apply, at their default of 60 s
+(nginx.org, `proxy_connect_timeout`, `proxy_send_timeout`, `proxy_read_timeout`). The adapter states that default
+and names the field in `defaulted`: an unset APISIX timeout is an `ABOVE_LIMIT` violation at FIRM. `NOT_STATED`
+cannot occur on either supported gateway; it is there for an adapter that does not know its gateway's default.
 
 ## 11. Configuration
 
@@ -107,8 +118,8 @@ Section [`tests.domain_4.test_4_2`](../../03-reference/01-configuration.md#tests
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `max_connect_timeout_ms` | int ≥1 | `5000` | Maximum acceptable backend connect timeout of a gateway service, in milliseconds. Methodology oracle: connect_timeout <= 5 000 ms (NIST SP 800-204A Section 4.3). Services with a higher value will produce a FAIL finding. |
-| `max_read_timeout_ms` | int ≥1 | `30000` | Maximum acceptable backend read timeout of a gateway service, in milliseconds. Methodology oracle: read_timeout <= 30 000 ms (NIST SP 800-204A Section 4.3). Services with a higher value will produce a FAIL finding. |
+| `max_connect_timeout_ms` | int ≥1 | `5000` | Maximum acceptable backend connect timeout of a gateway service, in milliseconds. Methodology oracle: connect_timeout <= 5 000 ms (no standard sets a value). Services with a higher value will produce a FAIL finding. |
+| `max_read_timeout_ms` | int ≥1 | `30000` | Maximum acceptable backend read timeout of a gateway service, in milliseconds. Methodology oracle: read_timeout <= 30 000 ms (no standard sets a value). Services with a higher value will produce a FAIL finding. |
 | `max_write_timeout_ms` | int ≥1 | `30000` | Maximum acceptable backend write (send) timeout of a gateway service, in milliseconds. Methodology oracle: write_timeout <= 30 000 ms. Services with a higher value will produce a FAIL finding. |
 
 <!-- [[[end]]] -->
@@ -145,7 +156,8 @@ Kong's defaults being judged. Setting one to `0` does **not** work: Kong refuses
 **What each branch has been seen doing** (rule 9). Proven on a lab: `WITHIN_LIMIT` on all three gateways, and
 `ABOVE_LIMIT` both from an explicit value and from Kong's defaults, with the SKIP branch for an absent gateway.
 Still unproven: `NOT_CONFIGURED` (Kong's schema forbids `0`; it would need a gateway that accepts it) and
-`NOT_STATED` (reachable only on APISIX, with an upstream that omits the timeout object).
+`NOT_STATED` (no supported gateway reaches it), and `ABOVE_LIMIT` from an APISIX default (the lab sets its
+timeouts; the adapter's mapping was checked by calling it on a timeout object without fields, 2026-11-05).
 
 ## 13. Remediation
 
@@ -165,6 +177,6 @@ failing backend holding a worker for a minute per request (OWASP API4:2023, NIST
 ## 15. Sources
 
 - OWASP API4:2023 Unrestricted Resource Consumption: https://owasp.org/API-Security/editions/2023/en/0xa4-unrestricted-resource-consumption/
-- NIST SP 800-204A section 4.3 (service mesh and gateway resilience): https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-204A.pdf
+- NIST SP 800-204A section 4.3 (recommendation SM-DR9: retries, timeouts, circuit breakers configured for access to external resources; no numeric value anywhere in the document): https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-204A.pdf
 - OWASP ASVS v5.0.0-16.5.2 (operate securely when external resource access fails): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x25-V16-Security-Logging-and-Error-Handling.md
 - CWE-400 Uncontrolled Resource Consumption: https://cwe.mitre.org/data/definitions/400.html

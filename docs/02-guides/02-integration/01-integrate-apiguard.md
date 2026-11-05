@@ -92,8 +92,9 @@ output:
 ```
 
 **One run at a time per target.** The tool is designed for one assessment at a time on a target: concurrent runs
-change the target under each other (verified: test 1.4 creates a token with a fixed name, and in one of two runs
-started together it returns ERROR).
+change the target under each other: the stressing tests of one run (4.1, 7.3) spend the limits and the health of the
+backends that the other run's tests read, so its verdicts would depend on the other's traffic. (The example measured
+until 2026-11, test 1.4's fixed token name, no longer applies: credentials now come from the login resource.)
 
 ## 4. Run
 

@@ -83,6 +83,7 @@ _ENFORCED_THROTTLE: str = "ANTI_AUTOMATION_THROTTLE"
 _ENFORCED_CHALLENGE: str = "ANTI_AUTOMATION_CHALLENGE"
 _FLOW_BROKEN: str = "FLOW_UNAVAILABLE"
 _FLOW_REFUSED: str = "FLOW_NOT_ACCEPTED"
+_REFUSED_AFTER_SERVED: str = "REFUSED_AFTER_SERVED"
 
 # Answers that mean the flow could not be exercised at all: the target was
 # unavailable, failed, or did not answer (rule 1).
@@ -125,7 +126,7 @@ class Test71Params(BaseModel):
         json_schema_extra=NEEDED_TO_RUN,
         examples=[
             {
-                "path": "/identity/api/auth/forgot-password",
+                "path": "/api/v1/auth/password-reset",
                 "method": "POST",
                 "body": {"email": "user@example.com"},
                 "role": "user_a",
@@ -240,6 +241,7 @@ class Test71SensitiveFlowProtection(BaseTest[Test71Params]):
             if record is None:
                 continue
             records.append(record)
+            self._step(record)  # every submission is logged; a judged one replaces its step
             detail = self._control(record)
             if detail is not None:
                 self._judge(record, store, _SUB, Outcome.ENFORCED, detail)
@@ -254,7 +256,13 @@ class Test71SensitiveFlowProtection(BaseTest[Test71Params]):
             return
         refused = next((r for r in records if category_of(r) != ResponseCategory.SERVED), None)
         if refused is not None:
-            self._judge(refused, store, _SUB, Outcome.NOT_VERIFIABLE, _FLOW_REFUSED)
+            # Refused from the first submission: the flow was never exercised. Served,
+            # then refused: perhaps a throttle this test does not recognise (no 429,
+            # no challenge words), perhaps a business refusal (a duplicate); which
+            # one cannot be told.
+            first_served = category_of(records[0]) == ResponseCategory.SERVED
+            detail = _REFUSED_AFTER_SERVED if first_served else _FLOW_REFUSED
+            self._judge(refused, store, _SUB, Outcome.NOT_VERIFIABLE, detail)
             return
         last = records[-1]
         finding = Finding(

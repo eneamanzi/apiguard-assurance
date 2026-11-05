@@ -258,10 +258,9 @@ def _safe_json_dumps(data: Any) -> str:  # noqa: ANN401
     string value containing ``</script>`` inside the JSON would prematurely
     terminate the enclosing script element in the browser's HTML parser.
 
-    This function applies the standard mitigation: all occurrences of ``</``
-    are replaced with ``<\\/`` (the JSON-legal escape for the forward slash),
-    which the browser's HTML parser will not interpret as a closing tag while
-    the JavaScript ``JSON.parse`` will decode correctly.
+    This function writes every ``<``, ``>`` and ``&`` as its ``\\u`` escape,
+    which the browser's HTML parser cannot read as markup while the JavaScript
+    ``JSON.parse`` decodes it to the same character.
 
     ``datetime`` objects and other non-JSON-serialisable values are converted
     to their ISO string representation via the ``default=str`` fallback.
@@ -274,6 +273,11 @@ def _safe_json_dumps(data: Any) -> str:  # noqa: ANN401
         JSON string safe for ``{{ report_json | safe }}`` in an HTML template.
     """
     raw: str = json.dumps(data, default=str, ensure_ascii=False)
-    # Replace '</' with '<\/' to prevent </script> injection.
-    # This is a well-established technique for safely embedding JSON in HTML.
-    return raw.replace("</", r"<\/")
+    # Every <, > and & is written as its \u escape: in JSON they occur only
+    # inside strings, where the escape is legal and JSON.parse gives back the
+    # same text, and the HTML parser then sees no markup at all in the block.
+    # Escaping only "</" left "<!--" followed by "<script" (a target's answer,
+    # cut at the preview length) able to put the parser in the script data's
+    # double-escaped state, so that the block did not end where it should
+    # .
+    return raw.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")

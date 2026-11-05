@@ -173,9 +173,10 @@ def render_seed_template(
         "#",
         "# Why this matters:",
         "#   Without real values, parametric paths (e.g. /repos/{owner}/{repo})",
-        "#   resolve to generic placeholders like /repos/1/1, which return 404",
-        "#   before reaching the authentication middleware. The probe result is",
-        "#   classified as INCONCLUSIVE_PARAMETRIC instead of ENFORCED or BYPASS.",
+        "#   resolve to generic placeholders like /repos/1/1, which may return 404",
+        "#   before reaching the authentication check. Such an answer says nothing",
+        "#   about the control, so the test records it NOT_VERIFIABLE instead of",
+        "#   ENFORCED or VIOLATION.",
         "#",
     ]
 
@@ -444,7 +445,7 @@ class SeedGeneratorParseError(ToolBaseError):
 
     Sibling of ``SeedGeneratorFetchError`` and the production-pipeline
     ``OpenAPILoadError``.  Inherits from ``ToolBaseError`` to participate in
-    the project's unified exception hierarchy (see ``CLAUDE.md`` and
+    the project's unified exception hierarchy (see
     ``docs/04-architecture/01-overview.md``, "Errors", for the full taxonomy).
     """
 

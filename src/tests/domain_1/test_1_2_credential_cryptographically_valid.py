@@ -21,10 +21,12 @@ refusing everyone. The genuine token is sent there first (the positive
 control); the variant that answers 2xx where the genuine one does is the
 violation.
 
-The variants that would need key material the target does not give us (an
-expired `exp` needs the signing key; algorithm confusion needs the public
-key) are reported `NOT_VERIFIABLE/NEEDS_KEY_MATERIAL`, named so the report is
-honest about what was not tried, rather than skipped silently or faked.
+The variants that need key material (an expired `exp` needs the signing
+key; algorithm confusion needs the public key, which a target may publish,
+crAPI's at /identity/api/auth/jwks.json, but this test neither fetches nor
+implements the attack) are reported
+`NOT_VERIFIABLE/NEEDS_KEY_MATERIAL`, named so the report is honest about what
+was not tried, rather than skipped silently or faked.
 
 Dependency rule: imports from stdlib, structlog and src.core, plus
 src.tests.base and src.tests.helpers.
@@ -41,6 +43,7 @@ from src.core.context import ROLE_USER_A, TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.exceptions import SecurityClientError
 from src.core.jwt_tokens import (
+    ALG_NONE_SPELLINGS,
     JwtVariant,
     JwtView,
     decode,
@@ -145,15 +148,18 @@ class Test12CredentialCryptographicallyValid(BaseTest):
             if missing is not None:
                 return missing
             parts = auth_parts(target, context, ROLE_USER_A)
-            token = _single_token(dict(parts.headers), dict(parts.params))
+            # The token as obtained, not read back from the request parts: a
+            # list of known prefixes ("Bearer ", "token ") missed any other
+            # .
+            token = context.get_token(ROLE_USER_A)
             if token is None:
                 return self._not_a_credential_token()
             view = decode(token)
             if view is None:
                 return self._not_applicable(
                     "The credential of role user_a is not a JWT (it has no three "
-                    "base64url segments to decode), so there is no signature to attack. "
-                    "Forgejo's API token is an opaque sha1 value."
+                    "base64url segments to decode), so there is no signature to attack: an "
+                    "opaque token is checked at the server."
                 )
             anchor = find_anchor(
                 target, client, dict(parts.headers), dict(parts.params), self.info.id
@@ -182,7 +188,7 @@ class Test12CredentialCryptographicallyValid(BaseTest):
         parts: RequestAuthParts,
     ) -> list[InfoNote]:
         """
-        Send the three key-free variants to the anchor and judge each.
+        Send the key-free variants to the anchor and judge each.
 
         Args:
             client:  The run's HTTP client.
@@ -195,20 +201,31 @@ class Test12CredentialCryptographicallyValid(BaseTest):
         Returns:
             A note naming the key-based cases left unverified.
         """
+        # `none` in each of its spellings, the standard one first, until one is
+        # accepted: one proof is enough, and a refused spelling says only that
+        # this one is refused.
+        unsigned = [
+            (JwtVariant.ALG_NONE, with_alg_none(view, spelling), spelling)
+            for spelling in ALG_NONE_SPELLINGS
+        ]
         builders = (
-            (JwtVariant.ALG_NONE, with_alg_none(view)),
-            (JwtVariant.TAMPERED_PAYLOAD, with_tampered_payload(view)),
-            (JwtVariant.STRIPPED_SIGNATURE, stripped_signature(view)),
+            *unsigned,
+            (JwtVariant.TAMPERED_PAYLOAD, with_tampered_payload(view), None),
+            (JwtVariant.STRIPPED_SIGNATURE, stripped_signature(view), None),
         )
-        for variant, degraded in builders:
+        unsigned_accepted = False
+        for variant, degraded, spelling in builders:
+            if variant == JwtVariant.ALG_NONE and unsigned_accepted:
+                continue
             # Each variant keeps parts of the genuine token (the tampered one its
             # signature, the unsigned one its payload): together they rebuild it.
             # In Authorization the whole value is always redacted; registered,
             # it is redacted wherever else the credential travels (a header of
             # its own, a query parameter).
             context.register_secret(degraded, f"user_a token, {variant.value} variant")
-            record = self._send_as(client, anchor, degraded, parts)
-            self._judge_variant(record, store, variant, anchor)
+            record = self._send_as(client, anchor, _place(degraded, parts, view))
+            accepted = self._judge_variant(record, store, variant, anchor, spelling)
+            unsigned_accepted = unsigned_accepted or (variant == JwtVariant.ALG_NONE and accepted)
         return [
             InfoNote(
                 title="JWT attacks that need key material, not tried",
@@ -230,22 +247,32 @@ class Test12CredentialCryptographicallyValid(BaseTest):
         store: EvidenceStore,
         variant: JwtVariant,
         anchor: Anchor,
-    ) -> None:
+        spelling: str | None = None,
+    ) -> bool:
         """
         Say what the anchor's answer to one degraded token means.
 
         Args:
-            record:  The answer to the degraded token.
-            store:   The evidence store.
-            variant: Which degradation was sent.
-            anchor:  The anchor it was sent to.
+            record:   The answer to the degraded token.
+            store:    The evidence store.
+            variant:  Which degradation was sent.
+            anchor:   The anchor it was sent to.
+            spelling: For ALG_NONE, how `none` was written.
+
+        Returns:
+            True when the degraded token was accepted (a violation).
         """
+        label = variant.value if spelling is None else f"{variant.value} (alg '{spelling}')"
         sub_test = _VARIANT_SUB[variant]
         category = category_of(record)
         if category in _SPOILING:
             self._judge(record, store, sub_test, Outcome.NOT_VERIFIABLE, _SPOILING[category])
-            return
+            return False
         if category == ResponseCategory.SERVED:
+            # The controls the finding rests on: the genuine token served at the
+            # anchor, and the anchor refused without a credential.
+            store.pin_evidence(anchor.record)
+            store.pin_evidence(anchor.refused)
             self._judge(
                 record,
                 store,
@@ -253,27 +280,28 @@ class Test12CredentialCryptographicallyValid(BaseTest):
                 Outcome.VIOLATION,
                 f"ACCEPTED_{variant.value}",
                 Finding(
-                    title=f"Invalid token accepted: {variant.value}",
+                    title=f"Invalid token accepted: {label}",
                     detail=(
                         f"The genuine token is accepted at {anchor.method} {anchor.path}, and so "
-                        f"was a token degraded as {variant.value}, which answered HTTP "
+                        f"was a token degraded as {label}, which answered HTTP "
                         f"{record.response_status_code}. The server does not verify the "
                         "signature before trusting the token: a changed identity or an unsigned "
                         "token is taken as authentic. Verify the signature against the issuer's "
                         "key and refuse any token whose signature does not match."
                     ),
+                    supporting_refs=[anchor.record.record_id, anchor.refused.record_id],
                     confidence=Confidence.CERTAIN,
                 ),
             )
-            return
+            return True
         self._judge(record, store, sub_test, Outcome.ENFORCED, "REFUSED")
+        return False
 
     def _send_as(
         self,
         client: SecurityClient,
         anchor: Anchor,
-        token: str,
-        parts: RequestAuthParts,
+        placed: tuple[dict[str, str], dict[str, str]],
     ) -> EvidenceRecord:
         """
         Send the anchor request carrying a token where the genuine one goes.
@@ -281,8 +309,7 @@ class Test12CredentialCryptographicallyValid(BaseTest):
         Args:
             client: The run's HTTP client.
             anchor: The anchor operation.
-            token:  The (degraded) token to carry.
-            parts:  The genuine credential's parts, for where it is placed.
+            placed: The (degraded) token's headers and query parameters (_place).
 
         Returns:
             The record of the answer, or of the transport failure.
@@ -290,7 +317,7 @@ class Test12CredentialCryptographicallyValid(BaseTest):
         Raises:
             SecurityClientError: A failure with no record at all.
         """
-        headers, params = _place(token, parts)
+        headers, params = placed
         try:
             _response, record = client.request(
                 anchor.method,
@@ -327,59 +354,27 @@ class Test12CredentialCryptographicallyValid(BaseTest):
         return self._finish()
 
 
-def _single_token(headers: dict[str, str], params: dict[str, str]) -> str | None:
-    """
-    The bare token from the credential parts, if exactly one value carries it.
-
-    The placement puts the credential in one header, query parameter or cookie,
-    possibly behind a prefix ("Bearer ", "token "). This recovers the token
-    itself, so it can be degraded and put back the same way.
-
-    Args:
-        headers: The credential's headers.
-        params:  The credential's query parameters.
-
-    Returns:
-        The token, or None when the parts do not carry exactly one value.
-    """
-    values = list(headers.values()) + list(params.values())
-    if len(values) != 1:
-        return None
-    value = values[0]
-    for prefix in ("Bearer ", "token ", "Token "):
-        if value.startswith(prefix):
-            return value[len(prefix) :]
-    if "=" in value and ";" not in value.rstrip():
-        # A cookie "name=token".
-        return value.split("=", 1)[1]
-    return value
-
-
-def _place(token: str, parts: RequestAuthParts) -> tuple[dict[str, str], dict[str, str]]:
+def _place(
+    token: str, parts: RequestAuthParts, genuine: JwtView
+) -> tuple[dict[str, str], dict[str, str]]:
     """
     Put a token where and how the genuine credential is placed.
 
+    The genuine token is replaced inside the genuine credential's parts, so the
+    placement's prefix ("Bearer ", "token ", a cookie's name) is kept whatever
+    it is.
+
     Args:
-        token: The (degraded) token.
-        parts: The genuine credential's request parts.
+        token:   The (degraded) token.
+        parts:   The genuine credential's request parts.
+        genuine: The decoded genuine token.
 
     Returns:
-        (headers, query parameters) carrying the token in the same place, with
-        the same prefix, as the genuine credential.
+        (headers, query parameters) carrying the token in the same place.
     """
-    for name, value in parts.headers.items():
-        return {name: _reprefix(value, token)}, {}
-    for name, value in parts.params.items():
-        return {}, {name: _reprefix(value, token)}
-    return {}, {}
-
-
-def _reprefix(original: str, token: str) -> str:
-    """Rebuild a credential value: the original's prefix, the new token."""
-    for prefix in ("Bearer ", "token ", "Token "):
-        if original.startswith(prefix):
-            return f"{prefix}{token}"
-    if "=" in original and ";" not in original.rstrip():
-        name = original.split("=", 1)[0]
-        return f"{name}={token}"
-    return token
+    original = ".".join(
+        (genuine.header_segment, genuine.payload_segment, genuine.signature_segment)
+    )
+    headers = {name: value.replace(original, token) for name, value in parts.headers.items()}
+    params = {name: value.replace(original, token) for name, value in parts.params.items()}
+    return headers, params

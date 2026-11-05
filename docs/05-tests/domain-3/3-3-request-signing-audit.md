@@ -15,7 +15,7 @@
 | Priority / strategy | P3 / WHITE_BOX |
 | Effect | READ_ONLY |
 | CWE | CWE-347 |
-| Standards | `NIST SP 800-107r1` |
+| Standards | `NIST SP 800-107r1`, `RFC 6151, Section 2.3` |
 | Tags | `integrity`, `request-signing` |
 | Prerequisites | none |
 | Needs | `GATEWAY` |
@@ -37,7 +37,7 @@ present configuration is.
 
 | Sub-test | Methodology (guarantee 3.3) |
 |---|---|
-| `algorithm_strong` | "the algorithm is SHA-256 or stronger; MD5/SHA-1 are non-conforming" |
+| `algorithm_strong` | "the algorithm is SHA-256 or stronger; MD5/SHA-1 are non-conforming": by default only HMAC-MD5 is judged non-conforming (RFC 6151 advises against it in new designs), HMAC-SHA-1 only when the operator adds it, since RFC 6194 says "HMAC-SHA-1 remains secure" (owner decision 2026-11-05) |
 | `replay_protected` | "a timestamp window of at most 5 minutes, or a single-use nonce" |
 | left out | the empirical tamper/replay test: meaningful only on a target that implements signing, which no lab does; not planned (2026-10-27) |
 
@@ -60,8 +60,8 @@ None: a configuration audit. Every **enabled** policy is audited (not only the f
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| no forbidden algorithm (hmac-sha1, hmac-md5) | `ENFORCED/STRONG_ALGORITHM` | - |
-| a forbidden algorithm is allowed | `VIOLATION/WEAK_ALGORITHM` | CERTAIN |
+| no forbidden algorithm (`forbidden_algorithms`, by default `hmac-md5` and `md5`) | `ENFORCED/STRONG_ALGORITHM` | - |
+| a forbidden algorithm is allowed | `VIOLATION/WEAK_ALGORITHM` | FIRM: the policy allows it, a forgery is not shown; until 2026-11-05 CERTAIN with "an attacker can forge a signature", which the cited RFCs 6151 and 6194 contradict |
 | the policy states no algorithms | `NOT_VERIFIABLE/ALGORITHMS_NOT_STATED` | - |
 
 **`replay_protected`** (per enabled policy)
@@ -70,7 +70,7 @@ None: a configuration audit. Every **enabled** policy is audited (not only the f
 |---|---|---|
 | a window within the maximum | `ENFORCED/REPLAY_BOUNDED` | - |
 | the gateway states that the request's date is not checked at all (APISIX `clock_skew` 0) | `VIOLATION/REPLAY_UNBOUNDED` | CERTAIN |
-| the gateway states no window (until 2026-11-04 read as unbounded, CERTAIN: external audit D235-14) | `NOT_VERIFIABLE/REPLAY_WINDOW_NOT_STATED` | - |
+| the gateway states no window (until 2026-11-04 read as unbounded, CERTAIN) | `NOT_VERIFIABLE/REPLAY_WINDOW_NOT_STATED` | - |
 | a window above the maximum | `VIOLATION/REPLAY_WINDOW_TOO_LARGE` | CERTAIN |
 
 No enabled policy -> both sub-tests `NOT_APPLICABLE/NO_SIGNING`, with a note (an advanced control absent, a gap to
@@ -79,7 +79,7 @@ assess against the threat model, not a failure).
 ## 7. Outcomes
 
 SKIP when the gateway has no signing policies to read (not supported); INCONCLUSIVE, `CONCEPT_NOT_ACCESSIBLE` on
-both sub-tests, when it has them but they cannot be read (until 2026-11-04 a SKIP, external audit CORE-6). NOT_APPLICABLE (PASS-neutral) when no policy is configured. FAIL on a
+both sub-tests, when it has them but they cannot be read (until 2026-11-04 a SKIP). NOT_APPLICABLE (PASS-neutral) when no policy is configured. FAIL on a
 weak algorithm or an unbounded/too-large replay window; PASS when every enabled policy is strong and bounded.
 
 ## 8. Findings
@@ -105,7 +105,7 @@ Section [`tests.domain_3.test_3_3`](../../03-reference/01-configuration.md#tests
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `max_replay_window_seconds` | int ≥1 | `300` | The largest acceptable replay window (clock-skew tolerance) in seconds; above it a signed request can be replayed. Default 300 (5 minutes). |
-| `forbidden_algorithms` | list | 4 values (`hmac-sha1`, `hmac-md5`, …) | HMAC algorithms treated as weak (compared lowercased). Default sha1/md5. |
+| `forbidden_algorithms` | list | `hmac-md5`, `md5` | HMAC algorithms treated as weak (compared lowercased). Default md5: RFC 6151 advises against HMAC-MD5 in new designs; HMAC-SHA-1 is not weak (RFC 6194) unless added here. |
 
 <!-- [[[end]]] -->
 
@@ -116,7 +116,7 @@ Runs of 2026-10-23:
 | Lab | Status | Basis |
 |---|---|---|
 | Forgejo + Kong, crAPI + Kong, Forgejo + APISIX | **PASS** | the lab's signing policy uses hmac-sha256+ with a 300 s window (compliant) |
-| Forgejo + Kong, with the change below | **FAIL**, 2 findings | the policy set to allow `hmac-sha1` and a 600 s window: `WEAK_ALGORITHM` + `REPLAY_WINDOW_TOO_LARGE` |
+| Forgejo + Kong, with the change below | **FAIL**, 2 findings | the policy set to allow `hmac-sha1` and a 600 s window: `WEAK_ALGORITHM` + `REPLAY_WINDOW_TOO_LARGE` (measured when `hmac-sha1` was in the default list; since 2026-11-05 it is judged only when the operator adds it to `forbidden_algorithms`) |
 
 **The case the labs lack, and how to undo it.** In `test-environments/forgejo-kong/kong/kong.yml`, on the
 `hmac-audit-dummy` plugin, set `clock_skew: 600` and add `hmac-sha1` to `algorithms`, reload Kong (`docker compose
@@ -127,7 +127,7 @@ not shown on the labs (all carry the compliant dummy policy).
 ## 13. Remediation
 
 If request signing is used, allow only HMAC-SHA-256 or stronger and bound replay with a short timestamp window
-(<= 5 minutes) or a single-use nonce (NIST SP 800-107). Its absence is a gap to assess against the threat model
+(<= 5 minutes, the methodology's bound) or a single-use nonce. Its absence is a gap to assess against the threat model
 (trusted intermediary proxies on the path), not necessarily a failure.
 
 ## 14. Limitations
@@ -142,6 +142,10 @@ If request signing is used, allow only HMAC-SHA-256 or stronger and bound replay
 ## 15. Sources
 
 - NIST SP 800-107 Rev.1 (HMAC algorithm strength and use): https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-107r1.pdf
+- RFC 6151 section 2.3 (HMAC-MD5: "The attacks on HMAC-MD5 do not seem to indicate a practical vulnerability when
+  used as a message authentication code", but not to be included in a new protocol design):
+  https://www.rfc-editor.org/rfc/rfc6151
+- RFC 6194 sections 3.3 and 4 ("HMAC-SHA-1 remains secure"): https://www.rfc-editor.org/rfc/rfc6194
 - OWASP ASVS v5.0.0, V4.1.5 (verified on source 2026-10-27): "Verify that per-message digital signatures are
   used to provide additional assurance on top of transport protections for requests or transactions which are
   highly sensitive or which traverse a number of systems" (chapter V4 API and Web Service, section V4.1 Generic

@@ -395,10 +395,14 @@ class Test11CredentialRequired(BaseTest):
             store:    The evidence store.
             endpoint: The operation, already proven to require a credential.
         """
-        del context
         method = endpoint.method.upper()
         path = resolve_path_with_seed(endpoint.path, target.path_seed)
         for detail, parts in _malformed_credentials(target):
+            # Values written in this test, not secrets: shown in the evidence as
+            # sent (an Authorization header is otherwise always redacted, so a
+            # reader could not tell which probe was sent).
+            for value in parts.headers.values():
+                context.declare_public_value(value)
             record = self._ask(
                 client, method, path, dict(parts.headers), endpoint, params=dict(parts.params)
             )
@@ -464,6 +468,13 @@ class Test11CredentialRequired(BaseTest):
                 self._judge(
                     record, store, _SUB_VARIANTS, Outcome.NOT_VERIFIABLE, _SPOILING[category]
                 )
+                continue
+            if category == ResponseCategory.REDIRECT:
+                # Unlike a redirect in no_credential (where it leaves open whether
+                # the control is a login page), the question here is whether the
+                # variant serves the operation, and a redirect serves nothing at
+                # that spelling (named apart).
+                self._judge(record, store, _SUB_VARIANTS, Outcome.ENFORCED, "VARIANT_REDIRECTED")
                 continue
             if category != ResponseCategory.SERVED:
                 # Refused, or not routed at all: the control was not missed.
@@ -587,7 +598,7 @@ def _malformed_credentials(target: TargetContext) -> list[tuple[str, RequestAuth
         _IN_QUERY), one in a cookie sends the Cookie header; the header-name
         cases apply only to a header placement, since there is no header name
         to vary otherwise. Until 2026-11-04 the query values were sent as
-        headers named after the parameter, so nothing was tested (audit D1-5).
+        headers named after the parameter, so nothing was tested.
     """
     placement = target.credential_placement
     cases: list[tuple[str, RequestAuthParts]] = []
@@ -665,8 +676,9 @@ def _cleanup_note(left_behind: list[str]) -> list[InfoNote]:
             title="Objects a write may have left on the target",
             detail=(
                 f"{len(left_behind)} write(s) sent without a credential were accepted and the "
-                "test could not delete what they may have created, because the answer carried no "
-                f"Location: {', '.join(left_behind[:_NOTE_EXAMPLES])}. The paths were filled with "
+                "test could not delete what they may have created (the answer carried no "
+                "Location, or the DELETE of the Location was not served): "
+                f"{', '.join(left_behind[:_NOTE_EXAMPLES])}. The paths were filled with "
                 "random values, so no object of the operator's was addressed."
             ),
         )

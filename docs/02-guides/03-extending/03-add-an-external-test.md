@@ -13,7 +13,7 @@ An external test checks a guarantee by running an external tool (binary or Pytho
 ExternalToolTest (src/external_tests/)            Connector (src/connectors/)
   _build_connector()  -> connector instance          is_available(), get_version()
   _invoke_connector() -> connector.run(...)  ──────► run(target_url, timeout_seconds) -> ConnectorResult
-  _evaluate(result, artifact_ref) -> TestResult      (no verdict: returns all tool results)
+  _evaluate(result, run) -> TestResult              (no verdict: returns all tool results)
 ```
 
 The connector is a "dumb pipe": it runs the tool and returns **all** results. The test decides what is a FAIL, a
@@ -54,8 +54,8 @@ Implement `run(self, target_url: str, timeout_seconds: int, ...) -> ConnectorRes
 
 <!-- [[[end]]] -->
 
-`raw_output` must contain exactly these four keys (`ConnectorRawOutput`); a missing key turns the test into
-`ERROR`:
+`raw_output` must contain these four keys (`ConnectorRawOutput`); a missing key turns the test into `ERROR`. A
+connector may add keys of its own (ffuf adds `base_urls`, testssl `scan_problems`):
 
 ```python
 raw_output = {
@@ -77,15 +77,17 @@ package still imports when the optional dependency is not installed. `BaseLibrar
 used as a Python library rather than a subprocess; it currently has no concrete connector and stays as the
 documented extension point for one.
 
-## 2. Export the connector
+## 2. Import the connector
 
-Add it to `src/connectors/__init__.py` (import and `__all__`).
+The external test imports its connector from its own module (`from src.connectors.ffuf import FfufConnector`), as
+the three shipped tests do. Re-exporting it from `src/connectors/__init__.py` is optional: ffuf and Schemathesis are
+not re-exported.
 
 ## 3. Configuration model (`src/core/models/external_tools.py`)
 
 Subclass `BaseExternalToolConfig`, which already provides `enabled` (default `false`), `timeout_seconds`
-(required when enabled), `expected_version`, `dev_mode`. A command-line tool also declares `extra_flags` (see
-`TestsslConfig`, `NucleiConfig`); a library has none. Override fields to set ranges and defaults, add tool-specific
+(required when enabled), `expected_version`, `dev_mode`. A command-line tool may also declare `extra_flags`, flags appended
+verbatim (`TestsslConfig`, `NucleiConfig`); ffuf and Schemathesis do not, their connector builds every flag. Override fields to set ranges and defaults, add tool-specific
 fields, then add a field to `ExternalToolsConfig`:
 
 ```python
@@ -128,6 +130,8 @@ info = TestInfo(
     references=(Reference(standard=Standard.ASVS, id="v5.0.0-12.1.1"), ...),
     tags=(...),
     tool="testssl",          # = field name in ExternalToolsConfig
+    effect=Effect.READ_ONLY,  # required: what the test does to the target
+    sub_tests=("tls_configuration",),  # required: what it judges, at least one
 )
 ```
 
@@ -143,7 +147,7 @@ empty.
 | Method | Rule |
 |---|---|
 | `_build_connector() -> BaseConnector` | Construct the connector only, no I/O: the registry calls it once per tool to check availability and injects the instance into the tool's tests. |
-| `_invoke_connector(connector: BaseConnector, target: TargetContext, target_url: str) -> ConnectorResult` | Call connector.run(...) with the tool's timeout_seconds and the test's own parameters; target_url is target.endpoint_base_url(). |
+| `_invoke_connector(connector: BaseConnector, target: TargetContext, target_url: str, context: TestContext) -> ConnectorResult` | Call connector.run(...) with the tool's timeout_seconds and the test's own parameters; target_url is target.endpoint_base_url(). context holds the credentials of the accounts the test declares (the engine logs in before the test runs), for a tool that sends them. |
 | `_evaluate(result: ConnectorResult, run: ToolRun) -> TestResult` | Apply the oracle to result.raw_output['results'] and return the result. |
 
 <!-- [[[end]]] -->
@@ -188,7 +192,7 @@ What the base class does around your methods (`ExternalToolTest._run`):
 
 ## 6. `config.yaml`
 
-Add the tool block under `external_tools` with `enabled`, `timeout_seconds`, `extra_flags` (command-line tools only),
+Add the tool block under `external_tools` with `enabled`, `timeout_seconds`, `extra_flags` (if the tool declares it),
 `expected_version`, `dev_mode: false` and tool-specific keys, each commented.
 
 ## Verify
@@ -198,7 +202,7 @@ Add the tool block under `external_tools` with `enabled`, `timeout_seconds`, `ex
    then `apiguard run -c <copy>`.
 3. In the run's `apiguard_report.json` (`outputs/forgejo/` with the lab configuration): the row with `source: "external"`, `tool_name`, `tool_artifact` with the four
    keys; the artefact in `evidence.json` and `outputs/tools/`.
-4. Disable the tool and check the test disappears from the report; enable it with the binary missing and check it
+4. Disable the tool and check the report lists the test under Not Run (`tool_disabled`); enable it with the binary missing and check it
    returns SKIP.
 5. Write the page in `docs/05-tests/external/domain-<D>/` with its header marker (as for a native test:
    `g.test_header("ext.<D>.<N>.<tool>", page=cog.inFile)`), then `hatch run dev:gen` and `hatch run dev:check`.

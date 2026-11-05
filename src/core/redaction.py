@@ -114,7 +114,7 @@ class SecretRegistry:
         """
         self._public_values.add(value)
 
-    def register(self, value: str, label: str) -> None:
+    def register(self, value: str, label: str) -> bool:
         """
         Register a secret value with the label that will replace it.
 
@@ -125,6 +125,10 @@ class SecretRegistry:
             value: The secret, exactly as it appears in requests and responses.
             label: What it is, e.g. "user_a token" (no quotes or backslashes).
 
+        Returns:
+            True when the value is registered; False when it is too short and
+            will not be redacted (the caller says so).
+
         Raises:
             ValueError: If the label is empty or contains a forbidden character.
         """
@@ -134,8 +138,9 @@ class SecretRegistry:
                 f"newlines: {label!r}"
             )
         if len(value) < MIN_SECRET_LENGTH:
-            return
+            return False
         self._labels[value] = label
+        return True
 
     def redact(self, text: str) -> str:
         """
@@ -198,8 +203,13 @@ class SecretRegistry:
 
 
 def _redact_cookie_pair(pair: str) -> str:
-    """Return "name=[REDACTED]" for a "name=value" cookie pair (spacing kept)."""
-    name, separator, _value = pair.partition(_COOKIE_NAME_VALUE_SEPARATOR)
-    if not separator:
+    """
+    Return "name=[REDACTED]" for a "name=value" cookie pair (spacing kept).
+
+    An empty value is kept as it is: it hides nothing, and it is how a server
+    clears a cookie, which test 1.6 must still see.
+    """
+    name, separator, value = pair.partition(_COOKIE_NAME_VALUE_SEPARATOR)
+    if not separator or not value.strip():
         return pair
     return f"{name}{separator}{REDACTED_PLACEHOLDER}"

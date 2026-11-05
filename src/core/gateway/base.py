@@ -253,6 +253,18 @@ class BaseGatewayAdapter(ABC):
         Used in log keys and error messages to identify the gateway type.
         """
 
+    @property
+    def secret_reference_prefixes(self) -> tuple[str, ...]:
+        """
+        How a configuration value refers to a secret kept elsewhere, by its start.
+
+        A value starting with one of these (compared without case) names a
+        secret in a secret store or the environment instead of holding it: test
+        6.4 does not report it as a plaintext credential. Each
+        adapter states its gateway's syntax; none by default.
+        """
+        return ()
+
     # ------------------------------------------------------------------
     # Neutral concepts: public readers (read once per run)
     # ------------------------------------------------------------------
@@ -331,8 +343,7 @@ class BaseGatewayAdapter(ABC):
 
         Which of its plugins send request logs over the network is the
         adapter's knowledge (a plugin writing on the gateway's own host does
-        not count): test 5.1 only asks (audit D235-2, owner decision
-        2026-11-04).
+        not count): test 5.1 only asks (owner decision 2026-11-04).
         """
         return ConceptRead[LogShipper].not_supported(self._not_read(CONCEPT_LOG_SHIPPING))
 

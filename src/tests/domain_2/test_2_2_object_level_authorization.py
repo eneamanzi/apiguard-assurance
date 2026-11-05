@@ -13,7 +13,7 @@ contrast (user_a owns the object, user_b does not).
 A refusal is 401, 403 or 404 only (a 400 or 422 from body validation, a 405 or
 a redirect says nothing about ownership), and only when it differs from what
 the object's read answers a forged credential: otherwise user_b's credential
-may simply not have been accepted (audit D235-7, D235-8).
+may simply not have been accepted.
 
     cross_user_read    user_b reads user_a's object -> expect non-2xx;
     cross_user_modify  user_b PATCH/PUT user_a's object -> non-2xx, confirmed by
@@ -64,6 +64,7 @@ from src.tests.helpers.owned_object import (
     SAFE_METHODS,
     PreparedResource,
     create_owned_object,
+    not_deleted_note,
     object_operations,
 )
 from src.tests.helpers.resources import ResourceSetupError, delete_resource
@@ -89,7 +90,7 @@ _SPOILING: dict[ResponseCategory, str] = {
 
 # The answers that refuse the request (RFC 9110 sections 15.5.2, 15.5.4,
 # 15.5.5). Any other non-2xx answer (400 or 422 from body validation, 405, a
-# redirect) does not say that ownership was checked (audit D235-7).
+# redirect) does not say that ownership was checked.
 _REFUSALS: frozenset[ResponseCategory] = frozenset(
     {
         ResponseCategory.UNAUTHENTICATED,
@@ -170,9 +171,10 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
             if missing is not None:
                 return missing
             user_b = auth_parts(target, context, ROLE_USER_B)
+            left: list[str] = []
             for name in self.params(target).owned_object_resources:
-                self._run_resource(target, context, client, store, name, user_b)
-            return self._finish()
+                self._run_resource(target, context, client, store, (name, left), user_b)
+            return self._finish(notes=not_deleted_note(left) or None)
         except AuthenticationSetupError as exc:
             return self._error(exc)
         except SecurityClientError as exc:
@@ -184,10 +186,14 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
         context: TestContext,
         client: SecurityClient,
         store: EvidenceStore,
-        name: str,
+        resource: tuple[str, list[str]],
         user_b: RequestAuthParts,
     ) -> None:
-        """Create one owned object, run the cross-user sub-tests on it, delete it."""
+        """Create one owned object, run the cross-user sub-tests on it, delete it.
+
+        resource is the resource's name and the list of objects left behind.
+        """
+        name, left = resource
         try:
             owned = create_owned_object(target, context, client, name, ROLE_USER_A, self.info.id)
         except ResourceSetupError as exc:
@@ -198,7 +204,7 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
         try:
             self._probe_object(target, context, client, store, owned.values, user_b)
         finally:
-            self._cleanup(target, context, client, owned)
+            self._cleanup(target, context, client, owned, left)
 
     def _probe_object(
         self,
@@ -216,9 +222,11 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
         deletes = object_operations(target, values, frozenset({_DELETE_METHOD}))
         read_op = reads[0] if reads else None
         forged = self._forged_answer(target, client, read_op)
-        self._cross_read(client, store, read_op, user_a, user_b, forged)
+        refusal = self._cross_read(client, store, read_op, user_a, user_b, forged)
+        if refusal is not None:
+            self._cross_read_more(target, client, store, reads[1:], (user_a, user_b), refusal)
         self._cross_modify(client, store, modifies, read_op, user_a, user_b, forged)
-        self._cross_delete(client, store, deletes, user_a, user_b, forged)
+        self._cross_delete(client, store, deletes, user_a, user_b, forged, read_op)
 
     def _forged_answer(
         self,
@@ -232,7 +240,7 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
         user_b's refusal is evidence of an ownership check only if user_b's
         credential was accepted: a refusal in the same category as this answer
         could be a credential the target does not accept (an expired static
-        token, audit D235-8). The read is safe (a GET), placed as the run's
+        token). The read is safe (a GET), placed as the run's
         credential is.
 
         Args:
@@ -264,18 +272,76 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
         user_a: RequestAuthParts,
         user_b: RequestAuthParts,
         forged: ResponseCategory | None,
-    ) -> None:
-        """user_b reads user_a's object; a 2xx is BOLA (forged: _forged_answer)."""
+    ) -> EvidenceRecord | None:
+        """
+        user_b reads user_a's object; a 2xx is BOLA (forged: _forged_answer).
+
+        Returns:
+            user_b's refused answer when the read was judged ENFORCED (the
+            contrast _cross_read_more rests on); None otherwise.
+        """
         if read_op is None:
             self._record(_SUB_READ, Outcome.NOT_APPLICABLE, "NO_READ_OPERATION")
-            return
+            return None
         method, path, template = read_op
         if not self._owner_served(client, method, path, user_a, _SUB_READ):
-            return
+            return None
         record = _send(client, method, path, user_b, self.info.id)
-        self._judge_cross(
+        outcome = self._judge_cross(
             record, store, _SUB_READ, (method, path, template), forged, "read", "BOLA_READ"
         )
+        return record if outcome == Outcome.ENFORCED else None
+
+    def _cross_read_more(
+        self,
+        target: TargetContext,
+        client: SecurityClient,
+        store: EvidenceStore,
+        reads: list[tuple[str, str, str]],
+        users: tuple[RequestAuthParts, RequestAuthParts],
+        refusal: EvidenceRecord,
+    ) -> None:
+        """
+        user_b reads the object's other reads, its sub-resources.
+
+        An ownership check applied to the object's own read can be missing on a
+        sub-resource (a private repository's branches, hooks, collaborators).
+        Asked only once the object's own read refused user_b: that refusal is
+        the contrast a 2xx here is read against, cited by the finding, which is
+        FIRM because a sub-resource may be public by design. Each read has its
+        own controls: user_a served (else there is nothing to protect there:
+        NOT_APPLICABLE) and the forged credential's answer.
+
+        Args:
+            target:  The run's target (the credential placement).
+            client:  The HTTP client.
+            store:   The evidence store.
+            reads:   The object's reads after its own (object_operations).
+            users:   user_a's and user_b's request parts.
+            refusal: user_b's refused answer on the object's own read.
+        """
+        user_a, user_b = users
+        for method, path, template in reads:
+            owner = _send(client, method, path, user_a, self.info.id)
+            if owner is None or category_of(owner) != ResponseCategory.SERVED:
+                if owner is not None:
+                    self._step(owner)
+                self._record(_SUB_READ, Outcome.NOT_APPLICABLE, "OWNER_NOT_SERVED_HERE")
+                continue
+            self._step(owner)
+            forged = self._forged_answer(target, client, (method, path, template))
+            record = _send(client, method, path, user_b, self.info.id)
+            self._judge_cross(
+                record,
+                store,
+                _SUB_READ,
+                (method, path, template),
+                forged,
+                "read",
+                "BOLA_READ_SUBRESOURCE",
+                confidence=Confidence.FIRM,
+                contrast=refusal,
+            )
 
     def _cross_modify(
         self,
@@ -293,12 +359,21 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
             return
         method, path, template = modifies[0]
         record = _send(client, method, path, user_b, self.info.id, json_body={})
+        # A 2xx says the write was accepted, not that the object changed (the
+        # body is empty): FIRM.
         outcome = self._judge_cross(
-            record, store, _SUB_MODIFY, (method, path, template), forged, "modify", "BOLA_MODIFY"
+            record,
+            store,
+            _SUB_MODIFY,
+            (method, path, template),
+            forged,
+            "modify",
+            "BOLA_MODIFY",
+            confidence=Confidence.FIRM,
         )
         if outcome == Outcome.VIOLATION and read_op is not None:
-            # Confirm the object really changed owner-side (the modify was not a
-            # no-op): a user_a read after the attempt is kept as evidence.
+            # user_a's read after the attempt, kept as evidence for the reader
+            # (what the object holds now); not judged.
             after = _send(client, read_op[0], read_op[1], user_a, self.info.id)
             if after is not None:
                 self._step(after)
@@ -311,16 +386,35 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
         user_a: RequestAuthParts,
         user_b: RequestAuthParts,
         forged: ResponseCategory | None,
+        read_op: tuple[str, str, str] | None = None,
     ) -> None:
-        """user_b deletes user_a's object; a 2xx is BOLA. Runs last (it may remove the object)."""
-        del user_a
+        """
+        user_b deletes user_a's object; a 2xx is BOLA. Runs last (it may remove the object).
+
+        After a 2xx, user_a reads the object: gone (404) proves the deletion
+        (CERTAIN); otherwise the 2xx is only an accepted request (FIRM).
+        """
         if not deletes:
             self._record(_SUB_DELETE, Outcome.NOT_APPLICABLE, "NO_DELETE_OPERATION")
             return
         method, path, template = deletes[0]
         record = _send(client, method, path, user_b, self.info.id)
+        confidence = Confidence.FIRM
+        if record is not None and category_of(record) == ResponseCategory.SERVED and read_op:
+            after = _send(client, read_op[0], read_op[1], user_a, self.info.id)
+            if after is not None:
+                self._step(after)
+                if category_of(after) == ResponseCategory.NOT_FOUND:
+                    confidence = Confidence.CERTAIN
         self._judge_cross(
-            record, store, _SUB_DELETE, (method, path, template), forged, "delete", "BOLA_DELETE"
+            record,
+            store,
+            _SUB_DELETE,
+            (method, path, template),
+            forged,
+            "delete",
+            "BOLA_DELETE",
+            confidence=confidence,
         )
 
     def _owner_served(
@@ -353,6 +447,9 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
         forged: ResponseCategory | None,
         verb: str,
         detail: str,
+        *,
+        confidence: Confidence = Confidence.CERTAIN,
+        contrast: EvidenceRecord | None = None,
     ) -> Outcome:
         """
         Judge user_b's answer on user_a's object; return the recorded outcome.
@@ -379,6 +476,8 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
             self._judge(record, store, sub_test, Outcome.NOT_VERIFIABLE, "CREDENTIAL_NOT_CONFIRMED")
             return Outcome.NOT_VERIFIABLE
         if category == ResponseCategory.SERVED:
+            if contrast is not None:
+                store.pin_evidence(contrast)
             self._judge(
                 record,
                 store,
@@ -389,12 +488,22 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
                     title=f"User reached another user's object: {method} {template}",
                     detail=(
                         f"user_b was able to {verb} an object owned by user_a "
-                        f"({method} {path}, HTTP {record.response_status_code}). The API does not "
-                        "check that the object belongs to the authenticated user (BOLA, OWASP "
-                        "API1:2023). Enforce an ownership check at the object level "
-                        "(WHERE id = ? AND owner = token-user)."
+                        f"({method} {path}, HTTP {record.response_status_code})"
+                        + (
+                            f", a part of it, while the object itself was refused to user_b "
+                            f"({contrast.request_method} {contrast.request_url}, HTTP "
+                            f"{contrast.response_status_code}): the ownership check is applied "
+                            "to the object and missing here, unless this part is public by "
+                            "design"
+                            if contrast is not None
+                            else ""
+                        )
+                        + ". The API does not check that the object belongs to the "
+                        "authenticated user (BOLA, OWASP API1:2023). Enforce an ownership check "
+                        "at the object level (WHERE id = ? AND owner = token-user)."
                     ),
-                    confidence=Confidence.CERTAIN,
+                    supporting_refs=[contrast.record_id] if contrast is not None else [],
+                    confidence=confidence,
                 ),
             )
             return Outcome.VIOLATION
@@ -407,19 +516,21 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
         context: TestContext,
         client: SecurityClient,
         owned: PreparedResource,
+        left: list[str],
     ) -> None:
-        """Delete the created object now; the teardown entry accepts a 404."""
+        """Delete the created object now, or name it in `left` (not_deleted_note)."""
         resource = target.resources.get(owned.name)
         if resource is None or resource.delete is None:
-            # The object type has no delete operation (e.g. a crAPI order): it is
-            # not cleaned up by the tool; the lab reset removes it. By design.
+            # The object type has no delete operation (e.g. a crAPI order).
             log.info("test_2_2_object_not_deletable", resource=owned.name)
+            left.append(f"{owned.name} {owned.values}")
             return
         try:
             _response, record = delete_resource(target, context, client, owned, self.info.id)
             self._step(record)
         except (ResourceSetupError, SecurityClientError) as exc:
             log.warning("test_2_2_cleanup_failed", error=str(exc))
+            left.append(f"{owned.name} {owned.values}")
 
 
 def _send(

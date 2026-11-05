@@ -79,7 +79,7 @@ when the control is a health check standing in for a breaker).
 
 ## 8. Findings
 
-"No circuit breaker or health check on the gateway", `evidence_ref` the circuit-breaker concept artifact.
+"No circuit breaker or health check on the gateway", `evidence_ref` the circuit-breaker concept artifact, `supporting_refs` the health-check one.
 
 ## 9. Effects on the target
 

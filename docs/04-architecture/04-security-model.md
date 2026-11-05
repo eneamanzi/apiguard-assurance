@@ -47,7 +47,7 @@ Treat all output files as sensitive: response bodies can carry the target's data
   By design the tool targets only volatile test resources it can lose and does not restore deleted ones (the
   environment does): see design decisions [D6](05-design-decisions.md#d6-prepared-resources) and
   [D10](05-design-decisions.md#d10-path_seed-makes-paths-routable-not-objects-specific).
-- Test 4.1 sends a burst of up to 300 requests (default) and exhausts the rate-limit budget of the tool's IP.
+- Test 4.1 sends a burst of up to 150 requests (`max_burst`, default) and exhausts the rate-limit budget of the tool's IP.
 - Resources created by tests and the login method (prepared resources with a delete request) are registered for
   teardown and deleted in Phase 6, also after Ctrl+C. Test 7.2 without `url_accepting_endpoint.resource` registers nothing.
 

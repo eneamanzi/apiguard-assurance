@@ -95,6 +95,10 @@ _DEPRECATION_HEADER: str = "deprecation"
 
 # The categories in which the answer refuses the request itself: the target did
 # not look at the operation, so nothing about it is proven.
+# Answers that are not the operation running: a redirect, or one of no class.
+_NOT_AN_ANSWER_OF_THE_OPERATION: frozenset[ResponseCategory] = frozenset(
+    {ResponseCategory.REDIRECT, ResponseCategory.OTHER}
+)
 _REFUSING: frozenset[ResponseCategory] = frozenset(
     {ResponseCategory.UNAUTHENTICATED, ResponseCategory.FORBIDDEN}
 )
@@ -268,6 +272,19 @@ class Test03DeprecatedOperations(BaseTest):
         if category in _REFUSING:
             self._judge(
                 record, store, _SUB_DEPRECATED, Outcome.NOT_VERIFIABLE, "REFUSED_BEFORE_ANSWER"
+            )
+            return
+        if category == ResponseCategory.METHOD_NOT_ALLOWED:
+            # The method is no longer available on the path: the deprecated
+            # operation is switched off, as with a 410 (a 405 that
+            # differed from the siblings was read as "still served").
+            self._judge(record, store, _SUB_DEPRECATED, Outcome.ENFORCED, "METHOD_SWITCHED_OFF")
+            return
+        if category in _NOT_AN_ANSWER_OF_THE_OPERATION:
+            # A redirect (possibly to the replacement) or an answer of no class
+            # says neither that the operation still runs nor that it is gone.
+            self._judge(
+                record, store, _SUB_DEPRECATED, Outcome.NOT_VERIFIABLE, "ANSWER_NOT_INTERPRETED"
             )
             return
         similarity = context.references.same_as_unknown(

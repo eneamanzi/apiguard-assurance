@@ -96,7 +96,9 @@ Redaction is applied when the transaction is captured (so known secrets never re
 during the run) and again when the outputs are written in Phase 7 (secrets learned after their capture, such as a
 token in the response that creates it). The `EvidenceRecord` model replaces any `authorization` value that is not
 already a placeholder with `[REDACTED]`, whoever builds the record. Values shorter than 8 characters are never
-registered as secrets. Passwords never appear in the outputs.
+registered as secrets: a password is registered like any secret, so one of 8 characters or more never appears in the
+outputs, while a shorter one is not redacted (a login request body shows it) and the run logs
+`secret_too_short_not_redacted` with its label, never the value. Use passwords of at least 8 characters.
 - Token acquisition requests made by the authentication helpers (`src/tests/helpers/auth_*.py`) are not
   recorded as evidence.
 - External-tool artefacts are sanitised for credentials before being stored.

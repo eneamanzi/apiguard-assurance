@@ -142,7 +142,7 @@ cli_console            -> connectors, core/models, engine (types only)
 engine                 -> config, core/assessment_test, core/auth_placement, core/client, core/context, core/dag, core/evidence, core/exceptions, core/gateway, core/models, core/redaction, core/references, core/test_metadata, core/test_needs, core/tls, discovery, external_tests, report, tests
 config                 -> core/assessment_test, core/exceptions, core/gateway, core/models, core/test_metadata
 discovery              -> core/exceptions, core/models, core/tls
-tests                  -> core/assessment_test, core/auth_placement, core/client, core/context, core/evidence, core/exceptions, core/gateway, core/jwt_tokens, core/models, core/path_variants, core/references, core/response_category, core/templating, core/test_discovery, core/test_metadata, core/test_needs
+tests                  -> core/assessment_test, core/auth_placement, core/client, core/context, core/evidence, core/exceptions, core/gateway, core/jwt_tokens, core/models, core/path_variants, core/references, core/response_category, core/sensitive_paths, core/templating, core/test_discovery, core/test_metadata, core/test_needs
 external_tests         -> connectors, core/assessment_test, core/client, core/context, core/evidence, core/exceptions, core/models, core/references, core/response_category, core/sensitive_paths, core/test_discovery, core/test_metadata
 connectors             -> core/exceptions
 report                 -> config, core/models, core/redaction, core/references
@@ -185,7 +185,8 @@ attempts; HTTP status codes and TLS failures are never retried. **A method that 
 `PATCH`, RFC 9110 section 9.2.2) is retried only when the failure proves the request never reached the application**
 (`ConnectError`, `ConnectTimeout`, `PoolTimeout`): after a read or write timeout, or a protocol error, the request
 may already have been applied, so it is reported as a failure instead of being sent again, and the message says so. Uses the TLS context of `target.tls`. Each request returns the response and an `EvidenceRecord`
-(`record_id` `{test_id}_{NNN}`). Not thread-safe; execution is sequential.
+(`record_id` `{test_id}_{NNN}`). Tests run one after the other; `request()` may be called from several threads at once
+(test 7.3): the record counter and the request collector are locked, and the cookie jar keeps no cookie.
 
 **EvidenceStore** (`src/core/evidence.py`). Three ways in: `add_fail_evidence()` (mandatory for each FAIL
 transaction), `pin_evidence()` (key context, e.g. the first `429` in test 4.1), `pin_artifact()` (raw output of an
@@ -265,7 +266,7 @@ and `404` are accepted (404 = already gone). Failures are logged and never stop 
 ## Packaging
 
 `hatch build` produces a wheel (`py3-none-any`, contains `src/` only) and an sdist (sources, `docs/` except
-`docs/06-knowledge/` and `docs/project/`, READMEs, `.env.example`, `install_tools.sh`; not `test-environments/`, so no
-configuration file). schemathesis is an
+`docs/06-knowledge/` and `docs/project/`, `README.md`, `CHANGELOG.md`, `config.example.yaml`, `.env.example`,
+`install_tools.sh`; not `test-environments/`, so no lab configuration). schemathesis is an
 optional extra: `pip install "apiguard-assurance[schemathesis]"`. External binaries are not packaged:
 `install_tools.sh` downloads pinned versions into `tools/`.

@@ -52,17 +52,21 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 _SUB_ALGO: str = "algorithm_strong"
 _SUB_REPLAY: str = "replay_protected"
 
-# Default forbidden HMAC algorithms: broken for signatures (RFC 6151, RFC 6194).
-_DEFAULT_FORBIDDEN: tuple[str, ...] = ("hmac-sha1", "hmac-md5", "sha1", "md5")
+# Default forbidden HMAC algorithm: HMAC-MD5, which RFC 6151 section 2.3 says not
+# to include in a new protocol design, though its known attacks "do not seem to
+# indicate a practical vulnerability". HMAC-SHA-1 is not forbidden by default:
+# RFC 6194 section 4, "HMAC-SHA-1 remains secure" (both read 2026-11-05; owner
+# decision that day). The operator can add it.
+_DEFAULT_FORBIDDEN: tuple[str, ...] = ("hmac-md5", "md5")
 
-# Default maximum replay window: NIST SP 800-107 / the methodology's 5 minutes.
+# Default maximum replay window: the methodology's 5 minutes (no standard sets it).
 _DEFAULT_MAX_REPLAY_SECONDS: int = 300
 
 _REFERENCES: tuple[Reference, ...] = (
-    # NIST SP 800-107 (HMAC algorithm strength, replay window). ASVS v5.0.0-4.1.5
-    # to add once verified on source (WebFetch rate-limited 2026-10-23; see the
-    # group-F draft).
+    # NIST SP 800-107 Rev.1 (the security of HMAC applications) and RFC 6151
+    # (HMAC-MD5 not to be used in new designs).
     Reference(standard=Standard.NIST_SP, id="800-107r1"),
+    Reference(standard=Standard.RFC, id="6151", section="2.3"),
 )
 
 
@@ -81,7 +85,11 @@ class Test33Params(BaseModel):
     )
     forbidden_algorithms: tuple[str, ...] = Field(
         default=_DEFAULT_FORBIDDEN,
-        description="HMAC algorithms treated as weak (compared lowercased). Default sha1/md5.",
+        description=(
+            "HMAC algorithms treated as weak (compared lowercased). Default md5: RFC 6151 "
+            "advises against HMAC-MD5 in new designs; HMAC-SHA-1 is not weak (RFC 6194) unless "
+            "added here."
+        ),
     )
 
 
@@ -166,12 +174,15 @@ class Test33RequestSigningAudit(BaseTest[Test33Params]):
                 Finding(
                     title=f"Weak signing algorithm on '{policy.name}': {', '.join(weak)}",
                     detail=(
-                        f"The signing policy '{policy.name}' allows {', '.join(weak)}, broken for "
-                        "signatures (RFC 6151/6194): an attacker can forge a signature and tamper "
-                        "with the request undetected. Allow only HMAC-SHA-256 or stronger (NIST SP "
-                        "800-107)."
+                        f"The signing policy '{policy.name}' allows {', '.join(weak)}, which the "
+                        "configuration treats as weak. For HMAC-MD5, RFC 6151 section 2.3 says it "
+                        "should not be included in a new protocol design, though no practical "
+                        "forgery is known. Allow only HMAC-SHA-256 or stronger."
                     ),
-                    confidence=Confidence.CERTAIN,
+                    # A policy, not an exploit: what is certain is that the
+                    # algorithm is allowed; that it is weak is the standard's
+                    # advice, not a demonstrated forgery.
+                    confidence=Confidence.FIRM,
                     evidence_ref=evidence_ref,
                 ),
             )
@@ -182,7 +193,7 @@ class Test33RequestSigningAudit(BaseTest[Test33Params]):
         """Judge the policy's replay window against the maximum."""
         window = policy.replay_window_seconds
         if window is None and not policy.replay_unlimited:
-            # Not stated by the gateway is not "no window" (audit D235-14): only
+            # Not stated by the gateway is not "no window": only
             # replay_unlimited says the date is never checked. As for the
             # algorithms, what is not stated is not verifiable.
             self._record(_SUB_REPLAY, Outcome.NOT_VERIFIABLE, "REPLAY_WINDOW_NOT_STATED")
@@ -198,7 +209,8 @@ class Test33RequestSigningAudit(BaseTest[Test33Params]):
                         f"The signing policy '{policy.name}' states no replay window (timestamp "
                         "tolerance or nonce): a captured signed request can be replayed at any "
                         "time, however strong the algorithm. Bound it to at most "
-                        f"{max_seconds} seconds (NIST SP 800-107)."
+                        f"{max_seconds} seconds (max_replay_window_seconds, the methodology's "
+                        "bound)."
                     ),
                     confidence=Confidence.CERTAIN,
                     evidence_ref=evidence_ref,
@@ -216,7 +228,7 @@ class Test33RequestSigningAudit(BaseTest[Test33Params]):
                         f"The signing policy '{policy.name}' allows a replay window of "
                         f"{window:g} seconds, above the {max_seconds} s maximum: a captured signed "
                         "request can be replayed within that window. Reduce the timestamp "
-                        "tolerance (NIST SP 800-107)."
+                        "tolerance."
                     ),
                     confidence=Confidence.CERTAIN,
                     evidence_ref=evidence_ref,

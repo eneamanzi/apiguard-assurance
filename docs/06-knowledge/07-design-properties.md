@@ -89,7 +89,7 @@ one `isinstance` check.
 Empirical: 0.1 (native) and ext.0.1.ffuf (external) in the same domain, told apart in `evidence.json` and the
 report.
 
-**Possible developments.** A third hierarchy (for example LLM-assisted tests) adds a branch in the dispatch without
+**Possible developments.** A third hierarchy (for example tests driven by another kind of engine) adds a branch in the dispatch without
 changing the existing contracts.
 
 **In the docs.** [Components](../04-architecture/01-overview.md#components), D8.
@@ -166,8 +166,9 @@ meaningful only if the prerequisite holds: it runs if the prerequisite passed).
 
 **Consequences.** A cycle is caught in Phase 4, before any test runs (`DAGCycleError`, exit 10). A prerequisite not
 met, including one left out by the selection, gives SKIP with a reason naming it, and the skip propagates; the thesis
-version ignored a missing prerequisite with a warning. Tokens are not a reason for a prerequisite: every test obtains
-them through `acquire_tokens()`, in any order. No test declares a prerequisite today.
+version ignored a missing prerequisite with a warning. Tokens are not a reason for a prerequisite: the engine obtains
+the accounts a test declares, and a test whose role comes from its parameters (0.3, 4.4, 7.1, 7.2, 7.3) calls
+`acquire_tokens()` for it, which reuses a credential already obtained, in any order. No test declares a prerequisite today.
 
 **Evidence.** By construction (`src/core/dag.py`). The thesis example (1.4 depending on 1.1) no longer applies.
 
@@ -521,7 +522,7 @@ gateway does not protect this endpoint" (a FAIL with HTTP evidence) is kept apar
 
 ### D4.P8 Fail-fast on P0
 
-**Definition.** With `execution.fail_fast: true`, Phase 5 stops after the first P0 test that returns FAIL or ERROR.
+**Definition.** With `execution.fail_fast: true`, Phase 5 stops after the first P0 test that returns FAIL, ERROR or INCONCLUSIVE.
 Both stop the run: an ERROR on a P0 check is an incomplete perimeter check, as blocking in a CI gate as a confirmed
 violation.
 

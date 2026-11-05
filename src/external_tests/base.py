@@ -33,7 +33,7 @@ Responsibility split:
            the computed result (_finish); SKIP and ERROR through _skip and _error.
 
     BaseConnector is responsible for:
-        1. Discovering the binary (shutil.which or env var or importlib).
+        1. Discovering the binary (./tools/, PATH, or importlib for a library).
         2. Invoking the subprocess / library with the correct flags.
         3. Parsing JSON output.
         4. Returning ConnectorResult or raising ExternalToolError.
@@ -363,7 +363,7 @@ class ExternalToolTest(AssessmentTest[ParamsT]):
 
             # Step 3: execute binary.
             try:
-                connector_result = self._invoke_connector(connector, target, target_url)
+                connector_result = self._invoke_connector(connector, target, target_url, context)
             except ExternalToolError as exc:
                 if exc.timed_out:
                     return self._error(
@@ -893,10 +893,13 @@ class ExternalToolTest(AssessmentTest[ParamsT]):
         connector: BaseConnector,
         target: TargetContext,
         target_url: str,
+        context: TestContext,
     ) -> ConnectorResult:
         """
         Call connector.run(...) with the tool's timeout_seconds and the test's own
-        parameters; target_url is target.endpoint_base_url().
+        parameters; target_url is target.endpoint_base_url(). context holds the
+        credentials of the accounts the test declares (the engine logs in before
+        the test runs), for a tool that sends them.
 
         This method is the bridge between the generic ExternalToolTest lifecycle
         and the specific CLI interface of each tool.  It reads tool-specific
@@ -904,7 +907,7 @@ class ExternalToolTest(AssessmentTest[ParamsT]):
         and passes them to connector.run() as named keyword arguments.
 
         Example (testssl):
-            def _invoke_connector(self, connector, target, target_url):
+            def _invoke_connector(self, connector, target, target_url, context):
                 return connector.run(
                     target_url=target_url,
                     timeout_seconds=target.external_tools.testssl.timeout_seconds,

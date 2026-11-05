@@ -730,7 +730,7 @@ def generate_seed(
 
         # Generate from the specification of a configuration (its URL or file,
         # and its certificate settings) and print to stdout
-        apiguard generate-seed -c test-environments/forgejo-kong/config.yaml
+        apiguard generate-seed -c config.yaml
 
         # Generate from a local spec file and save to disk
         apiguard generate-seed ./specs/openapi.yaml --output seed_template.yaml
@@ -1019,6 +1019,8 @@ def _configure_logging(
 
 # Logger of the Python warnings captured by logging.captureWarnings().
 _PY_WARNINGS_LOGGER: str = "py.warnings"
+# Libraries that log the URL of every request (never below WARNING).
+_URL_LOGGING_LIBRARIES: tuple[str, ...] = ("httpx", "httpcore")
 
 
 def _silence_noisy_loggers(base_level: int) -> None:
@@ -1042,12 +1044,17 @@ def _silence_noisy_loggers(base_level: int) -> None:
         logging.DEBUG if base_level <= logging.DEBUG else logging.CRITICAL
     )
 
+    # httpx logs every request's full URL, query included: a credential placed
+    # in the query would reach the log in clear. The tool logs
+    # and records every request itself, redacted, so these two stay at WARNING
+    # at every level, DEBUG included.
+    for logger_name in _URL_LOGGING_LIBRARIES:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
+
     if base_level <= logging.DEBUG:
         return
 
     noisy_loggers: list[str] = [
-        "httpx",
-        "httpcore",
         "prance",
         "openapi_spec_validator",
         "urllib3",

@@ -44,8 +44,8 @@ password change, which is a separate target-specific flow not covered here.
 ## 3. Inputs
 
 The login method's own revocation capability (`Need.REVOCABLE_LOGIN`: `auth_type: login` with a login resource
-that has a delete request). An **anchor**: a documented read that answers 2xx with the credential and non-2xx
-without it (`src/tests/helpers/anchor.py`), so that a refusal after revocation is about the revocation and not
+that has a delete request). An **anchor**: a documented read that answers 2xx with the credential and is refused (401 or 403)
+without it (until 2026-11-04 any non-2xx, a 429 or a 5xx included) (`src/tests/helpers/anchor.py`), so that a refusal after revocation is about the revocation and not
 about a public endpoint. No configuration parameter (the old test's `protected_endpoint` is derived now).
 
 ## 4. Preconditions and reference responses

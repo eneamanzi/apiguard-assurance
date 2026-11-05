@@ -37,7 +37,7 @@ consumption of an external service; CWE-347): without verification anyone who ca
 |---|---|
 | `absent_signature_rejected` | "a delivery with no signature must be rejected" |
 | `invalid_signature_rejected` | "a delivery with a wrong signature must be rejected" |
-| left out | **replay protection** (timestamp window, event-ID dedup) and the blind-callback case: both need an out-of-band listener the tool controls, which is not built and not planned (decided 2026-10-27); constant-time comparison is not observable from outside |
+| left out | **replay protection** (timestamp window, event-ID dedup): not judgeable from the answer, see Limitations; the **blind-callback** case: it needs an out-of-band listener the tool controls, which is not built and not planned (decided 2026-10-27); constant-time comparison is not observable from outside |
 
 ## 3. Inputs
 
@@ -120,7 +120,7 @@ Runs of 2026-10-26:
 |---|---|---|
 | Forgejo + Kong, crAPI + Kong, Forgejo + APISIX | **SKIP** | no webhook receiver declared (`webhook_endpoint` unset): honest SKIP |
 
-**Checked against a scratch receiver** (2026-11-04, after the correction of the external audit D467-4): a small
+**Checked against a scratch receiver** (2026-11-04, after the correction of that day): a small
 HTTP server outside the repository that accepts a delivery only with `X-Signature: sha256=<HMAC-SHA256 of the raw
 body>`, plus a path that accepts anything.
 
@@ -140,9 +140,8 @@ control, the receiver's signing secret; none of the three lab applications has s
 webhooks, it does not receive signed ones; crAPI has none), and building one would be new lab machinery, so none was
 built (owner's decision, 2026-11-03). Its logic was read and corrected on that day (a `5xx`, a `429` or a dropped
 connection no longer counts as "signature required"); its verdicts were observed only on the scratch receiver
-above. Replay protection
-and the blind-callback case are a different matter: they need an out-of-band listener that is not planned, so they
-stay permanently outside what this test covers (see Limitations).
+above. Replay protection and the blind-callback case stay outside what this test covers, for the reasons in the
+Limitations.
 
 ## 13. Remediation
 
@@ -152,10 +151,16 @@ OWASP Webhook Security Cheat Sheet).
 
 ## 14. Limitations
 
-- Only the inbound-verification case is tested. Constant-time comparison is not observable from outside. Replay
-  protection and blind callbacks need an out-of-band listener the tool controls, which is not built and not planned
-  (decided 2026-10-27), so both stay permanently outside this test: a receiver that verifies its HMAC correctly but
-  accepts a replayed delivery still passes here.
+- Only the inbound-verification case is tested. Constant-time comparison is not observable from outside.
+- **Replay protection is not judgeable from the answer.** The test could send the same signed delivery twice, but a
+  `2xx` to the second proves nothing: a receiver that recognises the duplicate and ignores it (idempotent handling)
+  answers `2xx` too. A delivery that is
+  validly signed but old, which must be refused, can be built only with a scheme that signs a timestamp, which
+  `signature_format` does not support (next item). So a receiver that verifies its HMAC correctly but accepts a
+  replayed delivery still passes here. (Until 2026-11-05 this page said replay needs an out-of-band listener: that is
+  true of the blind-callback case, an outbound call, not of an inbound replay.)
+- The blind-callback case (the target calling a URL of ours) needs an out-of-band listener the tool controls, which
+  is not built and not planned (decided 2026-10-27).
 - Only the `{signature}` placeholder is supported in `signature_format`; schemes that sign a timestamp+body tuple
   need an extension.
 

@@ -67,6 +67,8 @@ for any later such check is logged in a note.
 | `exp - iat` over the bound (24 hours) | `VIOLATION/LIFETIME_EXCESSIVE`, the finding carrying the measured span | TENTATIVE: the token's purpose cannot be read from it |
 | `exp - iat` within the bound | `ENFORCED/LIFETIME_BOUNDED` | - |
 | no usable `iat` | `NOT_VERIFIABLE/NO_IAT_CLAIM` | - |
+| `exp` present but not a number (RFC 7519 NumericDate) | `NOT_VERIFIABLE/EXP_NOT_NUMERIC` | - |
+| `exp` not after `iat` | `NOT_VERIFIABLE/EXP_NOT_AFTER_IAT` | - |
 | the past-expiry case | `NOT_VERIFIABLE/NEEDS_KEY_MATERIAL` | - |
 | the credential is not a JWT | `NOT_APPLICABLE/NOT_A_JWT` | - |
 
@@ -108,7 +110,7 @@ Runs of 2026-10-22, the three tests of the group together:
 
 **What each branch has been seen doing** (rule 9). Proven on a lab: `EXP_DECLARED`, `LIFETIME_EXCESSIVE`,
 `NEEDS_KEY_MATERIAL`, `NOT_A_JWT`. Unproven, because they need a JWT issuer we control (the labs issue only crAPI's
-fixed 7-day token or an opaque one): `NO_EXP_CLAIM`, `LIFETIME_BOUNDED`, `NO_IAT_CLAIM`. They are the same
+fixed 7-day token or an opaque one): `NO_EXP_CLAIM`, `LIFETIME_BOUNDED`, `NO_IAT_CLAIM`, `EXP_NOT_NUMERIC`, `EXP_NOT_AFTER_IAT`. They are the same
 read-a-claim code path; a scratch target issuing such a token would exercise them.
 
 ## 13. Remediation

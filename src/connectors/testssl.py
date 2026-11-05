@@ -80,12 +80,17 @@ _ADD_CA_FLAG: str = "--add-ca"
 # Mirrors ExternalToolsConfig.testssl.extra_flags default.
 _DEFAULT_EXTRA_FLAGS: str = "--quiet --color 0"
 
-# The testssl.sh exit code indicating a successful scan regardless of findings.
-# testssl.sh returns 0 for a completed scan, non-zero for execution errors.
-# Exit code 1 is treated as success because testssl.sh uses it to indicate
-# that findings were detected -- this is an expected operational outcome, not
-# an execution error.
-_TESTSSL_SUCCESS_EXIT_CODES: frozenset[int] = frozenset({0, 1})
+# testssl.sh's exit status (its manual, doc/testssl.1.md, "EXIT STATUS"): 0
+# without errors or ambiguous results; 1+n the number of errors or ambiguous
+# results met during the scan, which still completed and wrote its JSON;
+# 50-200 reserved for a scoring; 242 and above its own failures (connectivity,
+# DNS, OpenSSL...). Only those are an execution error: until 2026-11-05 any code
+# above 1 was, and the findings of a scan with two ambiguous results were lost
+# .
+_TESTSSL_COMPLETED_MAX_EXIT_CODE: int = 200
+# Never wait for a keypress on a problem: end that check instead (its manual,
+# `--warnings batch`).
+_WARNINGS_FLAGS: tuple[str, ...] = ("--warnings", "batch")
 
 
 # ---------------------------------------------------------------------------
@@ -292,9 +297,8 @@ class TestsslConnector(BaseSubprocessConnector):
 
             execution_time_ms = int(time.monotonic() * 1000) - start_time_ms
 
-            if exit_code not in _TESTSSL_SUCCESS_EXIT_CODES:
-                # Non-zero exit (other than 1, which testssl uses for findings)
-                # means execution error, not a TLS finding.
+            if exit_code > _TESTSSL_COMPLETED_MAX_EXIT_CODE:
+                # testssl.sh's own failure (242 and above), not a scan result.
                 stderr_preview = (stdout or "")[:300].replace("\n", " ")
                 raise ExternalToolError(
                     message=(
@@ -308,6 +312,8 @@ class TestsslConnector(BaseSubprocessConnector):
                 )
 
             raw_output = self._read_and_parse_json_output(json_output_path)
+            # How many errors or ambiguous results the scan met (its exit code).
+            raw_output["scan_problems"] = exit_code
 
         except ExternalToolError:
             # Propagate ExternalToolError directly: _run_subprocess raises it
@@ -419,6 +425,7 @@ class TestsslConnector(BaseSubprocessConnector):
         # that result from splitting a string with consecutive spaces.
         flag_tokens = [token for token in extra_flags.split() if token]
         cmd.extend(flag_tokens)
+        cmd.extend(_WARNINGS_FLAGS)
 
         return cmd
 

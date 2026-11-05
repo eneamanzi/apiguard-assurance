@@ -491,6 +491,10 @@ class BaseSubprocessConnector(BaseConnector):
                 # after Pydantic validation.  No field ever originates from raw
                 # user HTTP input.  The S603 warning is a false positive here.
                 cmd,
+                # No tool may wait for a keypress: testssl.sh asks "Really
+                # proceed?" on a plain-HTTP target, and an inherited terminal
+                # left it waiting until the timeout.
+                stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -504,21 +508,24 @@ class BaseSubprocessConnector(BaseConnector):
                     if proc.poll() is None:
                         proc.kill()
                         proc.communicate()
-        except subprocess.TimeoutExpired as exc:
+        except subprocess.TimeoutExpired:
             log.warning(
                 "connector_subprocess_timeout",
                 tool=tool_name,
                 timeout_seconds=timeout_seconds,
             )
+            # Not chained: TimeoutExpired's text is the whole command line, a
+            # credential included (Schemathesis's -H), and a chained exception
+            # reaches the traceback a test's ERROR logs.
             raise ExternalToolError(
                 message=(
                     f"{tool_name} execution timed out after {timeout_seconds}s. "
-                    f"Increase 'external_tools.{tool_name.rstrip('.sh')}.timeout_seconds' "
+                    f"Increase 'external_tools.{tool_name.removesuffix('.sh')}.timeout_seconds' "
                     "in config.yaml if the target is slow to respond."
                 ),
                 tool_name=tool_name,
                 timed_out=True,
-            ) from exc
+            ) from None
         except (FileNotFoundError, PermissionError, OSError) as exc:
             raise ExternalToolError(
                 message=f"{tool_name} could not be executed: {exc}",
@@ -758,6 +765,10 @@ class BaseSubprocessConnector(BaseConnector):
               or ``/tmp/tmpXXX.json``): return ``raw`` unchanged rather than
               emitting a confusing ``../../...`` string.
             - Windows cross-drive ``ValueError``: return ``raw`` unchanged.
+            - A binary outside the project that is the one PATH finds by its
+              name (``shutil.which``): return the bare name, which runs the
+              same program and names no local directory (a
+              pipx or venv path such as ``/home/<user>/.local/bin/...``).
 
         Caller responsibility for temp paths:
             Paths like ``/tmp/xxx_nuclei.json`` live outside the project tree
@@ -774,9 +785,14 @@ class BaseSubprocessConnector(BaseConnector):
         """
         try:
             rel = os.path.relpath(raw)
-            return rel if not rel.startswith("..") else raw
         except ValueError:
             return raw
+        if not rel.startswith(".."):
+            return rel
+        name = os.path.basename(raw)
+        if os.path.isabs(raw) and name and shutil.which(name) == raw:
+            return name
+        return raw
 
     def _sanitize_paths_in_findings(
         self,
@@ -895,11 +911,14 @@ class BaseSubprocessConnector(BaseConnector):
         # concrete connector before passing cmd_prefix here.
         cmd_display: list[str] = [self._relativize_display_path(raw_binary)] + cmd_prefix[1:]
 
+        # No trailing space when there is no scan target (Schemathesis).
+        target_tokens: list[str] = [scan_target] if scan_target else []
+
         # command: text output mode, no JSON flag -- what a human analyst runs.
-        command: str = " ".join(cmd_display + [scan_target])
+        command: str = " ".join(cmd_display + target_tokens)
 
         # command_json: JSON output mode -- what APIGuard runs internally.
-        command_json: str = " ".join(cmd_display + json_output_args + [scan_target])
+        command_json: str = " ".join(cmd_display + json_output_args + target_tokens)
 
         return command, command_json
 

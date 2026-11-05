@@ -201,7 +201,8 @@ cannot describe (request signing, multi-step logins) stays a method in the code 
 part of Nuclei extractors and Schemathesis OpenAPI links; RESTler's inference left out.
 
 **Consequences.** No Forgejo code left in the tool; the Forgejo and crAPI logins are configuration (crAPI's in about 8
-lines). Future tests that create data (2.2, 2.3, 7.3) reuse the block.
+lines). The tests that create data reuse the block: 2.2 and 2.5 (`owned_object_resources`, 2.3 merged into 2.2), 7.2 and
+7.3 (a `resource` of their operation).
 
 Sources: [Nuclei extractors](https://docs.projectdiscovery.io/templates/reference/extractors),
 [Schemathesis stateful testing](https://schemathesis.readthedocs.io/en/stable/explanations/stateful/),
@@ -221,8 +222,8 @@ plugins that ship request logs (added 2026-11-04, so that 5.1 names no gateway).
   but cannot be read), with the reason. A test that cannot judge returns SKIP for **not supported** ("Not
   applicable to this gateway": nothing to apply), and INCONCLUSIVE for **not accessible** (every sub-test
   `NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE`, with a note giving the reason): the run was asked for a check it could
-  not make, which exit code 3 reports (`BaseTest._unread_concept`; owner decision 2026-11-04, external audit
-  CORE-6, after some tests gave SKIP and others NOT_VERIFIABLE for the same case). A test that can judge only part
+  not make, which exit code 3 reports (`BaseTest._unread_concept`; owner decision 2026-11-04,
+  after some tests gave SKIP and others NOT_VERIFIABLE for the same case). A test that can judge only part
   adds an InfoNote; no new report status;
 - a concept is read once per run and stored as evidence, configuration values masked (both Kong and APISIX return
   plugin secrets in clear through their Admin API);

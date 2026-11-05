@@ -32,6 +32,8 @@ Dependency rule:
 from __future__ import annotations
 
 import os
+import re
+import sys
 import tempfile
 import time
 import xml.etree.ElementTree as ET  # noqa: S405  # our own tool's output  # nosec B405
@@ -45,8 +47,15 @@ from src.core.exceptions import ExternalToolError
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
-# The checks that answer guarantee 3.1 (input validation).
-_CHECKS: str = "not_a_server_error,negative_data_rejection,response_schema_conformance"
+# The check that answers guarantee 3.1 (input validation): a generated input,
+# valid or invalid, that makes the server answer 5xx, with the request that does
+# it. Two checks were dropped (owner decisions 2026-11-04):
+# response_schema_conformance judges the responses against the specification, a
+# documentation question; negative_data_rejection reported, on Forgejo, every
+# endpoint without parameters answering 200 to a nameless extra header and query
+# parameter (`-H '0: ' '/api/v1/version?=false'`), which an HTTP server may
+# ignore, and its other findings could not be told apart from those.
+_CHECKS: str = "not_a_server_error"
 
 # Exit codes of a completed run: 0 (all passed), 1 (failures found). Anything
 # else is an execution error.
@@ -56,6 +65,17 @@ _SUCCESS_EXIT_CODES: frozenset[int] = frozenset({0, 1})
 # gives it in seconds (external_tools.schemathesis.request_timeout_seconds).
 _MS_PER_SECOND: int = 1000
 _DEFAULT_REQUEST_TIMEOUT_SECONDS: int = 5
+# Schemathesis's warning for an operation none of whose generated requests got
+# past a 4xx (on Forgejo, a credential it makes up answered 401): such an
+# operation was never reached, so it proves nothing (2026-11-04: 371 of 469).
+_ONLY_4XX: re.Pattern[str] = re.compile(r"`([A-Z]+ [^`]+)` returned only 4xx responses")
+# A schema source that is a URL, not a local file (shown as it is).
+_URL_PREFIXES: tuple[str, ...] = ("http://", "https://")
+
+# What the displayed command shows in place of a header's value (a credential).
+_REDACTED_VALUE: str = "[REDACTED]"
+# How much of Schemathesis's output an error quotes, from its end.
+_OUTPUT_TAIL_CHARS: int = 600
 # Valid and invalid data: the default ('positive') generates valid data only, so
 # the negative_data_rejection check never had an invalid request to judge.
 _DATA_GENERATION_METHOD: str = "all"
@@ -68,6 +88,27 @@ class SchemathesisConnector(BaseSubprocessConnector):
     BINARY_NAME: ClassVar[str] = "schemathesis"
     DEFAULT_TIMEOUT_SECONDS: ClassVar[int] = 600
 
+    def _resolve_binary_path(self) -> str | None:
+        """
+        The `schemathesis` script: where the base class finds it, else beside the
+        Python running this tool.
+
+        The `schemathesis` extra installs the script into the same environment as
+        apiguard; run without activating that environment (its full path, a
+        service), the environment's bin directory is not on PATH and the test
+        would SKIP although the tool is installed.
+
+        Returns:
+            The script's path, or None when it is in neither place.
+        """
+        found = super()._resolve_binary_path()
+        if found is not None:
+            return found
+        beside = Path(sys.executable).parent / self.BINARY_NAME
+        if beside.is_file() and os.access(beside, os.X_OK):
+            return str(beside)
+        return None
+
     def run(
         self,
         target_url: str,
@@ -77,6 +118,9 @@ class SchemathesisConnector(BaseSubprocessConnector):
         ca_bundle: Path | None = None,
         max_examples: int = 5,
         request_timeout_seconds: int = _DEFAULT_REQUEST_TIMEOUT_SECONDS,
+        headers: dict[str, str] | None = None,
+        methods: tuple[str, ...] = (),
+        path_values: dict[str, str] | None = None,
     ) -> ConnectorResult:
         """
         Run Schemathesis against the specification and return the failing operations.
@@ -88,6 +132,12 @@ class SchemathesisConnector(BaseSubprocessConnector):
             ca_bundle:      target.tls.ca_bundle, for `--request-tls-verify`.
             max_examples:   Hypothesis examples per operation (kept low to bound the run).
             request_timeout_seconds: How long each generated request may take.
+            headers:        Headers added to every request (`-H`), e.g. a
+                            credential; shown redacted in the displayed command.
+            methods:        Only these methods are tested (`--include-method`);
+                            empty: every method the specification declares.
+            path_values:    Values fixed for path parameters (`--set-path`),
+                            so that a path addresses an object that exists.
 
         Returns:
             ConnectorResult with raw_output['results'] = one dict per failing
@@ -123,11 +173,21 @@ class SchemathesisConnector(BaseSubprocessConnector):
             "--exclude-deprecated",
             "--no-color",
         ]
+        for method in methods:
+            cmd += ["--include-method", method]
+        for name, value in (path_values or {}).items():
+            cmd += ["--set-path", f"{name}={value}"]
+        display = [*cmd]
+        for name, value in (headers or {}).items():
+            cmd += ["-H", f"{name}: {value}"]
+            display += ["-H", f"{name}: {_REDACTED_VALUE}"]
         fd, junit_path = tempfile.mkstemp(suffix=".xml", prefix="apiguard_schemathesis_")
         os.close(fd)
-        display = [*cmd]
         if ca_bundle is not None:
             display[display.index(tls_verify)] = self._relativize_display_path(tls_verify)
+        if not schema_source.startswith(_URL_PREFIXES):
+            # A local specification, shown relative to the project.
+            display[display.index(schema_source)] = self._relativize_display_path(schema_source)
         command, command_json = self._build_reproducible_commands(
             cmd_prefix=display, scan_target="", json_output_args=["--junit-xml", "schemathesis.xml"]
         )
@@ -150,7 +210,16 @@ class SchemathesisConnector(BaseSubprocessConnector):
                     tool_name=self.TOOL_NAME,
                     exit_code=exit_code,
                 )
-            results, errored, operations = _parse_junit(junit_path)
+            try:
+                results, errored, operations = _parse_junit(junit_path)
+            except ExternalToolError as exc:
+                tail = " ".join((stdout or "").split())[-_OUTPUT_TAIL_CHARS:]
+                raise ExternalToolError(
+                    message=f"{exc.message} End of schemathesis's output: {tail!r}",
+                    tool_name=self.TOOL_NAME,
+                    exit_code=exit_code,
+                ) from exc
+            only_4xx = sorted(set(_ONLY_4XX.findall(stdout or "")))
         except ExternalToolError:
             raise
         except Exception as exc:  # noqa: BLE001 -- re-wrapped with context
@@ -171,6 +240,8 @@ class SchemathesisConnector(BaseSubprocessConnector):
             # report), and how many operations the report lists in all.
             "errored": errored,
             "operations": operations,
+            # Operations whose every generated request got a 4xx: never reached.
+            "only_4xx": only_4xx,
         }
         log.info("schemathesis_run_complete", failures=len(results), execution_time_ms=execution_ms)
         return ConnectorResult(
@@ -195,7 +266,9 @@ def _parse_junit(path: str) -> tuple[list[dict[str, str]], list[str], int]:
     The failing and the unchecked operations in a Schemathesis JUnit file.
 
     Each <testcase name="METHOD /path"> with a <failure> child is one failing
-    operation; its failure message is kept (truncated). One with an <error> or a
+    operation; its failure message is kept whole: it holds each failing test
+    case with the command that reproduces it, the proof of the finding (until
+    2026-11-04 it was cut at 500 characters, which dropped it). One with an <error> or a
     <skipped> child was not checked at all, and is listed apart so that it never
     counts as a pass.
 
@@ -213,7 +286,7 @@ def _parse_junit(path: str) -> tuple[list[dict[str, str]], list[str], int]:
         tree = ET.parse(path)  # noqa: S314  # our tool's output, a temp file we control  # nosec B314
     except (OSError, ET.ParseError) as exc:
         raise ExternalToolError(
-            message=f"schemathesis JUnit output could not be read from '{path}': {exc}",
+            message=f"schemathesis JUnit output (schemathesis.xml) could not be read: {exc}.",
             tool_name="schemathesis",
             exit_code=0,
         ) from exc
@@ -226,7 +299,7 @@ def _parse_junit(path: str) -> tuple[list[dict[str, str]], list[str], int]:
         failure = testcase.find("failure")
         if failure is not None:
             message = (failure.get("message") or failure.text or "check failed").strip()
-            findings.append({"id": name, "finding": message[:500]})
+            findings.append({"id": name, "finding": message})
         elif testcase.find("error") is not None or testcase.find("skipped") is not None:
             unchecked.append(name)
     return findings, unchecked, operations

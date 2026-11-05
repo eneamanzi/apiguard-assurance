@@ -34,7 +34,8 @@ ffuf JSON output (-of json -o <file>), checked on ffuf v2.3.0 on the labs:
 raw_output contract (ConnectorRawOutput keys):
     command       the ffuf commands, one per job, joined by " ; ", local
                   paths relativized and the temporary files shown as
-                  ffuf_wordlist.txt and ffuf_result.json;
+                  ffuf_wordlist_<n>.txt (one per job: the words of each job
+                  differ, and they are not saved) and ffuf_result.json;
     command_json  the same;
     results       every result of every job, with "base_url" added;
     all_count     len(results);
@@ -86,7 +87,7 @@ _VERSION_FLAG: str = "-V"
 _VERSION_TIMEOUT_SECONDS: int = 10
 
 # Clean names of the temporary files in the displayed commands.
-_DISPLAY_WORDLIST: str = "ffuf_wordlist.txt"
+_DISPLAY_WORDLIST: str = "ffuf_wordlist_{n}.txt"
 _DISPLAY_RESULT: str = "ffuf_result.json"
 _COMMAND_SEPARATOR: str = " ; "
 
@@ -230,11 +231,25 @@ class FfufConnector(BaseSubprocessConnector):
                     "-o",
                     str(output),
                 ]
+                job_start = time.monotonic()
                 _stdout, exit_code = self._run_subprocess(
                     cmd=cmd,
                     timeout_seconds=remaining + _MAXTIME_GRACE_SECONDS,
                     tool_name=self.TOOL_NAME,
                 )
+                if time.monotonic() - job_start >= remaining:
+                    # ffuf stops itself at -maxtime with exit code 0 and a
+                    # partial output: a search cut short, not a finished one,
+                    # whose silence would read as nothing found.
+                    raise ExternalToolError(
+                        message=(
+                            f"ffuf reached the time limit of {timeout_seconds}s during base "
+                            f"path {index + 1} of {len(jobs)}: the search did not finish. "
+                            "Increase 'external_tools.ffuf.timeout_seconds' in config.yaml."
+                        ),
+                        tool_name=self.TOOL_NAME,
+                        timed_out=True,
+                    )
                 if exit_code != _FFUF_SUCCESS_EXIT_CODE:
                     raise ExternalToolError(
                         message=f"ffuf exited with code {exit_code} on {url}.",
@@ -245,8 +260,8 @@ class FfufConnector(BaseSubprocessConnector):
                     results.append({**item, "base_url": job.base_url})
                 commands.append(
                     " ".join(
-                        [display_binary, "-u", url, "-w", _DISPLAY_WORDLIST, *common]
-                        + ["-of", "json", "-o", _DISPLAY_RESULT]
+                        [display_binary, "-u", url, "-w", _display_wordlist(index), *common]
+                        + ["-maxtime", str(remaining), "-of", "json", "-o", _DISPLAY_RESULT]
                     )
                 )
         execution_time_ms = int(time.monotonic() * 1000) - start_ms
@@ -303,3 +318,8 @@ class FfufConnector(BaseSubprocessConnector):
                 exit_code=0,
             )
         return found
+
+
+def _display_wordlist(index: int) -> str:
+    """The displayed name of job `index`'s word list (1-based in the name)."""
+    return _DISPLAY_WORDLIST.format(n=index + 1)

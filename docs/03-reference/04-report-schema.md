@@ -30,6 +30,7 @@ The file has no format version of its own: `tool_version` is the version of the 
 | `spec_version` | string | `info.version` of the OpenAPI specification. |
 | `min_priority_label` | string | Label of `execution.min_priority`: one of `P0 — Critical`, `P1 — High`, `P2 — Medium`, `P3 — Low`. |
 | `strategies_label` | string | Enabled strategies, comma-separated (`BLACK_BOX, GREY_BOX, WHITE_BOX`). |
+| `test_ids` | array of string | `execution.test_ids` of the configuration. Not empty: the run selected only these tests, and `min_priority_label` and `strategies_label` did not select anything. |
 | `connections` | array of [`ConnectionTrust`](#connectiontrust) | How the certificate of each connection of the tool was checked. |
 | `executive_summary` | [`ExecutiveSummary`](#executivesummary) | Counts and verdict of the run. |
 | `domains` | array of [`DomainSummary`](#domainsummary) | The results by methodology domain, ordered by domain; domains without active tests are omitted. |
@@ -171,7 +172,7 @@ precondition, a not-run test was not selected or was stopped (`src/core/models/r
 | `FAIL` | Guarantee violated; at least one finding. | → `1` |
 | `INCONCLUSIVE` | Run to the end, no violation, nothing verified: every judged case was not verifiable (the sub-tests give the reasons). | → `3` if no FAIL |
 | `ERROR` | The verification did not complete (transport failure, rejected credentials, tool failure). Findings may be present. | → `3` if no FAIL |
-| `SKIP` | A precondition is missing (credentials, Admin API, tool disabled), or nothing the test applies to. `skip_reason` explains which. | none |
+| `SKIP` | A precondition is missing (credentials, Admin API, an enabled external tool not installed), or nothing the test applies to (a test whose tool is disabled is in `not_run` instead). `skip_reason` explains which. | none |
 
 `PASS`, `FAIL` and `INCONCLUSIVE` are computed from the sub-tests, never chosen by the test: a sub-test with a
 violation is `FAIL`; otherwise one with a verified case is `PASS`; otherwise one with a case not verifiable is
@@ -417,23 +418,63 @@ The reference responses the tests asked for (calibration and positive control): 
 
 ## Example (abridged, real run)
 
+Test 0.2 alone on the Forgejo + Kong lab, 2026-11-04 (one sub-test and one finding kept):
+
 ```json
 {
   "tool_version": "0.1.0",
-  "run_id": "apiguard-20261005-150711-021280",
+  "run_id": "apiguard-20261104-193414-772854",
   "executive_summary": {
-    "scheduled_tests": 18, "executed_tests": 16,
-    "pass_count": 9, "fail_count": 7, "skip_count": 2, "error_count": 0,
-    "total_finding_count": 98, "exit_code": 1, "pass_rate_pct": 56.2
+    "scheduled_tests": 1,
+    "executed_tests": 1,
+    "pass_count": 0,
+    "fail_count": 1,
+    "inconclusive_count": 0,
+    "skip_count": 0,
+    "error_count": 0,
+    "not_run_count": 30,
+    "total_finding_count": 1,
+    "exit_code": 1
   },
   "all_rows": [
     {
-      "test_id": "0.1", "status": "FAIL", "source": "native",
-      "findings": [{
-        "title": "Shadow API endpoint detected (undocumented active path)",
-        "references": ["CWE-1059", "OWASP-API9:2023", "NIST-SP-800-204-S3.1"],
-        "evidence_ref": "0.1_002"
-      }]
+      "test_id": "0.2",
+      "status": "FAIL",
+      "coverage": null,
+      "source": "native",
+      "sub_tests": [
+        {
+          "name": "unrouted_paths",
+          "status": "PASS",
+          "violations": 0,
+          "enforced": 1,
+          "not_verifiable": 0,
+          "not_applicable": 0,
+          "not_verifiable_reasons": {},
+          "essential": false
+        }
+      ],
+      "findings": [
+        {
+          "title": "Answered without a route: GET /api-zqxvcabb82a7b160",
+          "confidence": "FIRM",
+          "evidence_ref": "0.2_001",
+          "supporting_refs": [
+            "ref_001",
+            "ref_002",
+            "ref_003",
+            "ref_004"
+          ],
+          "references": [
+            {
+              "standard": "OWASP_API_TOP10",
+              "id": "API8:2023",
+              "section": null,
+              "text": "OWASP API8:2023"
+            }
+          ]
+        }
+      ]
     }
   ]
 }

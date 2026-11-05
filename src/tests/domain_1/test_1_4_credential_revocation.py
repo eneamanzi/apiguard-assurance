@@ -38,6 +38,7 @@ from src.core.evidence import EvidenceStore
 from src.core.exceptions import AuthenticationSetupError, SecurityClientError
 from src.core.models import (
     Confidence,
+    EvidenceRecord,
     Finding,
     Outcome,
     Reference,
@@ -121,8 +122,7 @@ class Test14CredentialRevocation(BaseTest):
                 return self._skip(
                     "The configured login cannot revoke a credential: `Need.REVOCABLE_LOGIN` is "
                     "not met (auth_type 'login' with a login resource that has a delete request "
-                    "can). crAPI issues a stateless JWT with no logout, so there is nothing to "
-                    "revoke."
+                    "can): with no way to revoke a credential there is nothing to test."
                 )
             placement = target.credential_placement
             if placement is None:
@@ -146,7 +146,9 @@ class Test14CredentialRevocation(BaseTest):
             if not outcome.revoked:
                 self._record(_SUB_REVOKED, Outcome.NOT_VERIFIABLE, "REVOCATION_NOT_CONFIRMED")
                 return self._finish()
-            self._reuse(client, store, anchor, dict(parts.headers), dict(parts.params))
+            self._reuse(
+                client, store, (anchor, outcome.record), dict(parts.headers), dict(parts.params)
+            )
             return self._finish()
         except AuthenticationSetupError as exc:
             return self._error(exc)
@@ -157,12 +159,16 @@ class Test14CredentialRevocation(BaseTest):
         self,
         client: SecurityClient,
         store: EvidenceStore,
-        anchor: Anchor,
+        proof: tuple[Anchor, EvidenceRecord],
         headers: dict[str, str],
         params: dict[str, str],
     ) -> None:
         """
         Send the revoked credential to the anchor and judge the answer.
+
+        proof is the anchor (accepted before revocation, refused without a
+        credential) and the record of the confirmed revocation: what a finding
+        cites with the reuse.
 
         Args:
             client:  The run's HTTP client.
@@ -171,6 +177,7 @@ class Test14CredentialRevocation(BaseTest):
             headers: The headers carrying the revoked credential.
             params:  The query parameters carrying it, if any.
         """
+        anchor, revocation = proof
         method = anchor.method
         path = anchor.path
         try:
@@ -190,6 +197,8 @@ class Test14CredentialRevocation(BaseTest):
             self._judge(record, store, _SUB_REVOKED, Outcome.NOT_VERIFIABLE, _SPOILING[category])
             return
         if category == ResponseCategory.SERVED:
+            for control in (anchor.record, anchor.refused, revocation):
+                store.pin_evidence(control)
             self._judge(
                 record,
                 store,
@@ -198,13 +207,20 @@ class Test14CredentialRevocation(BaseTest):
                 "ACCEPTED_AFTER_REVOCATION",
                 Finding(
                     title=f"Revoked credential still accepted: {method} {path}",
+                    supporting_refs=[
+                        anchor.record.record_id,
+                        anchor.refused.record_id,
+                        revocation.record_id,
+                    ],
                     detail=(
                         f"A credential was created, accepted at {method} {path}, then revoked "
                         "through the login's own mechanism (the target confirmed the revocation),"
-                        f" and still answered HTTP {record.response_status_code} when sent again. "
-                        "The act meant to end the credential does not end it, so a stolen or "
-                        "logged-out token keeps access for the rest of its lifetime. Invalidate "
-                        "the credential at the server on revocation."
+                        f" and still answered HTTP {record.response_status_code} when sent again "
+                        "right after. The act meant to end the credential did not end it, so a "
+                        "stolen or logged-out token stays usable after revocation; for how long "
+                        "was not measured (a cache in front of the check would end it later, a "
+                        "missing invalidation only at expiry). Invalidate the credential at the "
+                        "server on revocation."
                     ),
                     confidence=Confidence.CERTAIN,
                 ),

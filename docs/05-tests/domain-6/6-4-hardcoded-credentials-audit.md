@@ -51,7 +51,10 @@ None for the debug probe (unauthenticated). The config scan needs a gateway; wit
 
 ## 5. Probes
 
-An unauthenticated GET to each configured debug path (its body scanned for credential patterns); a read of
+An unauthenticated GET to each configured debug path, or, when none is configured, to each of the tool's six paths that
+expose configuration (`src/core/sensitive_paths.py`, kind CONFIGURATION: `actuator/env`, `actuator/configprops`,
+`server-info`, `.env`, `.git/config`, `.git/HEAD`) under the root and each service prefix (its body scanned for
+credential patterns); a read of
 `config_values`, each value scanned by pattern and by a credential-named key holding a non-placeholder value.
 READ_ONLY.
 
@@ -62,20 +65,22 @@ READ_ONLY.
 | Case | Outcome / detail | Confidence |
 |---|---|---|
 | a debug path answers 2xx and its body matches a credential pattern | `VIOLATION/DEBUG_SECRET` | FIRM |
-| it is refused (non-2xx) | `ENFORCED/DEBUG_BLOCKED` | - |
+| it is not found (`404`) | `ENFORCED/DEBUG_NOT_FOUND` | - |
+| it is refused (another non-2xx) | `ENFORCED/DEBUG_BLOCKED` | - |
 | 2xx with no credential | `ENFORCED/DEBUG_NO_SECRET` | - |
 | the debug path answers unavailable, rate limited or a server error | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`, `RATE_LIMITED`, `SERVER_ERROR` (not a block: it did not answer) | - |
-| no debug path configured | `NOT_APPLICABLE/NO_DEBUG_PATH` | - |
 
 **`gateway_config_no_secret`**
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
 | a config value matches a credential pattern | `VIOLATION/CONFIG_SECRET` | FIRM |
+| a value that refers to a secret kept elsewhere, written as the gateway writes it (Kong `{vault://...}`, APISIX `$secret://...`, `$ENV://...`; the adapter states its syntax) | not reported: it is what the remediation asks for (until 2026-11-05 it was a `CONFIG_SECRET` finding) | - |
 | a credential-named key holds a long non-placeholder value | `VIOLATION/CONFIG_SECRET` | TENTATIVE |
 | none found among the values read | `ENFORCED/CONFIG_NO_SECRET` | - |
 | the read succeeded and returned **no value at all** | `NOT_VERIFIABLE/NO_CONFIG_VALUE` | - |
-| no gateway, or config not readable | `NOT_APPLICABLE` / `NOT_VERIFIABLE` | - |
+| no gateway configured | `NOT_APPLICABLE/NO_GATEWAY` | - |
+| the configuration cannot be read | `NOT_VERIFIABLE/CONFIG_NOT_READABLE` | - |
 
 ## 7. Outcomes
 
@@ -104,7 +109,7 @@ Section [`tests.domain_6.test_6_4`](../../03-reference/01-configuration.md#tests
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `debug_endpoint_paths` | list | empty | Paths of debug or actuator endpoints to probe unauthenticated for exposed credentials (e.g. /actuator/env, /debug/vars). Empty: the debug sub-test is not applicable. |
+| `debug_endpoint_paths` | list | empty | Paths of debug or actuator endpoints to probe unauthenticated for exposed credentials (e.g. /actuator/env, /debug/vars). Empty: the tool's paths that expose configuration (actuator/env, actuator/configprops, server-info, .env, .git/config, .git/HEAD), under the root and each service prefix. |
 
 <!-- [[[end]]] -->
 
@@ -114,8 +119,8 @@ Runs of 2026-10-29 (the coverage column was added when a skipped sub-test began 
 
 | Lab | Status | Basis |
 |---|---|---|
-| Forgejo + Kong, Forgejo + APISIX | **PASS**, `complete` | `debug_endpoint_no_secret`: 11 configured paths probed unauthenticated, 11 `ENFORCED`. `/api/v1/settings/api` answers 200 with Forgejo's public API settings and matches no credential pattern (`ENFORCED/DEBUG_NO_SECRET`); the other ten are not served (`ENFORCED/DEBUG_BLOCKED`), three refused by Forgejo (404 `Not found.`) and seven by the gateway itself, which is its deny-by-default (Kong: `no Route matched with those values`; APISIX: `{"error_msg":"404 Route Not Found"}`). `gateway_config_no_secret` matched no credential pattern |
-| crAPI + Kong | **PASS**, `partial` | no `debug_endpoint_paths` configured for this lab, so `debug_endpoint_no_secret` judged its case `NOT_APPLICABLE` and verified nothing: the coverage is partial, because the check was never made rather than made and passed. The config scan matched no credential pattern (`gateway_config_no_secret` enforced) |
+| Forgejo + Kong, Forgejo + APISIX | **PASS**, `complete` | `debug_endpoint_no_secret`: 11 configured paths probed unauthenticated, 11 `ENFORCED`. `/api/v1/settings/api` answers 200 with Forgejo's public API settings and matches no credential pattern (`ENFORCED/DEBUG_NO_SECRET`); the other ten answer 404 (`ENFORCED/DEBUG_NOT_FOUND` since 2026-11-05, `DEBUG_BLOCKED` before), three from Forgejo (`Not found.`) and seven from the gateway itself, which is its deny-by-default (Kong: `no Route matched with those values`; APISIX: `{"error_msg":"404 Route Not Found"}`). `gateway_config_no_secret` matched no credential pattern |
+| crAPI + Kong | **PASS**, `complete` (2026-11-05) | no `debug_endpoint_paths` configured for this lab, so the six default paths were asked under the root and the three service prefixes: 24 requests, 18 `ENFORCED/DEBUG_NOT_FOUND` and 6 `ENFORCED/DEBUG_BLOCKED` (the identity service refusing them unauthenticated), no credential exposed. Until that day the sub-test was `NOT_APPLICABLE` here and the PASS partial, the check never made. The config scan matched no credential pattern (`gateway_config_no_secret` enforced) |
 | Forgejo + Kong, a synthetic token planted in a plugin header list and then removed | **FAIL**, 1 finding | `config.add.headers[3]` of the `response-transformer` plugin held a GitHub-PAT-shaped value: `VIOLATION/CONFIG_SECRET`, FIRM, the finding naming the exact key |
 
 Rule 9: both sides of `gateway_config_no_secret` are proven on a real gateway. Of
@@ -156,8 +161,8 @@ v5.0.0-13.3.1, CWE-798); make debug endpoints return 401/403 or remove them in p
   consumer's `key-auth`, `hmac-auth` or `basic-auth` secret lives, so on a production Kong those secrets are outside
   this test. The labs have no consumers, so the difference shows on none of them; adding the Kong reader would be a
   new capability and was not done (2026-11-03).
-- The debug sub-test probes only the configured paths; an undocumented debug endpoint is not found here (that is
-  test 0.1 / ffuf).
+- The debug sub-test probes the configured paths, or the six default ones; another debug endpoint is not found here
+  (that is `ext.0.1.ffuf`, which searches the tool's 38 sensitive paths, without reading a credential in them).
 - The config scan sees only what the adapter's `config_values` exposes; a secret in a file the Admin API does not
   surface (Kong DB-less) is not reached.
 - The semantic-key rule is a heuristic (TENTATIVE): a long non-secret value in a credential-named key is a false

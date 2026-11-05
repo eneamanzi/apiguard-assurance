@@ -178,6 +178,12 @@ def _route_path(uri: str) -> RoutePath:
     return RoutePath(value=uri, match=RouteMatch.EXACT)
 
 
+# nginx's default proxy timeout, which applies where APISIX sets none
+# (_backend_timeout), and the concept fields it fills, in APISIX's order.
+_NGINX_DEFAULT_TIMEOUT_SECONDS: float = 60.0
+_TIMEOUT_FIELDS: tuple[str, str, str] = ("connect_seconds", "send_seconds", "read_seconds")
+
+
 class ApisixGatewayAdapter(BaseGatewayAdapter):
     """
     Gateway adapter for Apache APISIX (Admin API and Control API).
@@ -192,6 +198,14 @@ class ApisixGatewayAdapter(BaseGatewayAdapter):
         """Return the adapter identifier used in logs and error messages."""
         return "apisix"
 
+    @property
+    def secret_reference_prefixes(self) -> tuple[str, ...]:
+        """APISIX's secret and environment references, by their start."""
+        # "$secret://vault/1/jack/auth-key" and "$ENV://JACK_AUTH_KEY", also
+        # written "$env://" (apisix.apache.org/docs/apisix/terminology/secret,
+        # read 2026-11-05).
+        return ("$secret://", "$env://")
+
     # ------------------------------------------------------------------
     # Neutral concepts (docs/04-architecture/05-design-decisions.md, D7)
     # ------------------------------------------------------------------
@@ -200,28 +214,22 @@ class ApisixGatewayAdapter(BaseGatewayAdapter):
         """Timeouts of each upstream (backend scope) and of routes that set their own."""
         items: list[BackendTimeout] = []
         for backend in self._backends():
-            connect, send, read = _timeout_values(backend.upstream.get("timeout"))
             items.append(
-                BackendTimeout(
-                    scope=ConceptScope.BACKEND,
-                    name=backend.name,
-                    connect_seconds=connect,
-                    send_seconds=send,
-                    read_seconds=read,
-                    source=backend.source,
+                _backend_timeout(
+                    ConceptScope.BACKEND,
+                    backend.name,
+                    backend.upstream.get("timeout"),
+                    backend.source,
                 )
             )
         for route in self._collection(_PATH_ROUTES):
             if isinstance(route.get("timeout"), dict):
-                connect, send, read = _timeout_values(route["timeout"])
                 items.append(
-                    BackendTimeout(
-                        scope=ConceptScope.ROUTE,
-                        name=_object_name(route),
-                        connect_seconds=connect,
-                        send_seconds=send,
-                        read_seconds=read,
-                        source=f"route {route.get('id')}",
+                    _backend_timeout(
+                        ConceptScope.ROUTE,
+                        _object_name(route),
+                        route["timeout"],
+                        f"route {route.get('id')}",
                     )
                 )
         return ConceptRead[BackendTimeout].read(tuple(items))
@@ -668,6 +676,33 @@ def _int_tuple(value: object) -> tuple[int, ...]:
     if not isinstance(value, list):
         return ()
     return tuple(item for item in value if isinstance(item, int) and not isinstance(item, bool))
+
+
+def _backend_timeout(scope: ConceptScope, name: str, value: object, source: str) -> BackendTimeout:
+    """
+    One APISIX timeout object as the concept, with nginx's default for an unset field.
+
+    APISIX sets the upstream timeouts only when the route or the upstream has a
+    `timeout` (apisix/balancer.lua, read in the lab's 3.x container 2026-11-05);
+    otherwise nginx's own proxy timeouts apply, which APISIX's nginx.conf leaves
+    at their default of 60 s (nginx.org, ngx_http_proxy_module:
+    proxy_connect_timeout, proxy_send_timeout, proxy_read_timeout). The Admin API
+    omits the field, so the default is stated here and named in `defaulted`
+    (the test read the omission as "no bound").
+    """
+    values = dict(zip(_TIMEOUT_FIELDS, _timeout_values(value), strict=True))
+    defaulted = tuple(field for field, seconds in values.items() if seconds is None)
+    for field in defaulted:
+        values[field] = _NGINX_DEFAULT_TIMEOUT_SECONDS
+    return BackendTimeout(
+        scope=scope,
+        name=name,
+        connect_seconds=values["connect_seconds"],
+        send_seconds=values["send_seconds"],
+        read_seconds=values["read_seconds"],
+        defaulted=defaulted,
+        source=source,
+    )
 
 
 def _timeout_values(value: object) -> tuple[float | None, float | None, float | None]:

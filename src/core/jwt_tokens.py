@@ -89,7 +89,14 @@ def decode(token: str) -> JwtView | None:
     )
 
 
-def with_alg_none(view: JwtView) -> str:
+# The spellings of `none` tried, the standard one first. RFC 7518 section 3.6
+# names the algorithm "none", and a check that compares that exact string lets
+# the others through to a library that matches it without regard to case (the
+# spellings JWT test tools try).
+ALG_NONE_SPELLINGS: tuple[str, ...] = ("none", "None", "NONE", "nOnE")
+
+
+def with_alg_none(view: JwtView, spelling: str = ALG_NONE_SPELLINGS[0]) -> str:
     """
     The token with its algorithm set to `none` and an empty signature.
 
@@ -98,25 +105,27 @@ def with_alg_none(view: JwtView) -> str:
     guarantee refuses it.
 
     Args:
-        view: The decoded genuine token.
+        view:     The decoded genuine token.
+        spelling: How `none` is written (ALG_NONE_SPELLINGS).
 
     Returns:
         The variant, ready to send.
     """
     header = dict(view.header)
-    header["alg"] = "none"
+    header["alg"] = spelling
     return f"{_encode_segment(header)}.{view.payload_segment}."
 
 
 def with_tampered_payload(view: JwtView) -> str:
     """
-    The token with one claim changed and the original signature kept.
+    The token with a claim added and the original signature kept.
 
     The signature no longer matches the payload, so a target that verifies it
-    refuses the token; one that reads the claims without verifying accepts the
-    changed identity. The claim changed is the subject (`sub`) or, failing
-    that, the first claim, appended with a marker so the value is certainly
-    different without needing to know its type.
+    refuses the token; one that reads the claims without verifying accepts it.
+    The identity is left as it is: an added claim the target ignores, instead
+    of a changed subject, which a target that does not verify would refuse
+    anyway for an unknown user, and that refusal would pass for a verified
+    signature.
 
     Args:
         view: The decoded genuine token.
@@ -125,8 +134,7 @@ def with_tampered_payload(view: JwtView) -> str:
         The variant, ready to send.
     """
     claims = dict(view.claims)
-    key = "sub" if "sub" in claims else next(iter(claims), "sub")
-    claims[key] = f"{claims.get(key, '')}{_TAMPER_MARKER}"
+    claims[_TAMPER_CLAIM] = _TAMPER_MARKER
     return f"{view.header_segment}.{_encode_segment(claims)}.{view.signature_segment}"
 
 
@@ -149,6 +157,8 @@ def stripped_signature(view: JwtView) -> str:
 
 # Appended to a claim to make its value certainly different from the original.
 _TAMPER_MARKER: str = "-zqxv"
+# The claim added by with_tampered_payload: one no token is expected to carry.
+_TAMPER_CLAIM: str = "apiguard_tampered"
 
 
 def _decode_segment(segment: str) -> object:

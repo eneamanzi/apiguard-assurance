@@ -1627,11 +1627,19 @@
         </div>
         <div class="meta-item">
           <div class="label">Execution Scope</div>
+          {% if test_ids %}
+          <div class="value">test_ids: {{ test_ids | join(", ") }}</div>
+          {% else %}
           <div class="value">{{ min_priority_label }}</div>
+          {% endif %}
         </div>
         <div class="meta-item">
           <div class="label">Strategies</div>
+          {% if test_ids %}
+          <div class="value">not applied (test_ids)</div>
+          {% else %}
           <div class="value">{{ strategies_label }}</div>
+          {% endif %}
         </div>
         {% set check_labels = {
           "verified_system": "verified (system authorities)",

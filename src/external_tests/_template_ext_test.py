@@ -4,10 +4,10 @@ src/external_tests/_template_ext_test.py
 TEMPLATE -- Copy this file and rename it to implement a new ExternalToolTest.
 
 Naming convention (non-optional -- enables automatic discovery by ExternalTestRegistry):
-    src/external_tests/ext_test_<tool>_<description>.py
+    src/external_tests/ext_test_<D>_<N>_<description>.py
 
 Steps to add a new ExternalToolTest:
-    1. Copy this file to src/external_tests/ext_test_<tool>_<description>.py.
+    1. Copy this file to src/external_tests/ext_test_<D>_<N>_<description>.py.
     2. Replace TemplateExtTest with your test class name.
     3. Fill in the declaration ``info = TestInfo(...)`` (src/core/test_metadata.py):
        an ID "ext.X.Y.tool", ``tool`` set to the tool's key in external_tools,
@@ -48,7 +48,7 @@ import structlog
 from src.connectors.base import BaseConnector, ConnectorResult
 
 # from src.connectors.<toolname> import <ToolnameConnector>
-from src.core.context import TargetContext
+from src.core.context import TargetContext, TestContext
 from src.core.models import (
     Confidence,
     Finding,
@@ -156,6 +156,7 @@ class TemplateExtTest(ExternalToolTest):
         connector: BaseConnector,
         target: TargetContext,
         target_url: str,
+        context: TestContext,
     ) -> ConnectorResult:
         """
         Call connector.run() with tool-specific parameters.
@@ -170,6 +171,7 @@ class TemplateExtTest(ExternalToolTest):
         Returns:
             ConnectorResult: Parsed tool output.
         """
+        del context  # this tool sends no credential
         # Read timeout from external_tools, not from the test's parameters.
         # Replace "testssl" with the actual tool name (nuclei, ffuf, ...).
         # timeout_seconds is guaranteed non-None here because Phase 1 validation

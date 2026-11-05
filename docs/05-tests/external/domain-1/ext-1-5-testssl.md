@@ -60,8 +60,13 @@ findings are the evidence. A note states when certificate trust rests on the con
 
 ## 5. Probes
 
-One testssl.sh scan of `host:port`, run as a subprocess through the connector. The reproducible command is shown in
-the report for manual verification; its findings are read from the JSON output.
+One testssl.sh scan of `host:port`, run as a subprocess through the connector, with `--warnings batch` and no
+terminal input, so that it never waits for a keypress (on a plain-HTTP target it asked "Really proceed?" and waited
+until the timeout). The reproducible command is shown in the report for manual verification;
+its findings are read from the JSON output. Its exit code is the number of errors or ambiguous results it met
+(testssl.sh's manual, "EXIT STATUS"): the scan completed and its findings are judged, the count goes in a note;
+only 242 and above (its own failures: connectivity, DNS, OpenSSL) are an error. Until 2026-11-05 any code above 1
+was an error, and the findings of a scan with two ambiguous results were lost.
 
 ## 6. Oracle
 
@@ -69,6 +74,8 @@ the report for manual verification; its findings are read from the JSON output.
 |---|---|---|
 | HIGH / CRITICAL (weak protocol, weak cipher, known CVE, untrusted chain) | `VIOLATION/TLS_WEAKNESS` (one finding per item) | FIRM: the tool observed it on the target; we did not re-derive it |
 | HIGH / CRITICAL whose id is about revocation (no OCSP/CRL) | `NOT_VERIFIABLE/CERT_REVOCATION_NOT_CHECKABLE`, with a note | - |
+| an entry about testssl.sh's own scan, not the target (`engine_problem`: its bundled OpenSSL lacks an engine, seen on every lab; `scanProblem`; any FATAL entry) | a note naming it, without its local path (until 2026-11-05 it was a "TLS note" about the target, carrying the tool's path) | - |
+| a FATAL entry and no HIGH/CRITICAL weakness: the scan did not finish | `NOT_VERIFIABLE/SCAN_INCOMPLETE` | - |
 | WARN / MEDIUM | a note, not a verdict | - |
 | OK / INFO / LOW | ignored (not shown) | - |
 | no HIGH/CRITICAL weakness | `ENFORCED/NO_TLS_WEAKNESS` | - |
@@ -136,6 +143,8 @@ clients trust (NIST SP 800-52 Rev.2, ASVS v5.0.0-12.1.1).
 - The oracle rests on testssl.sh's severity class; a version whose output schema changed is warned about
   (`expected_version`).
 - The HTTP redirect and HSTS are not judged here: see test `1.5`.
+- testssl.sh's summary of the HTTP security headers (`security_headers`) is not shown: those headers are test
+  `6.2`'s question (rule 10). Until 2026-11-05 it appeared as a MEDIUM "TLS note" with the text `--`.
 
 ## 15. Sources
 

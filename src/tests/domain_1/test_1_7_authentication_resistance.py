@@ -49,11 +49,11 @@ What is probed, and what is deliberately not.
       account" (100), so that "no limit appeared" rests on a published number.
       That rule is per account, which this test does not probe: what an
       unlimited series shows is the absence of a per-caller limit, the control
-      against credential stuffing and brute force of ASVS v5.0.0-6.3.1 (audit
-      D1-2: the finding cited NIST for it);
-    - exactly one failed attempt is sent with the operator's real account, for
-      the comparison. Three timings of each are taken, the median kept, since
-      one reading of a duration is noise.
+      against credential stuffing and brute force of ASVS v5.0.0-6.3.1
+      (until 2026-11-04 the finding cited NIST for it);
+    - three failed attempts are sent with the operator's real account, for
+      the comparison (until 2026-11-05 this docstring said one): three timings of each case
+      are taken and the median kept, since one reading of a duration is noise.
 
 Dependency rule: imports from stdlib, structlog and src.core, plus
 src.tests.base.
@@ -134,7 +134,7 @@ _SLOW_CONFIRMATIONS: int = 2
 # that changes and stays changed: this many consecutive answers identical to
 # each other and different from the first one, by status or by masked body. A
 # body that differs on every request (a request id) never repeats, so it is
-# never taken for a block (audit D1-3).
+# never taken for a block.
 _BLOCK_CONFIRMATIONS: int = 3
 
 # The header that carries HTTP Basic, and its scheme.
@@ -268,10 +268,13 @@ class Test17AuthenticationResistance(BaseTest):
         for _ in range(_TIMING_READINGS):
             known_records.append(self._attempt(client, login, username, random_token()))
             unknown_records.append(self._attempt(client, login, unknown, random_token()))
-        for record in known_records[:-1] + unknown_records[:-1]:
+        # Every reading is logged; a judged one replaces its step.
+        for record in known_records + unknown_records:
             self._step(record)
         known, other = known_records[-1], unknown_records[-1]
-        for record in (known, other):
+        # Every reading, not only the last: a 429 on an earlier one would
+        # otherwise read as an unstable answer.
+        for record in (*known_records, *unknown_records):
             category = category_of(record)
             if category in _SPOILING:
                 self._judge(
@@ -311,7 +314,7 @@ class Test17AuthenticationResistance(BaseTest):
                         "A failed attempt for the account that exists was answered "
                         f"HTTP {known.response_status_code} and one for an account that cannot "
                         f"exist HTTP {other.response_status_code}, with a body that differs even "
-                        "once the submitted name and password are masked, the same way on each "
+                        "once the submitted name is masked, the same way on each "
                         f"of {_TIMING_READINGS} readings. Anyone can therefore sort a list of "
                         "addresses into registered and not, and spend their guessing only on the "
                         "registered ones. Answer the same way in both cases."
@@ -327,6 +330,8 @@ class Test17AuthenticationResistance(BaseTest):
         known_ms = statistics.median(_durations(known_records))
         other_ms = statistics.median(_durations(unknown_records))
         if max(known_ms, other_ms) < _TIMING_FLOOR_MS:
+            # The bodies agree (the first oracle held); the durations are too small
+            # to compare, so this verdict rests on the bodies alone.
             self._judge(known, store, _SUB_ENUMERATION, Outcome.ENFORCED, "TIMING_TOO_SMALL")
             return None
         if known_ms >= other_ms * _TIMING_FACTOR:
@@ -383,6 +388,7 @@ class Test17AuthenticationResistance(BaseTest):
         """
         unknown = _impossible_account(username)
         first: EvidenceRecord | None = None
+        last: EvidenceRecord | None = None
         durations: list[float] = []
         baseline: float | None = None
         slow_in_a_row = 0
@@ -392,6 +398,7 @@ class Test17AuthenticationResistance(BaseTest):
             record = self._attempt(client, login, unknown, password)
             if first is None:
                 first = record
+            last = record
             category = category_of(record)
             if category == ResponseCategory.RATE_LIMITED:
                 self._judge(
@@ -408,8 +415,8 @@ class Test17AuthenticationResistance(BaseTest):
                     record, store, _SUB_ATTEMPTS, Outcome.NOT_VERIFIABLE, _SPOILING[category]
                 )
                 return
-            if first is not record:
-                self._step(record)
+            # Every attempt is logged; a judged one replaces its step.
+            self._step(record)
             if blocks.blocked(_answer(record, unknown, password)):
                 self._judge(record, store, _SUB_ATTEMPTS, Outcome.ENFORCED, "ATTEMPTS_BLOCKED")
                 log.info("test_1_7_blocked", attempt=attempt, status=record.response_status_code)
@@ -430,11 +437,14 @@ class Test17AuthenticationResistance(BaseTest):
                     return
             else:
                 slow_in_a_row = 0
-        if first is None:
+        if first is None or last is None:
             self._record(_SUB_ATTEMPTS, Outcome.NOT_VERIFIABLE, "LOGIN_NOT_ANSWERING")
             return
+        # The proof is the last attempt, still answered as the first was; the first
+        # is cited as the answer it is compared with.
+        store.pin_evidence(first)
         self._judge(
-            first,
+            last,
             store,
             _SUB_ATTEMPTS,
             Outcome.VIOLATION,
@@ -452,6 +462,7 @@ class Test17AuthenticationResistance(BaseTest):
                     "single account; whether one account is locked out, which is what NIST "
                     "requires, was not probed, because doing so would lock a real account."
                 ),
+                supporting_refs=[first.record_id],
                 confidence=Confidence.FIRM,
             ),
         )

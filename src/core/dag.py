@@ -20,7 +20,7 @@ Two kinds of prerequisite (docs/04-architecture/03-assessment-model.md,
 "Dependencies between tests"), both of which also order the run:
     depends_on     data: the test uses something only the prerequisite
                    produces (TestContext shared data). It runs if the
-                   prerequisite completed (PASS or FAIL).
+                   prerequisite completed (PASS, FAIL or INCONCLUSIVE).
     requires_pass  logic: the test is meaningful only if the prerequisite
                    holds. It runs if the prerequisite returned PASS.
 Otherwise the engine records the test as SKIP with the reason returned by

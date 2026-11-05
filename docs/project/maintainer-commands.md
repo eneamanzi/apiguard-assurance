@@ -185,12 +185,13 @@ hatch build --target wheel   # wheel only (faster: use for install testing)
 | `dist/apiguard_assurance-X.Y.Z-py3-none-any.whl` | Installable wheel: use for cold-install tests or PyPI upload |
 | `dist/apiguard_assurance-X.Y.Z.tar.gz` | Source distribution: contains only the public surface (see below) |
 
-**What the sdist includes** (whitelist in `pyproject.toml`, checked with `hatch build -t sdist` on 2026-10-06):
-`src/`, `docs/` except `docs/06-knowledge/` and `docs/project/`, `README.md`, `pyproject.toml`, `.env.example`,
-`.gitignore`, `install_tools.sh`. No configuration file: the lab configurations are in `test-environments/`.
+**What the sdist includes** (whitelist in `pyproject.toml`, checked with `hatch build -t sdist` on 2026-11-05):
+`src/`, `docs/` except `docs/06-knowledge/` and `docs/project/`, `README.md`, `CHANGELOG.md`, `pyproject.toml`,
+`config.example.yaml`, `.env.example`, `install_tools.sh`, and `.gitignore` (added by hatch itself). No lab
+configuration: those are in `test-environments/`.
 
-**What the sdist excludes**: `docs/06-knowledge/`, `docs/project/`, `CLAUDE.md`, `CONTRIBUTING.md`, `CHANGELOG.md`,
-`test-environments/`, `outputs/`, `tools/`, `.claude/`, `.env`.
+**What the sdist excludes**: `docs/06-knowledge/`, `docs/project/`, `CONTRIBUTING.md`, `test-environments/`,
+`outputs/`, `tools/`, `.env`, and the editor's local settings.
 
 **Cold-install test** (verifies the wheel works in a clean environment):
 ```bash
@@ -224,7 +225,7 @@ What `dev:check` runs, in order (`[tool.hatch.envs.dev.scripts]` in `pyproject.t
 | `mypy src/ scripts/` | static types of every signature and call | a type mismatch |
 | `bandit -r src/ -c pyproject.toml --severity-level medium` | security patterns in `src/` (subprocess, YAML loading, hardcoded secrets) | a finding not justified with `# nosec` |
 | `vulture src/ --min-confidence 80` | dead code: functions, variables, imports never used | code to remove |
-| `lint-imports` | the dependency direction of `CLAUDE.md` (`core` <- `connectors` <- `tests` <- `engine`; `[tool.importlinter]`) | a forbidden import |
+| `lint-imports` | the dependency direction of the architecture overview (`core` <- `connectors` <- `tests` <- `engine`; `[tool.importlinter]`) | a forbidden import |
 | `python scripts/check_config_keys.py` | `config.example.yaml` lists every configuration key, and loads as written (loader and tests section, no network) | a key missing or unknown, or the example invalid (exit 3) |
 | `python scripts/generate_docs.py --check` | the generated documentation is up to date with the tests' declarations (catalogue, page headers, parameter tables, the tests section of `config.example.yaml`; the files are listed in `GENERATED_FILES`, run through Cog) | the file and the difference are shown: run `hatch run dev:gen` |
 
@@ -334,7 +335,8 @@ must print `"health":"HEALTHY"`.
 **The crAPI lab, however, wears out: reset it about every ten runs.** Tests 2.2 and 2.5 create a shop order (the
 `order` resource), and each order spends 10 of user A's 100 starting credit, which crAPI never gives back. Once it
 runs out, the creation answers `400 Insufficient Balance`, both tests report `OBJECT_NOT_CREATED` and come back
-INCONCLUSIVE: a full assessment then shows 9 FAIL where a reset lab shows 15, and the authorization finding
+INCONCLUSIVE: a full assessment on a worn lab showed 9 FAIL where a reset lab showed 15 (2026-10; a reset lab shows
+16 on 2026-11-05), and the authorization finding
 crAPI exists to expose (a BOLA on an order) disappears. Nothing is wrong with the
 tool when this happens, it says INCONCLUSIVE rather than PASS, but a result measured on a worn lab is not the
 lab's reference result. The balance is visible in `GET /identity/api/v2/user/dashboard`; the full reset below

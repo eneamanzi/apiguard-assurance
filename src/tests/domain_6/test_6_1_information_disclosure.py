@@ -10,13 +10,17 @@ attack surface. The test provokes errors on documented endpoints and reads a
 normal response, with the shared response-inspection helpers
 (src/tests/helpers/response_inspector.py):
 
-    no_stack_trace   a provoked error (a type-mismatch path parameter, a
-                     malformed JSON body) carries no stack trace, SQL error,
-                     file-system path, class name or framework version;
+    no_stack_trace   a provoked error (a malformed JSON body to a write
+                     endpoint) carries no stack trace (the markers of
+                     src/tests/data/inspector_patterns.py: Java, Python,
+                     Node, Ruby, PHP), file-system path or framework version;
     no_debug_field   a normal response carries no `_debug`/`_sql`/`_internal`
                      field;
-    no_leaky_header  no `X-Powered-By`, no versioned `Server`, no internal
-                     `X-*` header.
+    no_leaky_header  no `X-Powered-By`, no `X-AspNet-Version`, no `Server`
+                     carrying a version. A gateway's own headers (`Via`,
+                     `X-Kong-*`) are not judged (the text
+                     promised internal `X-*` headers and a type-mismatch probe
+                     the code never had).
 
 Authentication-error enumeration is test 1.7; a debug endpoint that exposes
 secrets is test 6.4; this test is about what an ordinary response leaks
@@ -67,6 +71,10 @@ from src.tests.helpers.sampling import sample_by_service
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
+# Answers that are the gateway's, not the API's: they are not looked at.
+_NOT_THE_APIS_ANSWER: frozenset[ResponseCategory] = frozenset(
+    {ResponseCategory.UPSTREAM_UNAVAILABLE, ResponseCategory.RATE_LIMITED}
+)
 _SUB_TRACE: str = "no_stack_trace"
 _SUB_DEBUG: str = "no_debug_field"
 _SUB_HEADER: str = "no_leaky_header"
@@ -177,6 +185,11 @@ class Test61InformationDisclosure(BaseTest):
             response, record = _send(client, method, path, headers, params)
             if response is None or record is None:
                 continue
+            if category_of(record) in _NOT_THE_APIS_ANSWER:
+                # The gateway's answer for an unavailable or throttled backend
+                # says nothing about what the API exposes.
+                self._step(record)
+                continue
             # Keyed by method and path: the sampler may take GET and HEAD of one
             # path, and a HEAD answer (no body) must not stand as a GET's proof.
             operation = f"{method} {path}"
@@ -204,7 +217,7 @@ class Test61InformationDisclosure(BaseTest):
             records,
             "LEAKY_HEADER",
             "Response carries a leaky header",
-            "a leaky header (a versioned `Server`, `X-Powered-By`, an internal `X-*`)",
+            "a leaky header (a `Server` carrying a version, `X-Powered-By`, `X-AspNet-Version`)",
         )
 
     def _judge_sampled(
@@ -218,6 +231,11 @@ class Test61InformationDisclosure(BaseTest):
         what: str,
     ) -> None:
         """ENFORCED when no sampled endpoint leaked; VIOLATION naming where it did."""
+        if not records:
+            # Nothing answered usably: no leak was seen because nothing was
+            # looked at (until 2026-11-05 this was CLEAN).
+            self._record(sub_test, Outcome.NOT_VERIFIABLE, "NO_USABLE_RESPONSE")
+            return
         if not hits:
             self._record(sub_test, Outcome.ENFORCED, "CLEAN")
             return

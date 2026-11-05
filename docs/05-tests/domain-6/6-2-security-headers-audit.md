@@ -15,7 +15,7 @@
 | Priority / strategy | P3 / BLACK_BOX |
 | Effect | READ_ONLY |
 | CWE | CWE-1021 |
-| Standards | `OWASP API8:2023`, `OWASP ASVS v5.0.0-3.4.3`, `OWASP ASVS v5.0.0-3.4.4`, `OWASP ASVS v5.0.0-3.4.6` |
+| Standards | `OWASP API8:2023`, `OWASP ASVS v5.0.0-3.4.2`, `OWASP ASVS v5.0.0-3.4.4`, `OWASP ASVS v5.0.0-3.4.6` |
 | Tags | `security-headers`, `cors` |
 | Prerequisites | none |
 | Needs | - |
@@ -28,9 +28,10 @@
 ## 1. Guarantee
 
 The defensive security headers are present, sound, and consistent across the services of the API. A PASS promises
-`X-Content-Type-Options: nosniff`, a framing protection (CSP `frame-ancestors` or X-Frame-Options), and a CORS policy
-that does not allow an arbitrary origin with credentials, on every sampled endpoint. OWASP API8:2023; ASVS
-v5.0.0-3.4.3 (CSP), 3.4.4 (nosniff), 3.4.6 (frame-ancestors). HSTS moved to 1.5; Permissions-Policy dropped (not in
+`X-Content-Type-Options: nosniff`, a framing protection (a CSP `frame-ancestors` that does not allow any site, or X-Frame-Options when there is
+none), and a CORS policy that does not allow an arbitrary origin with credentials, on every sampled endpoint. OWASP
+API8:2023; ASVS v5.0.0-3.4.2 (CORS), 3.4.4 (nosniff), 3.4.6 (frame-ancestors). 3.4.3 (a script CSP) was cited until
+2026-11-05 and is not checked here. HSTS moved to 1.5; Permissions-Policy dropped (not in
 ASVS 3.4). Primary CWE: CWE-1021 (improper restriction of rendered UI layers or frames), the weakness the framing
 sub-test looks for, allowed for mapping in CWE 4.20; CWE-16 is not used because it is a category prohibited for
 mapping.
@@ -66,7 +67,8 @@ READ_ONLY.
 | the header is present/sound on every sampled endpoint | `ENFORCED/PRESENT` | - |
 | absent on all sampled endpoints | `VIOLATION/MISSING` | CERTAIN |
 | present on some, absent on others | `VIOLATION/INCONSISTENT` | CERTAIN |
-| (CORS) an arbitrary origin or `*` is allowed with credentials | `VIOLATION/CORS_WILDCARD_CREDENTIALS` | CERTAIN |
+| (CORS) the arbitrary origin is reflected with credentials | `VIOLATION/CORS_ORIGIN_REFLECTED` | CERTAIN: any site reads authenticated responses |
+| (CORS) `*` with credentials | `VIOLATION/CORS_WILDCARD_CREDENTIALS` | FIRM: browsers refuse this combination (Fetch standard), so it exposes nothing as it stands; it is a policy meant to share credentialed responses with any origin (ASVS v5.0.0-3.4.2 allows `*` only without sensitive information) |
 | (CORS) sampled endpoints send CORS headers and none allows an arbitrary origin with credentials | `ENFORCED/CORS_BOUNDED` | - |
 | (CORS) no usable answer grants any cross-origin access to the arbitrary `Origin` | `ENFORCED/ORIGIN_NOT_ALLOWED`: a browser refuses that origin the response | - |
 | (CORS) no usable answer at all to the cross-origin probe (no response, `429`, `5xx`) | `NOT_VERIFIABLE/NO_RESPONSE` | - |
@@ -121,10 +123,14 @@ frame-ancestors 'self'` (and `object-src 'none'`, `base-uri 'none'`), and a CORS
 - The sample is one endpoint per service: an inconsistency within a service (route A vs route B of the same prefix)
   may be missed.
 - X-Frame-Options is accepted for framing although ASVS 5.0 marks it obsolete in favour of CSP `frame-ancestors`
-  (it still protects browsers); the remedy recommends CSP.
+  (it still protects browsers); the remedy recommends CSP. When a CSP `frame-ancestors` is present it decides, as in a
+  browser: one allowing any site (`*`, `http:`, `https:`) fails even next to `X-Frame-Options: DENY`.
+- A CORS grant to the arbitrary origin without `Access-Control-Allow-Credentials: true` is `CORS_BOUNDED`: a browser
+  then sends no cookie, so the responses it reads are the ones the probing site could fetch itself. ASVS
+  v5.0.0-3.4.2 asks for an allowlist even then; that part is not judged.
 
 ## 15. Sources
 
 - OWASP API8:2023 Security Misconfiguration: https://owasp.org/API-Security/editions/2023/en/0xa8-security-misconfiguration/
-- OWASP ASVS v5.0.0-3.4.3, 3.4.4, 3.4.6 (Web Frontend Security headers): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x12-V3-Web-Frontend-Security.md
+- OWASP ASVS v5.0.0-3.4.2, 3.4.4, 3.4.6 (Web Frontend Security headers): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x12-V3-Web-Frontend-Security.md
 - CWE-1021 Improper Restriction of Rendered UI Layers (clickjacking): https://cwe.mitre.org/data/definitions/1021.html

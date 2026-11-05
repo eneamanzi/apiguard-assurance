@@ -12,15 +12,15 @@ unprivileged user reached a function meant for an administrator).
 
 What counts as privileged is derived from the specification only (the Phase-2
 rule `privileged_endpoints`: a path with an `admin` or `management` segment); no
-configuration adds to the list (audit D235-17: the docs promised one, owner
-decision 2026-11-04 to state the limit instead). The old test took the list from the
+configuration adds to the list (until 2026-11-04 the docs promised one;
+the owner decided that day to state the limit instead). The old test took the list from the
 configuration and counted a `404` as enforced, which passed a wrong path; here a
 `404` is enforced only when the admin positive control proves the operation
 exists, otherwise it is NOT_VERIFIABLE.
 
 A refusal counts only when it differs from what the same request answers with
 a forged credential (a random value placed as the run's credential is):
-otherwise user_a's credential may simply not have been accepted (audit D235-8).
+otherwise user_a's credential may simply not have been accepted.
 
 Only safe methods (GET, HEAD) of a privileged operation are sent: a
 destructive method is never probed (rule 5). Where a privileged path documents
@@ -190,7 +190,10 @@ class Test21FunctionLevelAuthorization(BaseTest):
                     requires_auth,
                     admin,
                 )
-                served.setdefault(path, {})[method] = verdict
+                # A public operation is not compared: served to user_a because it is
+                # public, it says nothing about a privilege check another method of
+                # the path applies.
+                served.setdefault(path, {})[method] = verdict if requires_auth else None
             self._judge_methods(target, served)
             return self._finish()
         except AuthenticationSetupError as exc:
@@ -305,8 +308,8 @@ class Test21FunctionLevelAuthorization(BaseTest):
         Whether user_a's refusal can be about the role, not about the credential.
 
         Nothing else in the run proves that user_a's credential was accepted (a
-        static token is stored as configured, and may have expired: audit
-        D235-8). The same safe request is sent with a forged credential: a
+        static token is stored as configured, and may have expired). The same
+        safe request is sent with a forged credential: a
         refusal in the same category as its answer could be a credential not
         accepted. When the forged credential is not refused, or gets no answer,
         the control says nothing, and a 401 is then not taken as a refusal.
@@ -346,11 +349,15 @@ class Test21FunctionLevelAuthorization(BaseTest):
             # credential at all is 1.1's question, not a privilege escalation.
             self._judge(record, store, _SUB_REFUSES, Outcome.NOT_APPLICABLE, "PUBLIC_ENDPOINT")
             return True
-        control = _admin_control(context, method, concrete_path, admin)
-        certain = control is True
+        control = (
+            context.references.positive_control(method, concrete_path, admin)
+            if admin is not None
+            else None
+        )
+        confirmed = control is not None and control.works
         basis = (
-            "confirmed by the admin positive control"
-            if certain
+            "an admin/management path in the specification, which the admin account is served"
+            if confirmed
             else "an admin/management path in the specification"
         )
         finding = Finding(
@@ -362,9 +369,21 @@ class Test21FunctionLevelAuthorization(BaseTest):
                 "administrator (BFLA, OWASP API5:2023). Enforce the role at the server for this "
                 "operation."
             ),
-            confidence=Confidence.CERTAIN if certain else Confidence.FIRM,
+            # FIRM either way: the admin control proves the operation exists and
+            # admin may use it, not that it is privileged, which rests on the
+            # path's name. The control is cited when it ran
+            # .
+            confidence=Confidence.FIRM,
         )
-        self._judge(record, store, _SUB_REFUSES, Outcome.VIOLATION, "BFLA", finding)
+        self._judge(
+            record,
+            store,
+            _SUB_REFUSES,
+            Outcome.VIOLATION,
+            "BFLA",
+            finding,
+            reference_responses=(control,) if control is not None else (),
+        )
         return True
 
     def _not_found(
@@ -424,7 +443,8 @@ class Test21FunctionLevelAuthorization(BaseTest):
                             "no single record: each probed method is in this test's transaction "
                             "log."
                         ),
-                        confidence=Confidence.CERTAIN,
+                        # FIRM, as BFLA: that the path is privileged rests on its name.
+                        confidence=Confidence.FIRM,
                     ),
                 )
             elif len(decided) > 1:

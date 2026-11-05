@@ -53,6 +53,7 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
+from src.core.references import RANDOM_SEGMENT, CalibrationPoint, fingerprint_of
 from src.core.test_metadata import Effect, TestInfo
 from src.tests.base import BaseTest
 from src.tests.helpers.path_resolver import resolve_path_with_seed
@@ -67,6 +68,11 @@ VERSION_SEGMENT: re.Pattern[str] = re.compile(r"^v\d+(\.\d+)*$", re.IGNORECASE)
 
 # The single sub-test.
 _SUB: str = "version_sibling_consistent"
+
+# How many of a version's operations must answer 404 before the whole version is
+# taken as absent: one 404 may be one operation the version lacks, not the
+# version.
+_ABSENCE_PROBES: int = 3
 
 # The methods sent without a credential: the safe ones (the test changes nothing).
 _SAFE_METHODS: frozenset[str] = frozenset({"GET", "HEAD"})
@@ -88,6 +94,9 @@ _REFERENCES: tuple[Reference, ...] = (
     # Read on the ASVS v5.0.0 source 2026-10-22: 8.1.1 (one access-control policy,
     # enforced the same everywhere).
     Reference(standard=Standard.OWASP_API_TOP10, id="API8:2023"),
+    # API9:2023 (Improper Inventory Management): an older version still deployed
+    # without the current version's controls.
+    Reference(standard=Standard.OWASP_API_TOP10, id="API9:2023"),
     Reference(standard=Standard.ASVS, id="v5.0.0-8.1.1"),
     Reference(standard=Standard.NIST_SP, id="800-53r5", section="3.1"),
 )
@@ -124,7 +133,7 @@ class Test24AuthorizationConsistency(BaseTest):
 
         Args:
             target:  The run's target (surface, derived knowledge, path seed).
-            context: The run's context (unused: no credential).
+            context: The run's context (the reference responses: what an unknown path answers).
             client:  The run's HTTP client.
             store:   The test's evidence store.
 
@@ -132,7 +141,6 @@ class Test24AuthorizationConsistency(BaseTest):
             self._finish(), self._requires_attack_surface(...), or
             self._error(exc).
         """
-        del context
         try:
             missing = self._requires_attack_surface(target)
             if missing is not None:
@@ -144,7 +152,7 @@ class Test24AuthorizationConsistency(BaseTest):
             absent: list[str] = [
                 candidate
                 for candidate, pairs in groups.items()
-                if self._compare_version(client, store, target, candidate, pairs)
+                if self._compare_version(client, store, target, candidate, (pairs, context))
             ]
             if len(absent) == len(groups):
                 # Every candidate version the specification suggested is absent
@@ -212,14 +220,14 @@ class Test24AuthorizationConsistency(BaseTest):
         store: EvidenceStore,
         target: TargetContext,
         candidate: str,
-        pairs: list[tuple[str, str, str]],
+        group: tuple[list[tuple[str, str, str]], TestContext],
     ) -> bool:
         """
         Compare every pair of one version candidate, after checking the version
         exists at all.
 
-        A representative sibling is probed first: if the candidate version is
-        entirely absent (a 404 of its own shape), the whole group is one
+        Up to _ABSENCE_PROBES siblings are probed first: if they all answer 404,
+        the candidate version is taken as absent and the whole group is one
         NOT_APPLICABLE/VERSION_ABSENT instead of a probe per endpoint (a large
         API with a single documented version would otherwise send hundreds of
         requests for nothing).
@@ -229,31 +237,45 @@ class Test24AuthorizationConsistency(BaseTest):
             store:     The test's evidence store.
             target:    The run's target (path seed).
             candidate: The candidate version prefix, e.g. `/identity/api/v3`.
-            pairs:     The (method, documented, sibling) triples of this version.
+            group:     The (method, documented, sibling) triples of this version,
+                       and the run's context (reference responses).
 
         Returns:
             True when the candidate version is absent from the target, so the
             whole group was judged NOT_APPLICABLE without probing each pair.
         """
-        method, _documented, sibling = pairs[0]
-        probe_path = resolve_path_with_seed(sibling, target.path_seed)
-        representative = _send(client, method, probe_path, self.info.id)
-        if representative is not None and category_of(representative) == ResponseCategory.NOT_FOUND:
-            self._step(representative)
+        pairs, context = group
+        probes: list[EvidenceRecord] = []
+        for method, _documented, sibling in pairs[:_ABSENCE_PROBES]:
+            probe = _send(
+                client, method, resolve_path_with_seed(sibling, target.path_seed), self.info.id
+            )
+            if probe is None:
+                break
+            probes.append(probe)
+            if category_of(probe) != ResponseCategory.NOT_FOUND:
+                break
+        for probe in probes:
+            self._step(probe)
+        if len(probes) == len(pairs[:_ABSENCE_PROBES]) and all(
+            category_of(probe) == ResponseCategory.NOT_FOUND for probe in probes
+        ):
             self._record(_SUB, Outcome.NOT_APPLICABLE, "VERSION_ABSENT")
             return True
+        # What a random path right under this version answers, for the
+        # sibling's refusal (one point per version, cached by the references).
+        unknown = context.references.calibration(f"{candidate}/{RANDOM_SEGMENT}", method)
         for method, documented, sibling in pairs:
-            self._compare(client, store, method, documented, sibling, target)
+            self._compare(client, store, (method, documented, sibling), target, unknown)
         return False
 
     def _compare(
         self,
         client: SecurityClient,
         store: EvidenceStore,
-        method: str,
-        documented: str,
-        sibling: str,
+        pair: tuple[str, str, str],
         target: TargetContext,
+        unknown: CalibrationPoint,
     ) -> None:
         """
         Send the unauthenticated request to the documented path and its sibling.
@@ -266,16 +288,23 @@ class Test24AuthorizationConsistency(BaseTest):
             sibling:    The sibling (template) path.
             target:     The run's target (path seed).
         """
+        method, documented, sibling = pair
         doc_record = _send(
             client, method, resolve_path_with_seed(documented, target.path_seed), self.info.id
         )
-        if doc_record is None or category_of(doc_record) not in _REFUSED:
-            # The documented operation was not refused without a credential (it is
-            # public, or the probe could not decide): there is no protected policy
-            # to be inconsistent with. That is 1.1's question, not this one.
-            self._record(_SUB, Outcome.NOT_APPLICABLE, "DOCUMENTED_NOT_PROTECTED")
-            if doc_record is not None:
-                self._step(doc_record)
+        if doc_record is None:
+            self._record(_SUB, Outcome.NOT_VERIFIABLE, "NO_RESPONSE")
+            return
+        if category_of(doc_record) not in _REFUSED:
+            self._step(doc_record)
+            if category_of(doc_record) == ResponseCategory.SERVED:
+                # Public: no protected policy to be inconsistent with (1.1's
+                # question, not this one).
+                self._record(_SUB, Outcome.NOT_APPLICABLE, "DOCUMENTED_NOT_PROTECTED")
+            else:
+                # A 404, a 5xx, a 429: whether it is protected is not known
+                # (rule 4; it was "not protected" until 2026-11-04).
+                self._record(_SUB, Outcome.NOT_VERIFIABLE, "DOCUMENTED_NOT_JUDGEABLE")
             return
         self._step(doc_record)
         sib_path = resolve_path_with_seed(sibling, target.path_seed)
@@ -313,7 +342,30 @@ class Test24AuthorizationConsistency(BaseTest):
             self._judge(sib_record, store, _SUB, Outcome.NOT_APPLICABLE, "SIBLING_ABSENT")
             return
         if category in _REFUSED:
-            self._judge(sib_record, store, _SUB, Outcome.ENFORCED, "SIBLING_REFUSED")
+            # A refusal is the sibling's own only if a random path right under
+            # its version is not refused alike: crAPI's identity service answers
+            # 401 to any path, so the refusal said nothing there.
+            if not unknown.reliable or unknown.fingerprint is None:
+                self._judge(sib_record, store, _SUB, Outcome.NOT_VERIFIABLE, "CALIBRATION_UNSTABLE")
+                return
+            if fingerprint_of(sib_record) == unknown.fingerprint:
+                self._judge(
+                    sib_record,
+                    store,
+                    _SUB,
+                    Outcome.NOT_VERIFIABLE,
+                    "REFUSED_BEFORE_ROUTING",
+                    reference_responses=(unknown,),
+                )
+                return
+            self._judge(
+                sib_record,
+                store,
+                _SUB,
+                Outcome.ENFORCED,
+                "SIBLING_REFUSED",
+                reference_responses=(unknown,),
+            )
             return
         self._judge(sib_record, store, _SUB, Outcome.NOT_VERIFIABLE, category.name)
 

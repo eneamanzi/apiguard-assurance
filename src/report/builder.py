@@ -398,6 +398,13 @@ class ReportData(BaseModel):
     strategies_label: str = Field(
         description="Enabled strategies, comma-separated (`BLACK_BOX, GREY_BOX, WHITE_BOX`)."
     )
+    test_ids: list[str] = Field(
+        default_factory=list,
+        description=(
+            "`execution.test_ids` of the configuration. Not empty: the run selected only these "
+            "tests, and `min_priority_label` and `strategies_label` did not select anything."
+        ),
+    )
     connections: list[ConnectionTrust] = Field(
         default_factory=list,
         description="How the certificate of each connection of the tool was checked.",
@@ -507,6 +514,7 @@ def build_report_data(
         spec_version=spec_version,
         min_priority_label=min_priority_label,
         strategies_label=strategies_label,
+        test_ids=list(config.execution.test_ids),
         connections=_connection_trust(config),
         executive_summary=executive_summary,
         domains=domains,

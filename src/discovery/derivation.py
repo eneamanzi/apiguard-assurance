@@ -27,7 +27,8 @@ Rules:
         of objects, not a service: the API lives at the root, "/". On crAPI
         /identity/api, /community/api, /workshop/api; on Forgejo /api; on an API
         whose resources are at the root, "/". Used to look for undocumented
-        paths where the services really are (test 0.1), not only at the root.
+        paths where the services really are (test ext.0.1.ffuf), not only at
+        the root, and to sample one operation per service (tests 6.1, 6.2).
 
     version_siblings (HEURISTIC) -- the API versions next to the documented
         ones that the specification does not document. For each position where
@@ -192,9 +193,8 @@ PRIVILEGED_ENDPOINTS: str = "privileged_endpoints"
 # A path segment that marks an operation as privileged (admin or management
 # plane). Grounded on the labs: Forgejo `/api/v1/admin/...`, crAPI
 # `/workshop/api/management/...` and `/identity/api/v2/admin/...`. The match is
-# on a whole segment, so a word that merely contains "admin" (e.g. "administer"
-# would, but a real segment like "administrators") is matched only when it is
-# exactly one of these; the configuration adds or corrects (test 2.1).
+# on a whole segment: "administrators" or "admin-panel" is not matched, only a
+# segment that is exactly one of these. Nothing adds to the list (test 2.1).
 _PRIVILEGED_SEGMENTS: frozenset[str] = frozenset({"admin", "management"})
 
 

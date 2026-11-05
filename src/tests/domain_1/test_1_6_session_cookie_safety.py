@@ -146,8 +146,8 @@ class Test16SessionCookieSafety(BaseTest):
         if not cookies:
             return self._skip(
                 f"The login response of role user_a (resource '{artefact.resource}') set no "
-                "cookie: this target keeps no session in a cookie, so there is nothing to judge. "
-                "Both lab applications answer a login with a token in the body instead."
+                "cookie (a cookie being cleared does not count): this target keeps no session in "
+                "a cookie, so there is nothing to judge."
             )
         store.pin_evidence(artefact.record)
         for raw in cookies:
@@ -165,10 +165,14 @@ class Test16SessionCookieSafety(BaseTest):
         """
         name = raw.split("=", 1)[0].strip()
         present = _attributes(raw)
+        # An anti-CSRF cookie is read by the page's script on purpose (the
+        # double-submit pattern): ASVS v5.0.0-3.3.4 asks HttpOnly only of a
+        # cookie not meant for client-side scripts.
+        script_read = any(marker in name.lower() for marker in _SCRIPT_READ_COOKIE_MARKERS)
         missing = [
             (detail, entry, requirement)
             for attribute, detail, entry, requirement in _ATTRIBUTES
-            if not _restricts(attribute, present)
+            if not _restricts(attribute, present) and not (script_read and attribute == _HTTPONLY)
         ]
         if not missing:
             self._record(_SUB_COOKIES, Outcome.ENFORCED, "COOKIE_SAFE")
@@ -180,11 +184,12 @@ class Test16SessionCookieSafety(BaseTest):
                 Outcome.VIOLATION,
                 detail,
                 Finding(
-                    title=f"Session cookie without {attribute}: {name}",
+                    title=f"Login cookie without {attribute}: {name}",
                     detail=(
                         f"The login of role user_a (resource '{resource}') sets the cookie "
                         f"'{name}' without a restricting `{attribute}` attribute. "
-                        f"{_WHY[attribute]} Set it on every cookie that carries a session."
+                        f"{_WHY[attribute]} Set it on every cookie that carries a session or a "
+                        "credential."
                     ),
                     evidence_ref=evidence_ref,
                     # The header as the target sent it: the observed fact.
@@ -196,6 +201,11 @@ class Test16SessionCookieSafety(BaseTest):
                 ),
             )
 
+
+# The names of the cookies a page's script reads on purpose (anti-CSRF tokens,
+# XSRF-TOKEN and csrftoken among them): HttpOnly is not asked of them.
+_SCRIPT_READ_COOKIE_MARKERS: tuple[str, ...] = ("csrf", "xsrf")
+_HTTPONLY: str = "httponly"
 
 # Why each attribute matters, in the finding.
 _WHY: dict[str, str] = {

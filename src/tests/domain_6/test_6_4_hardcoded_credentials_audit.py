@@ -14,9 +14,13 @@ Two sub-tests on one guarantee (credentials not exposed):
                              with a non-placeholder value (white box, the Admin
                              API, `Need.GATEWAY` optional).
 
-A debug endpoint's paths come from the configuration (none configured: the
-sub-test is NOT_APPLICABLE). The config scan needs a gateway; without one it is
-NOT_APPLICABLE. Secret values are masked in the evidence (`SecretStr`).
+A debug endpoint's paths come from the configuration; none configured, the
+tool's own paths that expose configuration (src/core/sensitive_paths.py, kind
+CONFIGURATION: actuator/env, .env, .git/config, ...) are asked under the root
+and each derived service prefix (until then the sub-test
+was NOT_APPLICABLE without configuration, so it checked nothing by default).
+The config scan needs a gateway; without one it is NOT_APPLICABLE. Secret
+values are masked in the evidence (`SecretStr`).
 
 Dependency rule: imports from stdlib, structlog and src.core, plus
 src.tests.base and src.tests.helpers.
@@ -46,6 +50,7 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
+from src.core.sensitive_paths import SENSITIVE_PATHS, SensitiveKind
 from src.core.test_metadata import Effect, Need, TestInfo
 from src.tests.base import BaseTest
 from src.tests.helpers.path_resolver import resolve_path_with_seed
@@ -53,6 +58,10 @@ from src.tests.helpers.path_resolver import resolve_path_with_seed
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
 _SUB_DEBUG: str = "debug_endpoint_no_secret"
+
+# The derivation rule whose facts are the service prefixes (src/discovery), the
+# base paths the default debug paths are asked under, besides the root.
+_RULE_SERVICE_PREFIXES: str = "service_prefixes"
 _SUB_CONFIG: str = "gateway_config_no_secret"
 
 # A config value shorter than this is a placeholder, not a real credential.
@@ -162,8 +171,9 @@ class Test64Params(BaseModel):
         default=(),
         description=(
             "Paths of debug or actuator endpoints to probe unauthenticated for exposed "
-            "credentials (e.g. /actuator/env, /debug/vars). Empty: the debug sub-test is not "
-            "applicable."
+            "credentials (e.g. /actuator/env, /debug/vars). Empty: the tool's paths that expose "
+            "configuration (actuator/env, actuator/configprops, server-info, .env, .git/config, "
+            ".git/HEAD), under the root and each service prefix."
         ),
     )
 
@@ -221,11 +231,8 @@ class Test64HardcodedCredentialsAudit(BaseTest[Test64Params]):
     def _probe_debug_endpoints(
         self, target: TargetContext, client: SecurityClient, store: EvidenceStore
     ) -> None:
-        """Probe each configured debug path unauthenticated for an exposed credential."""
-        paths = self.params(target).debug_endpoint_paths
-        if not paths:
-            self._record(_SUB_DEBUG, Outcome.NOT_APPLICABLE, "NO_DEBUG_PATH")
-            return
+        """Probe each debug path (configured, else _default_debug_paths) unauthenticated."""
+        paths = self.params(target).debug_endpoint_paths or _default_debug_paths(target)
         for raw in paths:
             path = resolve_path_with_seed(raw, target.path_seed)
             try:
@@ -242,6 +249,9 @@ class Test64HardcodedCredentialsAudit(BaseTest[Test64Params]):
                 # An unavailable, rate-limited or failing endpoint was not blocked:
                 # it did not answer the question (rule 1).
                 self._judge(record, store, _SUB_DEBUG, Outcome.NOT_VERIFIABLE, _SPOILING[category])
+                continue
+            if category == ResponseCategory.NOT_FOUND:
+                self._judge(record, store, _SUB_DEBUG, Outcome.ENFORCED, "DEBUG_NOT_FOUND")
                 continue
             if category != ResponseCategory.SERVED:
                 self._judge(record, store, _SUB_DEBUG, Outcome.ENFORCED, "DEBUG_BLOCKED")
@@ -288,13 +298,39 @@ class Test64HardcodedCredentialsAudit(BaseTest[Test64Params]):
             self._record(_SUB_CONFIG, Outcome.NOT_VERIFIABLE, "NO_CONFIG_VALUE")
             return
         found = False
+        references = tuple(prefix.lower() for prefix in gateway.secret_reference_prefixes)
         for item in answer.items:
+            if references and item.value.get_secret_value().strip().lower().startswith(references):
+                # A reference to a secret kept in a store or the environment is
+                # what the remediation asks for, not a plaintext secret: the
+                # adapter says how its gateway writes one.
+                continue
             finding = _scan_config_value(item, evidence_ref)
             if finding is not None:
                 found = True
                 self._record(_SUB_CONFIG, Outcome.VIOLATION, "CONFIG_SECRET", finding)
         if not found:
             self._record(_SUB_CONFIG, Outcome.ENFORCED, "CONFIG_NO_SECRET")
+
+
+def _default_debug_paths(target: TargetContext) -> list[str]:
+    """
+    The tool's configuration-exposing paths under the root and each service prefix.
+
+    Args:
+        target: The run's target (the derived service prefixes).
+
+    Returns:
+        The paths, without duplicates, in a stable order.
+    """
+    bases = ["/"]
+    surface = target.attack_surface
+    if surface is not None:
+        bases += [
+            fact.value.rstrip("/") + "/" for fact in surface.derived_facts(_RULE_SERVICE_PREFIXES)
+        ]
+    suffixes = [p.suffix for p in SENSITIVE_PATHS if p.kind == SensitiveKind.CONFIGURATION]
+    return list(dict.fromkeys(base + suffix for base in bases for suffix in suffixes))
 
 
 def _scan_text(text: str) -> list[tuple[str, str]]:

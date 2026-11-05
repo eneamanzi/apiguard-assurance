@@ -53,7 +53,8 @@ Pipeline phases (docs/04-architecture/01-overview.md, "Pipeline"):
 
     Phase 6 -- Teardown (Best-Effort):
         Drain TestContext resource registry in LIFO order.
-        DELETE each registered resource via SecurityClient.
+        Send each registered resource's removal request (its registered method,
+        usually DELETE) via SecurityClient.
         Log TeardownError as WARNING; continue on failure.
 
     Phase 7 -- Report Generation:
@@ -66,7 +67,7 @@ Pipeline phases (docs/04-architecture/01-overview.md, "Pipeline"):
 Dependency rule:
     engine.py imports from all src/ layers (config/, core/, discovery/,
     tests/, report/). It is the only module permitted to do so.
-    No other module imports from engine.py.
+    Only the CLI (src/cli.py) imports from engine.py.
 """
 
 from __future__ import annotations
@@ -734,7 +735,7 @@ def describe_resources(config: ToolConfig, test_params: dict[str, BaseModel]) ->
         test_params: Every test's validated parameters (check_tests).
 
     Returns:
-        E.g. "repository (tests.domain_7.test_7_2), forgejo-token (credentials,
+        E.g. "project (tests.domain_7.test_7_2), api-token (credentials,
         login)"; a resource nobody uses is marked "(not used)".
     """
     users: dict[str, list[str]] = {name: [] for name in config.resources}
@@ -899,6 +900,9 @@ class AssessmentEngine:
         Phases 1-4 are blocking: exceptions propagate to run() which converts
         them to ExitCode.INFRASTRUCTURE. Phases 5-7 are non-blocking.
         """
+        # Wall-clock start: an output file older than this was left by an earlier
+        # run and is not listed as written by this one.
+        pipeline_start = time.time()
         config, connections, config_as_written = self._phase_1_initialize()
         test_params = check_tests(config)
         _write_config_used(config, config_as_written, test_params)
@@ -950,7 +954,7 @@ class AssessmentEngine:
             # Phase 6 (teardown) MUST run even if Phase 5 is interrupted by
             # KeyboardInterrupt (Ctrl+C) or terminated by an unexpected
             # exception.  Tests in Phase 5 register real resources on the
-            # target (Forgejo tokens, repos, gateway routes) via
+            # target (credentials, objects created for a test) via
             # context.register_resource_for_teardown(); skipping Phase 6
             # would leave those resources dangling on the target and could
             # conflict with subsequent runs.
@@ -1014,7 +1018,7 @@ class AssessmentEngine:
                     config.output.evidence_path,
                     config.output.config_used_path,
                 )
-                if path.is_file()
+                if path.is_file() and path.stat().st_mtime >= pipeline_start
             ]
             self._observer.run_finished(result_set, int(exit_code), written)
         return exit_code

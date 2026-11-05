@@ -46,8 +46,8 @@ external_tools:
   enabled: false
 ```
 
-The external tests disappear from the report (they are not scheduled, not SKIP): the native tests alone run in well
-under a minute.
+The external tests are not scheduled: the report lists them under Not Run with reason `tool_disabled`, not as SKIP.
+The native tests alone run in well under a minute.
 
 ### One or a few tests
 
@@ -122,7 +122,7 @@ changes nothing: its connector is in the codebase but no test uses it (declared 
   prerequisite out, or it does not end as required, the test returns SKIP and the reason names the prerequisite to
   add ([dependencies between tests](../../04-architecture/03-assessment-model.md#dependencies-between-tests)).
 - **Stop at the first critical failure.** `execution.fail_fast: true` stops after the first P0 test that returns
-  FAIL or ERROR; the tests not yet run are listed in `not_run` with reason `fail_fast`
+  FAIL, ERROR or INCONCLUSIVE; the tests not yet run are listed in `not_run` with reason `fail_fast`
   ([exit codes](../../03-reference/03-exit-codes.md)).
 - **Misspelled keys stop the run.** `min_prioriti: 0` is rejected at startup (exit `10`) with the suggestion
   `did you mean 'min_priority'?`.

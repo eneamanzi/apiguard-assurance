@@ -27,7 +27,7 @@ ResultSet
       ├── sub_tests: [SubTestResult]    name, status, coverage, counters (violations, enforced, not_verifiable, not_applicable), not_verifiable_reasons
       ├── findings: [Finding]           title, detail, references, confidence, evidence_ref ──► EvidenceRecord.record_id, supporting_refs
       ├── notes: [InfoNote]             title, detail, references (context, not a violation)
-      └── transaction_log: [TransactionSummary]   every HTTP request of the test (PASS included)
+      └── transaction_log: [TransactionSummary]   every HTTP request of the test (PASS included; one entry per judgement)
 ```
 
 **Outcomes and sub-tests (the assessment model, block 6).** A test declares its sub-tests and records, for each
@@ -44,7 +44,7 @@ Invariants enforced by the model (`src/core/models/results.py`):
 | Status | Rule |
 |---|---|
 | `FAIL` | a sub-test judged a `VIOLATION`; carries at least one `Finding` |
-| `PASS` | no violation and at least one case verified (`ENFORCED`); `coverage` is `PARTIAL` when some cases were `NOT_VERIFIABLE`, else `COMPLETE` |
+| `PASS` | no violation and at least one case verified (`ENFORCED`); `coverage` is `partial` when some cases were `NOT_VERIFIABLE`, else `complete` (lowercase in the JSON) |
 | `INCONCLUSIVE` | ran to the end, no violation and nothing verified (only not-verifiable or not-applicable cases) |
 | `SKIP` | `skip_reason` required (a need or a required parameter missing) |
 | `ERROR` | an unexpected failure; findings optional |

@@ -54,12 +54,12 @@ Check it:
 hatch run apiguard validate-config -c my-api.yaml
 ```
 
-Expected: `Configuration valid. Target: https://api.example.com/`, followed by `18 of the 29 selected tests will
+Expected: `Configuration valid. Target: https://api.example.com/`, followed by `18 of the 28 selected tests will
 SKIP (what they need is not configured):` and one line per test with its reason: the gateway for 0.4, 3.3, 4.2, 4.3
-and 5.1, a user account for 1.2, 1.3, 1.6, 1.7, 2.1, 6.1, 7.2 and 7.3, a second account for 2.2, a revocable login
-for 1.4, and a parameter for 2.2, 2.5, 7.1, 7.2, 7.3 and 7.4. The 29 are the native tests: the external ones are
-off until you enable them. They are not errors: the next steps give the tests what they need, and
-`apiguard list-tests -c my-api.yaml` shows the same for every test (verified 2026-10-27).
+and 5.1, a user account for 1.2, 1.3, 1.4, 1.6, 1.7, 2.1, 2.2, 2.5, 6.1, 7.2 and 7.3, a second account for 2.2, a
+revocable login for 1.4, and a parameter for 2.2, 2.5, 7.1, 7.2, 7.3 and 7.4. The 28 are the native tests: the
+external ones are off until you enable them. They are not errors: the next steps give the tests what they need, and
+`apiguard list-tests -c my-api.yaml` shows the same for every test (verified 2026-11-05).
 
 `validate-config` checks the file and the certificate files of the `tls` blocks: it does not contact the API and does
 not check that the specification exists (that happens when the run starts).
@@ -154,10 +154,16 @@ e.g. `http://api.example.com:8000/`.
 
 ## 3. Credentials
 
-Tests log in as `admin` (test 1.4, WHITE_BOX: the administrator account is full access) or `user_a` (tests 2.1
-and 7.2, GREY_BOX). The configuration also accepts a third
-role, `user_b`, but no v0.1.0 test uses it: it is reserved for tests that compare two users of the same level, such
-as object-level authorization (BOLA, guarantee 2.2, planned). You can leave it out. Create the accounts on the target first, then
+Three roles, each an account on the target (which test needs which: [test
+portability](../../03-reference/06-compatibility.md#test-portability), generated from the tests' declarations):
+
+- `user_a`, an ordinary account: required by 1.2, 1.3, 1.4, 1.6, 1.7, 2.1, 2.2, 2.5, 6.1, 7.2, 7.3, and used when
+  present by 0.3, 4.4 and `ext.3.1.schemathesis`;
+- `user_b`, a second ordinary account: required by 2.2 (object-level authorization, P0), which SKIPs without it;
+- `admin`, the API's administrator: used when present by 2.1, as the proof that a privileged operation exists.
+
+Test 1.4 also needs a login that can revoke a credential (a login resource with a delete request). Create the
+accounts on the target first, then
 put the values in `.env` (repository folder, ignored by git) and refer to them with `${VAR}`. Never write a
 password in the YAML file.
 
@@ -261,7 +267,8 @@ Rules:
 
 - Username and password of a role go together, or the role is left out entirely; `static_token` takes tokens
   only, the other methods username and password only.
-- A `${VAR}` without a value stops the tool with `Environment variable(s) not set`, **even inside a YAML comment**.
+- A `${VAR}` without a value stops the tool with `Environment variable(s) not set`; inside a YAML comment it is
+  not read (verified 2026-11-05).
 - Credentials rejected by the target (`401`/`403` at login) make the tests that log in return ERROR.
 
 ## 4. Real identifiers (`path_seed`)
@@ -282,8 +289,8 @@ fill (they fall back to the placeholder), and paste the block under `target:` in
 `${VAR}` too.
 
 Only fill in what you can: the more parameters point to real resources, the fewer inconclusive probes. The lab's
-`config.yaml` is a complete example. Measured on the lab, test 1.1: 335 inconclusive probes out of 482 without
-`path_seed`, 63 with it.
+`config.yaml` is a complete example. Measured on the lab, test 1.1 (2026-11-05): 371 not-verifiable judgements
+out of 486 without `path_seed`, 261 with it.
 
 **Use resources created for the test, never real data.** Test 1.1 also sends `DELETE` requests without
 credentials to the seeded resources: on a correctly protected API they are rejected, but if authentication is

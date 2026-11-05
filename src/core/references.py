@@ -621,6 +621,9 @@ class ReferenceResponses:
         the probe: a refusal is what is being measured, so a gateway that
         answers 401 or 403 to an unrouted path has that as its refusal. The
         point is unreliable only when the two probes answered differently.
+        Nor is an unavailable or failing answer (5xx, 429) set apart here: a
+        caller must not take one for the gateway's refusal (test 0.2 checks
+        the category first).
 
         Returns:
             The CalibrationPoint of the refusal (from the cache after the first

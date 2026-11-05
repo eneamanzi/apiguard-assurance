@@ -105,8 +105,8 @@ the priority leaves out the impact on a particular business, which only the orga
 | Priority | Importance | Typical guarantees |
 |---|---|---|
 | P0 Critical | the top risks of the OWASP API Security Top 10, and the perimeter controls every gateway must enforce before any authentication | inventory and deny-by-default, authentication required, rate limiting, SSRF |
-| P1 High | business-critical controls: their violation exposes privileged operations or the service's availability | destructive operations, consistent authorization, timeouts, circuit breakers |
-| P2 Medium | application logic and defence in depth: serious, but behind another control or limited in reach | input validation, error handling, data exposure, service credentials |
+| P1 High | business-critical controls: their violation exposes privileged operations or the service's availability | destructive operations, consistent authorization, object properties (excessive data exposure), timeouts, circuit breakers |
+| P2 Medium | application logic and defence in depth: serious, but behind another control or limited in reach | input validation, error handling, information disclosure, service credentials |
 | P3 Low | best practice and compliance: hardening whose absence weakens other controls rather than opening a flaw by itself | security headers, request signing beyond TLS, distributed sessions |
 
 Which priority each guarantee has is part of the catalogue; it was checked against this criterion in the block-6
@@ -115,7 +115,7 @@ test review (now complete). The tool's declared priorities are authoritative (th
 own tags for the record.
 
 In the tool the priority orders the work and nothing else: `execution.min_priority` keeps the tests up to a
-priority, and `execution.fail_fast` stops after the first P0 test that fails or errs
+priority, and `execution.fail_fast` stops after the first P0 test that fails, errs or is inconclusive
 ([`assessment-model.md`](../04-architecture/03-assessment-model.md#fail-fast)). A Finding carries no severity: how
 serious it is for the target's business is the analyst's judgement.
 

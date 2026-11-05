@@ -304,7 +304,20 @@ class AssessmentTest(ABC, Generic[ParamsT]):
         )
 
     def _append(self, summary: TransactionSummary) -> None:
-        """Append one entry to the transaction log (no cap: the entries are small)."""
+        """
+        Add one entry to the transaction log (no cap: the entries are small).
+
+        A request logged as a step and judged afterwards keeps one entry, the
+        judged one, which takes the step's place (7.3 logged the
+        burst's answers as steps, then judged one of them). A request judged
+        more than once (two sub-tests reading the same answer) keeps one entry
+        per judgement.
+        """
+        if summary.outcome is not None:
+            for index, entry in enumerate(self._transaction_log):
+                if entry.record_id == summary.record_id and entry.outcome is None:
+                    self._transaction_log[index] = summary
+                    return
         self._transaction_log.append(summary)
         log.debug(
             "transaction_logged",
@@ -469,9 +482,10 @@ class AssessmentTest(ABC, Generic[ParamsT]):
 
         The declared sub-tests are reported, at zero counters, so that
         `sub_tests` holds every declared sub-test whatever the status, as the
-        report schema states. A caller that has already judged something keeps
-        the result it would have had: its counters would contradict the SKIP,
-        and that is a programming error of the test, not something to hide.
+        report schema states. A SKIP after a judgement is a programming error
+        of the test: it raises, so that the test's except turns it into ERROR
+        with the judgements and findings kept (a SKIP would have
+        dropped a VIOLATION and exited 0).
 
         Args:
             reason: Why the test did not run, naming what is missing.
@@ -479,15 +493,22 @@ class AssessmentTest(ABC, Generic[ParamsT]):
 
         Returns:
             TestResult with status SKIP.
+
+        Raises:
+            ValueError: Something was already judged.
         """
         declared = self._sub_test_results()
-        nothing_judged = all(sub.status == TestStatus.SKIP for sub in declared)
+        if any(sub.status != TestStatus.SKIP for sub in declared):
+            raise ValueError(
+                f"test {self.info.id}: SKIP after a judgement ({reason}); "
+                "the judgements would be lost"
+            )
         return self._result(
             TestStatus.SKIP,
             reason,
             notes=notes,
             skip_reason=reason,
-            sub_tests=declared if nothing_judged else None,
+            sub_tests=declared,
         )
 
     def _error(self, exc: Exception, message: str | None = None) -> TestResult:

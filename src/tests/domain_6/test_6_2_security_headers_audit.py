@@ -64,10 +64,12 @@ _SAFE_METHODS: frozenset[str] = frozenset({"GET", "HEAD"})
 _PROBE_ORIGIN: str = "https://apiguard-cors-probe.example.net"
 
 _REFERENCES: tuple[Reference, ...] = (
-    # Read on the ASVS v5.0.0 source 2026-10-23: 3.4.3 (CSP), 3.4.4
-    # (X-Content-Type-Options: nosniff), 3.4.6 (X-Frame-Options / framing).
+    # Read on the ASVS v5.0.0 source 2026-11-05: 3.4.2 (Access-Control-Allow-Origin
+    # fixed or validated against an allowlist), 3.4.4 (X-Content-Type-Options:
+    # nosniff), 3.4.6 (CSP frame-ancestors). 3.4.3 (a script CSP with object-src
+    # and base-uri) was cited until then, and this test does not check it.
     Reference(standard=Standard.OWASP_API_TOP10, id="API8:2023"),
-    Reference(standard=Standard.ASVS, id="v5.0.0-3.4.3"),
+    Reference(standard=Standard.ASVS, id="v5.0.0-3.4.2"),
     Reference(standard=Standard.ASVS, id="v5.0.0-3.4.4"),
     Reference(standard=Standard.ASVS, id="v5.0.0-3.4.6"),
 )
@@ -150,8 +152,9 @@ class Test62SecurityHeadersAudit(BaseTest):
         """
         What the answer to an arbitrary Origin says about CORS at a path, and the answer.
 
-        One of _CORS_UNSAFE (it reflects the origin, or '*', together with
-        Access-Control-Allow-Credentials: true), _CORS_BOUNDED (a CORS grant that is
+        One of _CORS_REFLECTED (it reflects the origin together with
+        Access-Control-Allow-Credentials: true), _CORS_WILDCARD ('*' with
+        credentials), _CORS_BOUNDED (a CORS grant that is
         not unsafe), _CORS_NO_GRANT (no Access-Control-Allow-Origin at all: a browser
         refuses that origin the response) or _CORS_UNKNOWN (no answer, or one from a
         target unavailable, failing or throttling, which says nothing about CORS).
@@ -164,8 +167,11 @@ class Test62SecurityHeadersAudit(BaseTest):
         acac = headers.get("access-control-allow-credentials", "").strip().lower()
         if not acao:
             return _CORS_NO_GRANT, record
-        unsafe = (acao in {_PROBE_ORIGIN, "*"}) and acac == "true"
-        return (_CORS_UNSAFE if unsafe else _CORS_BOUNDED), record
+        if acac == "true" and acao == _PROBE_ORIGIN:
+            return _CORS_REFLECTED, record
+        if acac == "true" and acao == "*":
+            return _CORS_WILDCARD, record
+        return _CORS_BOUNDED, record
 
     def _judge_header(
         self,
@@ -208,24 +214,47 @@ class Test62SecurityHeadersAudit(BaseTest):
         if not results:
             self._record(_SUB_CORS, Outcome.NOT_VERIFIABLE, "NO_RESPONSE")
             return
-        unsafe = [p for p, state in results.items() if state == _CORS_UNSAFE]
+        reflected = [p for p, state in results.items() if state == _CORS_REFLECTED]
+        wildcard = [p for p, state in results.items() if state == _CORS_WILDCARD]
         evaluated = [p for p, state in results.items() if state != _CORS_UNKNOWN]
         granted = [p for p, state in results.items() if state == _CORS_BOUNDED]
-        if unsafe:
+        if reflected:
             finding = Finding(
                 title="Unsafe CORS: an arbitrary origin is allowed with credentials",
                 detail=(
-                    f"On {len(unsafe)} sampled endpoint(s) (e.g. {unsafe[0]}) the response to a "
-                    "cross-origin request reflects an arbitrary Origin (or '*') with "
+                    f"On {len(reflected)} sampled endpoint(s) (e.g. {reflected[0]}) the response "
+                    "to a cross-origin request reflects an arbitrary Origin with "
                     "Access-Control-Allow-Credentials: true, letting any site read authenticated "
-                    "responses cross-origin (OWASP API8:2023). Allow only a fixed list of trusted "
-                    "origins, never '*' with credentials."
+                    "responses cross-origin (OWASP API8:2023, ASVS v5.0.0-3.4.2). Validate the "
+                    "Origin against a fixed list of trusted origins."
                 ),
                 confidence=Confidence.CERTAIN,
             )
             # The proof is the answer to the cross-origin probe on the endpoint named.
             self._violation(
-                store, _SUB_CORS, "CORS_WILDCARD_CREDENTIALS", finding, records.get(unsafe[0])
+                store, _SUB_CORS, "CORS_ORIGIN_REFLECTED", finding, records.get(reflected[0])
+            )
+            return
+        if wildcard:
+            # Browsers refuse a credentialed response whose
+            # Access-Control-Allow-Origin is '*' (Fetch standard, CORS check), so
+            # this is not the read primitive above: FIRM, and said so.
+            finding = Finding(
+                title="CORS allows any origin ('*') together with credentials",
+                detail=(
+                    f"On {len(wildcard)} sampled endpoint(s) (e.g. {wildcard[0]}) the response to "
+                    "a cross-origin request carries Access-Control-Allow-Origin: * with "
+                    "Access-Control-Allow-Credentials: true. Browsers refuse that combination, so "
+                    "it does not expose authenticated responses as it stands; it shows a CORS "
+                    "policy meant to share credentialed responses with any origin, one change "
+                    "(reflecting the Origin) away from doing so (ASVS v5.0.0-3.4.2 allows '*' only "
+                    "for responses with no sensitive information). Allow only a fixed list of "
+                    "trusted origins."
+                ),
+                confidence=Confidence.FIRM,
+            )
+            self._violation(
+                store, _SUB_CORS, "CORS_WILDCARD_CREDENTIALS", finding, records.get(wildcard[0])
             )
             return
         if not evaluated:
@@ -255,7 +284,8 @@ class Test62SecurityHeadersAudit(BaseTest):
 
 
 # What the answer to the cross-origin probe says (_cors_ok).
-_CORS_UNSAFE: str = "unsafe"
+_CORS_REFLECTED: str = "reflected"
+_CORS_WILDCARD: str = "wildcard"
 _CORS_BOUNDED: str = "bounded"
 _CORS_NO_GRANT: str = "no_grant"
 _CORS_UNKNOWN: str = "unknown"
@@ -280,10 +310,30 @@ _REMEDY: dict[str, str] = {
 
 
 def _framing_ok(headers: dict[str, str]) -> bool:
-    """CSP frame-ancestors, or X-Frame-Options DENY/SAMEORIGIN."""
-    csp = headers.get("content-security-policy", "").lower()
-    xfo = headers.get("x-frame-options", "").strip().lower()
-    return "frame-ancestors" in csp or xfo in {"deny", "sameorigin"}
+    """
+    CSP frame-ancestors that does not allow any site, or X-Frame-Options DENY/SAMEORIGIN.
+
+    A frame-ancestors directive takes precedence over X-Frame-Options in a
+    browser, so when it is present it decides: one allowing any site ('*', or a
+    bare scheme) is no protection (any frame-ancestors passed).
+    """
+    sources = _frame_ancestors(headers.get("content-security-policy", ""))
+    if sources is not None:
+        return not sources & _ANY_ANCESTOR
+    return headers.get("x-frame-options", "").strip().lower() in {"deny", "sameorigin"}
+
+
+# frame-ancestors sources that let any site embed the page.
+_ANY_ANCESTOR: frozenset[str] = frozenset({"*", "http:", "https:"})
+
+
+def _frame_ancestors(csp: str) -> set[str] | None:
+    """The sources of a CSP frame-ancestors directive, or None when there is none."""
+    for directive in csp.lower().replace(",", ";").split(";"):
+        tokens = directive.split()
+        if tokens and tokens[0] == "frame-ancestors":
+            return set(tokens[1:])
+    return None
 
 
 def _send(

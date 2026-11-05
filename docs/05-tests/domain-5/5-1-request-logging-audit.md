@@ -45,7 +45,7 @@ checked empirically from outside", so the test audits the gateway's configuratio
 
 Two concepts read through the adapter: the configuration values (`config_values`), only to tell an empty read from
 a configuration without the plugin, and the log-shipping plugins (`log_shipping`). Which plugins ship request logs
-is each adapter's knowledge, so this test names no gateway (external audit D235-2, owner decision 2026-11-04; until
+is each adapter's knowledge, so this test names no gateway (owner decision 2026-11-04; until
 then a list of Kong and APISIX names was inside the test). Kong: `http-log`, `tcp-log`, `udp-log`, `loggly` (its
 `file-log` and `syslog` write on the gateway's own host); APISIX: its `*-logger` and `*-logging` plugins, `syslog`,
 `loggly`, `tencent-cloud-cls`, except `file-logger` (lists read on the gateways' sources 2026-11-04).
@@ -72,8 +72,7 @@ A note on every result states the log-content checks need log access and were no
 
 ## 7. Outcomes
 
-SKIP when the gateway has no such configuration, INCONCLUSIVE when it cannot be read (until 2026-11-04 a SKIP,
-external audit CORE-6) or reads as empty. FAIL when no log-shipping plugin is
+SKIP when the gateway has no such configuration, INCONCLUSIVE when it cannot be read (until 2026-11-04 a SKIP) or reads as empty. FAIL when no log-shipping plugin is
 enabled among the values read, PASS when one is.
 
 ## 8. Findings
@@ -105,7 +104,7 @@ Runs of 2026-10-23:
 
 | Lab | Status | Basis |
 |---|---|---|
-| Forgejo + Kong, crAPI + Kong, Forgejo + APISIX | **FAIL** | no log-shipping plugin enabled on the default labs. The gateways do write their own access log (the Kong labs set `KONG_PROXY_ACCESS_LOG=/dev/stdout`, APISIX writes nginx's), to the container's output and nowhere else: until 2026-11-04 the finding said "requests are not logged at the gateway", CERTAIN, which this contradicts (external audit D235-1) |
+| Forgejo + Kong, crAPI + Kong, Forgejo + APISIX | **FAIL** | no log-shipping plugin enabled on the default labs. The gateways do write their own access log (the Kong labs set `KONG_PROXY_ACCESS_LOG=/dev/stdout`, APISIX writes nginx's), to the container's output and nowhere else: until 2026-11-04 the finding said "requests are not logged at the gateway", CERTAIN, which this contradicts |
 | Forgejo + Kong, with the plugin below | **PASS** | a global `http-log` plugin is detected (`LOGS_SHIPPED`); measured again on 2026-11-04 through the adapter's log-shipping concept, the lab then put back and FAIL again |
 
 **The case the labs lack, and how to undo it.** Add a global `http-log` plugin (any `http_endpoint`) to

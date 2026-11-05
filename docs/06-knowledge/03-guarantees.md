@@ -165,8 +165,8 @@ perimeter gateway "can be bypassed ... which in turn bypasses the policy checks 
   the caller's network and answers the same application, so the gateway is only one of several ways in.
 
 **Assumptions and prerequisites.** The test declares **white box** ([`0.4`](../05-tests/domain-0/0-4-backend-without-the-gateway.md)). The
-gateway's admin plane is read to learn the backend addresses it declares; an optional configured list supplies them
-when the admin plane is not available. The verdict is relative to the vantage point: "not reachable from here" is
+gateway's admin plane is read to learn the backend addresses it declares (the addresses as configured, and those the
+gateway states it resolved them to); without the admin plane the test does not run (no configured list exists). The verdict is relative to the vantage point: "not reachable from here" is
 not proof of isolation (a name that does not resolve on this network proves nothing). This guarantee was added in the block-6 test review and is not in the original thesis.
 
 **Test logic.**
@@ -315,7 +315,7 @@ session store.
 
 ### 1.5 Credentials are not sent over insecure channels `[P2]`
 
-**References:** OWASP API2:2023, RFC 9110 §4.2.2, NIST SP 800-52 Rev. 2, OWASP ASVS 5.0.0 V12.1.1, V12.1.2 and V14.2.1.
+**References:** OWASP API2:2023, RFC 9110 §4.2.2, NIST SP 800-52 Rev. 2, OWASP ASVS v5.0.0-3.4.1, v5.0.0-4.1.2 and v5.0.0-12.2.1.
 
 **Concept.** Credentials travel only over TLS 1.2+, and the gateway enforces HTTPS (301/308 redirect) and HSTS. Cipher
 suites must give forward secrecy (ECDHE) and authenticated encryption (AES-GCM). The configuration part (HSTS,
@@ -341,17 +341,18 @@ parameters from the infrastructure team. The `testssl.sh` scan needs only networ
   the hostname (for example `openssl s_client -connect host:443 -showcerts`).
 - **[audit]** At least 2 SCTs from distinct Certificate Transparency logs, in the certificate or the handshake
   (RFC 6962).
-- **[empirical test]** `GET http://host/users/me` over plain HTTP with a valid token. Expected: connection refused
+- **[empirical test]** `GET http://host/users/me` over plain HTTP, with no credential (whether plain HTTP is
+  answered shows without one, and none is exposed). Expected: connection refused
   (port 80 closed) or a `301`/`308` redirect to HTTPS without processing the request. The only active test needed:
   the redirect behaviour cannot be deduced from configuration.
 - **[audit]** The HTTPS response carries `Strict-Transport-Security: max-age=31536000; includeSubDomains` (ASVS
-  V12.1.1), checkable with one `curl -I`.
+  v5.0.0-3.4.1), checkable with one `curl -I`.
 
 ---
 
 ### 1.6 Sessions are managed securely in distributed architectures `[P3]`
 
-**References:** OWASP API2:2023, OWASP ASVS 5.0.0 V3.2.1, V3.2.3 and V3.2.4, NIST SP 800-63B-4 §4.2, NIST SP 800-204A
+**References:** OWASP API2:2023, OWASP ASVS v5.0.0-3.3.1, v5.0.0-3.3.2, v5.0.0-3.3.4, v5.0.0-7.2.3 and v5.0.0-7.2.4, NIST SP 800-63B-4 §4.2, NIST SP 800-204A
 §4.3.
 
 **Concept.** Management of hybrid sessions (cookie plus refresh token) in multi-region deployments, where the
@@ -371,15 +372,15 @@ middleware; the one empirical test (session fixation) needs a browser and a vali
 
 **Configuration audit (checklist).**
 
-- **[audit]** Session cookies are issued with `HttpOnly`, `Secure` and `SameSite=Strict` (ASVS V3.2.3), from the
+- **[audit]** Session cookies are issued with `HttpOnly`, `Secure` and `SameSite=Strict` (ASVS v5.0.0-3.3.1, 3.3.2, 3.3.4), from the
   `Set-Cookie` header of a login response.
 - **[audit]** The session key's TTL in the store matches the JWT lifetime (`exp`): a TTL greater than the JWT's allows
   reuse after expiry.
 - **[audit]** The store's replication mode is synchronous, or the asynchronous propagation window is documented and
   accepted as a risk (in Redis Cluster at most 100 ms for high-risk contexts).
 - **[empirical test]** Session fixation: capture the pre-authentication cookie, log in, check that the value differs
-  after authentication (ASVS V3.2.1). Necessarily empirical: it checks runtime behaviour.
-- **[audit]** Session tokens have at least 128 bits of randomness from a CSPRNG (ASVS V3.2.4); it suffices to check
+  after authentication (ASVS v5.0.0-7.2.4). Necessarily empirical: it checks runtime behaviour.
+- **[audit]** Session tokens have at least 128 bits of randomness from a CSPRNG (ASVS v5.0.0-7.2.3); it suffices to check
   that the library used produces it by definition.
 
 ---
@@ -419,8 +420,8 @@ limit, ASVS v5.0.0-6.3.1) and check they are slowed, blocked or answered `429`. 
 
 ### 2.1 Only authorised users reach privileged endpoints `[P1]`
 
-**References:** OWASP API5:2023 Broken Function Level Authorization, OWASP ASVS 5.0.0 V8.3.1 and V8.2.2, NIST SP
-800-53 Rev. 5 AC-3.
+**References:** OWASP API5:2023 Broken Function Level Authorization, OWASP ASVS v5.0.0-8.1.1, v5.0.0-8.2.1 and
+v5.0.0-8.3.1, NIST SP 800-53 Rev. 5 AC-3.
 
 **Concept.** After authentication, the gateway or the application middleware performs role-based access control
 (RBAC, NIST SP 800-162): every privileged endpoint rejects with `403 Forbidden` the requests of authenticated users
@@ -450,8 +451,8 @@ environment to run the calls against.
 
 ### 2.2 Users access only their own data (BOLA prevention) `[P0]`
 
-**References:** OWASP API1:2023 Broken Object Level Authorization, CWE-639, OWASP ASVS 5.0.0 V8.2.2, NIST SP 800-162
-§2.2.
+**References:** OWASP API1:2023 Broken Object Level Authorization, CWE-639, OWASP ASVS v5.0.0-8.2.2, NIST SP 800-162
+§2.3.
 
 **Concept.** The system applies ownership checks at object level: a user can access only the resources they own. BOLA
 (number 1 in the OWASP list) appears when the API uses a client-controlled identifier (an ID in the URL or body)
@@ -521,7 +522,8 @@ for the cross-ownership tests, and the documentation of the scopes each endpoint
 
 ### 2.4 Authorization policies are consistent across endpoints `[P1]`
 
-**References:** OWASP API8:2023 Security Misconfiguration, OWASP ASVS 5.0.0 V8.1, NIST SP 800-53 Rev. 5 AC-3.
+**References:** OWASP API8:2023 Security Misconfiguration, OWASP API9:2023 Improper Inventory Management, OWASP ASVS
+v5.0.0-8.1.1, NIST SP 800-53 Rev. 5 AC-3.
 
 **Concept.** Equivalent endpoints, by API version, response format or alternative representation, apply identical
 authorization policies. Consistency is a configuration property of the gateway; its violation often comes from
@@ -550,8 +552,8 @@ convenience aliases) even if not documented in the current version.
 
 ### 2.5 The API does not expose excessive data `[P1]`
 
-**References:** OWASP API3:2023 Broken Object Property Level Authorization, OWASP ASVS 5.0.0 V8.2.3 and V14.2.6, NIST
-SP 800-53 Rev. 5 SC-4.
+**References:** OWASP API3:2023 Broken Object Property Level Authorization, OWASP ASVS v5.0.0-8.2.3 and v5.0.0-14.2.6,
+CWE-915, NIST SP 800-53 Rev. 5 AC-3.
 
 **Concept.** API responses contain only the fields the authenticated user may see, not the whole database object.
 Filtering happens server side, not client side (that would be security by obscurity): an attacker reads the raw HTTP
@@ -569,7 +571,7 @@ sensitive fields that should not be exposed.
 **Test logic.**
 
 - **Sensitive field presence.** `GET /api/users/me`: the response must not contain `password`, `passwordHash`, `ssn`,
-  `creditCard`, `apiKey` (ASVS V14.2.6).
+  `creditCard`, `apiKey` (ASVS v5.0.0-14.2.6).
 - **Role-based field filtering.** Fetch an object as admin (it includes a sensitive field), then as an ordinary user:
   the user's response must not contain it (field by field comparison, ASVS V8.2.3).
 - **Nested object filtering.** If an order includes a `user` object, it must contain only public fields (id, name),
@@ -646,8 +648,9 @@ must be validated.
 - **[audit]** Check in the documentation or middleware code whether an HMAC request signature is implemented (for
   example AWS Signature V4, or a custom `X-Signature` header with SHA-256). If not, document the absence as an
   architectural gap and assess the risk against the threat model (trusted internal proxies on the path).
-- **[audit]** If implemented: the algorithm is SHA-256 or stronger (NIST SP 800-107 Rev. 1) and the shared key has at
-  least 256 bits of entropy. MD5 or SHA-1 for HMAC are documented as non-conforming.
+- **[audit]** If implemented: the algorithm is SHA-256 or stronger and the shared key has at least 256 bits of
+  entropy. HMAC-MD5 is documented as non-conforming (RFC 6151: not in new designs); HMAC-SHA-1 is not weak in
+  itself (RFC 6194: "HMAC-SHA-1 remains secure") and is judged only when the operator forbids it.
 - **[audit]** The mechanism protects against replay by a timestamp in the payload with a validity window of at most 5
   minutes, or a single-use nonce with a uniqueness check on Redis. Without either, the mechanism is vulnerable to
   replay however strong the algorithm.
@@ -758,7 +761,7 @@ environment.
 **Configuration audit (checklist).**
 
 - **[audit]** Through the Admin API or files, the presence of circuit breaker directives (Kong plugin
-  `circuit-breaker` or `response-ratelimiting`; Traefik middleware `circuitbreaker`; Istio
+  `circuit-breaker`, a third-party one, or a passive health check on an Upstream; APISIX `api-breaker`; Traefik middleware `circuitbreaker`; Istio
   `DestinationRule.trafficPolicy.outlierDetection`; AWS API Gateway integration with retry policy and timeout). The
   total absence of any equivalent is documented as a critical architectural gap (ASVS V16.5.2).
 - **[audit]** Extract and check the parameters. Expected: `failure_threshold` (consecutive failures that open the
@@ -1096,7 +1099,7 @@ business-critical endpoints to test; no access to internal configuration.
 
 ### 7.2 The system prevents server-side request forgery (SSRF) `[P0]`
 
-**References:** OWASP API7:2023 Server Side Request Forgery, CWE-918, OWASP ASVS 5.0.0 V1.3.6, NIST SP 800-204 §3.2.2.
+**References:** OWASP API7:2023 Server Side Request Forgery, CWE-918, OWASP ASVS 5.0.0 V1.3.6.
 
 **Concept.** When the API accepts a user-supplied URL and makes a server-side HTTP request to it, an attacker can reach
 internal resources (the cloud metadata service at `169.254.169.254`, services on `localhost`, private subnets such as

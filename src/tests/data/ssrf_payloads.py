@@ -30,7 +30,8 @@ sources:
    URL: https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html
         https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-metadata-endpoint.html
 
-6. NIST SP 800-204 Section 3.2.2 — Microservices-based Systems Security.
+6. (NIST SP 800-204 section 3.2.2 was listed here until 2026-11-05: it covers
+   Internet-based attacks, not SSRF, and was dropped.)
 
 7. RFC 3986 — Uniform Resource Identifier (URI): Generic Syntax.
    Defines which notation forms are equivalent for IP literals.

@@ -69,7 +69,6 @@ from src.core.models import (
 )
 from src.core.references import (
     CalibrationPoint,
-    Fingerprint,
     fingerprint_of,
     random_token,
     sibling_pattern,
@@ -183,11 +182,11 @@ class Test02PathsWithoutARoute(BaseTest):
                 return missing
             notes: list[InfoNote] = []
             refusal = context.references.gateway_refusal()
-            trusted = self._unrouted(target, context, refusal)
-            if not trusted:
+            guard = self._unrouted(target, context, refusal)
+            if guard is None:
                 self._record(_SUB_NEAR, Outcome.NOT_VERIFIABLE, "REFUSAL_NOT_TRUSTED")
                 return self._finish(notes=notes)
-            notes += self._near_routes(target, client, store, refusal)
+            notes += self._near_routes(target, client, store, (refusal, guard))
             return self._finish(notes=notes)
         except SecurityClientError as exc:
             return self._error(exc)
@@ -198,7 +197,7 @@ class Test02PathsWithoutARoute(BaseTest):
 
     def _unrouted(
         self, target: TargetContext, context: TestContext, refusal: CalibrationPoint
-    ) -> bool:
+    ) -> CalibrationPoint | None:
         """
         Judge the gateway's refusal itself and say whether it can be trusted.
 
@@ -212,20 +211,21 @@ class Test02PathsWithoutARoute(BaseTest):
             refusal: The measured refusal.
 
         Returns:
-            True when the other sub-test may rest on this refusal.
+            The backend's own refusal (the guard) when the other sub-test may
+            rest on the gateway's refusal, which it then cites with it (rule 6); None otherwise.
         """
         if not refusal.reliable:
             self._record(_SUB_UNROUTED, Outcome.NOT_VERIFIABLE, "REFUSAL_UNSTABLE")
-            return False
+            return None
         fingerprint = refusal.fingerprint
         if fingerprint is None:
             self._record(_SUB_UNROUTED, Outcome.NOT_VERIFIABLE, "REFUSAL_UNSTABLE")
-            return False
+            return None
         catch_all = _catch_all_route(target)
         if catch_all is not None:
             self._record(_SUB_UNROUTED, Outcome.NOT_VERIFIABLE, "CATCH_ALL_ROUTE")
             log.info("test_0_2_catch_all_route", route=catch_all)
-            return False
+            return None
         category = categorize(fingerprint.status_code)
         if category == ResponseCategory.SERVED:
             self._record(
@@ -246,21 +246,23 @@ class Test02PathsWithoutARoute(BaseTest):
                     confidence=Confidence.CERTAIN,
                 ),
             )
-            return False
+            return None
         if category in _SPOILING:
             self._record(_SUB_UNROUTED, Outcome.NOT_VERIFIABLE, _SPOILING[category])
-            return False
+            return None
         backend = self._backend_refusal(target, context)
         if backend is None:
             self._record(_SUB_UNROUTED, Outcome.NOT_VERIFIABLE, "BACKEND_REFUSAL_UNKNOWN")
-            return False
-        if backend == fingerprint:
+            return None
+        if backend.fingerprint == fingerprint:
             self._record(_SUB_UNROUTED, Outcome.NOT_VERIFIABLE, "REFUSALS_INDISTINGUISHABLE")
-            return False
+            return None
         self._record(_SUB_UNROUTED, Outcome.ENFORCED, "REFUSED_BY_GATEWAY")
-        return True
+        return backend
 
-    def _backend_refusal(self, target: TargetContext, context: TestContext) -> Fingerprint | None:
+    def _backend_refusal(
+        self, target: TargetContext, context: TestContext
+    ) -> CalibrationPoint | None:
         """
         The fingerprint of a backend's own "not here" answer, for the guard.
 
@@ -274,7 +276,7 @@ class Test02PathsWithoutARoute(BaseTest):
             context: The run's context (reference responses).
 
         Returns:
-            The fingerprint, or None when no documented path could give one.
+            The calibration point, or None when no documented path could give one.
         """
         surface = target.attack_surface
         if surface is None:
@@ -287,7 +289,7 @@ class Test02PathsWithoutARoute(BaseTest):
             )
             point = context.references.calibration(sibling_pattern(path, parameters))
             if point.reliable and point.fingerprint is not None:
-                return point.fingerprint
+                return point
         return None
 
     # ------------------------------------------------------------------
@@ -299,16 +301,17 @@ class Test02PathsWithoutARoute(BaseTest):
         target: TargetContext,
         client: SecurityClient,
         store: EvidenceStore,
-        refusal: CalibrationPoint,
+        references: tuple[CalibrationPoint, CalibrationPoint],
     ) -> list[InfoNote]:
         """
         Probe the neighbours of each route path (optional need).
 
         Args:
-            target:  The run's target (gateway, surface).
-            client:  The run's HTTP client.
-            store:   The evidence store.
-            refusal: The gateway's measured refusal, already trusted.
+            target:     The run's target (gateway, surface).
+            client:     The run's HTTP client.
+            store:      The evidence store.
+            references: The gateway's measured refusal, already trusted, and
+                        the backend's own refusal that made it trusted.
 
         Returns:
             A note on what could not be interpreted, when there is one.
@@ -342,7 +345,7 @@ class Test02PathsWithoutARoute(BaseTest):
                 self._record(_SUB_NEAR, Outcome.NOT_APPLICABLE, "REGEX_ROUTE_PATH")
                 continue
             self._probe_route_path(
-                client, store, refusal, route, route_path, wanted, routes, documented
+                client, store, references, route, route_path, wanted, routes, documented
             )
         notes: list[InfoNote] = []
         if regex_paths:
@@ -364,7 +367,7 @@ class Test02PathsWithoutARoute(BaseTest):
         self,
         client: SecurityClient,
         store: EvidenceStore,
-        refusal: CalibrationPoint,
+        references: tuple[CalibrationPoint, CalibrationPoint],
         route: GatewayRoute,
         route_path: RoutePath,
         wanted: int,
@@ -382,13 +385,15 @@ class Test02PathsWithoutARoute(BaseTest):
         Args:
             client:     The run's HTTP client.
             store:      The evidence store.
-            refusal:    The gateway's measured refusal.
+            references: The gateway's measured refusal and the backend's (the
+                        guard); a finding cites both.
             route:      The route.
             route_path: The path of it being judged.
             wanted:     How many neighbours its match type deserves.
             routes:     Every enabled route, to leave covered paths alone.
             documented: The documented paths, to leave them alone.
         """
+        refusal = references[0]
         seen: list[tuple[EvidenceRecord | None, str]] = []
         for join in _NEIGHBOUR_JOINS[:wanted]:
             token = random_token()
@@ -406,7 +411,7 @@ class Test02PathsWithoutARoute(BaseTest):
                     Outcome.VIOLATION,
                     "SERVED_WITHOUT_ROUTE",
                     self._finding(route, route_path, path, record, served=True),
-                    reference_responses=(refusal,),
+                    reference_responses=references,
                 )
                 return
             if category in _REFUSING:
@@ -430,7 +435,7 @@ class Test02PathsWithoutARoute(BaseTest):
                 Outcome.VIOLATION,
                 "ANSWERED_WITHOUT_ROUTE",
                 self._finding(route, route_path, path, record, served=False),
-                reference_responses=(refusal,),
+                reference_responses=references,
             )
             return
         self._conclude(store, seen)

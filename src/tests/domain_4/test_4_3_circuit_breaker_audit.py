@@ -193,6 +193,9 @@ class Test43CircuitBreakerAudit(BaseTest):
                     ),
                     confidence=Confidence.CERTAIN,
                     evidence_ref=ref_cb,
+                    # The claim "no health check that detects" rests on this read
+                    # too.
+                    supporting_refs=[ref_hc] if ref_hc else [],
                 ),
             )
             return self._finish()

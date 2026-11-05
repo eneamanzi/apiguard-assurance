@@ -177,7 +177,7 @@ class BaseTest(AssessmentTest[ParamsT]):
         has but that could not be read is a check the run was asked for and
         could not make: every declared sub-test is NOT_VERIFIABLE
         (CONCEPT_NOT_ACCESSIBLE), so the test is INCONCLUSIVE and the run's exit
-        code says so (owner decision 2026-11-04, audit CORE-6: until then it was
+        code says so (owner decision 2026-11-04: until then it was
         a SKIP here and NOT_VERIFIABLE in other tests).
 
         Args:

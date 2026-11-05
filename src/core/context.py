@@ -53,7 +53,7 @@ from src.core.auth_placement import CredentialPlacement
 from src.core.gateway.base import BaseGatewayAdapter
 from src.core.models import AttackSurface, EvidenceRecord, ResourceConfig, RuntimeCredentials
 from src.core.models.external_tools import ExternalToolsConfig
-from src.core.redaction import SecretRegistry
+from src.core.redaction import MIN_SECRET_LENGTH, SecretRegistry
 from src.core.references import ReferenceResponses
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -201,8 +201,8 @@ class TargetContext(BaseModel):
     tls_context: ssl.SSLContext = Field(
         description=(
             "TLS context of the connection to base_url, built at startup from target.tls "
-            "(src/core/tls.py): the same trust as SecurityClient, for the tests that use "
-            "httpx directly (Test 1.5 HTTP redirect probe)."
+            "(src/core/tls.py): the run's SecurityClient is built with it. No test opens a "
+            "connection of its own (until 2026-10, test 1.5 used httpx directly)."
         ),
     )
 
@@ -519,7 +519,10 @@ class TestContext(BaseModel):
             label: What it is, shown in its place, e.g. "user_a token" or
                    "credential from resource 'forgejo-token'".
         """
-        self._secrets.register(value, label)
+        if not self._secrets.register(value, label):
+            # Too short to redact safely: it may appear in the outputs. Named by
+            # its label only, never the value.
+            log.warning("secret_too_short_not_redacted", label=label, min_length=MIN_SECRET_LENGTH)
 
     def declare_public_value(self, value: str) -> None:
         """

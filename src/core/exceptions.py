@@ -460,29 +460,32 @@ class TeardownError(ToolBaseError):
 
 class ExternalToolError(ToolBaseError):
     """
-    An external tool is present but its run failed (an exit code the connector treats as a
-    failure, a timeout with timed_out, output that cannot be read). Caught in the external
-    test, which returns ERROR.
+     An external tool is present but its run failed (an exit code the connector treats as a
+     failure, a timeout with timed_out, output that cannot be read). Caught in the external
+     test, which returns ERROR.
 
-    Non-recoverable conditions include:
-        - The subprocess exits with a non-zero code that the connector
-          interprets as an unrecoverable failure (as opposed to a tool-specific
-          "no findings" code, which varies per tool).
-        - The subprocess output cannot be parsed as valid JSON when JSON output
-          is expected (e.g., testssl.sh --jsonfile, nuclei -je).
-        - The subprocess.TimeoutExpired exception is raised because the wall-
-          clock limit passed as timeout_seconds to run() was exceeded.
+     Non-recoverable conditions include:
+         - The subprocess exits with a non-zero code that the connector
+           interprets as an unrecoverable failure (as opposed to a tool-specific
+           "no findings" code, which varies per tool).
+         - The subprocess output cannot be parsed as valid JSON when JSON output
+           is expected (e.g., testssl.sh --jsonfile, nuclei -je).
+         - The subprocess.TimeoutExpired exception is raised because the wall-
+           clock limit passed as timeout_seconds to run() was exceeded.
 
-    This exception is handled inside ExternalToolTest.execute() and converted
-    to TestResult(status=ERROR, message=str(exc)) before the engine sees it.
-    The engine never receives ExternalToolError directly — the same pattern
-    as SecurityClientError for native tests.
+     This exception is handled inside ExternalToolTest.execute() and converted
+     to TestResult(status=ERROR, message=str(exc)) before the engine sees it.
+     The engine never receives ExternalToolError directly — the same pattern
+     as SecurityClientError for native tests.
 
-    The timed_out field allows the calling test to produce a semantically
-    distinct message: "tool timed out after Ns" vs "tool failed with exit N".
-    The raw_stderr field carries the first STDERR_MAX_CHARS characters of
-    stderr output stripped of any credential patterns — safe to log and embed
-    in the ERROR TestResult message for operator debugging.
+     The timed_out field allows the calling test to produce a semantically
+     distinct message: "tool timed out after Ns" vs "tool failed with exit N".
+     The raw_stderr field is for a connector that keeps a tool's stderr, cut
+     to STDERR_MAX_CHARS and with its credentials removed. The shipped
+     connectors leave it None: they read stdout only (their error messages quote
+     it), and a tool's stderr may echo its command line, which can carry a
+     credential (Schemathesis's -H), with no reliable way to redact free text
+    .
     """
 
     STDERR_MAX_CHARS: int = 512

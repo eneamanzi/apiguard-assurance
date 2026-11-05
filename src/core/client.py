@@ -26,8 +26,10 @@ Return contract:
     whether to pass the EvidenceRecord to store.add_fail_evidence() or
     store.pin_evidence().
 
-    On non-recoverable transport failure, SecurityClientError is raised.
-    The test's execute() method must catch it and return TestResult(ERROR).
+    On non-recoverable transport failure, SecurityClientError is raised,
+    carrying the request as sent (exc.record). The test decides: a judged
+    request whose transport failed is NOT_VERIFIABLE (rule 4); a failure that
+    stops the test is caught in execute() and returned as ERROR.
 
 Dependency rule: this module imports from stdlib, httpx, tenacity, structlog,
 and src.core only. It must never import from tests/, config/, discovery/, or
@@ -36,11 +38,13 @@ report/.
 
 from __future__ import annotations
 
+import http.cookiejar
 import json
 import re
 import ssl
 import threading
 import time
+import urllib.request
 from collections.abc import Callable
 from datetime import UTC, datetime
 from types import TracebackType
@@ -62,6 +66,25 @@ from src.core.redaction import SET_COOKIE_HEADER, SecretRegistry
 from src.core.tls import TARGET_TLS, build_ssl_context, certificate_failure
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
+
+
+class _KeepNoCookie(http.cookiejar.DefaultCookiePolicy):
+    """A cookie policy that stores no cookie: the client's jar stays empty."""
+
+    def set_ok(self, cookie: http.cookiejar.Cookie, request: urllib.request.Request) -> bool:
+        """
+        Refuse every cookie a response sets (the jar replays nothing).
+
+        Args:
+            cookie:  The cookie a response set.
+            request: The request it answered.
+
+        Returns:
+            Always False.
+        """
+        del cookie, request
+        return False
+
 
 # An origin a test may ask instead of the target's base_url: scheme, host and
 # optional port, with no path (SecurityClient.request's origin).
@@ -220,8 +243,11 @@ class SecurityClient:
         - Redirect following disabled unconditionally.
 
     One SecurityClient instance is created during Phase 3 (Context Construction)
-    and shared across all test executions for the entire pipeline run. The client
-    is not thread-safe (consistent with the sequential execution model of V1.0).
+    and shared across all test executions for the entire pipeline run. Tests run
+    one after the other, but request() may be called from several threads at
+    once (test 7.3): the record counter and the request collector are locked,
+    and the cookie jar keeps no cookie, so there is nothing to clear between
+    requests.
 
     The underlying httpx.Client is managed as a context manager. The SecurityClient
     itself exposes __enter__ and __exit__ so that engine.py can use it in a
@@ -357,6 +383,20 @@ class SecurityClient:
             timeout=self._timeout,
             follow_redirects=False,
             verify=self._tls_context,
+            # A jar that keeps no cookie, so that no request carries state the
+            # calling test did not ask for. httpx keeps a jar per client and
+            # replays it on every later request to the host: measured on the
+            # reference lab, Forgejo answers a probe with `Set-Cookie:
+            # i_like_gitea=...` and from then on the jar travelled with each
+            # request, absent from the evidence. A session cookie there would
+            # authenticate the probes a test sends *without* a credential (1.1,
+            # 1.2, 1.3) and carry one role's session into another's request
+            # (2.2). A cookie is never a credential for this tool, so nothing
+            # needs the jar; test 1.6 judges the Set-Cookie of the response,
+            # which is recorded as evidence and not touched by this. Refusing
+            # every cookie at the jar replaces clearing it after each request,
+            # which raced between the threads of test 7.3.
+            cookies=http.cookiejar.CookieJar(policy=_KeepNoCookie()),
         )
         log.debug("security_client_http_session_opened", base_url=self._base_url)
         return self
@@ -468,8 +508,8 @@ class SecurityClient:
         display_url = f"{origin or self._base_url}{path}"
         if params:
             # The query belongs to what was asked (a credential placed in the
-            # query, test 1.1's malformed ones): the record showed the path only
-            # (audit D1-5). Each value is redacted before it is written, and the
+            # query, test 1.1's malformed ones), and until 2026-11-04 the record
+            # showed the path only. Each value is redacted before it is written, and the
             # query is not encoded, so that a registered secret is matched as it
             # is: an encoded token would escape the redaction.
             shown = "&".join(
@@ -678,21 +718,6 @@ class SecurityClient:
                         content=content,
                         params=params,
                     )
-                    # Every cookie the target set is dropped at once, so that no
-                    # request carries state the calling test did not ask for.
-                    # httpx keeps a cookie jar per client and replays it on every
-                    # later request to the host: measured on the reference lab,
-                    # Forgejo answers a probe with `Set-Cookie: i_like_gitea=...`
-                    # and from then on the jar travelled with each request,
-                    # absent from the evidence. A session cookie there would
-                    # authenticate the probes a test sends *without* a credential
-                    # (1.1, 1.2, 1.3) and could carry one role's session into
-                    # another's request (2.2). A cookie is never a credential
-                    # for this tool (`credentials.auth_type` has no cookie
-                    # method), so nothing needs the jar; test 1.6 judges the
-                    # Set-Cookie of the response, which is recorded as evidence
-                    # and not touched by this.
-                    self._http_client.cookies.clear()
                     # httpx does not raise on 4xx/5xx by default.
                     # We do NOT call response.raise_for_status() here:
                     # error status codes are valid responses for security tests.

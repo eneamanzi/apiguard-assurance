@@ -263,8 +263,8 @@ class Test04BackendWithoutTheGateway(BaseTest):
             host, port = parsed
             # The addresses the gateway states it resolved the target to (Kong
             # gives the name and, apart, its IP) are declared too: the gateway
-            # says the backend is there (owner decision 2026-11-04, audit
-            # CORE-8). They come before the derived address, which is judged
+            # says the backend is there (owner decision 2026-11-04). They come
+            # before the derived address, which is judged
             # against the declared ones (_judge_candidate).
             resolved = [r for r in (_host_port(a) for a in item.resolved) if r is not None]
             options = [(host, port, True), *((h, p, True) for h, p in resolved)]
@@ -349,7 +349,7 @@ class Test04BackendWithoutTheGateway(BaseTest):
         A refusal at the derived address (the target's host with the backend's
         port) counts only when the declared address refused too: alone it says
         the port is not published on the gateway's host, not that the backend
-        is out of reach (audit D0-3: on the Kong labs the declared names do not
+        is out of reach (on the Kong labs the declared names do not
         resolve from the run host, the backends answer there, and 0.4 was PASS
         on the derived refusals alone).
 

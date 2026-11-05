@@ -67,8 +67,7 @@ For each payload, one request to the endpoint with the payload URL in the body (
 with a `resource` a disposable object (a repository on the Forgejo labs) is created once and its webhooks go with it
 at teardown; the webhooks are created inactive so they never fire.
 
-**The series stops at the first sign that the backend hung or is out of service** (owner decision 2026-11-04,
-external audit D467-1): no answer, or the gateway's `502`, `503` or `504`. Every further URL would add a timeout,
+**The series stops at the first sign that the backend hung or is out of service** (owner decision 2026-11-04): no answer, or the gateway's `502`, `503` or `504`. Every further URL would add a timeout,
 and a gateway's passive health check counts them: on crAPI three made Kong take the workshop backend out of service,
 and the tests that ran next (0.1, 4.1, 4.4, 7.3, Schemathesis) got `503` and measured nothing. The URLs not sent are
 recorded `NOT_VERIFIABLE/NOT_SENT_AFTER_TIMEOUT`, and a note says why. A `500` is the backend's own answer and does
@@ -85,6 +84,7 @@ never an unproven violation. This is a permanent boundary of the test, not a gap
 |---|---|
 | rejected (`4xx` other than `429`) and the benign control was accepted | `ENFORCED/SSRF_BLOCKED_{SCHEME,MALFORMED,VALIDATION,UNKNOWN}` |
 | throttled (`429`), the payload or the benign control: the URL was never evaluated | `NOT_VERIFIABLE/RATE_LIMITED` |
+| a `401`, a redirect (not followed) or a `404`: not a rejection of the URL (the credential refused, an answer not read, perhaps the fetched page's own `404`) | `NOT_VERIFIABLE/CREDENTIAL_REFUSED`, `REDIRECTED`, `NOT_FOUND` |
 | rejected (`4xx`) but the benign control was also rejected | `NOT_VERIFIABLE/BASELINE_REJECTED` |
 | accepted (`2xx`) | `NOT_VERIFIABLE/OUTBOUND_NOT_CONFIRMED` |
 | `5xx` / upstream unavailable | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
@@ -97,8 +97,7 @@ The confirmed-SSRF `VIOLATION` requires the deferred listener; the test never em
 
 SKIP without `url_accepting_endpoint`. PASS when payloads were rejected with a baseline that accepts, **and at least
 one of them is a cloud-metadata or private-IP URL**: these two sub-tests are declared essential, so payloads rejected
-only in the other classes (malformed, a forbidden scheme) leave the test INCONCLUSIVE (owner decision 2026-11-04,
-external audit D467-2). INCONCLUSIVE also when nothing was verifiable (all accepted/upstream/baseline-rejected). It never FAILs without the
+only in the other classes (malformed, a forbidden scheme) leave the test INCONCLUSIVE (owner decision 2026-11-04). INCONCLUSIVE also when nothing was verifiable (all accepted/upstream/baseline-rejected). It never FAILs without the
 listener.
 
 ## 8. Findings
@@ -126,7 +125,7 @@ Section [`tests.domain_7.test_7_2`](../../03-reference/01-configuration.md#tests
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `url_accepting_endpoint` | object \| null | none, **needed to run** | The endpoint that accepts a URL from the client and makes the server call it (a webhook, a fetch-from-URL import): path, body (with "{ssrf_url}" where the URL goes) and, optionally, a prepared resource. No default: unset, the engine records the test as SKIP before it runs. |
-| `url_accepting_endpoint.path` | string | required | Path of the endpoint (POST). With a resource it may hold the resource's values, e.g. '/api/v1/repos/{owner}/{repo}/hooks'. |
+| `url_accepting_endpoint.path` | string | required | Path of the endpoint (POST). With a resource it may hold the resource's values, e.g. '/api/v1/projects/{project_id}/webhooks'. |
 | `url_accepting_endpoint.body` | object | required | JSON body of the request. Must contain "{ssrf_url}" exactly once, replaced by each payload URL; may contain "{random_secret}" (32 hexadecimal characters) and, with a resource, the resource's values. Placeholders in quotes. |
 | `url_accepting_endpoint.resource` | string \| null | none | Name of a prepared resource (resources: in config.yaml) created for user A before probing; its values fill the placeholders of path and body, and it is deleted at teardown. Optional: without it the path is used as written. |
 | `payload_categories` | list | 6 values (`cloud_metadata`, `private_ip`, …) | The bypass classes to probe. Valid values: 'cloud_metadata', 'private_ip', 'encoding_bypass', 'forbidden_protocol', 'dns_bypass', 'url_parser_confusion'. A class left out is not probed and its sub-test stays empty. |

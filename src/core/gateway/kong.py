@@ -159,6 +159,13 @@ class KongGatewayAdapter(BaseGatewayAdapter):
         """Return the adapter identifier used in logs and error messages."""
         return "kong"
 
+    @property
+    def secret_reference_prefixes(self) -> tuple[str, ...]:
+        """Kong vault references, by their start."""
+        # "{vault://env/my-secret-postgres-password}"
+        # (developer.konghq.com/gateway/secrets-management, read 2026-11-05).
+        return ("{vault://",)
+
     # ------------------------------------------------------------------
     # Neutral concepts (docs/04-architecture/05-design-decisions.md, D7)
     # ------------------------------------------------------------------
@@ -256,31 +263,31 @@ class KongGatewayAdapter(BaseGatewayAdapter):
         Map the third-party breaker plugins Kong is known to run to circuit breakers.
 
         Kong OSS has no breaker plugin; third-party ones are recognised by
-        name (_BREAKER_PLUGINS, in priority order), first instance of each name.
+        name (_BREAKER_PLUGINS, in priority order). Every instance is
+        reported, enabled or not: keeping only the first of each name read a
+        disabled one in front of an enabled one as no breaker.
         """
-        first_by_name: dict[str, dict[str, Any]] = {}
-        for plugin in self._fetch_paginated(_PATH_PLUGINS):
-            first_by_name.setdefault(str(plugin.get("name", "")), plugin)
+        plugins = self._fetch_paginated(_PATH_PLUGINS)
         items: list[CircuitBreaker] = []
         for candidate in _BREAKER_PLUGINS:
-            breaker = first_by_name.get(candidate)
-            if breaker is None:
-                continue
-            config: dict[str, Any] = breaker.get("config") or {}
-            scope, name = self._plugin_scope(breaker)
-            items.append(
-                CircuitBreaker(
-                    scope=scope,
-                    name=name,
-                    enabled=bool(breaker.get("enabled", False)),
-                    failure_threshold=_first_number(config, _BREAKER_THRESHOLD_FIELDS),
-                    failure_statuses=(),
-                    open_seconds=_first_number(config, _BREAKER_OPEN_FIELDS),
-                    recovery_successes=None,
-                    source=f"plugin {breaker.get('name')} (id: {breaker.get('id')})",
-                )
-            )
+            for breaker in (p for p in plugins if str(p.get("name", "")) == candidate):
+                items.append(self._breaker(breaker))
         return ConceptRead[CircuitBreaker].read(tuple(items))
+
+    def _breaker(self, breaker: dict[str, Any]) -> CircuitBreaker:
+        """One breaker plugin instance as a circuit breaker."""
+        config: dict[str, Any] = breaker.get("config") or {}
+        scope, name = self._plugin_scope(breaker)
+        return CircuitBreaker(
+            scope=scope,
+            name=name,
+            enabled=bool(breaker.get("enabled", False)),
+            failure_threshold=_first_number(config, _BREAKER_THRESHOLD_FIELDS),
+            failure_statuses=(),
+            open_seconds=_first_number(config, _BREAKER_OPEN_FIELDS),
+            recovery_successes=None,
+            source=f"plugin {breaker.get('name')} (id: {breaker.get('id')})",
+        )
 
     def _read_signing_policies(self) -> ConceptRead[SigningPolicy]:
         """Map every hmac-auth plugin to a signing policy."""
@@ -519,7 +526,7 @@ def _resolved_addresses(target: dict[str, Any]) -> tuple[str, ...]:
     ("forgejo:3000") and, under data.addresses, the IP and port it resolved it
     to (measured on the Forgejo lab 2026-11-04: 172.22.0.3, 3000), which test 0.4
     asks when the name does not resolve where the tool runs (owner decision
-    2026-11-04, audit CORE-8).
+    2026-11-04).
 
     Args:
         target: One entry of the health endpoint's data.

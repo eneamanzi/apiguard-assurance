@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import structlog
 from src.core.context import TargetContext
-from src.core.models import EndpointRecord
+from src.core.models import EndpointRecord, InfoNote
 from src.tests.helpers.path_resolver import resolve_path_with_seed
 from src.tests.helpers.resources import PreparedResource, create_resource
 
@@ -93,3 +93,30 @@ def _path_parameters(endpoint: EndpointRecord) -> set[str]:
 
 
 __all__ = ["PreparedResource", "SAFE_METHODS", "create_owned_object", "object_operations"]
+
+
+def not_deleted_note(left: list[str]) -> list[InfoNote]:
+    """
+    The note naming the objects a test created and could not delete (rule 7).
+
+    A resource without a delete request (a crAPI order) leaves its object on
+    the target: the result says so, instead of a log line only.
+
+    Args:
+        left: One description per object left ("order {'order_id': '13'}").
+
+    Returns:
+        One note, or none when nothing was left.
+    """
+    if not left:
+        return []
+    return [
+        InfoNote(
+            title=f"{len(left)} object(s) created and left on the target",
+            detail=(
+                "The test created these objects and could not delete them (their resource has no "
+                f"delete request, or the delete failed): {', '.join(left)}. Remove them by hand if "
+                "they matter (on a lab, its reset does)."
+            ),
+        )
+    ]

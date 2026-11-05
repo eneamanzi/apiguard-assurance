@@ -71,7 +71,7 @@ refuses us" and "we are not there to ask".
    - **the address the gateway declares** (Kong gives the name and port the operator configured, `forgejo:3000`;
      APISIX's Control API gives the node already resolved, `172.21.0.4:3000`),
    - **the addresses the gateway states it resolved that name to**, declared as well (Kong's health endpoint gives
-     them apart from the name, `172.22.0.3:3000`; tried since 2026-11-04, owner decision on external audit CORE-8:
+     them apart from the name, `172.22.0.3:3000`; tried since 2026-11-04, owner decision:
      before, a name that does not resolve where the tool runs ended the attempt),
    - **the target's own host with that backend's port** (`localhost:8443` and `forgejo:3000` give
      `localhost:3000`): the common case of a backend whose port is published on the same machine as the gateway;
@@ -95,6 +95,7 @@ other lab's gateway, not that backend.
 | the name does not resolve | either | `NOT_VERIFIABLE/ADDRESS_NOT_RESOLVABLE`: the tool is not on that network, which proves nothing | - |
 | the address has no port | either | `NOT_VERIFIABLE/ADDRESS_WITHOUT_PORT` | - |
 | the gateway gives no address | - | `NOT_VERIFIABLE/NO_BACKEND_ADDRESS`, `ADDRESSES_NOT_READABLE`; `NOT_APPLICABLE/ADDRESSES_NOT_READABLE` when the gateway has no such concept | - |
+| no gateway configured (the engine records the test as SKIP before it runs, so this is a guard only) | - | `NOT_APPLICABLE/NO_GATEWAY` | - |
 | the specification declares no path without parameters for `GET` | - | `NOT_VERIFIABLE/NO_PROBE_PATH` | - |
 | the target itself did not answer the probe path | - | `NOT_VERIFIABLE/TARGET_NOT_ANSWERING` | - |
 | no attempt left a record to judge (every attempt failed before a response could be read) | either | `NOT_VERIFIABLE/NO_ATTEMPT` | - |
@@ -133,12 +134,12 @@ its backend somewhere neither candidate reaches, the parameter is added then.
 ## 12. Validation
 
 Runs of 2026-10-22, the three tests of the group together; measured again on 2026-11-04 (0.4 alone), after the
-correction of the external audit (D0-3):
+correction of that day:
 
 | Lab | Status | Basis |
 |---|---|---|
 | Forgejo + APISIX | FAIL, 1 finding, CERTAIN | the Control API declares the node `172.21.0.4:3000`, which answers the probe path `200` with the same shape APISIX gives for it: the same Forgejo, without the gateway. The derived `localhost:3000` refuses the connection, `DERIVED_REFUSAL_ONLY` |
-| Forgejo + Kong | FAIL, 1 finding, CERTAIN | Kong declares `forgejo:3000`, a name that does not resolve from the host, and states it resolved it to `172.22.0.3:3000`, which answers the probe path `200` with the shape Kong gives: the same Forgejo, without the gateway. The derived `localhost:3000` refuses, `DERIVED_REFUSAL_ONLY`. A PASS until 2026-11-04 on that refusal alone (external audit D0-3, CORE-8) |
+| Forgejo + Kong | FAIL, 1 finding, CERTAIN | Kong declares `forgejo:3000`, a name that does not resolve from the host, and states it resolved it to `172.22.0.3:3000`, which answers the probe path `200` with the shape Kong gives: the same Forgejo, without the gateway. The derived `localhost:3000` refuses, `DERIVED_REFUSAL_ONLY`. A PASS until 2026-11-04 on that refusal alone |
 | crAPI + Kong | FAIL, 3 findings | the three service names do not resolve; at the addresses Kong resolved them to, the workshop (`172.23.0.8:8000`) answers like the gateway (CERTAIN), identity (`172.23.0.6:8080`) and community (`172.23.0.7:8087`) answer the workshop's path with their own `401`/`404` (FIRM: something listens where the gateway says the backend is). The derived `localhost:8080` and `localhost:8087` refuse, `DERIVED_REFUSAL_ONLY`; `localhost:8000` answers with the other lab's gateway, `ANOTHER_SERVICE`. A PASS until 2026-11-04 |
 | any | VIOLATION at FIRM | an HTTP answer at the declared address that is not the application: not on the labs |
 

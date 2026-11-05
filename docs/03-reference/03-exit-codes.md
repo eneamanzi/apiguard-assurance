@@ -28,7 +28,7 @@ A run never ends `0` without running at least one test. `130` and `143`: [stoppi
 
 **Precedence:** FAIL > ERROR > CLEAN. A single FAIL yields `1` regardless of how many ERRORs occurred.
 A SKIP never affects the exit code, except in a run whose every test was SKIP: nothing was verified, so it exits `3`
-(owner decision 2026-11-04, external audit PIPE-4; it exited `0` before).
+(owner decision 2026-11-04; it exited `0` before).
 
 **Exit 10 means no security verdict.** Phases 1-4 are blocking; when one fails, no test has run and the
 output files are not produced. Never treat `10` as "clean".
@@ -48,7 +48,9 @@ Ctrl+C (SIGINT) and SIGTERM are handled alike during `apiguard run`:
    instant Phase 6 started left 3 of 8 resources behind, 3 API tokens among them;
 4. the process ends by the **first** signal received: exit `130` (SIGINT) or `143` (SIGTERM), 128 + the signal
    number. A calling program sees a process terminated by that signal (Python `subprocess`: `returncode` `-2` or
-   `-15`). **No report files are written** (Phase 7 does not run; there is no partial report).
+   `-15`). **No report is written** (Phase 7 does not run; there is no partial report). `config_used.yaml` is,
+   since it is written right after Phase 1; a report file an earlier run left at the same path is not removed, and
+   the console lists only the files written by this run.
 
 Do not use SIGKILL (`kill -9`): it cannot be intercepted, so teardown does not run and the resources the tests
 created on the target are left behind. Leave the tool a few seconds to clean up: `docker stop` sends SIGKILL 10
@@ -56,8 +58,8 @@ seconds after SIGTERM by default; on the lab teardown took about a second for th
 eight, and it grows with the number of resources the tests created (verified 2026-10-28). Other commands
 (`validate-config`, `list-tests`, `generate-seed`, `version`) keep Python's default behaviour.
 
-**Fail-fast:** with `execution.fail_fast: true`, the run stops after the first P0 test that returns FAIL **or
-ERROR**. Teardown and report generation still run; the exit code follows the precedence rule on the results
+**Fail-fast:** with `execution.fail_fast: true`, the run stops after the first P0 test that returns FAIL,
+**ERROR or INCONCLUSIVE**. Teardown and report generation still run; the exit code follows the precedence rule on the results
 collected so far. Tests that had not started are listed in the report's `not_run` with reason `fail_fast` - they
 are not recorded as SKIP.
 
@@ -66,15 +68,20 @@ are not recorded as SKIP.
 | Command | Code | Meaning |
 |---|---|---|
 | `validate-config` | `0` | Configuration valid (Phase 1: YAML parsing, `${VAR}` interpolation, schema validation; plus the `execution.test_ids` check). |
-| `validate-config` | `10` | Configuration invalid or file not found. |
+| `validate-config` | `10` | Configuration invalid or file not found; the specification, needed to check how the credentials are sent, not readable; a test declared incorrectly. |
+| `list-tests` | `0` | Tests listed. |
+| `list-tests` | `10` | The configuration given with `--config` is invalid, or a test is declared incorrectly. |
 | `generate-seed` | `0` | Template generated. |
 | `generate-seed` | `1` | Specification could not be fetched or parsed. |
+| `generate-seed` | `2` | Neither a SPEC nor `--config` given, or both (a usage error, as below). |
+| `generate-seed` | `10` | The configuration given with `--config` is invalid. |
 | `version` | `0` | Always. |
 
 ## Usage errors
 
 Invalid invocations (unknown option, invalid choice such as `--log-format xml`, unknown command, no command) are
-rejected by the CLI framework (Typer/Click) with exit code **`2`**, for every command, before the tool starts:
+rejected by the CLI framework (Typer/Click) with exit code **`2`**, for every command, before the tool starts (and
+`generate-seed` gives `2` itself when it has neither a SPEC nor `--config`, or both):
 no test runs and no output file is written. `2` is reserved for this case (the usual convention of shells,
 `argparse` and Click); a completed run never returns it. Until 2026-10 ERROR was also `2`.
 

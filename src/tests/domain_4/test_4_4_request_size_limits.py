@@ -18,7 +18,7 @@ A 401 or 403 does not say who refused: the application, after the gateway
 forwarded the body, or the gateway itself, before its size check (Kong runs
 key-auth before request-size-limiting). The same body is then sent once more
 with user_a's credential, when the configuration provides it (owner decision
-2026-11-04, audit D467-3), and its answer is judged as above. When that is
+2026-11-04), and its answer is judged as above. When that is
 refused too, a forged credential (a random value placed as the run's credential
 is) tells who refused: the same status as the forged one means user_a's
 credential did not get past the first refuser,

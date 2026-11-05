@@ -7,7 +7,7 @@ produces a verdict (exit code), an interactive HTML report, a machine-readable J
 HTTP transactions that prove each violation.
 
 The checks come from a methodology of security guarantees in 8 domains (inventory, authentication,
-authorization, data integrity, availability, visibility, configuration, business logic). The tool implements 29
+authorization, data integrity, availability, visibility, configuration, business logic). The tool implements 28
 native tests and 3 tests based on external tools (ffuf, testssl.sh, Schemathesis); the full list is in the
 [test catalogue](docs/05-tests/README.md).
 

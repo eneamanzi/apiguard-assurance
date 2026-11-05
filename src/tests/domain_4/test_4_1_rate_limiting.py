@@ -11,8 +11,9 @@ controls.
 
     limit_enforced        a burst reaches a 429 -> ENFORCED; none within the
                           budget -> VIOLATION/NO_RATE_LIMIT;
-    ip_spoofing_resisted  the same burst with a random X-Forwarded-For per
-                          request still reaches a 429 -> ENFORCED; it floods
+    ip_spoofing_resisted  the same burst with a random client address per
+                          request, in every header that carries one
+                          (_SPOOF_HEADERS), still reaches a 429 -> ENFORCED; it floods
                           freely while the plain burst was limited ->
                           VIOLATION/IP_SPOOF_BYPASS.
 
@@ -70,9 +71,19 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 _SUB_LIMIT: str = "limit_enforced"
 _SUB_SPOOF: str = "ip_spoofing_resisted"
 
-# The header an attacker spoofs to pretend to be many clients; the gateway must
-# key its limit to the real TCP connection, not to this value.
-_XFF_HEADER: str = "X-Forwarded-For"
+# The headers an attacker spoofs to pretend to be many clients, all set to the
+# same random address on each request; the gateway must key its limit to the
+# real TCP connection, not to these values. X-Forwarded-For (the de facto
+# standard), Forwarded (RFC 7239, as "for=<address>"), X-Real-IP (nginx's
+# realip module, which Kong and APISIX build on), X-Client-IP and
+# True-Client-IP (set by CDNs): one burst covers them all (# only X-Forwarded-For was sent).
+_SPOOF_HEADERS: tuple[str, ...] = (
+    "X-Forwarded-For",
+    "X-Real-IP",
+    "X-Client-IP",
+    "True-Client-IP",
+)
+_FORWARDED_HEADER: str = "Forwarded"
 
 # Added to a limit read from the gateway, so the burst crosses the threshold.
 _BUDGET_MARGIN: int = 5
@@ -204,15 +215,17 @@ class Test41RateLimiting(BaseTest[Test41Params]):
             client: The run's HTTP client.
             path:   The path to flood.
             budget: The largest number of requests to send.
-            spoof:  Send a random X-Forwarded-For on every request.
+            spoof:  Send a random client address on every request (_spoofed_headers).
 
         Returns:
             The burst's result: how many requests, whether a 429 was seen (and
             its record), and whether the upstream was failing.
         """
         last: EvidenceRecord | None = None
+        failing_in_a_row = 0
+        served_before = False
         for sent in range(1, budget + 1):
-            headers = {_XFF_HEADER: _random_ip()} if spoof else None
+            headers = _spoofed_headers() if spoof else None
             record = _send(client, path, headers)
             if record is None:
                 continue
@@ -222,11 +235,23 @@ class Test41RateLimiting(BaseTest[Test41Params]):
                 return _BurstResult(
                     sent=sent, limited_record=record, last_record=last, upstream_failing=False
                 )
-            if category in _SPOILING and sent >= _SPOIL_SAMPLE:
-                # The endpoint is answering 5xx/unavailable, not a rate limit:
-                # flooding it further says nothing about the limit.
+            if category in _SPOILING:
+                failing_in_a_row += 1
+            else:
+                failing_in_a_row = 0
+                served_before = served_before or category == ResponseCategory.SERVED
+            if failing_in_a_row >= _SPOIL_SAMPLE:
+                # The endpoint keeps failing: flooding it further says nothing
+                # (a run of failures, not a single one). After
+                # answers that were served, a run of 503 may be a limit that
+                # rejects with 503 instead of 429.
                 return _BurstResult(
-                    sent=sent, limited_record=None, last_record=last, upstream_failing=True
+                    sent=sent,
+                    limited_record=None,
+                    last_record=last,
+                    upstream_failing=True,
+                    maybe_limit=served_before
+                    and record.response_status_code == _SERVICE_UNAVAILABLE,
                 )
         return _BurstResult(
             sent=budget, limited_record=None, last_record=last, upstream_failing=False
@@ -242,7 +267,8 @@ class Test41RateLimiting(BaseTest[Test41Params]):
     ) -> None:
         """Judge whether the plain burst met a rate limit (module docstring: the confidence)."""
         if plain.upstream_failing:
-            self._record(_SUB_LIMIT, Outcome.NOT_VERIFIABLE, "UPSTREAM_UNAVAILABLE")
+            detail = "LIMIT_OR_UNAVAILABLE" if plain.maybe_limit else "UPSTREAM_UNAVAILABLE"
+            self._record(_SUB_LIMIT, Outcome.NOT_VERIFIABLE, detail)
             return
         if plain.limited_record is not None:
             self._judge(plain.limited_record, store, _SUB_LIMIT, Outcome.ENFORCED, "RATE_LIMITED")
@@ -295,14 +321,15 @@ class Test41RateLimiting(BaseTest[Test41Params]):
             )
             return
         finding = Finding(
-            title=f"Rate limit bypassed by spoofing X-Forwarded-For on {path}",
+            title=f"Rate limit bypassed by spoofing the client address on {path}",
             detail=(
                 f"A plain burst to {path} met a 429 after {plain.sent} requests, but the same "
-                f"burst with a random {_XFF_HEADER} on every request sent {budget} without a "
-                "429. The gateway keys its rate limit to a client-controlled header, so an "
-                "attacker rotates the header and floods freely (OWASP API4:2023). Key the "
-                "limit to the real connection, or trust X-Forwarded-For only from known "
-                "proxies."
+                f"burst with a random client address on every request, in "
+                f"{', '.join((*_SPOOF_HEADERS, _FORWARDED_HEADER))}, sent {budget} without a "
+                "429. The gateway keys its rate limit to a client-controlled header (which of "
+                "these is not told apart), so an attacker rotates it and floods freely (OWASP "
+                "API4:2023). Key the limit to the real connection, or trust these headers only "
+                "from known proxies."
             ),
             confidence=Confidence.CERTAIN,
         )
@@ -332,9 +359,12 @@ _SPOILING: frozenset[ResponseCategory] = frozenset(
     }
 )
 
-# How many failing answers to tolerate before concluding the upstream is down
-# (a single transient 5xx does not stop the burst).
+# How many failing answers in a row end the burst (a single transient 5xx does
+# not stop it).
 _SPOIL_SAMPLE: int = 3
+# 503 Service Unavailable: what some gateways' rate limiters answer over the
+# limit (instead of 429), and what an unavailable backend answers too.
+_SERVICE_UNAVAILABLE: int = 503
 
 
 class _BurstResult(BaseModel):
@@ -346,6 +376,9 @@ class _BurstResult(BaseModel):
     limited_record: EvidenceRecord | None
     last_record: EvidenceRecord | None
     upstream_failing: bool
+    # The failing run is 503s after served answers: possibly a limit rejecting
+    # with 503 (some gateways' default) rather than an unavailable backend.
+    maybe_limit: bool = False
 
 
 def _configured_limit(gateway: BaseGatewayAdapter) -> int | None:
@@ -366,8 +399,16 @@ def _configured_limit(gateway: BaseGatewayAdapter) -> int | None:
     return min(limits) if limits else None
 
 
+def _spoofed_headers() -> dict[str, str]:
+    """Every client-address header set to one random address (_SPOOF_HEADERS)."""
+    address = _random_ip()
+    headers = dict.fromkeys(_SPOOF_HEADERS, address)
+    headers[_FORWARDED_HEADER] = f"for={address}"
+    return headers
+
+
 def _random_ip() -> str:
-    """A random public-looking IPv4 address for the X-Forwarded-For probe."""
+    """A random IPv4 address for the spoofing probe."""
     return ".".join(str(secrets.randbelow(254) + 1) for _ in range(4))
 
 

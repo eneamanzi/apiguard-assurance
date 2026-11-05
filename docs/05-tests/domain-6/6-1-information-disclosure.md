@@ -39,7 +39,7 @@ version disclosure).
 |---|---|
 | `no_stack_trace` | "stack trace detection on provoked errors": a malformed request leaks no exception, path, class or framework version |
 | `no_debug_field` | "debug field detection in a normal response": no `_debug`/`_sql`/`_internal` field |
-| `no_leaky_header` | "header information leakage": no `X-Powered-By`, no versioned `Server`, no internal `X-*` |
+| `no_leaky_header` | "header information leakage": no `X-Powered-By`, no `X-AspNet-Version`, no `Server` carrying a version; other internal `X-*` headers and a gateway's own (`Via: 1.1 kong/3.9.1`, `X-Kong-*`) are not judged (the page promised them until 2026-11-05) |
 | left out | authentication-error enumeration (test 1.7); the correlation-ID check (not reproducible from outside) |
 
 ## 3. Inputs
@@ -67,7 +67,7 @@ write endpoint, declared `Content-Type: application/json` so that the server's J
 | a sampled response carries a debug field | `VIOLATION/DEBUG_FIELD` | FIRM |
 | a sampled response carries a leaky header | `VIOLATION/LEAKY_HEADER` | CERTAIN |
 | none found | `ENFORCED/CLEAN` for the debug-field and leaky-header sub-tests; `ENFORCED/NO_STACK_TRACE` when the malformed body was rejected by the parser (`400`, `422`) or caused a server error (`5xx`) | - |
-| no endpoint to probe | `NOT_APPLICABLE` | - |
+| no documented `GET` to sample (debug fields, headers), no attack surface, or no write endpoint to send the malformed body to (stack trace) | `NOT_APPLICABLE/NO_READ_ENDPOINT`, `NO_ENDPOINT`, `NO_ERROR_PROBE` | - |
 
 ## 7. Outcomes
 
@@ -121,6 +121,12 @@ production responses.
 
 ## 14. Limitations
 
+- What counts as a stack trace is a list of markers (`src/tests/data/inspector_patterns.py`) and a file-system path
+  that starts a value (`"/app/main.py"`, `/usr/src/...`): a path inside a URL (`https://host/home/...`) and the
+  generic `app/` and `at /` no longer count (until 2026-11-05 they did, false findings).
+- An answer of an unavailable or throttled backend (`503`, `429`) is not looked at for debug fields or headers; with
+  no usable answer the two sub-tests are `NOT_VERIFIABLE/NO_USABLE_RESPONSE` (until 2026-11-05 a sample that all
+  failed was CLEAN).
 - Detection is by keyword/field-name/header-name heuristics: an oddly-shaped leak is missed, a benign match is a
   FIRM (not CERTAIN) finding.
 - The error is provoked with one malformed-JSON request; a leak that needs a specific input shape is not triggered.

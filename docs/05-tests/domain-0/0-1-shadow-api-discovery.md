@@ -46,7 +46,7 @@ ASVS v5.0.0-4.1.4: only the HTTP methods the API supports can be used, and unuse
 | Methodology sub-test (guarantee 0.1) | Sub-test | Coverage |
 |---|---|---|
 | Path enumeration by fuzzing | - | `ext.0.1.ffuf` |
-| HTTP method discovery | `undeclared_methods` | every documented path, every method of `GET, POST, PUT, PATCH, DELETE` the specification does not declare for it (`HEAD` is implied by `GET`, RFC 9110 §9.3.2) |
+| HTTP method discovery | `undeclared_methods` | every documented path, every method of `GET, POST, PUT, PATCH, DELETE` the specification does not declare for it (`HEAD` is implied by `GET`, RFC 9110 §9.3.2); and `TRACE` once per service, judged on its echo (below) |
 | Versioning completeness | `undocumented_versions` | the versions next to the documented ones, from the derivation rule `version_siblings`, each probed with a method the specification declares on the path it lends; whether two **documented** versions enforce the same controls is test 2.4 |
 | Documentation drift via the Admin API | `gateway_route_drift` | the gateway's routes against the documented paths, when a gateway is configured (optional need) |
 
@@ -75,8 +75,11 @@ ASVS v5.0.0-4.1.4: only the HTTP methods the API supports can be used, and unuse
     or a refused one (405) is evidence there: a handled method on an object that does not exist and an ignored one
     can answer alike (both 404 on Forgejo);
   - a path without parameters is probed as it is, with an empty JSON body for `POST`, `PUT`, `PATCH`;
-  - anything a handled write creates (a `2xx` with `Location`, or an accepted `PUT`) is deleted at once; what cannot
-    be deleted is named in a note of the result.
+  - what an accepted write surely created is deleted at once: the object its `Location` names, or the random path an
+    accepted `PUT` wrote to on a path with parameters. Any other accepted write (a `POST` without `Location`, a `PUT`
+    or `PATCH` on a real path, a `DELETE`) is named in a note of the result and never followed by a `DELETE`, which
+    on a real path could remove a real resource (until 2026-11-04 an accepted `PUT` on a real path was followed by a
+    `DELETE` of that path).
 - **`undocumented_versions`:** one request per derived candidate. The path probed is chosen by a stated rule: of
   that version group, a `GET` path first (read-only), a path of any documented method otherwise, preferring one
   without parameters and then the shortest; a method with a body is sent with an empty one. Probing `GET` only left
@@ -93,9 +96,25 @@ ASVS v5.0.0-4.1.4: only the HTTP methods the API supports can be used, and unuse
 | the same answer as the same method on random siblings, and that answer is a refusal of the request itself (401, 403): the target did not look at the method | `NOT_VERIFIABLE/REFUSED_BEFORE_ROUTING` | - |
 | a path with parameters, any other answer (not 2xx, not 405): its random siblings are the same route, and an object that does not exist answers a handled method and an ignored one alike | `NOT_VERIFIABLE/NONEXISTENT_OBJECT` | - |
 | a path without parameters, the same answer as the same method on random siblings | `ENFORCED/METHOD_NOT_SERVED` | - |
-| `SERVED` (2xx): the method was executed | `VIOLATION/UNDECLARED_METHOD_HANDLED` | CERTAIN: the observed behaviour |
+| `SERVED` (2xx): the method was executed | `VIOLATION/UNDECLARED_METHOD_HANDLED` | CERTAIN on a path without parameters, where random siblings answered otherwise; FIRM on a path with parameters, where nothing was compared (until 2026-11-04 CERTAIN, with a text claiming a comparison) |
+| a path without parameters next to a documented path with a parameter in its place (`/users/search` and `/users/{username}`): its random siblings reach that route, so a different answer is no evidence | `NOT_VERIFIABLE/SIBLING_ROUTE_DOCUMENTED` | - |
+| a path without parameters served (2xx) exactly as its random siblings (a server answering every path) | `NOT_VERIFIABLE/SERVED_LIKE_UNKNOWN` | - |
 | a path without parameters, a different answer from the same method on random siblings | `VIOLATION/UNDECLARED_METHOD_KNOWN` | FIRM: it rests on the assumption that a different answer means the endpoint knows the method |
 | unavailable, rate limited, server error, no response | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`, `RATE_LIMITED`, `SERVER_ERROR`, `NO_RESPONSE` | - |
+
+**`TRACE`** (since 2026-11-05), asked once per service on its shortest documented `GET` path. A server that answers
+`TRACE` sends back the request it received (RFC 9110 §9.3.8), which lets a script in a browser read the headers of
+its own request, cookies included (Cross-Site Tracing). It is usually a server-wide setting, so it is not compared
+with random paths (a server echoing everywhere would read as "like an unknown path") and not asked per path (one
+finding per path would repeat one fact): the echo itself is the proof.
+
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| `2xx` with the request line (`TRACE /...`) sent back in the body | `VIOLATION/TRACE_ECHOED` | CERTAIN |
+| `405` or `501` | `ENFORCED/METHOD_REJECTED` | - |
+| any other answer (refused, not found): the request is not sent back | `ENFORCED/TRACE_NOT_SERVED` | - |
+| `2xx` without the echo: something handled TRACE, what is not known | `NOT_VERIFIABLE/TRACE_SERVED_NO_ECHO` | - |
+| unavailable, rate limited, server error, no response | `NOT_VERIFIABLE/` the reason | - |
 
 **`undocumented_versions`:**
 
@@ -122,7 +141,9 @@ ASVS v5.0.0-4.1.4: only the HTTP methods the API supports can be used, and unuse
 How a route path matches (prefix, exact, regular expression) is the adapter's answer, not this test's guess: each
 adapter translates its gateway's own syntax (Kong writes a regular expression as `~<expression>`, APISIX a prefix as
 `<path>*`) into the neutral vocabulary of the `routes` concept. A gateway with another syntax needs only its
-adapter.
+adapter. A regular expression is tried on each documented path as written and with a number and a word in place of
+its parameters (`/users/1`, `/users/a`): a template like `/users/{id}` never matches `^/users/\d+$` as written, and
+until 2026-11-04 such a route was reported as not documented.
 
 ## 7. Outcomes
 
@@ -174,7 +195,9 @@ Request volume (the method probes are almost all of it): about 1350 on Forgejo (
 crAPI (40). The calibration points are measured once per run and reused across tests, paths and methods: 126 on
 Forgejo, 41 on crAPI (both tests of the guarantee together).
 
-**What each branch has been seen doing** (rule 9). Proven on a lab: `METHOD_REJECTED`, `METHOD_NOT_SERVED`,
+**What each branch has been seen doing** (rule 9). `TRACE` (2026-11-05): `METHOD_REJECTED` on the three labs (each
+gateway answers `405`), `TRACE_ECHOED` (CERTAIN) on a scratch server that echoes it; `TRACE_NOT_SERVED` and
+`TRACE_SERVED_NO_ECHO` unproven. Proven on a lab: `METHOD_REJECTED`, `METHOD_NOT_SERVED`,
 `REFUSED_BEFORE_ROUTING` (crAPI's identity, for methods and versions), `NONEXISTENT_OBJECT` (Forgejo),
 `UNDECLARED_METHOD_KNOWN` (crAPI's `PUT`), `SERVER_ERROR`,
 `VERSION_ABSENT`, `NO_PATH_IN_GROUP` (before the rule was widened to any documented method),
@@ -245,8 +268,9 @@ gateway routes nothing documented uses.
 - `undocumented_versions` tries the neighbours of the documented versions, not every name a version could have, and
   probes one path per group: a version active on another path only is not seen. A version the specification does
   document, next to a newer one, is not its question (test 2.4 asks whether both enforce the same controls).
-- A handled method on a path with parameters answers "not found" rather than succeeding, so it is reported with
-  confidence FIRM, not CERTAIN: the proof is the difference from an unsupported method, not an executed operation.
+- On a path with parameters only an executed method (`2xx`, FIRM) or a refused one (`405`) is evidence: a handled
+  method on an object that does not exist answers "not found" like an ignored one, so it is `NOT_VERIFIABLE`
+  (until 2026-11-05 this line still described the FIRM finding removed on 2026-11-04).
 - `gateway_route_drift` compares paths, not methods: a route allowing more methods than the specification declares
   is seen by `undeclared_methods` instead.
 

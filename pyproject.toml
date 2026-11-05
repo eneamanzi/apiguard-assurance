@@ -430,8 +430,8 @@ no_implicit_reexport = true
 show_error_codes = true
 
 # ---------------------------------------------------------------------------
-# Import-linter: dependency rules between src/ packages (CLAUDE.md "Dependency
-# direction", docs/04-architecture/01-overview.md). Checked by: hatch run dev:check
+# Import-linter: dependency rules between src/ packages
+# (docs/04-architecture/01-overview.md). Checked by: hatch run dev:check
 # ---------------------------------------------------------------------------
 [tool.importlinter]
 root_package = "src"

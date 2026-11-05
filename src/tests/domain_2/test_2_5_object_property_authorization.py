@@ -9,8 +9,9 @@ Two sub-tests, on a disposable object owned by user_a (created through a
 configured resource, as in test 2.2):
 
     no_sensitive_field  the object's response carries no field whose name is
-                        sensitive (`password`, `*hash`, `ssn`, `credit*`,
-                        `*secret`, `*token`, `*key`, ...). A sensitive field in
+                        sensitive (`password`, `hash`, `secret`, `token`,
+                        `apikey`, `privatekey`, `ssn`, `creditcard`, `cvv`, ...:
+                        the list is _SENSITIVE_NAMES). A sensitive field in
                         the response is excessive data exposure, whatever the
                         role (ASVS v5.0.0-14.2.6). Role-differential filtering is
                         covered here: a field a user must not see is caught by
@@ -63,6 +64,7 @@ from src.tests.helpers.owned_object import (
     SAFE_METHODS,
     PreparedResource,
     create_owned_object,
+    not_deleted_note,
     object_operations,
 )
 from src.tests.helpers.resources import ResourceSetupError, delete_resource
@@ -76,7 +78,7 @@ _SUB_MASS: str = "mass_assignment"
 # be in an API response (ASVS v5.0.0-14.2.6). A marker of up to
 # _MAX_WORD_MARKER characters must be a whole word of the field name (split on
 # '_', '-' and camelCase, lower case, a plural 's' ignored): as a substring
-# 'ssn' matched 'classname' and 'hash' 'hashtag' (audit D235-6). A longer marker
+# 'ssn' matched 'classname' and 'hash' 'hashtag'. A longer marker
 # is a substring of the name in lower case without '_' and '-', so that
 # 'passwordhash', 'accessToken' and 'API-Key' are all caught.
 _SENSITIVE_NAMES: tuple[str, ...] = (
@@ -110,8 +112,10 @@ _MASK_CHARACTERS: frozenset[str] = frozenset("*xX#\u2022")
 _MIN_MASKED: int = 4
 _MAX_CLEAR: int = 4
 
-# How deep the field-name scan descends into a JSON response.
+# How deep the field-name scan descends into a JSON response, and how many items
+# of each list it reads (an object's lists repeat one shape).
 _SCAN_DEPTH: int = 3
+_SCAN_LIST_ITEMS: int = 5
 
 # The privileged or ownership fields injected by the mass-assignment probe, all
 # carrying the same string sentinel: what identifies a bound field is its own
@@ -205,9 +209,10 @@ class Test25ObjectPropertyAuthorization(BaseTest[Test25Params]):
             if missing is not None:
                 return missing
             user_a = auth_parts(target, context, ROLE_USER_A)
+            left: list[str] = []
             for name in self.params(target).owned_object_resources:
-                self._run_resource(target, context, client, store, name, user_a)
-            return self._finish()
+                self._run_resource(target, context, client, store, (name, left), user_a)
+            return self._finish(notes=not_deleted_note(left) or None)
         except AuthenticationSetupError as exc:
             return self._error(exc)
         except SecurityClientError as exc:
@@ -219,17 +224,18 @@ class Test25ObjectPropertyAuthorization(BaseTest[Test25Params]):
         context: TestContext,
         client: SecurityClient,
         store: EvidenceStore,
-        name: str,
+        resource: tuple[str, list[str]],
         user_a: RequestAuthParts,
     ) -> None:
-        """Run both property sub-tests on one owned-object resource."""
+        """Run both property sub-tests on one owned-object resource (its name, the objects left)."""
+        name, left = resource
         try:
-            self._sensitive(target, context, client, store, name, user_a)
+            self._sensitive(target, context, client, store, (name, left), user_a)
         except ResourceSetupError as exc:
             log.warning("test_2_5_object_not_created", resource=name, error=str(exc))
             self._record(_SUB_SENSITIVE, Outcome.NOT_VERIFIABLE, "OBJECT_NOT_CREATED")
         try:
-            self._mass_assignment(target, context, client, store, name, user_a)
+            self._mass_assignment(target, context, client, store, (name, left), user_a)
         except ResourceSetupError as exc:
             log.warning("test_2_5_object_not_created", resource=name, error=str(exc))
             self._record(_SUB_MASS, Outcome.NOT_VERIFIABLE, "OBJECT_NOT_CREATED")
@@ -240,10 +246,11 @@ class Test25ObjectPropertyAuthorization(BaseTest[Test25Params]):
         context: TestContext,
         client: SecurityClient,
         store: EvidenceStore,
-        resource: str,
+        resource_and_left: tuple[str, list[str]],
         user_a: RequestAuthParts,
     ) -> None:
         """Create the object, read it, and scan its fields for sensitive names."""
+        resource, left = resource_and_left
         owned = create_owned_object(target, context, client, resource, ROLE_USER_A, self.info.id)
         try:
             read = self._read_object(target, client, owned.values, user_a)
@@ -251,12 +258,10 @@ class Test25ObjectPropertyAuthorization(BaseTest[Test25Params]):
                 self._record(_SUB_SENSITIVE, Outcome.NOT_VERIFIABLE, "OBJECT_NOT_READABLE")
                 return
             response, record = read
-            if category_of(record) != ResponseCategory.SERVED:
+            if response is None or category_of(record) != ResponseCategory.SERVED:
                 # A refused, missing or failing read shows no field at all: it
                 # proves neither a leak nor its absence.
-                self._judge(
-                    record, store, _SUB_SENSITIVE, Outcome.NOT_VERIFIABLE, "OBJECT_NOT_READABLE"
-                )
+                self._judge(record, store, _SUB_SENSITIVE, Outcome.NOT_VERIFIABLE, _unread(record))
                 return
             body = _json(response)
             leaked = sorted(_sensitive_fields(body))
@@ -282,7 +287,7 @@ class Test25ObjectPropertyAuthorization(BaseTest[Test25Params]):
             else:
                 self._judge(record, store, _SUB_SENSITIVE, Outcome.ENFORCED, "NO_SENSITIVE_FIELD")
         finally:
-            self._cleanup(target, context, client, owned)
+            self._cleanup(target, context, client, owned, left)
 
     def _mass_assignment(  # noqa: PLR0913 -- the probe needs all of it
         self,
@@ -290,15 +295,16 @@ class Test25ObjectPropertyAuthorization(BaseTest[Test25Params]):
         context: TestContext,
         client: SecurityClient,
         store: EvidenceStore,
-        resource: str,
+        resource_and_left: tuple[str, list[str]],
         user_a: RequestAuthParts,
     ) -> None:
         """Create an object with injected privileged fields, read it, check reflection."""
+        resource, left = resource_and_left
         definition = target.resources.get(resource)
         if definition is None or not isinstance(definition.create.json_body(), dict):
             # The fields are merged only into a JSON object body (helpers/
             # resources.py): with any other body nothing is injected, and a
-            # clean read-back would prove nothing (audit D235-5).
+            # clean read-back would prove nothing.
             self._record(_SUB_MASS, Outcome.NOT_VERIFIABLE, "FIELDS_NOT_INJECTED")
             return
         owned = create_owned_object(
@@ -310,14 +316,14 @@ class Test25ObjectPropertyAuthorization(BaseTest[Test25Params]):
                 self._record(_SUB_MASS, Outcome.NOT_VERIFIABLE, "OBJECT_NOT_READABLE")
                 return
             response, record = read
-            if category_of(record) != ResponseCategory.SERVED:
+            if response is None or category_of(record) != ResponseCategory.SERVED:
                 # Not read back: no sentinel can be seen, so no conclusion either way.
-                self._judge(record, store, _SUB_MASS, Outcome.NOT_VERIFIABLE, "OBJECT_NOT_READABLE")
+                self._judge(record, store, _SUB_MASS, Outcome.NOT_VERIFIABLE, _unread(record))
                 return
             body = _json(response)
             if not _exposed_fields(body):
                 # The representation shows none of the injected properties:
-                # whether they were bound cannot be seen (audit D235-4).
+                # whether they were bound cannot be seen.
                 self._judge(record, store, _SUB_MASS, Outcome.NOT_VERIFIABLE, "FIELDS_NOT_EXPOSED")
                 return
             reflected = sorted(_reflected_fields(body))
@@ -344,7 +350,7 @@ class Test25ObjectPropertyAuthorization(BaseTest[Test25Params]):
             else:
                 self._judge(record, store, _SUB_MASS, Outcome.ENFORCED, "NO_MASS_ASSIGNMENT")
         finally:
-            self._cleanup(target, context, client, owned)
+            self._cleanup(target, context, client, owned, left)
 
     def _read_object(
         self,
@@ -352,8 +358,14 @@ class Test25ObjectPropertyAuthorization(BaseTest[Test25Params]):
         client: SecurityClient,
         values: dict[str, str],
         user_a: RequestAuthParts,
-    ) -> tuple[httpx.Response, EvidenceRecord] | None:
-        """GET the created object as user_a; its response and record, or None if unreadable."""
+    ) -> tuple[httpx.Response | None, EvidenceRecord] | None:
+        """
+        GET the created object as user_a: its response and record.
+
+        A transport failure returns its record with no response, so that the
+        caller judges it NO_RESPONSE (rule 4); None when no read
+        is documented or no record exists.
+        """
         reads = object_operations(target, values, SAFE_METHODS)
         if not reads:
             return None
@@ -366,8 +378,8 @@ class Test25ObjectPropertyAuthorization(BaseTest[Test25Params]):
                 headers=dict(user_a.headers) or None,
                 params=dict(user_a.params) or None,
             )
-        except SecurityClientError:
-            return None
+        except SecurityClientError as exc:
+            return None if exc.record is None else (None, exc.record)
         return response, record
 
     def _cleanup(
@@ -376,19 +388,21 @@ class Test25ObjectPropertyAuthorization(BaseTest[Test25Params]):
         context: TestContext,
         client: SecurityClient,
         owned: PreparedResource,
+        left: list[str],
     ) -> None:
-        """Delete the created object now; the teardown entry accepts a 404."""
+        """Delete the created object now, or name it in `left` (not_deleted_note)."""
         resource = target.resources.get(owned.name)
         if resource is None or resource.delete is None:
-            # The object type has no delete operation (e.g. a crAPI order): it is
-            # not cleaned up by the tool; the lab reset removes it. By design.
+            # The object type has no delete operation (e.g. a crAPI order).
             log.info("test_2_5_object_not_deletable", resource=owned.name)
+            left.append(f"{owned.name} {owned.values}")
             return
         try:
             _response, record = delete_resource(target, context, client, owned, self.info.id)
             self._step(record)
         except (ResourceSetupError, SecurityClientError) as exc:
             log.warning("test_2_5_cleanup_failed", error=str(exc))
+            left.append(f"{owned.name} {owned.values}")
 
 
 def _json(response: httpx.Response) -> object:
@@ -397,6 +411,13 @@ def _json(response: httpx.Response) -> object:
         return response.json()
     except ValueError:
         return {}
+
+
+def _unread(record: EvidenceRecord) -> str:
+    """The reason a read shows nothing: NO_RESPONSE for a transport failure (rule 4)."""
+    if category_of(record) == ResponseCategory.NO_RESPONSE:
+        return "NO_RESPONSE"
+    return "OBJECT_NOT_READABLE"
 
 
 def _sensitive_fields(node: object, depth: int = 0) -> set[str]:
@@ -410,7 +431,7 @@ def _sensitive_fields(node: object, depth: int = 0) -> set[str]:
                 found.add(str(key))
             found |= _sensitive_fields(value, depth + 1)
     elif isinstance(node, list):
-        for item in node[:5]:
+        for item in node[:_SCAN_LIST_ITEMS]:
             found |= _sensitive_fields(item, depth + 1)
     return found
 
@@ -448,7 +469,7 @@ def _reflected_fields(node: object, depth: int = 0) -> set[str]:
                 found.add(str(key))
             found |= _reflected_fields(value, depth + 1)
     elif isinstance(node, list):
-        for item in node[:5]:
+        for item in node[:_SCAN_LIST_ITEMS]:
             found |= _reflected_fields(item, depth + 1)
     return found
 
@@ -463,7 +484,7 @@ def _exposed_fields(node: object, depth: int = 0) -> set[str]:
         for value in node.values():
             found |= _exposed_fields(value, depth + 1)
     elif isinstance(node, list):
-        for item in node[:5]:
+        for item in node[:_SCAN_LIST_ITEMS]:
             found |= _exposed_fields(item, depth + 1)
     return found
 

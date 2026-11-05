@@ -28,6 +28,10 @@ from src.tests.helpers.path_resolver import resolve_path_with_seed
 
 # The methods that change nothing: an anchor is looked for only among them.
 _SAFE_METHODS: frozenset[str] = frozenset({"GET", "HEAD"})
+# A request without a credential refused: what an anchor must answer.
+_REFUSED: frozenset[ResponseCategory] = frozenset(
+    {ResponseCategory.UNAUTHENTICATED, ResponseCategory.FORBIDDEN}
+)
 
 
 @dataclass(frozen=True)
@@ -37,6 +41,9 @@ class Anchor:
     method: str
     path: str
     record: EvidenceRecord
+    # The same request without a credential, refused: the negative control a
+    # finding cites with the positive one (record).
+    refused: EvidenceRecord
 
 
 def find_anchor(
@@ -77,10 +84,13 @@ def find_anchor(
         # with no credential too (a public one the spec marks protected, such as
         # Forgejo's `/api/v1/orgs`) is no anchor, because then a refusal of a
         # degraded or revoked credential would not be about the credential.
+        # And it must refuse the request without one (401, 403): a 429, a 5xx,
+        # a redirect or no answer does not show that the credential is checked
+        # there.
         without = _ask(client, method, path, {}, {}, test_id)
-        if without is not None and category_of(without) == ResponseCategory.SERVED:
+        if without is None or category_of(without) not in _REFUSED:
             continue
-        return Anchor(method=method, path=path, record=with_credential)
+        return Anchor(method=method, path=path, record=with_credential, refused=without)
     return None
 
 

@@ -14,8 +14,10 @@ The source parameter accepts two formats:
     HTTP/HTTPS URL  -- the spec is downloaded by the tool
                        (src/discovery/download.py) with the settings of
                        `specification` (TLS context, timeout), then given to
-                       prance as text with its URL, so that relative $ref
-                       resolve as before. External $ref are fetched by prance
+                       prance as text with its URL. A $ref inside the document
+                       (#/...) resolves; a relative $ref to another file does
+                       not (prance refuses it over a URL: the error says to use
+                       specification.path). External $ref are fetched by prance
                        itself (requests, no TLS settings): a timeout watchdog
                        (threading) prevents an indefinite hang.
 
@@ -146,6 +148,10 @@ _NETWORK_SCHEME_PREFIXES: tuple[str, ...] = ("http://", "https://", "file://")
 # prance's message for a relative $ref in a specification read from a URL
 # (prance.util.url.absurl): not supported by prance, with or without TLS.
 _PRANCE_RELATIVE_REF_OVER_URL: str = "non-file reference"
+# How deep prance follows a recursive $ref (a schema that contains itself);
+# past it the reference is replaced by an empty schema {} (the handler below),
+# so a recursive schema is cut, not expanded forever.
+_REF_RECURSION_LIMIT: int = 10
 
 
 # ---------------------------------------------------------------------------
@@ -175,8 +181,9 @@ class _NonValidatingResolvingParser(ResolvingParser):  # type: ignore[misc]
     version in pyproject.toml to guard against this breaking silently.
     """
 
-    # URL a downloaded specification came from: relative $ref resolve against it.
-    # None for a local file (prance's own URL is then the file's).
+    # URL a downloaded specification came from, set as the parser's URL in place
+    # of prance's placeholder. A relative $ref to another file is still refused
+    # over a URL (_PRANCE_RELATIVE_REF_OVER_URL). None for a local file.
     ref_base_url: str | None = None
 
     def _validate(self) -> None:
@@ -230,8 +237,9 @@ def load_openapi_spec(
 
     A URL is downloaded by the tool (src/discovery/download.py) with the
     connection settings of `specification` (TLS context, timeout); prance
-    receives the text and the URL it came from, so that relative $ref resolve
-    as before. prance's $ref resolution runs in a background thread: it may
+    receives the text and the URL it came from (a relative $ref to another file
+    is refused over a URL, with a message pointing to specification.path).
+    prance's $ref resolution runs in a background thread: it may
     fetch external $ref itself, with no timeout of its own, so if it does not
     complete within timeout_seconds an OpenAPILoadError is raised.
 
@@ -401,8 +409,9 @@ def _prance_worker(source_url: str, spec_text: str | None) -> dict[str, object]:
 
     A local file is read by prance. A downloaded specification is given as
     text; prance then sets a placeholder URL, which is replaced by the real
-    one before parsing (lazy parser), so that relative $ref resolve against
-    it. External $ref are still fetched by prance itself.
+    one before parsing (lazy parser); a relative $ref to another file is still
+    refused over a URL (_PRANCE_RELATIVE_REF_OVER_URL). External $ref are still
+    fetched by prance itself.
 
     Args:
         source_url: HTTP/HTTPS URL or absolute filesystem path of the spec.
@@ -417,7 +426,7 @@ def _prance_worker(source_url: str, spec_text: str | None) -> dict[str, object]:
     """
     options: dict[str, object] = {
         "strict": False,
-        "recursion_limit": 10,
+        "recursion_limit": _REF_RECURSION_LIMIT,
         "recursion_limit_handler": lambda *args, **_kwargs: {},
     }
     if spec_text is None:

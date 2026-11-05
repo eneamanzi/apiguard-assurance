@@ -368,15 +368,11 @@ class TestResult(BaseModel):
         test via BaseTest._judge() and _step() during execute(). It is embedded
         in the HTML report as a collapsible table inside the expanded row panel.
 
-        NO CAP is applied. The ultra-lightweight TransactionSummary design
-        (~160 bytes, no body content) makes a cap architecturally unnecessary:
-        - 2000 entries (worst case, Test 4.1) = 320 KB of JSON in HTML
-        - Full assessment (2885 entries estimated) = 461 KB
-        Both values are safe for browser rendering and Python RAM.
-
-        Body content is absent by design. Reproducibility of FAIL payloads
-        is guaranteed by EvidenceStore / evidence.json (full EvidenceRecord).
-        The transaction_log provides COVERAGE proof, not payload detail.
+        NO CAP is applied on the number of entries. Each entry carries the
+        bodies truncated (request body 2,000 characters, response preview
+        1,000: src/core/models/http.py), so the size is bounded per entry; the
+        full records of FAIL evidence are in EvidenceStore / evidence.json
+        (this said the entries carried no body).
     """
 
     __test__ = False
@@ -589,6 +585,11 @@ class TestResult(BaseModel):
                 f"A TestResult with status={self.status} must have an empty findings list. "
                 f"Found {len(self.findings)} finding(s): a violation makes it FAIL."
             )
+        if self.status == TestStatus.SKIP and self.findings:
+            raise ValueError(
+                "A TestResult with status=SKIP must have an empty findings list: "
+                "a SKIP after a violation would hide it."
+            )
         if self.status == TestStatus.SKIP and not self.skip_reason:
             raise ValueError(
                 "A TestResult with status=SKIP must provide a skip_reason. "
@@ -685,7 +686,7 @@ class ResultSet(BaseModel):
         Priority: FAIL (1) > ERROR or INCONCLUSIVE (3) > CLEAN (0): an
         INCONCLUSIVE test, like an ERROR, is a verification that did not
         complete. A run whose every test was SKIP verified nothing, so it is 3
-        too, not CLEAN (owner decision 2026-11-04, audit PIPE-4); otherwise a
+        too, not CLEAN (owner decision 2026-11-04); otherwise a
         SKIP never affects the code. Exit code 10 (infrastructure error) is
         handled upstream by the engine.
         """
@@ -735,13 +736,12 @@ class ResultSet(BaseModel):
     @property
     def total_transaction_count(self) -> int:
         """
-        Total TransactionSummary entries across all TestResult objects.
+        Number of distinct HTTP requests across all TestResult objects.
 
-        Represents the complete number of HTTP requests sent to the target
-        during the assessment. Used in the HTML report executive summary
-        stat card 'HTTP Requests Sent'.
+        A request judged by two sub-tests has two entries in its test's
+        transaction log; it is counted once here.
         """
-        return sum(len(r.transaction_log) for r in self.results)
+        return sum(len({t.record_id for t in r.transaction_log}) for r in self.results)
 
     @property
     def duration_seconds(self) -> float | None:

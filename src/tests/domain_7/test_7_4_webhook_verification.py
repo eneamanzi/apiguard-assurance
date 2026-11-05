@@ -24,7 +24,7 @@ rejected, the endpoint refuses every delivery (it is down, or auth is
 elsewhere): both sub-tests are NOT_VERIFIABLE / REJECTS_ALL. Without the secret,
 or without a usable answer to the valid delivery, a rejection is NOT_VERIFIABLE
 / SIGNATURE_NOT_CONFIRMED: a 404 from a wrong path or a gateway's 401 would look
-the same (audit D467-4). An accepted forged delivery is a VIOLATION either way.
+the same. An accepted forged delivery is a VIOLATION either way.
 
 BLACK_BOX (a webhook receiver is protected by the signature, not a session),
 effect CHANGES_DATA (a processed webhook may change data; a rejected one does

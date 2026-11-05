@@ -72,7 +72,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.connectors.base import BaseConnector, ConnectorResult
 from src.connectors.ffuf import FfufConnector, FfufJob
-from src.core.context import TargetContext
+from src.core.context import TargetContext, TestContext
 from src.core.exceptions import ExternalToolError, SecurityClientError
 from src.core.models import (
     Confidence,
@@ -231,6 +231,7 @@ class ExtTest01UndocumentedPathsFfuf(ExternalToolTest[ExtTest01FfufParams]):
         connector: BaseConnector,
         target: TargetContext,
         target_url: str,
+        context: TestContext,
     ) -> ConnectorResult:
         """
         Build one ffuf job per base path and run them.
@@ -247,6 +248,7 @@ class ExtTest01UndocumentedPathsFfuf(ExternalToolTest[ExtTest01FfufParams]):
             ExternalToolError: The pinned lists are missing (install_tools.sh not
                                run) or ffuf failed.
         """
+        del context  # this tool sends no credential
         if not isinstance(connector, FfufConnector):
             raise TypeError(f"expected FfufConnector, got {type(connector).__name__}")
         cfg = target.external_tools.ffuf
@@ -307,9 +309,15 @@ class ExtTest01UndocumentedPathsFfuf(ExternalToolTest[ExtTest01FfufParams]):
         templates = [_template_regex(path) for path in documented]
         spec_path = urlsplit(str(target.openapi_spec_url)).path if target.openapi_spec_url else None
 
+        # ffuf reports full URLs; the client and the specification's paths are
+        # relative to the target's base URL, which may carry a path of its own
+        # (that prefix was sent twice).
+        prefix = _base_prefix(target)
+        if spec_path is not None:
+            spec_path = _relative(spec_path, prefix)
         by_base: dict[str, list[str]] = {}
         for item in result.raw_output.get("results", []):
-            path = urlsplit(str(item.get("url", ""))).path or "/"
+            path = _relative(urlsplit(str(item.get("url", ""))).path or "/", prefix)
             by_base.setdefault(str(item.get("base_url", "")), []).append(path)
 
         not_judged: list[str] = []
@@ -381,8 +389,9 @@ class ExtTest01UndocumentedPathsFfuf(ExternalToolTest[ExtTest01FfufParams]):
             How many base paths a search can tell something about.
         """
         verifiable = 0
+        prefix = _base_prefix(run.target)
         for base_url in result.raw_output.get("base_urls", []):
-            base = urlsplit(str(base_url)).path or "/"
+            base = _relative(urlsplit(str(base_url)).path or "/", prefix)
             point = run.context.references.calibration(base + RANDOM_SEGMENT)
             if not point.reliable or point.fingerprint is None:
                 self._record(_SUB_TEST, Outcome.NOT_VERIFIABLE, "CALIBRATION_UNSTABLE")
@@ -466,3 +475,15 @@ class ExtTest01UndocumentedPathsFfuf(ExternalToolTest[ExtTest01FfufParams]):
                 + f"; {cfg.rate_limit_rps} requests per second, unauthenticated GET only."
             ),
         )
+
+
+def _base_prefix(target: TargetContext) -> str:
+    """The path of the target's base URL, without its trailing slash ('' for none)."""
+    return urlsplit(target.endpoint_base_url()).path.rstrip("/")
+
+
+def _relative(path: str, prefix: str) -> str:
+    """A path of a full URL, made relative to the base URL's path (as the client sends it)."""
+    if prefix and (path == prefix or path.startswith(prefix + "/")):
+        return path[len(prefix) :] or "/"
+    return path

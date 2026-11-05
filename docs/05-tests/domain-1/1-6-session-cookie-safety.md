@@ -70,6 +70,7 @@ names skips exactly the cookie whose name nobody guessed.
 | the cookie carries `Secure`, `HttpOnly` and `SameSite=Strict` or `Lax` | `ENFORCED/COOKIE_SAFE` | - |
 | `Secure` missing | `VIOLATION/COOKIE_WITHOUT_SECURE` (CWE-614) | CERTAIN: the header as the target sent it |
 | `HttpOnly` missing | `VIOLATION/COOKIE_WITHOUT_HTTPONLY` (CWE-1004) | CERTAIN |
+| `HttpOnly` missing on an anti-CSRF cookie (its name has `csrf` or `xsrf`: `XSRF-TOKEN`, `csrftoken`), which the page's script reads on purpose | not asked: ASVS v5.0.0-3.3.4 requires `HttpOnly` only of a cookie not meant for client-side scripts (until 2026-11-04 a finding) | - |
 | `SameSite` missing, or `SameSite=None` | `VIOLATION/COOKIE_WITHOUT_SAMESITE` (CWE-1275) | CERTAIN |
 
 `SameSite=None` counts as absent: it is a value the standard allows and it restricts nothing. ASVS v5.0.0-3.3.2
@@ -110,6 +111,8 @@ Runs of 2026-10-22:
 | Forgejo + Kong, Forgejo + APISIX, crAPI + Kong | SKIP | the login sets no cookie: Forgejo's login creates an API token and crAPI's answers with a token in the body |
 | Forgejo + Kong, with the case below | **FAIL, 3 findings** | the cookie `lab_session` without any of the three attributes: one finding each, CERTAIN |
 | Forgejo + Kong, the same with `Secure; HttpOnly; SameSite=Strict` | **PASS complete** | 1 enforced |
+| Forgejo + Kong, `XSRF-TOKEN=...; Secure; SameSite=Strict` (2026-11-04) | **PASS complete** | no `HttpOnly` asked of an anti-CSRF cookie |
+| Forgejo + Kong, `lab_session=; Path=/` (2026-11-04) | SKIP | a cookie being cleared (empty value) is not judged; the evidence used to redact the empty value into `[REDACTED]`, so the deletion was judged as a cookie without attributes |
 | Forgejo + Kong, the same with `SameSite=None` | **FAIL, 1 finding** | `COOKIE_WITHOUT_SAMESITE`: a value that restricts nothing counts as absent |
 
 **The case, and how to undo it.** No lab keeps a session in a cookie, so the cookie is added by the gateway, which

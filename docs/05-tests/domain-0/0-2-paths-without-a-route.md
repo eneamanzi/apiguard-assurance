@@ -145,7 +145,7 @@ Runs of 2026-10-22, the three tests of the group together, every lab healthy aft
 | Lab | Status | Basis |
 |---|---|---|
 | Forgejo + Kong | FAIL, 1 finding | `unrouted_paths` PASS complete (Kong answers an unrouted path with `{"message":"no Route matched with those values"}`); `near_route_paths`: `/api-<rand>` is answered by Forgejo with `Not found.`, a different shape, so Kong's route `/api` forwards what it has no route for; the hmac route's neighbours answer `401` from Kong's own plugin, counted `REFUSED_BEFORE_ROUTING`; the `~/swagger\.v1\.json$` route path is `REGEX_ROUTE_PATH` |
-| crAPI + Kong | FAIL, 2 findings | `/workshop-<rand>` gets Spring's HTML 404 page, the same answer the workshop backend gives for an unknown path under `/workshop/api/`; `/community-<rand>` gets Go's `404 page not found`: both reached their backend. `/identity-<rand>` answers `401` and is not counted |
+| crAPI + Kong | FAIL, 2 findings | `/workshop-<rand>` gets the HTML 404 page of crAPI's workshop service (`Server: gunicorn`, Django's "Not Found" page), the same answer the workshop backend gives for an unknown path under `/workshop/api/`; `/community-<rand>` gets Go's `404 page not found`: both reached their backend. `/identity-<rand>` answers `401` and is not counted |
 | Forgejo + APISIX | PASS complete, 5 enforced | every neighbour of every route path gets APISIX's own `{"error_msg":"404 Route Not Found"}` |
 | any | NOT_VERIFIABLE | a target whose two refusals cannot be told apart, or a catch-all route: not on the labs |
 

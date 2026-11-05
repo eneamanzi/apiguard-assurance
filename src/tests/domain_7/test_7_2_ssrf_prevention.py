@@ -16,8 +16,10 @@ payload at a time, and judges each.
                           payload of an enabled class is judged on its own.
 
 Oracle (per payload):
-    rejected (a 4xx, or a transport refusal of a bad scheme)   -> ENFORCED
+    rejected (a 4xx, the benign control accepted)              -> ENFORCED
                           (the detail says how: validation, malformed, scheme);
+    a 401, a redirect or a 404 instead                         -> NOT_VERIFIABLE
+                          (not a rejection of the URL);
     accepted (a 2xx)                                           -> NOT_VERIFIABLE
                           / OUTBOUND_NOT_CONFIRMED;
     timeout (no response)                                      -> NOT_VERIFIABLE
@@ -28,7 +30,7 @@ The series stops at the first payload left without an answer or answered 502,
 503 or 504 by the gateway: further URLs would add timeouts, which a gateway's
 health check counts (on crAPI, three took the backend out of service for the
 tests that ran next). The rest -> NOT_VERIFIABLE / NOT_SENT_AFTER_TIMEOUT
-(owner decision 2026-11-04, audit D467-1).
+(owner decision 2026-11-04).
 
 Honesty boundary (owner decision 2026-10-23): a 2xx means the endpoint accepted
 the URL, which is *not* proof the server made the outbound call. Confirming the
@@ -102,7 +104,7 @@ _CATEGORIES: tuple[str, ...] = (
 )
 # The two classes SSRF is about: internal addresses reached through the server.
 # Without one ENFORCED among them the test is INCONCLUSIVE, however many other
-# payloads were rejected as malformed (owner decision 2026-11-04, audit D467-2).
+# payloads were rejected as malformed (owner decision 2026-11-04).
 _ESSENTIAL: tuple[str, ...] = ("cloud_metadata", "private_ip")
 
 # Placeholders the test fills in the configured body (src/core/templating.py).
@@ -155,10 +157,19 @@ _BLOCKED_MALFORMED: str = "SSRF_BLOCKED_MALFORMED"
 _BLOCKED_SCHEME: str = "SSRF_BLOCKED_SCHEME"
 _BLOCKED_VALIDATION: str = "SSRF_BLOCKED_VALIDATION"
 _BLOCKED_UNKNOWN: str = "SSRF_BLOCKED_UNKNOWN"
+
+# Answers that are not a rejection of the URL, though not a 2xx:
+# the credential refused (expired mid-series), a redirect not followed, and a
+# 404 on a path that accepted the benign URL (perhaps the fetched page's own).
+_NOT_A_REJECTION: dict[ResponseCategory, str] = {
+    ResponseCategory.UNAUTHENTICATED: "CREDENTIAL_REFUSED",
+    ResponseCategory.REDIRECT: "REDIRECTED",
+    ResponseCategory.NOT_FOUND: "NOT_FOUND",
+}
 _OUTBOUND_NOT_CONFIRMED: str = "OUTBOUND_NOT_CONFIRMED"
 _PROBE_TIMEOUT: str = "SSRF_PROBE_TIMEOUT"
 # The payloads not sent once the endpoint hung or its backend went out of
-# service (owner decision 2026-11-04, audit D467-1).
+# service (owner decision 2026-11-04).
 _NOT_SENT: str = "NOT_SENT_AFTER_TIMEOUT"
 _UPSTREAM_UNAVAILABLE: str = "UPSTREAM_UNAVAILABLE"
 _RATE_LIMITED: str = "RATE_LIMITED"
@@ -208,7 +219,7 @@ class Test72UrlAcceptingEndpoint(BaseModel):
         min_length=1,
         description=(
             "Path of the endpoint (POST). With a resource it may hold the resource's values, "
-            "e.g. '/api/v1/repos/{owner}/{repo}/hooks'."
+            "e.g. '/api/v1/projects/{project_id}/webhooks'."
         ),
     )
     body: dict[str, object] = Field(
@@ -283,9 +294,9 @@ class Test72Params(BaseModel):
         json_schema_extra=NEEDED_TO_RUN,
         examples=[
             {
-                "path": "/api/v1/repos/{owner}/{repo}/hooks",
-                "body": {"type": "gitea", "config": {"url": "{ssrf_url}", "content_type": "json"}},
-                "resource": "repository",
+                "path": "/api/v1/projects/{project_id}/webhooks",
+                "body": {"url": "{ssrf_url}", "events": ["push"]},
+                "resource": "project",
             }
         ],
         description=(
@@ -554,6 +565,10 @@ class Test72SSRFPrevention(BaseTest[Test72Params]):
             self._judge(record, store, category, Outcome.NOT_VERIFIABLE, _OUTBOUND_NOT_CONFIRMED)
             log.info("test_7_2_url_accepted", category=category, url=payload.url)
             return True, False
+        not_a_rejection = _NOT_A_REJECTION.get(category_of(record))
+        if not_a_rejection is not None:
+            self._judge(record, store, category, Outcome.NOT_VERIFIABLE, not_a_rejection)
+            return False, False
         if not baseline_accepts:
             self._judge(record, store, category, Outcome.NOT_VERIFIABLE, _BASELINE_REJECTED)
             return False, False

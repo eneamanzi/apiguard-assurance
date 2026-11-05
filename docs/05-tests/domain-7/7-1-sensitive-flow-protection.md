@@ -67,7 +67,8 @@ drives the real flow (announce it on a shared target); the burst is kept small.
 | a `429` (throttle) within the burst | `ENFORCED/ANTI_AUTOMATION_THROTTLE` | - |
 | a `4xx` whose body is a CAPTCHA / human-verification challenge | `ENFORCED/ANTI_AUTOMATION_CHALLENGE` | - |
 | every submission of the burst accepted (`2xx`), no control | `VIOLATION/NO_ANTI_AUTOMATION` | CERTAIN |
-| the flow refused submissions without a challenge (a `401`, a `404`, a validation error): the burst did not exercise it | `NOT_VERIFIABLE/FLOW_NOT_ACCEPTED` | - |
+| the flow refused the first submission without a challenge (a `401`, a `404`, a validation error): the burst did not exercise it | `NOT_VERIFIABLE/FLOW_NOT_ACCEPTED` | - |
+| served, then refused without a `429` or challenge words: a throttle this test does not recognise, or a business refusal (a duplicate), which cannot be told apart | `NOT_VERIFIABLE/REFUSED_AFTER_SERVED` | - |
 | the target was unavailable, failed or did not answer during the burst | `NOT_VERIFIABLE/FLOW_UNAVAILABLE` | - |
 
 ## 7. Outcomes
@@ -134,7 +135,7 @@ file and the same command; the lab was checked back to FAIL with its clean-up wo
 
 Rule 9: `VIOLATION/NO_ANTI_AUTOMATION` is seen on crAPI and on the Forgejo scratch flow, `ENFORCED/ANTI_AUTOMATION_THROTTLE`
 with the throttle above, and `NOT_VERIFIABLE/FLOW_NOT_ACCEPTED` with the refused scratch flow. Not seen:
-`ENFORCED/ANTI_AUTOMATION_CHALLENGE` (no lab has a CAPTCHA) and `FLOW_UNAVAILABLE`.
+`ENFORCED/ANTI_AUTOMATION_CHALLENGE` (no lab has a CAPTCHA), `FLOW_UNAVAILABLE` and `REFUSED_AFTER_SERVED`.
 
 ## 13. Remediation
 

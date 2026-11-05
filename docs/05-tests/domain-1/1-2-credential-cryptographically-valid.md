@@ -39,8 +39,8 @@ not give us (below).
 
 | Sub-test | Methodology (guarantee 1.2) |
 |---|---|
-| `unsigned_rejected` | "unsigned tokens accepted (`alg: none`)" |
-| `tampered_rejected` | "payload not verified": a claim changed, the original signature kept |
+| `unsigned_rejected` | "unsigned tokens accepted (`alg: none`)", with `none` written as `none`, `None`, `NONE` and `nOnE` in turn until one is accepted (since 2026-11-05: a check that compares the exact string `none` lets the others through to a library that ignores case) |
+| `tampered_rejected` | "payload not verified": a claim added (`apiguard_tampered`), the original signature kept; the identity is left as it is, so a refusal can only be the signature check (until 2026-11-04 the subject was changed, and a server that does not verify would refuse an unknown user anyway) |
 | `stripped_rejected` | "signature stripping" |
 | `algorithm_confusion` | "algorithm confusion (RS256 to HS256)": needs the public key, and this test neither fetches one nor implements the attack, so the case is always reported `NEEDS_KEY_MATERIAL` |
 | left out | key rotation, `kid` mismatch: need a JWKS with the signing key, which no target gives us |
@@ -48,7 +48,8 @@ not give us (below).
 ## 3. Inputs
 
 The role's valid JWT (the engine obtains it from the `USER_ACCOUNT` need). An **anchor**: a documented read that
-answers 2xx with the genuine token and non-2xx without it (`src/tests/helpers/anchor.py`), so that a refusal of a
+answers 2xx with the genuine token and is refused (401 or 403) without it (`src/tests/helpers/anchor.py`; until
+2026-11-04 any non-2xx counted), so that a refusal of a
 degraded token is about the degradation and not about a public endpoint. No configuration parameter.
 
 ## 4. Preconditions and reference responses
@@ -111,7 +112,8 @@ Runs of 2026-10-22, the three tests of the group together:
 | Forgejo + Kong, Forgejo + APISIX | SKIP | the API token is opaque: `NOT_APPLICABLE/NOT_A_JWT` on every sub-test |
 | any | ENFORCED | a target that refuses all three: not on the labs (crAPI accepts `alg: none`) |
 
-**What each branch has been seen doing** (rule 9). Proven on a lab: `ACCEPTED_ALG_NONE` (crAPI), `REFUSED`
+**What each branch has been seen doing** (rule 9). Proven on a lab: `ACCEPTED_ALG_NONE` (crAPI, with the first
+spelling, `none`, so the other three are not sent: 2026-11-05), `REFUSED`
 (crAPI's tampered and stripped), `NEEDS_KEY_MATERIAL` (crAPI), `NOT_A_JWT` (Forgejo). `ACCEPTED_TAMPERED` and
 `ACCEPTED_STRIPPED` are the same code path as `ACCEPTED_ALG_NONE` (the anchor answers 2xx to the degraded token),
 proven through it; producing them on the lab would need an endpoint that honours any token, which the test's own
