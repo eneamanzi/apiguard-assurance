@@ -138,6 +138,13 @@ generated catalogue [`docs/05-tests/README.md`](docs/05-tests/README.md); `apigu
 
 ### Fixed
 
+- **The Kong labs' security headers (2026-11-05).** Both `kong.yml` set `X-Content-Type-Options` and
+  `X-Frame-Options` with `response-transformer` `replace` only. In Kong, `replace` rewrites a header the backend
+  already sent and does nothing otherwise (`header_transformer.lua`, Kong 3.9.3), so crAPI's community service,
+  which sends neither, answered without them, and test 6.2 reported a FAIL that was the lab's, not crAPI's. The
+  headers are now under `add` as well. 6.2 is PASS on crAPI, and its page keeps the earlier FAIL with its cause.
+  `LAB_FINDINGS.md` (new) says, for each finding of the three labs, whether it comes from the application, the lab's
+  setup or the specification.
 - **Final consistency pass on the code and the test pages (2026-11-05).**
   - Every verdict detail the code can record is now in its test page's oracle table, and every detail a page lists is
     one the code records: added 0.4 `NO_GATEWAY`, 2.4 `CALIBRATION_UNSTABLE`, 6.1 `NO_READ_ENDPOINT`, `NO_ENDPOINT`

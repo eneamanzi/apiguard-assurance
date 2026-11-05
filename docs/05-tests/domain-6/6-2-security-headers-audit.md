@@ -107,10 +107,14 @@ Runs of 2026-10-28 (the coverage column was added when a skipped sub-test began 
 | Lab | Status | Basis |
 |---|---|---|
 | Forgejo + Kong, Forgejo + APISIX | **PASS**, `complete` (2026-11-03) | nosniff and framing present and consistent across the sampled services; no response to the arbitrary `Origin` carried a CORS grant, so `cors_not_wildcard` is `ENFORCED/ORIGIN_NOT_ALLOWED`. Until that day the same answer was judged `NOT_APPLICABLE/NO_CORS` and left the test `partial` |
-| crAPI + Kong | **FAIL**, 2 findings | nosniff and framing are **inconsistent** across crAPI's services (present on some, absent on others): a selective misconfiguration the single-endpoint check missed; CORS bounded |
+| crAPI + Kong, until 2026-11-05 | **FAIL**, 2 findings | nosniff and framing are **inconsistent** across crAPI's services: absent on the community service's answers, present on the others. The cause was the lab's own gateway, not crAPI: its Kong set the two headers with `response-transformer` `replace`, which in Kong only rewrites a header the backend already sent (`kong/plugins/response-transformer/header_transformer.lua`, Kong 3.9.3), and crAPI's community service sends neither. A true finding for that deployment, which the single-endpoint check would have missed; CORS bounded |
+| crAPI + Kong, 2026-11-05, the lab's Kong corrected | **PASS**, `complete` | the two headers are now also under `add` (set when absent), with `replace` kept for a backend that sends its own value (Forgejo's `SAMEORIGIN`): present on the three sampled services |
 
-Rule 9, both sides proven, agnostically: ENFORCED on Forgejo, VIOLATION (inconsistency) on crAPI. The sampling (one
-endpoint per service) is what surfaces the inconsistency; a single-endpoint check would have passed crAPI.
+Rule 9, both sides proven, agnostically: ENFORCED on Forgejo and on the corrected crAPI lab, VIOLATION
+(inconsistency) on crAPI before the correction. The sampling (one endpoint per service) is what surfaced the
+inconsistency; a single-endpoint check would have passed crAPI. To see the violation again, move the two headers
+back under `replace` only in `test-environments/crapi-kong/kong/kong.yml` and recreate the gateway (`docker compose
+--env-file ../../.env up -d --force-recreate --wait kong`).
 
 ## 13. Remediation
 

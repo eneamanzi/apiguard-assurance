@@ -76,6 +76,13 @@ services:
               - "Strict-Transport-Security: max-age=31536000; includeSubDomains"
               - "Content-Security-Policy: default-src 'self'"
               - "Permissions-Policy: geolocation=(), camera=(), microphone=()"
+              # Set whether or not the backend sends them: `add` covers a backend that
+              # does not (crAPI's community service), `replace` one that sends its own
+              # value (Forgejo's SAMEORIGIN). In Kong `add` only sets a header that is
+              # absent and `replace` only one that is present
+              # (kong/plugins/response-transformer/header_transformer.lua).
+              - "X-Content-Type-Options: nosniff"
+              - "X-Frame-Options: DENY"
           replace:
             headers:
               - "X-Content-Type-Options: nosniff"

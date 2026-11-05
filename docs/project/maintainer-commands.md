@@ -336,7 +336,7 @@ must print `"health":"HEALTHY"`.
 `order` resource), and each order spends 10 of user A's 100 starting credit, which crAPI never gives back. Once it
 runs out, the creation answers `400 Insufficient Balance`, both tests report `OBJECT_NOT_CREATED` and come back
 INCONCLUSIVE: a full assessment on a worn lab showed 9 FAIL where a reset lab showed 15 (2026-10; a reset lab shows
-16 on 2026-11-05), and the authorization finding
+16 on 2026-11-05 once the lab's gateway was corrected, 15 when 4.4's race leaves it INCONCLUSIVE), and the authorization finding
 crAPI exists to expose (a BOLA on an order) disappears. Nothing is wrong with the
 tool when this happens, it says INCONCLUSIVE rather than PASS, but a result measured on a worn lab is not the
 lab's reference result. The balance is visible in `GET /identity/api/v2/user/dashboard`; the full reset below

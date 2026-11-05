@@ -71,7 +71,12 @@ here wrote: `docs/challenges.md`, at the commit the lab's images come from (`700
 challenges** in 11 categories, plus three it keeps secret. Measured on 2026-11-05 with a full assessment (31 tests,
 external tools included) on a lab reset first, the two Forgejo labs running: 16 FAIL, 8 PASS, 3 INCONCLUSIVE, 4 SKIP,
 25 findings (the day before, same conditions: 16 FAIL, 9 PASS, 2 INCONCLUSIVE, 27 findings; 2.4's calibration and
-Schemathesis's credential changed in between, see their pages). The three INCONCLUSIVE:
+Schemathesis's credential changed in between, see their pages). A second run that evening, the lab reset again, gave
+17 FAIL, 8 PASS, 2 INCONCLUSIVE, 4 SKIP, 25 findings: 4.4 concluded (FAIL, its race below) and 6.4 asked its new
+default paths (PASS complete). That run's 6.2 FAIL was the lab's own gateway (its Kong set two security headers with
+`replace` only, which keeps a header the backend does not send absent); with the lab corrected, a third run gave 16
+FAIL, 9 PASS, 2 INCONCLUSIVE, 4 SKIP, 25 findings. Where each finding comes from, the application or the lab's setup,
+is in [`LAB_FINDINGS.md`](../../LAB_FINDINGS.md). The three INCONCLUSIVE of the first run:
 - **2.4**: crAPI's identity service refuses every path before routing it, so whether an older version enforces the
   same policy is not known (`REFUSED_BEFORE_ROUTING`);
 - **4.4**: the oversized body meets a service that answers `401` and resets the connection, in some runs before the
