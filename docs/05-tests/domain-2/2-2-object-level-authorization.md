@@ -133,6 +133,13 @@ unproven: no lab drops the check on a part of an object it keeps on the object (
 its read is a BOLA, so its parts are not asked). `CREDENTIAL_NOT_CONFIRMED`
 is proven with an invalid user_b token; `NOT_A_REFUSAL` is not reached by the labs.
 
+**What each branch has been seen doing** (rule 9). Proven on a lab: `BOLA_READ` (crAPI), `REFUSED` (both Forgejo
+labs, crAPI's modify), `OWNER_NOT_SERVED_HERE` (both Forgejo labs), `NO_*_OPERATION` for the delete (crAPI),
+`CREDENTIAL_NOT_CONFIRMED` (crAPI with an invalid token), `OBJECT_NOT_CREATED` (crAPI after about ten runs without a
+reset, [compatibility](../../03-reference/06-compatibility.md#what-the-tool-detects-measured-against-a-vulnerable-target)).
+Still unproven: `BOLA_MODIFY`, `BOLA_DELETE`, `BOLA_READ_SUBRESOURCE`, `NOT_A_REFUSAL`, `OWNER_NOT_SERVED`,
+`NO_*_OPERATION` for the read and the modify, and the transport reasons.
+
 ## 13. Remediation
 
 Check object ownership at the server for every object operation (`WHERE id = ? AND owner = token-user`), and return

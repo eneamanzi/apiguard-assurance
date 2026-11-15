@@ -335,7 +335,8 @@ class Test11CredentialRequired(BaseTest):
         self, endpoints: list[EndpointRecord], undeclared: list[EndpointRecord]
     ) -> list[InfoNote]:
         """
-        The note saying whether the document declares security per operation.
+        The note saying whether the document declares security per operation,
+        only for the whole document, or not at all.
 
         Args:
             endpoints:  Every documented operation.
@@ -346,6 +347,23 @@ class Test11CredentialRequired(BaseTest):
         """
         if not endpoints:
             return []
+        if not undeclared and not any(endpoint.requires_auth for endpoint in endpoints):
+            # Neither a global requirement nor one of an operation (seen
+            # 2026-11-14 with Forgejo's specification stripped of its `security`:
+            # the note below claimed a global requirement the document did not have).
+            return [
+                InfoNote(
+                    title="The specification declares no security requirement",
+                    detail=(
+                        f"None of the {len(endpoints)} documented operations requires a "
+                        "credential, neither through the document's global `security` nor "
+                        "through its own: "
+                        "the specification says nothing about which operations are protected, so "
+                        "this test has nothing to compare an answer with. Declare the security "
+                        "requirements (globally, and `security: []` on the public operations)."
+                    ),
+                )
+            ]
         if undeclared:
             return [
                 InfoNote(

@@ -128,7 +128,8 @@ configured to offer TLS 1.0/1.1 or a weak cipher.
 
 **What each branch has been seen doing** (rule 9). Proven: `ENFORCED/NO_TLS_WEAKNESS` and
 `CERT_REVOCATION_NOT_CHECKABLE` (the three labs), `VIOLATION/TLS_WEAKNESS` (the no-ca case). Not exercised on a lab:
-a weak-protocol/cipher violation, the connect/timeout ERROR.
+a weak-protocol/cipher violation, the connect/timeout ERROR, and `SCAN_INCOMPLETE`, not named before the inventory
+of 2026-11-14.
 
 ## 13. Remediation
 

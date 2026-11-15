@@ -124,6 +124,12 @@ Runs of 2026-10-23:
 PASS. Rule 9: both sides proven; `NO_SIGNING` is the common real-world case (most APIs use no HMAC), documented but
 not shown on the labs (all carry the compliant dummy policy).
 
+**What each branch has been seen doing** (rule 9). Proven on a lab: `STRONG_ALGORITHM`, `REPLAY_BOUNDED` (all
+three), `REPLAY_WINDOW_TOO_LARGE` (Forgejo + Kong with the change above). Still unproven: `ALGORITHMS_NOT_STATED`,
+`REPLAY_UNBOUNDED`, `REPLAY_WINDOW_NOT_STATED`, `NO_SIGNING`. `WEAK_ALGORITHM` was seen again with the current code
+on 2026-11-14: the change above, and `forbidden_algorithms: [hmac-md5, md5, hmac-sha1]` in the run's configuration,
+give **FAIL**, `WEAK_ALGORITHM` at FIRM and `REPLAY_WINDOW_TOO_LARGE` at CERTAIN; the lab was checked back to PASS.
+
 ## 13. Remediation
 
 If request signing is used, allow only HMAC-SHA-256 or stronger and bound replay with a short timestamp window

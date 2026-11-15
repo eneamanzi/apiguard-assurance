@@ -142,6 +142,11 @@ the masked number, now excluded, so it is unproven on a lab. `mass_assignment` i
 the false-positive fix below), and `FIELDS_NOT_INJECTED` is not reached by the labs' resources. A self-review caught and fixed that false positive: a boolean
 sentinel matched the repo's legitimate `permissions.admin: true`; the matcher now accepts a string sentinel only.
 
+**What each branch has been seen doing** (rule 9). Proven on a lab: `NO_SENSITIVE_FIELD` (Forgejo, crAPI),
+`NO_MASS_ASSIGNMENT` (both Forgejo labs), `FIELDS_NOT_EXPOSED` (crAPI), `OBJECT_NOT_CREATED` (crAPI after about ten
+runs without a reset, [compatibility](../../03-reference/06-compatibility.md#what-the-tool-detects-measured-against-a-vulnerable-target)).
+Still unproven: `SENSITIVE_FIELD`, `MASS_ASSIGNMENT`, `FIELDS_NOT_INJECTED`, `OBJECT_NOT_READABLE`, `NO_RESPONSE`.
+
 ## 13. Remediation
 
 Filter responses server-side to the fields the consumer may see (ASVS v5.0.0-14.2.6); bind only an allowlist of

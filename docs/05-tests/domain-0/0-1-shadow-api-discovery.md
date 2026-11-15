@@ -200,14 +200,19 @@ gateway answers `405`), `TRACE_ECHOED` (CERTAIN) on a scratch server that echoes
 `TRACE_SERVED_NO_ECHO` unproven. Proven on a lab: `METHOD_REJECTED`, `METHOD_NOT_SERVED`,
 `REFUSED_BEFORE_ROUTING` (crAPI's identity, for methods and versions), `NONEXISTENT_OBJECT` (Forgejo),
 `UNDECLARED_METHOD_KNOWN` (crAPI's `PUT`), `SERVER_ERROR`,
-`VERSION_ABSENT`, `NO_PATH_IN_GROUP` (before the rule was widened to any documented method),
-`ROUTE_DOCUMENTED`, `ROUTE_NOT_DOCUMENTED`, and with a configuration of its own `NO_GATEWAY` (the test runs, the
+`VERSION_ABSENT`, `ROUTE_DOCUMENTED`, `ROUTE_NOT_DOCUMENTED`, and with a configuration of its own `NO_GATEWAY` (the test runs, the
 sub-test is not applicable) and `ROUTES_NOT_READABLE` (an Admin API address where nothing answers).
 Proven with a temporary change to the Forgejo + Kong lab's gateway (2026-10-22, below):
 `UNDECLARED_METHOD_HANDLED` on four methods with the removal of what the accepted `PUT` created, and
 `UNDOCUMENTED_VERSION`. Still unproven: `CALIBRATION_UNSTABLE` (the mechanism itself is verified in
 `src/core/references.py`), `ROUTE_DISABLED` (no Kong route can be disabled; APISIX's can) and
-`ROUTES_NOT_SUPPORTED` (no adapter without routes exists).
+`ROUTES_NOT_SUPPORTED` (no adapter without routes exists), and, not named before the inventory of 2026-11-14,
+`SIBLING_ROUTE_DOCUMENTED`, `SERVED_LIKE_UNKNOWN`, `NO_VERSIONED_PATH`, `RATE_LIMITED`, `NO_RESPONSE` and the
+transport reasons of `TRACE`. `UPSTREAM_UNAVAILABLE` was seen on 2026-11-14 (Forgejo + Kong with the `forgejo`
+container stopped: 1047 method probes and the version probe). `NO_PATH_IN_GROUP` is no longer reachable: a
+candidate version comes from a group that documents at least one operation (`src/discovery/derivation.py`,
+`version_siblings`), and since the sample accepts any method that operation is always found (the same pattern,
+`^v\d+(\.\d+)*$`, on the same documented paths). It was seen before the rule was widened.
 
 ### Seeing the two cases the labs do not produce
 

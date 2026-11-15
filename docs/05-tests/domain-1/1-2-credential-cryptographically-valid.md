@@ -112,13 +112,20 @@ Runs of 2026-10-22, the three tests of the group together:
 | Forgejo + Kong, Forgejo + APISIX | SKIP | the API token is opaque: `NOT_APPLICABLE/NOT_A_JWT` on every sub-test |
 | any | ENFORCED | a target that refuses all three: not on the labs (crAPI accepts `alg: none`) |
 
+**The tampered and stripped tokens accepted, produced on 2026-11-14** (crAPI + Kong after a reset, a temporary
+route in its `kong.yml`, undone with `git checkout` and the lab checked back to 1 finding). A route
+`~/workshop/api/mechanic/$` with a `pre-function` answering `200` to any request carrying an `Authorization`
+header and `401` to one without it. The anchor rule accepts that endpoint (it answers 2xx to the genuine token and
+refuses no credential), and the test reports **FAIL**, 3 findings: `ACCEPTED_ALG_NONE`,
+`ACCEPTED_TAMPERED_PAYLOAD`, `ACCEPTED_STRIPPED_SIGNATURE`. Before that run this section said such an endpoint would
+be rejected by the anchor rule; it is not, because the rule asks for a refusal without a credential, not for a
+check of the credential's value.
+
 **What each branch has been seen doing** (rule 9). Proven on a lab: `ACCEPTED_ALG_NONE` (crAPI, with the first
-spelling, `none`, so the other three are not sent: 2026-11-05), `REFUSED`
-(crAPI's tampered and stripped), `NEEDS_KEY_MATERIAL` (crAPI), `NOT_A_JWT` (Forgejo). `ACCEPTED_TAMPERED` and
-`ACCEPTED_STRIPPED` are the same code path as `ACCEPTED_ALG_NONE` (the anchor answers 2xx to the degraded token),
-proven through it; producing them on the lab would need an endpoint that honours any token, which the test's own
-anchor rule would then reject as not genuinely protected. Still unproven: `NO_WORKING_ANCHOR`, `NO_TOKEN_VALUE`,
-the transport reasons.
+spelling, `none`, so the other three are not sent: 2026-11-05), `REFUSED` (crAPI's tampered and stripped),
+`NEEDS_KEY_MATERIAL` (crAPI), `NOT_A_JWT` (Forgejo), and `ACCEPTED_TAMPERED_PAYLOAD` and
+`ACCEPTED_STRIPPED_SIGNATURE` (the case above). Still unproven: `NO_WORKING_ANCHOR`, `NO_TOKEN_VALUE`, the transport
+reasons.
 
 ## 13. Remediation
 

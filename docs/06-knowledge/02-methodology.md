@@ -75,8 +75,10 @@ gives the same verdict, and the value read is the evidence.
 
 In the tool: every test declares its strategy (`TestStrategy`) and its needs (`Need`, listed with the tests that
 depend on each one in the [assessment model](../04-architecture/03-assessment-model.md#needs-what-the-configuration-must-hold)).
-Every test uses only what its strategy grants, and a need fixes the minimum strategy the test requires
-(`src/core/test_metadata.py`).
+The strategy is the least access a test needs, not a limit on what it uses: a required need fixes the minimum
+strategy the test must declare, an optional need does not raise it (`NEED_MINIMUM_STRATEGY`,
+`src/core/test_metadata.py`). So five BLACK_BOX tests (0.1, 0.2, 4.1, 4.4, 6.4) also read the gateway when one is
+configured ([assessment model](../04-architecture/03-assessment-model.md#strategies-knowledge-and-privilege-of-the-tester)).
 
 ## Prerequisites and effects on the target
 

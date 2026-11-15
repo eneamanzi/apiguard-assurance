@@ -15,10 +15,10 @@ claim is about the tool, this line when it is about the methodology. The guarant
 applies, and the cases it leaves out, are on its page in [`tests/`](../05-tests/README.md) ("Sub-tests and coverage
 of the methodology").
 
-There are 32 guarantees in 8 domains (3.2 was merged into 6.1 and is kept as a pointer). Thirty have a test; **2.3** (approval of
-destructive operations) and **6.3** (layer-7 gateway hardening) have none and are tagged accordingly, with the
-priority the methodology proposes for them; neither is planned, and each entry says which of its scenarios other
-tests already cover. The construction details of the
+There are 32 guarantees in 8 domains (3.2 was merged into 6.1 and is kept as a pointer). Twenty-nine have a test; **2.3** (approval of
+destructive operations), **5.2** (real-time alerts) and **6.3** (layer-7 gateway hardening) have none and are tagged
+accordingly, with the priority the methodology proposes for them; none is planned, and each entry says which of its
+scenarios other tests already cover. The construction details of the
 attack inputs (exact forged tokens, payload strings, step-by-step exploitation) are given here as what is checked
 and what is expected; the full text is in the thesis original.
 
@@ -33,8 +33,8 @@ and what is expected; the full text is in the thesis original.
 
 <!-- [[[end]]] -->
 
-**2.3** and **6.3** are absent from the table because no test declares a priority for them; their heading carries
-the one the methodology proposes.
+**2.3**, **5.2** and **6.3** are absent from the table because no test declares a priority for them; their heading
+carries the one the methodology proposes.
 
 ---
 
@@ -82,7 +82,7 @@ grey box approach, run if available).
 
 ### 0.2 The gateway rejects requests to unregistered paths (deny-by-default) `[P0]`
 
-**References:** NIST SP 800-204 §4.1, OWASP ASVS 5.0.0 V4.1.1, CIS Benchmark API Gateway Controls 2.3.
+**References:** NIST SP 800-204 §4.1, OWASP ASVS 5.0.0 V4.1.1.
 
 **Concept.** The gateway blocks any request whose path does not match an explicitly registered route, instead of
 forwarding it to a default backend or a catch-all service. It acts as the primary enforcement point: `404 Not Found`

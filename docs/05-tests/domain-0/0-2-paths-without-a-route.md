@@ -150,9 +150,10 @@ Runs of 2026-10-22, the three tests of the group together, every lab healthy aft
 | any | NOT_VERIFIABLE | a target whose two refusals cannot be told apart, or a catch-all route: not on the labs |
 
 **What each branch has been seen doing** (rule 9). Proven on a lab: `REFUSED_BY_GATEWAY`, `ANSWERED_WITHOUT_ROUTE`,
-`REFUSED_BEFORE_ROUTING`, `REGEX_ROUTE_PATH`. Still unproven: `SERVED_WITHOUT_ROUTE`, `REFUSAL_UNSTABLE`,
-`REFUSALS_INDISTINGUISHABLE`, `BACKEND_REFUSAL_UNKNOWN`, `CATCH_ALL_ROUTE`, `COVERED_BY_ROUTE`, the gateway reasons
-and the transport reasons.
+`REFUSED_BEFORE_ROUTING`, `REGEX_ROUTE_PATH`, and `BACKEND_REFUSAL_UNKNOWN` and `REFUSAL_NOT_TRUSTED` (Forgejo +
+Kong with the `forgejo` container stopped, 2026-11-14: INCONCLUSIVE, no documented path gave a backend refusal).
+Still unproven: `SERVED_WITHOUT_ROUTE`, `REFUSAL_UNSTABLE`, `REFUSALS_INDISTINGUISHABLE`, `CATCH_ALL_ROUTE`,
+`COVERED_BY_ROUTE`, the gateway reasons and the transport reasons.
 
 ## 13. Remediation
 

@@ -72,6 +72,11 @@ _MAX_FINDINGS: int = 20
 _UNAVAILABLE_STATUSES: frozenset[str] = frozenset({"502", "503", "504"})
 # How Schemathesis quotes a response status in a failure message: "[503]".
 _QUOTED_STATUS: re.Pattern[str] = re.compile(r"\[(\d{3})\]")
+# How Schemathesis names a test case whose request got no answer within
+# request_timeout_seconds ("Response timeout The server failed to respond within
+# the specified limit of 5000.00ms", measured 2026-11-14): no answer, not a server
+# error, so not a case of this test's oracle.
+_RESPONSE_TIMEOUT: str = "Response timeout"
 # A failure message lists its failing test cases, each opening with "N. Test
 # Case ID:" and ending with "Reproduce with: curl ...".
 _TEST_CASE_START: re.Pattern[str] = re.compile(r"(?=\b\d+\. Test Case ID:)")
@@ -227,7 +232,9 @@ class ExtTest31InputValidationSchemathesis(ExternalToolTest):
         # unavailable backend, not the API failing to validate (rule 1): on crAPI
         # 24 of 27 failures were Kong's 503 after its health check tripped. An
         # operation is judged on its other test cases; with none, it is
-        # unavailable (a message mixed a 503 and a real case: 2026-11-04).
+        # unavailable (a message mixed a 503 and a real case: 2026-11-04). A case
+        # whose request got no answer in time is no server error either: with the
+        # lab's backend stopped one was reported as a finding (2026-11-14).
         failures: list[dict[str, str]] = []
         unavailable: list[dict[str, str]] = []
         for reported_failure in reported:
@@ -236,8 +243,9 @@ class ExtTest31InputValidationSchemathesis(ExternalToolTest):
                 failures.append({**reported_failure, "finding": cases})
             else:
                 unavailable.append(reported_failure)
-        for _ in unavailable:
-            self._record(_SUB, Outcome.NOT_VERIFIABLE, "UPSTREAM_UNAVAILABLE")
+        for reported_failure in unavailable:
+            reason = _unusable_reason(reported_failure.get("finding", ""))
+            self._record(_SUB, Outcome.NOT_VERIFIABLE, reason)
         for _ in unchecked:
             self._record(_SUB, Outcome.NOT_VERIFIABLE, "OPERATION_NOT_CHECKED")
         # An operation whose every generated request got a 4xx was never reached
@@ -313,6 +321,29 @@ def _only_unavailable(message: str) -> bool:
     return bool(statuses) and statuses <= _UNAVAILABLE_STATUSES
 
 
+def _unanswered(message: str) -> bool:
+    """Whether a test case is a request that got no answer in time."""
+    return _RESPONSE_TIMEOUT in message
+
+
+def _unusable_reason(message: str) -> str:
+    """
+    Why a failure with no usable test case says nothing about input validation.
+
+    Args:
+        message: Schemathesis's failure message for one operation.
+
+    Returns:
+        NO_RESPONSE when every test case is a request that got no answer in
+        time; UPSTREAM_UNAVAILABLE otherwise (the cases quote only 502, 503 or
+        504, alone or with unanswered ones).
+    """
+    cases = [c.strip() for c in _TEST_CASE_START.split(message) if c.strip()]
+    if cases and all(_unanswered(case) for case in cases):
+        return "NO_RESPONSE"
+    return "UPSTREAM_UNAVAILABLE"
+
+
 def _usable_cases(message: str) -> str:
     """
     The test cases of a failure that are not an unavailable backend, for the finding.
@@ -325,10 +356,11 @@ def _usable_cases(message: str) -> str:
 
     Returns:
         The usable cases, one sentence each; "" when every case quotes only
-        502, 503 or 504 (or the message holds no case and only such statuses).
+        502, 503 or 504 or got no answer in time (or the message holds no case
+        and only such statuses).
     """
     cases = [c.strip() for c in _TEST_CASE_START.split(message) if c.strip()]
-    usable = [c for c in cases if not _only_unavailable(c)]
+    usable = [c for c in cases if not _only_unavailable(c) and not _unanswered(c)]
     quoted: list[str] = []
     for case in usable:
         reproduce = _REPRODUCE.search(case)

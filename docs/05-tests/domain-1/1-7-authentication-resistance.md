@@ -81,9 +81,9 @@ as a disclosure.
 |---|---|---|
 | the two cases answer the same, and the medians are within the factor | `ENFORCED/NO_DISCREPANCY` | - |
 | the bodies differ once the submitted name is masked, the same way on every reading | `VIOLATION/EXISTENCE_DISCLOSED_BY_ANSWER` (CWE-204) | CERTAIN: the two answers are the proof |
-| the bodies match and the median for the account that exists is at least 3 times the other | `VIOLATION/EXISTENCE_DISCLOSED_BY_TIMING` (CWE-208) | FIRM: a duration is noisy, and both medians are given |
+| the median for the account that exists is at least 3 times the other, whether the bodies match or not (two channels, two remedies: a login fixed to answer alike can still take longer for an account that exists) | `VIOLATION/EXISTENCE_DISCLOSED_BY_TIMING` (CWE-208) | FIRM: a duration is noisy, and both medians are given |
 | the three readings of one case do not agree | `NOT_VERIFIABLE/ANSWER_NOT_STABLE` | - |
-| both medians are under 5 ms | `ENFORCED/TIMING_TOO_SMALL`: the bodies agree; the two durations are too small to compare, so the verdict rests on the bodies alone | - |
+| the bodies agree and both medians are under 5 ms | `ENFORCED/TIMING_TOO_SMALL`: the two durations are too small to compare, so the verdict rests on the bodies alone (when the bodies differ, their violation is the verdict and nothing is added) | - |
 | the wrong password is accepted | `NOT_VERIFIABLE/WRONG_PASSWORD_ACCEPTED` | - |
 | a `429` within the bound | `ENFORCED/ATTEMPTS_LIMITED` | - |
 | answers become slow within the bound | `ENFORCED/ATTEMPTS_SLOWED` | - |
@@ -195,12 +195,18 @@ that ignores the account: `path: /api/v1/version`, `method: GET`, `auth: none`, 
 and answers `401`, which is itself worth knowing.)
 
 **What each branch has been seen doing** (rule 9). Proven on a lab: `EXISTENCE_DISCLOSED_BY_ANSWER`,
-`EXISTENCE_DISCLOSED_BY_TIMING`, `ATTEMPTS_NOT_LIMITED`, and with the cases above `ATTEMPTS_LIMITED`,
-`ATTEMPTS_SLOWED` and `WRONG_PASSWORD_ACCEPTED` in both sub-tests; on the scratch login server
-`NO_DISCREPANCY` and `ATTEMPTS_BLOCKED`; the labs, which answer every attempt alike, give the same result as
-before the corrections of 2026-11-04 (measured, 1.7 alone). Still unproven: `TIMING_TOO_SMALL` (it needs a target that answers two failed attempts alike and both in less than
+`ATTEMPTS_NOT_LIMITED`, and with the cases above `ATTEMPTS_LIMITED`, `ATTEMPTS_SLOWED` and
+`WRONG_PASSWORD_ACCEPTED` in both sub-tests; the labs, which answer every attempt alike, give the same result as
+before the corrections of 2026-11-04 (measured, 1.7 alone). Seen on the scratch login server only:
+`NO_DISCREPANCY`, `ATTEMPTS_BLOCKED`. Still unproven: `TIMING_TOO_SMALL` (it needs a target that answers two failed attempts alike and both in less than
 5 ms, which no lab does and the scratch server did not), `ANSWER_NOT_STABLE` (a login whose body changes by
-itself), the SKIP reasons and the transport reasons.
+itself), `LOGIN_NOT_ANSWERING`, the SKIP reasons and the transport reasons. `EXISTENCE_DISCLOSED_BY_TIMING` is
+proven on the labs, where the bodies differ as well: the durations are a second channel, judged whether the bodies
+match or not (owner decision, 2026-11-15; section 6 said "the bodies match" until that day). Since the same day
+`NO_DISCREPANCY` and `TIMING_TOO_SMALL` are recorded only when the bodies agree: after an
+`EXISTENCE_DISCLOSED_BY_ANSWER` the code used to add one of them as well, an "enforced" that the answers
+contradicted. The labs' results are unchanged (Forgejo + Kong, Forgejo + APISIX, crAPI: FAIL, 3 findings, measured
+2026-11-15).
 
 ## 13. Remediation
 

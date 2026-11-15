@@ -84,6 +84,7 @@ data the tool cannot clean up."
 | no operation answered a server error, and at least one was reached | `ENFORCED/INPUT_VALIDATED` | - |
 | an operation answered a server error to a generated input | `VIOLATION/INPUT_NOT_VALIDATED` (one per operation, up to 20 reported), quoting each failing test case with its reproduction command | FIRM (the tool observed it) |
 | an operation's only failing test cases quote `502`, `503` or `504` (an unavailable backend) | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`, no finding | - |
+| an operation's only failing test cases are requests that got no answer in time (Schemathesis's "Response timeout"): no answer is no server error (since 2026-11-15) | `NOT_VERIFIABLE/NO_RESPONSE`, no finding | - |
 | every generated request to an operation got a `4xx` (Schemathesis's warning "returned only 4xx responses"): never reached: without a credential, the one Schemathesis makes up for the declared security schemes answers `401` (Forgejo); with user_a's, every generated input of that operation was refused | `NOT_VERIFIABLE/ONLY_4XX` | - |
 | Schemathesis reports an operation as errored or skipped | `NOT_VERIFIABLE/OPERATION_NOT_CHECKED` | - |
 | no operation was checked at all | `NOT_VERIFIABLE/NOTHING_CHECKED` | - |
@@ -144,6 +145,19 @@ generated, so `negative_data_rejection` never had an invalid request to judge.
 
 Rule 9: VIOLATION on crAPI (real `500`s), ENFORCED on Forgejo, `UPSTREAM_UNAVAILABLE` on crAPI, `ONLY_4XX` on all
 three. Not seen: `OPERATION_NOT_CHECKED` and `NOTHING_CHECKED`.
+
+**Runs of 2026-11-14 and 2026-11-15** (Forgejo + Kong):
+- unauthenticated, the `forgejo` container stopped, the specification read from a file: on 2026-11-14, 468 of 469
+  operations `UPSTREAM_UNAVAILABLE` and one finding on `GET /api/v1/activitypub/actor`, whose only failing case was
+  a "Response timeout ... failed to respond within the specified limit of 5000.00ms", a request that got no answer,
+  taken for a server error. Since 2026-11-15 such a case is not judged: the same run is **INCONCLUSIVE**, 469
+  `UPSTREAM_UNAVAILABLE` and `NOTHING_CHECKED`, no finding;
+- with user_a's credential and a temporary route making `GET /api/v1/version` answer after 6 s (a `pre-function`
+  with `ngx.sleep(6)`, undone with `git checkout`): **PASS** partial, that operation `NO_RESPONSE`, no finding.
+
+**What each branch has been seen doing** (rule 9). Proven on a lab: `INPUT_NOT_VALIDATED` (crAPI),
+`INPUT_VALIDATED` (both Forgejo labs), `ONLY_4XX` (all three), and in the runs above `UPSTREAM_UNAVAILABLE`,
+`NOTHING_CHECKED`, `NO_RESPONSE`. Still unproven: `OPERATION_NOT_CHECKED`, the connect/timeout ERROR.
 
 ## 13. Remediation
 

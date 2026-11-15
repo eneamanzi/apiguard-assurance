@@ -113,6 +113,12 @@ lab-unproven: the labs leak none, and injecting a leaky header through the gatew
 injection). The detectors are the well-tested `response_inspector` helpers, and test 6.2 proves the header-reading
 path end-to-end on crAPI. Producing a live leak would need an announced change to a lab and has not been done.
 
+**What each branch has been seen doing** (rule 9). Proven on a lab: `NO_STACK_TRACE` (crAPI), `CLEAN` (all three),
+`ERROR_NOT_PROVOKED` (both Forgejo labs), and on 2026-11-15 (Forgejo + Kong, the specification saved with its
+reads only, then with its writes only) `NO_ERROR_PROBE` and `NO_READ_ENDPOINT`. Still unproven: `STACK_TRACE`,
+`DEBUG_FIELD`, `LEAKY_HEADER`. `NO_ENDPOINT` is not reachable: without an attack surface the test skips before
+the sub-test (`_requires_attack_surface`).
+
 ## 13. Remediation
 
 Return a generic message with a correlation ID to the client and keep the detail in the server logs (ASVS

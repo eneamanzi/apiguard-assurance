@@ -142,7 +142,9 @@ The anchor now confirms both conditions (`src/tests/helpers/anchor.py`), which a
 
 **What each branch has been seen doing** (rule 9). Proven on a lab: `REFUSED_AFTER_REVOCATION` (Forgejo),
 `ACCEPTED_AFTER_REVOCATION` (the case above), the SKIP for no revocation (crAPI). Still unproven:
-`NO_WORKING_ANCHOR`, `REVOCATION_NOT_CONFIRMED`, the transport reasons.
+`NO_WORKING_ANCHOR`, `REVOCATION_NOT_CONFIRMED`, the transport reasons. The SKIP for no credential placement is not
+reachable: a placement is missing only when `credentials.auth_type` is not set, and then the login cannot revoke
+either, so the test skips one step earlier (`revocation_capability`, `src/tests/helpers/auth.py`).
 
 ## 13. Remediation
 

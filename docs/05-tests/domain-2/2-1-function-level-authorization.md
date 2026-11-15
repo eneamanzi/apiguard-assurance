@@ -129,6 +129,13 @@ Rule 9: BFLA present (crAPI), enforced (Forgejo). `DESTRUCTIVE_NOT_PROBED` surfa
 `DELETE /identity/api/v2/admin/videos/{id}` (challenge 7) as unverified rather than omitting it. The `404` false PASS
 of the old test is fixed (a `404` is enforced only when the admin control proves the operation exists).
 
+**What each branch has been seen doing** (rule 9). Proven on a lab: `BFLA` (crAPI), `REFUSED`,
+`ENDPOINT_NOT_CONFIRMED` (both Forgejo labs), `DESTRUCTIVE_NOT_PROBED` (all three), `CREDENTIAL_NOT_CONFIRMED` (crAPI
+with an invalid token), `SINGLE_SAFE_METHOD` (all three, section 6), and on 2026-11-15 with a specification of the
+run only: `NO_PRIVILEGED_ENDPOINT` (Forgejo + Kong, the specification without its `/admin` paths: SKIP) and
+`PUBLIC_ENDPOINT` (crAPI + Kong, `GET /workshop/api/management/users/all` marked `security: []`). Still unproven:
+`REFUSED_HIDDEN`, `METHOD_CONFUSION`, `METHODS_CONSISTENT` and the transport reasons.
+
 ## 13. Remediation
 
 Enforce the role at a trusted service layer for every privileged operation and every method (ASVS v5.0.0-8.3.1); do

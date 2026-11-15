@@ -298,7 +298,12 @@ class Test17AuthenticationResistance(BaseTest):
             # difference between the two cases would prove nothing.
             self._judge(known, store, _SUB_ENUMERATION, Outcome.NOT_VERIFIABLE, "ANSWER_NOT_STABLE")
             return "ANSWER_NOT_STABLE"
-        if known_shapes != other_shapes:
+        # The bodies and the durations are two channels, judged one after the
+        # other: an answer that differs does not end the test, because a login
+        # that is fixed to answer alike can still take longer for an account that
+        # exists. "No discrepancy" is said only when the bodies agree.
+        bodies_differ = known_shapes != other_shapes
+        if bodies_differ:
             # The finding cites the other account's answer as its support (rule 6):
             # it must be in evidence.json, which keeps only judged or pinned records.
             store.pin_evidence(other)
@@ -330,9 +335,10 @@ class Test17AuthenticationResistance(BaseTest):
         known_ms = statistics.median(_durations(known_records))
         other_ms = statistics.median(_durations(unknown_records))
         if max(known_ms, other_ms) < _TIMING_FLOOR_MS:
-            # The bodies agree (the first oracle held); the durations are too small
-            # to compare, so this verdict rests on the bodies alone.
-            self._judge(known, store, _SUB_ENUMERATION, Outcome.ENFORCED, "TIMING_TOO_SMALL")
+            # The durations are too small to compare: the verdict rests on the
+            # bodies alone, enforced only when they agree.
+            if not bodies_differ:
+                self._judge(known, store, _SUB_ENUMERATION, Outcome.ENFORCED, "TIMING_TOO_SMALL")
             return None
         if known_ms >= other_ms * _TIMING_FACTOR:
             store.pin_evidence(other)  # cited as support, as above
@@ -363,7 +369,8 @@ class Test17AuthenticationResistance(BaseTest):
                 ),
             )
             return None
-        self._judge(known, store, _SUB_ENUMERATION, Outcome.ENFORCED, "NO_DISCREPANCY")
+        if not bodies_differ:
+            self._judge(known, store, _SUB_ENUMERATION, Outcome.ENFORCED, "NO_DISCREPANCY")
         return None
 
     # ------------------------------------------------------------------

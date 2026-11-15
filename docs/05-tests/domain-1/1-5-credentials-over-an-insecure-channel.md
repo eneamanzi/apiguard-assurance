@@ -156,6 +156,15 @@ API configured the same way would get.
   exercised on a target that does not enforce TLS; the labs enforce it, so they are not seen on a lab. They need a gateway that
   serves the API over HTTP or omits HSTS.
 
+**What each branch has been seen doing** (rule 9). Proven on a lab: `TRANSPARENT_REDIRECT`, `HSTS_COMPLIANT` (all
+three), `PLAIN_HTTP` (tool configuration above), and on 2026-11-15, Forgejo + Kong with the run's configuration
+only: `HTTP_LISTENER_UNKNOWN` (`http_url` removed, `base_url` on port 8443), `HTTP_PORT_UNREACHABLE` (`http_url:
+http://localhost:8999`, nothing listening), `HTTP_PORT_NO_ANSWER` (`http_url: http://10.255.255.1:80`, a
+non-routable address). Still unproven: `WEAK_REDIRECT`, `TEMPORARY_REDIRECT`, `HTTP_SERVED_CLEARTEXT`, `HTTP_PROCESSED_CLEARTEXT`,
+`HSTS_MISSING`, `HSTS_MAX_AGE_LOW`, `HSTS_NO_SUBDOMAINS`, `NO_RESPONSE`. `NO_TLS` was seen on 2026-11-14 (Forgejo +
+Kong, `base_url: http://localhost:8000`): `hsts_present` records one not applicable, the only one the code has
+(`src/tests/domain_1/test_1_5_insecure_credential_transport.py`), next to the `PLAIN_HTTP` finding.
+
 ## 13. Remediation
 
 Configure the gateway to refuse plain HTTP on API endpoints (no HTTP listener for them, or an error before the

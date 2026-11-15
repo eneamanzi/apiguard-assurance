@@ -125,6 +125,11 @@ reported **PASS** before the fix and reports **FAIL**, "No request-logging plugi
 plugin `enabled: true` it reports PASS, so the enforced branch still holds. The three real gateways carry no
 disabled plugin and are unchanged.
 
+**What each branch has been seen doing** (rule 9). Proven on a lab: `LOGS_NOT_SHIPPED` (all three), `LOGS_SHIPPED`
+(Forgejo + Kong with the plugin above). Seen on a stand-in Admin API only: `NO_CONFIG_VALUE`. Still unproven: the
+SKIP (no configuration values to read). `CONCEPT_NOT_ACCESSIBLE` was seen on 2026-11-15 (Forgejo + Kong, the run's
+`gateway.admin.url` on a closed port): INCONCLUSIVE, "no access to configuration values".
+
 ## 13. Remediation
 
 Enable a request-logging plugin that ships structured logs (timestamp, request id, method, path, real IP, user,

@@ -144,6 +144,14 @@ the workshop out of rotation. Since 7.2 stops at its first unanswered payload, a
 assessment reaches this test with the workshop in service and reports FAIL. Nothing changes on the Forgejo labs. That is rule 4 working: a gateway that cannot reach its backend says nothing about rate limiting, so
 the test refuses to conclude rather than call the missing 429 a violation.
 
+**What each branch has been seen doing** (rule 9). Proven on a lab: `NO_RATE_LIMIT` with no configured limit read
+(all three), `RATE_LIMITED` and `SPOOF_RESISTED` (Forgejo + Kong with the plugin above), and, on 2026-11-14 with
+the current code, `NO_LIMIT_TO_BYPASS` (Forgejo + Kong as configured: `ip_spoofing_resisted` records its only not
+applicable case) and `UPSTREAM_UNAVAILABLE` (Forgejo + Kong with the `forgejo` container stopped, the
+specification read from a file: Kong answers `503`, INCONCLUSIVE, no finding). Seen on a scratch server only:
+`LIMIT_OR_UNAVAILABLE`, `IP_SPOOF_BYPASS`. Still unproven: `NO_RATE_LIMIT` past a configured limit that was read,
+`LIMIT_ABOVE_BUDGET`.
+
 ## 13. Remediation
 
 Configure a rate-limiting plugin on the gateway, keyed to the authenticated user and the real connection (not a

@@ -95,6 +95,7 @@ other lab's gateway, not that backend.
 | the name does not resolve | either | `NOT_VERIFIABLE/ADDRESS_NOT_RESOLVABLE`: the tool is not on that network, which proves nothing | - |
 | the address has no port | either | `NOT_VERIFIABLE/ADDRESS_WITHOUT_PORT` | - |
 | the gateway gives no address | - | `NOT_VERIFIABLE/NO_BACKEND_ADDRESS`, `ADDRESSES_NOT_READABLE`; `NOT_APPLICABLE/ADDRESSES_NOT_READABLE` when the gateway has no such concept | - |
+| the gateway answers the probe path that its backend is unavailable (`502`, `503`, `504`): a refused connection could not be told from a backend that is down, so no address is tried (since 2026-11-15) | - | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` | - |
 | no gateway configured (the engine records the test as SKIP before it runs, so this is a guard only) | - | `NOT_APPLICABLE/NO_GATEWAY` | - |
 | the specification declares no path without parameters for `GET` | - | `NOT_VERIFIABLE/NO_PROBE_PATH` | - |
 | the target itself did not answer the probe path | - | `NOT_VERIFIABLE/TARGET_NOT_ANSWERING` | - |
@@ -146,11 +147,24 @@ correction of that day:
 The same measurement from inside the lab network answers `200` on `http://forgejo:3000`, so the isolation is a
 property of the network the request starts from, which is why the verdict names its vantage point.
 
+**Runs of the branch inventory (2026-11-14).**
+- crAPI + Kong, reset: **FAIL**, 3 findings, as in the table: `BACKEND_ANSWERS_DIRECTLY` (the workshop, CERTAIN)
+  and **`ADDRESS_ANSWERS_DIRECTLY` twice** (identity and community, FIRM). The row "any" above was wrong to say that
+  this case is not on the labs.
+- Forgejo + Kong with a temporary upstream whose only target is `127.0.0.1:3999`, where nothing listens (added to
+  `kong.yml`, undone with `git checkout`): `BACKEND_UNREACHABLE` twice, the declared address and then the derived
+  `localhost:3999`.
+- Forgejo + Kong with the `forgejo` container stopped (the specification read from a file): the gateway answered
+  the probe path `503`, and the test took the refused connection of the stopped backend for an isolated one
+  (**PASS**). Since 2026-11-15 the test stops there: **INCONCLUSIVE**, `UPSTREAM_UNAVAILABLE`, no address tried
+  (measured 2026-11-15, the same way; the three labs, running, give the results of the table above).
+
 **What each branch has been seen doing** (rule 9). Proven on a lab: `BACKEND_ANSWERS_DIRECTLY`,
-`ADDRESS_NOT_RESOLVABLE`, `ANOTHER_SERVICE`, `DERIVED_REFUSAL_ONLY`, and `BACKEND_UNREACHABLE` before 2026-11-04 (on
-derived addresses, which no longer give it alone). Still unproven:
-`ADDRESS_ANSWERS_DIRECTLY`, `ADDRESS_WITHOUT_PORT`, `NO_BACKEND_ADDRESS`, `ADDRESSES_NOT_READABLE`,
-`NO_PROBE_PATH`, `TARGET_NOT_ANSWERING`.
+`ADDRESS_ANSWERS_DIRECTLY`, `ADDRESS_NOT_RESOLVABLE`, `ANOTHER_SERVICE`, `DERIVED_REFUSAL_ONLY`,
+`BACKEND_UNREACHABLE`, `UPSTREAM_UNAVAILABLE`, and on 2026-11-15 with the run's configuration only (Forgejo + Kong)
+`ADDRESSES_NOT_READABLE` (`gateway.admin.url` on a closed port) and `NO_PROBE_PATH` (the specification saved with
+its `GET` paths without parameters removed). Still unproven: `ADDRESS_WITHOUT_PORT`, `NO_BACKEND_ADDRESS`,
+`TARGET_NOT_ANSWERING`, `NO_GATEWAY`, `NO_ATTEMPT`.
 
 ## 13. Remediation
 

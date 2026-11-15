@@ -21,6 +21,12 @@ documented operation per service prefix (src/tests/helpers/sampling.py):
 Each check is ENFORCED only when it holds on every sampled endpoint; absent on
 all is a VIOLATION, present on some and absent on others an inconsistency
 VIOLATION. HSTS is test 1.5; Permissions-Policy is dropped (not in ASVS 3.4).
+
+An answer from a target unavailable, failing, throttling or silent (_SILENT) is
+not the API's answer and is judged by none of the three checks: its headers may
+be the gateway's own error page (with the lab's backend stopped, 2026-11-14, the
+headers of Kong's `503` were judged present). A check left without any usable
+answer records NOT_VERIFIABLE/NO_RESPONSE.
 BLACK_BOX, READ_ONLY, no primary CWE (CWE-16 is a prohibited mapping category).
 
 Dependency rule: imports from stdlib, structlog and src.core, plus
@@ -132,7 +138,7 @@ class Test62SecurityHeadersAudit(BaseTest):
             cors_records: dict[str, EvidenceRecord] = {}
             for _method, path, _template in sample:
                 response, record = _send(client, path, {})
-                if response is None or record is None:
+                if response is None or record is None or category_of(record) in _SILENT:
                     continue
                 records[path] = record
                 headers = {k.lower(): v for k, v in response.headers.items()}
@@ -160,7 +166,7 @@ class Test62SecurityHeadersAudit(BaseTest):
         target unavailable, failing or throttling, which says nothing about CORS).
         """
         response, record = _send(client, path, {"Origin": _PROBE_ORIGIN})
-        if response is None or record is None or category_of(record) in _CORS_SILENT:
+        if response is None or record is None or category_of(record) in _SILENT:
             return _CORS_UNKNOWN, record
         headers = {k.lower(): v for k, v in response.headers.items()}
         acao = headers.get("access-control-allow-origin", "").strip()
@@ -289,9 +295,9 @@ _CORS_WILDCARD: str = "wildcard"
 _CORS_BOUNDED: str = "bounded"
 _CORS_NO_GRANT: str = "no_grant"
 _CORS_UNKNOWN: str = "unknown"
-# Answers that say nothing about CORS: the target was unavailable, failing,
-# throttling or silent (rule 1).
-_CORS_SILENT: frozenset[ResponseCategory] = frozenset(
+# Answers that say nothing about the API's headers or its CORS policy: the target
+# was unavailable, failing, throttling or silent (rule 1).
+_SILENT: frozenset[ResponseCategory] = frozenset(
     {
         ResponseCategory.UPSTREAM_UNAVAILABLE,
         ResponseCategory.SERVER_ERROR,

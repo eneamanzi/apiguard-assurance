@@ -121,6 +121,13 @@ Runs of 2026-10-23; the rows were measured again on 2026-11-04 (4.4 alone), afte
 1`) to `test-environments/forgejo-kong/kong/kong.yml`, reload Kong (`docker compose ... up -d --force-recreate --wait
 kong`); undo with `git checkout` and the same command. The lab was checked back to FAIL. Rule 9: both sides proven.
 
+**What each branch has been seen doing** (rule 9). Proven on a lab: `NO_SIZE_LIMIT` with no configured limit
+readable (both Forgejo labs, FIRM; crAPI), `SIZE_LIMIT_ENFORCED` (Forgejo + Kong with the plugin above),
+`UPSTREAM_UNAVAILABLE` (crAPI, the race of 2026-11-03). Seen on a scratch server only: `REFUSED_BEFORE_SIZE_CHECK`.
+Still unproven: `NO_SIZE_LIMIT` above a configured limit that was read (CERTAIN), `NO_RESPONSE`.
+`NO_CREDENTIAL_TO_RETRY` was seen on 2026-11-15 (Forgejo + Kong, the run's configuration without user_a's
+account: the unauthenticated body refused `401`, INCONCLUSIVE).
+
 ## 13. Remediation
 
 Configure a request-size limit on the gateway (Kong `request-size-limiting`, Nginx `client_max_body_size`) so an

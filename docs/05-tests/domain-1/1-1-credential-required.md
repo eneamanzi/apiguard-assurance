@@ -204,11 +204,23 @@ kong`; undo with `git checkout test-environments/forgejo-kong/kong/kong.yml` and
 results afterwards (2026-10-22).
 
 **What each branch has been seen doing** (rule 9). Proven on a lab: `CREDENTIAL_REQUIRED`,
-`SERVED_WITHOUT_CREDENTIAL` at both confidences, `DECLARED_PUBLIC`, `NO_SECURITY_DECLARED`,
-`NOT_FOUND_LIKE_UNKNOWN`, `NOT_FOUND_OWN_ANSWER`, `VALIDATED_WITHOUT_CREDENTIAL`, `CREDENTIAL_REFUSED`,
-`VARIANT_NOT_SERVED`, `VARIANT_REDIRECTED` (3 on crAPI, 2026-11-05), and with the two cases above every `ACCEPTED_<case>` and `SERVED_AS_UPPER_SEGMENT`. Still
+`SERVED_WITHOUT_CREDENTIAL` at both confidences, `DECLARED_PUBLIC`, `NO_SECURITY_DECLARED` and
+`NO_PROVEN_CONTROL` (2026-11-14, below), `NOT_FOUND_LIKE_UNKNOWN`, `NOT_FOUND_OWN_ANSWER`, `VALIDATED_WITHOUT_CREDENTIAL`, `CREDENTIAL_REFUSED`,
+`VARIANT_NOT_SERVED`, `VARIANT_REDIRECTED` (3 on crAPI, 2026-11-05), `UPSTREAM_UNAVAILABLE` (2026-11-14, below), and with the two cases above every `ACCEPTED_<case>` and `SERVED_AS_UPPER_SEGMENT`. Still
 unproven: the other seven `SERVED_AS_<kind>` details (the same code path as the one proven, one per variant),
-`REDIRECTED` and the transport reasons.
+`REDIRECTED` and the other transport reasons.
+`CREDENTIAL_REFUSED` is the enforced detail of the malformed credentials (`src/tests/domain_1/test_1_1_credential_required.py`),
+which the table in section 6 does not list.
+
+Runs of the branch inventory (2026-11-14), Forgejo + Kong:
+- the lab's specification saved to a file with its global `security` removed (no operation declares its own):
+  **INCONCLUSIVE**, 473 not applicable on `no_credential` (`NO_SECURITY_DECLARED`, the detail the code gives an
+  operation that is neither protected nor marked public), and `NO_PROVEN_CONTROL` on the other two sub-tests. On
+  2026-11-14 the note read "The specification declares security only for the whole document ... every one inherits
+  the document's global `security`", which this document does not have; since 2026-11-15 it reads "The
+  specification declares no security requirement" (measured 2026-11-15; the labs' own specifications keep their
+  notes);
+- the `forgejo` container stopped: **INCONCLUSIVE**, 473 `UPSTREAM_UNAVAILABLE` (Kong's `503`), no finding.
 
 ## 13. Remediation
 

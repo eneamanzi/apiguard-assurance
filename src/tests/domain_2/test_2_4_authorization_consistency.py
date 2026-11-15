@@ -226,11 +226,14 @@ class Test24AuthorizationConsistency(BaseTest):
         Compare every pair of one version candidate, after checking the version
         exists at all.
 
-        Up to _ABSENCE_PROBES siblings are probed first: if they all answer 404,
-        the candidate version is taken as absent and the whole group is one
+        Siblings are probed first, in order: when _ABSENCE_PROBES of them answer
+        404 while their documented operation does not (or every such pair does,
+        with fewer of them), and no sibling answered otherwise, the candidate
+        version is taken as absent and the whole group is one
         NOT_APPLICABLE/VERSION_ABSENT instead of a probe per endpoint (a large
         API with a single documented version would otherwise send hundreds of
-        requests for nothing).
+        requests for nothing). A pair whose documented operation answers 404
+        as well says nothing about the version and is not counted.
 
         Args:
             client:    The run's HTTP client.
@@ -246,20 +249,38 @@ class Test24AuthorizationConsistency(BaseTest):
         """
         pairs, context = group
         probes: list[EvidenceRecord] = []
-        for method, _documented, sibling in pairs[:_ABSENCE_PROBES]:
+        # A sibling's 404 is evidence of an absent version only when the
+        # documented operation, asked as well, does not answer 404 too: on
+        # Forgejo the first three pairs are activitypub reads that answer 404 in
+        # v1, and an existing v2 was taken for an absent one (2026-11-14).
+        informative = 0
+        answered = False
+        exhausted = True
+        method = pairs[0][0]
+        for method, documented, sibling in pairs:
             probe = _send(
                 client, method, resolve_path_with_seed(sibling, target.path_seed), self.info.id
             )
-            if probe is None:
+            if probe is None or category_of(probe) != ResponseCategory.NOT_FOUND:
+                if probe is not None:
+                    probes.append(probe)
+                answered = True
                 break
             probes.append(probe)
-            if category_of(probe) != ResponseCategory.NOT_FOUND:
+            own = _send(
+                client, method, resolve_path_with_seed(documented, target.path_seed), self.info.id
+            )
+            if own is not None:
+                probes.append(own)
+            if own is None or category_of(own) == ResponseCategory.NOT_FOUND:
+                continue
+            informative += 1
+            if informative == _ABSENCE_PROBES:
+                exhausted = False
                 break
         for probe in probes:
             self._step(probe)
-        if len(probes) == len(pairs[:_ABSENCE_PROBES]) and all(
-            category_of(probe) == ResponseCategory.NOT_FOUND for probe in probes
-        ):
+        if not answered and informative > 0 and (informative == _ABSENCE_PROBES or exhausted):
             self._record(_SUB, Outcome.NOT_APPLICABLE, "VERSION_ABSENT")
             return True
         # What a random path right under this version answers, for the

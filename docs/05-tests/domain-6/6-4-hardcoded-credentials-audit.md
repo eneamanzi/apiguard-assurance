@@ -130,6 +130,18 @@ target with a debug endpoint that returns a secret. What that case would add is 
 to the matcher: the matcher itself is `_scan_text` over `_CREDENTIAL_PATTERNS`, shared with `gateway_config_no_secret`
 and proven by the planted token in the table above.
 
+**What each branch has been seen doing** (rule 9). Proven on a lab: `DEBUG_NO_SECRET` (both Forgejo labs),
+`DEBUG_NOT_FOUND` (all three), `DEBUG_BLOCKED` (crAPI), `CONFIG_NO_SECRET` (all three), `CONFIG_SECRET` at FIRM
+(Forgejo + Kong, the planted token), and the debug path's `UPSTREAM_UNAVAILABLE` (Forgejo + Kong with the
+`forgejo` container stopped, 2026-11-14: 4 of the 11 paths, the others answered by Kong's own `404`). Seen on a
+stand-in Admin API only: `NO_CONFIG_VALUE`. Still unproven: `DEBUG_SECRET`, the debug path's `RATE_LIMITED` and
+`SERVER_ERROR`, `CONFIG_SECRET` at TENTATIVE, a secret reference left unreported. Seen on 2026-11-15 with the
+run's configuration only (Forgejo + Kong): `CONFIG_NOT_READABLE` (`gateway.admin.url` on a closed port) and
+`NO_GATEWAY` (no `gateway` section: the config scan's only not-applicable case). "The `NOT_APPLICABLE` case" of the paragraph above no longer exists: the code records no
+not-applicable case for `debug_endpoint_no_secret` (its only one is `NO_GATEWAY`, of the config scan,
+`src/tests/domain_6/test_6_4_hardcoded_credentials_audit.py`); it was the sub-test without configured paths,
+before the default paths.
+
 **Until 2026-10-29 this sub-test verified nothing on any lab.** The `debug_endpoint_paths` block of the two Forgejo
 labs was commented out during the test review and never uncommented, so the sub-test judged `NOT_APPLICABLE`
 everywhere and the test was `partial` on all three labs. Uncommenting it was checked against a full assessment of

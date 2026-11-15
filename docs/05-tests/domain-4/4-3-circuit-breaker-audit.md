@@ -130,6 +130,11 @@ on a real gateway. The VIOLATION branch became reachable only with this review: 
 check was read as protected, because the `active` record exists with zero intervals, so the branch could not be
 produced on Kong at all.
 
+**What each branch has been seen doing** (rule 9). Every branch of this test has been seen (the table above).
+Proven on a lab: `HEALTH_CHECK` (all three), `CIRCUIT_BREAKER` (Forgejo + APISIX), `NO_CIRCUIT_BREAKER` and the SKIP
+(Forgejo + Kong). Through a proxy in front of the Forgejo + Kong Admin API: `CIRCUIT_BREAKER` on Kong and
+`GATEWAY_READ_FAILED`.
+
 ## 13. Remediation
 
 Configure a circuit breaker (or at least a passive health check that takes a failing backend out of rotation) with a

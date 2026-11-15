@@ -72,6 +72,7 @@ READ_ONLY.
 | (CORS) sampled endpoints send CORS headers and none allows an arbitrary origin with credentials | `ENFORCED/CORS_BOUNDED` | - |
 | (CORS) no usable answer grants any cross-origin access to the arbitrary `Origin` | `ENFORCED/ORIGIN_NOT_ALLOWED`: a browser refuses that origin the response | - |
 | (CORS) no usable answer at all to the cross-origin probe (no response, `429`, `5xx`) | `NOT_VERIFIABLE/NO_RESPONSE` | - |
+| (headers) no usable answer at all among the sampled endpoints: an answer that is no response, a `429` or a `5xx` is not the API's (it may be the gateway's own error page) and is not judged (since 2026-11-15) | `NOT_VERIFIABLE/NO_RESPONSE` | - |
 
 ## 7. Outcomes
 
@@ -115,6 +116,15 @@ Rule 9, both sides proven, agnostically: ENFORCED on Forgejo and on the correcte
 inconsistency; a single-endpoint check would have passed crAPI. To see the violation again, move the two headers
 back under `replace` only in `test-environments/crapi-kong/kong/kong.yml` and recreate the gateway (`docker compose
 --env-file ../../.env up -d --force-recreate --wait kong`).
+
+**With the backend stopped** (Forgejo + Kong, the `forgejo` container stopped). The only sampled endpoint answers
+Kong's own `503` ("failure to get a peer from the ring-balancer"). On 2026-11-14 the headers Kong adds were found
+on it and judged present (**PASS** partial); since 2026-11-15 that answer is not judged: **INCONCLUSIVE**,
+`NO_RESPONSE` on the three sub-tests (measured 2026-11-15; the three labs, running, give the results above).
+
+**What each branch has been seen doing** (rule 9). Proven on a lab: `PRESENT` (both Forgejo labs, crAPI corrected),
+`INCONSISTENT` (crAPI before the correction), `ORIGIN_NOT_ALLOWED` (both Forgejo labs), `CORS_BOUNDED` (crAPI),
+`NO_RESPONSE` on the three sub-tests (the run above). Still unproven: `MISSING`, `CORS_ORIGIN_REFLECTED`, `CORS_WILDCARD_CREDENTIALS`.
 
 ## 13. Remediation
 

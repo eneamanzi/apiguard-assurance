@@ -124,6 +124,10 @@ Rule 9: `VIOLATION/RACE_DOUBLE_EFFECT` and `NOT_VERIFIABLE/OPERATION_FAILED` are
 the first real concurrent use of the HTTP client (its record counter is now locked, measured separately).
 `ENFORCED/CONCURRENCY_SERIALIZED` has not been seen: no lab has a once-only operation that serializes.
 
+**What each branch has been seen doing** (rule 9). Proven on a lab: `RACE_DOUBLE_EFFECT`, `OPERATION_FAILED` and
+`UPSTREAM_UNAVAILABLE` (crAPI), the SKIP (both Forgejo labs). Still unproven: `CONCURRENCY_SERIALIZED`,
+`SERVER_ERROR`, `RATE_LIMITED`, `NO_RESPONSE`.
+
 ## 13. Remediation
 
 Make the check-then-act atomic: a database transaction with the right isolation, a unique constraint, an idempotency

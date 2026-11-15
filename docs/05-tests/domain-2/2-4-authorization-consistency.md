@@ -67,7 +67,7 @@ the documented path without a credential, then the sibling without a credential.
 | documented refused, sibling refused exactly as a random path under its version (a service refusing every path) | `NOT_VERIFIABLE/REFUSED_BEFORE_ROUTING` (until 2026-11-04 `SIBLING_REFUSED`) | - |
 | documented refused, sibling refused, and what a random path under its version answers is not stable | `NOT_VERIFIABLE/CALIBRATION_UNSTABLE` | - |
 | documented refused, sibling absent (404) | `NOT_APPLICABLE/SIBLING_ABSENT` | - |
-| the candidate version is entirely absent (up to three of its siblings answer `404`) | `NOT_APPLICABLE/VERSION_ABSENT` (one per version) | - |
+| the candidate version is entirely absent: three of its siblings answer `404` while their documented operation does not (or every such pair does, when there are fewer), and no sibling answers otherwise; a pair whose documented operation answers `404` too says nothing about the version and is not counted (since 2026-11-15) | `NOT_APPLICABLE/VERSION_ABSENT` (one per version) | - |
 | documented served without a credential (public) | `NOT_APPLICABLE/DOCUMENTED_NOT_PROTECTED` (that is 1.1's question) | - |
 | documented answered neither 2xx nor a refusal (no answer, a 404, a 5xx, a 429) | `NOT_VERIFIABLE/NO_RESPONSE`, `DOCUMENTED_NOT_JUDGEABLE` (until 2026-11-04 "not protected") | - |
 | the surface has no version sibling at all (the `version_siblings` rule found no pair) | `NOT_APPLICABLE/NO_VERSION_SIBLING` | - |
@@ -112,6 +112,28 @@ that serves without the auth the documented one requires) is not present on the 
 (challenge 3) is a rate-limiting weakness of an older flow, not an authorization drop. It is documented lab-unproven
 rather than produced with a gateway change (owner: save tokens, 2026-10-23); the branch's logic is the inversion of
 the proven `SIBLING_REFUSED` contrast.
+
+**Both sides produced on 2026-11-14** (Forgejo + Kong, a temporary change to its `kong.yml`, undone with `git
+checkout` and the lab checked back to SKIP). A service `url: http://forgejo-upstream/api/v1` with a route
+`/api/v2` (`strip_path: true`) makes v2 forward to v1 with the same policies; a route `~/api/v2/user$` with
+`request-termination` 200 serves one v2 path without a credential; a route `/api/v2/activitypub` with
+`request-termination` 401 (see below). Result: **FAIL**, 1 finding, `VERSION_DROPS_AUTH` on `GET /api/v2/user`
+(CERTAIN), 101 `SIBLING_REFUSED`, 62 `DOCUMENTED_NOT_JUDGEABLE`, 78 not applicable (the 78 operations served
+without a credential, `DOCUMENTED_NOT_PROTECTED`).
+
+**Why the `/api/v2/activitypub` route was needed on 2026-11-14, and is not since 2026-11-15.** Without it the test
+reported **SKIP**, `VERSION_ABSENT`, although v2 answered: the first three pairs are `activitypub` reads, which
+this Forgejo answers `404` in v1 as well, and the absence rule counted their siblings' `404`. Since 2026-11-15 a
+pair counts only when its documented operation does not answer `404` too. Measured 2026-11-15 with the v2
+forwarding and the served `/api/v2/user` route only: **FAIL**, 1 finding `VERSION_DROPS_AUTH`, 101
+`SIBLING_REFUSED`; the three labs as configured give the results of the table above (Forgejo: `VERSION_ABSENT`).
+
+**What each branch has been seen doing** (rule 9). Proven on a lab: `VERSION_ABSENT` (both Forgejo labs),
+`REFUSED_BEFORE_ROUTING`, `DOCUMENTED_NOT_JUDGEABLE` (crAPI; Forgejo with the backend stopped), and, with the change
+above, `SIBLING_REFUSED`, `VERSION_DROPS_AUTH`, `DOCUMENTED_NOT_PROTECTED`. Still unproven: `CALIBRATION_UNSTABLE`,
+`SIBLING_ABSENT` and the transport reasons. `NO_VERSION_SIBLING` was seen on 2026-11-15 (Forgejo + Kong, the
+specification saved without its global `security`, so no operation is protected): SKIP, "No protected operation
+has a version sibling".
 
 ## 13. Remediation
 

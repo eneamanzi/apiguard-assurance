@@ -127,7 +127,10 @@ path holding `{`, which is why the violation the lab holds had never been seen.
 **What each branch has been seen doing** (rule 9). Proven on a lab: `DEPRECATED_WITHOUT_SUNSET`,
 `WRITE_METHOD_NOT_PROBED`, and the SKIP. Still unproven: `SWITCHED_OFF`, `SUNSET_DECLARED`,
 `PAST_SUNSET_STILL_SERVED`, `DEPRECATION_WITHOUT_SUNSET`, `SUNSET_NOT_A_DATE`, `NOT_SERVED`,
-`REFUSED_BEFORE_ANSWER`, `CALIBRATION_UNRELIABLE`, `PATH_NOT_FILLABLE` and the transport reasons.
+`REFUSED_BEFORE_ANSWER`, `CALIBRATION_UNRELIABLE` and the transport reasons, and `METHOD_SWITCHED_OFF` and
+`ANSWER_NOT_INTERPRETED`, not named before the inventory of 2026-11-14. `PATH_NOT_FILLABLE` was seen on
+2026-11-15 (Forgejo + Kong, the run's `target.path_seed` emptied): INCONCLUSIVE, the read not fillable and the
+three writes named.
 
 ## 13. Remediation
 

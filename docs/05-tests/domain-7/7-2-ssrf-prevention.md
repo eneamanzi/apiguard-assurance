@@ -146,6 +146,12 @@ The baseline control and the 5xx rule were added after the first crAPI run score
 sides are both proven; the confirmed-SSRF `VIOLATION` is unreachable without the out-of-band listener and stays so
 (see Limitations).
 
+**What each branch has been seen doing** (rule 9). Proven on a lab: `OUTBOUND_NOT_CONFIRMED` (both Forgejo labs),
+`UPSTREAM_UNAVAILABLE` and `NOT_SENT_AFTER_TIMEOUT` (crAPI), and of the four `SSRF_BLOCKED_*` details
+`SSRF_BLOCKED_SCHEME` (12) and `SSRF_BLOCKED_MALFORMED` (3), the 15 rejected payloads, on both Forgejo labs
+(2026-11-14). Still unproven: `SSRF_BLOCKED_VALIDATION`, `SSRF_BLOCKED_UNKNOWN`, `RATE_LIMITED`,
+`CREDENTIAL_REFUSED`, `REDIRECTED`, `NOT_FOUND`, `BASELINE_REJECTED`, `SSRF_PROBE_TIMEOUT`.
+
 ## 13. Remediation
 
 Validate the resolved IP of a client URL against the full set of private/loopback/link-local/unspecified ranges

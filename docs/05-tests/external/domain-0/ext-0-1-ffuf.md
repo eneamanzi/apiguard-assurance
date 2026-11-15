@@ -144,9 +144,13 @@ Each finding points to the test's own request and to the two calibration probes 
 healthy after the runs.
 
 **What each branch has been seen doing** (rule 9). Proven on a lab: `UNDOCUMENTED_PATH`, `NOT_FOUND`,
-`LIKE_UNKNOWN`, `SEARCH_BLIND` (crAPI's identity) and `TOOL_CALIBRATION_FAILED` (on 2026-10-21, before the whole
-paths of the list were routed to their own base path, ffuf kept 212 answers on Forgejo's root). Still unproven:
-`CALIBRATION_UNSTABLE` (the mechanism itself is verified in `src/core/references.py`) and the transport reasons.
+`LIKE_UNKNOWN`, `SEARCH_BLIND` (crAPI's identity), and `NO_UNDOCUMENTED_PATH` (crAPI), not named before the
+inventory of 2026-11-14. Still unproven: `CALIBRATION_UNSTABLE` (the mechanism itself is verified in
+`src/core/references.py`) and the transport reasons. `TOOL_CALIBRATION_FAILED` was seen again with the current code
+on 2026-11-14 (Forgejo + Kong, a temporary route `/api/v1/` whose `pre-function` answers `200` with a random number
+of lines, `string.rep("w x\n", math.random(1, 2000))`, undone with `git checkout`): ffuf kept 281 answers and the
+base path was recorded `TOOL_CALIBRATION_FAILED`. A random length alone was not enough (ffuf kept 7): its
+calibration also compares words and lines.
 
 ## 13. Remediation
 

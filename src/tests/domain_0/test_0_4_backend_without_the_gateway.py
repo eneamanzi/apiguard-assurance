@@ -40,6 +40,12 @@ the request, because a client transport error cannot tell a refused connection
 from a name that does not exist, and that difference is the whole difference
 between "the backend refuses us" and "we are not there to ask".
 
+The comparison needs a backend that is up. When the gateway answers the probe
+path that its backend is unavailable (502, 503, 504), a refused connection at
+the backend's address cannot be told from a backend that is down, so nothing
+is tried and the sub-test records NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE (with the
+lab's backend stopped, 2026-11-14, the test reported a PASS).
+
 Dependency rule: imports from stdlib, structlog and src.core, plus
 src.tests.base.
 """
@@ -51,6 +57,7 @@ from urllib.parse import urlsplit
 
 import structlog
 
+from src.core.assessment_test import category_of
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
@@ -63,6 +70,7 @@ from src.core.models import (
     Finding,
     Outcome,
     Reference,
+    ResponseCategory,
     Standard,
     TestResult,
     TestStrategy,
@@ -179,6 +187,11 @@ class Test04BackendWithoutTheGateway(BaseTest):
             through = self._through_gateway(client, store, probe_path)
             if through is None:
                 self._record(_SUB_ADDRESSES, Outcome.NOT_VERIFIABLE, "TARGET_NOT_ANSWERING")
+                return self._finish()
+            if category_of(through) == ResponseCategory.UPSTREAM_UNAVAILABLE:
+                self._judge(
+                    through, store, _SUB_ADDRESSES, Outcome.NOT_VERIFIABLE, "UPSTREAM_UNAVAILABLE"
+                )
                 return self._finish()
             candidates = self._candidates(target, store)
             if candidates is None:

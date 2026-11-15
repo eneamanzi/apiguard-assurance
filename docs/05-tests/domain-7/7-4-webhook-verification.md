@@ -143,6 +143,11 @@ connection no longer counts as "signature required"); its verdicts were observed
 above. Replay protection and the blind-callback case stay outside what this test covers, for the reasons in the
 Limitations.
 
+**What each branch has been seen doing** (rule 9). Proven on a lab: the SKIP (all three), `SIGNATURE_NOT_CONFIRMED`
+(Forgejo + Kong, `POST /api/v1/markdown`). Seen on the scratch receiver only: `SIGNATURE_REQUIRED`, `REJECTS_ALL`,
+`SIGNATURE_NOT_CONFIRMED`, `UNSIGNED_ACCEPTED`, `BAD_SIGNATURE_ACCEPTED`. Still unproven: `UPSTREAM_UNAVAILABLE`,
+`SERVER_ERROR`, `RATE_LIMITED`, `NO_RESPONSE`.
+
 ## 13. Remediation
 
 Verify an HMAC-SHA256 signature over the raw body on every delivery, in constant time; reject an absent or wrong

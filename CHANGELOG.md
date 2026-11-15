@@ -15,6 +15,19 @@ generated catalogue [`docs/05-tests/README.md`](docs/05-tests/README.md); `apigu
 
 ### Added
 
+- **Every test page says which branches of its oracle have been seen (2026-11-14).** The 17 native pages that did
+  not have it got the paragraph "What each branch has been seen doing" (rule 9) at the end of their Validation
+  section, written only from what that section records: proven on a lab, seen off the labs (a scratch server, a
+  stand-in Admin API, a proxy), still unproven, and, where the page is ambiguous, to re-verify with the reason. The
+  11 native pages that had it and the 3 external pages were checked the same way: branches they did not name were
+  added, and nine claims their own section or the code does not support were moved to "to re-verify". The sixteen
+  items to re-verify were then run on the labs, one test at a time, every lab change undone and checked: fifteen
+  are settled in their pages, one (1.7's timing branch) is the owner's decision. The runs also produced the two
+  sides of 2.4 (a version that drops the check, one that keeps it) and the "backend unavailable" branches of eight
+  tests, and showed six behaviours written on their pages for the owner to judge (2.4's absence rule, 0.4 and 6.2
+  with a stopped backend, a timeout reported by Schemathesis as a server error, 1.1's note, 1.7's timing branch).
+  Test 1.2's page named its details `ACCEPTED_TAMPERED` and `ACCEPTED_STRIPPED`: the code's are
+  `ACCEPTED_TAMPERED_PAYLOAD` and `ACCEPTED_STRIPPED_SIGNATURE`.
 - **What the tool detects of crAPI's declared vulnerabilities, measured** (`06-compatibility.md`, 2026-10-29). crAPI
   publishes the 18 weaknesses it was built to contain, so the measure is not ours: on a reset lab, with the full
   32-test assessment, the tool caught four outright (an unprotected password reset, no rate limit on the very
@@ -138,6 +151,33 @@ generated catalogue [`docs/05-tests/README.md`](docs/05-tests/README.md); `apigu
 
 ### Fixed
 
+- **Six oracle behaviours found by the branch verification on the labs (2026-11-15).** Each was produced on a
+  lab, fixed, and produced again (the pages say how):
+  - `0.4` reported a PASS when the backend was down: the gateway's `502`/`503`/`504` on the probe path now stops
+    the test with `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`, since a refused connection cannot tell a down backend from
+    an isolated one;
+  - `6.2` judged the headers of the gateway's own `503`: an answer that is no response, a `429` or a `5xx` is no
+    longer judged by the header sub-tests, as it already was not by the CORS one (`NO_RESPONSE`);
+  - `ext.3.1.schemathesis` reported a request that got no answer in time ("Response timeout") as a server error:
+    such a case is no longer judged, and an operation left with no other case is `NOT_VERIFIABLE/NO_RESPONSE`;
+  - `2.4` took an existing version for an absent one when the first pairs' documented operations answered `404`
+    as well: such a pair no longer counts towards `VERSION_ABSENT`;
+  - `1.1`'s note said every operation inherits a global `security` when the specification declares none: a third
+    note says the specification declares no security requirement;
+  - `1.7` recorded `NO_DISCREPANCY` or `TIMING_TOO_SMALL` after `EXISTENCE_DISCLOSED_BY_ANSWER`: they are now
+    recorded only when the bodies agree; the timing channel is still judged in both cases (owner decision), and
+    section 6 of the page says so.
+
+  **Changed results**: on the three labs, as configured, none (measured 2026-11-15 on the six tests): the changes
+  act only where the backend is down, an operation times out, a version is mirrored, a specification declares no
+  security, or a login answer differs with comparable durations (`1.7`'s enforced counter).
+- **Two statements of the methodology documents, checked against the code (2026-11-14).** `03-guarantees.md` said
+  that thirty guarantees have a test and that only 2.3 and 6.3 have none: the code has 28 native and 3 external
+  tests, which cover twenty-nine guarantees, and 5.2 has no test either (removed 2026-11-03). Guarantee 0.2 cited a
+  "CIS Benchmark API Gateway Controls 2.3" that no test cites and that could not be found; the reference is gone.
+  `02-methodology.md` said that every test uses only what its strategy grants: since the owner decision of
+  2026-11-04 the strategy is the least access a test needs (`NEED_MINIMUM_STRATEGY`, `src/core/test_metadata.py`),
+  and five BLACK_BOX tests also read the gateway when one is configured.
 - **The Kong labs' security headers (2026-11-05).** Both `kong.yml` set `X-Content-Type-Options` and
   `X-Frame-Options` with `response-transformer` `replace` only. In Kong, `replace` rewrites a header the backend
   already sent and does nothing otherwise (`header_transformer.lua`, Kong 3.9.3), so crAPI's community service,

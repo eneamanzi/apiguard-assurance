@@ -137,6 +137,11 @@ Rule 9: `VIOLATION/NO_ANTI_AUTOMATION` is seen on crAPI and on the Forgejo scrat
 with the throttle above, and `NOT_VERIFIABLE/FLOW_NOT_ACCEPTED` with the refused scratch flow. Not seen:
 `ENFORCED/ANTI_AUTOMATION_CHALLENGE` (no lab has a CAPTCHA), `FLOW_UNAVAILABLE` and `REFUSED_AFTER_SERVED`.
 
+**What each branch has been seen doing** (rule 9). Proven on a lab: `NO_ANTI_AUTOMATION` (crAPI, a Forgejo + Kong
+scratch flow), `ANTI_AUTOMATION_THROTTLE` (Forgejo + Kong with the plugin above), `FLOW_NOT_ACCEPTED` (a refused
+Forgejo + Kong scratch flow), the SKIP (both Forgejo labs). Still unproven: `ANTI_AUTOMATION_CHALLENGE`,
+`FLOW_UNAVAILABLE`, `REFUSED_AFTER_SERVED`.
+
 ## 13. Remediation
 
 Put an anti-automation control on the flow: a CAPTCHA or human-verification challenge after a few attempts, or a
