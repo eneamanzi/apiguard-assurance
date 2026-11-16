@@ -130,7 +130,10 @@ resources:
       auth: basic
       body:
         name: "apiguard-{random}"
-        scopes: ["read:repository", "read:user", "write:repository", "write:user"]
+        # read:admin lets the admin token read the /admin/* operations, which test 2.1's admin
+        # control asks (https://forgejo.org/docs/latest/user/token-scope/); it grants nothing to
+        # an account that is not an administrator.
+        scopes: ["read:repository", "read:user", "write:repository", "write:user", "read:admin"]
     values:
       credential: sha1
       id: id

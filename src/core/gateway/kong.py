@@ -26,7 +26,7 @@ src.config, or src.discovery.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypeGuard
 
 import structlog
 
@@ -38,6 +38,7 @@ from src.core.gateway.base import (
 from src.core.gateway.concepts import (
     ActiveCheck,
     BackendTimeout,
+    BodySizeLimit,
     CircuitBreaker,
     ConceptRead,
     ConceptScope,
@@ -47,6 +48,8 @@ from src.core.gateway.concepts import (
     HealthCheck,
     LogShipper,
     PassiveCheck,
+    RateLimit,
+    RateWindow,
     RouteMatch,
     RoutePath,
     SigningPolicy,
@@ -112,6 +115,44 @@ _BREAKER_OPEN_FIELDS: tuple[str, ...] = (
     "timeout_duration",
 )
 _GLOBAL_SCOPE_NAME: str = "global"
+
+# Rate limits: Kong's own rate-limiting plugin
+# (https://developer.konghq.com/plugins/rate-limiting/reference/, read 2026-11-15).
+# Each field is a number of requests per period; the periods are calendar
+# periods (kong/tools/timestamp.lua 3.9.0: the current time floored to the
+# second, minute, hour, day, month, year), so a month and a year take their
+# shortest length.
+_RATE_LIMIT_PLUGINS: frozenset[str] = frozenset({"rate-limiting"})
+_SECONDS_PER_DAY: float = 86400.0
+_RATE_PERIOD_SECONDS: dict[str, float] = {
+    "second": 1.0,
+    "minute": 60.0,
+    "hour": 3600.0,
+    "day": _SECONDS_PER_DAY,
+    "month": 28 * _SECONDS_PER_DAY,
+    "year": 365 * _SECONDS_PER_DAY,
+}
+# The policies whose counters every node shares: cluster (the data store) and
+# redis; local keeps them "in-memory on the node". They are updated on each
+# request only with sync_rate -1 (SYNC_RATE_REALTIME in
+# kong/plugins/rate-limiting/handler.lua 3.9.0); another value syncs them
+# periodically.
+_RATE_SHARED_POLICIES: frozenset[str] = frozenset({"cluster", "redis"})
+_RATE_SYNC_REALTIME: float = -1.0
+# Body-size limits: Kong's own request-size-limiting plugin, its limit in the
+# unit of size_unit (megabytes by default), with the factors of its handler
+# (kong/plugins/request-size-limiting/handler.lua 3.9.0, read 2026-11-15).
+_BODY_SIZE_PLUGINS: frozenset[str] = frozenset({"request-size-limiting"})
+_BODY_SIZE_UNIT_DEFAULT: str = "megabytes"
+_BODY_SIZE_UNIT_BYTES: dict[str, int] = {
+    "bytes": 1,
+    "kilobytes": 1024,
+    "megabytes": 1048576,
+}
+# The HTTP protocols of a plugin's `protocols` field: a plugin listing only
+# one of them applies to part of the HTTP traffic, a plugin listing neither
+# (gRPC only) to none of it.
+_HTTP_PROTOCOLS: frozenset[str] = frozenset({"http", "https"})
 
 
 # ---------------------------------------------------------------------------
@@ -367,6 +408,86 @@ class KongGatewayAdapter(BaseGatewayAdapter):
                 )
         return ConceptRead[ConfigValue].read(sorted_config_values(items))
 
+    def _read_rate_limits(self) -> ConceptRead[RateLimit]:
+        """
+        Map every rate-limiting plugin that applies to every client.
+
+        A plugin bound to a consumer or a consumer group applies only to the
+        requests of that client (kong/runloop/plugins_iterator.lua 3.9.0: the
+        consumer combinations are tried only for an authenticated consumer) and
+        is left out; so is one for gRPC only. One that covers HTTP or HTTPS
+        alone is reported without windows: which of the two a request uses is
+        not the concept's.
+        """
+        items: list[RateLimit] = []
+        for plugin in self._limit_plugins(_RATE_LIMIT_PLUGINS):
+            config: dict[str, Any] = plugin.get("config") or {}
+            windows: tuple[RateWindow, ...] = ()
+            if _covers_http(plugin):
+                # Kong refuses the request that takes the count past the
+                # number, so a fractional number allows its whole part.
+                windows = tuple(
+                    RateWindow(requests=int(config[period]), seconds=seconds)
+                    for period, seconds in _RATE_PERIOD_SECONDS.items()
+                    if _positive_number(config.get(period)) and int(config[period]) >= 1
+                )
+            policy = str(config.get("policy") or "").lower()
+            sync_rate = config.get("sync_rate")
+            scope, name = self._plugin_scope(plugin)
+            items.append(
+                RateLimit(
+                    scope=scope,
+                    name=name,
+                    enabled=bool(plugin.get("enabled", False)),
+                    windows=windows,
+                    shared_counter=policy in _RATE_SHARED_POLICIES
+                    and isinstance(sync_rate, int | float)
+                    and float(sync_rate) == _RATE_SYNC_REALTIME,
+                    source=f"plugin {plugin.get('name')} (id: {plugin.get('id', '<unknown>')})",
+                )
+            )
+        return ConceptRead[RateLimit].read(tuple(items))
+
+    def _read_body_size_limits(self) -> ConceptRead[BodySizeLimit]:
+        """
+        Map every request-size-limiting plugin that applies to every client.
+
+        The limit is allowed_payload_size in the unit of size_unit, converted
+        to bytes; the plugins left out, and the one stated without a size, are
+        those of _read_rate_limits.
+        """
+        items: list[BodySizeLimit] = []
+        for plugin in self._limit_plugins(_BODY_SIZE_PLUGINS):
+            config: dict[str, Any] = plugin.get("config") or {}
+            size = config.get("allowed_payload_size")
+            unit = str(config.get("size_unit") or _BODY_SIZE_UNIT_DEFAULT).lower()
+            factor = _BODY_SIZE_UNIT_BYTES.get(unit)
+            max_bytes: int | None = None
+            if _covers_http(plugin) and _positive_number(size) and factor is not None:
+                max_bytes = int(size) * factor
+            scope, name = self._plugin_scope(plugin)
+            items.append(
+                BodySizeLimit(
+                    scope=scope,
+                    name=name,
+                    enabled=bool(plugin.get("enabled", False)),
+                    max_bytes=max_bytes,
+                    source=f"plugin {plugin.get('name')} (id: {plugin.get('id', '<unknown>')})",
+                )
+            )
+        return ConceptRead[BodySizeLimit].read(tuple(items))
+
+    def _limit_plugins(self, names: frozenset[str]) -> list[dict[str, Any]]:
+        """The plugins of these names that apply to every client of their scope over HTTP."""
+        return [
+            plugin
+            for plugin in self._fetch_paginated(_PATH_PLUGINS)
+            if str(plugin.get("name", "")).lower() in names
+            and not (plugin.get("consumer") or {}).get("id")
+            and not (plugin.get("consumer_group") or {}).get("id")
+            and _HTTP_PROTOCOLS & _protocols(plugin)
+        ]
+
     def _plugin_scope(self, plugin: dict[str, Any]) -> tuple[ConceptScope, str]:
         """
         Return the scope of a Kong plugin and the name of the object it is attached to.
@@ -495,6 +616,24 @@ def _service_address(service: dict[str, Any]) -> str | None:
     authority = f"{host}:{port}" if isinstance(port, int) else host
     tail = path if isinstance(path, str) and path else ""
     return f"{scheme}{authority}{tail}"
+
+
+def _protocols(plugin: dict[str, Any]) -> frozenset[str]:
+    """The protocols a plugin runs on; Kong's default, every protocol, when not stated."""
+    protocols = plugin.get("protocols")
+    if not isinstance(protocols, list):
+        return _HTTP_PROTOCOLS
+    return frozenset(str(protocol).lower() for protocol in protocols)
+
+
+def _covers_http(plugin: dict[str, Any]) -> bool:
+    """Whether a plugin runs on both HTTP and HTTPS."""
+    return _HTTP_PROTOCOLS <= _protocols(plugin)
+
+
+def _positive_number(value: object) -> TypeGuard[int | float]:
+    """Whether a configuration value is a number above zero (not a boolean)."""
+    return isinstance(value, int | float) and not isinstance(value, bool) and value > 0
 
 
 def _ms_to_seconds(value: int | float | None) -> float | None:

@@ -84,10 +84,22 @@ No positive control: the test asks whether a path exists, not who may use it.
 | it answers "not found" (404, 410) in another shape: another component said it (Kong's route `/api` also matches `/api-docs`, which Forgejo answers 404) | `NOT_APPLICABLE/NOT_FOUND` | - |
 | it answers like an unknown sibling (a false positive of ffuf) | `NOT_APPLICABLE/LIKE_UNKNOWN` | - |
 | the calibration is unstable | `NOT_VERIFIABLE/CALIBRATION_UNSTABLE` | - |
-| unavailable, rate limited, no response | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`, `RATE_LIMITED`, `NO_RESPONSE` | - |
 | more than 100 answers kept by ffuf on one base path | `NOT_VERIFIABLE/TOOL_CALIBRATION_FAILED` | - |
 | a base path refuses an unknown path (401, 403): the search is blind there | `NOT_VERIFIABLE/SEARCH_BLIND` | - |
 | the search ended with no violation, on at least one base path that could tell | `ENFORCED/NO_UNDOCUMENTED_PATH` | - |
+
+<!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("ext.0.1.ffuf", page=cog.inFile)) ]]] -->
+
+The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
+
+| Answer | Sub-tests | Outcome / detail |
+|---|---|---|
+| `UPSTREAM_UNAVAILABLE` | every sub-test | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
+| `RATE_LIMITED` | every sub-test | `NOT_VERIFIABLE/RATE_LIMITED` |
+| `SERVER_ERROR` | every sub-test | judged by the oracle above: a `500` is compared with the calibration like any other answer: a path whose `500` differs from a random path's answer exists. |
+| `NO_RESPONSE` | every sub-test | `NOT_VERIFIABLE/NO_RESPONSE` |
+
+<!-- [[[end]]] -->
 
 ## 7. Outcomes
 
@@ -145,8 +157,12 @@ healthy after the runs.
 
 **What each branch has been seen doing** (rule 9). Proven on a lab: `UNDOCUMENTED_PATH`, `NOT_FOUND`,
 `LIKE_UNKNOWN`, `SEARCH_BLIND` (crAPI's identity), and `NO_UNDOCUMENTED_PATH` (crAPI), not named before the
-inventory of 2026-11-14. Still unproven: `CALIBRATION_UNSTABLE` (the mechanism itself is verified in
-`src/core/references.py`) and the transport reasons. `TOOL_CALIBRATION_FAILED` was seen again with the current code
+inventory of 2026-11-14. `CALIBRATION_UNSTABLE` was seen on 2026-11-15 (Forgejo + Kong, a temporary route
+`~/.*zqxv[0-9a-f]+.*$`, the tool's random probe names, answering `404` with one of two body shapes in turn, undone
+with `git checkout`): the 8 candidates re-verified, INCONCLUSIVE. The transport reasons on 2026-11-15, a temporary
+route `GET ~/api/healthz$` letting ffuf's own request through and answering the test's re-verification `503`,
+`429`, or sleeping 7 s (the run's `target.read_timeout: 5.0`): `UPSTREAM_UNAVAILABLE`, `RATE_LIMITED`,
+`NO_RESPONSE`. Every branch of this test has been seen. `TOOL_CALIBRATION_FAILED` was seen again with the current code
 on 2026-11-14 (Forgejo + Kong, a temporary route `/api/v1/` whose `pre-function` answers `200` with a random number
 of lines, `string.rep("w x\n", math.random(1, 2000))`, undone with `git checkout`): ffuf kept 281 answers and the
 base path was recorded `TOOL_CALIBRATION_FAILED`. A random length alone was not enough (ffuf kept 7): its

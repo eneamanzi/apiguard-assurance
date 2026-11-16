@@ -90,7 +90,7 @@ from src.core.models import (
 )
 from src.core.references import random_token
 from src.core.templating import render
-from src.core.test_metadata import Effect, Need, TestInfo
+from src.core.test_metadata import DecisiveAnswer, Effect, Need, TestInfo
 from src.tests.base import BaseTest
 from src.tests.helpers.auth_base import role_account
 
@@ -146,13 +146,6 @@ _BASIC_PREFIX: str = "Basic "
 _MASK: str = "<submitted>"
 _DIGITS: re.Pattern[str] = re.compile(r"\d+")
 
-# The answer categories that say nothing about the guarantee (rule 1).
-_SPOILING: dict[ResponseCategory, str] = {
-    ResponseCategory.UPSTREAM_UNAVAILABLE: "UPSTREAM_UNAVAILABLE",
-    ResponseCategory.NO_RESPONSE: "NO_RESPONSE",
-    ResponseCategory.SERVER_ERROR: "SERVER_ERROR",
-}
-
 # Each one read on its source, 2026-10-22 (rule 8). ASVS 6.3.8 is this test
 # written out: "valid users cannot be deduced from failed authentication
 # challenges, such as by basing on error messages, HTTP response codes, or
@@ -188,6 +181,16 @@ class Test17AuthenticationResistance(BaseTest):
         needs=(Need.USER_ACCOUNT,),
         effect=Effect.STRESSES_TARGET,
         sub_tests=(_SUB_ENUMERATION, _SUB_ATTEMPTS),
+        decisive_answers=(
+            DecisiveAnswer(
+                category=ResponseCategory.RATE_LIMITED,
+                sub_tests=(_SUB_ATTEMPTS,),
+                reason=(
+                    "a `429` to repeated failed attempts is the limit this sub-test looks for "
+                    "(`ATTEMPTS_LIMITED`)."
+                ),
+            ),
+        ),
     )
 
     def execute(
@@ -258,9 +261,9 @@ class Test17AuthenticationResistance(BaseTest):
             username: The operator's own account name.
 
         Returns:
-            None when the comparison was made, so the other sub-test can run;
-            otherwise the reason it could not be, which that sub-test records
-            as its own.
+            None when the other sub-test can run (the comparison was made, or a
+            429 stopped it, which the other sub-test judges itself); otherwise
+            the reason it could not be, which that sub-test records as its own.
         """
         unknown = _impossible_account(username)
         known_records: list[EvidenceRecord] = []
@@ -275,12 +278,15 @@ class Test17AuthenticationResistance(BaseTest):
         # Every reading, not only the last: a 429 on an earlier one would
         # otherwise read as an unstable answer.
         for record in (*known_records, *unknown_records):
-            category = category_of(record)
-            if category in _SPOILING:
-                self._judge(
-                    record, store, _SUB_ENUMERATION, Outcome.NOT_VERIFIABLE, _SPOILING[category]
-                )
-                return _SPOILING[category]
+            uninformative = self._uninformative(record, _SUB_ENUMERATION)
+            if uninformative is not None:
+                self._judge(record, store, _SUB_ENUMERATION, Outcome.NOT_VERIFIABLE, uninformative)
+                # A 429 says nothing about which accounts exist (until 2026-11-16,
+                # all readings throttled alike were read as answers that agree,
+                # ENFORCED); it is the other sub-test's verdict, which still runs.
+                if uninformative == ResponseCategory.RATE_LIMITED.value:
+                    return None
+                return uninformative
         if category_of(known) == ResponseCategory.SERVED:
             self._judge(
                 record=known,
@@ -417,10 +423,9 @@ class Test17AuthenticationResistance(BaseTest):
                 )
                 log.info("test_1_7_rate_limited", attempt=attempt)
                 return
-            if category in _SPOILING:
-                self._judge(
-                    record, store, _SUB_ATTEMPTS, Outcome.NOT_VERIFIABLE, _SPOILING[category]
-                )
+            uninformative = self._uninformative(record, _SUB_ATTEMPTS)
+            if uninformative is not None:
+                self._judge(record, store, _SUB_ATTEMPTS, Outcome.NOT_VERIFIABLE, uninformative)
                 return
             # Every attempt is logged; a judged one replaces its step.
             self._step(record)

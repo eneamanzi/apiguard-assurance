@@ -73,21 +73,22 @@ class ResponseCategory(StrEnum):
     its guarantee (an Outcome).
 
     SERVED               -- 2xx: the target served the request.
-    REDIRECT             -- 300, 301, 302, 303, 305, 307, 308.
+    REDIRECT             -- 300, 301, 302, 303, 305, 307, 308: the target sends
+                            the client to another address.
     UNAUTHENTICATED      -- 401, 407, 511: the caller is not identified.
     FORBIDDEN            -- 403: identified, but not allowed.
     NOT_FOUND            -- 404, 410: the path does not exist.
-    METHOD_NOT_ALLOWED   -- 405, 501.
+    METHOD_NOT_ALLOWED   -- 405, 501: the method is not supported there.
     INVALID_REQUEST      -- 400, 406, 409, 411-417, 421-426, 428, 431: rejected
                             because of the request's content or state.
-    RATE_LIMITED         -- 429.
+    RATE_LIMITED         -- 429: refused for the rate of the requests.
     SERVER_ERROR         -- 500, 505-508, 510: the application failed.
     UPSTREAM_UNAVAILABLE -- 502, 503, 504: the gateway could not reach the
                             backend, or the backend did not answer in time.
     NO_RESPONSE          -- No HTTP response: timeout, connection refused, TLS
                             error, connection reset.
-    OTHER                -- Rare codes never decisive alone: 1xx, 304, 306,
-                            402, 408, 418, 451.
+    OTHER                -- 1xx, 304, 306, 402, 408, 418, 451: rare codes never
+                            decisive alone.
     """
 
     SERVED = "SERVED"

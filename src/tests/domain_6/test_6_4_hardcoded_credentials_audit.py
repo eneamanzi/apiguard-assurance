@@ -136,15 +136,6 @@ _SEMANTIC_CREDENTIAL_KEY_FRAGMENTS: frozenset[str] = frozenset(
     }
 )
 
-# The answer categories that say nothing about whether a debug endpoint is
-# blocked: the target was unavailable or protecting itself (rule 1).
-_SPOILING: dict[ResponseCategory, str] = {
-    ResponseCategory.UPSTREAM_UNAVAILABLE: "UPSTREAM_UNAVAILABLE",
-    ResponseCategory.RATE_LIMITED: "RATE_LIMITED",
-    ResponseCategory.NO_RESPONSE: "NO_RESPONSE",
-    ResponseCategory.SERVER_ERROR: "SERVER_ERROR",
-}
-
 # Credential patterns, applied to both debug bodies and config values.
 _CREDENTIAL_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"://[^:@\s\"']{1,64}:[^@\s\"']{8,}@"), "URL-embedded credentials"),
@@ -245,10 +236,11 @@ class Test64HardcodedCredentialsAudit(BaseTest[Test64Params]):
                 )
                 continue
             category = category_of(record)
-            if category in _SPOILING:
+            uninformative = self._uninformative(record, _SUB_DEBUG)
+            if uninformative is not None:
                 # An unavailable, rate-limited or failing endpoint was not blocked:
                 # it did not answer the question (rule 1).
-                self._judge(record, store, _SUB_DEBUG, Outcome.NOT_VERIFIABLE, _SPOILING[category])
+                self._judge(record, store, _SUB_DEBUG, Outcome.NOT_VERIFIABLE, uninformative)
                 continue
             if category == ResponseCategory.NOT_FOUND:
                 self._judge(record, store, _SUB_DEBUG, Outcome.ENFORCED, "DEBUG_NOT_FOUND")
@@ -297,19 +289,25 @@ class Test64HardcodedCredentialsAudit(BaseTest[Test64Params]):
             # scan examined nothing, so it cannot say a credential is absent.
             self._record(_SUB_CONFIG, Outcome.NOT_VERIFIABLE, "NO_CONFIG_VALUE")
             return
-        found = False
         references = tuple(prefix.lower() for prefix in gateway.secret_reference_prefixes)
+        # The values found, by the object holding them and the value: a gateway
+        # can give one value under two keys of the same object (Kong's
+        # rate-limiting answers `config.redis.password` and the older
+        # `config.redis_password`, measured 2026-11-15), one credential.
+        flagged: dict[tuple[str, str], list[tuple[ConfigValue, Finding]]] = {}
         for item in answer.items:
-            if references and item.value.get_secret_value().strip().lower().startswith(references):
+            value = item.value.get_secret_value()
+            if references and value.strip().lower().startswith(references):
                 # A reference to a secret kept in a store or the environment is
                 # what the remediation asks for, not a plaintext secret: the
                 # adapter says how its gateway writes one.
                 continue
             finding = _scan_config_value(item, evidence_ref)
             if finding is not None:
-                found = True
-                self._record(_SUB_CONFIG, Outcome.VIOLATION, "CONFIG_SECRET", finding)
-        if not found:
+                flagged.setdefault((item.location, value), []).append((item, finding))
+        for group in flagged.values():
+            self._record(_SUB_CONFIG, Outcome.VIOLATION, "CONFIG_SECRET", _one_finding(group))
+        if not flagged:
             self._record(_SUB_CONFIG, Outcome.ENFORCED, "CONFIG_NO_SECRET")
 
 
@@ -343,6 +341,34 @@ def _scan_text(text: str) -> list[tuple[str, str]]:
             snippet = raw[:4] + "[REDACTED]" + raw[-4:] if len(raw) > 12 else raw[:2] + "[REDACTED]"
             results.append((name, snippet))
     return results
+
+
+def _one_finding(group: list[tuple[ConfigValue, Finding]]) -> Finding:
+    """
+    One finding for one value found under one or more keys of the same object.
+
+    The strongest finding of the group is kept (a matched pattern, FIRM, before
+    a credential-named key, TENTATIVE), naming the other keys.
+
+    Args:
+        group: The values and their findings, in the order read.
+
+    Returns:
+        The finding to record.
+    """
+    item, finding = next(((i, f) for i, f in group if f.confidence == Confidence.FIRM), group[0])
+    others = [other.key for other, _ in group if other is not item]
+    if not others:
+        return finding
+    also = ", ".join(others)
+    return finding.model_copy(
+        update={
+            "detail": (
+                f"{finding.detail} The same value is also under {also} of {item.location}: one "
+                "credential, reported once."
+            )
+        }
+    )
 
 
 def _scan_config_value(item: ConfigValue, evidence_ref: str) -> Finding | None:

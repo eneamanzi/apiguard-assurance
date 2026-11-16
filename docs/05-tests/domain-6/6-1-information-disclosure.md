@@ -63,11 +63,24 @@ write endpoint, declared `Content-Type: application/json` so that the server's J
 | Case | Outcome / detail | Confidence |
 |---|---|---|
 | the answer to the malformed body carries an internal-detail marker | `VIOLATION/STACK_TRACE` | FIRM (a keyword heuristic) |
-| the malformed body was not parsed into an error (`401`, `403`, `404`, `415`, `429`, unavailable, or accepted) | `NOT_VERIFIABLE/ERROR_NOT_PROVOKED`: a clean body proves nothing when no error happened | - |
+| the malformed body was not parsed into an error (`401`, `403`, `404`, `415`, or accepted) | `NOT_VERIFIABLE/ERROR_NOT_PROVOKED`: a clean body proves nothing when no error happened (until 2026-11-16 a `429` or an unavailable backend were named so too; now the table below) | - |
 | a sampled response carries a debug field | `VIOLATION/DEBUG_FIELD` | FIRM |
 | a sampled response carries a leaky header | `VIOLATION/LEAKY_HEADER` | CERTAIN |
 | none found | `ENFORCED/CLEAN` for the debug-field and leaky-header sub-tests; `ENFORCED/NO_STACK_TRACE` when the malformed body was rejected by the parser (`400`, `422`) or caused a server error (`5xx`) | - |
 | no documented `GET` to sample (debug fields, headers), no attack surface, or no write endpoint to send the malformed body to (stack trace) | `NOT_APPLICABLE/NO_READ_ENDPOINT`, `NO_ENDPOINT`, `NO_ERROR_PROBE` | - |
+
+<!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("6.1", page=cog.inFile)) ]]] -->
+
+The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
+
+| Answer | Sub-tests | Outcome / detail |
+|---|---|---|
+| `UPSTREAM_UNAVAILABLE` | every sub-test | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
+| `RATE_LIMITED` | every sub-test | `NOT_VERIFIABLE/RATE_LIMITED` |
+| `SERVER_ERROR` | every sub-test | judged by the oracle above: a `500` is the error this test provokes, and its body is where a stack trace or a debug field shows: it is examined. |
+| `NO_RESPONSE` | every sub-test | `NOT_VERIFIABLE/NO_RESPONSE` |
+
+<!-- [[[end]]] -->
 
 ## 7. Outcomes
 
@@ -115,9 +128,18 @@ path end-to-end on crAPI. Producing a live leak would need an announced change t
 
 **What each branch has been seen doing** (rule 9). Proven on a lab: `NO_STACK_TRACE` (crAPI), `CLEAN` (all three),
 `ERROR_NOT_PROVOKED` (both Forgejo labs), and on 2026-11-15 (Forgejo + Kong, the specification saved with its
-reads only, then with its writes only) `NO_ERROR_PROBE` and `NO_READ_ENDPOINT`. Still unproven: `STACK_TRACE`,
-`DEBUG_FIELD`, `LEAKY_HEADER`. `NO_ENDPOINT` is not reachable: without an attack surface the test skips before
-the sub-test (`_requires_attack_surface`).
+reads only, then with its writes only) `NO_ERROR_PROBE` and `NO_READ_ENDPOINT`. `NO_ENDPOINT` is not reachable:
+without an attack surface the test skips before the sub-test (`_requires_attack_surface`).
+
+**The violations, produced on 2026-11-15** (Forgejo + Kong, temporary routes on `forgejo-service` in
+`kong/kong.yml`, undone with `git checkout`, the lab checked back). The test samples `GET /api/v1/orgs` and sends
+its malformed body to `POST /api/v1/orgs`; each route answers itself through a `pre-function`:
+- `STACK_TRACE` (FIRM): `POST` answered `500` with a body holding `Caused by: java.lang.NullPointerException`;
+- `DEBUG_FIELD` (FIRM): `GET` answered `200` with the object `{"_debug": "info", "data": 1}`;
+- `LEAKY_HEADER` (CERTAIN): `GET` answered with `X-AspNet-Version: 4.0.30319`. `X-Powered-By` was tried first and
+  never reached the test: the lab's `response-transformer` removes it from every answer of the service.
+
+Every branch of this test has been seen, except `NO_ENDPOINT`, which cannot occur.
 
 ## 13. Remediation
 
@@ -130,9 +152,9 @@ production responses.
 - What counts as a stack trace is a list of markers (`src/tests/data/inspector_patterns.py`) and a file-system path
   that starts a value (`"/app/main.py"`, `/usr/src/...`): a path inside a URL (`https://host/home/...`) and the
   generic `app/` and `at /` no longer count (until 2026-11-05 they did, false findings).
-- An answer of an unavailable or throttled backend (`503`, `429`) is not looked at for debug fields or headers; with
-  no usable answer the two sub-tests are `NOT_VERIFIABLE/NO_USABLE_RESPONSE` (until 2026-11-05 a sample that all
-  failed was CLEAN).
+- An answer of an unavailable or throttled backend (`503`, `429`), or no answer, is not looked at for debug fields or
+  headers; with no usable answer the two sub-tests are `NOT_VERIFIABLE` with the reason of the answers left out
+  (`NO_USABLE_RESPONSE` until 2026-11-16; until 2026-11-05 a sample that all failed was CLEAN).
 - Detection is by keyword/field-name/header-name heuristics: an oddly-shaped leak is missed, a benign match is a
   FIRM (not CERTAIN) finding.
 - The error is provoked with one malformed-JSON request; a leak that needs a specific input shape is not triggered.

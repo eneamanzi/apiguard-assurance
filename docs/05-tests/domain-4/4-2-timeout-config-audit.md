@@ -155,9 +155,10 @@ Kong's defaults being judged. Setting one to `0` does **not** work: Kong refuses
 
 **What each branch has been seen doing** (rule 9). Proven on a lab: `WITHIN_LIMIT` on all three gateways, and
 `ABOVE_LIMIT` both from an explicit value and from Kong's defaults, with the SKIP branch for an absent gateway.
-Still unproven: `NOT_CONFIGURED` (Kong's schema forbids `0`; it would need a gateway that accepts it) and
-`NOT_STATED` (no supported gateway reaches it), and `ABOVE_LIMIT` from an APISIX default (the lab sets its
-timeouts; the adapter's mapping was checked by calling it on a timeout object without fields, 2026-11-05).
+`ABOVE_LIMIT` from APISIX's defaults was seen on 2026-11-15 (Forgejo + APISIX, the upstream's `timeout` object
+removed from `apisix/setup.sh` and the setup run again, then `git checkout` and the setup again): **FAIL**, three
+`ABOVE_LIMIT` at FIRM, 60,000 ms each, the defaults the adapter states. Not reachable with the supported gateways:
+`NOT_CONFIGURED` (Kong's schema forbids `0`) and `NOT_STATED` (both adapters state a default).
 
 ## 13. Remediation
 

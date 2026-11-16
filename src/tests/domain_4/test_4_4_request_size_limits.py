@@ -29,9 +29,15 @@ NOT_VERIFIABLE/NO_CREDENTIAL_TO_RETRY. The body ({"data": "AAA..."})
 holds no field a real write expects, so an application refuses it rather than
 creating anything.
 
-The size sent is the gateway's configured body-size limit plus a margin, read
-through the adapter when available (`Need.GATEWAY`, optional), else a configured
-size. BLACK_BOX, effect `STRESSES_TARGET`.
+The size sent is a configured size (`body_size_bytes`), unless the gateway's
+own limits can be read (`Need.GATEWAY`, optional: `body_size_limits()`, in
+bytes) and every route that may serve the path has one: then the largest limit
+that may apply to the probe (the limits on every request, on the backend and on
+the route, src/tests/helpers/route_limits.py) plus a margin, so the body is
+above whichever the gateway applies. A body above every such limit and not
+refused is a limit configured and not enforced (CERTAIN); a body of the
+configured size not refused says only that no limit applies at that size
+(FIRM). BLACK_BOX, effect `STRESSES_TARGET`.
 
 Dependency rule: imports from stdlib, structlog and src.core, plus
 src.tests.base and src.tests.helpers.
@@ -50,8 +56,7 @@ from src.core.client import SecurityClient
 from src.core.context import ROLE_USER_A, TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.exceptions import AuthenticationSetupError, SecurityClientError
-from src.core.gateway.base import BaseGatewayAdapter
-from src.core.gateway.concepts import ConceptStatus
+from src.core.gateway.base import CONCEPT_BODY_SIZE_LIMITS, CONCEPT_ROUTES
 from src.core.models import (
     Confidence,
     EvidenceRecord,
@@ -67,6 +72,7 @@ from src.core.references import random_sibling_path, random_token
 from src.core.test_metadata import Effect, Need, TestInfo
 from src.tests.base import BaseTest
 from src.tests.helpers.auth import acquire_tokens, auth_parts, credential_parts
+from src.tests.helpers.route_limits import limits_for_request
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -77,33 +83,16 @@ _PAYLOAD_TOO_LARGE: int = 413
 
 # Write methods whose body a size limit applies to.
 _WRITE_METHODS: frozenset[str] = frozenset({"POST", "PUT", "PATCH"})
+# The method of the probe (_send_oversized).
+_PROBE_METHOD: str = "POST"
 
 # Added to a limit read from the gateway so the body crosses it.
 _SIZE_MARGIN_BYTES: int = 1024
-
-# A config value is a body-size limit when its location names such a plugin.
-_SIZE_LIMIT_MARKERS: tuple[str, ...] = (
-    "request-size",
-    "request_size",
-    "body-size",
-    "body_size",
-    "size-limit",
-    "size_limit",
-)
 
 # Answers that do not say who refused (the application or the gateway before
 # its size check): the probe is retried with a credential.
 _REFUSED: frozenset[ResponseCategory] = frozenset(
     {ResponseCategory.UNAUTHENTICATED, ResponseCategory.FORBIDDEN}
-)
-
-# Categories that say the endpoint is failing, not enforcing a size limit.
-_SPOILING: frozenset[ResponseCategory] = frozenset(
-    {
-        ResponseCategory.UPSTREAM_UNAVAILABLE,
-        ResponseCategory.SERVER_ERROR,
-        ResponseCategory.NO_RESPONSE,
-    }
 )
 
 
@@ -179,7 +168,7 @@ class Test44RequestSizeLimits(BaseTest[Test44Params]):
             path = self._probe_path(target)
             if path is None:
                 return self._skip("No documented write endpoint to probe for a size limit.")
-            size, from_gateway = self._size(target)
+            size, basis, certain = self._size(target, store, path)
             record = _send_oversized(client, path, size)
             if record is not None and category_of(record) in _REFUSED:
                 self._step(record)
@@ -205,7 +194,7 @@ class Test44RequestSizeLimits(BaseTest[Test44Params]):
                             "REFUSED_BEFORE_SIZE_CHECK",
                         )
                         return self._finish()
-            self._judge_oversized(record, store, path, size, from_gateway)
+            self._judge_oversized(record, store, path, size, basis, certain)
             return self._finish()
         except Exception as exc:  # noqa: BLE001 -- top-level guard (BaseTest contract)
             log.exception("test_4_4_unexpected_error", error=str(exc))
@@ -265,14 +254,66 @@ class Test44RequestSizeLimits(BaseTest[Test44Params]):
             return random_sibling_path(shortest.path, shortest.parameters)
         return shortest.path
 
-    def _size(self, target: TargetContext) -> tuple[int, bool]:
-        """The body size to send, and whether it came from the gateway's config."""
+    def _size(
+        self, target: TargetContext, store: EvidenceStore, path: str
+    ) -> tuple[int, str, bool]:
+        """
+        The body size to send, what it rests on, and whether it is above a limit read.
+
+        The concepts read are kept as evidence. The size is above every limit
+        that may apply when each route that may serve the path has one with a
+        size; otherwise it is `body_size_bytes`.
+
+        Args:
+            target: The run's target (gateway, base URL, parameters).
+            store:  The test's evidence store.
+            path:   The path to probe.
+
+        Returns:
+            The size in bytes, the basis a finding states, and True when the
+            size is above every limit read for the routes that may serve the path.
+        """
+        default = self.params(target).body_size_bytes
         gateway = target.gateway
-        if gateway is not None:
-            limit = _configured_limit(gateway)
-            if limit is not None:
-                return limit + _SIZE_MARGIN_BYTES, True
-        return self.params(target).body_size_bytes, False
+        if gateway is None:
+            return default, f"{default} bytes (no gateway configured to read a limit from)", False
+        limits = gateway.body_size_limits()
+        self._record_gateway_concept(target, store, CONCEPT_BODY_SIZE_LIMITS, limits)
+        self._record_gateway_concept(target, store, CONCEPT_ROUTES, gateway.routes())
+        routes = limits_for_request(
+            gateway, limits, target.endpoint_base_url(), path, _PROBE_METHOD
+        )
+        if routes is None:
+            return default, f"{default} bytes (no configured limit was readable)", False
+        unlimited = [entry.route.name for entry in routes if not entry.limits]
+        if unlimited:
+            return (
+                default,
+                (
+                    f"{default} bytes; the gateway states no body-size limit for route "
+                    f"{unlimited[0]}, which may serve this path"
+                ),
+                False,
+            )
+        stated = {limit.source: limit for entry in routes for limit in entry.limits}
+        sizes = [limit.max_bytes for limit in stated.values() if limit.max_bytes is not None]
+        if len(sizes) < len(stated):
+            return (
+                default,
+                f"{default} bytes; a limit the gateway states applies to part of the traffic only",
+                False,
+            )
+        described = "; ".join(
+            f"{limit.source} ({limit.max_bytes} bytes)" for limit in stated.values()
+        )
+        return (
+            max(sizes) + _SIZE_MARGIN_BYTES,
+            (
+                "above every body-size limit the gateway states for the routes that may serve "
+                f"it: {described}"
+            ),
+            True,
+        )
 
     def _judge_oversized(
         self,
@@ -280,9 +321,10 @@ class Test44RequestSizeLimits(BaseTest[Test44Params]):
         store: EvidenceStore,
         path: str,
         size: int,
-        from_gateway: bool,
+        basis: str,
+        certain: bool,
     ) -> None:
-        """Judge the answer to the oversized body."""
+        """Judge the answer to the oversized body (`_size`: the basis and the confidence)."""
         if record is None:
             self._record(_SUB, Outcome.NOT_VERIFIABLE, "NO_RESPONSE")
             return
@@ -290,17 +332,15 @@ class Test44RequestSizeLimits(BaseTest[Test44Params]):
         if status == _PAYLOAD_TOO_LARGE:
             self._judge(record, store, _SUB, Outcome.ENFORCED, "SIZE_LIMIT_ENFORCED")
             return
-        if category_of(record) in _SPOILING:
-            self._judge(record, store, _SUB, Outcome.NOT_VERIFIABLE, "UPSTREAM_UNAVAILABLE")
+        # An answer that says nothing about the size limit: a 429 among them,
+        # the body refused for the rate before anything weighed it (until
+        # 2026-11-16 it was read as a forwarded body, a false NO_SIZE_LIMIT).
+        uninformative = self._uninformative(record, _SUB)
+        if uninformative is not None:
+            self._judge(record, store, _SUB, Outcome.NOT_VERIFIABLE, uninformative)
             return
         # The gateway forwarded the oversized body (it answered something other
         # than 413): there is no size limit at this size.
-        confidence = Confidence.CERTAIN if from_gateway else Confidence.FIRM
-        basis = (
-            "the gateway's own configured limit plus a margin"
-            if from_gateway
-            else f"{size} bytes (no configured limit was readable)"
-        )
         self._judge(
             record,
             store,
@@ -311,31 +351,15 @@ class Test44RequestSizeLimits(BaseTest[Test44Params]):
                 title=f"Oversized body not rejected: {path}",
                 detail=(
                     f"A body of {size} bytes sent to {path} answered HTTP {status}, not 413: the "
-                    f"gateway forwarded it ({basis}). Without a body-size limit a large body ties "
-                    "up memory and bandwidth and can exhaust the backend (OWASP API4:2023). "
-                    "Configure a request-size limit on the gateway."
+                    f"gateway forwarded it ({basis})"
+                    + (": the limit is configured and not enforced. " if certain else ". ")
+                    + "Without a body-size limit a large body ties up memory and bandwidth and can "
+                    "exhaust the backend (OWASP API4:2023). Configure a request-size limit on the "
+                    "gateway."
                 ),
-                confidence=confidence,
+                confidence=Confidence.CERTAIN if certain else Confidence.FIRM,
             ),
         )
-
-
-def _configured_limit(gateway: BaseGatewayAdapter) -> int | None:
-    """The smallest positive integer value of a body-size-limit plugin, or None."""
-    answer = gateway.config_values()
-    if answer.status != ConceptStatus.READ:
-        return None
-    limits: list[int] = []
-    for item in answer.items:
-        if not item.enabled:
-            continue
-        location = item.location.lower()
-        if not any(marker in location for marker in _SIZE_LIMIT_MARKERS):
-            continue
-        value = item.value.get_secret_value().strip()
-        if value.isdigit() and int(value) > 0:
-            limits.append(int(value))
-    return min(limits) if limits else None
 
 
 def _send_oversized(

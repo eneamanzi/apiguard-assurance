@@ -76,7 +76,7 @@ from src.core.client import SecurityClient
 from src.core.evidence import EvidenceStore
 from src.core.exceptions import SecurityClientError
 from src.core.models import EvidenceRecord, ParameterInfo, ResponseCategory
-from src.core.response_category import categorize
+from src.core.response_category import UNINFORMATIVE_CATEGORIES, categorize
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -92,14 +92,13 @@ _PROBES_PER_POINT: int = 2
 _ROOT_PATTERN: str = "/{*}"
 
 # Categories that spoil a calibration probe: the answer says nothing about
-# whether a path exists.
-_SPOILING_CATEGORIES: frozenset[ResponseCategory] = frozenset(
-    {
-        ResponseCategory.RATE_LIMITED,
-        ResponseCategory.NO_RESPONSE,
-        ResponseCategory.UPSTREAM_UNAVAILABLE,
-    }
-)
+# whether a path exists. The uninformative categories of every test
+# (UNINFORMATIVE_CATEGORIES) but the server error: an application that fails
+# the same way on every unknown path gives a stable answer, the fingerprint of
+# "not there" the calibration is looking for.
+_SPOILING_CATEGORIES: frozenset[ResponseCategory] = frozenset(UNINFORMATIVE_CATEGORIES) - {
+    ResponseCategory.SERVER_ERROR
+}
 
 # Body normalization of the fingerprint.
 _BODY_TEXT_CHARS: int = 200

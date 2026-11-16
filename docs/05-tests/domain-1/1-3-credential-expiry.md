@@ -109,9 +109,13 @@ Runs of 2026-10-22, the three tests of the group together:
 | any | ENFORCED | a JWT declaring `exp` with a short lifetime: not on the labs (crAPI's is 7 days) |
 
 **What each branch has been seen doing** (rule 9). Proven on a lab: `EXP_DECLARED`, `LIFETIME_EXCESSIVE`,
-`NEEDS_KEY_MATERIAL`, `NOT_A_JWT`. Unproven, because they need a JWT issuer we control (the labs issue only crAPI's
-fixed 7-day token or an opaque one): `NO_EXP_CLAIM`, `LIFETIME_BOUNDED`, `NO_IAT_CLAIM`, `EXP_NOT_NUMERIC`, `EXP_NOT_AFTER_IAT`. They are the same
-read-a-claim code path; a scratch target issuing such a token would exercise them.
+`NEEDS_KEY_MATERIAL`, `NOT_A_JWT`, and on 2026-11-15 the five others, on crAPI + Kong with a temporary route on
+the login, `POST ~/identity/api/auth/login$` on `identity-service` in its `kong/kong.yml` (undone with `git
+checkout`), whose `pre-function` answers `200` with a fictitious unsigned token (`{"alg":"HS256"}`, the signature
+`lab-dummy-signature`): the test only reads the token, it sends it nowhere. With the payload
+`{"sub":"apiguard-lab","iat":1700000000}` `NO_EXP_CLAIM` (FIRM); with `exp` one hour after `iat`
+`LIFETIME_BOUNDED`; with `exp` and no `iat` `NO_IAT_CLAIM`; with `"exp":"tomorrow"` `EXP_NOT_NUMERIC`; with `exp`
+before `iat` `EXP_NOT_AFTER_IAT`. Every branch of this test has been seen.
 
 ## 13. Remediation
 

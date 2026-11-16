@@ -122,15 +122,6 @@ _REFUSING: frozenset[ResponseCategory] = frozenset(
     {ResponseCategory.UNAUTHENTICATED, ResponseCategory.FORBIDDEN}
 )
 
-# The answer categories that say nothing about the guarantee: the target was
-# unavailable or protecting itself (rule 1).
-_SPOILING: dict[ResponseCategory, str] = {
-    ResponseCategory.UPSTREAM_UNAVAILABLE: "UPSTREAM_UNAVAILABLE",
-    ResponseCategory.RATE_LIMITED: "RATE_LIMITED",
-    ResponseCategory.NO_RESPONSE: "NO_RESPONSE",
-    ResponseCategory.SERVER_ERROR: "SERVER_ERROR",
-}
-
 # The name of the derivation rule whose facts give the undocumented versions
 # (src/discovery/derivation.py; a test does not import that package).
 RULE_VERSION_SIBLINGS: str = "version_siblings"
@@ -291,7 +282,7 @@ class Test01ShadowApiDiscovery(BaseTest):
                 self._judge(exc.record, store, _SUB_METHODS, Outcome.NOT_VERIFIABLE, "NO_RESPONSE")
                 continue
             category = category_of(record)
-            spoiled = _SPOILING.get(category)
+            spoiled = self._uninformative(record, _SUB_METHODS)
             echoed = _TRACE_ECHO.match(record.response_body or "") is not None
             if spoiled is not None:
                 self._judge(record, store, _SUB_METHODS, Outcome.NOT_VERIFIABLE, spoiled)
@@ -386,7 +377,7 @@ class Test01ShadowApiDiscovery(BaseTest):
             self._judge(exc.record, store, _SUB_METHODS, Outcome.NOT_VERIFIABLE, "NO_RESPONSE")
             return
         category = category_of(record)
-        detail = _SPOILING.get(category)
+        detail = self._uninformative(record, _SUB_METHODS)
         if detail is not None:
             self._judge(record, store, _SUB_METHODS, Outcome.NOT_VERIFIABLE, detail)
             return
@@ -656,7 +647,7 @@ class Test01ShadowApiDiscovery(BaseTest):
             self._judge(exc.record, store, _SUB_VERSIONS, Outcome.NOT_VERIFIABLE, "NO_RESPONSE")
             return
         category = category_of(record)
-        detail = _SPOILING.get(category)
+        detail = self._uninformative(record, _SUB_VERSIONS)
         if detail is not None:
             self._judge(record, store, _SUB_VERSIONS, Outcome.NOT_VERIFIABLE, detail)
             return

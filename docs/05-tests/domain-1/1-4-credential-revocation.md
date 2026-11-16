@@ -71,7 +71,19 @@ again. One created credential, revoked and cleaned up.
 | no anchor requires the credential | `NOT_VERIFIABLE/NO_WORKING_ANCHOR` | - |
 | the target did not confirm the revocation | `NOT_VERIFIABLE/REVOCATION_NOT_CONFIRMED` | - |
 | no credential placement configured | SKIP | - |
-| unavailable, rate limited, no response, server error | `NOT_VERIFIABLE/` the reason | - |
+
+<!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("1.4", page=cog.inFile)) ]]] -->
+
+The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
+
+| Answer | Sub-tests | Outcome / detail |
+|---|---|---|
+| `UPSTREAM_UNAVAILABLE` | every sub-test | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
+| `RATE_LIMITED` | every sub-test | `NOT_VERIFIABLE/RATE_LIMITED` |
+| `SERVER_ERROR` | every sub-test | `NOT_VERIFIABLE/SERVER_ERROR` |
+| `NO_RESPONSE` | every sub-test | `NOT_VERIFIABLE/NO_RESPONSE` |
+
+<!-- [[[end]]] -->
 
 ## 7. Outcomes
 
@@ -141,8 +153,12 @@ it protected; it answered 401 only because an *invalid* token was sent, which is
 The anchor now confirms both conditions (`src/tests/helpers/anchor.py`), which also sharpens test `1.2`.
 
 **What each branch has been seen doing** (rule 9). Proven on a lab: `REFUSED_AFTER_REVOCATION` (Forgejo),
-`ACCEPTED_AFTER_REVOCATION` (the case above), the SKIP for no revocation (crAPI). Still unproven:
-`NO_WORKING_ANCHOR`, `REVOCATION_NOT_CONFIRMED`, the transport reasons. The SKIP for no credential placement is not
+`ACCEPTED_AFTER_REVOCATION` (the case above), the SKIP for no revocation (crAPI), and `NO_WORKING_ANCHOR`
+(2026-11-15, Forgejo + Kong, the specification saved without its global `security`), and on the same day, Forgejo +
+Kong with temporary routes (undone with `git checkout`; no token left behind): `REVOCATION_NOT_CONFIRMED` (the
+first `DELETE` of a token answered `404`), and `UPSTREAM_UNAVAILABLE`, `RATE_LIMITED`, `SERVER_ERROR`,
+`NO_RESPONSE` (the anchor `GET ~/api/v1/user$` answering the revoked token `503`, `429`, `500`, or sleeping 7 s,
+after letting the two reads of the anchor check through). Every branch of this test has been seen. The SKIP for no credential placement is not
 reachable: a placement is missing only when `credentials.auth_type` is not set, and then the login cannot revoke
 either, so the test skips one step earlier (`revocation_capability`, `src/tests/helpers/auth.py`).
 

@@ -215,7 +215,9 @@ gateway they could not run.
 
 **Decision.** The adapters expose **neutral concepts** (`src/core/gateway/concepts.py`): backend timeouts, health
 checks, circuit breakers, request signing policies, routes, configuration text values, live target health, the
-plugins that ship request logs (added 2026-11-04, so that 5.1 names no gateway). Rules:
+plugins that ship request logs (added 2026-11-04, so that 5.1 names no gateway), rate limits and body-size limits
+(added 2026-11-15: 4.1 and 4.4 looked for their limit among the configuration text values, which hold strings, so a
+limit stated as a number, as on both gateways, was never read). Rules:
 
 - one reader per concept; a test asks only for what it needs;
 - each reader answers **read**, **not supported** (the gateway has no such concept) or **not accessible** (it exists
@@ -230,8 +232,10 @@ plugins that ship request logs (added 2026-11-04, so that 5.1 names no gateway).
 - an adapter answers with the **effective** configuration: where a gateway returns only what was written, the
   adapter fills in the defaults it applies, preferably asking the running gateway (APISIX: its plugin and upstream
   schemas), so that, for example, an algorithm allowed by default is seen;
-- a concept is implemented only when a test needs it (future: authentication per route, rate limiting, CORS, security
-  headers, logging, listeners and TLS).
+- a number is stated in one unit whatever the gateway's (seconds for a timeout, bytes for a size, requests per
+  window of seconds for a rate), converted by the adapter;
+- a concept is implemented only when a test needs it (future: authentication per route, CORS, security headers,
+  logging, listeners and TLS).
 - **Access:** the Admin API takes generic headers (`gateway.admin.headers`): every gateway surveyed protects reads
   with a header (APISIX `X-API-KEY`, Kong Enterprise `Kong-Admin-Token`, Tyk `x-tyk-authorization`, Traefik
   `Authorization`), and Kong's own tools take generic headers too. A gateway that keeps live health outside its Admin

@@ -79,6 +79,24 @@ _CATEGORY_OF_CLASS: dict[int, ResponseCategory] = {
 }
 
 
+# The categories of an answer that says nothing about a guarantee by itself:
+# the gateway could not reach a working backend (502, 503, 504), the request
+# was refused for its rate before anything looked at it (429), the application
+# failed on it (500), or nothing answered. A test records such an answer
+# NOT_VERIFIABLE with the category as its detail (AssessmentTest._uninformative,
+# one rule for every test, written once), unless the category is the very
+# answer a sub-test judges and the test declares it so
+# (TestInfo.decisive_answers): a 429 for a test of rate limiting, a 500 for a
+# test looking for server errors. The order is the order of the generated
+# documentation.
+UNINFORMATIVE_CATEGORIES: tuple[ResponseCategory, ...] = (
+    ResponseCategory.UPSTREAM_UNAVAILABLE,
+    ResponseCategory.RATE_LIMITED,
+    ResponseCategory.SERVER_ERROR,
+    ResponseCategory.NO_RESPONSE,
+)
+
+
 def categorize(status_code: int | None) -> ResponseCategory:
     """
     The category of a response, from its HTTP status alone.

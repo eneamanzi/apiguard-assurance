@@ -3,7 +3,7 @@
 > **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-23) ·
 > **Source of truth:**
 > [`src/tests/domain_4/test_4_1_rate_limiting.py`](../../../src/tests/domain_4/test_4_1_rate_limiting.py) ·
-> **Verified:** 2026-10-23
+> **Verified:** 2026-11-15
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("4.1", page=cog.inFile)) ]]] -->
 
@@ -42,11 +42,21 @@ backend or brute-force a credential. ASVS v5.0.0-2.4.1 (anti-automation controls
 
 ## 3. Inputs
 
-The documented GET endpoint to flood (derived: the shortest documented GET, or `probe_path`). The burst budget is
-the gateway's configured rate-limit plus a margin when the adapter can read it (`config_values`, `Need.GATEWAY`
-optional), else `max_burst`. **In practice it is `max_burst`**: both supported gateways state a limit as a number
-(Kong's `rate-limiting.minute`, APISIX's `limit-count.count`, checked on their schemas 2026-11-03), and the
-configuration scan collects strings only (section 10).
+The documented GET endpoint to flood (derived: the shortest documented GET, or `probe_path`). With a gateway
+(`Need.GATEWAY`, optional), its rate limits (`rate_limits()`: requests per window of seconds, section 10) and its
+routes, both kept as evidence. A limit counts only when it may apply to the probe: for every route that may serve
+the path (a path that matches it, a method list that is empty or holds GET), the enabled limits on every request,
+on the route's backend and on the route (`src/tests/helpers/route_limits.py`). The route matching is a superset of
+the gateway's own (a regular expression is searched anywhere in the path; hosts and headers are not compared), so
+more routes count, never fewer.
+
+The burst budget is `max_burst`, unless every such route has limits counted per window: then the requests that
+exceed the largest of them within one window, at most `max_burst`. A burst may straddle a window boundary (Kong's
+windows are calendar periods, APISIX's start at the first request counted), and a run shorter than a window touches
+at most two windows, so the budget is twice the window's count plus one: then one window holds more than the count,
+wherever the boundaries fall. Until 2026-11-15 the budget was the smallest number anywhere in a rate-limiting
+plugin plus 5, read from the configuration text values; it was never read (those hold strings, and both gateways
+state a limit as a number), and had it been, it could come from a route the probe does not use.
 
 ## 4. Preconditions and reference responses
 
@@ -66,10 +76,11 @@ others (rule 7), and the burst stops at the 429 so a working limit is not floode
 | Case | Outcome / detail | Confidence |
 |---|---|---|
 | a 429 within the budget | `ENFORCED/RATE_LIMITED` | - |
-| no 429 within the budget, no configured limit read | `VIOLATION/NO_RATE_LIMIT`, the finding saying no limit applies at or below the budget | FIRM: a limit above the budget would not be seen |
-| no 429 within the budget, which went past a configured limit that was read | `VIOLATION/NO_RATE_LIMIT`, the finding naming the configured limit | CERTAIN: the limit is configured and not enforced |
-| a configured limit was read above `max_burst`, so the capped burst cannot reach it | `NOT_VERIFIABLE/LIMIT_ABOVE_BUDGET` | - |
-| three failing answers in a row (5xx, unavailable, no answer); a single one does not stop the burst (until 2026-11-05 a single 5xx from the third request on did) | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` | - |
+| no 429 within the budget, and no limit read, or a route that may serve the path without one | `VIOLATION/NO_RATE_LIMIT`, the finding saying no limit applies at or below the budget (and naming the route) | FIRM: a limit above the budget, or one the adapter does not read, would not be seen |
+| no 429, and the burst went past every limit that may apply within one of its windows (`answered > count × (⌊burst seconds / window⌋ + 2)`), each counted on a counter shared by every node | `VIOLATION/NO_RATE_LIMIT`, the finding naming the limits | CERTAIN: the limit is configured and not enforced |
+| the same, with a limit counted per node (both gateways' `local` policy) | `VIOLATION/NO_RATE_LIMIT`, the finding adding "unless the gateway runs several nodes that each count their own requests" | FIRM: a burst spread over several nodes does not exceed a per-node count |
+| no 429, and a limit that may apply was not provably exceeded: its count above `max_burst`, a window too short for the burst's pace, or a limit not counted per window (APISIX's `limit-req`, which delays requests instead of refusing them) | `NOT_VERIFIABLE/LIMIT_NOT_REACHED`, with a note naming the limits (until 2026-11-15 `LIMIT_ABOVE_BUDGET`, for the first reason only) | - |
+| three answers in a row that say nothing (the table below; a `429` is this test's verdict); a single one does not stop the burst (until 2026-11-05 a single 5xx from the third request on did) | `NOT_VERIFIABLE/` the reason of the last (until 2026-11-16 always `UPSTREAM_UNAVAILABLE`) | - |
 | the same run of `503` after served answers: a limit that rejects with `503` instead of `429` (some gateways' default, APISIX's `limit-count` among them) looks exactly like a backend going down | `NOT_VERIFIABLE/LIMIT_OR_UNAVAILABLE` (seen on a scratch server answering `503` after 5 requests, 2026-11-05) | - |
 
 **`ip_spoofing_resisted`**
@@ -80,6 +91,19 @@ others (rule 7), and the burst stops at the 429 so a working limit is not floode
 | it floods the full budget without a 429 | `VIOLATION/IP_SPOOF_BYPASS` | CERTAIN |
 | the plain burst found no limit | `NOT_APPLICABLE/NO_LIMIT_TO_BYPASS` | - |
 
+<!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("4.1", page=cog.inFile)) ]]] -->
+
+The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
+
+| Answer | Sub-tests | Outcome / detail |
+|---|---|---|
+| `UPSTREAM_UNAVAILABLE` | every sub-test | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
+| `RATE_LIMITED` | every sub-test | judged by the oracle above: a `429` is the rate limit this test looks for: the burst stops at it. |
+| `SERVER_ERROR` | every sub-test | `NOT_VERIFIABLE/SERVER_ERROR` |
+| `NO_RESPONSE` | every sub-test | `NOT_VERIFIABLE/NO_RESPONSE` |
+
+<!-- [[[end]]] -->
+
 ## 7. Outcomes
 
 SKIP without a documented GET. FAIL on no limit or a spoofing bypass; PASS when a 429 arrives and spoofing is
@@ -87,8 +111,10 @@ resisted.
 
 ## 8. Findings
 
-"No rate limit on `<path>`" / "Rate limit bypassed by spoofing the client address on `<path>`" (which of the five headers is not told apart), `evidence_ref` the
-burst's last request.
+"No rate limit on `<path>`" (no limit read, or a route without one) / "Rate limit not enforced on `<path>`" (every
+limit that may apply exceeded, naming them; since 2026-11-15) / "Rate limit bypassed by spoofing the client address
+on `<path>`" (which of the five headers is not told apart), `evidence_ref` the burst's last request; with a gateway,
+its rate limits and routes are kept as evidence too.
 
 ## 9. Effects on the target
 
@@ -96,11 +122,16 @@ burst's last request.
 
 ## 10. Per gateway
 
-Independent of the adapter: the 429 is observed from outside. The configured limit would size the burst, but
-neither adapter delivers it: the configuration scan collects only string values (it was built for test 6.4's
-credential search), and Kong and APISIX both state a rate limit as a number. Making the scan collect numbers was
-not done: `_configured_limit` takes the smallest positive number of the plugin's configuration, which on Kong's
-`rate-limiting` would also see its Redis port and timeouts.
+The 429 is observed from outside; the limits read through the adapter size the burst and decide the confidence
+(`rate_limits()`, mapping in the [adapter guide](../../02-guides/03-extending/04-add-a-gateway-adapter.md)):
+
+- **Kong** `rate-limiting`: `second` to `year`, each a window (a month counted as 28 days, a year as 365, their
+  shortest lengths); a counter shared by every node with `policy` `cluster` or `redis` and `sync_rate` -1, per node
+  with `local` (the default). A plugin bound to a consumer is left out (it does not apply to an anonymous burst).
+- **APISIX** `limit-count`: `count` per `time_window`; shared with a Redis policy and `sync_interval` -1, per node
+  with `local` (the default). `limit-req` is reported without a window. APISIX's `limit-count` rejects with `503` by
+  default: the burst then records `LIMIT_OR_UNAVAILABLE` (section 6); with `rejected_code: 429` it records
+  `RATE_LIMITED`.
 
 ## 11. Configuration
 
@@ -110,7 +141,7 @@ Section [`tests.domain_4.test_4_1`](../../03-reference/01-configuration.md#tests
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `max_burst` | int ≥2 | `150` | The largest burst the test sends before concluding there is no rate limit, when the gateway's configured limit cannot be read. The burst stops at the first 429. |
+| `max_burst` | int ≥2 | `150` | The largest burst the test sends: the burst when the gateway's limits cannot be read, and the cap of the one sized from them. The burst stops at the first 429. |
 | `probe_path` | string | `""` | The documented path to flood; empty derives the shortest documented GET. A read path, so the flood changes nothing. |
 
 <!-- [[[end]]] -->
@@ -144,13 +175,29 @@ the workshop out of rotation. Since 7.2 stops at its first unanswered payload, a
 assessment reaches this test with the workshop in service and reports FAIL. Nothing changes on the Forgejo labs. That is rule 4 working: a gateway that cannot reach its backend says nothing about rate limiting, so
 the test refuses to conclude rather than call the missing 429 a violation.
 
-**What each branch has been seen doing** (rule 9). Proven on a lab: `NO_RATE_LIMIT` with no configured limit read
-(all three), `RATE_LIMITED` and `SPOOF_RESISTED` (Forgejo + Kong with the plugin above), and, on 2026-11-14 with
+**What each branch has been seen doing** (rule 9). Proven on a lab: `NO_RATE_LIMIT` with no limit read (all
+three), `RATE_LIMITED` and `SPOOF_RESISTED` (Forgejo + Kong with the plugin above), and, on 2026-11-14 with
 the current code, `NO_LIMIT_TO_BYPASS` (Forgejo + Kong as configured: `ip_spoofing_resisted` records its only not
 applicable case) and `UPSTREAM_UNAVAILABLE` (Forgejo + Kong with the `forgejo` container stopped, the
 specification read from a file: Kong answers `503`, INCONCLUSIVE, no finding). Seen on a scratch server only:
-`LIMIT_OR_UNAVAILABLE`, `IP_SPOOF_BYPASS`. Still unproven: `NO_RATE_LIMIT` past a configured limit that was read,
-`LIMIT_ABOVE_BUDGET`.
+`LIMIT_OR_UNAVAILABLE`, `IP_SPOOF_BYPASS`.
+
+**The limits read from the gateway, 2026-11-15** (4.1 alone, plugins added to the `forgejo-service` of the
+Forgejo + Kong `kong.yml` or to the API route of the APISIX `setup.sh`, each undone with `git checkout` and the lab
+recreated):
+
+| Variant | Result |
+|---|---|
+| none (the labs as configured) | **FAIL** FIRM: the finding names `forgejo-api-route` as a route that may serve `/api/v1/orgs` with no limit stated |
+| Kong `rate-limiting` `minute: 5`, `policy: local` | **PASS**: budget 11 (2 × 5 + 1), a 429 at the 6th request, the spoof resisted |
+| the same with `policy: redis` on an unreachable Redis (`127.0.0.1:6390`) and `fault_tolerant: true` | **FAIL** CERTAIN, "configured and not enforced": 11 requests in under 0.1 s without a 429, and Kong logged `[rate-limiting] failed to get usage: connection refused` for each and proxied it, as its documentation states for `fault_tolerant` |
+| `minute: 5`, `policy: local`, with a `pre-function` answering `GET /api/v1/orgs` with 200 before the limit counts | **FAIL** FIRM, the finding adding the several-nodes reserve (a per-node counter) |
+| `minute: 200`, `policy: local` | **INCONCLUSIVE**, `LIMIT_NOT_REACHED`: 150 requests (the cap) cannot exceed 200 in a window, the note names the plugin |
+| APISIX `limit-count` `count: 5`, `time_window: 60`, `rejected_code: 429` | **PASS**: read as 5 per 60 s, not shared (`local`), budget 11 |
+| APISIX `limit-req` `rate: 100`, `burst: 50`, `key: remote_addr` | **INCONCLUSIVE**, `LIMIT_NOT_REACHED`: the 150 requests took 1.6 s instead of 0.4 s (delayed, never refused), the note naming the plugin "not a count per window"; until that day such a gateway would have been reported FIRM `NO_RATE_LIMIT` |
+
+Not produced on a lab: the per-node case of a gateway with several nodes (the labs run one; the FIRM row was
+exercised through the `pre-function` above).
 
 ## 13. Remediation
 
@@ -159,14 +206,21 @@ client header), with a `Retry-After` on the 429 (OWASP API4:2023, ASVS v5.0.0-2.
 
 ## 14. Limitations
 
-- The budget bounds the burst: a limit higher than `max_burst` (150 by default) is not reached, so a gateway that
-  does limit, but above that rate, is reported `NO_RATE_LIMIT` with FIRM confidence and a finding that says "at or
-  below 150 requests". Raise `max_burst` to look further; the gateway's configuration cannot supply the limit
-  (section 10).
+- The budget bounds the burst: a limit higher than `max_burst` (150 by default) is not reached. When the adapter
+  reads it, the test says `LIMIT_NOT_REACHED`; when it cannot (no gateway configured, a limit the adapter does not
+  know, such as a third-party plugin), the gateway is reported `NO_RATE_LIMIT` with FIRM confidence and a finding
+  that says "at or below 150 requests". Raise `max_burst` to look further.
+- CERTAIN needs a counter shared by every node: with both gateways' default `local` policy the finding is FIRM,
+  since several nodes behind a load balancer each count only their share of the burst (Kong's documentation:
+  "Less accurate ... it diverges" when scaling nodes; APISIX: "Each APISIX instance maintains its own counters").
+- The route matching that decides which limits apply compares paths and methods only, not hosts or headers: a
+  route the probe does not reach can count, which makes the verdict more cautious (FIRM or `LIMIT_NOT_REACHED`),
+  never more certain.
 - Retry-After reset and the per-user-vs-per-IP distinction are not tested.
 - A limit whose count is above the burst budget (`max_burst`) is not reached, whatever its window: what decides is
   the count, not the period (an hourly limit of 1000 is missed, one of 100 is found; until 2026-11-05 this line
-  blamed the window).
+  blamed the window). A very short window can be missed the other way: a burst slower than `count` requests per
+  window never exceeds it, and the test says `LIMIT_NOT_REACHED` rather than a violation.
 
 ## 15. Sources
 

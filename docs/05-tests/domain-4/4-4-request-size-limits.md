@@ -3,7 +3,7 @@
 > **Audience:** analysts, contributors · **Status:** new in the test review (2026-10-23) ·
 > **Source of truth:**
 > [`src/tests/domain_4/test_4_4_request_size_limits.py`](../../../src/tests/domain_4/test_4_4_request_size_limits.py) ·
-> **Verified:** 2026-10-23
+> **Verified:** 2026-11-15
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("4.4", page=cog.inFile)) ]]] -->
 
@@ -39,9 +39,14 @@ backend. ASVS v5.0.0-2.4.1 (controls against excessive resource use).
 
 ## 3. Inputs
 
-The documented write endpoint to probe (derived: the shortest documented POST/PUT/PATCH, or `probe_path`). The size
-sent is the gateway's configured body-size limit plus a margin (read through `config_values`, `Need.GATEWAY`
-optional), else `body_size_bytes`.
+The documented write endpoint to probe (derived: the shortest documented POST/PUT/PATCH, or `probe_path`). With a
+gateway (`Need.GATEWAY`, optional), its body-size limits (`body_size_limits()`, in bytes, section 10) and its routes,
+both kept as evidence. A limit counts only when it may apply to the probe, as in test
+[4.1](4-1-rate-limiting.md#3-inputs): the enabled limits on every request, on the backend and on the route, for every
+route that may serve a POST to the path (`src/tests/helpers/route_limits.py`). The size sent is the largest of
+those limits plus 1024 bytes when every such route has one, so the body is above whichever the gateway applies;
+otherwise `body_size_bytes`. Until 2026-11-15 the limit was looked for among the configuration text values, which
+hold strings, and was never read (both gateways state it as a number).
 
 ## 4. Preconditions and reference responses
 
@@ -68,12 +73,25 @@ application refuses it rather than creating anything (Forgejo answers `403` for 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
 | the body answers `413` | `ENFORCED/SIZE_LIMIT_ENFORCED` | - |
-| the gateway's configured limit was read and the body above it is not rejected | `VIOLATION/NO_SIZE_LIMIT` | CERTAIN |
-| no configured limit readable; a body of the default size is not rejected | `VIOLATION/NO_SIZE_LIMIT` | FIRM (a larger limit may exist) |
+| a body above every limit that may apply is not rejected | `VIOLATION/NO_SIZE_LIMIT`, the finding naming the limits: configured and not enforced | CERTAIN |
+| no limit read, or a route that may serve the path without one (named in the finding), or a limit for part of the traffic only; a body of `body_size_bytes` is not rejected | `VIOLATION/NO_SIZE_LIMIT` | FIRM (a larger limit may exist) |
 | the unauthenticated body is refused (401, 403) and no user_a credential is configured | `NOT_VERIFIABLE/NO_CREDENTIAL_TO_RETRY` | - |
 | refused with user_a's credential too, with the status a forged credential gets: the credential did not get past the first refuser | `NOT_VERIFIABLE/REFUSED_BEFORE_SIZE_CHECK` | - |
-| the endpoint answers 5xx / unavailable | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` | - |
-| the probe gets no answer at all (the connection is closed or times out), so nothing can be read | `NOT_VERIFIABLE/NO_RESPONSE` | - |
+| the answer says nothing about the size (the table below): a `429` among them, the body refused for the rate before anything weighed it | `NOT_VERIFIABLE/` its category (until 2026-11-16 a `429` was read as a forwarded body, `VIOLATION/NO_SIZE_LIMIT`, and a closed or timed-out connection or a `500` were `UPSTREAM_UNAVAILABLE`) | - |
+| the client returns no record at all | `NOT_VERIFIABLE/NO_RESPONSE` | - |
+
+<!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("4.4", page=cog.inFile)) ]]] -->
+
+The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
+
+| Answer | Sub-tests | Outcome / detail |
+|---|---|---|
+| `UPSTREAM_UNAVAILABLE` | every sub-test | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
+| `RATE_LIMITED` | every sub-test | `NOT_VERIFIABLE/RATE_LIMITED` |
+| `SERVER_ERROR` | every sub-test | `NOT_VERIFIABLE/SERVER_ERROR` |
+| `NO_RESPONSE` | every sub-test | `NOT_VERIFIABLE/NO_RESPONSE` |
+
+<!-- [[[end]]] -->
 
 ## 7. Outcomes
 
@@ -90,8 +108,13 @@ one). Nothing created: the body holds no field a write expects.
 
 ## 10. Per gateway
 
-Independent of the adapter: the 413 is the gateway's; the configured size limit is read through the adapter when
-available, to send a body just above it.
+The 413 is the gateway's; the limits read through the adapter size the body (`body_size_limits()`, mapping in the
+[adapter guide](../../02-guides/03-extending/04-add-a-gateway-adapter.md)):
+
+- **Kong** `request-size-limiting`: `allowed_payload_size` times its `size_unit` (bytes 1, kilobytes 1024,
+  megabytes 1048576, megabytes by default: the factors of Kong's handler). A plugin bound to a consumer is left out.
+- **APISIX** `client-control`: `max_body_size` in bytes, compared with the request's `Content-Length`; 0 (no
+  restriction) is left out.
 
 ## 11. Configuration
 
@@ -124,7 +147,26 @@ kong`); undo with `git checkout` and the same command. The lab was checked back 
 **What each branch has been seen doing** (rule 9). Proven on a lab: `NO_SIZE_LIMIT` with no configured limit
 readable (both Forgejo labs, FIRM; crAPI), `SIZE_LIMIT_ENFORCED` (Forgejo + Kong with the plugin above),
 `UPSTREAM_UNAVAILABLE` (crAPI, the race of 2026-11-03). Seen on a scratch server only: `REFUSED_BEFORE_SIZE_CHECK`.
-Still unproven: `NO_SIZE_LIMIT` above a configured limit that was read (CERTAIN), `NO_RESPONSE`.
+A write sleeping past the read timeout (2026-11-15, a temporary route `POST ~/api/v1/orgs$` sleeping 7 s, the run's
+`target.read_timeout: 5.0`) gives `UPSTREAM_UNAVAILABLE`, section 6. Not reachable: `NO_RESPONSE`, which needs the
+client to fail without a record, and every failure of `src/core/client.py` carries one except the branch its own
+comment marks unreachable.
+
+**The limits read from the gateway, 2026-11-15** (4.4 alone or with 4.1, plugins added to the Forgejo + Kong
+`kong.yml` or to the API route of the APISIX `setup.sh`, each undone with `git checkout` and the lab recreated):
+
+| Variant | Result |
+|---|---|
+| none (the labs as configured) | **FAIL** FIRM: 2 MB, the finding naming `forgejo-api-route` as a route that may serve the path with no limit |
+| Kong `request-size-limiting` `allowed_payload_size: 1` on the service | **PASS**: read as 1048576 bytes, a body of 1049600 bytes answered `413` "Request size limit exceeded" |
+| `allowed_payload_size: 4`, `size_unit: kilobytes` on the route | **PASS**: read as 4096 bytes, the 5120-byte body answered `413` |
+| the 1 MB plugin with a `pre-function` answering `POST /api/v1/orgs` with 200 before the size check | **FAIL** CERTAIN, "configured and not enforced", the finding naming the plugin |
+| the 1 MB plugin on `hmac-audit-route` only | **FAIL** FIRM: a limit on a route that cannot serve the path does not count |
+| APISIX `client-control` `max_body_size: 1048576` on the API route | **PASS**: read as 1048576 bytes, `413` |
+
+In the run with 4.1 and a working rate limit of 5 per minute on the same service, 4.4 was **ERROR**: user_a's login
+(`POST /api/v1/users/user-a/tokens`), which the engine makes before 4.4 for its optional account, met the limit
+4.1's burst had used up (`429`). In a full assessment the login is made by an earlier test and reused.
 `NO_CREDENTIAL_TO_RETRY` was seen on 2026-11-15 (Forgejo + Kong, the run's configuration without user_a's
 account: the unauthenticated body refused `401`, INCONCLUSIVE).
 
@@ -135,10 +177,11 @@ oversized body is rejected with 413 before it reaches the backend (OWASP API4:20
 
 ## 14. Limitations
 
-- Without a readable configured limit, the test asserts only "no limit at the tested size" (FIRM): a limit above the
-  tested size is not detected (raise `body_size_bytes`). On the two supported gateways that is always the case:
-  Kong's `request-size-limiting.allowed_payload_size` is an integer (checked on its schema 2026-11-03) and the
-  configuration scan collects strings only, so the CERTAIN branch is not reached today.
+- Without a limit read for every route that may serve the path, the test asserts only "no limit at the tested
+  size" (FIRM): a limit above the tested size is not detected (raise `body_size_bytes`).
+- With a limit read, the body sent is that limit plus 1024 bytes, however large: Kong's default
+  `allowed_payload_size` is 128 megabytes, and a gateway configured with it receives a body that size (up to three
+  times, section 5).
 - Only the request body is checked, not the response size or header size.
 - **A target that answers before the upload finishes cannot be judged.** A service that sends its response (a `401`,
   for instance) and closes the connection mid-upload makes the client raise a protocol error, and a non-idempotent

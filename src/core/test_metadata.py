@@ -14,7 +14,8 @@ The same module holds the test ID formats and the priority range, which the
 configuration schema imports to validate execution.test_ids and
 execution.min_priority: each rule is written once.
 
-Dependency rule: imports only from the standard library, pydantic and src.core.models.
+Dependency rule: imports only from the standard library, pydantic, src.core.models and
+src.core.response_category.
 """
 
 from __future__ import annotations
@@ -33,8 +34,9 @@ from pydantic import (
     model_validator,
 )
 
-from src.core.models import TestStrategy
+from src.core.models import ResponseCategory, TestStrategy
 from src.core.models.standards import CWE_ID_PATTERN, Reference, Standard, duplicate_references
+from src.core.response_category import UNINFORMATIVE_CATEGORIES
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -238,6 +240,30 @@ def _cwe_id(value: str | None) -> str | None:
 _NonEmptyText = Annotated[str, AfterValidator(_not_blank)]
 
 
+class DecisiveAnswer(BaseModel):
+    """
+    An uninformative category that is, for some sub-tests, the answer judged.
+
+    Every test records an uninformative answer (UNINFORMATIVE_CATEGORIES:
+    unavailable, rate limited, server error, no response) NOT_VERIFIABLE with
+    the category as its detail. A sub-test whose question is that very answer
+    declares it here, with the reason, and judges it in its own oracle: the
+    rule then leaves it alone there, and the test page says so (the table
+    generated from this declaration).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    category: ResponseCategory = Field(description="One of the uninformative categories.")
+    sub_tests: tuple[str, ...] = Field(
+        default=(),
+        description="The sub-tests that judge it; empty means every sub-test of the test.",
+    )
+    reason: _NonEmptyText = Field(
+        description="Why that sub-test judges it, one sentence, for the test page."
+    )
+
+
 class TestInfo(BaseModel):
     """
     The declaration of a test: its identity, ranking and prerequisites.
@@ -338,6 +364,14 @@ class TestInfo(BaseModel):
             "and the sub-tests that use a missing one record NOT_APPLICABLE."
         ),
     )
+    decisive_answers: tuple[DecisiveAnswer, ...] = Field(
+        default=(),
+        description=(
+            "The uninformative categories (unavailable, rate limited, server error, no "
+            "response) that some of the test's sub-tests judge themselves; every other one "
+            "is NOT_VERIFIABLE with the category as its detail."
+        ),
+    )
 
     @model_validator(mode="after")
     def _id_and_kind_coherent(self) -> TestInfo:
@@ -398,6 +432,7 @@ class TestInfo(BaseModel):
                     f"tags: {tag!r} must be lowercase words joined by hyphens, e.g. "
                     f"'rate-limit'; a standard goes in references"
                 )
+        self._check_decisive_answers()
         duplicates = duplicate_references(self.references)
         if duplicates:
             raise ValueError(f"references: cited more than once: {duplicates}")
@@ -406,6 +441,43 @@ class TestInfo(BaseModel):
             if primary in self.references:
                 raise ValueError(f"references: {self.cwe} is the primary CWE (cwe), already cited")
         return self
+
+    def _check_decisive_answers(self) -> None:
+        """Each decisive answer: an uninformative category, on declared sub-tests, once."""
+        seen: set[tuple[ResponseCategory, str]] = set()
+        for answer in self.decisive_answers:
+            if answer.category not in UNINFORMATIVE_CATEGORIES:
+                allowed = ", ".join(c.value for c in UNINFORMATIVE_CATEGORIES)
+                raise ValueError(
+                    f"decisive_answers: {answer.category.value} is not an uninformative "
+                    f"category ({allowed})"
+                )
+            undeclared = sorted(set(answer.sub_tests) - set(self.sub_tests))
+            if undeclared:
+                raise ValueError(f"decisive_answers: not among sub_tests: {undeclared}")
+            for sub_test in answer.sub_tests or self.sub_tests:
+                if (answer.category, sub_test) in seen:
+                    raise ValueError(
+                        f"decisive_answers: {answer.category.value} declared twice for {sub_test!r}"
+                    )
+                seen.add((answer.category, sub_test))
+
+    def decides(self, category: ResponseCategory, sub_test: str) -> bool:
+        """
+        Whether a sub-test judges an uninformative category itself (decisive_answers).
+
+        Args:
+            category: The category of an answer.
+            sub_test: One of the test's sub-tests.
+
+        Returns:
+            True when a decisive answer of the test names the category for
+            that sub-test (or for every sub-test).
+        """
+        return any(
+            answer.category == category and (not answer.sub_tests or sub_test in answer.sub_tests)
+            for answer in self.decisive_answers
+        )
 
     @property
     def domain(self) -> int:

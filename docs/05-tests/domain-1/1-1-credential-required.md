@@ -3,7 +3,7 @@
 > **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-22) ·
 > **Source of truth:**
 > [`src/tests/domain_1/test_1_1_credential_required.py`](../../../src/tests/domain_1/test_1_1_credential_required.py) ·
-> **Verified:** 2026-10-22
+> **Verified:** 2026-11-15
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("1.1", page=cog.inFile)) ]]] -->
 
@@ -100,7 +100,6 @@ thought about. Measured 2026-10-22: crAPI declares per operation (9 of its opera
 | answers "not found" in its own shape | `NOT_VERIFIABLE/NOT_FOUND_OWN_ANSWER` | - |
 | answers `400` or `422`: the request was validated without a credential | `NOT_VERIFIABLE/VALIDATED_WITHOUT_CREDENTIAL` | - |
 | answers `3xx`, not followed | `NOT_VERIFIABLE/REDIRECTED` | - |
-| unavailable, rate limited, no response, server error | `NOT_VERIFIABLE/` the reason (the old test counted 14 endpoints answering `503` as a PASS) | - |
 | a credential that cannot be valid is accepted | `VIOLATION/ACCEPTED_<case>` | CERTAIN |
 | a path variant is served without a credential | `VIOLATION/SERVED_AS_<kind>` | CERTAIN |
 | a variant is refused or not routed | `ENFORCED/VARIANT_NOT_SERVED` | - |
@@ -109,6 +108,19 @@ thought about. Measured 2026-10-22: crAPI declares per operation (9 of its opera
 
 A note states once whether the document declares security per operation, so that a heap of TENTATIVE findings is
 read for what it is.
+
+<!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("1.1", page=cog.inFile)) ]]] -->
+
+The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
+
+| Answer | Sub-tests | Outcome / detail |
+|---|---|---|
+| `UPSTREAM_UNAVAILABLE` | every sub-test | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
+| `RATE_LIMITED` | every sub-test | `NOT_VERIFIABLE/RATE_LIMITED` |
+| `SERVER_ERROR` | every sub-test | `NOT_VERIFIABLE/SERVER_ERROR` |
+| `NO_RESPONSE` | every sub-test | `NOT_VERIFIABLE/NO_RESPONSE` |
+
+<!-- [[[end]]] -->
 
 ## 7. Outcomes
 
@@ -206,9 +218,35 @@ results afterwards (2026-10-22).
 **What each branch has been seen doing** (rule 9). Proven on a lab: `CREDENTIAL_REQUIRED`,
 `SERVED_WITHOUT_CREDENTIAL` at both confidences, `DECLARED_PUBLIC`, `NO_SECURITY_DECLARED` and
 `NO_PROVEN_CONTROL` (2026-11-14, below), `NOT_FOUND_LIKE_UNKNOWN`, `NOT_FOUND_OWN_ANSWER`, `VALIDATED_WITHOUT_CREDENTIAL`, `CREDENTIAL_REFUSED`,
-`VARIANT_NOT_SERVED`, `VARIANT_REDIRECTED` (3 on crAPI, 2026-11-05), `UPSTREAM_UNAVAILABLE` (2026-11-14, below), and with the two cases above every `ACCEPTED_<case>` and `SERVED_AS_UPPER_SEGMENT`. Still
-unproven: the other seven `SERVED_AS_<kind>` details (the same code path as the one proven, one per variant),
-`REDIRECTED` and the other transport reasons.
+`VARIANT_NOT_SERVED`, `VARIANT_REDIRECTED` (3 on crAPI, 2026-11-05), `UPSTREAM_UNAVAILABLE` (2026-11-14, below), and with the two cases above every `ACCEPTED_<case>` and `SERVED_AS_UPPER_SEGMENT`.
+
+On 2026-11-15, Forgejo + Kong, with temporary changes to `kong/kong.yml` (undone with `git checkout`, the lab
+checked back):
+- `REDIRECTED`, `RATE_LIMITED`, `SERVER_ERROR`, `NO_RESPONSE`: a route `GET ~/api/v1/user/repos$` answering `302`,
+  `429`, `500`, or sleeping 7 s (the run's `target.read_timeout: 5.0`);
+- `SERVED_AS_TRAILING_SLASH`, `SERVED_AS_ENCODED_SLASH`, `SERVED_AS_DOUBLE_ENCODED`, `SERVED_AS_PATH_PARAMETER`: a
+  `pre-function` on the `/api` route (and on a temporary route `/`) answering `200` when the path as received is
+  the variant of `/api/v1/user`.
+
+**The three variants httpx rewrote are sent as written since 2026-11-15.** Until that day the client handed the
+path to httpx (0.28.1), which removes dot segments, so `/api/v1/./user` (`DOT_SEGMENT`) and `/api/v1/zqxv/../user`
+(`DOT_DOT_SEGMENT`) left as `/api/v1/user`, and reads `//api/v1/user` (`DOUBLE_SLASH`) as an address whose host is
+`api`, so the request left as `/v1/user`: the three were judged on another path's answer. The client now sends
+such a path as the request target (`src/core/client.py`, checked on a local server recording the request line:
+the three leave as written, the query and Host header unchanged). What the labs answer to them, 1.1 alone, the
+same day:
+
+| Lab | `//…`, `/./…`, `/zqxv/../…` | Why |
+|---|---|---|
+| Forgejo + Kong | `401` "token is required", `VARIANT_NOT_SERVED` | Kong normalises the path and routes it to `/api/v1/user`, which asks for the token |
+| Forgejo + APISIX | `//` `401`; the two dot variants `404` "404 page not found" (Forgejo's) | APISIX forwards the dot segments as received and Forgejo has no such path |
+| crAPI + Kong | `401` on `/community` and `/identity`; `301` on `/workshop/api/mechanic` (`VARIANT_REDIRECTED`, 4 with `%2f`) | as on the Forgejo lab; the workshop service redirects |
+
+The results of the three labs did not change (1.1 FAIL, 78, 78 and 2 findings). With a `pre-function` on the Kong
+`/api` route answering `200` when `kong.request.get_raw_path()` is one of the three (undone with `git checkout`, the
+lab checked back), `path_variants` reports `SERVED_AS_DOUBLE_SLASH`, `SERVED_AS_DOT_SEGMENT` and
+`SERVED_AS_DOT_DOT_SEGMENT`, CERTAIN, with the five other variants `VARIANT_NOT_SERVED`. Every branch of this test has
+now been seen.
 `CREDENTIAL_REFUSED` is the enforced detail of the malformed credentials (`src/tests/domain_1/test_1_1_credential_required.py`),
 which the table in section 6 does not list.
 

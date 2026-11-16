@@ -31,7 +31,8 @@ Neutral concepts
 ----------------
 The tests read the gateway through one reader per concept (backend_timeouts(),
 circuit_breakers(), health_checks(), signing_policies(), routes(),
-config_values(), target_health()), each answering with a ConceptRead
+config_values(), target_health(), log_shipping(), rate_limits(),
+body_size_limits()), each answering with a ConceptRead
 (src/core/gateway/concepts.py): read, not supported, or not accessible. The
 public readers are written once, here: the first call runs the adapter's
 _read_<concept>() method, later calls in the same run return the same answer
@@ -73,6 +74,7 @@ import structlog
 from src.core.exceptions import ToolBaseError
 from src.core.gateway.concepts import (
     BackendTimeout,
+    BodySizeLimit,
     CircuitBreaker,
     ConceptRead,
     ConfigValue,
@@ -80,6 +82,7 @@ from src.core.gateway.concepts import (
     GatewayRoute,
     HealthCheck,
     LogShipper,
+    RateLimit,
     SigningPolicy,
     TargetHealth,
 )
@@ -102,6 +105,8 @@ CONCEPT_ROUTES: str = "routes"
 CONCEPT_CONFIG_VALUES: str = "configuration values"
 CONCEPT_TARGET_HEALTH: str = "live target health"
 CONCEPT_LOG_SHIPPING: str = "log shipping"
+CONCEPT_RATE_LIMITS: str = "rate limits"
+CONCEPT_BODY_SIZE_LIMITS: str = "body-size limits"
 
 # Interfaces of a gateway, for error messages: name and the setting holding its address.
 ADMIN_API_INTERFACE: tuple[str, str] = ("Admin API", "gateway.admin.url")
@@ -126,6 +131,8 @@ ItemT = TypeVar(
     ConfigValue,
     TargetHealth,
     LogShipper,
+    RateLimit,
+    BodySizeLimit,
 )
 
 # ---------------------------------------------------------------------------
@@ -305,6 +312,14 @@ class BaseGatewayAdapter(ABC):
         """Return the plugins that ship request logs to a system apart from the gateway."""
         return self._read_once(CONCEPT_LOG_SHIPPING, LogShipper, self._read_log_shipping)
 
+    def rate_limits(self) -> ConceptRead[RateLimit]:
+        """Return the limits on the request rate that apply to every client of their scope."""
+        return self._read_once(CONCEPT_RATE_LIMITS, RateLimit, self._read_rate_limits)
+
+    def body_size_limits(self) -> ConceptRead[BodySizeLimit]:
+        """Return the limits on the request body size that apply to every client of their scope."""
+        return self._read_once(CONCEPT_BODY_SIZE_LIMITS, BodySizeLimit, self._read_body_size_limits)
+
     # ------------------------------------------------------------------
     # Neutral concepts: adapter-specific reads (override the ones served)
     # ------------------------------------------------------------------
@@ -346,6 +361,25 @@ class BaseGatewayAdapter(ABC):
         not count): test 5.1 only asks (owner decision 2026-11-04).
         """
         return ConceptRead[LogShipper].not_supported(self._not_read(CONCEPT_LOG_SHIPPING))
+
+    def _read_rate_limits(self) -> ConceptRead[RateLimit]:
+        """
+        Read the rate limits; default: not supported by this adapter.
+
+        The adapter converts its gateway's numbers into requests per window of
+        seconds, and leaves out a limit bound to one client (a consumer), which
+        does not apply to the others.
+        """
+        return ConceptRead[RateLimit].not_supported(self._not_read(CONCEPT_RATE_LIMITS))
+
+    def _read_body_size_limits(self) -> ConceptRead[BodySizeLimit]:
+        """
+        Read the body-size limits; default: not supported by this adapter.
+
+        The adapter converts its gateway's unit into bytes, and leaves out a
+        limit bound to one client (a consumer) and a value that means "no limit".
+        """
+        return ConceptRead[BodySizeLimit].not_supported(self._not_read(CONCEPT_BODY_SIZE_LIMITS))
 
     # ------------------------------------------------------------------
     # Neutral concepts: helpers

@@ -34,8 +34,9 @@ missing fields empty ("not stated"), and the reason is logged.
 
 Plugins
 -------
-APISIX's own plugins are read: hmac-auth (request signing policies) and
-api-breaker (circuit breakers). The plugin and field names of test 3.3 and
+APISIX's own plugins are read: hmac-auth (request signing policies),
+api-breaker (circuit breakers), limit-count and limit-req (rate limits),
+client-control (body-size limits) and the log shippers. The plugin and field names of test 3.3 and
 4.3 configuration describe Kong plugins and are not used here. A plugin
 applies to a route from the route itself, else from its plugin_config, else
 from its service (APISIX merges them in this order, the first wins); a global
@@ -65,6 +66,7 @@ from src.core.gateway.base import (
 from src.core.gateway.concepts import (
     ActiveCheck,
     BackendTimeout,
+    BodySizeLimit,
     CircuitBreaker,
     ConceptRead,
     ConceptScope,
@@ -75,6 +77,8 @@ from src.core.gateway.concepts import (
     HealthCounters,
     LogShipper,
     PassiveCheck,
+    RateLimit,
+    RateWindow,
     RouteMatch,
     RoutePath,
     SigningPolicy,
@@ -134,6 +138,24 @@ _LOG_SHIPPING_PLUGINS: frozenset[str] = frozenset(
 # 3.13.0 rejects 0 in its schema (minimum = 1), earlier versions allowed it.
 _SIGNING_NO_DATE_CHECK: float = 0.0
 _PLUGIN_BREAKER: str = "api-breaker"
+# Rate limits (https://apisix.apache.org/docs/apisix/plugins/limit-count/ and
+# limit-req/, read 2026-11-15). limit-count allows `count` requests every
+# `time_window` seconds; both may be strings taken from the request, and in
+# `rules` mode a rule is skipped when its key resolves nothing, so only a plain
+# count and window are stated. Its counters are shared by every node with a
+# Redis policy (redis, redis-cluster, redis-sentinel), updated on each request
+# with sync_interval -1; `local` keeps them per node. limit-req is a leaky
+# bucket that delays requests above `rate` within `burst`: not a count per
+# window.
+_PLUGIN_RATE_COUNT: str = "limit-count"
+_PLUGIN_RATE_BUCKET: str = "limit-req"
+_RATE_SHARED_POLICY_PREFIX: str = "redis"
+_RATE_SYNC_EVERY_REQUEST: float = -1.0
+# Body-size limits (https://apisix.apache.org/docs/apisix/plugins/client-control/,
+# apisix/plugins/client-control.lua 3.19, read 2026-11-15): max_body_size in
+# bytes, compared with the request's Content-Length (413 above it); 0 means no
+# restriction.
+_PLUGIN_BODY_SIZE: str = "client-control"
 
 # Control API node states (APISIX health check documentation: the "mostly"
 # states are still classed as healthy or unhealthy).
@@ -368,6 +390,51 @@ class ApisixGatewayAdapter(BaseGatewayAdapter):
                     )
                 )
         return ConceptRead[LogShipper].read(tuple(items))
+
+    def _read_rate_limits(self) -> ConceptRead[RateLimit]:
+        """Every limit-count and limit-req instance in effect, with APISIX's defaults."""
+        items: list[RateLimit] = []
+        for instance in self._plugin_instances(_PLUGIN_RATE_COUNT):
+            items.append(
+                RateLimit(
+                    scope=instance.scope,
+                    name=instance.name,
+                    enabled=instance.enabled,
+                    windows=_count_windows(instance.config),
+                    shared_counter=_count_shared(instance.config),
+                    source=instance.source,
+                )
+            )
+        for instance in self._plugin_instances(_PLUGIN_RATE_BUCKET):
+            items.append(
+                RateLimit(
+                    scope=instance.scope,
+                    name=instance.name,
+                    enabled=instance.enabled,
+                    windows=(),
+                    shared_counter=None,
+                    source=instance.source,
+                )
+            )
+        return ConceptRead[RateLimit].read(tuple(items))
+
+    def _read_body_size_limits(self) -> ConceptRead[BodySizeLimit]:
+        """Every client-control instance in effect with a size above 0 (0: no restriction)."""
+        items: list[BodySizeLimit] = []
+        for instance in self._plugin_instances(_PLUGIN_BODY_SIZE):
+            size = _int_or_none(instance.config.get("max_body_size"))
+            if size is None or size <= 0:
+                continue
+            items.append(
+                BodySizeLimit(
+                    scope=instance.scope,
+                    name=instance.name,
+                    enabled=instance.enabled,
+                    max_bytes=size,
+                    source=instance.source,
+                )
+            )
+        return ConceptRead[BodySizeLimit].read(tuple(items))
 
     def _read_config_values(self) -> ConceptRead[ConfigValue]:
         """Upstream node addresses, plugin configuration texts, consumer plugin texts."""
@@ -676,6 +743,28 @@ def _int_tuple(value: object) -> tuple[int, ...]:
     if not isinstance(value, list):
         return ()
     return tuple(item for item in value if isinstance(item, int) and not isinstance(item, bool))
+
+
+def _count_windows(config: dict[str, Any]) -> tuple[RateWindow, ...]:
+    """The window of a limit-count configuration, when its count and window are plain numbers."""
+    if config.get("rules"):
+        return ()
+    count = _int_or_none(config.get("count"))
+    window = _number_or_none(config.get("time_window"))
+    if count is None or count < 1 or window is None or window <= 0:
+        return ()
+    return (RateWindow(requests=count, seconds=window),)
+
+
+def _count_shared(config: dict[str, Any]) -> bool | None:
+    """Whether a limit-count counter is shared by every node and updated on each request."""
+    policy = str(config.get("policy") or "").lower()
+    if not policy.startswith(_RATE_SHARED_POLICY_PREFIX):
+        return False
+    sync = _number_or_none(config.get("sync_interval"))
+    if sync is None:
+        return None
+    return sync == _RATE_SYNC_EVERY_REQUEST
 
 
 def _backend_timeout(scope: ConceptScope, name: str, value: object, source: str) -> BackendTimeout:

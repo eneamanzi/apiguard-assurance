@@ -160,10 +160,24 @@ API configured the same way would get.
 three), `PLAIN_HTTP` (tool configuration above), and on 2026-11-15, Forgejo + Kong with the run's configuration
 only: `HTTP_LISTENER_UNKNOWN` (`http_url` removed, `base_url` on port 8443), `HTTP_PORT_UNREACHABLE` (`http_url:
 http://localhost:8999`, nothing listening), `HTTP_PORT_NO_ANSWER` (`http_url: http://10.255.255.1:80`, a
-non-routable address). Still unproven: `WEAK_REDIRECT`, `TEMPORARY_REDIRECT`, `HTTP_SERVED_CLEARTEXT`, `HTTP_PROCESSED_CLEARTEXT`,
-`HSTS_MISSING`, `HSTS_MAX_AGE_LOW`, `HSTS_NO_SUBDOMAINS`, `NO_RESPONSE`. `NO_TLS` was seen on 2026-11-14 (Forgejo +
-Kong, `base_url: http://localhost:8000`): `hsts_present` records one not applicable, the only one the code has
-(`src/tests/domain_1/test_1_5_insecure_credential_transport.py`), next to the `PLAIN_HTTP` finding.
+non-routable address). `NO_TLS` was seen on 2026-11-14 (Forgejo + Kong, `base_url: http://localhost:8000`):
+`hsts_present` records one not applicable, the only one the code has
+(`src/tests/domain_1/test_1_5_insecure_credential_transport.py`), next to the `PLAIN_HTTP` finding. Every other
+branch was produced on 2026-11-15 on Forgejo + Kong with a temporary change to `kong/kong.yml` (undone with `git
+checkout`, the lab checked back):
+
+| The change | Result |
+|---|---|
+| the HSTS value of the service's `response-transformer` set to `max-age=60; includeSubDomains` | `HSTS_MAX_AGE_LOW` (CERTAIN) |
+| the same set to `max-age=31536000` | `HSTS_NO_SUBDOMAINS` (FIRM) |
+| the HSTS line removed | `HSTS_MISSING` (CERTAIN) |
+| a route `~/api/v1/orgs$`, `protocols: [http]`, whose `pre-function` answers `301` to `http://localhost:8000/...` | `WEAK_REDIRECT` |
+| the same answering `302` to the HTTPS URL | `TEMPORARY_REDIRECT` |
+| the same answering `200` | `HTTP_SERVED_CLEARTEXT` |
+| the same answering `400` | `HTTP_PROCESSED_CLEARTEXT` |
+| a route `~/api/v1/orgs$`, `protocols: [https]`, sleeping 7 s, the run's `target.read_timeout: 5.0` | `NO_RESPONSE` on `hsts_present` (the plain-HTTP probe of that route got Kong's `426`, `HTTP_PROCESSED_CLEARTEXT`: the route set no `https_redirect_status_code`) |
+
+Every branch of this test has been seen.
 
 ## 13. Remediation
 

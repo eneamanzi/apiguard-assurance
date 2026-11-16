@@ -81,7 +81,7 @@ resolved from `path_seed`. A destructive method on a derived candidate is not se
 | a destructive method, not sent | `NOT_VERIFIABLE/DESTRUCTIVE_NOT_PROBED` | - |
 | no privileged operation was derived (no documented path has an `admin` or `management` segment) | `NOT_APPLICABLE/NO_PRIVILEGED_ENDPOINT` on both sub-tests, the run saying "No privileged operation found" | - |
 | no privileged path offered more than one safe method, so consistency between methods cannot be judged | `NOT_APPLICABLE/SINGLE_SAFE_METHOD` | - |
-| unavailable, rate limited, no response, server error, other | `NOT_VERIFIABLE/<reason>` | - |
+| any other answer (a redirect, a `400`, a `405`, a rare code) | `NOT_VERIFIABLE/` its category (`REDIRECT`, `INVALID_REQUEST`, ...) | - |
 
 **`method_not_confused`**: safe methods of one path give user_a different outcomes -> `VIOLATION/METHOD_CONFUSION`
 (FIRM, as `BFLA`: that the path is privileged rests on its name); two or more agree -> `ENFORCED/METHODS_CONSISTENT`;
@@ -89,6 +89,19 @@ one safe method only -> `NOT_APPLICABLE`. A method the specification declares pu
 served because it is public, it says nothing about the privilege check of another method. No lab
 documents two safe methods on one privileged path (HEAD is rarely documented), so this sub-test is `NOT_APPLICABLE`
 on all three and both of its judged branches are unproven (rule 9).
+
+<!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("2.1", page=cog.inFile)) ]]] -->
+
+The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
+
+| Answer | Sub-tests | Outcome / detail |
+|---|---|---|
+| `UPSTREAM_UNAVAILABLE` | every sub-test | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
+| `RATE_LIMITED` | every sub-test | `NOT_VERIFIABLE/RATE_LIMITED` |
+| `SERVER_ERROR` | every sub-test | `NOT_VERIFIABLE/SERVER_ERROR` |
+| `NO_RESPONSE` | every sub-test | `NOT_VERIFIABLE/NO_RESPONSE` |
+
+<!-- [[[end]]] -->
 
 ## 7. Outcomes
 
@@ -133,8 +146,26 @@ of the old test is fixed (a `404` is enforced only when the admin control proves
 `ENDPOINT_NOT_CONFIRMED` (both Forgejo labs), `DESTRUCTIVE_NOT_PROBED` (all three), `CREDENTIAL_NOT_CONFIRMED` (crAPI
 with an invalid token), `SINGLE_SAFE_METHOD` (all three, section 6), and on 2026-11-15 with a specification of the
 run only: `NO_PRIVILEGED_ENDPOINT` (Forgejo + Kong, the specification without its `/admin` paths: SKIP) and
-`PUBLIC_ENDPOINT` (crAPI + Kong, `GET /workshop/api/management/users/all` marked `security: []`). Still unproven:
-`REFUSED_HIDDEN`, `METHOD_CONFUSION`, `METHODS_CONSISTENT` and the transport reasons.
+`PUBLIC_ENDPOINT` (crAPI + Kong, `GET /workshop/api/management/users/all` marked `security: []`), and
+`REFUSED_HIDDEN` (2026-11-15, Forgejo + Kong: 10 operations; a temporary route `/api/v1/admin` whose `pre-function`
+turns Forgejo's `403` into a `404` in its `header_filter` phase, undone with `git checkout`, and the run's login
+token given the `read:admin` scope as well). The two method branches, 2026-11-15 on Forgejo + Kong, with the
+specification saved with a `HEAD` operation added to `/admin/orgs` (Forgejo answers `HEAD` there `405`, so on its
+own the run is still `SINGLE_SAFE_METHOD`) and a temporary route `~/api/v1/admin/orgs$` for `HEAD` (undone with
+`git checkout`): `METHODS_CONSISTENT` when the route's `pre-function` forwards the `HEAD` to Forgejo as a `GET`
+(user_a `403`, the forged credential `401`, on both methods); `METHOD_CONFUSION` (FIRM, with a `BFLA` on the
+`HEAD`) when it answers `200` itself. The transport reasons on 2026-11-15, the same lab, a temporary route `GET
+~/api/v1/admin/orgs$` answering `503`, `429`, `500` or sleeping 7 s (the run's `target.read_timeout: 5.0`):
+`UPSTREAM_UNAVAILABLE`, `RATE_LIMITED`, `SERVER_ERROR`, `NO_RESPONSE`. Every branch of this test has been seen.
+
+**The admin control on the Forgejo labs.** Until 2026-11-15 the login resource of both Forgejo labs created tokens
+with the scopes `read:repository`, `read:user`, `write:repository`, `write:user` only, the admin's included, and
+Forgejo refused the `/api/v1/admin` operations to that token: the admin positive control could never confirm an
+operation. Since 2026-11-15 the scopes include `read:admin`, the read access to the admin operations
+([Forgejo, Access Token Scope](https://forgejo.org/docs/latest/user/token-scope/)), which is how `REFUSED_HIDDEN`
+was produced. Measured the same day on both Forgejo labs: 2.1 still **PASS** partial; the 6 controls the run asks
+are the `/api/v1/admin/quota/...` reads, which answer `404` to the admin as well, so they stay
+`ENDPOINT_NOT_CONFIRMED`; 1.4 and 2.2, which use the same token, unchanged (PASS).
 
 ## 13. Remediation
 

@@ -59,7 +59,7 @@ from src.core.models import (
     TestStrategy,
 )
 from src.core.references import random_sibling_path
-from src.core.test_metadata import Effect, Need, TestInfo
+from src.core.test_metadata import DecisiveAnswer, Effect, Need, TestInfo
 from src.tests.base import BaseTest
 from src.tests.helpers.auth import auth_parts
 from src.tests.helpers.response_inspector import (
@@ -70,11 +70,6 @@ from src.tests.helpers.response_inspector import (
 from src.tests.helpers.sampling import sample_by_service
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
-
-# Answers that are the gateway's, not the API's: they are not looked at.
-_NOT_THE_APIS_ANSWER: frozenset[ResponseCategory] = frozenset(
-    {ResponseCategory.UPSTREAM_UNAVAILABLE, ResponseCategory.RATE_LIMITED}
-)
 _SUB_TRACE: str = "no_stack_trace"
 _SUB_DEBUG: str = "no_debug_field"
 _SUB_HEADER: str = "no_leaky_header"
@@ -126,6 +121,15 @@ class Test61InformationDisclosure(BaseTest):
         # well-behaved server does with it.
         effect=Effect.CHANGES_DATA,
         sub_tests=(_SUB_TRACE, _SUB_DEBUG, _SUB_HEADER),
+        decisive_answers=(
+            DecisiveAnswer(
+                category=ResponseCategory.SERVER_ERROR,
+                reason=(
+                    "a `500` is the error this test provokes, and its body is where a stack "
+                    "trace or a debug field shows: it is examined."
+                ),
+            ),
+        ),
     )
 
     def execute(
@@ -181,14 +185,19 @@ class Test61InformationDisclosure(BaseTest):
         # Each sampled response is kept by path: a finding names one endpoint, and
         # its proof must be that endpoint's response (rule 6).
         records: dict[str, EvidenceRecord] = {}
+        # Why the answers left out said nothing, recorded when none is left.
+        silent: str | None = None
         for method, path, _template in sample:
             response, record = _send(client, method, path, headers, params)
             if response is None or record is None:
+                silent = silent or ResponseCategory.NO_RESPONSE.value
                 continue
-            if category_of(record) in _NOT_THE_APIS_ANSWER:
-                # The gateway's answer for an unavailable or throttled backend
-                # says nothing about what the API exposes.
+            uninformative = self._uninformative(record, _SUB_DEBUG)
+            if uninformative is not None:
+                # An unavailable or throttled backend's answer says nothing
+                # about what the API exposes (a 500 is examined: decisive).
                 self._step(record)
+                silent = silent or uninformative
                 continue
             # Keyed by method and path: the sampler may take GET and HEAD of one
             # path, and a HEAD answer (no body) must not stand as a GET's proof.
@@ -206,6 +215,7 @@ class Test61InformationDisclosure(BaseTest):
             _SUB_DEBUG,
             debug_hits,
             records,
+            silent,
             "DEBUG_FIELD",
             "Response carries a debug field",
             "a debug or internal field",
@@ -215,6 +225,7 @@ class Test61InformationDisclosure(BaseTest):
             _SUB_HEADER,
             header_hits,
             records,
+            silent,
             "LEAKY_HEADER",
             "Response carries a leaky header",
             "a leaky header (a `Server` carrying a version, `X-Powered-By`, `X-AspNet-Version`)",
@@ -226,6 +237,7 @@ class Test61InformationDisclosure(BaseTest):
         sub_test: str,
         hits: dict[str, list[str]],
         records: dict[str, EvidenceRecord],
+        silent: str | None,
         detail: str,
         title: str,
         what: str,
@@ -233,8 +245,9 @@ class Test61InformationDisclosure(BaseTest):
         """ENFORCED when no sampled endpoint leaked; VIOLATION naming where it did."""
         if not records:
             # Nothing answered usably: no leak was seen because nothing was
-            # looked at (until 2026-11-05 this was CLEAN).
-            self._record(sub_test, Outcome.NOT_VERIFIABLE, "NO_USABLE_RESPONSE")
+            # looked at (until 2026-11-05 this was CLEAN). The reason is that of
+            # the answers left out (until 2026-11-16 NO_USABLE_RESPONSE).
+            self._record(sub_test, Outcome.NOT_VERIFIABLE, silent or "NO_RESPONSE")
             return
         if not hits:
             self._record(sub_test, Outcome.ENFORCED, "CLEAN")
@@ -300,13 +313,19 @@ class Test61InformationDisclosure(BaseTest):
                 ),
             )
             return
+        uninformative = self._uninformative(record, _SUB_TRACE)
+        if uninformative is not None:
+            # Unavailable or throttled: no error was provoked (until 2026-11-16
+            # named ERROR_NOT_PROVOKED).
+            self._judge(record, store, _SUB_TRACE, Outcome.NOT_VERIFIABLE, uninformative)
+            return
         status = record.response_status_code
         provoked = (
             status in _PARSE_ERROR_STATUS or category_of(record) == ResponseCategory.SERVER_ERROR
         )
         if not provoked:
-            # Refused before parsing (401, 403, 404, 415), throttled, unavailable or
-            # even accepted: no error was provoked, so a clean body proves nothing.
+            # Refused before parsing (401, 403, 404, 415) or even accepted: no
+            # error was provoked, so a clean body proves nothing.
             self._judge(record, store, _SUB_TRACE, Outcome.NOT_VERIFIABLE, "ERROR_NOT_PROVOKED")
             return
         self._judge(record, store, _SUB_TRACE, Outcome.ENFORCED, "NO_STACK_TRACE")

@@ -127,9 +127,14 @@ specifically (as opposed to an untrusted chain) is a weakness the clean labs do 
 configured to offer TLS 1.0/1.1 or a weak cipher.
 
 **What each branch has been seen doing** (rule 9). Proven: `ENFORCED/NO_TLS_WEAKNESS` and
-`CERT_REVOCATION_NOT_CHECKABLE` (the three labs), `VIOLATION/TLS_WEAKNESS` (the no-ca case). Not exercised on a lab:
-a weak-protocol/cipher violation, the connect/timeout ERROR, and `SCAN_INCOMPLETE`, not named before the inventory
-of 2026-11-14.
+`CERT_REVOCATION_NOT_CHECKABLE` (the three labs), `VIOLATION/TLS_WEAKNESS` (the no-ca case), and the ERROR on
+2026-11-15 (Forgejo + Kong): `target.base_url` on a closed port (testssl.sh exits `246`) and `timeout_seconds: 30`,
+its minimum ("External tool 'testssl.sh' timed out"). Not producible on the labs: a weak-protocol/cipher violation.
+With Kong at its most permissive (`KONG_SSL_CIPHER_SUITE=old`, `KONG_SSL_PROTOCOLS=TLSv1 TLSv1.1 TLSv1.2 TLSv1.3`,
+a docker compose override outside the repository, Kong recreated without it afterwards, 2026-11-15) testssl.sh
+finds only MEDIUM items (`BEAST_CBC_TLS1`, `overall_grade`), which become notes: a HIGH or CRITICAL needs a TLS
+stack that still offers SSLv3, RC4 or export ciphers, which the gateway's OpenSSL does not. Not produced:
+`SCAN_INCOMPLETE` (a FATAL entry of testssl.sh with no weakness found).
 
 ## 13. Remediation
 

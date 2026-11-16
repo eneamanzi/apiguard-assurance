@@ -39,7 +39,7 @@ from typing import Annotated
 import structlog
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.core.assessment_test import NEEDED_TO_RUN, REFERS_TO_RESOURCE, category_of
+from src.core.assessment_test import NEEDED_TO_RUN, REFERS_TO_RESOURCE
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
@@ -50,7 +50,6 @@ from src.core.models import (
     Finding,
     Outcome,
     Reference,
-    ResponseCategory,
     Standard,
     TestResult,
     TestStrategy,
@@ -73,15 +72,6 @@ _SUCCESS_STATUS: frozenset[int] = frozenset({200, 201, 202, 204})
 
 _RACE: str = "RACE_DOUBLE_EFFECT"
 _OPERATION_FAILED: str = "OPERATION_FAILED"
-
-# Answers of the other concurrent requests that show the server failing rather
-# than refusing: one success among them does not prove serialization (rule 1).
-_SPOILING: dict[ResponseCategory, str] = {
-    ResponseCategory.UPSTREAM_UNAVAILABLE: "UPSTREAM_UNAVAILABLE",
-    ResponseCategory.RATE_LIMITED: "RATE_LIMITED",
-    ResponseCategory.NO_RESPONSE: "NO_RESPONSE",
-    ResponseCategory.SERVER_ERROR: "SERVER_ERROR",
-}
 
 
 class Test73RaceOperation(BaseModel):
@@ -287,24 +277,18 @@ class Test73RaceConditions(BaseTest[Test73Params]):
             # No success: say why. A server that was unavailable or failing is not an
             # operation that refused to run (crAPI's workshop answered 503 here in a
             # full assessment until 7.2 stopped tripping Kong's health check, 2026-11-04).
-            spoiled = next((r for r in records if category_of(r) in _SPOILING), None)
+            spoiled = self._first_uninformative(records)
             if spoiled is not None:
-                self._judge(
-                    spoiled, store, _SUB, Outcome.NOT_VERIFIABLE, _SPOILING[category_of(spoiled)]
-                )
+                self._judge(spoiled[0], store, _SUB, Outcome.NOT_VERIFIABLE, spoiled[1])
                 return
             self._record(_SUB, Outcome.NOT_VERIFIABLE, _OPERATION_FAILED)
             return
         if len(successes) <= max_successful:
             # Serialized means the others were refused (a 409, "already redeemed"),
             # not that the server fell over under the burst.
-            spoiled = next(
-                (r for r in records if r not in successes and category_of(r) in _SPOILING), None
-            )
+            spoiled = self._first_uninformative([r for r in records if r not in successes])
             if spoiled is not None:
-                self._judge(
-                    spoiled, store, _SUB, Outcome.NOT_VERIFIABLE, _SPOILING[category_of(spoiled)]
-                )
+                self._judge(spoiled[0], store, _SUB, Outcome.NOT_VERIFIABLE, spoiled[1])
                 return
             self._judge(successes[0], store, _SUB, Outcome.ENFORCED, "CONCURRENCY_SERIALIZED")
             return
@@ -327,6 +311,16 @@ class Test73RaceConditions(BaseTest[Test73Params]):
         )
         self._judge(successes[0], store, _SUB, Outcome.VIOLATION, _RACE, finding)
         log.info("test_7_3_race_detected", path=path, successes=len(successes), fired=concurrency)
+
+    def _first_uninformative(
+        self, records: list[EvidenceRecord]
+    ) -> tuple[EvidenceRecord, str] | None:
+        """The first answer that says nothing about the guarantee, with its reason, or None."""
+        for record in records:
+            reason = self._uninformative(record, _SUB)
+            if reason is not None:
+                return record, reason
+        return None
 
     def _log_others(self, records: list[EvidenceRecord], successes: list[EvidenceRecord]) -> None:
         """Log the non-successful concurrent requests as preparation steps (not judged)."""

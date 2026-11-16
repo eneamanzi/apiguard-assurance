@@ -151,6 +151,74 @@ generated catalogue [`docs/05-tests/README.md`](docs/05-tests/README.md); `apigu
 
 ### Fixed
 
+- **One rule for the answers that say nothing about a guarantee (2026-11-16).** Each test wrote for itself which
+  answers to record `NOT_VERIFIABLE` (the gateway unable to reach the backend, a `429`, a `500`, no answer), 24
+  times, and the copies differed: test 4.4 read a `429` as a forwarded body (`VIOLATION/NO_SIZE_LIMIT`, produced on
+  Forgejo + Kong with a rate limit of 1 per minute), and several tests named a timeout, a `500` or a mix of them
+  `UPSTREAM_UNAVAILABLE`, `FLOW_UNAVAILABLE`, `OBJECT_NOT_READABLE` or `NO_USABLE_RESPONSE`. The list is now written
+  once (`UNINFORMATIVE_CATEGORIES`, `src/core/response_category.py`), applied by one method
+  (`AssessmentTest._uninformative`), and a sub-test whose question is one of those answers declares it with the
+  reason (`TestInfo.decisive_answers`: the `429` of 4.1 and 7.1, the `500` of 6.1, ffuf and Schemathesis, the
+  timeout of 7.2's payloads). `dev:gen` writes the rule as it applies to each test at the end of its page's
+  section 6, and the categories with their HTTP statuses in the assessment model; a test that applies the rule
+  without the block on its page stops the generation. Three tests read a `429` as a real answer, and no longer do
+  (owner, 2026-11-16): 4.4 (a forwarded body), 1.7's `account_enumeration` (readings all throttled alike read as
+  answers that agree, `ENFORCED/TIMING_TOO_SMALL`, produced on Forgejo + Kong with the login answering `429`; its
+  `repeated_attempts` keeps the `429` as its verdict) and 0.4 (the gateway's `429` taken as the backend's answer to
+  compare a direct one with; a `500` stays the comparison, and no answer is `NO_RESPONSE`, `TARGET_NOT_ANSWERING`
+  before). **Changed results**: the three cases above become `NOT_VERIFIABLE/RATE_LIMITED`; the names above become
+  the category's (`SERVER_ERROR`, `NO_RESPONSE`, ...); on the three labs as configured, none (measured 2026-11-16: a
+  full assessment of each compared with the one before the change, no difference on the two Forgejo labs; on crAPI
+  three differences of its own, 4.4's race, 7.2's outbound call cut by Kong's `504` or by the client's timeout, and
+  7.3's coupon already claimed in the earlier run; 0.4, 1.7 and 7.3 run again after a reset gave the earlier
+  results). Verified on Forgejo + Kong with every test run under a gateway
+  answering `503`, then `429`, then `500` (a temporary `pre-function`, undone): each test records the category's
+  name, and the declared ones judge it themselves.
+- **`6.4` reported one credential twice (2026-11-15).** Kong's Admin API answers a `rate-limiting` plugin's Redis
+  password under `config.redis.password` and the older `config.redis_password`, and each key gave a finding. The
+  findings of the configuration scan are now one per value per object, the strongest kept and naming the other
+  keys. **Changed results**: none on the three labs (no credential in their configuration); the variant with a
+  fictitious password gives 1 finding instead of 2.
+- **The client sends a path as the test wrote it (2026-11-15).** httpx removes dot segments and reads a leading
+  `//` as an authority, so test 1.1's `DOT_SEGMENT`, `DOT_DOT_SEGMENT` and `DOUBLE_SLASH` variants left as the
+  canonical path (or as `/v1/user`) while their record showed the variant: they were judged on another path's
+  answer. `SecurityClient` now hands such a path to its transport as the request target, keeping the Host header,
+  the query, the evidence and the redaction (`src/core/client.py`); every other path goes as before. The
+  `path_variants` docstring no longer says test 2.1 uses the variants (it does not import them). **Changed
+  results**: none on the three labs (measured: Kong normalises the three, APISIX forwards the dot segments to
+  Forgejo's `404`); the three `SERVED_AS_*` branches were produced on Forgejo + Kong (test 1.1's page).
+- **`4.1` and `4.4` read the gateway's limits (2026-11-15).** They looked for their limit among the configuration
+  text values, which hold strings, while Kong and APISIX state a rate and a body size as numbers: the limit was
+  never read, the CERTAIN branch of both was unreachable, and the code took the smallest number anywhere in a
+  matching plugin, from any route. Two neutral concepts replace that scan (D7): `rate_limits()`, requests per
+  window of seconds (Kong `rate-limiting` `second` to `year`; APISIX `limit-count`, and `limit-req` as a limit not
+  counted per window), with whether every node shares the counter; `body_size_limits()`, in bytes (Kong
+  `request-size-limiting` times its `size_unit`; APISIX `client-control`). A limit counts only for the routes that
+  may serve the probe (`src/tests/helpers/route_limits.py`). Test 4.1's budget is twice the largest window count
+  plus one (a burst may straddle two fixed windows), and its CERTAIN needs every limit that may apply exceeded
+  within one window and a counter shared by every node (both gateways' default `local` policy counts per node:
+  FIRM); its `LIMIT_ABOVE_BUDGET` is now `LIMIT_NOT_REACHED`, with a note. Test 4.4 sends the largest such limit
+  plus 1024 bytes. **Changed results**: on the three labs, as configured, none (no limit configured: FIRM as
+  before, the finding now naming the route); on a gateway with APISIX `limit-req` 4.1 is INCONCLUSIVE instead of a
+  FIRM FAIL (the leaky bucket delays the burst rather than refusing it). Six variants on the labs produced every
+  branch (the pages, section 12).
+- **`0.2` reported a PASS complete behind a regex catch-all route (2026-11-15).** With a Kong route `~/.*$`, every
+  path without a route of its own reached the backend, the backend's `404` was taken for the gateway's refusal and
+  the forwarded neighbours looked refused. A regex route path that matches a random path at the root (the shape of
+  the refusal's probes, tried with Python's `re` as test 0.1 tries one) now counts as a catch-all:
+  `NOT_VERIFIABLE/CATCH_ALL_ROUTE`. **Changed results**: none on the three labs as configured (measured).
+- **The Forgejo labs' login token can read the admin operations (2026-11-15).** Its scopes lacked `read:admin`, so
+  Forgejo refused the `/api/v1/admin` operations to the admin's token too and test 2.1's admin positive control
+  could never confirm one. Both Forgejo labs' `forgejo-token` now add `read:admin`
+  ([Forgejo, Access Token Scope](https://forgejo.org/docs/latest/user/token-scope/)), and so does the configuration
+  guide's example. **Changed results**: none (2.1 PASS partial; its 6 controls are quota reads that answer `404` to
+  the admin as well).
+- **The branch campaign on the labs (2026-11-15).** Every branch of every test page is now seen on a lab, seen off
+  the labs, or stated unreachable or not producible with its reason, each with the change that produced it. Pages
+  corrected on the way: 1.3's five claim branches are produced (a fictitious token from the login), 1.7's
+  `LOGIN_NOT_ANSWERING` and 4.4's `NO_RESPONSE` are guards the code cannot reach (their table rows now say what the
+  case gives), 1.1's three variants `DOT_SEGMENT`, `DOT_DOT_SEGMENT`, `DOUBLE_SLASH` are not sent as written by the
+  HTTP client (owner decision pending), 3.3's policy on a disabled route is judged as configured (owner, 2026-11-15).
 - **Six oracle behaviours found by the branch verification on the labs (2026-11-15).** Each was produced on a
   lab, fixed, and produced again (the pages say how):
   - `0.4` reported a PASS when the backend was down: the gateway's `502`/`503`/`504` on the probe path now stops

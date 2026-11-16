@@ -30,6 +30,14 @@ Generated parts:
     example_tests()         config.example.yaml, the tests section: every
                             parameter with its default and the first sentence
                             of its description
+    response_categories_table()
+                            docs/04-architecture/03-assessment-model.md, the
+                            categories of a response and their HTTP statuses
+    uninformative_answers(id)
+                            section 6 of each test page whose test applies the
+                            rule of the answers that say nothing
+                            (AssessmentTest._uninformative): a test applying it
+                            without the block on its page stops the generation
 
 A test page is found by its header marker (``test_header("2.1", ...)``): a test
 without a page stops the generation, so ``dev:check`` fails until it has one.
@@ -83,8 +91,9 @@ from src.core.models import (
     TlsSettings,
     TransactionSummary,
 )
-from src.core.models.enums import EXIT_CODES
+from src.core.models.enums import EXIT_CODES, ResponseCategory
 from src.core.references import CalibrationPoint, Fingerprint, PositiveControl
+from src.core.response_category import UNINFORMATIVE_CATEGORIES, categorize
 from src.core.test_metadata import (
     EFFECT_RANK,
     PRIORITY_MAX,
@@ -252,6 +261,16 @@ def catalogue() -> str:
     if missing:
         raise ValueError(
             f"tests without a page in docs/05-tests/ (a page with a test_header marker): {missing}"
+        )
+    without_block = [
+        test_id
+        for test_id in sorted(_ids_applying_the_rule(), key=_id_key)
+        if f'uninformative_answers("{test_id}"' not in pages[test_id].read_text(encoding="utf-8")
+    ]
+    if without_block:
+        raise ValueError(
+            "tests applying the rule of the answers that say nothing without the generated block "
+            f"uninformative_answers on their page (section 6): {without_block}"
         )
     readme = _TEST_PAGES / "README.md"
     native = sum(1 for t in tests if not t.info.is_external)
@@ -1144,15 +1163,135 @@ def methods_table(header: Sequence[str], *calls: str | tuple[str, str], typed: b
     return _block(lines)
 
 
-def _tests_calling(method: str) -> str:
-    """The IDs of the tests whose source calls .method(, sorted."""
+def _ids_calling(method: str) -> set[str]:
+    """The IDs of the tests whose source calls .method(."""
     ids: set[str] = set()
     for folder in _TEST_SOURCES:
         for source in folder.rglob("*.py"):
             text = source.read_text(encoding="utf-8")
             if f".{method}(" in text:
                 ids.update(_TEST_ID_IN_SOURCE.findall(text))
-    return ", ".join(sorted(ids, key=_id_key)) or "-"
+    return ids
+
+
+def _tests_calling(method: str) -> str:
+    """The IDs of the tests whose source calls .method(, sorted."""
+    return ", ".join(sorted(_ids_calling(method), key=_id_key)) or "-"
+
+
+# ---------------------------------------------------------------------------
+# Response categories and the answers that say nothing
+# ---------------------------------------------------------------------------
+
+# The methods of AssessmentTest that apply the rule of the answers that say nothing.
+_RULE_METHODS: tuple[str, ...] = ("_uninformative", "_uninformative_category")
+# The HTTP statuses categorize() is asked for: every code of the five classes.
+_STATUS_RANGE: range = range(100, 600)
+# One line of ResponseCategory's docstring: "NAME  -- what it is".
+_CATEGORY_LINE: re.Pattern[str] = re.compile(r"^\s*([A-Z_]+)\s+--\s+(.*)$")
+_ASSESSMENT_MODEL: Path = _ROOT / "docs" / "04-architecture" / "03-assessment-model.md"
+_RULE_ANCHOR: str = "#answers-that-say-nothing-about-the-guarantee"
+
+
+def _ids_applying_the_rule() -> set[str]:
+    """The tests whose source applies the rule of the answers that say nothing."""
+    return set().union(*(_ids_calling(method) for method in _RULE_METHODS))
+
+
+def _category_meanings() -> dict[str, str]:
+    """What each category is, as ResponseCategory's docstring says it."""
+    meanings: dict[str, str] = {}
+    current: str | None = None
+    for line in (ResponseCategory.__doc__ or "").splitlines():
+        match = _CATEGORY_LINE.match(line)
+        if match is not None:
+            current = match.group(1)
+            meanings[current] = match.group(2).strip()
+        elif current is not None and line.strip():
+            meanings[current] += " " + line.strip()
+        else:
+            current = None
+    return meanings
+
+
+def _code_ranges(codes: list[int]) -> str:
+    """Sorted codes written as ranges: 500, 505-510, 512-599."""
+    parts: list[str] = []
+    start = previous = codes[0]
+    for code in [*codes[1:], None]:
+        if code is not None and code == previous + 1:
+            previous = code
+            continue
+        parts.append(str(start) if start == previous else f"{start}-{previous}")
+        if code is not None:
+            start = previous = code
+    return ", ".join(parts)
+
+
+def response_categories_table() -> str:
+    """The categories of a response, their HTTP statuses (categorize()), the uninformative ones."""
+    meanings = _category_meanings()
+    lines = [
+        "| Category | HTTP statuses | What it is | Says nothing by itself |",
+        "|---|---|---|---|",
+    ]
+    for category in ResponseCategory:
+        codes = [code for code in _STATUS_RANGE if categorize(code) == category]
+        statuses = _code_ranges(codes) if codes else "none: no response arrived"
+        meaning = meanings.get(category.name, "").split(":", 1)[-1].strip()
+        uninformative = "yes" if category in UNINFORMATIVE_CATEGORIES else ""
+        lines.append(f"| `{category.value}` | {statuses} | {_cell(meaning)} | {uninformative} |")
+    return _block(lines)
+
+
+def uninformative_answers(test_id: str, page: str) -> str:
+    """
+    The answers that say nothing about the guarantee, for one test page (section 6).
+
+    Args:
+        test_id: The test.
+        page:    The page's path (cog.inFile), for the link to the rule.
+
+    Returns:
+        A Markdown table: for each uninformative category, the sub-tests that
+        record it NOT_VERIFIABLE and those that judge it themselves, with their
+        reason (TestInfo.decisive_answers).
+
+    Raises:
+        ValueError: When the test does not apply the rule (its source calls
+                    neither _uninformative nor _uninformative_category).
+    """
+    if test_id not in _ids_applying_the_rule():
+        raise ValueError(f"test {test_id} does not apply the rule of the answers that say nothing")
+    info = next(t.info for t in _tests() if t.info.id == test_id)
+    rule = _relative(_ASSESSMENT_MODEL, page) + _RULE_ANCHOR
+    every = "every sub-test"
+    lines = [
+        f"The answers that say nothing about the guarantee by themselves, one rule for every test "
+        f"([assessment model]({rule})), generated from the code:",
+        "",
+        "| Answer | Sub-tests | Outcome / detail |",
+        "|---|---|---|",
+    ]
+    for category in UNINFORMATIVE_CATEGORIES:
+        decisive = [a for a in info.decisive_answers if a.category == category]
+        judging = {s for a in decisive for s in (a.sub_tests or info.sub_tests)}
+        others = [s for s in info.sub_tests if s not in judging]
+        if others:
+            where = every if len(others) == len(info.sub_tests) else _sub_test_names(others)
+            lines.append(f"| `{category.value}` | {where} | `NOT_VERIFIABLE/{category.value}` |")
+        for answer in decisive:
+            where = _sub_test_names(answer.sub_tests) if answer.sub_tests else every
+            lines.append(
+                f"| `{category.value}` | {where} | judged by the oracle above: "
+                f"{_cell(answer.reason)} |"
+            )
+    return _block(lines)
+
+
+def _sub_test_names(sub_tests: Sequence[str]) -> str:
+    """Sub-test names for a table cell."""
+    return ", ".join(f"`{name}`" for name in sub_tests)
 
 
 def gateway_concepts_table() -> str:

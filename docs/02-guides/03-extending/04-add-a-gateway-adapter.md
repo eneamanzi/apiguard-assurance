@@ -18,11 +18,13 @@ concepts](../../04-architecture/05-design-decisions.md#d7-neutral-gateway-concep
 | Reader | Implement | Items | Used by |
 |---|---|---|---|
 | `backend_timeouts()` | `_read_backend_timeouts()` | `BackendTimeout` | 4.2 |
+| `body_size_limits()` | `_read_body_size_limits()` | `BodySizeLimit` | 4.4 |
 | `circuit_breakers()` | `_read_circuit_breakers()` | `CircuitBreaker` | 4.3 |
-| `config_values()` | `_read_config_values()` | `ConfigValue` | 4.1, 4.4, 5.1, 6.4 |
+| `config_values()` | `_read_config_values()` | `ConfigValue` | 5.1, 6.4 |
 | `health_checks()` | `_read_health_checks()` | `HealthCheck` | 4.3 |
 | `log_shipping()` | `_read_log_shipping()` | `LogShipper` | 5.1 |
-| `routes()` | `_read_routes()` | `GatewayRoute` | 0.1, 0.2 |
+| `rate_limits()` | `_read_rate_limits()` | `RateLimit` | 4.1 |
+| `routes()` | `_read_routes()` | `GatewayRoute` | 0.1, 0.2, 4.1, 4.4 |
 | `signing_policies()` | `_read_signing_policies()` | `SigningPolicy` | 3.3 |
 | `target_health()` | `_read_target_health()` | `TargetHealth` | 0.4 |
 
@@ -59,8 +61,16 @@ Rules:
 - **Secrets:** `ConfigValue.value` is a `SecretStr`; never log the values you read.
 - **Disabled objects:** keep a disabled plugin's values in `config_values()` and mark them `enabled=False`
   (pass `enabled=` to `collect_text_values`). Test 6.4 still scans them, since a credential in a disabled plugin is
-  still in the configuration; tests 4.1, 4.4 and 5.1 ignore them, since a disabled plugin enforces nothing. Kong
-  states the state as the plugin's `enabled`, APISIX as the plugin configuration's `_meta.disable`.
+  still in the configuration; test 5.1 ignores them, since a disabled plugin enforces nothing. Kong
+  states the state as the plugin's `enabled`, APISIX as the plugin configuration's `_meta.disable`. The same
+  `enabled` is stated on a rate limit and a body-size limit, which tests 4.1 and 4.4 ignore when disabled.
+- **Limits:** state `rate_limits()` as requests per window of seconds (`RateWindow`; a calendar window takes its
+  shortest length) and `body_size_limits()` in bytes, converted from the gateway's own units. Leave out a limit
+  bound to one consumer (it does not apply to the other clients) and a value that means "no limit". A limit the
+  gateway applies in a way that is not a count per window, or with numbers taken from the request, has no windows;
+  one that applies to part of the traffic only (Kong: HTTP or HTTPS alone) has no windows or no size. State
+  `shared_counter` true only when every node counts against one counter updated on each request: test 4.1 says
+  CERTAIN only then.
 - **Protected interfaces:** the base sends `admin_headers` (from `gateway.admin.headers`) on every Admin API
   request, and never to the health interface.
 - **Values the gateway does not return:** if the gateway's interface returns only what was written and not the
@@ -132,6 +142,8 @@ the test:
 | circuit breakers | `GET /plugins` | the third-party breaker plugins the adapter knows (`_BREAKER_PLUGINS`, today `circuit-breaker`, the plugin name of [dream11/kong-circuit-breaker](https://github.com/dream11/kong-circuit-breaker)), in that order, first instance of each; Kong OSS ships none. The threshold and open-state fields are tried by name, that plugin's own names first (`failure_percent_threshold`, `wait_duration_in_open_state`) |
 | signing policies | `GET /plugins` | every `hmac-auth` plugin, fields `clock_skew`, `algorithms`, `validate_request_body`, `enforce_headers` (Kong's schema; Kong requires `clock_skew` > 0) |
 | configuration values | `GET /services`, `GET /plugins` | service `url` (absent in DB-less), plugin configuration strings |
+| rate limits | `GET /plugins` | every `rate-limiting` plugin not bound to a consumer or consumer group: `second` to `year` as windows (a month 28 days, a year 365: Kong's periods are calendar periods); `shared_counter` when `policy` is `cluster` or `redis` with `sync_rate` -1 |
+| body-size limits | `GET /plugins` | every `request-size-limiting` plugin not bound to a consumer: `allowed_payload_size` times its `size_unit` (bytes 1, kilobytes 1024, megabytes 1048576, the factors of Kong's handler; megabytes by default) |
 
 Paginated (`next`), no redirects, with the context of `gateway.admin.tls`. Tested against Kong 3.9.3 in DB-less
 mode, Admin API over HTTPS. `gateway.health` is not used.
@@ -149,6 +161,8 @@ Admin API under `<gateway.admin.url>/apisix/admin` (the path is added when missi
 | routes | `GET /routes` | `uri` / `uris`, `methods`, `status`; backend from `upstream`, `upstream_id` or the service's upstream |
 | circuit breakers | `api-breaker` | in global rules, routes, their plugin configs and services |
 | signing policies | `hmac-auth` | as above; `clock_skew: 0` (no date check, accepted before APISIX 3.13) is reported as no replay window (`replay_unlimited`) |
+| rate limits | `limit-count`, `limit-req` | as above; `limit-count` `count` per `time_window` seconds, without windows in `rules` mode or when a value is a string; `shared_counter` with a Redis policy and `sync_interval` -1. `limit-req` (a leaky bucket that delays requests) has no windows |
+| body-size limits | `client-control` | as above; `max_body_size` in bytes, 0 (no restriction) left out |
 | configuration values | upstream node addresses; plugin configurations; consumer plugins (client credentials) | |
 
 A plugin applies to a route from the route, else its plugin config, else its service (the first found wins): a

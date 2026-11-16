@@ -69,7 +69,20 @@ drives the real flow (announce it on a shared target); the burst is kept small.
 | every submission of the burst accepted (`2xx`), no control | `VIOLATION/NO_ANTI_AUTOMATION` | CERTAIN |
 | the flow refused the first submission without a challenge (a `401`, a `404`, a validation error): the burst did not exercise it | `NOT_VERIFIABLE/FLOW_NOT_ACCEPTED` | - |
 | served, then refused without a `429` or challenge words: a throttle this test does not recognise, or a business refusal (a duplicate), which cannot be told apart | `NOT_VERIFIABLE/REFUSED_AFTER_SERVED` | - |
-| the target was unavailable, failed or did not answer during the burst | `NOT_VERIFIABLE/FLOW_UNAVAILABLE` | - |
+| the target was unavailable, failed or did not answer during the burst | `NOT_VERIFIABLE/` the reason of the first such answer (the table below; until 2026-11-16 `FLOW_UNAVAILABLE`) | - |
+
+<!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("7.1", page=cog.inFile)) ]]] -->
+
+The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
+
+| Answer | Sub-tests | Outcome / detail |
+|---|---|---|
+| `UPSTREAM_UNAVAILABLE` | every sub-test | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
+| `RATE_LIMITED` | every sub-test | judged by the oracle above: a `429` is the anti-automation throttle this test looks for (`ANTI_AUTOMATION_THROTTLE`). |
+| `SERVER_ERROR` | every sub-test | `NOT_VERIFIABLE/SERVER_ERROR` |
+| `NO_RESPONSE` | every sub-test | `NOT_VERIFIABLE/NO_RESPONSE` |
+
+<!-- [[[end]]] -->
 
 ## 7. Outcomes
 
@@ -139,8 +152,13 @@ with the throttle above, and `NOT_VERIFIABLE/FLOW_NOT_ACCEPTED` with the refused
 
 **What each branch has been seen doing** (rule 9). Proven on a lab: `NO_ANTI_AUTOMATION` (crAPI, a Forgejo + Kong
 scratch flow), `ANTI_AUTOMATION_THROTTLE` (Forgejo + Kong with the plugin above), `FLOW_NOT_ACCEPTED` (a refused
-Forgejo + Kong scratch flow), the SKIP (both Forgejo labs). Still unproven: `ANTI_AUTOMATION_CHALLENGE`,
-`FLOW_UNAVAILABLE`, `REFUSED_AFTER_SERVED`.
+Forgejo + Kong scratch flow), the SKIP (both Forgejo labs), and on 2026-11-15 the three others, on Forgejo + Kong
+with the scratch flow `POST /api/v1/markdown` as user A and a temporary route `~/api/v1/markdown$` (undone with
+`git checkout`) whose `pre-function` lets the first three submissions reach Forgejo and answers the next ones
+itself: `ANTI_AUTOMATION_CHALLENGE` (`403` "Please complete the CAPTCHA to continue", PASS),
+`REFUSED_AFTER_SERVED` (`403` with no challenge words, INCONCLUSIVE), `FLOW_UNAVAILABLE` (`503`, INCONCLUSIVE;
+since 2026-11-16 the same answer is `UPSTREAM_UNAVAILABLE`, the shared rule of section 6).
+Every branch of this test has been seen.
 
 ## 13. Remediation
 

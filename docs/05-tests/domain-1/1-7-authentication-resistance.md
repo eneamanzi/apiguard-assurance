@@ -89,8 +89,8 @@ as a disclosure.
 | answers become slow within the bound | `ENFORCED/ATTEMPTS_SLOWED` | - |
 | the answer changes and stays changed within the bound (three consecutive answers alike and unlike the normal one, by status or by body, with the submitted values and digits masked): a `403`, a `423`, a `401` that now says "too many attempts" | `ENFORCED/ATTEMPTS_BLOCKED` | - |
 | 101 attempts answered as the first was and as quickly | `VIOLATION/ATTEMPTS_NOT_LIMITED` | FIRM |
-| the login endpoint did not answer the first attempt | `NOT_VERIFIABLE/LOGIN_NOT_ANSWERING` | - |
-| unavailable, no response, server error | `NOT_VERIFIABLE/` the reason | - |
+| the login endpoint did not answer an attempt (measured 2026-11-15: the case gives `NO_RESPONSE`, the row below; `LOGIN_NOT_ANSWERING`, written for it, is a guard the code cannot reach) | `NOT_VERIFIABLE/NO_RESPONSE` | - |
+| (`account_enumeration`) a reading answered `429`: throttled answers say nothing about which accounts exist; `repeated_attempts` still runs and judges its own `429` | `NOT_VERIFIABLE/RATE_LIMITED` (until 2026-11-16 readings all throttled alike were read as answers that agree: `ENFORCED/TIMING_TOO_SMALL`, produced that day on Forgejo + Kong with the login answering `429`) | - |
 
 **How a deliberate delay is told from ordinary variation.** The baseline is the median of the first 10 answers; an
 answer counts as slowed only when it is at least 3 times that baseline **and** at least 250 ms, and only when two
@@ -101,6 +101,20 @@ a limit, which is a PASS claimed where there is no control.
 answers both cases with the same four keys and a different `message`, which it did not see. This test compares the
 body itself, with the submitted name masked and runs of digits collapsed, so that an answer echoing what was sent
 does not look like a disclosure.
+
+<!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("1.7", page=cog.inFile)) ]]] -->
+
+The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
+
+| Answer | Sub-tests | Outcome / detail |
+|---|---|---|
+| `UPSTREAM_UNAVAILABLE` | every sub-test | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
+| `RATE_LIMITED` | `account_enumeration` | `NOT_VERIFIABLE/RATE_LIMITED` |
+| `RATE_LIMITED` | `repeated_attempts` | judged by the oracle above: a `429` to repeated failed attempts is the limit this sub-test looks for (`ATTEMPTS_LIMITED`). |
+| `SERVER_ERROR` | every sub-test | `NOT_VERIFIABLE/SERVER_ERROR` |
+| `NO_RESPONSE` | every sub-test | `NOT_VERIFIABLE/NO_RESPONSE` |
+
+<!-- [[[end]]] -->
 
 ## 7. Outcomes
 
@@ -198,9 +212,17 @@ and answers `401`, which is itself worth knowing.)
 `ATTEMPTS_NOT_LIMITED`, and with the cases above `ATTEMPTS_LIMITED`, `ATTEMPTS_SLOWED` and
 `WRONG_PASSWORD_ACCEPTED` in both sub-tests; the labs, which answer every attempt alike, give the same result as
 before the corrections of 2026-11-04 (measured, 1.7 alone). Seen on the scratch login server only:
-`NO_DISCREPANCY`, `ATTEMPTS_BLOCKED`. Still unproven: `TIMING_TOO_SMALL` (it needs a target that answers two failed attempts alike and both in less than
-5 ms, which no lab does and the scratch server did not), `ANSWER_NOT_STABLE` (a login whose body changes by
-itself), `LOGIN_NOT_ANSWERING`, the SKIP reasons and the transport reasons. `EXISTENCE_DISCLOSED_BY_TIMING` is
+`NO_DISCREPANCY`, `ATTEMPTS_BLOCKED`. On 2026-11-15, Forgejo + Kong, with a temporary route on the login
+request `POST ~/api/v1/users/[^/]+/tokens$` (undone with `git checkout`; no token left behind) whose
+`pre-function` lets the engine's own login through and answers the test's failed attempts itself:
+`TIMING_TOO_SMALL` (the same `401` body for both accounts, answered by Kong in less than 5 ms), `ANSWER_NOT_STABLE`
+(a body cycling over three words), `NO_RESPONSE` on both sub-tests (sleeping 7 s, the run's `target.read_timeout:
+5.0`). The first SKIP reason was seen with a configuration of the run with `auth_type: static_token` and no login
+resource. Not reachable: the second SKIP reason (user_a without username and password: with a login resource the
+configuration requires `auth_type: login`, and without user_a's credentials the engine skips the test first, for
+its unmet need `USER_ACCOUNT`, measured 2026-11-15) and `LOGIN_NOT_ANSWERING` (`_attempt` always returns a record
+or raises, so after the loop the first and last attempts are never missing; a login that does not answer is the
+`NO_RESPONSE` above). `EXISTENCE_DISCLOSED_BY_TIMING` is
 proven on the labs, where the bodies differ as well: the durations are a second channel, judged whether the bodies
 match or not (owner decision, 2026-11-15; section 6 said "the bodies match" until that day). Since the same day
 `NO_DISCREPANCY` and `TIMING_TOO_SMALL` are recorded only when the bodies agree: after an

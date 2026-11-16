@@ -46,6 +46,8 @@ src.tests.base.
 
 from __future__ import annotations
 
+import re
+
 import structlog
 
 from src.core.assessment_test import category_of
@@ -116,15 +118,6 @@ _BACKEND_REFUSAL_TRIES: int = 3
 _REFUSING: frozenset[ResponseCategory] = frozenset(
     {ResponseCategory.UNAUTHENTICATED, ResponseCategory.FORBIDDEN}
 )
-
-# The answer categories that say nothing about the guarantee: the target was
-# unavailable or protecting itself (rule 1).
-_SPOILING: dict[ResponseCategory, str] = {
-    ResponseCategory.UPSTREAM_UNAVAILABLE: "UPSTREAM_UNAVAILABLE",
-    ResponseCategory.RATE_LIMITED: "RATE_LIMITED",
-    ResponseCategory.NO_RESPONSE: "NO_RESPONSE",
-    ResponseCategory.SERVER_ERROR: "SERVER_ERROR",
-}
 
 # How many items a note lists by name.
 _NOTE_EXAMPLES: int = 12
@@ -247,8 +240,9 @@ class Test02PathsWithoutARoute(BaseTest):
                 ),
             )
             return None
-        if category in _SPOILING:
-            self._record(_SUB_UNROUTED, Outcome.NOT_VERIFIABLE, _SPOILING[category])
+        uninformative = self._uninformative_category(category, _SUB_UNROUTED)
+        if uninformative is not None:
+            self._record(_SUB_UNROUTED, Outcome.NOT_VERIFIABLE, uninformative)
             return None
         backend = self._backend_refusal(target, context)
         if backend is None:
@@ -422,8 +416,9 @@ class Test02PathsWithoutARoute(BaseTest):
                 # backend may have. Not a violation, and not a pass.
                 seen.append((record, "REFUSED_BEFORE_ROUTING"))
                 continue
-            if category in _SPOILING:
-                seen.append((record, _SPOILING[category]))
+            uninformative = self._uninformative(record, _SUB_NEAR)
+            if uninformative is not None:
+                seen.append((record, uninformative))
                 continue
             if fingerprint_of(record, (token,)) == refusal.fingerprint:
                 seen.append((record, "REFUSED_BY_GATEWAY"))
@@ -603,7 +598,13 @@ def _catch_all_route(target: TargetContext) -> str | None:
     The name of a route that covers every path, when there is one.
 
     A route path "/" matched as a plain string registers every path, so no path
-    is left for the test to ask about and deny-by-default cannot be probed.
+    is left for the test to ask about and deny-by-default cannot be probed. So
+    does a regex route path that matches a random path at the root, the shape of
+    the probes that measure the gateway's refusal: with a route `~/.*$` those
+    probes reach the backend, its answer is taken for the gateway's refusal and
+    every forwarded neighbour looks refused (a PASS seen on 2026-11-15). The
+    expression is tried as test 0.1 tries one (re.search); one that Python's re
+    cannot compile is not interpreted.
 
     Args:
         target: The run's target (gateway).
@@ -616,10 +617,32 @@ def _catch_all_route(target: TargetContext) -> str | None:
     answer = target.gateway.routes()
     if answer.status != ConceptStatus.READ:
         return None
+    root_probe = "/" + random_token()
     for route in answer.items:
         if not route.enabled:
             continue
         for route_path in route.paths:
             if route_path.match == RouteMatch.PREFIX and route_path.value.rstrip("/") == "":
                 return route.name
+            regex = route_path.match == RouteMatch.REGEX
+            if regex and _regex_matches(route_path.value, root_probe):
+                return route.name
     return None
+
+
+def _regex_matches(expression: str, path: str) -> bool:
+    """
+    Whether a regex route path matches a path, as test 0.1 tries one.
+
+    Args:
+        expression: The route path's regular expression, as the adapter gives it.
+        path:       The path tried.
+
+    Returns:
+        True when the expression compiles and is found in the path.
+    """
+    try:
+        pattern = re.compile(expression)
+    except re.error:
+        return False
+    return pattern.search(path) is not None

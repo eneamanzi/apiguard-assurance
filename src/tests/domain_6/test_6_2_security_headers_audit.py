@@ -22,11 +22,12 @@ Each check is ENFORCED only when it holds on every sampled endpoint; absent on
 all is a VIOLATION, present on some and absent on others an inconsistency
 VIOLATION. HSTS is test 1.5; Permissions-Policy is dropped (not in ASVS 3.4).
 
-An answer from a target unavailable, failing, throttling or silent (_SILENT) is
-not the API's answer and is judged by none of the three checks: its headers may
-be the gateway's own error page (with the lab's backend stopped, 2026-11-14, the
-headers of Kong's `503` were judged present). A check left without any usable
-answer records NOT_VERIFIABLE/NO_RESPONSE.
+An answer from a target unavailable, failing, throttling or silent (the shared
+rule, AssessmentTest._uninformative) is not the API's answer and is judged by
+none of the three checks: its headers may be the gateway's own error page (with
+the lab's backend stopped, 2026-11-14, the headers of Kong's `503` were judged
+present). A check left without any usable answer records NOT_VERIFIABLE with
+the reason of the answers left out (e.g. UPSTREAM_UNAVAILABLE).
 BLACK_BOX, READ_ONLY, no primary CWE (CWE-16 is a prohibited mapping category).
 
 Dependency rule: imports from stdlib, structlog and src.core, plus
@@ -38,7 +39,6 @@ from __future__ import annotations
 import httpx
 import structlog
 
-from src.core.assessment_test import category_of
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
@@ -136,9 +136,16 @@ class Test62SecurityHeadersAudit(BaseTest):
             # that endpoint's response (rule 6), not the last one sampled.
             records: dict[str, EvidenceRecord] = {}
             cors_records: dict[str, EvidenceRecord] = {}
+            # Why the answers left out said nothing, recorded when none is left.
+            silent: str | None = None
             for _method, path, _template in sample:
                 response, record = _send(client, path, {})
-                if response is None or record is None or category_of(record) in _SILENT:
+                if response is None or record is None:
+                    silent = silent or ResponseCategory.NO_RESPONSE.value
+                    continue
+                uninformative = self._uninformative(record, _SUB_CTO)
+                if uninformative is not None:
+                    silent = silent or uninformative
                     continue
                 records[path] = record
                 headers = {k.lower(): v for k, v in response.headers.items()}
@@ -147,9 +154,9 @@ class Test62SecurityHeadersAudit(BaseTest):
                 cors[path], cors_record = self._cors_ok(client, path)
                 if cors_record is not None:
                     cors_records[path] = cors_record
-            self._judge_header(store, _SUB_CTO, cto, records, _CTO_MSG)
-            self._judge_header(store, _SUB_FRAME, frame, records, _FRAME_MSG)
-            self._judge_cors(store, cors, cors_records)
+            self._judge_header(store, _SUB_CTO, cto, records, _CTO_MSG, silent)
+            self._judge_header(store, _SUB_FRAME, frame, records, _FRAME_MSG, silent)
+            self._judge_cors(store, cors, cors_records, silent)
             return self._finish(message=f"{len(sample)} endpoint(s) sampled.")
         except SecurityClientError as exc:
             return self._error(exc)
@@ -166,7 +173,7 @@ class Test62SecurityHeadersAudit(BaseTest):
         target unavailable, failing or throttling, which says nothing about CORS).
         """
         response, record = _send(client, path, {"Origin": _PROBE_ORIGIN})
-        if response is None or record is None or category_of(record) in _SILENT:
+        if response is None or record is None or self._uninformative(record, _SUB_CORS):
             return _CORS_UNKNOWN, record
         headers = {k.lower(): v for k, v in response.headers.items()}
         acao = headers.get("access-control-allow-origin", "").strip()
@@ -179,6 +186,10 @@ class Test62SecurityHeadersAudit(BaseTest):
             return _CORS_WILDCARD, record
         return _CORS_BOUNDED, record
 
+    def _cors_silence(self, record: EvidenceRecord | None) -> str | None:
+        """Why an answer to the cross-origin probe says nothing about CORS (_uninformative)."""
+        return self._uninformative(record, _SUB_CORS)
+
     def _judge_header(
         self,
         store: EvidenceStore,
@@ -186,10 +197,13 @@ class Test62SecurityHeadersAudit(BaseTest):
         results: dict[str, bool],
         records: dict[str, EvidenceRecord],
         message: str,
+        silent: str | None,
     ) -> None:
         """ENFORCED if present everywhere; VIOLATION if absent everywhere or inconsistent."""
         if not results:
-            self._record(sub_test, Outcome.NOT_VERIFIABLE, "NO_RESPONSE")
+            # No usable answer: the reason of those left out (until 2026-11-16
+            # always NO_RESPONSE, a backend that was down included).
+            self._record(sub_test, Outcome.NOT_VERIFIABLE, silent or "NO_RESPONSE")
             return
         present = [p for p, ok in results.items() if ok]
         absent = [p for p, ok in results.items() if not ok]
@@ -215,10 +229,11 @@ class Test62SecurityHeadersAudit(BaseTest):
         store: EvidenceStore,
         results: dict[str, str],
         records: dict[str, EvidenceRecord],
+        silent: str | None,
     ) -> None:
         """VIOLATION if any sampled endpoint has unsafe CORS; N/A if none use CORS."""
         if not results:
-            self._record(_SUB_CORS, Outcome.NOT_VERIFIABLE, "NO_RESPONSE")
+            self._record(_SUB_CORS, Outcome.NOT_VERIFIABLE, silent or "NO_RESPONSE")
             return
         reflected = [p for p, state in results.items() if state == _CORS_REFLECTED]
         wildcard = [p for p, state in results.items() if state == _CORS_WILDCARD]
@@ -265,7 +280,9 @@ class Test62SecurityHeadersAudit(BaseTest):
             return
         if not evaluated:
             # No usable answer to the cross-origin probe: nothing was learnt.
-            self._record(_SUB_CORS, Outcome.NOT_VERIFIABLE, "NO_RESPONSE")
+            unknown = (records.get(p) for p, state in results.items() if state == _CORS_UNKNOWN)
+            reason = next((r for r in map(self._cors_silence, unknown) if r), None)
+            self._record(_SUB_CORS, Outcome.NOT_VERIFIABLE, reason or "NO_RESPONSE")
             return
         if not granted:
             # The answers to an arbitrary Origin grant no cross-origin access at
@@ -295,17 +312,6 @@ _CORS_WILDCARD: str = "wildcard"
 _CORS_BOUNDED: str = "bounded"
 _CORS_NO_GRANT: str = "no_grant"
 _CORS_UNKNOWN: str = "unknown"
-# Answers that say nothing about the API's headers or its CORS policy: the target
-# was unavailable, failing, throttling or silent (rule 1).
-_SILENT: frozenset[ResponseCategory] = frozenset(
-    {
-        ResponseCategory.UPSTREAM_UNAVAILABLE,
-        ResponseCategory.SERVER_ERROR,
-        ResponseCategory.RATE_LIMITED,
-        ResponseCategory.NO_RESPONSE,
-    }
-)
-
 _CTO_MSG: str = "X-Content-Type-Options: nosniff"
 _FRAME_MSG: str = "Clickjacking protection (CSP frame-ancestors or X-Frame-Options)"
 _REMEDY: dict[str, str] = {

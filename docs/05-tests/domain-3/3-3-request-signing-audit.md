@@ -125,8 +125,20 @@ PASS. Rule 9: both sides proven; `NO_SIGNING` is the common real-world case (mos
 not shown on the labs (all carry the compliant dummy policy).
 
 **What each branch has been seen doing** (rule 9). Proven on a lab: `STRONG_ALGORITHM`, `REPLAY_BOUNDED` (all
-three), `REPLAY_WINDOW_TOO_LARGE` (Forgejo + Kong with the change above). Still unproven: `ALGORITHMS_NOT_STATED`,
-`REPLAY_UNBOUNDED`, `REPLAY_WINDOW_NOT_STATED`, `NO_SIGNING`. `WEAK_ALGORITHM` was seen again with the current code
+three), `REPLAY_WINDOW_TOO_LARGE` (Forgejo + Kong with the change above), and `NO_SIGNING` (2026-11-15, Forgejo
++ APISIX, the `hmac-auth` plugin removed from `hmac-audit-route` in `apisix/setup.sh` and the setup run again, then
+`git checkout` and the setup again: SKIP, "No request-signing policy configured"). Not produced:
+`ALGORITHMS_NOT_STATED`, `REPLAY_WINDOW_NOT_STATED`. Kong's Admin API gives every field of the plugin with its
+default, so it always states both; the APISIX adapter fills a field left out from the plugin's schema, read from the
+running APISIX, so the two arise only when that schema cannot be read (`src/core/gateway/apisix.py`, "Default
+values"), which no lab produces. Not reachable with the labs' gateways: `REPLAY_UNBOUNDED`.
+Kong requires `clock_skew > 0`, and the lab's APISIX (3.19) refuses `0` as well: on 2026-11-15 its Admin API
+answered `400`, "property \"clock_skew\" validation failed: expected 0 to be at least 1" (APISIX accepted `0`
+before 3.13.0, `src/core/gateway/apisix.py`).
+
+**A policy on a disabled route** (2026-11-15, Forgejo + APISIX, `hmac-audit-route` given `"status": 0`): judged
+like any other, PASS. The test audits how signing is configured, not which traffic is signed (section 1), and the
+policy is configured; `enabled` is the plugin's own switch (owner, 2026-11-15). `WEAK_ALGORITHM` was seen again with the current code
 on 2026-11-14: the change above, and `forbidden_algorithms: [hmac-md5, md5, hmac-sha1]` in the run's configuration,
 give **FAIL**, `WEAK_ALGORITHM` at FIRM and `REPLAY_WINDOW_TOO_LARGE` at CERTAIN; the lab was checked back to PASS.
 

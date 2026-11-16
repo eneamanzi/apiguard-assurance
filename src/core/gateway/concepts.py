@@ -6,9 +6,9 @@ tests that audit the gateway configuration.
 
 A test asks an adapter for one concept at a time (backend timeouts, circuit
 breakers, health checks, request signing policies, routes, configuration text
-values, live health of the targets). The adapter reads the gateway in its own
-way (Admin API, Control API, configuration file) and answers with a
-ConceptRead:
+values, live health of the targets, rate limits, body-size limits). The
+adapter reads the gateway in its own way (Admin API, Control API,
+configuration file) and answers with a ConceptRead:
 
     read            the items found; an empty tuple means "read, nothing
                     configured";
@@ -356,6 +356,67 @@ class ConfigValue(BaseModel):
             "configuration (a credential in it is still exposed), but it enforces nothing."
         ),
     )
+
+
+class RateWindow(BaseModel):
+    """One count of a rate limit: at most `requests` requests every `seconds` seconds."""
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    requests: int = Field(ge=1, description="Requests allowed in one window.")
+    seconds: float = Field(
+        gt=0,
+        description=(
+            "Length of the window, in seconds; for a calendar window (a month, a year) its "
+            "shortest length."
+        ),
+    )
+
+
+class RateLimit(BaseModel):
+    """A limit on the rate of requests, applying to every client of its scope."""
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    scope: ConceptScope = Field(description="GLOBAL, BACKEND or ROUTE.")
+    name: str = Field(min_length=1, description="Backend or route name; 'global' for GLOBAL.")
+    enabled: bool = Field(description="Whether the limit is active.")
+    windows: tuple[RateWindow, ...] = Field(
+        description=(
+            "The counts the gateway applies together: a request over any one of them is "
+            "refused. Empty: the gateway limits the rate in a way that is not a count per "
+            "window (a leaky bucket that slows requests down), or with numbers the "
+            "configuration does not state (taken from the request), or for part of the "
+            "traffic only."
+        )
+    )
+    shared_counter: bool | None = Field(
+        description=(
+            "True when every node of the gateway counts against one counter updated on each "
+            "request; False when each node keeps its own counter, or the shared one is updated "
+            "only periodically, so a client whose requests are spread over several nodes can "
+            "pass the stated count; None: not stated."
+        )
+    )
+    source: str = Field(min_length=1, description=_SOURCE_DESCRIPTION)
+
+
+class BodySizeLimit(BaseModel):
+    """A limit on the size of a request body, applying to every client of its scope."""
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    scope: ConceptScope = Field(description="GLOBAL, BACKEND or ROUTE.")
+    name: str = Field(min_length=1, description="Backend or route name; 'global' for GLOBAL.")
+    enabled: bool = Field(description="Whether the limit is active.")
+    max_bytes: int | None = Field(
+        ge=1,
+        description=(
+            "The largest body accepted, in bytes, converted from the gateway's own unit; None: "
+            "a limit the configuration states for part of the traffic only."
+        ),
+    )
+    source: str = Field(min_length=1, description=_SOURCE_DESCRIPTION)
 
 
 class LogShipper(BaseModel):

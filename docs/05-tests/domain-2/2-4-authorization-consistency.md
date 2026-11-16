@@ -71,7 +71,20 @@ the documented path without a credential, then the sibling without a credential.
 | documented served without a credential (public) | `NOT_APPLICABLE/DOCUMENTED_NOT_PROTECTED` (that is 1.1's question) | - |
 | documented answered neither 2xx nor a refusal (no answer, a 404, a 5xx, a 429) | `NOT_VERIFIABLE/NO_RESPONSE`, `DOCUMENTED_NOT_JUDGEABLE` (until 2026-11-04 "not protected") | - |
 | the surface has no version sibling at all (the `version_siblings` rule found no pair) | `NOT_APPLICABLE/NO_VERSION_SIBLING` | - |
-| unavailable, rate limited, no response, server error, other | `NOT_VERIFIABLE/<reason>` | - |
+| the sibling gives any other answer (a redirect, a `400`, a `405`, a rare code) | `NOT_VERIFIABLE/` its category (`REDIRECT`, `INVALID_REQUEST`, ...) | - |
+
+<!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("2.4", page=cog.inFile)) ]]] -->
+
+The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
+
+| Answer | Sub-tests | Outcome / detail |
+|---|---|---|
+| `UPSTREAM_UNAVAILABLE` | every sub-test | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
+| `RATE_LIMITED` | every sub-test | `NOT_VERIFIABLE/RATE_LIMITED` |
+| `SERVER_ERROR` | every sub-test | `NOT_VERIFIABLE/SERVER_ERROR` |
+| `NO_RESPONSE` | every sub-test | `NOT_VERIFIABLE/NO_RESPONSE` |
+
+<!-- [[[end]]] -->
 
 ## 7. Outcomes
 
@@ -130,8 +143,12 @@ forwarding and the served `/api/v2/user` route only: **FAIL**, 1 finding `VERSIO
 
 **What each branch has been seen doing** (rule 9). Proven on a lab: `VERSION_ABSENT` (both Forgejo labs),
 `REFUSED_BEFORE_ROUTING`, `DOCUMENTED_NOT_JUDGEABLE` (crAPI; Forgejo with the backend stopped), and, with the change
-above, `SIBLING_REFUSED`, `VERSION_DROPS_AUTH`, `DOCUMENTED_NOT_PROTECTED`. Still unproven: `CALIBRATION_UNSTABLE`,
-`SIBLING_ABSENT` and the transport reasons. `NO_VERSION_SIBLING` was seen on 2026-11-15 (Forgejo + Kong, the
+above, `SIBLING_REFUSED`, `VERSION_DROPS_AUTH`, `DOCUMENTED_NOT_PROTECTED`, and `CALIBRATION_UNSTABLE`
+(2026-11-15, the v2 forwarding to v1 and a route `~/.*zqxv[0-9a-f]+.*$` answering `404` with one of two body
+shapes in turn: 102 pairs), and with the v2 forwarding plus a route `GET ~/api/v2/user/repos$` (2026-11-15):
+`SIBLING_ABSENT` when that sibling answers `404`, and `UPSTREAM_UNAVAILABLE`, `RATE_LIMITED`, `SERVER_ERROR`,
+`NO_RESPONSE` when it answers `503`, `429`, `500` or sleeps 7 s (the run's `target.read_timeout: 5.0`). Every
+branch of this test has been seen. `NO_VERSION_SIBLING` was seen on 2026-11-15 (Forgejo + Kong, the
 specification saved without its global `security`, so no operation is protected): SKIP, "No protected operation
 has a version sibling".
 

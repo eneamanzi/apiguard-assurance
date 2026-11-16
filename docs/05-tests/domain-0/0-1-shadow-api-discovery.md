@@ -100,7 +100,6 @@ ASVS v5.0.0-4.1.4: only the HTTP methods the API supports can be used, and unuse
 | a path without parameters next to a documented path with a parameter in its place (`/users/search` and `/users/{username}`): its random siblings reach that route, so a different answer is no evidence | `NOT_VERIFIABLE/SIBLING_ROUTE_DOCUMENTED` | - |
 | a path without parameters served (2xx) exactly as its random siblings (a server answering every path) | `NOT_VERIFIABLE/SERVED_LIKE_UNKNOWN` | - |
 | a path without parameters, a different answer from the same method on random siblings | `VIOLATION/UNDECLARED_METHOD_KNOWN` | FIRM: it rests on the assumption that a different answer means the endpoint knows the method |
-| unavailable, rate limited, server error, no response | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`, `RATE_LIMITED`, `SERVER_ERROR`, `NO_RESPONSE` | - |
 
 **`TRACE`** (since 2026-11-05), asked once per service on its shortest documented `GET` path. A server that answers
 `TRACE` sends back the request it received (RFC 9110 §9.3.8), which lets a script in a browser read the headers of
@@ -114,7 +113,6 @@ finding per path would repeat one fact): the echo itself is the proof.
 | `405` or `501` | `ENFORCED/METHOD_REJECTED` | - |
 | any other answer (refused, not found): the request is not sent back | `ENFORCED/TRACE_NOT_SERVED` | - |
 | `2xx` without the echo: something handled TRACE, what is not known | `NOT_VERIFIABLE/TRACE_SERVED_NO_ECHO` | - |
-| unavailable, rate limited, server error, no response | `NOT_VERIFIABLE/` the reason | - |
 
 **`undocumented_versions`:**
 
@@ -144,6 +142,19 @@ adapter translates its gateway's own syntax (Kong writes a regular expression as
 adapter. A regular expression is tried on each documented path as written and with a number and a word in place of
 its parameters (`/users/1`, `/users/a`): a template like `/users/{id}` never matches `^/users/\d+$` as written, and
 until 2026-11-04 such a route was reported as not documented.
+
+<!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("0.1", page=cog.inFile)) ]]] -->
+
+The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
+
+| Answer | Sub-tests | Outcome / detail |
+|---|---|---|
+| `UPSTREAM_UNAVAILABLE` | every sub-test | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
+| `RATE_LIMITED` | every sub-test | `NOT_VERIFIABLE/RATE_LIMITED` |
+| `SERVER_ERROR` | every sub-test | `NOT_VERIFIABLE/SERVER_ERROR` |
+| `NO_RESPONSE` | every sub-test | `NOT_VERIFIABLE/NO_RESPONSE` |
+
+<!-- [[[end]]] -->
 
 ## 7. Outcomes
 
@@ -204,15 +215,25 @@ gateway answers `405`), `TRACE_ECHOED` (CERTAIN) on a scratch server that echoes
 sub-test is not applicable) and `ROUTES_NOT_READABLE` (an Admin API address where nothing answers).
 Proven with a temporary change to the Forgejo + Kong lab's gateway (2026-10-22, below):
 `UNDECLARED_METHOD_HANDLED` on four methods with the removal of what the accepted `PUT` created, and
-`UNDOCUMENTED_VERSION`. Still unproven: `CALIBRATION_UNSTABLE` (the mechanism itself is verified in
-`src/core/references.py`), `ROUTE_DISABLED` (no Kong route can be disabled; APISIX's can) and
-`ROUTES_NOT_SUPPORTED` (no adapter without routes exists), and, not named before the inventory of 2026-11-14,
-`SIBLING_ROUTE_DOCUMENTED`, `SERVED_LIKE_UNKNOWN`, `NO_VERSIONED_PATH`, `RATE_LIMITED`, `NO_RESPONSE` and the
-transport reasons of `TRACE`. `UPSTREAM_UNAVAILABLE` was seen on 2026-11-14 (Forgejo + Kong with the `forgejo`
+`UNDOCUMENTED_VERSION`. `CALIBRATION_UNSTABLE` was seen on 2026-11-15, on `undeclared_methods` and
+`undocumented_versions` (Forgejo + Kong, a temporary route `~/.*zqxv[0-9a-f]+.*$`, the tool's random probe names,
+answering `404` with one of two body shapes in turn, undone with `git checkout`). Not reachable:
+`ROUTES_NOT_SUPPORTED` (no adapter without routes exists). Seen on 2026-11-15, Forgejo + Kong, with a temporary
+route answering through a `pre-function` (undone with `git checkout`): `SERVED_LIKE_UNKNOWN` (`~/api/v1/[^/]+$`,
+every method, `200` alike, so a path is served as its random siblings are), `SIBLING_ROUTE_DOCUMENTED` (the
+undeclared methods of `/api/v1/users/search`, next to `/users/{username}`, answered `400`), `RATE_LIMITED` (the
+undeclared methods of `/api/v1/version` answered `429`), `NO_RESPONSE` (its `POST` sleeping 7 s, the run's
+`target.read_timeout: 5.0`). Not producible on the labs: the transport reasons of `TRACE`. Kong answers `TRACE`
+itself with `405`, before any route: a route for `TRACE` on `/api/v1/orgs` answering `503`, `429` or `500` left the
+test's `TRACE` at `405` (2026-11-15). `NO_VERSIONED_PATH` was seen on 2026-11-15 (Forgejo + Kong, the specification saved with `basePath:
+/api/vlatest`, no segment of the form `v<number>`). `UPSTREAM_UNAVAILABLE` was seen on 2026-11-14 (Forgejo + Kong with the `forgejo`
 container stopped: 1047 method probes and the version probe). `NO_PATH_IN_GROUP` is no longer reachable: a
 candidate version comes from a group that documents at least one operation (`src/discovery/derivation.py`,
 `version_siblings`), and since the sample accepts any method that operation is always found (the same pattern,
-`^v\d+(\.\d+)*$`, on the same documented paths). It was seen before the rule was widened.
+`^v\d+(\.\d+)*$`, on the same documented paths). It was seen before the rule was widened. `ROUTE_DISABLED` was
+seen on 2026-11-15 (Forgejo + APISIX, `hmac-audit-route` given `"status": 0` in `apisix/setup.sh`, the setup run
+again, then `git checkout` and the setup again): `gateway_route_drift` turns from that route's violation to one
+not applicable, PASS.
 
 ### Seeing the two cases the labs do not produce
 

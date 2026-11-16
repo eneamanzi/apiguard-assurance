@@ -57,14 +57,6 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 # The single sub-test.
 _SUB_REVOKED: str = "rejected_after_revocation"
 
-# The answer categories that say nothing about the guarantee (rule 1).
-_SPOILING: dict[ResponseCategory, str] = {
-    ResponseCategory.UPSTREAM_UNAVAILABLE: "UPSTREAM_UNAVAILABLE",
-    ResponseCategory.RATE_LIMITED: "RATE_LIMITED",
-    ResponseCategory.NO_RESPONSE: "NO_RESPONSE",
-    ResponseCategory.SERVER_ERROR: "SERVER_ERROR",
-}
-
 _REFERENCES: tuple[Reference, ...] = (
     Reference(standard=Standard.OWASP_API_TOP10, id="API2:2023"),
     Reference(standard=Standard.RFC, id="7009"),
@@ -193,8 +185,9 @@ class Test14CredentialRevocation(BaseTest):
                 raise
             record = exc.record
         category = category_of(record)
-        if category in _SPOILING:
-            self._judge(record, store, _SUB_REVOKED, Outcome.NOT_VERIFIABLE, _SPOILING[category])
+        uninformative = self._uninformative(record, _SUB_REVOKED)
+        if uninformative is not None:
+            self._judge(record, store, _SUB_REVOKED, Outcome.NOT_VERIFIABLE, uninformative)
             return
         if category == ResponseCategory.SERVED:
             for control in (anchor.record, anchor.refused, revocation):

@@ -69,11 +69,22 @@ Up to three deliveries of the same raw body: (optionally) validly signed, then u
 |---|---|---|
 | the delivery is refused (a `4xx` other than `429`), and a validly signed one was accepted | `ENFORCED/SIGNATURE_REQUIRED` | - |
 | the delivery is refused, and no validly signed one was accepted (no secret, or no usable answer to it) | `NOT_VERIFIABLE/SIGNATURE_NOT_CONFIRMED` | - |
-| the receiver was unavailable, failing or throttling (`5xx`, `429`) | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`, `SERVER_ERROR`, `RATE_LIMITED`: it never judged the signature | - |
 | the unsigned delivery is accepted (`2xx`) | `VIOLATION/UNSIGNED_ACCEPTED` | CERTAIN |
 | the wrongly signed delivery is accepted (`2xx`) | `VIOLATION/BAD_SIGNATURE_ACCEPTED` | CERTAIN |
 | a valid signature was itself rejected | `NOT_VERIFIABLE/REJECTS_ALL` (both sub-tests) | - |
-| no response | `NOT_VERIFIABLE/NO_RESPONSE` | - |
+
+<!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("7.4", page=cog.inFile)) ]]] -->
+
+The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
+
+| Answer | Sub-tests | Outcome / detail |
+|---|---|---|
+| `UPSTREAM_UNAVAILABLE` | every sub-test | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
+| `RATE_LIMITED` | every sub-test | `NOT_VERIFIABLE/RATE_LIMITED` |
+| `SERVER_ERROR` | every sub-test | `NOT_VERIFIABLE/SERVER_ERROR` |
+| `NO_RESPONSE` | every sub-test | `NOT_VERIFIABLE/NO_RESPONSE` |
+
+<!-- [[[end]]] -->
 
 ## 7. Outcomes
 
@@ -145,8 +156,10 @@ Limitations.
 
 **What each branch has been seen doing** (rule 9). Proven on a lab: the SKIP (all three), `SIGNATURE_NOT_CONFIRMED`
 (Forgejo + Kong, `POST /api/v1/markdown`). Seen on the scratch receiver only: `SIGNATURE_REQUIRED`, `REJECTS_ALL`,
-`SIGNATURE_NOT_CONFIRMED`, `UNSIGNED_ACCEPTED`, `BAD_SIGNATURE_ACCEPTED`. Still unproven: `UPSTREAM_UNAVAILABLE`,
-`SERVER_ERROR`, `RATE_LIMITED`, `NO_RESPONSE`.
+`SIGNATURE_NOT_CONFIRMED`, `UNSIGNED_ACCEPTED`, `BAD_SIGNATURE_ACCEPTED`. On a lab on 2026-11-15 (Forgejo + Kong,
+the run's `webhook_endpoint` set to `/review-webhook-receiver`, a temporary route there, undone with `git
+checkout`): `UPSTREAM_UNAVAILABLE` (`503`), `SERVER_ERROR` (`500`), `RATE_LIMITED` (`429`), `NO_RESPONSE`
+(sleeping 7 s, the run's `target.read_timeout: 5.0`), on both sub-tests. Every branch of this test has been seen.
 
 ## 13. Remediation
 

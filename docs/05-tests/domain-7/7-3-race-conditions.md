@@ -66,10 +66,23 @@ others, rule 7) and it changes data on the target: announce it on a shared targe
 | Case | Outcome / detail | Confidence |
 |---|---|---|
 | at most `max_successful` of the N requests succeeded (`2xx`) and the others were refused | `ENFORCED/CONCURRENCY_SERIALIZED` | - |
-| at most `max_successful` succeeded but others failed (`5xx`, `429`, no answer): the server fell over, it did not serialize | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`, `SERVER_ERROR`, `RATE_LIMITED`, `NO_RESPONSE` | - |
+| at most `max_successful` succeeded but others said nothing (the table below): the server fell over, it did not serialize | `NOT_VERIFIABLE/` the reason of the first such answer | - |
 | more than `max_successful` were accepted (`2xx`) | `VIOLATION/RACE_DOUBLE_EFFECT` | FIRM: the test counts acceptances, not effects (a server answering `2xx` to a duplicate it does not apply would look the same) |
-| none succeeded, the target unavailable, failing or throttling | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`, `SERVER_ERROR`, `RATE_LIMITED`, `NO_RESPONSE` | - |
+| none succeeded, and an answer said nothing (the table below) | `NOT_VERIFIABLE/` the reason of the first such answer | - |
 | none succeeded otherwise (the operation refused every attempt) | `NOT_VERIFIABLE/OPERATION_FAILED` | - |
+
+<!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("7.3", page=cog.inFile)) ]]] -->
+
+The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
+
+| Answer | Sub-tests | Outcome / detail |
+|---|---|---|
+| `UPSTREAM_UNAVAILABLE` | every sub-test | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
+| `RATE_LIMITED` | every sub-test | `NOT_VERIFIABLE/RATE_LIMITED` |
+| `SERVER_ERROR` | every sub-test | `NOT_VERIFIABLE/SERVER_ERROR` |
+| `NO_RESPONSE` | every sub-test | `NOT_VERIFIABLE/NO_RESPONSE` |
+
+<!-- [[[end]]] -->
 
 ## 7. Outcomes
 
@@ -125,8 +138,12 @@ the first real concurrent use of the HTTP client (its record counter is now lock
 `ENFORCED/CONCURRENCY_SERIALIZED` has not been seen: no lab has a once-only operation that serializes.
 
 **What each branch has been seen doing** (rule 9). Proven on a lab: `RACE_DOUBLE_EFFECT`, `OPERATION_FAILED` and
-`UPSTREAM_UNAVAILABLE` (crAPI), the SKIP (both Forgejo labs). Still unproven: `CONCURRENCY_SERIALIZED`,
-`SERVER_ERROR`, `RATE_LIMITED`, `NO_RESPONSE`.
+`UPSTREAM_UNAVAILABLE` (crAPI), the SKIP (both Forgejo labs), and on 2026-11-15 the four others, on crAPI + Kong
+with a temporary route `POST ~/workshop/api/shop/apply_coupon$` on `workshop-service` in its `kong/kong.yml`
+(undone with `git checkout`, the workshop checked `HEALTHY`): `CONCURRENCY_SERIALIZED` (the first of the 15
+simultaneous applications answered `200`, the others `400` "coupon already claimed", PASS), `SERVER_ERROR` (all
+`500`), `RATE_LIMITED` (all `429`), `NO_RESPONSE` (sleeping 7 s, the run's `target.read_timeout: 5.0`). Every branch
+of this test has been seen.
 
 ## 13. Remediation
 

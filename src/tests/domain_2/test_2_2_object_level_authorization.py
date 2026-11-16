@@ -80,14 +80,6 @@ _SUB_DELETE: str = "cross_user_delete"
 _MODIFY_METHODS: frozenset[str] = frozenset({"PATCH", "PUT"})
 _DELETE_METHOD: str = "DELETE"
 
-# Categories that say nothing about the guarantee (rule 1).
-_SPOILING: dict[ResponseCategory, str] = {
-    ResponseCategory.UPSTREAM_UNAVAILABLE: "UPSTREAM_UNAVAILABLE",
-    ResponseCategory.RATE_LIMITED: "RATE_LIMITED",
-    ResponseCategory.NO_RESPONSE: "NO_RESPONSE",
-    ResponseCategory.SERVER_ERROR: "SERVER_ERROR",
-}
-
 # The answers that refuse the request (RFC 9110 sections 15.5.2, 15.5.4,
 # 15.5.5). Any other non-2xx answer (400 or 422 from body validation, 405, a
 # redirect) does not say that ownership was checked.
@@ -464,8 +456,9 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
             self._record(sub_test, Outcome.NOT_VERIFIABLE, "NO_RESPONSE")
             return Outcome.NOT_VERIFIABLE
         category = category_of(record)
-        if category in _SPOILING:
-            self._judge(record, store, sub_test, Outcome.NOT_VERIFIABLE, _SPOILING[category])
+        uninformative = self._uninformative(record, sub_test)
+        if uninformative is not None:
+            self._judge(record, store, sub_test, Outcome.NOT_VERIFIABLE, uninformative)
             return Outcome.NOT_VERIFIABLE
         if category not in _REFUSALS and category != ResponseCategory.SERVED:
             self._judge(record, store, sub_test, Outcome.NOT_VERIFIABLE, "NOT_A_REFUSAL")

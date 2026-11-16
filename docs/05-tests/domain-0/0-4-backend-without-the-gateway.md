@@ -95,15 +95,27 @@ other lab's gateway, not that backend.
 | the name does not resolve | either | `NOT_VERIFIABLE/ADDRESS_NOT_RESOLVABLE`: the tool is not on that network, which proves nothing | - |
 | the address has no port | either | `NOT_VERIFIABLE/ADDRESS_WITHOUT_PORT` | - |
 | the gateway gives no address | - | `NOT_VERIFIABLE/NO_BACKEND_ADDRESS`, `ADDRESSES_NOT_READABLE`; `NOT_APPLICABLE/ADDRESSES_NOT_READABLE` when the gateway has no such concept | - |
-| the gateway answers the probe path that its backend is unavailable (`502`, `503`, `504`): a refused connection could not be told from a backend that is down, so no address is tried (since 2026-11-15) | - | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` | - |
+| the gateway answers the probe path with an answer that says nothing (the table below: its `503`, its `429`, no answer): there is no answer of the backend to match a direct one against, so no address is tried (the `503` since 2026-11-15; the `429` since 2026-11-16, used as the comparison before) | - | `NOT_VERIFIABLE/` its category | - |
 | no gateway configured (the engine records the test as SKIP before it runs, so this is a guard only) | - | `NOT_APPLICABLE/NO_GATEWAY` | - |
 | the specification declares no path without parameters for `GET` | - | `NOT_VERIFIABLE/NO_PROBE_PATH` | - |
-| the target itself did not answer the probe path | - | `NOT_VERIFIABLE/TARGET_NOT_ANSWERING` | - |
 | no attempt left a record to judge (every attempt failed before a response could be read) | either | `NOT_VERIFIABLE/NO_ATTEMPT` | - |
 
 The comparison of two answers uses the status, the media type and the shape of the body. The `Server` header is left
 out on purpose: a gateway sets or removes it, so the same application answers with a different one through the
 gateway and without it.
+
+<!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("0.4", page=cog.inFile)) ]]] -->
+
+The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
+
+| Answer | Sub-tests | Outcome / detail |
+|---|---|---|
+| `UPSTREAM_UNAVAILABLE` | every sub-test | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
+| `RATE_LIMITED` | every sub-test | `NOT_VERIFIABLE/RATE_LIMITED` |
+| `SERVER_ERROR` | every sub-test | judged by the oracle above: a `500` through the gateway is the backend's own answer: a direct answer is matched against it like any other. |
+| `NO_RESPONSE` | every sub-test | `NOT_VERIFIABLE/NO_RESPONSE` |
+
+<!-- [[[end]]] -->
 
 ## 7. Outcomes
 
@@ -163,8 +175,16 @@ property of the network the request starts from, which is why the verdict names 
 `ADDRESS_ANSWERS_DIRECTLY`, `ADDRESS_NOT_RESOLVABLE`, `ANOTHER_SERVICE`, `DERIVED_REFUSAL_ONLY`,
 `BACKEND_UNREACHABLE`, `UPSTREAM_UNAVAILABLE`, and on 2026-11-15 with the run's configuration only (Forgejo + Kong)
 `ADDRESSES_NOT_READABLE` (`gateway.admin.url` on a closed port) and `NO_PROBE_PATH` (the specification saved with
-its `GET` paths without parameters removed). Still unproven: `ADDRESS_WITHOUT_PORT`, `NO_BACKEND_ADDRESS`,
-`TARGET_NOT_ANSWERING`, `NO_GATEWAY`, `NO_ATTEMPT`.
+its `GET` paths without parameters removed), and two more on 2026-11-15: `TARGET_NOT_ANSWERING` (Forgejo + Kong, a
+temporary route on the probe path `GET ~/api/v1/orgs$` sleeping 7 s, the run's `target.read_timeout: 5.0`; since
+2026-11-16 the same case is `NO_RESPONSE`, the shared rule of section 6) and
+`NO_BACKEND_ADDRESS` (Forgejo + APISIX, the upstream's `checks` removed from `apisix/setup.sh` and the setup run
+again, then `git checkout` and the setup again). The second shows a limit on APISIX: the adapter reads the backend
+addresses from the Control API's health-check data, so an upstream without health checks gives the test no
+address. Not reachable: `ADDRESS_WITHOUT_PORT` (the supported gateways give every address with its port: a Kong
+target as `host:port`, an APISIX node with its `ip` and `port`), `NO_GATEWAY` (the test needs `GATEWAY`, so
+without one the engine skips it first) and `NO_ATTEMPT` (the loop over `http` and `https` always ends with a
+record, or raises). Every other branch of this test has been seen.
 
 ## 13. Remediation
 

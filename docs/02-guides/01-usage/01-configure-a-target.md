@@ -243,7 +243,7 @@ resources:
       auth: basic
       body:
         name: "apiguard-{random}"
-        scopes: ["read:repository", "read:user", "write:repository", "write:user"]
+        scopes: ["read:repository", "read:user", "write:repository", "write:user", "read:admin"]
     values:
       credential: sha1
       id: id

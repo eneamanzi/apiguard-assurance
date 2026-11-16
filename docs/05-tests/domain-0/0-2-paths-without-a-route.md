@@ -101,14 +101,26 @@ than the API documents, which is what CWE-183 describes.
 | the refusal's two probes answered differently | `NOT_VERIFIABLE/REFUSAL_UNSTABLE` | - |
 | the gateway's refusal cannot be told from a backend's own | `NOT_VERIFIABLE/REFUSALS_INDISTINGUISHABLE` | - |
 | no documented path gave a reliable backend refusal for the guard | `NOT_VERIFIABLE/BACKEND_REFUSAL_UNKNOWN` | - |
-| a route covers every path (a `/` prefix) | `NOT_VERIFIABLE/CATCH_ALL_ROUTE`, with the route named | - |
+| a route covers every path: a `/` prefix, or (since 2026-11-15) a regex route path that matches a random path at the root, the shape of the refusal's probes (the expression tried with Python's `re`, as test 0.1 does; one it cannot compile is not interpreted) | `NOT_VERIFIABLE/CATCH_ALL_ROUTE`, with the route named | - |
 | the routes cannot be read | `NOT_VERIFIABLE/ROUTES_NOT_READABLE`; `NOT_APPLICABLE/ROUTES_NOT_SUPPORTED`, `NO_GATEWAY` | - |
 | the measured refusal cannot be trusted (the two probes at the root did not establish what the gateway answers where nothing matches) | `NOT_VERIFIABLE/REFUSAL_NOT_TRUSTED` for the neighbours sub-test, which rests on that refusal | - |
-| unavailable, rate limited, no response, server error | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`, `RATE_LIMITED`, `NO_RESPONSE`, `SERVER_ERROR` | - |
 
 The `Server` header is not used. Measured on the labs (2026-10-22): neither Kong lab sends one and APISIX sends
 `Server: APISIX`, so the old check (a response is a backend's when the header holds no known gateway name) was
 unreliable in both directions, and it needed a list of gateway names in the configuration.
+
+<!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("0.2", page=cog.inFile)) ]]] -->
+
+The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
+
+| Answer | Sub-tests | Outcome / detail |
+|---|---|---|
+| `UPSTREAM_UNAVAILABLE` | every sub-test | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
+| `RATE_LIMITED` | every sub-test | `NOT_VERIFIABLE/RATE_LIMITED` |
+| `SERVER_ERROR` | every sub-test | `NOT_VERIFIABLE/SERVER_ERROR` |
+| `NO_RESPONSE` | every sub-test | `NOT_VERIFIABLE/NO_RESPONSE` |
+
+<!-- [[[end]]] -->
 
 ## 7. Outcomes
 
@@ -151,9 +163,35 @@ Runs of 2026-10-22, the three tests of the group together, every lab healthy aft
 
 **What each branch has been seen doing** (rule 9). Proven on a lab: `REFUSED_BY_GATEWAY`, `ANSWERED_WITHOUT_ROUTE`,
 `REFUSED_BEFORE_ROUTING`, `REGEX_ROUTE_PATH`, and `BACKEND_REFUSAL_UNKNOWN` and `REFUSAL_NOT_TRUSTED` (Forgejo +
-Kong with the `forgejo` container stopped, 2026-11-14: INCONCLUSIVE, no documented path gave a backend refusal).
-Still unproven: `SERVED_WITHOUT_ROUTE`, `REFUSAL_UNSTABLE`, `REFUSALS_INDISTINGUISHABLE`, `CATCH_ALL_ROUTE`,
-`COVERED_BY_ROUTE`, the gateway reasons and the transport reasons.
+Kong with the `forgejo` container stopped, 2026-11-14: INCONCLUSIVE, no documented path gave a backend refusal),
+and on 2026-11-15 with a temporary route added to `forgejo-service` in `kong/kong.yml` (undone with `git checkout`,
+the lab checked back):
+- `SERVED_WITHOUT_ROUTE` (CERTAIN): a prefix route `/review-served` whose `pre-function` answers `200`; Kong also
+  matches `/review-served-<random>` with it, and that neighbour is served;
+- `CATCH_ALL_ROUTE`: a route `/`, on HTTPS or on HTTP only; `near_route_paths` is then `REFUSAL_NOT_TRUSTED`;
+- `COVERED_BY_ROUTE`: a prefix route `/review-cov` and a prefix route `/review-cov/inner`, whose neighbours all
+  fall under the first one (the sub-test's not-applicable count goes from 1, the regex route, to 2).
+
+More of them on 2026-11-15, the same way (the random names the tool sends start with the neutral prefix `zqxv`,
+`src/core/references.py`, which is what the routes below match):
+- `REFUSAL_UNSTABLE`: a route `~/zqxv[0-9a-f]+$` whose `pre-function` answers `404` with one of two body shapes in
+  turn (a counter in Kong's shared memory), so the two probes at the root differ;
+- `REFUSALS_INDISTINGUISHABLE`: the same route sending the root probes to Forgejo under `/api/v1`, so the gateway's
+  "refusal" is the backend's own `404`;
+- `UPSTREAM_UNAVAILABLE`, `RATE_LIMITED`, `SERVER_ERROR`, `NO_RESPONSE`: a route `~/api[-.]?zqxv[0-9a-f]+$` (the
+  three neighbours of `/api`) answering `503`, `429`, `500`, or sleeping 7 s with the run's `target.read_timeout:
+  5.0`;
+- `ROUTES_NOT_READABLE` (the run's `gateway.admin.url` on a closed port) and `NO_GATEWAY` (no `gateway` section:
+  `near_route_paths` SKIP), with the run's configuration only.
+
+**A regex catch-all route** (Forgejo + Kong, a temporary route `~/.*$` to `forgejo-service`, undone with `git
+checkout`). Before the fix of 2026-11-15 the test reported **PASS** complete while every path without a route of its own was
+forwarded to Forgejo: the probes at the root reached Forgejo, its `404` was taken for the gateway's refusal, and the
+neighbours, answered by Forgejo the same way, looked refused. Since 2026-11-15 a regex route that matches a random
+path at the root is a catch-all: the same run is **INCONCLUSIVE**, `CATCH_ALL_ROUTE` and `REFUSAL_NOT_TRUSTED`; the
+three labs as configured give the results of the table above (measured 2026-11-15).
+
+Every branch of this test has been seen except `ROUTES_NOT_SUPPORTED` (no adapter without routes exists).
 
 ## 13. Remediation
 

@@ -3,9 +3,12 @@ src/core/path_variants.py
 
 The variants of a path that a target may route to the same operation while a
 control attached to the path does not recognise them (a
-technique, not a guarantee, so it is written once here and applied by every
-test whose control is decided on the path: 1.1 to authentication, 2.1 to the
-admin paths).
+technique, not a guarantee, so it is written once here and applied by the test
+whose control is decided on the path: 1.1, to authentication).
+
+The client sends each variant as written (src/core/client.py): until
+2026-11-15 httpx removed the dot segments and dropped a leading "//" before
+sending, so those three variants left as the canonical path.
 
 Each variant is a way of writing the same resource that a router may accept:
 an upper-case segment, a trailing slash, a doubled separator, a dot segment, a

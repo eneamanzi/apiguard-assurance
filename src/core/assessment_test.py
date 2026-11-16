@@ -31,6 +31,13 @@ How a test ends:
         recorded with _record(), and for a VIOLATION the record kept in
         evidence.json with the finding pointed to it; _step(record) logs a
         request that is not judged (a login, an object created for the test).
+    _uninformative(record, sub_test)
+        the reason an answer says nothing about the guarantee for that
+        sub-test (unavailable, rate limited, server error, no response:
+        UNINFORMATIVE_CATEGORIES), to record NOT_VERIFIABLE with that detail;
+        None for an answer the sub-test judges, including a category it
+        declares decisive (TestInfo.decisive_answers). One rule for every
+        test, written here once.
     _finish(notes=None, message=None)
         the result, computed: per sub-test counters and status, the test's
         status and coverage (src/core/models/results.py), the findings, a
@@ -89,7 +96,7 @@ from src.core.models import (
     combine_sub_tests,
 )
 from src.core.references import CalibrationPoint, PositiveControl, reference_ids
-from src.core.response_category import categorize
+from src.core.response_category import UNINFORMATIVE_CATEGORIES, categorize
 from src.core.test_metadata import TestInfo
 
 if TYPE_CHECKING:
@@ -419,6 +426,52 @@ class AssessmentTest(ABC, Generic[ParamsT]):
         else:
             reasons = tally.not_verifiable_reasons
             reasons[detail] = reasons.get(detail, 0) + 1
+
+    def _uninformative(self, record: EvidenceRecord | None, sub_test: str) -> str | None:
+        """
+        The reason an answer says nothing about the guarantee, for one sub-test.
+
+        Args:
+            record:   The record of the answer; None when the request got no
+                      record at all (its category is then NO_RESPONSE).
+            sub_test: The sub-test judging it (info.sub_tests).
+
+        Returns:
+            The detail to record NOT_VERIFIABLE (the category's name: e.g.
+            "UPSTREAM_UNAVAILABLE"), or None when the sub-test judges the
+            answer itself.
+
+        Raises:
+            ValueError: An undeclared sub-test (a programming error).
+        """
+        category = ResponseCategory.NO_RESPONSE if record is None else category_of(record)
+        return self._uninformative_category(category, sub_test)
+
+    def _uninformative_category(self, category: ResponseCategory, sub_test: str) -> str | None:
+        """
+        The reason an answer of a category says nothing, for one sub-test (_uninformative).
+
+        For a test that knows the category without a record of the answer (an
+        external tool's report).
+
+        Args:
+            category: The category of the answer.
+            sub_test: The sub-test judging it (info.sub_tests).
+
+        Returns:
+            The detail to record NOT_VERIFIABLE, or None.
+
+        Raises:
+            ValueError: An undeclared sub-test (a programming error).
+        """
+        if sub_test not in self._tally:
+            raise ValueError(
+                f"test {self.info.id}: sub-test {sub_test!r} is not declared "
+                f"(info.sub_tests: {list(self.info.sub_tests)})"
+            )
+        if category not in UNINFORMATIVE_CATEGORIES or self.info.decides(category, sub_test):
+            return None
+        return category.value
 
     def _sub_test_results(self) -> list[SubTestResult]:
         """The result of every declared sub-test, in declaration order."""

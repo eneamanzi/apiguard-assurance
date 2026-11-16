@@ -81,7 +81,19 @@ is user_a's own, created and destroyed within the run.
 | user_a not served its own object | `NOT_VERIFIABLE/OWNER_NOT_SERVED` | - |
 | no read / modify / delete operation on the object | `NOT_APPLICABLE/NO_*_OPERATION` | - |
 | the prepared resource did not create the object (on crAPI, a worn lab answers `400 Insufficient Balance`) | `NOT_VERIFIABLE/OBJECT_NOT_CREATED` | - |
-| unavailable, rate limited, no response, server error | `NOT_VERIFIABLE/<reason>` | - |
+
+<!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("2.2", page=cog.inFile)) ]]] -->
+
+The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
+
+| Answer | Sub-tests | Outcome / detail |
+|---|---|---|
+| `UPSTREAM_UNAVAILABLE` | every sub-test | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
+| `RATE_LIMITED` | every sub-test | `NOT_VERIFIABLE/RATE_LIMITED` |
+| `SERVER_ERROR` | every sub-test | `NOT_VERIFIABLE/SERVER_ERROR` |
+| `NO_RESPONSE` | every sub-test | `NOT_VERIFIABLE/NO_RESPONSE` |
+
+<!-- [[[end]]] -->
 
 ## 7. Outcomes
 
@@ -136,9 +148,27 @@ is proven with an invalid user_b token; `NOT_A_REFUSAL` is not reached by the la
 **What each branch has been seen doing** (rule 9). Proven on a lab: `BOLA_READ` (crAPI), `REFUSED` (both Forgejo
 labs, crAPI's modify), `OWNER_NOT_SERVED_HERE` (both Forgejo labs), `NO_*_OPERATION` for the delete (crAPI),
 `CREDENTIAL_NOT_CONFIRMED` (crAPI with an invalid token), `OBJECT_NOT_CREATED` (crAPI after about ten runs without a
-reset, [compatibility](../../03-reference/06-compatibility.md#what-the-tool-detects-measured-against-a-vulnerable-target)).
-Still unproven: `BOLA_MODIFY`, `BOLA_DELETE`, `BOLA_READ_SUBRESOURCE`, `NOT_A_REFUSAL`, `OWNER_NOT_SERVED`,
-`NO_*_OPERATION` for the read and the modify, and the transport reasons.
+reset, [compatibility](../../03-reference/06-compatibility.md#what-the-tool-detects-measured-against-a-vulnerable-target)),
+and on 2026-11-15 on Forgejo + Kong with temporary routes on `forgejo-service` in `kong/kong.yml`, scoped by path
+and method so that the owner's own GET and the object's creation still reach Forgejo (undone with `git checkout`,
+the lab checked back):
+
+| The route (path regex + methods) | Result |
+|---|---|
+| `~/api/v1/repos/user-a/[^/]+$` PATCH/PUT answer `200`; the same path DELETE answer `200`; `~/api/v1/repos/user-a/[^/]+/branches$` GET answer `200` | FAIL, `BOLA_MODIFY`, `BOLA_DELETE`, `BOLA_READ_SUBRESOURCE` (all FIRM) |
+| `~/api/v1/repos/user-a/[^/]+$` PATCH/PUT answer `400` | `NOT_A_REFUSAL` on `cross_user_modify` (a `400` is neither a refusal nor a 2xx) |
+| `~/api/v1/repos/user-a/[^/]+$` GET answer `404` (the owner's own read too) | `OWNER_NOT_SERVED` on `cross_user_read`; `cross_user_modify` and `cross_user_delete` then `CREDENTIAL_NOT_CONFIRMED`, their positive control gone |
+
+The `DELETE` route of the first row answered the test's own clean-up as well, so that run left its repository on the
+lab (`user-a/apiguard-repo-2948a565`, found and deleted by hand on 2026-11-15; only `user-a/test-repo` remains). To
+repeat it, delete the run's repository afterwards, or scope the route to user_b's credential.
+
+On 2026-11-15 as well, Forgejo + Kong: `NO_MODIFY_OPERATION` and `NO_READ_OPERATION`, with the specification saved
+without `PATCH`/`PUT`, then without `GET`/`HEAD`, on every path whose parameters are the object's (`{owner}`,
+`{repo}`); and `UPSTREAM_UNAVAILABLE`, `RATE_LIMITED`, `SERVER_ERROR`, `NO_RESPONSE` on `cross_user_read`, with a
+temporary route `GET ~/api/v1/repos/user-a/[^/]+$` whose counter lets the first two reads through (the forged
+credential, the owner) and answers user_b's read `503`, `429`, `500`, or sleeps 7 s on it and on its two retries
+(the run's `target.read_timeout: 5.0`). No repository was left behind. Every branch of this test has been seen.
 
 ## 13. Remediation
 

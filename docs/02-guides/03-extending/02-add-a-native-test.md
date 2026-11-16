@@ -92,7 +92,7 @@ from src.core.context import ROLE_USER_A
 from src.core.exceptions import AuthenticationSetupError, SecurityClientError
 from src.core.models import (Confidence, Finding, Outcome, Reference, ResponseCategory, Standard,
                              TestResult, TestStrategy)
-from src.core.test_metadata import Effect, Need, TestInfo
+from src.core.test_metadata import DecisiveAnswer, Effect, Need, TestInfo
 from src.core.assessment_test import category_of
 from src.tests.base import BaseTest
 from src.tests.helpers.auth import auth_parts
@@ -102,12 +102,6 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 _REFUSED: frozenset[ResponseCategory] = frozenset(
     {ResponseCategory.FORBIDDEN, ResponseCategory.UNAUTHENTICATED}
 )
-# Categories that say nothing about the guarantee (rule 1).
-_SPOILING: dict[ResponseCategory, str] = {
-    ResponseCategory.UPSTREAM_UNAVAILABLE: "UPSTREAM_UNAVAILABLE",
-    ResponseCategory.RATE_LIMITED: "RATE_LIMITED",
-    ...
-}
 _SUB_REFUSES: str = "privileged_function_refuses_user"
 _REFERENCES: tuple[Reference, ...] = (
     Reference(standard=Standard.OWASP_API_TOP10, id="API5:2023"),
@@ -143,6 +137,26 @@ class Test21FunctionLevelAuthorization(BaseTest):
         sub_tests=(_SUB_REFUSES, _SUB_METHOD),        # required, at least one; every judgement belongs to one
     )
 ```
+
+**The answers that say nothing.** An answer of an uninformative category (the gateway could not reach the backend,
+a `429`, a `500`, no answer) says nothing about the guarantee: `self._uninformative(record, sub_test)` returns its
+detail (the category's name) to record `NOT_VERIFIABLE`, or `None` for an answer the oracle judges. Never write
+that list in the test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)).
+A sub-test whose question is one of those answers declares it, with the reason, and judges it itself:
+
+```python
+        decisive_answers=(
+            DecisiveAnswer(
+                category=ResponseCategory.RATE_LIMITED,       # one of the four
+                reason="a `429` is the rate limit this test looks for: the burst stops at it.",
+                # sub_tests=(...)                              # only these; all when omitted
+            ),
+        ),
+```
+
+The test page shows the rule as it applies to the test, generated from this declaration: put the block
+`uninformative_answers("X.Y", page=cog.inFile)` at the end of section 6 (a test that uses the rule without it
+stops `dev:gen`), and write in the oracle table only the test's own cases.
 
 `effect` and `sub_tests` are mandatory: `effect` sets the run order (read-only tests first, then the ones that
 change data, then the ones that stress the target), and `sub_tests` are the named parts whose per-case outcomes the
@@ -205,8 +219,9 @@ response, record = client.request(
     headers=dict(user_a.headers), params=dict(user_a.params) or None,
 )
 category = category_of(record)               # step 1: the closed list, never a raw status code (rule 1)
-if category in _SPOILING:                    # the response says nothing about the guarantee
-    self._judge(record, store, _SUB_REFUSES, Outcome.NOT_VERIFIABLE, _SPOILING[category])
+uninformative = self._uninformative(record, _SUB_REFUSES)   # the shared rule: unavailable, 429, 500, silent
+if uninformative is not None:                # the response says nothing about the guarantee
+    self._judge(record, store, _SUB_REFUSES, Outcome.NOT_VERIFIABLE, uninformative)
 elif category in _REFUSED:
     self._judge(record, store, _SUB_REFUSES, Outcome.ENFORCED, "REFUSED")
 elif category == ResponseCategory.SERVED:    # step 2: the test's own rule on the category
@@ -260,12 +275,13 @@ stays a SKIP inside the test. `_requires_attack_surface(target)` remains for the
 
 **Evidence and audit trail:**
 
-<!-- [[[cog import generate_docs as g; cog.out(g.methods_table(('Call', 'When'), ('self.', 'src.tests.base:BaseTest._judge'), ('self.', 'src.tests.base:BaseTest._step'), ('store.', 'src.core.evidence:EvidenceStore.pin_evidence'))) ]]] -->
+<!-- [[[cog import generate_docs as g; cog.out(g.methods_table(('Call', 'When'), ('self.', 'src.tests.base:BaseTest._judge'), ('self.', 'src.tests.base:BaseTest._step'), ('self.', 'src.core.assessment_test:AssessmentTest._uninformative'), ('store.', 'src.core.evidence:EvidenceStore.pin_evidence'))) ]]] -->
 
 | Call | When |
 |---|---|
 | `self._judge(record, store, sub_test, outcome, detail, finding=None, *, reference_responses=(), duration_ms=None)` | Judge one HTTP response: log it, record the judgement, keep the proof. |
 | `self._step(record, *, duration_ms=None)` | Log a request that is not judged: a preparation step of the test. |
+| `self._uninformative(record, sub_test)` | The reason an answer says nothing about the guarantee, for one sub-test. |
 | `store.pin_evidence(record)` | Store in evidence.json a transaction that is key context but proves no FAIL. |
 
 <!-- [[[end]]] -->
@@ -276,7 +292,7 @@ sends for the running test and adds to the log, as an unjudged step and in the o
 record itself, so the report lists everything the tool sent to the target. A judgement is an outcome
 (`VIOLATION`, `ENFORCED`, `NOT_VERIFIABLE`, `NOT_APPLICABLE`) with the test's detail in `UPPER_SNAKE_CASE`, read as
 `VIOLATION/SERVED_WITHOUT_CREDENTIAL`; the category of the response comes from `category_of(record)` (`src/core/assessment_test.py`). The
-test page documents the oracle table.
+test page documents the oracle table; the answers that say nothing are generated in it (above).
 
 **Secrets in the evidence** ([evidence format](../../03-reference/05-evidence-format.md#sensitive-data)): tokens stored with
 `context.set_token()` are redacted automatically. A secret the test creates or receives (a token it creates, a

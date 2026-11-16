@@ -77,6 +77,7 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
+from src.core.response_category import UNINFORMATIVE_CATEGORIES
 from src.core.templating import (
     names_in,
     occurrences,
@@ -84,7 +85,7 @@ from src.core.templating import (
     render,
     unquoted_placeholders,
 )
-from src.core.test_metadata import Effect, Need, TestInfo
+from src.core.test_metadata import DecisiveAnswer, Effect, Need, TestInfo
 from src.tests.base import BaseTest
 from src.tests.data.ssrf_payloads import ALL_SSRF_PAYLOADS
 from src.tests.helpers.auth import acquire_tokens, auth_parts
@@ -172,7 +173,6 @@ _PROBE_TIMEOUT: str = "SSRF_PROBE_TIMEOUT"
 # service (owner decision 2026-11-04).
 _NOT_SENT: str = "NOT_SENT_AFTER_TIMEOUT"
 _UPSTREAM_UNAVAILABLE: str = "UPSTREAM_UNAVAILABLE"
-_RATE_LIMITED: str = "RATE_LIMITED"
 _BASELINE_REJECTED: str = "BASELINE_REJECTED"
 
 # A well-formed, non-internal control URL. The endpoint's answer to it is the
@@ -180,16 +180,6 @@ _BASELINE_REJECTED: str = "BASELINE_REJECTED"
 # an SSRF defence (a precondition such as an invalid vehicle id, auth, or a down
 # upstream rejects every URL alike), so the SSRF rejections are NOT_VERIFIABLE.
 _BENIGN_CONTROL_URL: str = "http://example.com/"
-
-# Response categories that mean the endpoint did not evaluate the URL (it is
-# down or erroring), not that it rejected it: never ENFORCED.
-_SPOILING: frozenset[ResponseCategory] = frozenset(
-    {
-        ResponseCategory.UPSTREAM_UNAVAILABLE,
-        ResponseCategory.SERVER_ERROR,
-        ResponseCategory.NO_RESPONSE,
-    }
-)
 
 # The situations one probe can land in, from its evidence record.
 _SITUATION_ACCEPTED: str = "accepted"
@@ -363,6 +353,15 @@ class Test72SSRFPrevention(BaseTest[Test72Params]):
         effect=Effect.CHANGES_DATA,
         sub_tests=_CATEGORIES,
         essential_sub_tests=_ESSENTIAL,
+        decisive_answers=(
+            DecisiveAnswer(
+                category=ResponseCategory.NO_RESPONSE,
+                reason=(
+                    "a payload left without an answer may be the server still fetching the "
+                    "URL: recorded `SSRF_PROBE_TIMEOUT`, and the payloads after it are not sent."
+                ),
+            ),
+        ),
     )
 
     def execute(
@@ -415,10 +414,10 @@ class Test72SSRFPrevention(BaseTest[Test72Params]):
                 self._step(control)
             if baseline in (_SITUATION_UPSTREAM, _SITUATION_TIMEOUT, _SITUATION_RATE_LIMITED):
                 # A control the endpoint did not evaluate (down, silent or throttled)
-                # leaves nothing to compare the payloads with.
-                detail = (
-                    _RATE_LIMITED if baseline == _SITUATION_RATE_LIMITED else _UPSTREAM_UNAVAILABLE
-                )
+                # leaves nothing to compare the payloads with; the control is not a
+                # payload, so its silence is a plain NO_RESPONSE (until 2026-11-16 a
+                # silent or failing control was named UPSTREAM_UNAVAILABLE).
+                detail = _control_reason(control)
                 for category in enabled:
                     self._record(category, Outcome.NOT_VERIFIABLE, detail)
                 return self._finish(
@@ -555,12 +554,13 @@ class Test72SSRFPrevention(BaseTest[Test72Params]):
             self._judge_or_record(store, category, Outcome.NOT_VERIFIABLE, _PROBE_TIMEOUT, record)
             log.warning("test_7_2_probe_timeout", category=category, url=payload.url)
             return False, True
-        if situation == _SITUATION_UPSTREAM:
-            self._judge(record, store, category, Outcome.NOT_VERIFIABLE, _UPSTREAM_UNAVAILABLE)
+        if situation in (_SITUATION_UPSTREAM, _SITUATION_RATE_LIMITED):
+            # The shared rule names the answer (a 500 is SERVER_ERROR since
+            # 2026-11-16, UPSTREAM_UNAVAILABLE before); a 5xx outside its
+            # categories (501, 511) did not evaluate the URL either.
+            reason = self._uninformative(record, category) or _UPSTREAM_UNAVAILABLE
+            self._judge(record, store, category, Outcome.NOT_VERIFIABLE, reason)
             return False, category_of(record) == ResponseCategory.UPSTREAM_UNAVAILABLE
-        if situation == _SITUATION_RATE_LIMITED:
-            self._judge(record, store, category, Outcome.NOT_VERIFIABLE, _RATE_LIMITED)
-            return False, False
         if situation == _SITUATION_ACCEPTED:
             self._judge(record, store, category, Outcome.NOT_VERIFIABLE, _OUTBOUND_NOT_CONFIRMED)
             log.info("test_7_2_url_accepted", category=category, url=payload.url)
@@ -661,9 +661,21 @@ def _situation(record: EvidenceRecord | None) -> str:
         return _SITUATION_ACCEPTED
     if category_of(record) == ResponseCategory.RATE_LIMITED:
         return _SITUATION_RATE_LIMITED
-    if category_of(record) in _SPOILING or 500 <= status < 600:
+    # Any 5xx: the endpoint did not evaluate the URL (it is down or erroring),
+    # never ENFORCED.
+    if 500 <= status < 600:
         return _SITUATION_UPSTREAM
     return _SITUATION_REJECTED
+
+
+def _control_reason(record: EvidenceRecord | None) -> str:
+    """Why the benign control says nothing: its uninformative category, or a silent 5xx."""
+    if record is None:
+        return ResponseCategory.NO_RESPONSE.value
+    category = category_of(record)
+    if category in UNINFORMATIVE_CATEGORIES:
+        return category.value
+    return _UPSTREAM_UNAVAILABLE
 
 
 def _classify_rejection(url: str, body: str) -> str:

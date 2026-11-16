@@ -54,7 +54,7 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
-from src.core.test_metadata import Effect, TestInfo
+from src.core.test_metadata import DecisiveAnswer, Effect, TestInfo
 from src.tests.base import BaseTest
 from src.tests.helpers.auth import acquire_tokens, auth_parts
 
@@ -81,19 +81,8 @@ _CHALLENGE_STATUS: frozenset[int] = frozenset({400, 401, 403, 409, 422})
 
 _ENFORCED_THROTTLE: str = "ANTI_AUTOMATION_THROTTLE"
 _ENFORCED_CHALLENGE: str = "ANTI_AUTOMATION_CHALLENGE"
-_FLOW_BROKEN: str = "FLOW_UNAVAILABLE"
 _FLOW_REFUSED: str = "FLOW_NOT_ACCEPTED"
 _REFUSED_AFTER_SERVED: str = "REFUSED_AFTER_SERVED"
-
-# Answers that mean the flow could not be exercised at all: the target was
-# unavailable, failed, or did not answer (rule 1).
-_SPOILING: frozenset[ResponseCategory] = frozenset(
-    {
-        ResponseCategory.UPSTREAM_UNAVAILABLE,
-        ResponseCategory.SERVER_ERROR,
-        ResponseCategory.NO_RESPONSE,
-    }
-)
 
 
 class Test71SensitiveFlow(BaseModel):
@@ -169,6 +158,15 @@ class Test71SensitiveFlowProtection(BaseTest[Test71Params]):
         tags=("business-logic", "anti-automation"),
         effect=Effect.CHANGES_DATA,
         sub_tests=(_SUB,),
+        decisive_answers=(
+            DecisiveAnswer(
+                category=ResponseCategory.RATE_LIMITED,
+                reason=(
+                    "a `429` is the anti-automation throttle this test looks for "
+                    "(`ANTI_AUTOMATION_THROTTLE`)."
+                ),
+            ),
+        ),
     )
 
     def execute(
@@ -248,12 +246,16 @@ class Test71SensitiveFlowProtection(BaseTest[Test71Params]):
                 log.info("test_7_1_control_seen", path=flow.path, after=sent, detail=detail)
                 return
         if not records:
-            self._record(_SUB, Outcome.NOT_VERIFIABLE, _FLOW_BROKEN)
+            # No submission got even a record of its failure.
+            self._record(_SUB, Outcome.NOT_VERIFIABLE, "NO_RESPONSE")
             return
-        spoiled = next((r for r in records if category_of(r) in _SPOILING), None)
-        if spoiled is not None:
-            self._judge(spoiled, store, _SUB, Outcome.NOT_VERIFIABLE, _FLOW_BROKEN)
-            return
+        # Unavailable, failing or silent: the flow could not be exercised (until
+        # 2026-11-16 all three were named FLOW_UNAVAILABLE).
+        for record in records:
+            uninformative = self._uninformative(record, _SUB)
+            if uninformative is not None:
+                self._judge(record, store, _SUB, Outcome.NOT_VERIFIABLE, uninformative)
+                return
         refused = next((r for r in records if category_of(r) != ResponseCategory.SERVED), None)
         if refused is not None:
             # Refused from the first submission: the flow was never exercised. Served,

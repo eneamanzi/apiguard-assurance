@@ -72,8 +72,7 @@ sentinel was kept. Both objects are deleted when their resource has a delete req
 |---|---|---|
 | a field whose name is sensitive is in the response with a value that discloses something | `VIOLATION/SENSITIVE_FIELD` | FIRM (the name is a heuristic) |
 | no sensitive field, or only with a null, empty or masked value | `ENFORCED/NO_SENSITIVE_FIELD` | - |
-| the object could not be read, or the read was not served (`2xx`) | `NOT_VERIFIABLE/OBJECT_NOT_READABLE` | - |
-| the read got no answer (transport failure) | `NOT_VERIFIABLE/NO_RESPONSE` | - |
+| the object could not be read, or the read was refused or missing | `NOT_VERIFIABLE/OBJECT_NOT_READABLE`; an answer of the table below is named by it (until 2026-11-16 an unavailable, throttled or failing read was `OBJECT_NOT_READABLE` too) | - |
 
 **`mass_assignment`**
 
@@ -83,14 +82,26 @@ sentinel was kept. Both objects are deleted when their resource has a delete req
 | the object read back shows none of the injected field names: whether they were bound cannot be seen | `NOT_VERIFIABLE/FIELDS_NOT_EXPOSED` | - |
 | an injected sentinel was kept in the object | `VIOLATION/MASS_ASSIGNMENT` | CERTAIN (the unique sentinel was read back) |
 | an injected field name is shown, and no sentinel kept | `ENFORCED/NO_MASS_ASSIGNMENT` | - |
-| the object could not be read, or the read was not served (`2xx`) | `NOT_VERIFIABLE/OBJECT_NOT_READABLE` | - |
-| the read got no answer (transport failure) | `NOT_VERIFIABLE/NO_RESPONSE` | - |
+| the object could not be read, or the read was refused or missing | `NOT_VERIFIABLE/OBJECT_NOT_READABLE`; an answer of the table below is named by it | - |
 
 When the prepared resource does not create the object, neither sub-test has anything to judge and both record
 `NOT_VERIFIABLE/OBJECT_NOT_CREATED` (on crAPI, a worn lab answers `400 Insufficient Balance`).
 
 Only unique **string** sentinels are injected: a boolean such as `admin: true` reflected in a response cannot be told
 from a field that is legitimately true (the owner's own permissions), which would be a false positive.
+
+<!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("2.5", page=cog.inFile)) ]]] -->
+
+The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
+
+| Answer | Sub-tests | Outcome / detail |
+|---|---|---|
+| `UPSTREAM_UNAVAILABLE` | every sub-test | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
+| `RATE_LIMITED` | every sub-test | `NOT_VERIFIABLE/RATE_LIMITED` |
+| `SERVER_ERROR` | every sub-test | `NOT_VERIFIABLE/SERVER_ERROR` |
+| `NO_RESPONSE` | every sub-test | `NOT_VERIFIABLE/NO_RESPONSE` |
+
+<!-- [[[end]]] -->
 
 ## 7. Outcomes
 
@@ -145,7 +156,17 @@ sentinel matched the repo's legitimate `permissions.admin: true`; the matcher no
 **What each branch has been seen doing** (rule 9). Proven on a lab: `NO_SENSITIVE_FIELD` (Forgejo, crAPI),
 `NO_MASS_ASSIGNMENT` (both Forgejo labs), `FIELDS_NOT_EXPOSED` (crAPI), `OBJECT_NOT_CREATED` (crAPI after about ten
 runs without a reset, [compatibility](../../03-reference/06-compatibility.md#what-the-tool-detects-measured-against-a-vulnerable-target)).
-Still unproven: `SENSITIVE_FIELD`, `MASS_ASSIGNMENT`, `FIELDS_NOT_INJECTED`, `OBJECT_NOT_READABLE`, `NO_RESPONSE`.
+On 2026-11-15, Forgejo + Kong with temporary routes on `forgejo-service` in `kong/kong.yml` (undone with `git
+checkout`, the lab checked back), the object read being `GET ~/api/v1/repos/user-a/[^/]+$`:
+- `SENSITIVE_FIELD` (FIRM): the read answered `200` with an object holding `"salt": "lab-dummy-value"`;
+- `OBJECT_NOT_READABLE`: the read answered `404`, on both sub-tests;
+- `NO_RESPONSE`: the read slept 7 s (the run's `target.read_timeout: 5.0`), on both sub-tests;
+- `MASS_ASSIGNMENT` (CERTAIN): a `pre-function` on `POST /api/v1/user/repos` kept the create body in Kong's
+  shared memory (the request still reached Forgejo), and the read answered that body back, so the injected
+  sentinels came back from the object.
+
+`FIELDS_NOT_INJECTED` was seen on 2026-11-15 (Forgejo + Kong, the run's `repository` resource given the body
+`"not-an-object"`). Every branch of this test has been seen.
 
 ## 13. Remediation
 

@@ -83,15 +83,28 @@ never an unproven violation. This is a permanent boundary of the test, not a gap
 | Case | Outcome / detail |
 |---|---|
 | rejected (`4xx` other than `429`) and the benign control was accepted | `ENFORCED/SSRF_BLOCKED_{SCHEME,MALFORMED,VALIDATION,UNKNOWN}` |
-| throttled (`429`), the payload or the benign control: the URL was never evaluated | `NOT_VERIFIABLE/RATE_LIMITED` |
 | a `401`, a redirect (not followed) or a `404`: not a rejection of the URL (the credential refused, an answer not read, perhaps the fetched page's own `404`) | `NOT_VERIFIABLE/CREDENTIAL_REFUSED`, `REDIRECTED`, `NOT_FOUND` |
 | rejected (`4xx`) but the benign control was also rejected | `NOT_VERIFIABLE/BASELINE_REJECTED` |
 | accepted (`2xx`) | `NOT_VERIFIABLE/OUTBOUND_NOT_CONFIRMED` |
-| `5xx` / upstream unavailable | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
+| the benign control gives an answer of the table below (its silence is a plain `NO_RESPONSE`: the control is not a payload) | `NOT_VERIFIABLE/` its category on every payload category (until 2026-11-16 a silent or failing control was `UPSTREAM_UNAVAILABLE`) |
+| a `5xx` outside the categories of the table below (`501`, `511`) | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`: the URL was not evaluated (a `500` was named so too until 2026-11-16) |
 | no response (the server may have blocked on the outbound call) | `NOT_VERIFIABLE/SSRF_PROBE_TIMEOUT` |
 | not sent, after a payload got no answer or the gateway's `502`, `503`, `504` (Probes) | `NOT_VERIFIABLE/NOT_SENT_AFTER_TIMEOUT` |
 
 The confirmed-SSRF `VIOLATION` requires the deferred listener; the test never emits it on its own.
+
+<!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("7.2", page=cog.inFile)) ]]] -->
+
+The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
+
+| Answer | Sub-tests | Outcome / detail |
+|---|---|---|
+| `UPSTREAM_UNAVAILABLE` | every sub-test | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
+| `RATE_LIMITED` | every sub-test | `NOT_VERIFIABLE/RATE_LIMITED` |
+| `SERVER_ERROR` | every sub-test | `NOT_VERIFIABLE/SERVER_ERROR` |
+| `NO_RESPONSE` | every sub-test | judged by the oracle above: a payload left without an answer may be the server still fetching the URL: recorded `SSRF_PROBE_TIMEOUT`, and the payloads after it are not sent. |
+
+<!-- [[[end]]] -->
 
 ## 7. Outcomes
 
@@ -149,8 +162,14 @@ sides are both proven; the confirmed-SSRF `VIOLATION` is unreachable without the
 **What each branch has been seen doing** (rule 9). Proven on a lab: `OUTBOUND_NOT_CONFIRMED` (both Forgejo labs),
 `UPSTREAM_UNAVAILABLE` and `NOT_SENT_AFTER_TIMEOUT` (crAPI), and of the four `SSRF_BLOCKED_*` details
 `SSRF_BLOCKED_SCHEME` (12) and `SSRF_BLOCKED_MALFORMED` (3), the 15 rejected payloads, on both Forgejo labs
-(2026-11-14). Still unproven: `SSRF_BLOCKED_VALIDATION`, `SSRF_BLOCKED_UNKNOWN`, `RATE_LIMITED`,
-`CREDENTIAL_REFUSED`, `REDIRECTED`, `NOT_FOUND`, `BASELINE_REJECTED`, `SSRF_PROBE_TIMEOUT`.
+(2026-11-14). Every other one on 2026-11-15, Forgejo + Kong, with a temporary route on the webhook creation,
+`POST ~/api/v1/repos/user-a/[^/]+/hooks$` (undone with `git checkout`; no repository left behind), whose
+`pre-function` lets the benign control (`http://example.com/`) reach Forgejo and answers the payloads itself:
+`422` "host not allowed" gives `SSRF_BLOCKED_VALIDATION`, `400` "nope" `SSRF_BLOCKED_UNKNOWN`, `429`
+`RATE_LIMITED`, `401` `CREDENTIAL_REFUSED`, `302` `REDIRECTED`, `404` `NOT_FOUND`; the same `422` given to the
+control too gives `BASELINE_REJECTED`; sleeping 7 s (the run's `target.read_timeout: 5.0`) gives
+`SSRF_PROBE_TIMEOUT`. In the first two cases the forbidden-protocol payloads stay `SSRF_BLOCKED_SCHEME`. Every
+branch of this test has been seen, except the confirmed SSRF, which by decision it never emits.
 
 ## 13. Remediation
 

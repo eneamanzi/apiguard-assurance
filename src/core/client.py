@@ -12,6 +12,16 @@ import httpx directly. This single-point-of-entry design enables:
     - Consistent EvidenceRecord construction for every transaction.
     - Guaranteed non-following of HTTP redirects (a redirect is security
       information, not a transport inconvenience to hide from the test).
+    - A path sent as the test wrote it. httpx rewrites two spellings before
+      sending them: it removes dot segments ("/./", "/../", RFC 3986 section
+      5.2.4) and reads a leading "//" as an authority (RFC 3986 section 4.2),
+      dropping it from the path; test 1.1 asks precisely whether a target
+      serves those spellings. Such a path travels to the transport as a
+      request extension (_PATH_AS_WRITTEN), and the transport sends it as the
+      request target (_PathAsWrittenTransport); the Host header and the query
+      are those httpx built. Until 2026-11-15 they left as the canonical path
+      while the record showed the variant. A request through a proxy taken
+      from the environment uses httpx's own transport and its rewriting.
 
 The client does NOT:
     - Interpret HTTP status codes (the test's responsibility).
@@ -44,6 +54,7 @@ import re
 import ssl
 import threading
 import time
+import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -89,6 +100,75 @@ class _KeepNoCookie(http.cookiejar.DefaultCookiePolicy):
 # An origin a test may ask instead of the target's base_url: scheme, host and
 # optional port, with no path (SecurityClient.request's origin).
 _ORIGIN_PATTERN: re.Pattern[str] = re.compile(r"^https?://[^/\s?#]+$")
+
+# The request extension carrying a path to send as written (module docstring).
+_PATH_AS_WRITTEN: str = "apiguard_path_as_written"
+# A path httpx would rewrite: a leading "//", or a dot segment ("/." or "/.."
+# followed by "/" or the end of the path).
+_REWRITTEN_PATH: re.Pattern[str] = re.compile(r"^//|/\.\.?(?:/|$)")
+# The characters of a path left as they are when it is percent-encoded: the
+# separators and sub-delimiters of RFC 3986 section 3.3, and "%" so that an
+# escape the test wrote stays one.
+_PATH_SAFE_CHARACTERS: str = "/:@!$&'()*+,;=%"
+
+
+class _PathAsWritten(httpx.URL):
+    """An httpx URL whose request target is a path as the test wrote it."""
+
+    def __init__(self, url: httpx.URL, path: bytes) -> None:
+        """
+        Keep the URL httpx built, with the path to send instead of its own.
+
+        Args:
+            url:  The URL of the request (scheme, host, port and query are kept).
+            path: The path to send, percent-encoded.
+        """
+        super().__init__(url)
+        self._written_path = path
+
+    @property
+    def raw_path(self) -> bytes:
+        """The request target: the path as written, then the query httpx built."""
+        query = self.query
+        return self._written_path + (b"?" + query if query else b"")
+
+
+class _PathAsWrittenTransport(httpx.HTTPTransport):
+    """httpx's transport, sending the path of _PATH_AS_WRITTEN as the request target."""
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        """
+        Send a request, its target replaced when the client asked for a path as written.
+
+        Args:
+            request: The request httpx built.
+
+        Returns:
+            The response of httpx's own transport.
+        """
+        written = request.extensions.get(_PATH_AS_WRITTEN)
+        if isinstance(written, bytes):
+            request.url = _PathAsWritten(request.url, written)
+        return super().handle_request(request)
+
+
+def _path_as_written(path: str, base_path: str) -> bytes | None:
+    """
+    The request target of a path httpx would rewrite, or None for any other path.
+
+    Args:
+        path:      The path the test asked for (a query, if any, is left to httpx).
+        base_path: The path of the base URL the request goes to ("" for an origin).
+
+    Returns:
+        The base path and the path, percent-encoded as httpx encodes one, when
+        httpx would rewrite the path; None otherwise.
+    """
+    written = path.split("?", 1)[0]
+    if not _REWRITTEN_PATH.search(written):
+        return None
+    return urllib.parse.quote(base_path + written, safe=_PATH_SAFE_CHARACTERS).encode("ascii")
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -320,6 +400,8 @@ class SecurityClient:
                      the credential headers are redacted (no registry).
         """
         self._base_url: str = base_url.rstrip("/")
+        # The path of the base URL, which comes before every request path.
+        self._base_path: str = urllib.parse.urlsplit(self._base_url).path.rstrip("/")
         self._secrets: SecretRegistry = secrets if secrets is not None else SecretRegistry()
         self._timeout: httpx.Timeout = httpx.Timeout(
             connect=connect_timeout,
@@ -383,6 +465,7 @@ class SecurityClient:
             timeout=self._timeout,
             follow_redirects=False,
             verify=self._tls_context,
+            transport=_PathAsWrittenTransport(verify=self._tls_context),
             # A jar that keeps no cookie, so that no request carries state the
             # calling test did not ask for. httpx keeps a jar per client and
             # replays it on every later request to the host: measured on the
@@ -505,6 +588,7 @@ class SecurityClient:
                 f"Request origin must be 'scheme://host[:port]' with no path. Got: '{origin}'."
             )
         target_url = f"{origin}{path}" if origin else path
+        as_written = _path_as_written(path, "" if origin else self._base_path)
         display_url = f"{origin or self._base_url}{path}"
         if params:
             # The query belongs to what was asked (a credential placed in the
@@ -556,6 +640,7 @@ class SecurityClient:
             json=json,
             content=content,
             params=params,
+            as_written=as_written,
             bound_log=bound_log,
             failed_record=failed_record,
         )
@@ -650,6 +735,7 @@ class SecurityClient:
         json: object | None,
         content: bytes | None,
         params: dict[str, Any] | None,
+        as_written: bytes | None,
         bound_log: structlog.BoundLogger,
         failed_record: Callable[[TransportError], EvidenceRecord],
     ) -> tuple[httpx.Response, int]:
@@ -676,6 +762,9 @@ class SecurityClient:
             json: Optional JSON body.
             content: Optional raw body bytes.
             params: Optional query parameters.
+            as_written: The request target to send instead of httpx's, for a
+                        path httpx would rewrite (_path_as_written); None for
+                        any other path.
             bound_log: Logger with test_id and record_id already bound.
             failed_record: Builds the record of the request without a response,
                            attached to SecurityClientError.
@@ -717,6 +806,9 @@ class SecurityClient:
                         json=json,
                         content=content,
                         params=params,
+                        extensions=(
+                            {_PATH_AS_WRITTEN: as_written} if as_written is not None else None
+                        ),
                     )
                     # httpx does not raise on 4xx/5xx by default.
                     # We do NOT call response.raise_for_status() here:

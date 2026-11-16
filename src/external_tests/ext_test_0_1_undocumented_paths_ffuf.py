@@ -89,7 +89,7 @@ from src.core.models import (
 from src.core.references import RANDOM_SEGMENT, Similarity, sibling_pattern
 from src.core.response_category import categorize
 from src.core.sensitive_paths import SENSITIVE_PATHS
-from src.core.test_metadata import Effect, TestInfo
+from src.core.test_metadata import DecisiveAnswer, Effect, TestInfo
 from src.external_tests.base import ExternalToolTest, ToolRun
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -123,11 +123,6 @@ _REFUSING: frozenset[ResponseCategory] = frozenset(
 )
 
 _SUB_TEST: str = "undocumented_paths"
-_SPOILING_DETAIL: dict[ResponseCategory, str] = {
-    ResponseCategory.UPSTREAM_UNAVAILABLE: "UPSTREAM_UNAVAILABLE",
-    ResponseCategory.RATE_LIMITED: "RATE_LIMITED",
-    ResponseCategory.NO_RESPONSE: "NO_RESPONSE",
-}
 
 _REFERENCES: tuple[Reference, ...] = (
     Reference(standard=Standard.OWASP_API_TOP10, id="API9:2023"),
@@ -220,6 +215,15 @@ class ExtTest01UndocumentedPathsFfuf(ExternalToolTest[ExtTest01FfufParams]):
         tool="ffuf",
         effect=Effect.STRESSES_TARGET,
         sub_tests=(_SUB_TEST,),
+        decisive_answers=(
+            DecisiveAnswer(
+                category=ResponseCategory.SERVER_ERROR,
+                reason=(
+                    "a `500` is compared with the calibration like any other answer: a path whose "
+                    "`500` differs from a random path's answer exists."
+                ),
+            ),
+        ),
     )
 
     def _build_connector(self) -> BaseConnector:
@@ -425,7 +429,7 @@ class ExtTest01UndocumentedPathsFfuf(ExternalToolTest[ExtTest01FfufParams]):
         point = references.calibration(sibling_pattern(path))
         category = categorize(record.response_status_code)
         if similarity == Similarity.UNRELIABLE:
-            detail = _SPOILING_DETAIL.get(category, "CALIBRATION_UNSTABLE")
+            detail = self._uninformative(record, _SUB_TEST) or "CALIBRATION_UNSTABLE"
             self._judge(record, run.store, _SUB_TEST, Outcome.NOT_VERIFIABLE, detail)
             return 0
         if similarity == Similarity.SAME_AS_UNKNOWN:

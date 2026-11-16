@@ -147,6 +147,12 @@ _REFERENCES: tuple[Reference, ...] = (
 )
 
 
+# A read back that is refused or missing: the object's fields cannot be seen. An
+# answer that says nothing (unavailable, rate limited, failing, silent) is named
+# by the shared rule instead (until 2026-11-16 it was OBJECT_NOT_READABLE too).
+_NOT_READ: str = "OBJECT_NOT_READABLE"
+
+
 class Test25Params(BaseModel):
     """Parameters of test 2.5."""
 
@@ -255,13 +261,14 @@ class Test25ObjectPropertyAuthorization(BaseTest[Test25Params]):
         try:
             read = self._read_object(target, client, owned.values, user_a)
             if read is None:
-                self._record(_SUB_SENSITIVE, Outcome.NOT_VERIFIABLE, "OBJECT_NOT_READABLE")
+                self._record(_SUB_SENSITIVE, Outcome.NOT_VERIFIABLE, _NOT_READ)
                 return
             response, record = read
             if response is None or category_of(record) != ResponseCategory.SERVED:
                 # A refused, missing or failing read shows no field at all: it
                 # proves neither a leak nor its absence.
-                self._judge(record, store, _SUB_SENSITIVE, Outcome.NOT_VERIFIABLE, _unread(record))
+                reason = self._uninformative(record, _SUB_SENSITIVE) or _NOT_READ
+                self._judge(record, store, _SUB_SENSITIVE, Outcome.NOT_VERIFIABLE, reason)
                 return
             body = _json(response)
             leaked = sorted(_sensitive_fields(body))
@@ -313,12 +320,13 @@ class Test25ObjectPropertyAuthorization(BaseTest[Test25Params]):
         try:
             read = self._read_object(target, client, owned.values, user_a)
             if read is None:
-                self._record(_SUB_MASS, Outcome.NOT_VERIFIABLE, "OBJECT_NOT_READABLE")
+                self._record(_SUB_MASS, Outcome.NOT_VERIFIABLE, _NOT_READ)
                 return
             response, record = read
             if response is None or category_of(record) != ResponseCategory.SERVED:
                 # Not read back: no sentinel can be seen, so no conclusion either way.
-                self._judge(record, store, _SUB_MASS, Outcome.NOT_VERIFIABLE, _unread(record))
+                reason = self._uninformative(record, _SUB_MASS) or _NOT_READ
+                self._judge(record, store, _SUB_MASS, Outcome.NOT_VERIFIABLE, reason)
                 return
             body = _json(response)
             if not _exposed_fields(body):
@@ -411,13 +419,6 @@ def _json(response: httpx.Response) -> object:
         return response.json()
     except ValueError:
         return {}
-
-
-def _unread(record: EvidenceRecord) -> str:
-    """The reason a read shows nothing: NO_RESPONSE for a transport failure (rule 4)."""
-    if category_of(record) == ResponseCategory.NO_RESPONSE:
-        return "NO_RESPONSE"
-    return "OBJECT_NOT_READABLE"
 
 
 def _sensitive_fields(node: object, depth: int = 0) -> set[str]:

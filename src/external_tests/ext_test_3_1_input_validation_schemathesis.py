@@ -53,11 +53,12 @@ from src.core.models import (
     InfoNote,
     Outcome,
     Reference,
+    ResponseCategory,
     Standard,
     TestResult,
     TestStrategy,
 )
-from src.core.test_metadata import Effect, Need, TestInfo
+from src.core.test_metadata import DecisiveAnswer, Effect, Need, TestInfo
 from src.external_tests.base import ExternalToolTest, ToolRun
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -143,6 +144,22 @@ class ExtTest31InputValidationSchemathesis(ExternalToolTest):
         optional_needs=(Need.USER_ACCOUNT,),
         effect=Effect.STRESSES_TARGET,
         sub_tests=(_SUB,),
+        decisive_answers=(
+            DecisiveAnswer(
+                category=ResponseCategory.SERVER_ERROR,
+                reason=(
+                    "a `500` to a generated input is what this test reports (Schemathesis's "
+                    "`not_a_server_error` check)."
+                ),
+            ),
+            DecisiveAnswer(
+                category=ResponseCategory.RATE_LIMITED,
+                reason=(
+                    "Schemathesis's check counts a `429` as any 4xx: an operation that answers "
+                    "only 4xx is `ONLY_4XX`."
+                ),
+            ),
+        ),
     )
 
     def _build_connector(self) -> BaseConnector:
@@ -244,7 +261,8 @@ class ExtTest31InputValidationSchemathesis(ExternalToolTest):
             else:
                 unavailable.append(reported_failure)
         for reported_failure in unavailable:
-            reason = _unusable_reason(reported_failure.get("finding", ""))
+            category = _unusable_category(reported_failure.get("finding", ""))
+            reason = self._uninformative_category(category, _SUB) or category.value
             self._record(_SUB, Outcome.NOT_VERIFIABLE, reason)
         for _ in unchecked:
             self._record(_SUB, Outcome.NOT_VERIFIABLE, "OPERATION_NOT_CHECKED")
@@ -326,9 +344,9 @@ def _unanswered(message: str) -> bool:
     return _RESPONSE_TIMEOUT in message
 
 
-def _unusable_reason(message: str) -> str:
+def _unusable_category(message: str) -> ResponseCategory:
     """
-    Why a failure with no usable test case says nothing about input validation.
+    The category of a failure with no usable test case (it says nothing about validation).
 
     Args:
         message: Schemathesis's failure message for one operation.
@@ -340,8 +358,8 @@ def _unusable_reason(message: str) -> str:
     """
     cases = [c.strip() for c in _TEST_CASE_START.split(message) if c.strip()]
     if cases and all(_unanswered(case) for case in cases):
-        return "NO_RESPONSE"
-    return "UPSTREAM_UNAVAILABLE"
+        return ResponseCategory.NO_RESPONSE
+    return ResponseCategory.UPSTREAM_UNAVAILABLE
 
 
 def _usable_cases(message: str) -> str:

@@ -90,6 +90,19 @@ data the tool cannot clean up."
 | no operation was checked at all | `NOT_VERIFIABLE/NOTHING_CHECKED` | - |
 | the tool could not connect / timed out | ERROR (the base class handles it) | - |
 
+<!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("ext.3.1.schemathesis", page=cog.inFile)) ]]] -->
+
+The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
+
+| Answer | Sub-tests | Outcome / detail |
+|---|---|---|
+| `UPSTREAM_UNAVAILABLE` | every sub-test | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
+| `RATE_LIMITED` | every sub-test | judged by the oracle above: Schemathesis's check counts a `429` as any 4xx: an operation that answers only 4xx is `ONLY_4XX`. |
+| `SERVER_ERROR` | every sub-test | judged by the oracle above: a `500` to a generated input is what this test reports (Schemathesis's `not_a_server_error` check). |
+| `NO_RESPONSE` | every sub-test | `NOT_VERIFIABLE/NO_RESPONSE` |
+
+<!-- [[[end]]] -->
+
 ## 7. Outcomes
 
 SKIP without Schemathesis. FAIL on any failing operation; PASS when at least one operation was reached and none
@@ -157,7 +170,11 @@ three. Not seen: `OPERATION_NOT_CHECKED` and `NOTHING_CHECKED`.
 
 **What each branch has been seen doing** (rule 9). Proven on a lab: `INPUT_NOT_VALIDATED` (crAPI),
 `INPUT_VALIDATED` (both Forgejo labs), `ONLY_4XX` (all three), and in the runs above `UPSTREAM_UNAVAILABLE`,
-`NOTHING_CHECKED`, `NO_RESPONSE`. Still unproven: `OPERATION_NOT_CHECKED`, the connect/timeout ERROR.
+`NOTHING_CHECKED`, `NO_RESPONSE`, and on 2026-11-15 (Forgejo + Kong): `OPERATION_NOT_CHECKED` (469 operations,
+unauthenticated, `target.base_url` on a closed port: Schemathesis reports every operation errored, INCONCLUSIVE;
+an unreachable target is not the ERROR of section 6) and the ERROR (`timeout_seconds: 60`, its minimum, with a
+temporary route making every `/api/v1` answer take 6 s: "External tool 'schemathesis' timed out"). Every branch of
+this test has been seen.
 
 ## 13. Remediation
 

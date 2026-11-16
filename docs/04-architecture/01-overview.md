@@ -158,7 +158,7 @@ core/models            -> core/redaction, core/templating
 core/references        -> core/client, core/evidence, core/exceptions, core/models, core/response_category
 core/response_category -> core/models
 core/test_discovery    -> core/assessment_test, core/exceptions, core/test_metadata
-core/test_metadata     -> core/models
+core/test_metadata     -> core/models, core/response_category
 core/test_needs        -> core/assessment_test, core/context, core/models, core/test_metadata
 core/tls               -> core/exceptions, core/models
 ```
@@ -178,7 +178,10 @@ in `pyproject.toml`).
 **SecurityClient** (`src/core/client.py`). Wraps httpx. Usable only as a context manager (the underlying client
 is created in `__enter__`; using it outside raises `RuntimeError`). Never follows redirects, and keeps no state
 between requests: the cookies a response sets are dropped at once, so no request carries what the calling test did
-not ask for (they stay in the evidence, which is what test 1.6 judges). Retries only transport
+not ask for (they stay in the evidence, which is what test 1.6 judges). Sends a path as the test wrote it: httpx
+removes dot segments (`/./`, `/../`) and reads a leading `//` as an authority, so such a path is handed to the
+transport as the request target, with the Host header and query httpx built (since 2026-11-15; until then test
+1.1's three variants of that shape left as the canonical path). Retries only transport
 errors (`ConnectError`, `ConnectTimeout`, `ReadTimeout`, `WriteTimeout`, `PoolTimeout`, `RemoteProtocolError`)
 with exponential backoff and jitter (0.5 s min, 8 s max, 1 s jitter), up to `target.max_retry_attempts`
 attempts; HTTP status codes and TLS failures are never retried. **A method that is not idempotent (`POST`,

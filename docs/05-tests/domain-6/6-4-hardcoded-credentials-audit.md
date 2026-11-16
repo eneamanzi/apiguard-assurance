@@ -68,7 +68,6 @@ READ_ONLY.
 | it is not found (`404`) | `ENFORCED/DEBUG_NOT_FOUND` | - |
 | it is refused (another non-2xx) | `ENFORCED/DEBUG_BLOCKED` | - |
 | 2xx with no credential | `ENFORCED/DEBUG_NO_SECRET` | - |
-| the debug path answers unavailable, rate limited or a server error | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`, `RATE_LIMITED`, `SERVER_ERROR` (not a block: it did not answer) | - |
 
 **`gateway_config_no_secret`**
 
@@ -82,6 +81,19 @@ READ_ONLY.
 | no gateway configured | `NOT_APPLICABLE/NO_GATEWAY` | - |
 | the configuration cannot be read | `NOT_VERIFIABLE/CONFIG_NOT_READABLE` | - |
 
+<!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("6.4", page=cog.inFile)) ]]] -->
+
+The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
+
+| Answer | Sub-tests | Outcome / detail |
+|---|---|---|
+| `UPSTREAM_UNAVAILABLE` | every sub-test | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
+| `RATE_LIMITED` | every sub-test | `NOT_VERIFIABLE/RATE_LIMITED` |
+| `SERVER_ERROR` | every sub-test | `NOT_VERIFIABLE/SERVER_ERROR` |
+| `NO_RESPONSE` | every sub-test | `NOT_VERIFIABLE/NO_RESPONSE` |
+
+<!-- [[[end]]] -->
+
 ## 7. Outcomes
 
 FAIL on an exposed credential; PASS when the debug endpoints and the config are clean.
@@ -89,7 +101,9 @@ FAIL on an exposed credential; PASS when the debug endpoints and the config are 
 ## 8. Findings
 
 "Debug endpoint exposes a credential: `<path>`", "Credential pattern in gateway config: ...", "Probable plaintext
-credential in gateway config: ...", each pointing to the request or the config concept artifact.
+credential in gateway config: ...", each pointing to the request or the config concept artifact. One finding per
+value per configuration object: when the same value is under several keys of one object, the strongest finding is
+kept (a matched pattern before a credential-named key) and names the other keys (since 2026-11-15).
 
 ## 9. Effects on the target
 
@@ -134,10 +148,23 @@ and proven by the planted token in the table above.
 `DEBUG_NOT_FOUND` (all three), `DEBUG_BLOCKED` (crAPI), `CONFIG_NO_SECRET` (all three), `CONFIG_SECRET` at FIRM
 (Forgejo + Kong, the planted token), and the debug path's `UPSTREAM_UNAVAILABLE` (Forgejo + Kong with the
 `forgejo` container stopped, 2026-11-14: 4 of the 11 paths, the others answered by Kong's own `404`). Seen on a
-stand-in Admin API only: `NO_CONFIG_VALUE`. Still unproven: `DEBUG_SECRET`, the debug path's `RATE_LIMITED` and
-`SERVER_ERROR`, `CONFIG_SECRET` at TENTATIVE, a secret reference left unreported. Seen on 2026-11-15 with the
-run's configuration only (Forgejo + Kong): `CONFIG_NOT_READABLE` (`gateway.admin.url` on a closed port) and
-`NO_GATEWAY` (no `gateway` section: the config scan's only not-applicable case). "The `NOT_APPLICABLE` case" of the paragraph above no longer exists: the code records no
+stand-in Admin API only: `NO_CONFIG_VALUE`. Seen on 2026-11-15 with the run's configuration only (Forgejo + Kong):
+`CONFIG_NOT_READABLE` (`gateway.admin.url` on a closed port) and `NO_GATEWAY` (no `gateway` section: the config
+scan's only not-applicable case). And on 2026-11-15 on Forgejo + Kong with temporary routes on `forgejo-service`
+in `kong/kong.yml` (undone with `git checkout`, the lab checked back), every value fictitious:
+- `DEBUG_SECRET` (FIRM): the debug path `/api/debug/config` answered by a `pre-function` with
+  `AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE`, the example key of AWS's own documentation (built in the Lua code by
+  concatenation, so that the gateway's configuration does not hold it as one string);
+- `CONFIG_SECRET` at TENTATIVE: a `rate-limiting` plugin on a dummy route with `redis.password:
+  "lab-dummy-not-a-real-secret-0001"`. Kong's Admin API gives the value under `config.redis.password` and again
+  under the older key `config.redis_password`: two findings for one value until the same day, one since (run
+  again: 1 violation, the finding adding "The same value is also under config.redis_password ...: one credential,
+  reported once");
+- a secret reference left unreported: the same plugin with `redis.password: "{vault://env/apiguard-lab-dummy}"`,
+  PASS, no finding;
+- the debug path's `RATE_LIMITED` and `SERVER_ERROR`: the same path answering `429`, then `500`.
+
+Every branch of this test has been seen. "The `NOT_APPLICABLE` case" of the paragraph above no longer exists: the code records no
 not-applicable case for `debug_endpoint_no_secret` (its only one is `NO_GATEWAY`, of the config scan,
 `src/tests/domain_6/test_6_4_hardcoded_credentials_audit.py`); it was the sub-test without configured paths,
 before the default paths.

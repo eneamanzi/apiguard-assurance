@@ -55,12 +55,12 @@ from src.core.models import (
     InfoNote,
     Outcome,
     Reference,
-    ResponseCategory,
     Standard,
     TestResult,
     TestStrategy,
 )
 from src.core.models.runtime import SECRET_VALUE
+from src.core.response_category import UNINFORMATIVE_CATEGORIES
 from src.core.test_metadata import Effect, TestInfo
 from src.tests.base import BaseTest
 
@@ -71,15 +71,6 @@ _SUB_INVALID: str = "invalid_signature_rejected"
 
 # A delivery the endpoint acted on: a 2xx.
 _ACCEPTED_STATUS: frozenset[int] = frozenset({200, 201, 202, 204})
-
-# Answers that say nothing about signature verification: the receiver was
-# unavailable, failing, throttling or silent (rule 1). Never ENFORCED.
-_SPOILING: dict[ResponseCategory, str] = {
-    ResponseCategory.UPSTREAM_UNAVAILABLE: "UPSTREAM_UNAVAILABLE",
-    ResponseCategory.RATE_LIMITED: "RATE_LIMITED",
-    ResponseCategory.NO_RESPONSE: "NO_RESPONSE",
-    ResponseCategory.SERVER_ERROR: "SERVER_ERROR",
-}
 
 # The invalid signature: a well-formed but wrong HMAC-SHA256 hex digest.
 _INVALID_SIGNATURE: str = "0" * 64
@@ -245,7 +236,7 @@ class Test74WebhookVerification(BaseTest[Test74Params]):
         if record is None:
             return None
         self._step(record)
-        if category_of(record) in _SPOILING:
+        if category_of(record) in UNINFORMATIVE_CATEGORIES:
             return None
         accepted = record.response_status_code in _ACCEPTED_STATUS
         if not accepted:
@@ -277,9 +268,9 @@ class Test74WebhookVerification(BaseTest[Test74Params]):
         if record is None:
             self._record(sub_test, Outcome.NOT_VERIFIABLE, "NO_RESPONSE")
             return
-        category = category_of(record)
-        if category in _SPOILING:
-            self._judge(record, store, sub_test, Outcome.NOT_VERIFIABLE, _SPOILING[category])
+        uninformative = self._uninformative(record, sub_test)
+        if uninformative is not None:
+            self._judge(record, store, sub_test, Outcome.NOT_VERIFIABLE, uninformative)
             return
         if record.response_status_code not in _ACCEPTED_STATUS:
             if confirmed:

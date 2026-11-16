@@ -103,14 +103,6 @@ _REFUSING: frozenset[ResponseCategory] = frozenset(
     {ResponseCategory.UNAUTHENTICATED, ResponseCategory.FORBIDDEN}
 )
 
-# The answer categories that say nothing about the guarantee (rule 1).
-_SPOILING: dict[ResponseCategory, str] = {
-    ResponseCategory.UPSTREAM_UNAVAILABLE: "UPSTREAM_UNAVAILABLE",
-    ResponseCategory.RATE_LIMITED: "RATE_LIMITED",
-    ResponseCategory.NO_RESPONSE: "NO_RESPONSE",
-    ResponseCategory.SERVER_ERROR: "SERVER_ERROR",
-}
-
 # How many items a note lists by name.
 _NOTE_EXAMPLES: int = 12
 
@@ -266,8 +258,9 @@ class Test03DeprecatedOperations(BaseTest):
         if record.response_status_code == _HTTP_GONE:
             self._judge(record, store, _SUB_DEPRECATED, Outcome.ENFORCED, "SWITCHED_OFF")
             return
-        if category in _SPOILING:
-            self._judge(record, store, _SUB_DEPRECATED, Outcome.NOT_VERIFIABLE, _SPOILING[category])
+        uninformative = self._uninformative(record, _SUB_DEPRECATED)
+        if uninformative is not None:
+            self._judge(record, store, _SUB_DEPRECATED, Outcome.NOT_VERIFIABLE, uninformative)
             return
         if category in _REFUSING:
             self._judge(

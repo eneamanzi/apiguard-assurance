@@ -71,8 +71,21 @@ READ_ONLY.
 | (CORS) `*` with credentials | `VIOLATION/CORS_WILDCARD_CREDENTIALS` | FIRM: browsers refuse this combination (Fetch standard), so it exposes nothing as it stands; it is a policy meant to share credentialed responses with any origin (ASVS v5.0.0-3.4.2 allows `*` only without sensitive information) |
 | (CORS) sampled endpoints send CORS headers and none allows an arbitrary origin with credentials | `ENFORCED/CORS_BOUNDED` | - |
 | (CORS) no usable answer grants any cross-origin access to the arbitrary `Origin` | `ENFORCED/ORIGIN_NOT_ALLOWED`: a browser refuses that origin the response | - |
-| (CORS) no usable answer at all to the cross-origin probe (no response, `429`, `5xx`) | `NOT_VERIFIABLE/NO_RESPONSE` | - |
-| (headers) no usable answer at all among the sampled endpoints: an answer that is no response, a `429` or a `5xx` is not the API's (it may be the gateway's own error page) and is not judged (since 2026-11-15) | `NOT_VERIFIABLE/NO_RESPONSE` | - |
+| (CORS) no usable answer at all to the cross-origin probe (each one of the table below) | `NOT_VERIFIABLE/` the reason of those answers (until 2026-11-16 always `NO_RESPONSE`) | - |
+| (headers) no usable answer at all among the sampled endpoints: an answer of the table below is not the API's (it may be the gateway's own error page) and is left out of the sample (since 2026-11-15) | `NOT_VERIFIABLE/` the reason of the answers left out (until 2026-11-16 always `NO_RESPONSE`) | - |
+
+<!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("6.2", page=cog.inFile)) ]]] -->
+
+The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
+
+| Answer | Sub-tests | Outcome / detail |
+|---|---|---|
+| `UPSTREAM_UNAVAILABLE` | every sub-test | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
+| `RATE_LIMITED` | every sub-test | `NOT_VERIFIABLE/RATE_LIMITED` |
+| `SERVER_ERROR` | every sub-test | `NOT_VERIFIABLE/SERVER_ERROR` |
+| `NO_RESPONSE` | every sub-test | `NOT_VERIFIABLE/NO_RESPONSE` |
+
+<!-- [[[end]]] -->
 
 ## 7. Outcomes
 
@@ -124,7 +137,15 @@ on it and judged present (**PASS** partial); since 2026-11-15 that answer is not
 
 **What each branch has been seen doing** (rule 9). Proven on a lab: `PRESENT` (both Forgejo labs, crAPI corrected),
 `INCONSISTENT` (crAPI before the correction), `ORIGIN_NOT_ALLOWED` (both Forgejo labs), `CORS_BOUNDED` (crAPI),
-`NO_RESPONSE` on the three sub-tests (the run above). Still unproven: `MISSING`, `CORS_ORIGIN_REFLECTED`, `CORS_WILDCARD_CREDENTIALS`.
+`NO_RESPONSE` on the three sub-tests (the run above), and on 2026-11-15 on Forgejo + Kong with a temporary change
+to `kong/kong.yml` (undone with `git checkout`, the lab checked back):
+- `MISSING` (CERTAIN): the service's `response-transformer` no longer adds `X-Content-Type-Options` and removes
+  Forgejo's own (`remove.headers`);
+- `CORS_ORIGIN_REFLECTED` (CERTAIN): a route `~/api/v1/orgs$` whose `pre-function` (`header_filter`) sends back
+  the request's `Origin` with `Access-Control-Allow-Credentials: true`;
+- `CORS_WILDCARD_CREDENTIALS` (FIRM): the same route sending `*` with `Access-Control-Allow-Credentials: true`.
+
+Every branch of this test has been seen.
 
 ## 13. Remediation
 

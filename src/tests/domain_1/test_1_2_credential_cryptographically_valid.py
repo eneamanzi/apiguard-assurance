@@ -83,14 +83,6 @@ _VARIANT_SUB: dict[JwtVariant, str] = {
     JwtVariant.STRIPPED_SIGNATURE: _SUB_STRIPPED,
 }
 
-# The answer categories that say nothing about the guarantee (rule 1).
-_SPOILING: dict[ResponseCategory, str] = {
-    ResponseCategory.UPSTREAM_UNAVAILABLE: "UPSTREAM_UNAVAILABLE",
-    ResponseCategory.RATE_LIMITED: "RATE_LIMITED",
-    ResponseCategory.NO_RESPONSE: "NO_RESPONSE",
-    ResponseCategory.SERVER_ERROR: "SERVER_ERROR",
-}
-
 _REFERENCES: tuple[Reference, ...] = (
     # Read on the ASVS source 2026-10-22: 9.1.1 "validated using their digital
     # signature ... before accepting the token's contents" (the whole test);
@@ -265,8 +257,9 @@ class Test12CredentialCryptographicallyValid(BaseTest):
         label = variant.value if spelling is None else f"{variant.value} (alg '{spelling}')"
         sub_test = _VARIANT_SUB[variant]
         category = category_of(record)
-        if category in _SPOILING:
-            self._judge(record, store, sub_test, Outcome.NOT_VERIFIABLE, _SPOILING[category])
+        uninformative = self._uninformative(record, sub_test)
+        if uninformative is not None:
+            self._judge(record, store, sub_test, Outcome.NOT_VERIFIABLE, uninformative)
             return False
         if category == ResponseCategory.SERVED:
             # The controls the finding rests on: the genuine token served at the

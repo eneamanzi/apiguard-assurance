@@ -57,7 +57,6 @@ from urllib.parse import urlsplit
 
 import structlog
 
-from src.core.assessment_test import category_of
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
@@ -77,7 +76,7 @@ from src.core.models import (
     TransportError,
 )
 from src.core.references import Fingerprint, fingerprint_of
-from src.core.test_metadata import Effect, Need, TestInfo
+from src.core.test_metadata import DecisiveAnswer, Effect, Need, TestInfo
 from src.tests.base import BaseTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -152,6 +151,15 @@ class Test04BackendWithoutTheGateway(BaseTest):
         needs=(Need.GATEWAY,),
         effect=Effect.READ_ONLY,
         sub_tests=(_SUB_ADDRESSES,),
+        decisive_answers=(
+            DecisiveAnswer(
+                category=ResponseCategory.SERVER_ERROR,
+                reason=(
+                    "a `500` through the gateway is the backend's own answer: a direct answer is "
+                    "matched against it like any other."
+                ),
+            ),
+        ),
     )
 
     def execute(
@@ -185,13 +193,17 @@ class Test04BackendWithoutTheGateway(BaseTest):
                 self._record(_SUB_ADDRESSES, Outcome.NOT_VERIFIABLE, "NO_PROBE_PATH")
                 return self._finish()
             through = self._through_gateway(client, store, probe_path)
-            if through is None:
-                self._record(_SUB_ADDRESSES, Outcome.NOT_VERIFIABLE, "TARGET_NOT_ANSWERING")
-                return self._finish()
-            if category_of(through) == ResponseCategory.UPSTREAM_UNAVAILABLE:
-                self._judge(
-                    through, store, _SUB_ADDRESSES, Outcome.NOT_VERIFIABLE, "UPSTREAM_UNAVAILABLE"
-                )
+            # The comparison must be the backend's own answer: one that says
+            # nothing (the gateway's 503, its 429, no answer) leaves nothing to
+            # match a direct answer against (until 2026-11-16 a 429 was used as
+            # the comparison, and no answer was TARGET_NOT_ANSWERING).
+            uninformative = self._uninformative(through, _SUB_ADDRESSES)
+            if through is None or uninformative is not None:
+                reason = uninformative or ResponseCategory.NO_RESPONSE.value
+                if through is None:
+                    self._record(_SUB_ADDRESSES, Outcome.NOT_VERIFIABLE, reason)
+                else:
+                    self._judge(through, store, _SUB_ADDRESSES, Outcome.NOT_VERIFIABLE, reason)
                 return self._finish()
             candidates = self._candidates(target, store)
             if candidates is None:

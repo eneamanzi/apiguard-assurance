@@ -81,10 +81,22 @@ nothing about what an operation returns.
 | the calibration cannot be trusted | `NOT_VERIFIABLE/CALIBRATION_UNRELIABLE` | - |
 | a path parameter has no value in `path_seed` | `NOT_VERIFIABLE/PATH_NOT_FILLABLE`, named in a note | - |
 | the method writes | `NOT_VERIFIABLE/WRITE_METHOD_NOT_PROBED`, named in a note | - |
-| unavailable, rate limited, no response, server error | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`, `RATE_LIMITED`, `NO_RESPONSE`, `SERVER_ERROR` | - |
 
 A `Deprecation` date in the past is not a violation: RFC 9745 says the date "may be in the past (the resource was
 deprecated at that date)". The deadline is `Sunset`'s business.
+
+<!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("0.3", page=cog.inFile)) ]]] -->
+
+The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
+
+| Answer | Sub-tests | Outcome / detail |
+|---|---|---|
+| `UPSTREAM_UNAVAILABLE` | every sub-test | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
+| `RATE_LIMITED` | every sub-test | `NOT_VERIFIABLE/RATE_LIMITED` |
+| `SERVER_ERROR` | every sub-test | `NOT_VERIFIABLE/SERVER_ERROR` |
+| `NO_RESPONSE` | every sub-test | `NOT_VERIFIABLE/NO_RESPONSE` |
+
+<!-- [[[end]]] -->
 
 ## 7. Outcomes
 
@@ -124,13 +136,29 @@ Runs of 2026-10-22, the three tests of the group together:
 All four deprecated operations of the reference lab have parameters in their path, and the old test excluded every
 path holding `{`, which is why the violation the lab holds had never been seen.
 
-**What each branch has been seen doing** (rule 9). Proven on a lab: `DEPRECATED_WITHOUT_SUNSET`,
-`WRITE_METHOD_NOT_PROBED`, and the SKIP. Still unproven: `SWITCHED_OFF`, `SUNSET_DECLARED`,
-`PAST_SUNSET_STILL_SERVED`, `DEPRECATION_WITHOUT_SUNSET`, `SUNSET_NOT_A_DATE`, `NOT_SERVED`,
-`REFUSED_BEFORE_ANSWER`, `CALIBRATION_UNRELIABLE` and the transport reasons, and `METHOD_SWITCHED_OFF` and
-`ANSWER_NOT_INTERPRETED`, not named before the inventory of 2026-11-14. `PATH_NOT_FILLABLE` was seen on
-2026-11-15 (Forgejo + Kong, the run's `target.path_seed` emptied): INCONCLUSIVE, the read not fillable and the
-three writes named.
+**The cases the labs lack, produced on 2026-11-15** (Forgejo + Kong, one temporary route at a time added to
+`forgejo-service` in `kong/kong.yml`, undone with `git checkout` and the lab checked back). The route matches the
+deprecated read as the test fills it, `~/api/v1/repos/[^/]+/[^/]+/times/user-a$`, and carries a `pre-function`:
+in its `header_filter` phase it adds a header to Forgejo's answer, in its `access` phase it answers itself.
+
+| The route | Result |
+|---|---|
+| adds `Sunset: Sat, 31 Dec 2099 23:59:59 GMT` | PASS partial, `SUNSET_DECLARED` |
+| adds `Sunset: Wed, 01 Jan 2020 00:00:00 GMT` | FAIL, `PAST_SUNSET_STILL_SERVED` (FIRM) |
+| adds `Deprecation: @1688169599` | FAIL, `DEPRECATION_WITHOUT_SUNSET` (FIRM) |
+| adds `Sunset: soon` | INCONCLUSIVE, `SUNSET_NOT_A_DATE` |
+| answers `410` | PASS partial, `SWITCHED_OFF` |
+| answers `405` | PASS partial, `METHOD_SWITCHED_OFF` |
+| answers `302` to `https://localhost:8443/` | INCONCLUSIVE, `ANSWER_NOT_INTERPRETED` |
+| answers `401`, with or without the credential | INCONCLUSIVE, `REFUSED_BEFORE_ANSWER` |
+| answers `429`, `500`, `503` | INCONCLUSIVE, `RATE_LIMITED`, `SERVER_ERROR`, `UPSTREAM_UNAVAILABLE` |
+| sleeps 7 s (the run's `target.read_timeout: 5.0`) | INCONCLUSIVE, `NO_RESPONSE` |
+| on `~/api/v1/repos/[^/]+/[^/]+/times/[^/]+$` (its random siblings too), answers `404` alike | INCONCLUSIVE, `NOT_SERVED` |
+| on the same pattern, answers `404` with a body of one of two shapes at random | INCONCLUSIVE, `CALIBRATION_UNRELIABLE` |
+
+**What each branch has been seen doing** (rule 9). Every branch of this test has been seen: on the labs as they
+stand `DEPRECATED_WITHOUT_SUNSET`, `WRITE_METHOD_NOT_PROBED` and the SKIP; `PATH_NOT_FILLABLE` with the run's
+`target.path_seed` emptied (2026-11-15); every other one with the routes of the table above.
 
 ## 13. Remediation
 

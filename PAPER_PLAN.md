@@ -182,6 +182,30 @@ the boundary and that the oracles judge correctly: always expected against obtai
 - [ ] **Branch campaign** (owner, 2026-11-15): produce on the labs every branch still unproven that the labs can
       give, fix what does not give the expected verdict, write each result in its page (rule 9 paragraph). The
       list below is taken from the pages' "Still unproven" (2026-11-15); a branch is ticked in its page, not here.
+  - Owner decision found by the campaign: the Forgejo labs' login token has no `read:admin` scope, so test 2.1's
+    admin positive control never confirms an operation on them (2.1's page). Adding the scope to the labs'
+    `forgejo-token` resource would make it work, and change those labs' 2.1 results.
+  - Progress (2026-11-15): group 1 done; group 2 done (0.2, 0.3, 1.5, 2.1, 2.2, 2.5, 6.1, 6.2 seen; 4.1 and 4.4
+    "limit read" branches unreachable with the supported gateways); group 3 done (`REPLAY_UNBOUNDED` unreachable
+    with APISIX 3.19); group 4 in progress: 0.2, 2.1 method branches and every `CALIBRATION_UNSTABLE` seen.
+    Every page says what it saw, how, and what is unreachable. Pending: 6.4's three planted-secret branches.
+  - Campaign closed (2026-11-15): no page has a branch "still unproven"; each is seen on a lab, seen off the labs,
+    or stated not reachable / not producible with its reason. Decided and done: 0.2 fixed (regex catch-all), 3.3
+    kept (owner: a policy is configured even on a disabled route), 2.1 labs given `read:admin`, 6.4 done with
+    fictitious values.
+  - Owner decisions of 2026-11-15, done the same day (owner: "4.1 e 4.4 ok", 1.1 "se pensi che rispetti i
+    paradigmi del mio tool", 6.4 "ok"); CHANGELOG under Fixed, each produced on the labs:
+    1. 4.1 and 4.4 read the gateway's limits through two neutral concepts (`rate_limits()`, requests per window of
+       seconds; `body_size_limits()`, bytes), a limit counting only for the routes that may serve the probe. 4.1's
+       CERTAIN also needs the limit exceeded within one window and a counter shared by every node (FIRM with
+       both gateways' default `local` policy); `LIMIT_ABOVE_BUDGET` became `LIMIT_NOT_REACHED`. Six variants on
+       the labs produced every branch, except the per-node case on a gateway with several nodes (the labs run
+       one; the FIRM row was exercised another way).
+    2. 1.1: the client sends a path with dot segments or a leading `//` as written (a transport that keeps the
+       request target); the three `SERVED_AS_*` produced on Forgejo + Kong; the labs' results unchanged.
+    3. 6.4: one finding per value per configuration object, naming the other keys.
+    4. Still optional, pages aligned to the code: 4.4 names a timeout `UPSTREAM_UNAVAILABLE` (other tests say
+       `NO_RESPONSE`); 1.7 keeps a guard it cannot reach (`LOGIN_NOT_ANSWERING`).
   - **Group 1, the tool's configuration or a scratch specification only (no lab change):** 1.5
     `HTTP_LISTENER_UNKNOWN`, `HTTP_PORT_UNREACHABLE`, `HTTP_PORT_NO_ANSWER`; 0.3 `PATH_NOT_FILLABLE`; 0.4
     `NO_PROBE_PATH`, `ADDRESSES_NOT_READABLE`; 1.4 the SKIP for no credential placement; 2.1

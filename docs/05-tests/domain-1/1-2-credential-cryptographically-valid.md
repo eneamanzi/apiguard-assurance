@@ -75,7 +75,19 @@ algorithm-confusion and re-signing cases are not sent: they need the public or t
 | no anchor requires the credential | `NOT_VERIFIABLE/NO_WORKING_ANCHOR` | - |
 | the placement carries no single token value | `NOT_VERIFIABLE/NO_TOKEN_VALUE` | - |
 | algorithm confusion, no public key | `NOT_VERIFIABLE/NEEDS_KEY_MATERIAL` | - |
-| unavailable, rate limited, no response, server error | `NOT_VERIFIABLE/` the reason | - |
+
+<!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("1.2", page=cog.inFile)) ]]] -->
+
+The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
+
+| Answer | Sub-tests | Outcome / detail |
+|---|---|---|
+| `UPSTREAM_UNAVAILABLE` | every sub-test | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
+| `RATE_LIMITED` | every sub-test | `NOT_VERIFIABLE/RATE_LIMITED` |
+| `SERVER_ERROR` | every sub-test | `NOT_VERIFIABLE/SERVER_ERROR` |
+| `NO_RESPONSE` | every sub-test | `NOT_VERIFIABLE/NO_RESPONSE` |
+
+<!-- [[[end]]] -->
 
 ## 7. Outcomes
 
@@ -124,8 +136,15 @@ check of the credential's value.
 **What each branch has been seen doing** (rule 9). Proven on a lab: `ACCEPTED_ALG_NONE` (crAPI, with the first
 spelling, `none`, so the other three are not sent: 2026-11-05), `REFUSED` (crAPI's tampered and stripped),
 `NEEDS_KEY_MATERIAL` (crAPI), `NOT_A_JWT` (Forgejo), and `ACCEPTED_TAMPERED_PAYLOAD` and
-`ACCEPTED_STRIPPED_SIGNATURE` (the case above). Still unproven: `NO_WORKING_ANCHOR`, `NO_TOKEN_VALUE`, the transport
-reasons.
+`ACCEPTED_STRIPPED_SIGNATURE` (the case above), and `NO_WORKING_ANCHOR` (2026-11-15, crAPI + Kong, its
+specification saved with every operation marked `security: []`, so no read genuinely requires the credential).
+The transport reasons on 2026-11-15, crAPI + Kong, a temporary route on the anchor `GET ~/workshop/api/mechanic/$`
+whose counter lets the genuine token and the request without a credential through and answers the degraded tokens
+`503`, `429`, `500`, or sleeps 7 s (the run's `target.read_timeout: 5.0`): `UPSTREAM_UNAVAILABLE`, `RATE_LIMITED`,
+`SERVER_ERROR`, `NO_RESPONSE`. Every branch of this test has been seen except `NO_TOKEN_VALUE`, which is not
+reachable (every auth method stores a value for a
+configured role, `basic` included, `base64(username:password)` in `src/tests/helpers/auth_static.py`, and without
+the role the engine skips the test for its need; measured 2026-11-15 with `auth_type: basic`: `NOT_A_JWT`, SKIP).
 
 ## 13. Remediation
 

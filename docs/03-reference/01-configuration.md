@@ -382,7 +382,7 @@ Test [4.1](../05-tests/domain-4/4-1-rate-limiting.md), Rate Limiting.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `max_burst` | int ≥2 | `150` | The largest burst the test sends before concluding there is no rate limit, when the gateway's configured limit cannot be read. The burst stops at the first 429. |
+| `max_burst` | int ≥2 | `150` | The largest burst the test sends: the burst when the gateway's limits cannot be read, and the cap of the one sized from them. The burst stops at the first 429. |
 | `probe_path` | string | `""` | The documented path to flood; empty derives the shortest documented GET. A read path, so the flood changes nothing. |
 
 ### `tests.domain_4.test_4_2`

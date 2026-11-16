@@ -82,14 +82,6 @@ _REFUSED: frozenset[ResponseCategory] = frozenset(
     {ResponseCategory.UNAUTHENTICATED, ResponseCategory.FORBIDDEN}
 )
 
-# Categories that say nothing about the guarantee (rule 1).
-_SPOILING: dict[ResponseCategory, str] = {
-    ResponseCategory.UPSTREAM_UNAVAILABLE: "UPSTREAM_UNAVAILABLE",
-    ResponseCategory.RATE_LIMITED: "RATE_LIMITED",
-    ResponseCategory.NO_RESPONSE: "NO_RESPONSE",
-    ResponseCategory.SERVER_ERROR: "SERVER_ERROR",
-}
-
 _REFERENCES: tuple[Reference, ...] = (
     # Read on the ASVS v5.0.0 source 2026-10-22: 8.1.1 (one access-control policy,
     # enforced the same everywhere).
@@ -334,8 +326,9 @@ class Test24AuthorizationConsistency(BaseTest):
             self._record(_SUB, Outcome.NOT_VERIFIABLE, "NO_RESPONSE")
             return
         category = category_of(sib_record)
-        if category in _SPOILING:
-            self._judge(sib_record, store, _SUB, Outcome.NOT_VERIFIABLE, _SPOILING[category])
+        uninformative = self._uninformative(sib_record, _SUB)
+        if uninformative is not None:
+            self._judge(sib_record, store, _SUB, Outcome.NOT_VERIFIABLE, uninformative)
             return
         if category == ResponseCategory.SERVED:
             self._judge(

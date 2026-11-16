@@ -282,8 +282,8 @@ tests:
   domain_4:
     # 4.1 Rate Limiting.
     test_4_1:
-      # The largest burst the test sends before concluding there is no rate limit, when the
-      # gateway's configured limit cannot be read.
+      # The largest burst the test sends: the burst when the gateway's limits cannot be read, and
+      # the cap of the one sized from them.
       max_burst: 150
       # The documented path to flood; empty derives the shortest documented GET.
       probe_path: ''

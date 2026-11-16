@@ -125,15 +125,6 @@ _REFUSING: frozenset[ResponseCategory] = frozenset(
     {ResponseCategory.UNAUTHENTICATED, ResponseCategory.FORBIDDEN}
 )
 
-# The answer categories that say nothing about the guarantee (rule 1). The old
-# test counted 14 endpoints answering 503 as a PASS.
-_SPOILING: dict[ResponseCategory, str] = {
-    ResponseCategory.UPSTREAM_UNAVAILABLE: "UPSTREAM_UNAVAILABLE",
-    ResponseCategory.RATE_LIMITED: "RATE_LIMITED",
-    ResponseCategory.NO_RESPONSE: "NO_RESPONSE",
-    ResponseCategory.SERVER_ERROR: "SERVER_ERROR",
-}
-
 # The header a created object's address comes in (RFC 9110 section 10.2.2).
 _LOCATION_HEADER: str = "location"
 
@@ -273,8 +264,9 @@ class Test11CredentialRequired(BaseTest):
             self._judge(record, store, _SUB_NONE, Outcome.ENFORCED, "CREDENTIAL_REQUIRED")
             enforced.append(endpoint)
             return
-        if category in _SPOILING:
-            self._judge(record, store, _SUB_NONE, Outcome.NOT_VERIFIABLE, _SPOILING[category])
+        uninformative = self._uninformative(record, _SUB_NONE)
+        if uninformative is not None:
+            self._judge(record, store, _SUB_NONE, Outcome.NOT_VERIFIABLE, uninformative)
             return
         if category == ResponseCategory.REDIRECT:
             # Not followed: a redirect may lead to a login page (the control
@@ -428,10 +420,9 @@ class Test11CredentialRequired(BaseTest):
             if category in _REFUSING:
                 self._judge(record, store, _SUB_MALFORMED, Outcome.ENFORCED, "CREDENTIAL_REFUSED")
                 continue
-            if category in _SPOILING:
-                self._judge(
-                    record, store, _SUB_MALFORMED, Outcome.NOT_VERIFIABLE, _SPOILING[category]
-                )
+            uninformative = self._uninformative(record, _SUB_MALFORMED)
+            if uninformative is not None:
+                self._judge(record, store, _SUB_MALFORMED, Outcome.NOT_VERIFIABLE, uninformative)
                 continue
             if category != ResponseCategory.SERVED:
                 self._judge(record, store, _SUB_MALFORMED, Outcome.NOT_VERIFIABLE, "NOT_SERVED")
@@ -482,10 +473,9 @@ class Test11CredentialRequired(BaseTest):
         for variant in path_variants(path):
             record = self._ask(client, method, variant.path, None, endpoint)
             category = category_of(record)
-            if category in _SPOILING:
-                self._judge(
-                    record, store, _SUB_VARIANTS, Outcome.NOT_VERIFIABLE, _SPOILING[category]
-                )
+            uninformative = self._uninformative(record, _SUB_VARIANTS)
+            if uninformative is not None:
+                self._judge(record, store, _SUB_VARIANTS, Outcome.NOT_VERIFIABLE, uninformative)
                 continue
             if category == ResponseCategory.REDIRECT:
                 # Unlike a redirect in no_credential (where it leaves open whether

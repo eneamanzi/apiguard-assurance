@@ -162,6 +162,42 @@ belongs to, an `outcome` (what it means for the guarantee: `VIOLATION`, `ENFORCE
 defined per test and listed on each test page. A request that is not judged (a login, an object created for the
 test) carries a null `outcome`.
 
+### Answers that say nothing about the guarantee
+
+The first step gives a response one of twelve categories, from its HTTP status alone
+(`categorize()` in `src/core/response_category.py`; a status the IANA registry does not list counts as its class's
+x00, as RFC 9110 section 15 asks). Generated from the code:
+
+<!-- [[[cog import generate_docs as g; cog.out(g.response_categories_table()) ]]] -->
+
+| Category | HTTP statuses | What it is | Says nothing by itself |
+|---|---|---|---|
+| `SERVED` | 200-299 | the target served the request. |  |
+| `REDIRECT` | 300-303, 305, 307-399 | the target sends the client to another address. |  |
+| `UNAUTHENTICATED` | 401, 407, 511 | the caller is not identified. |  |
+| `FORBIDDEN` | 403 | identified, but not allowed. |  |
+| `NOT_FOUND` | 404, 410 | the path does not exist. |  |
+| `METHOD_NOT_ALLOWED` | 405, 501 | the method is not supported there. |  |
+| `INVALID_REQUEST` | 400, 406, 409, 411-417, 419-428, 430-450, 452-499 | rejected because of the request's content or state. |  |
+| `RATE_LIMITED` | 429 | refused for the rate of the requests. | yes |
+| `SERVER_ERROR` | 500, 505-510, 512-599 | the application failed. | yes |
+| `UPSTREAM_UNAVAILABLE` | 502-504 | the gateway could not reach the backend, or the backend did not answer in time. | yes |
+| `NO_RESPONSE` | none: no response arrived | timeout, connection refused, TLS error, connection reset. | yes |
+| `OTHER` | 100-199, 304, 306, 402, 408, 418, 451 | rare codes never decisive alone. |  |
+
+<!-- [[[end]]] -->
+
+Four of them say nothing about any guarantee by themselves (`UNINFORMATIVE_CATEGORIES`): the gateway could not
+reach a working backend, the request was refused for its rate before anything looked at it, the application
+failed on it, or nothing answered. Every test records such an answer `NOT_VERIFIABLE` with the category as its
+detail (`NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`), through one method written once
+(`AssessmentTest._uninformative`, rule 10): a backend that is down is never read as a refusal, a throttled request
+never as a forwarded one. A sub-test whose question is that very answer declares it in `TestInfo.decisive_answers`,
+with the reason, and judges it in its own oracle: a `429` is the verdict of test 4.1, a `500` what Schemathesis
+looks for. Each test page shows the rule as it applies to that test, generated from that declaration in its
+section 6. Until 2026-11-16 each test wrote the rule itself, 24 times, and the copies differed (test 4.4 read a
+`429` as a forwarded body, several named a timeout or a `500` `UPSTREAM_UNAVAILABLE`).
+
 **Reference responses: calibration and positive controls.** An oracle that reads an HTTP response needs to know
 what the target answers in two baseline cases, or it mistakes one thing for another (a `404` because the endpoint
 does not exist, read as "access enforced"). The run builds these **reference responses** once and shares them
@@ -209,13 +245,13 @@ The contract the block-6 review built every test on; the code and the test pages
 | 1 | **Two steps of judgement.** A response gets a category from a closed list (IANA-based); each test maps categories to an outcome (`VIOLATION`, `ENFORCED`, `NOT_VERIFIABLE`, `NOT_APPLICABLE`) with a detail (`UPPER_SNAKE_CASE`): that table is its oracle. | `src/core/response_category.py`, `src/core/models/enums.py`, `BaseTest._judge` |
 | 2 | **Sub-tests and computed status.** A test declares its sub-tests; each judgement belongs to one; the status is computed from the counters (FAIL > PASS complete or partial > INCONCLUSIVE > SKIP), never chosen; a finding exactly with a `VIOLATION`. | `TestInfo.sub_tests`, `AssessmentTest._record`, `_finish`, `src/core/models/results.py` |
 | 3 | **Reference responses.** A verdict that depends on "does this exist, is this refused" rests on calibration (random siblings) and, where a credential exists, a positive control; a reference that cannot decide gives `NOT_VERIFIABLE`. | `src/core/references.py`, `TestContext.references` |
-| 4 | **Transport errors** (timeout, refused, TLS, protocol) are recorded and judged `NOT_VERIFIABLE`, never skipped. | `SecurityClientError.record`, `TransportError` |
+| 4 | **Transport errors** (timeout, refused, TLS, protocol) are recorded and judged `NOT_VERIFIABLE`, never skipped; so is every answer that says nothing about the guarantee ([above](#answers-that-say-nothing-about-the-guarantee)), unless a sub-test declares it the answer it judges. | `SecurityClientError.record`, `TransportError`, `AssessmentTest._uninformative`, `TestInfo.decisive_answers` |
 | 5 | **Derive first, configure on top.** What a test probes comes from the specification (named derivation rules, Phase 2) and the gateway, then the configuration adds or corrects; no destructive request on a derived candidate the configuration has not confirmed; sampling by a stated rule, never "the first N". | `src/discovery/derivation.py`, `AttackSurface.derived` |
 | 6 | **Evidence and confidence.** Every finding names its proof (`evidence_ref`, the record in `evidence.json`) and the references it rests on (`supporting_refs`); confidence `CERTAIN`, `FIRM` or `TENTATIVE` by stated criteria; no severity. Two findings rest on something other than one response and name no record, saying in their detail where the proof is: `1.5`'s `PLAIN_HTTP`, whose proof is the configured base URL in `config_used.yaml`, and `2.1`'s `METHOD_CONFUSION`, whose proof is the set of per-method answers in the test's transaction log. | `Finding`, `BaseTest._judge` |
 | 7 | **Effect.** `READ_ONLY`, `CHANGES_DATA` or `STRESSES_TARGET`, declared; the run order follows it; who creates cleans up or states what is left. | `TestInfo.effect`, `src/core/dag.py` |
 | 8 | **Standards.** The guarantee's other standards in `TestInfo.references`, each the standard and its official identifier (ASVS 5.0.0 L2, WSTG with its version, OWASP API Top 10 2023, RFC, NIST SP), each verified on its source. | `src/core/models/standards.py` |
 | 9 | **Three situations on the labs.** A test is trusted once seen giving the right answer where the weakness is present, where it is absent, and where the check cannot be made; a case the labs lack is produced by the crAPI case of the category, the tool's configuration, or a documented change to a lab's gateway configuration. | the page's "Validation" section |
-| 10 | **One question, one test.** Data two tests need is written once and shared (path variants, sensitive paths); the gateway's own answer is recognised by the references, not by lists of gateways. | `src/core/path_variants.py`, `src/core/sensitive_paths.py` |
+| 10 | **One question, one test.** Data two tests need is written once and shared (path variants, sensitive paths, the answers that say nothing); the gateway's own answer is recognised by the references, not by lists of gateways. | `src/core/path_variants.py`, `src/core/sensitive_paths.py`, `src/core/response_category.py` |
 | 11 | **External tools.** The oracle is the tool's own judgement of the target, never our re-reading of its output: where a tool reports named checks the check decides (`ext.3.1.schemathesis`), where it rates what it finds the rating decides (`ext.1.5.testssl`, whose severity class is the oracle with the exceptions its page states), and where it only proposes candidates the test verifies each one itself (`ext.0.1.ffuf`); only results on the target count; the tool's own problems are `NOT_VERIFIABLE`; the command shown for manual verification runs. | `src/external_tests/` |
 | 12 | **Needs and strategy.** What a test needs is declared (`TestInfo.needs`), with a minimum strategy per need; the gateway reaches only the tests that declare it. | `src/core/test_metadata.py` |
 
