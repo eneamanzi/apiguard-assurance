@@ -151,6 +151,26 @@ generated catalogue [`docs/05-tests/README.md`](docs/05-tests/README.md); `apigu
 
 ### Fixed
 
+- **Test pages that had fallen behind their code (2026-11-16).** Read against each module (the sub-tests it
+  declares, the details it writes, its finding titles), eight pages lacked something: finding titles never documented
+  (0.1, 1.1, 6.2) or documented with an old wording (0.2, 1.5 "Credential-bearing request ...", 1.6 "Session cookie
+  without ..."), details not listed (1.1's `CREDENTIAL_REFUSED`, `NOT_SERVED` and its five malformed cases, 2.2's
+  three `NO_*_OPERATION`, 7.2's four `SSRF_BLOCKED_*`). All aligned to the code.
+- **Every dependency is pinned to an exact version (2026-11-16).** The runtime dependencies used
+  `>=FLOOR,<NEXT_MAJOR` ranges and the development tools floors only, so a clean checkout, the CI's included, took
+  the newest releases: Typer 0.29 broke the checks with no change in the repository (below). `pyproject.toml` now
+  pins each one to the version verified that day (`typer==0.29.1`, `ruff==0.17.5`, ...): users, developers and the
+  CI install the same versions, and a release changes nothing until its pin is changed. Indirect dependencies are
+  not pinned. Hatch's own lockfiles (1.17+) were tried and left out: syncing from the lock removed the project's
+  development install, and `hatch env lock --check` fails as soon as a newer compatible release appears
+  ([pypa/hatch#2406](https://github.com/pypa/hatch/issues/2406), open).
+- **The CI failed since 2026-11-15 on a new Typer (2026-11-16).** Typer 0.29 carries its own copy of Click, and the
+  objects it builds for a command no longer have `type`, `make_metavar` or `human_readable_name`: the generator of
+  the CLI reference read them, so mypy, and then the generation itself, failed on every clean checkout (Python
+  3.11 and 3.14, the runs of `polishing docs` and of the next commit; the last green run had Typer 0.27). The tool
+  itself was not affected (the package job passed). The generator now reads the commands' declarations
+  (`typer.Option`, `typer.Argument` in `src/cli.py`), the same with either Typer: the CLI reference is unchanged, and
+  `dev:check` passes on a clean checkout with Python 3.11 and 3.14 and the latest dependencies.
 - **One rule for the answers that say nothing about a guarantee (2026-11-16).** Each test wrote for itself which
   answers to record `NOT_VERIFIABLE` (the gateway unable to reach the backend, a `429`, a `500`, no answer), 24
   times, and the copies differed: test 4.4 read a `429` as a forwarded body (`VIOLATION/NO_SIZE_LIMIT`, produced on

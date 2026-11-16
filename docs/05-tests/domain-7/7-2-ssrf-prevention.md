@@ -82,7 +82,7 @@ never an unproven violation. This is a permanent boundary of the test, not a gap
 
 | Case | Outcome / detail |
 |---|---|
-| rejected (`4xx` other than `429`) and the benign control was accepted | `ENFORCED/SSRF_BLOCKED_{SCHEME,MALFORMED,VALIDATION,UNKNOWN}` |
+| rejected (`4xx` other than `429`) and the benign control was accepted | `ENFORCED/SSRF_BLOCKED_SCHEME`, `SSRF_BLOCKED_MALFORMED`, `SSRF_BLOCKED_VALIDATION` or `SSRF_BLOCKED_UNKNOWN`, by how the rejection reads |
 | a `401`, a redirect (not followed) or a `404`: not a rejection of the URL (the credential refused, an answer not read, perhaps the fetched page's own `404`) | `NOT_VERIFIABLE/CREDENTIAL_REFUSED`, `REDIRECTED`, `NOT_FOUND` |
 | rejected (`4xx`) but the benign control was also rejected | `NOT_VERIFIABLE/BASELINE_REJECTED` |
 | accepted (`2xx`) | `NOT_VERIFIABLE/OUTBOUND_NOT_CONFIRMED` |

@@ -105,7 +105,8 @@ any violation; PASS when nothing answers the HTTP request and the HSTS header is
 ## 8. Findings
 
 - "The API is served over plain HTTP" (PLAIN_HTTP), config-level, no `evidence_ref`;
-- "Credential-bearing request accepted over plain HTTP: `<origin><path>`", `evidence_ref` the HTTP probe;
+- "API request accepted over plain HTTP: `<origin><path>`" (the request served or processed in cleartext) and "API
+  endpoint redirects plain HTTP to HTTPS: `<origin><path>`" (`TRANSPARENT_REDIRECT`), `evidence_ref` the HTTP probe;
 - "No HSTS header on the API response" / "HSTS max-age is below the bound" / "HSTS does not cover subdomains",
   `evidence_ref` the HTTPS probe.
 

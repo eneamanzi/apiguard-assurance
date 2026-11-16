@@ -100,7 +100,9 @@ thought about. Measured 2026-10-22: crAPI declares per operation (9 of its opera
 | answers "not found" in its own shape | `NOT_VERIFIABLE/NOT_FOUND_OWN_ANSWER` | - |
 | answers `400` or `422`: the request was validated without a credential | `NOT_VERIFIABLE/VALIDATED_WITHOUT_CREDENTIAL` | - |
 | answers `3xx`, not followed | `NOT_VERIFIABLE/REDIRECTED` | - |
-| a credential that cannot be valid is accepted | `VIOLATION/ACCEPTED_<case>` | CERTAIN |
+| a credential that cannot be valid is accepted | `VIOLATION/ACCEPTED_<case>`, the case one of `EMPTY_CREDENTIAL`, `WORD_NULL`, `ARBITRARY_STRING` (the scheme followed by nothing, by `null`, by a random string) or `HEADER_LOWERCASE`, `HEADER_UPPERCASE` (the random string under the header name written in lower or upper case) | CERTAIN |
+| a credential that cannot be valid is refused (`401`, `403`) | `ENFORCED/CREDENTIAL_REFUSED` | - |
+| it is neither refused nor served (another answer) | `NOT_VERIFIABLE/NOT_SERVED` | - |
 | a path variant is served without a credential | `VIOLATION/SERVED_AS_<kind>` | CERTAIN |
 | a variant is refused or not routed | `ENFORCED/VARIANT_NOT_SERVED` | - |
 | a variant answers `3xx`, not followed | `ENFORCED/VARIANT_REDIRECTED`: the question is whether that spelling serves the operation, and a redirect serves nothing (a redirect of the endpoint itself is `REDIRECTED` above, because there it leaves open whether the control is a login page) | - |
@@ -130,8 +132,9 @@ is rule 2 of the [assessment model](../../04-architecture/03-assessment-model.md
 ## 8. Findings
 
 One per operation: "Served without a credential: `<method> <path>`", with the status, where the requirement is
-declared and what each of the two cases means; one per accepted malformed credential and per served variant, with
-the header or the spelling that passed. `evidence_ref` the probe, `supporting_refs` the calibration where one was
+declared and what each of the two cases means; one per accepted malformed credential ("Credential that cannot be
+valid accepted: `<method> <path>`") and per served variant ("Path variant served without a credential: `<method>
+<variant>`"), with the header or the spelling that passed. `evidence_ref` the probe, `supporting_refs` the calibration where one was
 used.
 
 ## 9. Effects on the target
@@ -247,8 +250,8 @@ The results of the three labs did not change (1.1 FAIL, 78, 78 and 2 findings). 
 lab checked back), `path_variants` reports `SERVED_AS_DOUBLE_SLASH`, `SERVED_AS_DOT_SEGMENT` and
 `SERVED_AS_DOT_DOT_SEGMENT`, CERTAIN, with the five other variants `VARIANT_NOT_SERVED`. Every branch of this test has
 now been seen.
-`CREDENTIAL_REFUSED` is the enforced detail of the malformed credentials (`src/tests/domain_1/test_1_1_credential_required.py`),
-which the table in section 6 does not list.
+`CREDENTIAL_REFUSED` is the enforced detail of the malformed credentials (`src/tests/domain_1/test_1_1_credential_required.py`);
+the table in section 6 lists it since 2026-11-16, when the generator began checking the pages against the code.
 
 Runs of the branch inventory (2026-11-14), Forgejo + Kong:
 - the lab's specification saved to a file with its global `security` removed (no operation declares its own):

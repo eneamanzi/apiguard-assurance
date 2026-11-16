@@ -79,7 +79,7 @@ is user_a's own, created and destroyed within the run.
 | user_b refused in the same category as the forged credential, or 401 when the control says nothing: user_b's credential may not have been accepted | `NOT_VERIFIABLE/CREDENTIAL_NOT_CONFIRMED` | - |
 | any other answer (400 or 422 from body validation, 405, a redirect): not a refusal of the user | `NOT_VERIFIABLE/NOT_A_REFUSAL` | - |
 | user_a not served its own object | `NOT_VERIFIABLE/OWNER_NOT_SERVED` | - |
-| no read / modify / delete operation on the object | `NOT_APPLICABLE/NO_*_OPERATION` | - |
+| no read / modify / delete operation on the object | `NOT_APPLICABLE/NO_READ_OPERATION`, `NO_MODIFY_OPERATION`, `NO_DELETE_OPERATION` | - |
 | the prepared resource did not create the object (on crAPI, a worn lab answers `400 Insufficient Balance`) | `NOT_VERIFIABLE/OBJECT_NOT_CREATED` | - |
 
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("2.2", page=cog.inFile)) ]]] -->

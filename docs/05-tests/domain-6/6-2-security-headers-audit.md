@@ -95,7 +95,8 @@ across the sample.
 ## 8. Findings
 
 "X-Content-Type-Options: nosniff missing/inconsistent", "Clickjacking protection ... missing/inconsistent", "Unsafe
-CORS: an arbitrary origin is allowed with credentials", each naming how many sampled endpoints and an example. The
+CORS: an arbitrary origin is allowed with credentials" (`CORS_ORIGIN_REFLECTED`), "CORS allows any origin ('*')
+together with credentials" (`CORS_WILDCARD_CREDENTIALS`), each naming how many sampled endpoints and an example. The
 proof (`evidence_ref`) is the response of that example endpoint, and for CORS the answer to the cross-origin probe on
 it. Until 2026-11-03 it was the last response sampled, which for an inconsistent header could be an endpoint that
 carries it: crAPI's two findings named `/community/api/v2/community/posts/recent` and pointed at

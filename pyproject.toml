@@ -76,18 +76,18 @@ classifiers = [
 
 # Runtime dependencies — grouped by architectural layer for traceability.
 #
-# Pinning policy ("moderate with tested floor")
+# Pinning policy (exact versions, 2026-11-16)
 # ---------------------------------------------
-# Each dependency uses ">=FLOOR,<NEXT_MAJOR" where:
-#   • FLOOR is the version actually used to develop and validate Milestone 1
-#     (see docs/project/audit-v0.1.0.md, "Versions matrix" appendix).
-#   • NEXT_MAJOR blocks an unintended jump into a major release that may
-#     introduce breaking changes (e.g. pydantic 3.0, rich 16.0).
-# This keeps the package installable side-by-side with other libraries (the
-# floor is wide enough), while protecting reproducibility of the thesis run.
-# prance is the sole strict exception: it is pinned to an exact version ("==")
-# because src/discovery/openapi.py accesses prance's internal attribute
-# _ResolvingParser__reference_cache via Python name-mangling. This is a
+# Every dependency, of the tool and of the dev environment, is pinned to the
+# exact version verified ("=="): users, the developers and the CI install the
+# same versions, and a new release changes nothing until it is pinned here.
+# Until 2026-11-16 the ranges ">=FLOOR,<NEXT_MAJOR" let a clean checkout take
+# the newest release, and Typer 0.29 broke the checks with no change in the
+# repository. Indirect dependencies are not pinned. To move a dependency:
+# change its pin, recreate the environments (hatch env prune), run dev:check
+# and the lab checks.
+# prance in particular must stay pinned because src/discovery/openapi.py
+# accesses prance's internal attribute _ResolvingParser__reference_cache via Python name-mangling. This is a
 # documented workaround for prance's lack of a public API for skipping backend
 # validation (required to handle Swagger 2.0 specs that use "type: file").
 # Any refactoring of prance's internals in a new release could silently break
@@ -97,22 +97,21 @@ classifiers = [
 dependencies = [
     # HTTP client: async-capable, used exclusively via SecurityClient wrapper.
     # No test module is allowed to import httpx directly.
-    "httpx>=0.28,<1",
+    "httpx==0.28.1",
 
     # Data validation and settings management (Pydantic v2 only).
     # TargetContext uses model_config = {"frozen": True}.
-    "pydantic>=2.12,<3",
-    "pydantic-settings>=2.13,<3",
+    "pydantic==2.14.3",
+    "pydantic-settings==2.16.3",
     # TypeVar with a default (PEP 696, in typing only from Python 3.13): a test
     # without parameters writes BaseTest alone (src/core/assessment_test.py).
     # Already required by pydantic (>=4.14.1).
-    "typing-extensions>=4.14.1,<5",
+    "typing-extensions==4.16.0",
 
     # YAML parsing for config.yaml loading.
-    "PyYAML>=6.0,<7",
+    "PyYAML==6.0.3",
 
     # OpenAPI spec fetching and $ref dereferencing.
-    # PINNED to exact version — see "Pinning policy" note above.
     # Accessing _ResolvingParser__reference_cache is a name-mangled internal
     # attribute of prance.ResolvingParser. Any change to prance's internals
     # in a new release may break Phase 2 with AttributeError.
@@ -121,40 +120,40 @@ dependencies = [
     "prance==25.4.8.0",
 
     # OpenAPI spec structural validation (dialect-aware: OAS 3.0.x / 3.1.x).
-    "openapi-spec-validator>=0.8,<1",
+    "openapi-spec-validator==0.9.0",
 
     # Structured logging (JSON output, bound context propagation).
     # No module uses print() or stdlib logging directly.
-    "structlog>=25,<26",
+    "structlog==25.5.0",
 
     # Rich terminal output for CLI progress and status display.
-    "rich>=14,<16",
+    "rich==15.0.0",
 
     # CLI framework: declarative argument parsing with type safety.
-    "typer>=0.24,<1",
+    "typer==0.29.1",
 
     # Jinja2 for HTML report rendering from templates.
-    "Jinja2>=3.1,<4",
+    "Jinja2==3.1.6",
 
     # Retry logic with exponential backoff for SecurityClient.
-    "tenacity>=9,<10",
+    "tenacity==9.2.1",
 
     # Certificate trust of every connection (docs/04-architecture/05-design-decisions.md, D2):
     # the operating system's store through truststore, plus certifi's list (as pip does
     # since 24.2), unless a connection sets its own ca_bundle.
-    "truststore>=0.10,<1",
-    "certifi>=2024.2.2",
+    "truststore==0.10.5",
+    "certifi==2026.10.23",
 
     # Environment variable loading from .env files.
     # Called once at process startup in cli.py — not in loader.py.
-    "python-dotenv>=1.2,<2",
+    "python-dotenv==1.2.4",
 
     # Transitive pin: urllib3 is reached via prance → requests → urllib3.
     # 2.7.0 fixes CVE-2026-44431 (cross-origin redirect header leak in
     # ProxyManager.connection_from_url) and CVE-2026-44432 (Brotli/drain_conn
     # over-decompression).  Neither code path is exercised by the tool, but the
     # pin is held here to keep `pip-audit` clean for thesis reproducibility.
-    "urllib3>=2.7,<3",
+    "urllib3==2.8.0",
 ]
 
 # ---------------------------------------------------------------------------
@@ -183,7 +182,7 @@ schemathesis = [
     # ext.3.1.schemathesis: generates valid and invalid inputs from the OpenAPI
     # specification and flags server errors and schema non-conformance.
     # Install via:  pip install -e ".[schemathesis]"
-    "schemathesis>=3.39,<4",
+    "schemathesis==3.39.16",
 ]
 
 [project.scripts]
@@ -258,44 +257,45 @@ exclude = [
 # ---------------------------------------------------------------------------
 [tool.hatch.envs.default]
 
+
 # ---------------------------------------------------------------------------
 # Development dependencies: tooling only, never imported at runtime.
 # ---------------------------------------------------------------------------
 [tool.hatch.envs.dev]
 dependencies = [
     # End-to-end test runner against real target (no mocks).
-    "pytest>=8.2",
-    "pytest-asyncio>=0.23",
+    "pytest==8.4.2",
+    "pytest-asyncio==1.5.0",
 
     # HTTP response recording for E2E test fixtures (optional, real server only).
-    "pytest-httpx>=0.30",
+    "pytest-httpx==0.35.0",
 
     # Static type checking.
-    "mypy>=1.10",
-    "types-PyYAML>=6.0.12",
+    "mypy==2.4.1",
+    "types-PyYAML==6.0.12.20261113",
 
     # Linter and formatter (replaces flake8 + isort + black).
-    "ruff>=0.4",
+    "ruff==0.17.5",
 
     # Security static analysis. [toml] extra required to read [tool.bandit]
     # from this file; without it bandit ignores the section entirely.
-    "bandit[toml]>=1.7",
+    "bandit[toml]==1.9.4",
 
     # Dead code detection.
-    "vulture>=2.11",
+    "vulture==2.16",
 
     # Dependency vulnerability scanning against PyPI Advisory DB and OSV.
     # Run with: hatch run dev:deps
-    "pip-audit>=2.7",
+    "pip-audit==2.10.1",
 
     # Dependency rules between src/ packages ([tool.importlinter] below).
     # Run by: hatch run dev:check
-    "import-linter>=2.15,<3",
+    "import-linter==2.16",
 
     # Writes the generated parts of the documentation between markers in the
     # files, run by scripts/generate_docs.py: hatch run dev:gen writes them, dev:check
     # checks them (block 10b, docs/04-architecture/05-design-decisions.md, D8).
-    "cogapp>=3.6,<4",
+    "cogapp==3.6.1",
 ]
 
 # ---------------------------------------------------------------------------

@@ -216,6 +216,9 @@ hatch run dev:gen     # rewrite the generated documentation (python scripts/gene
 hatch run dev:deps    # pip-audit              (run before any release)
 ```
 
+The dependencies are pinned to exact versions in `pyproject.toml` ([Python dependencies](../03-reference/06-compatibility.md#python-dependencies)).
+To move one: change its pin, `hatch env prune`, `hatch run dev:check`, then the lab checks.
+
 What `dev:check` runs, in order (`[tool.hatch.envs.dev.scripts]` in `pyproject.toml`):
 
 | Step | Checks | When it fails |
@@ -236,10 +239,10 @@ mypy src/
 ```
 
 **On GitHub** (`.github/workflows/check.yml`), on every push and pull request: `hatch run dev:check` on Python 3.11
-and 3.14 (the range of `requires-python`), and the package job: `hatch build -t wheel dist`, the wheel installed in
-an empty environment, `apiguard version` and `apiguard list-tests` run outside the repository. The result is on the
-repository's Actions tab and next to each commit. To check the workflow file itself:
-`pip install actionlint-py && actionlint .github/workflows/check.yml`.
+and 3.14 (the range of `requires-python`), with the pinned versions, and the package job: `hatch build
+-t wheel dist`, the wheel installed in an empty environment, `apiguard version` and
+`apiguard list-tests` run outside the repository. The results are on the repository's Actions tab and next to each commit. To check the workflow
+file: `pip install actionlint-py && actionlint .github/workflows/check.yml`.
 
 
 ## Kong Configuration Changes

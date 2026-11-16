@@ -163,8 +163,10 @@ runs and `gateway_route_drift` is `NOT_APPLICABLE`.
 
 ## 8. Findings
 
-One per path and undeclared method, per undocumented version, per route without documentation. Each carries its
-proof: the test's own request (`evidence_ref`), the calibration probes for a version (`supporting_refs`), the
+One per path and undeclared method ("Undeclared method handled: `<method> <path>`" when it is served, "Undeclared
+method known: `<method> <path>`" when it answers otherwise than its random siblings), per undocumented version
+("Undocumented API version answers: `<method> <path>`"), per route without documentation ("Gateway route without
+documented paths: `<route>`"), and for an echoed TRACE ("TRACE enabled: `<path>`"). Each carries its proof: the test's own request (`evidence_ref`), the calibration probes for a version (`supporting_refs`), the
 routes read for a route.
 
 ## 9. Effects on the target

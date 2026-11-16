@@ -14,6 +14,9 @@ The project uses two Hatch environments, both created on first use:
 | `default` | `hatch run apiguard ...`, `hatch shell` | the tool and its runtime dependencies (optional connectors, e.g. `[schemathesis]`, are installed on demand) |
 | `dev` | `hatch run dev:<script>`, `hatch shell dev` | the tool plus ruff, mypy, bandit, vulture, pip-audit |
 
+Both install the exact versions pinned in `pyproject.toml`, the same as the CI. After a pin changes, run
+`hatch env prune` once so that the next command installs it.
+
 ## Before you write code
 
 - [Coding rules](docs/02-guides/03-extending/01-coding-rules.md): style, types, constants, architecture, errors and logging.

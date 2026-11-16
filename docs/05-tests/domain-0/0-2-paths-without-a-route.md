@@ -130,7 +130,8 @@ sub-test's status follows from its judgements is rule 2 of the
 
 ## 8. Findings
 
-One per route path: "Answered without a route: GET `<path>`", with the status, the route it sits next to, that
+When the gateway's own refusal is a `2xx`: "A path with no route is served" (`SERVED_WITHOUT_ROUTE`), its proof
+the refusal's probes. One per route path: "Answered without a route: GET `<path>`", with the status, the route it sits next to, that
 route's path and match type, and its backend; `evidence_ref` the probe, `supporting_refs` the refusal's two probes.
 
 ## 9. Effects on the target

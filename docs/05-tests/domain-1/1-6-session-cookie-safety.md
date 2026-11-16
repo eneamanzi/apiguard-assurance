@@ -85,7 +85,7 @@ cookie has nothing to judge here. Both lab applications answer a login with a to
 
 ## 8. Findings
 
-One per missing attribute, per cookie: "Session cookie without `<attribute>`: `<name>`", with what the attribute
+One per missing attribute, per cookie: "Login cookie without `<attribute>`: `<name>`", with what the attribute
 protects against; `evidence_ref` the login record, which is pinned as evidence. Each finding cites the catalogue
 entry of its own attribute.
 

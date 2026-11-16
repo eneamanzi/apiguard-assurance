@@ -301,8 +301,14 @@ found on PATH or, when the environment is not activated, beside the Python runni
 
 ## Python dependencies
 
-Runtime dependencies use `>=FLOOR,<NEXT_MAJOR` ranges (`pyproject.toml`), except `prance`, pinned exactly
-(`==25.4.8.0`) because the discovery layer relies on one of its internal attributes.
+Every dependency, of the tool and of the development environment, is pinned to the exact version verified
+(`==` in `pyproject.toml`): a user who installs the wheel, the developers and the CI install the same versions, and
+a new release changes nothing until its pin is changed. Until 2026-11-16 the runtime dependencies used
+`>=FLOOR,<NEXT_MAJOR` ranges and the development tools floors only, so a clean checkout took the newest releases,
+and Typer 0.29 broke the checks with no change in the repository. `prance` was pinned already: the discovery layer
+relies on one of its internal attributes. Indirect dependencies (those the pinned packages require) are not pinned.
+Installed in the environment of another Python program, these exact pins can conflict with that program's own;
+they are then the ones to relax.
 
 ## Interface stability
 

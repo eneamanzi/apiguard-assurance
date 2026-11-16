@@ -67,7 +67,6 @@ from pathlib import Path
 from typing import Any
 
 import structlog
-import typer.main
 import yaml
 from annotated_types import Ge, Gt, Le, Lt
 from pydantic import AnyHttpUrl, BaseModel, JsonValue
@@ -114,7 +113,7 @@ from src.report.builder import (
     TestResultRow,
 )
 from src.tests.registry import TestRegistry
-from typer.core import TyperArgument, TyperCommand, TyperOption
+from typer.models import ArgumentInfo, OptionInfo
 
 # Discovery logs every test at debug level: keep Cog's output to the generated text.
 structlog.configure(wrapper_class=structlog.make_filtering_bound_logger(logging.WARNING))
@@ -1374,58 +1373,121 @@ def exceptions_table() -> str:
 _PROGRAM: str = "apiguard"
 
 
-def _command(name: str) -> TyperCommand:
-    """A command of the CLI, as Typer builds it from src/cli.py."""
-    command = typer.main.get_command(cli_app).commands[name]  # type: ignore[attr-defined]
-    if not isinstance(command, TyperCommand):
-        raise TypeError(f"{name}: not a Typer command")
-    return command
+@dataclass(frozen=True)
+class _CliParameter:
+    """An argument or option of a command, as src/cli.py declares it."""
+
+    name: str
+    info: OptionInfo | ArgumentInfo
+    annotation: Any
+    default: Any
+
+    @property
+    def is_argument(self) -> bool:
+        """Whether it is a positional argument (typer.Argument)."""
+        return isinstance(self.info, ArgumentInfo)
+
+    @property
+    def is_flag(self) -> bool:
+        """Whether it is an option without a value (a bool)."""
+        return not self.is_argument and self.annotation is bool
+
+    @property
+    def options(self) -> tuple[list[str], list[str]]:
+        """The option's names, and the names that turn a flag off (--banner / --no-banner)."""
+        primary: list[str] = []
+        secondary: list[str] = []
+        # In an Annotated declaration Typer reads the first name as the
+        # option's "default" (typer.Option(default, *param_decls)) and moves it
+        # back among the names: the same here.
+        first = self.info.default
+        named = [first] if isinstance(first, str) and first.startswith("-") else []
+        for declaration in [*named, *(self.info.param_decls or ())]:
+            on, _, off = declaration.partition("/")
+            primary.append(on)
+            if off:
+                secondary.append(off)
+        return primary or [f"--{self.name.replace('_', '-')}"], secondary
 
 
-def _parameters(command: TyperCommand) -> list[TyperArgument | TyperOption]:
-    """The arguments and options of a command, in declaration order (without --help)."""
-    return [
-        p for p in command.params if isinstance(p, TyperArgument | TyperOption) and p.name != "help"
-    ]
+def _parameters(name: str) -> list[_CliParameter]:
+    """
+    The arguments and options of a command, in declaration order.
+
+    Read from the command's function in src/cli.py (its Annotated typer.Option
+    and typer.Argument), not from the objects Typer builds from it: those are
+    Typer's internals, which changed shape in Typer 0.29 (it vendors Click).
+    """
+    command = next(c for c in cli_app.registered_commands if c.name == name)
+    callback = command.callback
+    if callback is None:
+        raise TypeError(f"{name}: a command without a function")
+    hints = typing.get_type_hints(callback, include_extras=True)
+    parameters: list[_CliParameter] = []
+    for parameter in inspect.signature(callback).parameters.values():
+        hint = hints[parameter.name]
+        declared = [a for a in typing.get_args(hint) if isinstance(a, OptionInfo | ArgumentInfo)]
+        if not declared:
+            continue
+        annotation = typing.get_args(hint)[0]
+        concrete = [a for a in typing.get_args(annotation) if a is not type(None)]
+        parameters.append(
+            _CliParameter(
+                name=parameter.name,
+                info=declared[0],
+                annotation=concrete[0] if concrete else annotation,
+                default=None if parameter.default is inspect.Parameter.empty else parameter.default,
+            )
+        )
+    return parameters
 
 
-def _value(parameter: TyperArgument | TyperOption, command: TyperCommand) -> str:
+def _metavar(parameter: _CliParameter) -> str:
+    """The word a value is shown by, as Typer shows it: FILE, DIRECTORY, PATH, FLOAT, TEXT."""
+    if parameter.annotation is Path:
+        file_okay, dir_okay = parameter.info.file_okay, parameter.info.dir_okay
+        if file_okay and not dir_okay:
+            return "FILE"
+        if dir_okay and not file_okay:
+            return "DIRECTORY"
+        return "PATH"
+    return {float: "FLOAT", int: "INTEGER"}.get(parameter.annotation, "TEXT")
+
+
+def _value(parameter: _CliParameter) -> str:
     """What a parameter takes: its values, a file, a number range; '' for a flag."""
-    if isinstance(parameter, TyperArgument) or (
-        isinstance(parameter, TyperOption) and parameter.is_flag
-    ):
+    if parameter.is_argument or parameter.is_flag:
         return ""
-    choices = getattr(parameter.type, "choices", None)
-    if choices:
-        return " \\| ".join(f"`{choice}`" for choice in choices)
-    low, high = getattr(parameter.type, "min", None), getattr(parameter.type, "max", None)
+    annotation = parameter.annotation
+    if isinstance(annotation, type) and issubclass(annotation, Enum):
+        return " \\| ".join(f"`{member.value}`" for member in annotation)
+    low, high = parameter.info.min, parameter.info.max
     if low is not None or high is not None:
-        kind = "number" if parameter.type.name.startswith("float") else "int"
+        kind = "number" if annotation is float else "int"
         return f"{kind} {_number(low)}-{_number(high)}"
-    metavar = parameter.make_metavar(
-        command.make_context(command.name or "", [], resilient_parsing=True)
-    )
-    return metavar.strip("<>").upper() if metavar else ""
+    return _metavar(parameter)
 
 
-def _names(parameter: TyperArgument | TyperOption) -> str:
+def _names(parameter: _CliParameter) -> str:
     """The parameter as typed: --config, -c; --banner / --no-banner; SPEC."""
-    if isinstance(parameter, TyperArgument):
-        return f"`{parameter.human_readable_name.upper()}`"
-    names = ", ".join(f"`{name}`" for name in parameter.opts)
-    if parameter.secondary_opts:
-        names += " / " + ", ".join(f"`{name}`" for name in parameter.secondary_opts)
+    if parameter.is_argument:
+        return f"`{parameter.name.upper()}`"
+    primary, secondary = parameter.options
+    names = ", ".join(f"`{name}`" for name in primary)
+    if secondary:
+        names += " / " + ", ".join(f"`{name}`" for name in secondary)
     return names
 
 
-def _option_default(parameter: TyperArgument | TyperOption) -> str:
+def _option_default(parameter: _CliParameter) -> str:
     """The default of a parameter for a table cell (its show_default text when it has one)."""
-    if isinstance(parameter, TyperOption) and isinstance(parameter.show_default, str):
-        return parameter.show_default
+    if isinstance(parameter.info.show_default, str):
+        return parameter.info.show_default
     value = parameter.default
-    if isinstance(parameter, TyperOption) and parameter.is_flag:
-        if parameter.secondary_opts:
-            return f"`{parameter.opts[0] if value else parameter.secondary_opts[0]}`"
+    if parameter.is_flag:
+        primary, secondary = parameter.options
+        if secondary:
+            return f"`{primary[0] if value else secondary[0]}`"
         return "off" if not value else "on"
     if isinstance(value, Enum):
         value = value.value
@@ -1444,19 +1506,17 @@ def cli_synopsis(name: str) -> str:
     Returns:
         Markdown: a code block with the syntax.
     """
-    command = _command(name)
     parts = [_PROGRAM, name]
-    for parameter in _parameters(command):
-        if isinstance(parameter, TyperArgument):
-            word = parameter.human_readable_name.upper()
-            parts.append(word if parameter.required else f"[{word}]")
+    for parameter in _parameters(name):
+        if parameter.is_argument:
+            word = parameter.name.upper()
+            parts.append(f"[{word}]" if parameter.default is None else word)
             continue
-        value = _value(parameter, command)
-        flag = parameter.opts[0] + (
-            f"|{parameter.secondary_opts[0]}" if parameter.secondary_opts else ""
-        )
+        primary, secondary = parameter.options
+        flag = primary[0] + (f"|{secondary[0]}" if secondary else "")
         value = (
-            value.replace("`", "")
+            _value(parameter)
+            .replace("`", "")
             .replace(" \\| ", "|")
             .removeprefix("number ")
             .removeprefix("int ")
@@ -1476,17 +1536,11 @@ def cli_options(name: str) -> str:
     Returns:
         Markdown: one row per argument or option.
     """
-    command = _command(name)
     lines = ["| Option | Value | Default | Description |", "|---|---|---|---|"]
-    for parameter in _parameters(command):
-        help_text = (
-            parameter.help
-            if isinstance(parameter, TyperOption)
-            else (getattr(parameter, "help", None) or "")
-        )
+    for parameter in _parameters(name):
         lines.append(
-            f"| {_names(parameter)} | {_value(parameter, command)} | {_option_default(parameter)} "
-            f"| {_cell(help_text or '')} |"
+            f"| {_names(parameter)} | {_value(parameter)} | {_option_default(parameter)} "
+            f"| {_cell(parameter.info.help or '')} |"
         )
     return _block(lines)
 
