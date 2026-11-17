@@ -474,8 +474,9 @@ class SecurityClient:
             # request, absent from the evidence. A session cookie there would
             # authenticate the probes a test sends *without* a credential (1.1,
             # 1.2, 1.3) and carry one role's session into another's request
-            # (2.2). A cookie is never a credential for this tool, so nothing
-            # needs the jar; test 1.6 judges the Set-Cookie of the response,
+            # (2.2). A credential kept in a cookie is sent by the test itself,
+            # where the credential placement says (send_as: in cookie), never
+            # through the jar, so nothing needs it; test 1.6 judges the Set-Cookie of the response,
             # which is recorded as evidence and not touched by this. Refusing
             # every cookie at the jar replaces clearing it after each request,
             # which raced between the threads of test 7.3.
@@ -513,7 +514,7 @@ class SecurityClient:
         test_id: str,
         headers: dict[str, str] | None = None,
         json: object | None = None,
-        content: bytes | None = None,
+        content: bytes | tuple[bytes, ...] | None = None,
         params: dict[str, Any] | None = None,
         origin: str | None = None,
     ) -> tuple[httpx.Response, EvidenceRecord]:
@@ -546,8 +547,11 @@ class SecurityClient:
                      EvidenceRecord (enforced by EvidenceRecord's validator).
             json: Optional request body, serialized to JSON by httpx.
                   Mutually exclusive with content.
-            content: Optional raw request body as bytes.
-                     Mutually exclusive with json.
+            content: Optional raw request body: bytes, sent with its
+                     Content-Length; or a tuple of chunks, sent with
+                     Transfer-Encoding: chunked and no length (a tuple, not an
+                     iterator, so that a retry sends it again). Mutually
+                     exclusive with json.
             params: Optional query string parameters.
             origin: Another scheme, host and port to send this path to, e.g.
                     "http://10.0.0.7:3000", instead of the target's base_url.
@@ -733,7 +737,7 @@ class SecurityClient:
         display_url: str,
         headers: dict[str, str],
         json: object | None,
-        content: bytes | None,
+        content: bytes | tuple[bytes, ...] | None,
         params: dict[str, Any] | None,
         as_written: bytes | None,
         bound_log: structlog.BoundLogger,

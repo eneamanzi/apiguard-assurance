@@ -85,7 +85,7 @@ from src.core.models import (
 )
 from src.core.path_variants import path_variants
 from src.core.references import Similarity, random_sibling_path
-from src.core.test_metadata import Effect, TestInfo
+from src.core.test_metadata import Effect, OracleCase, TestInfo
 from src.tests.base import BaseTest
 from src.tests.helpers.path_resolver import resolve_path_with_seed
 
@@ -99,6 +99,7 @@ _SUB_VARIANTS: str = "path_variants"
 # The methods that change nothing: they are probed on the path as the operator
 # seeded it, so that the request reaches the control instead of a 404.
 _SAFE_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
+_OPTIONS: str = "OPTIONS"
 
 # The credential values that cannot be valid, each with the detail it is
 # recorded under. They are sent **where and how the target expects a
@@ -138,12 +139,156 @@ _NOTE_EXAMPLES: int = 12
 # authentication credentials", which covers the malformed ones. An earlier
 # version cited ASVS 6.2.1, which is the minimum length of a password, and
 # NIST SP 800-63B section 3.2.2, which is throttling: both wrong here.
+# ASVS 6.3.4 (cited until 2026-11-16) is about undocumented authentication
+# pathways, not spellings of a path: CWE-288 (an alternate path) is the variants'.
 _REFERENCES: tuple[Reference, ...] = (
     Reference(standard=Standard.OWASP_API_TOP10, id="API2:2023"),
     Reference(standard=Standard.ASVS, id="v5.0.0-8.2.1"),
-    Reference(standard=Standard.ASVS, id="v5.0.0-6.3.4"),
+    Reference(standard=Standard.CWE, id="CWE-288"),
     Reference(standard=Standard.NIST_SP, id="800-228", section="3.2.1"),
     Reference(standard=Standard.RFC, id="9110", section="5.1"),
+)
+
+_ORACLE: tuple[OracleCase, ...] = (
+    OracleCase(
+        sub_test=_SUB_NONE,
+        when="refused without a credential (`401`, `403`)",
+        outcome=Outcome.ENFORCED,
+        detail="CREDENTIAL_REQUIRED",
+    ),
+    OracleCase(
+        sub_test=_SUB_NONE,
+        when="served (`2xx`) without a credential, unlike a random path, the operation declaring "
+        "its own requirement",
+        outcome=Outcome.VIOLATION,
+        detail="SERVED_WITHOUT_CREDENTIAL",
+        confidence=Confidence.FIRM,
+    ),
+    OracleCase(
+        sub_test=_SUB_NONE,
+        when="the same, the requirement being the document's default",
+        outcome=Outcome.VIOLATION,
+        detail="SERVED_WITHOUT_CREDENTIAL",
+        confidence=Confidence.TENTATIVE,
+    ),
+    OracleCase(
+        sub_test=_SUB_NONE,
+        when="served exactly as a random path is (a catch-all)",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="SERVED_LIKE_UNKNOWN",
+    ),
+    OracleCase(
+        sub_test=_SUB_NONE,
+        when="an `OPTIONS` answered `2xx` with no body (an `Allow` list, no data)",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="OPTIONS_ANSWERED",
+    ),
+    OracleCase(
+        sub_test=_SUB_NONE,
+        when="a redirect, not followed",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="REDIRECTED",
+    ),
+    OracleCase(
+        sub_test=_SUB_NONE,
+        when="an invalid-request `4xx`: validated without a credential",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="VALIDATED_WITHOUT_CREDENTIAL",
+    ),
+    OracleCase(
+        sub_test=_SUB_NONE,
+        when="another answer (`404`, `405`, ...), like a random sibling's",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="NOT_FOUND_LIKE_UNKNOWN",
+    ),
+    OracleCase(
+        sub_test=_SUB_NONE,
+        when="another answer, unlike a random sibling's or with an unreliable calibration",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="NOT_FOUND_OWN_ANSWER",
+    ),
+    OracleCase(
+        sub_test=_SUB_NONE,
+        when="the operation declares `security: []`",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="DECLARED_PUBLIC",
+    ),
+    OracleCase(
+        sub_test=_SUB_NONE,
+        when="no security requirement applies, neither the document's nor the operation's",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="NO_SECURITY_DECLARED",
+    ),
+    OracleCase(
+        sub_test=_SUB_MALFORMED,
+        when="a credential that cannot be valid is not served (refused, `400`, ...)",
+        outcome=Outcome.ENFORCED,
+        detail="CREDENTIAL_REFUSED",
+    ),
+    OracleCase(
+        sub_test=_SUB_MALFORMED,
+        when="a credential that cannot be valid is served (`2xx`) where none is refused",
+        outcome=Outcome.VIOLATION,
+        detail="ACCEPTED_",
+        confidence=Confidence.CERTAIN,
+        members=(
+            "EMPTY_CREDENTIAL",
+            "WORD_NULL",
+            "ARBITRARY_STRING",
+            "EMPTY_CREDENTIAL_IN_QUERY",
+            "WORD_NULL_IN_QUERY",
+            "ARBITRARY_STRING_IN_QUERY",
+            "HEADER_LOWERCASE",
+            "HEADER_UPPERCASE",
+        ),
+    ),
+    OracleCase(
+        sub_test=_SUB_MALFORMED,
+        when="no read operation was proven to require a credential",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="NO_PROVEN_CONTROL",
+    ),
+    OracleCase(
+        sub_test=_SUB_VARIANTS,
+        when="a variant answers a redirect: that spelling serves nothing",
+        outcome=Outcome.ENFORCED,
+        detail="VARIANT_REDIRECTED",
+    ),
+    OracleCase(
+        sub_test=_SUB_VARIANTS,
+        when="a variant is refused or not routed",
+        outcome=Outcome.ENFORCED,
+        detail="VARIANT_NOT_SERVED",
+    ),
+    OracleCase(
+        sub_test=_SUB_VARIANTS,
+        when="a variant is served (`2xx`) without a credential where the path itself is refused",
+        outcome=Outcome.VIOLATION,
+        detail="SERVED_AS_",
+        confidence=Confidence.CERTAIN,
+        members=(
+            "UPPER_SEGMENT",
+            "TRAILING_SLASH",
+            "DOUBLE_SLASH",
+            "DOT_SEGMENT",
+            "DOT_DOT_SEGMENT",
+            "ENCODED_SLASH",
+            "DOUBLE_ENCODED",
+            "PATH_PARAMETER",
+        ),
+    ),
+    OracleCase(
+        sub_test=_SUB_VARIANTS,
+        when="a variant is served exactly as a random path spelled the same way (a catch-all)",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="VARIANT_LIKE_UNKNOWN",
+    ),
+    OracleCase(
+        sub_test=_SUB_VARIANTS,
+        when="no read operation was proven to require a credential",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="NO_PROVEN_CONTROL",
+    ),
 )
 
 
@@ -165,6 +310,7 @@ class Test11CredentialRequired(BaseTest):
         tags=("authentication", "access-control"),
         effect=Effect.CHANGES_DATA,
         sub_tests=(_SUB_NONE, _SUB_MALFORMED, _SUB_VARIANTS),
+        oracle=_ORACLE,
     )
 
     def execute(
@@ -253,9 +399,12 @@ class Test11CredentialRequired(BaseTest):
             )
             self._record(_SUB_NONE, Outcome.NOT_APPLICABLE, detail)
             return
+        # A write with parameters goes to a random object, never the operator's;
+        # one without goes to its own path (until 2026-11-16 its last segment
+        # was replaced too, so the probe never reached the operation).
         path = (
             random_sibling_path(endpoint.path, endpoint.parameters)
-            if writes
+            if writes and "{" in endpoint.path
             else resolve_path_with_seed(endpoint.path, target.path_seed)
         )
         record = self._ask(client, method, path, None, endpoint)
@@ -296,6 +445,20 @@ class Test11CredentialRequired(BaseTest):
             return
         if writes:
             self._clean_up(client, record, path, left_behind)
+        if method == _OPTIONS and not (record.response_body or "").strip():
+            # An empty OPTIONS answer (an Allow list) serves no data: many
+            # frameworks give it before authentication.
+            self._judge(record, store, _SUB_NONE, Outcome.NOT_VERIFIABLE, "OPTIONS_ANSWERED")
+            return
+        similarity = context.references.same_as_unknown(
+            record, endpoint.path, None, endpoint.parameters
+        )
+        if similarity == Similarity.SAME_AS_UNKNOWN:
+            # Random paths get the same 2xx (a catch-all, a single-page app
+            # behind `/`): the operation was not what answered (until 2026-11-16
+            # a violation).
+            self._judge(record, store, _SUB_NONE, Outcome.NOT_VERIFIABLE, "SERVED_LIKE_UNKNOWN")
+            return
         own = endpoint.auth_declaration == AuthDeclaration.OPERATION
         self._judge(
             record,
@@ -362,9 +525,9 @@ class Test11CredentialRequired(BaseTest):
                     title="The specification declares security per operation",
                     detail=(
                         f"{len(undeclared)} of {len(endpoints)} documented operations declare "
-                        "their own security requirement, so what the document says about an "
-                        "operation is a statement about it, and the findings of this test are "
-                        "FIRM."
+                        "their own security requirement, so what the document says about them is "
+                        "a statement about each: their findings are FIRM. The operations that "
+                        "inherit the document's requirement are reported TENTATIVE."
                     ),
                 )
             ]
@@ -425,7 +588,10 @@ class Test11CredentialRequired(BaseTest):
                 self._judge(record, store, _SUB_MALFORMED, Outcome.NOT_VERIFIABLE, uninformative)
                 continue
             if category != ResponseCategory.SERVED:
-                self._judge(record, store, _SUB_MALFORMED, Outcome.NOT_VERIFIABLE, "NOT_SERVED")
+                # Not served, where no credential was refused: the credential's
+                # content made the difference (RFC 6750 section 3.1 answers a
+                # malformed one with 400); until 2026-11-16 NOT_VERIFIABLE.
+                self._judge(record, store, _SUB_MALFORMED, Outcome.ENFORCED, "CREDENTIAL_REFUSED")
                 continue
             self._judge(
                 record,
@@ -467,7 +633,7 @@ class Test11CredentialRequired(BaseTest):
             store:    The evidence store.
             endpoint: The operation, already proven to require a credential.
         """
-        del context
+        references = context.references
         method = endpoint.method.upper()
         path = resolve_path_with_seed(endpoint.path, target.path_seed)
         for variant in path_variants(path):
@@ -487,6 +653,13 @@ class Test11CredentialRequired(BaseTest):
             if category != ResponseCategory.SERVED:
                 # Refused, or not routed at all: the control was not missed.
                 self._judge(record, store, _SUB_VARIANTS, Outcome.ENFORCED, "VARIANT_NOT_SERVED")
+                continue
+            if references.same_as_unknown(record, variant.path) == Similarity.SAME_AS_UNKNOWN:
+                # A random path spelled the same way gets the same 2xx: the
+                # spelling falls outside the API into a catch-all.
+                self._judge(
+                    record, store, _SUB_VARIANTS, Outcome.NOT_VERIFIABLE, "VARIANT_LIKE_UNKNOWN"
+                )
                 continue
             self._judge(
                 record,

@@ -3,7 +3,7 @@
 > **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-22) ·
 > **Source of truth:**
 > [`src/tests/domain_1/test_1_6_session_cookie_safety.py`](../../../src/tests/domain_1/test_1_6_session_cookie_safety.py) ·
-> **Verified:** 2026-10-22
+> **Verified:** 2026-11-16
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("1.6", page=cog.inFile)) ]]] -->
 
@@ -15,7 +15,7 @@
 | Priority / strategy | P3 / GREY_BOX |
 | Effect | READ_ONLY |
 | CWE | CWE-1004 |
-| Standards | `OWASP API2:2023`, `OWASP ASVS v5.0.0-3.3.1`, `OWASP ASVS v5.0.0-3.3.2`, `OWASP ASVS v5.0.0-3.3.4`, `CWE-614`, `CWE-1275`, `CWE-384`, `RFC 6265, Section 4.1.2` |
+| Standards | `OWASP API2:2023`, `OWASP ASVS v5.0.0-3.3.1`, `OWASP ASVS v5.0.0-3.3.2`, `OWASP ASVS v5.0.0-3.3.4`, `CWE-614`, `CWE-1275`, `RFC 6265, Section 4.1.2` |
 | Tags | `authentication`, `session` |
 | Prerequisites | none |
 | Needs | `USER_ACCOUNT` |
@@ -65,17 +65,23 @@ names skips exactly the cookie whose name nobody guessed.
 
 ## 6. Oracle
 
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("1.6")) ]]] -->
+
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| the cookie carries `Secure`, `HttpOnly` and `SameSite=Strict` or `Lax` | `ENFORCED/COOKIE_SAFE` | - |
-| `Secure` missing | `VIOLATION/COOKIE_WITHOUT_SECURE` (CWE-614) | CERTAIN: the header as the target sent it |
-| `HttpOnly` missing | `VIOLATION/COOKIE_WITHOUT_HTTPONLY` (CWE-1004) | CERTAIN |
-| `HttpOnly` missing on an anti-CSRF cookie (its name has `csrf` or `xsrf`: `XSRF-TOKEN`, `csrftoken`), which the page's script reads on purpose | not asked: ASVS v5.0.0-3.3.4 requires `HttpOnly` only of a cookie not meant for client-side scripts (until 2026-11-04 a finding) | - |
-| `SameSite` missing, or `SameSite=None` | `VIOLATION/COOKIE_WITHOUT_SAMESITE` (CWE-1275) | CERTAIN |
+| a cookie the login sets has `Secure`, `HttpOnly` (not asked of an anti-CSRF cookie), `SameSite=Strict` or `Lax`, and a `__Host-` or `__Secure-` name | `ENFORCED/COOKIE_SAFE` | - |
+| the cookie the configuration reads the credential from (`cookie:<name>`) lacks `Secure` | `VIOLATION/COOKIE_WITHOUT_SECURE` | CERTAIN |
+| the cookie the configuration reads the credential from (`cookie:<name>`) lacks `HttpOnly` (its name has neither `csrf` nor `xsrf`) | `VIOLATION/COOKIE_WITHOUT_HTTPONLY` | CERTAIN |
+| the cookie the configuration reads the credential from (`cookie:<name>`) lacks a restricting `SameSite` (absent, `None` or another value) | `VIOLATION/COOKIE_WITHOUT_SAMESITE` | CERTAIN |
+| the cookie the configuration reads the credential from (`cookie:<name>`) lacks a `__Host-` or `__Secure-` name prefix | `VIOLATION/COOKIE_WITHOUT_PREFIX` | CERTAIN |
+| another cookie the login sets (whether it carries the session is not proven: it may be a load balancer's) lacks `Secure` | `VIOLATION/COOKIE_WITHOUT_SECURE` | FIRM |
+| another cookie the login sets (whether it carries the session is not proven: it may be a load balancer's) lacks `HttpOnly` (its name has neither `csrf` nor `xsrf`) | `VIOLATION/COOKIE_WITHOUT_HTTPONLY` | FIRM |
+| another cookie the login sets (whether it carries the session is not proven: it may be a load balancer's) lacks a restricting `SameSite` (absent, `None` or another value) | `VIOLATION/COOKIE_WITHOUT_SAMESITE` | FIRM |
+| another cookie the login sets (whether it carries the session is not proven: it may be a load balancer's) lacks a `__Host-` or `__Secure-` name prefix | `VIOLATION/COOKIE_WITHOUT_PREFIX` | FIRM |
 
-`SameSite=None` counts as absent: it is a value the standard allows and it restricts nothing. ASVS v5.0.0-3.3.2
-asks for a value "set according to the purpose of the cookie", and for a cookie that carries a session `None` is
-not such a value.
+<!-- [[[end]]] -->
+
+Until 2026-11-16 every finding was CERTAIN: the header is observed, but whether the cookie carries the session is not (a load balancer's `AWSALB`, Cloudflare's `__cf_bm` are set on the same response), so FIRM now. The name prefix (`__Host-`, `__Secure-`) asked by ASVS v5.0.0-3.3.1 was not checked: `COOKIE_WITHOUT_PREFIX`. CWE-384 (session fixation), which the test does not check, was cited.
 
 ## 7. Outcomes
 
@@ -85,9 +91,13 @@ cookie has nothing to judge here. Both lab applications answer a login with a to
 
 ## 8. Findings
 
-One per missing attribute, per cookie: "Login cookie without `<attribute>`: `<name>`", with what the attribute
-protects against; `evidence_ref` the login record, which is pinned as evidence. Each finding cites the catalogue
-entry of its own attribute.
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("1.6")) ]]] -->
+
+- "Login cookie without <attribute>: <name>"
+
+<!-- [[[end]]] -->
+
+`evidence_ref` the login response; each finding cites its own CWE and ASVS requirement.
 
 ## 9. Effects on the target
 
@@ -103,6 +113,20 @@ cookies it adds to the login response are judged like any other.
 None. The old parameter listing cookie names is gone with the old test.
 
 ## 12. Validation
+
+**2026-11-16, a login answering only with a session cookie** (owner: "se pensi che sia progettato meglio
+facciamolo"). Until that day such a target could not be logged into: `values.credential` read the JSON body only,
+and every test needing an account ended in ERROR. A login resource now reads it from a cookie
+(`credential: cookie:<name>`, sent back with `send_as: {in: cookie, name: <name>}`), and this test judges that
+cookie CERTAIN, the others FIRM. Verified on Forgejo + Kong with a route `/lab-login` (`pre-function`, undone)
+answering `204` with `__Host-sid` and `AWSALB` cookies, and a copy of Forgejo's specification without security
+schemes (`send_as` cannot contradict a declared scheme, and Swagger 2.0 has no cookie scheme): the login worked;
+`__Host-sid` with every attribute was `COOKIE_SAFE`, `AWSALB` had four FIRM findings; the same session cookie
+without `HttpOnly` gave a CERTAIN finding; its value appeared in no output (`__Host-sid=[REDACTED]`). The account
+tests of domains 1 and 2 on Forgejo + Kong and crAPI gave the same results before and after.
+
+**2026-11-16, after the review** (domain 1 on the three labs as configured): SKIP on the three labs (their logins set no cookie), as before.
+
 
 Runs of 2026-10-22:
 
@@ -162,8 +186,13 @@ every cookie that carries a session, and renew the identifier when the user auth
 - The session store's TTL and its replication mode are not read: the tool does not have the store's configuration.
 - Only the login of role `user_a` is read.
 - A target that keeps no session in a cookie is skipped, which says nothing about how it keeps its session.
-- The `__Host-` and `__Secure-` name prefixes that ASVS v5.0.0-3.3.1 and 3.3.3 also ask for are not checked: this
-  test reads the attributes, not the name.
+- A credential read from a cookie (`cookie:<name>`) was verified on the Forgejo + Kong lab with a simulated login
+  route and a copy of the specification without security schemes (2026-11-16): none of the three labs has a
+  cookie-session API, so the tests that then send that cookie as the account's credential have not been run against
+  a backend that accepts it (the sending path, `send_as`, predates this change).
+- Which cookie carries the session is proven only when the configuration reads the credential from it
+  (`values.credential: cookie:<name>`); otherwise the value is redacted in the record, a cookie cannot be replayed
+  alone to find out, and its findings are FIRM.
 
 ## 15. Sources
 

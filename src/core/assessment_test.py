@@ -68,7 +68,6 @@ typing_extensions, structlog and src.core.
 
 from __future__ import annotations
 
-import re
 import traceback
 from abc import ABC
 from collections.abc import Sequence
@@ -97,7 +96,7 @@ from src.core.models import (
 )
 from src.core.references import CalibrationPoint, PositiveControl, reference_ids
 from src.core.response_category import UNINFORMATIVE_CATEGORIES, categorize
-from src.core.test_metadata import TestInfo
+from src.core.test_metadata import DETAIL_PATTERN, TestInfo
 
 if TYPE_CHECKING:
     from src.core.context import TargetContext
@@ -109,9 +108,15 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 _ERROR_MESSAGE_MAX_CHARS: int = 500
 _ERROR_TRUNCATION_SUFFIX: str = "... [TRUNCATED]"
 
-# The detail of a judgement, e.g. "AUTH_BYPASS": uppercase words joined by
-# underscores, read with the outcome as "VIOLATION/AUTH_BYPASS".
-DETAIL_PATTERN: re.Pattern[str] = re.compile(r"^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$")
+
+# The details of the answers that say nothing (the shared rule, _uninformative):
+# recorded by every test without being declared in its oracle.
+_UNINFORMATIVE_DETAILS: frozenset[str] = frozenset(c.value for c in UNINFORMATIVE_CATEGORIES)
+# The detail of a sub-test whose gateway concept exists but could not be read:
+# one rule for every test that reads a concept (BaseTest._unread_concept).
+CONCEPT_NOT_ACCESSIBLE: str = "CONCEPT_NOT_ACCESSIBLE"
+# The NOT_VERIFIABLE details every test may record without declaring them.
+_SHARED_DETAILS: frozenset[str] = _UNINFORMATIVE_DETAILS | {CONCEPT_NOT_ACCESSIBLE}
 
 # The skip reason of a test that ran but found nothing it applies to.
 _NOTHING_TO_APPLY: str = "Nothing the test applies to"
@@ -396,8 +401,9 @@ class AssessmentTest(ABC, Generic[ParamsT]):
                       (info.references, the primary CWE excluded).
 
         Raises:
-            ValueError: An undeclared sub-test, a malformed detail, or a finding
-                        given or missing against the outcome (a programming
+            ValueError: An undeclared sub-test, a malformed detail, a finding
+                        given or missing against the outcome, or a judgement
+                        the test's oracle does not declare (a programming
                         error of the test, turned into ERROR by its except).
         """
         tally = self._tally.get(sub_test)
@@ -412,6 +418,14 @@ class AssessmentTest(ABC, Generic[ParamsT]):
             raise ValueError(
                 f"test {self.info.id}: a finding goes with a VIOLATION, and only with it "
                 f"(got {outcome}/{detail} {'with' if finding else 'without'} a finding)"
+            )
+        confidence = finding.confidence if finding is not None else None
+        shared = outcome == Outcome.NOT_VERIFIABLE and detail in _SHARED_DETAILS
+        if not shared and not self.info.declares(sub_test, outcome, detail, confidence):
+            shown = f" ({confidence.value})" if confidence else ""
+            raise ValueError(
+                f"test {self.info.id}: {outcome.value}/{detail}{shown} on {sub_test!r} is not "
+                "a case of its oracle (info.oracle)"
             )
         if outcome == Outcome.VIOLATION:
             tally.violations += 1

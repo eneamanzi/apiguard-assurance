@@ -56,8 +56,8 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
-from src.core.references import random_token
-from src.core.test_metadata import Effect, Need, TestInfo
+from src.core.references import fingerprint_of, random_token
+from src.core.test_metadata import Effect, Need, OracleCase, TestInfo
 from src.tests.base import BaseTest
 from src.tests.helpers.auth import auth_parts, credential_parts
 from src.tests.helpers.owned_object import (
@@ -100,6 +100,123 @@ _REFERENCES: tuple[Reference, ...] = (
 )
 
 
+def _shared(sub_test: str) -> tuple[OracleCase, ...]:
+    """The cases every cross-user sub-test shares."""
+    return (
+        OracleCase(
+            sub_test=sub_test,
+            when="user_b is refused (`401`, `403`, `404`) unlike the forged credential",
+            outcome=Outcome.ENFORCED,
+            detail="REFUSED",
+        ),
+        OracleCase(
+            sub_test=sub_test,
+            when="user_b is refused like the forged credential, or `401` when the forged "
+            "credential is not refused",
+            outcome=Outcome.NOT_VERIFIABLE,
+            detail="CREDENTIAL_NOT_CONFIRMED",
+        ),
+        OracleCase(
+            sub_test=sub_test,
+            when="user_b's answer is neither `2xx` nor a refusal (a redirect, `400`, `405`)",
+            outcome=Outcome.NOT_VERIFIABLE,
+            detail="NOT_A_REFUSAL",
+        ),
+        OracleCase(
+            sub_test=sub_test,
+            when="the prepared resource did not create the object",
+            outcome=Outcome.NOT_VERIFIABLE,
+            detail="OBJECT_NOT_CREATED",
+        ),
+    )
+
+
+_ORACLE: tuple[OracleCase, ...] = (
+    *_shared(_SUB_READ),
+    *_shared(_SUB_MODIFY),
+    *_shared(_SUB_DELETE),
+    OracleCase(
+        sub_test=_SUB_READ,
+        when="user_b is served (`2xx`) user_a's object with the owner's answer",
+        outcome=Outcome.VIOLATION,
+        detail="BOLA_READ",
+        confidence=Confidence.CERTAIN,
+    ),
+    OracleCase(
+        sub_test=_SUB_READ,
+        when="user_b is served with another answer (a `200` may carry an error)",
+        outcome=Outcome.VIOLATION,
+        detail="BOLA_READ",
+        confidence=Confidence.FIRM,
+    ),
+    OracleCase(
+        sub_test=_SUB_READ,
+        when="user_b is served a sub-resource read after the object's own read refused user_b",
+        outcome=Outcome.VIOLATION,
+        detail="BOLA_READ_SUBRESOURCE",
+        confidence=Confidence.FIRM,
+    ),
+    OracleCase(
+        sub_test=_SUB_READ,
+        when="user_a is not served its own object's read",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="OWNER_NOT_SERVED",
+    ),
+    OracleCase(
+        sub_test=_SUB_READ,
+        when="user_a is not served a sub-resource read either (not unavailable, a real refusal)",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="OWNER_NOT_SERVED_HERE",
+    ),
+    OracleCase(
+        sub_test=_SUB_READ,
+        when="no documented read addresses the object",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="NO_READ_OPERATION",
+    ),
+    OracleCase(
+        sub_test=_SUB_MODIFY,
+        when="user_b's empty-bodied `PATCH`/`PUT` on user_a's object is accepted (`2xx`)",
+        outcome=Outcome.VIOLATION,
+        detail="BOLA_MODIFY",
+        confidence=Confidence.FIRM,
+    ),
+    OracleCase(
+        sub_test=_SUB_MODIFY,
+        when="no documented `PATCH`/`PUT` addresses the object",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="NO_MODIFY_OPERATION",
+    ),
+    OracleCase(
+        sub_test=_SUB_DELETE,
+        when="user_b's `DELETE` is accepted, and the object served to user_a before is gone after",
+        outcome=Outcome.VIOLATION,
+        detail="BOLA_DELETE",
+        confidence=Confidence.CERTAIN,
+    ),
+    OracleCase(
+        sub_test=_SUB_DELETE,
+        when="user_b's `DELETE` is accepted, and the object is not shown gone",
+        outcome=Outcome.VIOLATION,
+        detail="BOLA_DELETE",
+        confidence=Confidence.FIRM,
+    ),
+    OracleCase(
+        sub_test=_SUB_DELETE,
+        when="user_b's `DELETE` is accepted, and user_a is still served the object: nothing was "
+        "deleted",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="DELETE_NOT_APPLIED",
+    ),
+    OracleCase(
+        sub_test=_SUB_DELETE,
+        when="no documented `DELETE` addresses the object",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="NO_DELETE_OPERATION",
+    ),
+)
+
+
 class Test22Params(BaseModel):
     """Parameters of test 2.2."""
 
@@ -136,6 +253,7 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
         needs=(Need.USER_ACCOUNT, Need.SECOND_USER_ACCOUNT),
         effect=Effect.CHANGES_DATA,
         sub_tests=(_SUB_READ, _SUB_MODIFY, _SUB_DELETE),
+        oracle=_ORACLE,
     )
 
     def execute(
@@ -188,10 +306,17 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
         name, left = resource
         try:
             owned = create_owned_object(target, context, client, name, ROLE_USER_A, self.info.id)
-        except ResourceSetupError as exc:
+        except (ResourceSetupError, SecurityClientError) as exc:
+            # A creation without an answer, or one the target did not evaluate,
+            # is named by the shared rule; any other is OBJECT_NOT_CREATED (until
+            # 2026-11-16 a transport failure ended the whole test in ERROR).
             log.warning("test_2_2_object_not_created", resource=name, error=str(exc))
+            record = exc.record
+            reason = self._uninformative(record, _SUB_READ) if record is not None else None
+            if isinstance(exc, SecurityClientError):
+                reason = reason or ResponseCategory.NO_RESPONSE.value
             for sub in (_SUB_READ, _SUB_MODIFY, _SUB_DELETE):
-                self._record(sub, Outcome.NOT_VERIFIABLE, "OBJECT_NOT_CREATED")
+                self._record(sub, Outcome.NOT_VERIFIABLE, reason or "OBJECT_NOT_CREATED")
             return
         try:
             self._probe_object(target, context, client, store, owned.values, user_b)
@@ -209,6 +334,7 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
     ) -> None:
         """Run the three cross-user sub-tests on the created object."""
         user_a = auth_parts(target, context, ROLE_USER_A)
+        self._owner_was_served = False
         reads = object_operations(target, values, SAFE_METHODS)
         modifies = object_operations(target, values, _MODIFY_METHODS)
         deletes = object_operations(target, values, frozenset({_DELETE_METHOD}))
@@ -276,11 +402,22 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
             self._record(_SUB_READ, Outcome.NOT_APPLICABLE, "NO_READ_OPERATION")
             return None
         method, path, template = read_op
-        if not self._owner_served(client, method, path, user_a, _SUB_READ):
+        owner = self._owner_served(client, method, path, user_a, _SUB_READ)
+        if owner is None:
             return None
         record = _send(client, method, path, user_b, self.info.id)
+        # CERTAIN when user_b got the owner's answer (same shape): a 200 carrying
+        # an error envelope is served too (until 2026-11-16 always CERTAIN).
+        same = record is not None and fingerprint_of(record) == fingerprint_of(owner)
         outcome = self._judge_cross(
-            record, store, _SUB_READ, (method, path, template), forged, "read", "BOLA_READ"
+            record,
+            store,
+            _SUB_READ,
+            (method, path, template),
+            forged,
+            "read",
+            "BOLA_READ",
+            confidence=Confidence.CERTAIN if same else Confidence.FIRM,
         )
         return record if outcome == Outcome.ENFORCED else None
 
@@ -315,6 +452,14 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
         user_a, user_b = users
         for method, path, template in reads:
             owner = _send(client, method, path, user_a, self.info.id)
+            silent = self._uninformative(owner, _SUB_READ)
+            if silent is not None:
+                # Unavailable or throttled is not "not served here" (until
+                # 2026-11-16 NOT_APPLICABLE, which hid unverified reads).
+                if owner is not None:
+                    self._step(owner)
+                self._record(_SUB_READ, Outcome.NOT_VERIFIABLE, silent)
+                continue
             if owner is None or category_of(owner) != ResponseCategory.SERVED:
                 if owner is not None:
                     self._step(owner)
@@ -396,8 +541,19 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
             after = _send(client, read_op[0], read_op[1], user_a, self.info.id)
             if after is not None:
                 self._step(after)
-                if category_of(after) == ResponseCategory.NOT_FOUND:
+                gone = category_of(after) == ResponseCategory.NOT_FOUND
+                if gone and self._owner_was_served:
+                    # Served to its owner before, gone after: the deletion is
+                    # proven (without the read before, a 404 says nothing).
                     confidence = Confidence.CERTAIN
+                elif category_of(after) == ResponseCategory.SERVED:
+                    # Still there for its owner: an ownership-scoped delete
+                    # answering 2xx having deleted nothing (until 2026-11-16 a
+                    # FIRM BOLA_DELETE).
+                    self._judge(
+                        record, store, _SUB_DELETE, Outcome.NOT_VERIFIABLE, "DELETE_NOT_APPLIED"
+                    )
+                    return
         self._judge_cross(
             record,
             store,
@@ -416,19 +572,24 @@ class Test22ObjectLevelAuthorization(BaseTest[Test22Params]):
         path: str,
         user_a: RequestAuthParts,
         sub_test: str,
-    ) -> bool:
+    ) -> EvidenceRecord | None:
         """
         Confirm user_a is served its own object (the positive control): without
         it a user_b refusal says nothing, so the sub-test is NOT_VERIFIABLE.
+
+        Returns:
+            The owner's answer when served, else None (recorded here).
         """
         record = _send(client, method, path, user_a, self.info.id)
         if record is not None and category_of(record) == ResponseCategory.SERVED:
             self._step(record)
-            return True
-        self._record(sub_test, Outcome.NOT_VERIFIABLE, "OWNER_NOT_SERVED")
+            self._owner_was_served = True
+            return record
+        silent = self._uninformative(record, sub_test)
+        self._record(sub_test, Outcome.NOT_VERIFIABLE, silent or "OWNER_NOT_SERVED")
         if record is not None:
             self._step(record)
-        return False
+        return None
 
     def _judge_cross(
         self,

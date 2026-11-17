@@ -38,10 +38,10 @@ API; which test needs which is in [test portability](../03-reference/06-compatib
 from the declarations. The tests by strategy and priority are in the table under [Priorities](#priorities).
 
 **The strategy is what a test needs at least, not a boundary on what it uses** (owner decision 2026-11-04). A test also uses what the configuration gives it as an optional need: five BLACK_BOX tests
-(0.1, 0.2, 4.1, 4.4, 6.4) read the gateway's Admin API when a gateway is configured, and 2.1 (GREY_BOX) uses the
-admin account when it is given. So `execution.strategies: [BLACK_BOX]` selects tests, and does not keep a run away
-from the Admin API or the admin account: to do that, leave the `gateway` section or the admin credentials out of the
-configuration.
+(0.1, 0.2, 4.1, 4.4, 6.4) read the gateway's Admin API when a gateway is configured, three (0.3, 4.1, 4.4) send
+user_a's credential when a `401` or `403` hides what they look for, and 2.1 (GREY_BOX) uses the admin account when it
+is given. So `execution.strategies: [BLACK_BOX]` selects tests, and does not keep a run away from the Admin API or
+the accounts: to do that, leave the `gateway` section or the credentials out of the configuration.
 
 ## Priorities
 
@@ -110,7 +110,9 @@ that depend on the skipped one. The test is not executed.
 
 Declare a prerequisite only when one of the two cases is true. Tokens are not a reason: before a test runs, the
 engine obtains the credential of every account the test declares (`needs`, `optional_needs`) with `acquire_tokens()`
-(`src/tests/helpers/auth.py`), once per role, reused from `TestContext` by every later test, in any order. No test declares a prerequisite today. A prerequisite that names no existing test, or
+(`src/tests/helpers/auth.py`), once per role, reused from `TestContext` by every later test, in any order. A
+required account whose login does not work makes the test ERROR with the reason; an optional one is logged and the
+test runs without it (`optional_role_parts()` gives it nothing; until 2026-11-16 it was ERROR too). No test declares a prerequisite today. A prerequisite that names no existing test, or
 the test itself, stops the tool at startup (exit `10`).
 
 ## Oracles and verdicts

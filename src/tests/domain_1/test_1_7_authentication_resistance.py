@@ -72,6 +72,7 @@ from src.core.client import SecurityClient
 from src.core.context import ROLE_USER_A, TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.exceptions import SecurityClientError
+from src.core.gateway.base import CONCEPT_RATE_LIMITS
 from src.core.models import (
     PLACEHOLDER_PASSWORD,
     PLACEHOLDER_RANDOM,
@@ -90,7 +91,7 @@ from src.core.models import (
 )
 from src.core.references import random_token
 from src.core.templating import render
-from src.core.test_metadata import DecisiveAnswer, Effect, Need, TestInfo
+from src.core.test_metadata import DecisiveAnswer, Effect, Need, OracleCase, TestInfo
 from src.tests.base import BaseTest
 from src.tests.helpers.auth_base import role_account
 
@@ -118,6 +119,11 @@ _TIMING_FACTOR: float = 3.0
 # whole answer is a few milliseconds and the ratio of two small numbers says
 # nothing.
 _TIMING_FLOOR_MS: float = 5.0
+# Every reading for the existing account slower than every other reading by at
+# least this much is a difference as well: a ratio alone hides a password hash
+# of ~70 ms behind a remote target's ~100 ms round trip (1.7 times; until
+# 2026-11-16 only the ratio counted).
+_TIMING_GAP_MS: float = 40.0
 
 # How a deliberate slowdown of repeated attempts is told from the ordinary
 # variation of a fast target. The baseline is the median of the first
@@ -162,6 +168,83 @@ _REFERENCES: tuple[Reference, ...] = (
 )
 
 
+_ORACLE: tuple[OracleCase, ...] = (
+    OracleCase(
+        sub_test=_SUB_ENUMERATION,
+        when="the masked bodies of the two cases differ, the same way on every reading",
+        outcome=Outcome.VIOLATION,
+        detail="EXISTENCE_DISCLOSED_BY_ANSWER",
+        confidence=Confidence.CERTAIN,
+    ),
+    OracleCase(
+        sub_test=_SUB_ENUMERATION,
+        when="the same, one case answering `500` on every reading (a transient is possible)",
+        outcome=Outcome.VIOLATION,
+        detail="EXISTENCE_DISCLOSED_BY_ANSWER",
+        confidence=Confidence.FIRM,
+    ),
+    OracleCase(
+        sub_test=_SUB_ENUMERATION,
+        when="the existing account's median is 3 times the other's, or every reading of it 40 ms "
+        "slower than every other one (one median at least 5 ms)",
+        outcome=Outcome.VIOLATION,
+        detail="EXISTENCE_DISCLOSED_BY_TIMING",
+        confidence=Confidence.FIRM,
+    ),
+    OracleCase(
+        sub_test=_SUB_ENUMERATION,
+        when="the bodies agree and the durations do not tell the accounts apart",
+        outcome=Outcome.ENFORCED,
+        detail="NO_DISCREPANCY",
+    ),
+    OracleCase(
+        sub_test=_SUB_ENUMERATION,
+        when="the bodies agree and both medians are under 5 ms",
+        outcome=Outcome.ENFORCED,
+        detail="TIMING_TOO_SMALL",
+    ),
+    OracleCase(
+        sub_test=_SUB_ENUMERATION,
+        when="the readings of one case do not agree, and the durations do not tell the accounts "
+        "apart",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="ANSWER_NOT_STABLE",
+    ),
+    OracleCase(
+        sub_test=_SUB_ENUMERATION,
+        when="the wrong password for the existing account got a `2xx`",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="WRONG_PASSWORD_ACCEPTED",
+    ),
+    OracleCase(
+        sub_test=_SUB_ATTEMPTS,
+        when="a `429`, or the refusal status a gateway limit states (APISIX's `503`) after other "
+        "answers, within the attempts",
+        outcome=Outcome.ENFORCED,
+        detail="ATTEMPTS_LIMITED",
+    ),
+    OracleCase(
+        sub_test=_SUB_ATTEMPTS,
+        when="three consecutive answers alike and unlike the normal one, by status or masked body",
+        outcome=Outcome.ENFORCED,
+        detail="ATTEMPTS_BLOCKED",
+    ),
+    OracleCase(
+        sub_test=_SUB_ATTEMPTS,
+        when="two answers in a row at least 3 times the baseline and at least 250 ms",
+        outcome=Outcome.ENFORCED,
+        detail="ATTEMPTS_SLOWED",
+    ),
+    OracleCase(
+        sub_test=_SUB_ATTEMPTS,
+        when="101 attempts answered as the first was, with no growing delay",
+        outcome=Outcome.VIOLATION,
+        detail="ATTEMPTS_NOT_LIMITED",
+        confidence=Confidence.FIRM,
+    ),
+)
+
+
 class Test17AuthenticationResistance(BaseTest):
     """
     Test 1.7 -- whether the login endpoint hides accounts and limits guessing.
@@ -179,9 +262,20 @@ class Test17AuthenticationResistance(BaseTest):
         references=_REFERENCES,
         tags=("authentication", "brute-force"),
         needs=(Need.USER_ACCOUNT,),
+        optional_needs=(Need.GATEWAY,),
         effect=Effect.STRESSES_TARGET,
         sub_tests=(_SUB_ENUMERATION, _SUB_ATTEMPTS),
+        oracle=_ORACLE,
         decisive_answers=(
+            DecisiveAnswer(
+                category=ResponseCategory.SERVER_ERROR,
+                sub_tests=(_SUB_ENUMERATION,),
+                reason=(
+                    "a `500` on every reading for one account and on none for the other is a "
+                    "status that tells them apart (ASVS v5.0.0-6.3.8 names response codes): "
+                    "compared like any answer, FIRM."
+                ),
+            ),
             DecisiveAnswer(
                 category=ResponseCategory.RATE_LIMITED,
                 sub_tests=(_SUB_ATTEMPTS,),
@@ -215,6 +309,7 @@ class Test17AuthenticationResistance(BaseTest):
         """
         del context
         try:
+            self._refusals = self._limit_refusals(target, store)
             login = _login_request(target)
             if login is None:
                 return self._skip(
@@ -230,7 +325,10 @@ class Test17AuthenticationResistance(BaseTest):
                     "attempt for an account that exists cannot be made."
                 )
             blocked = self._enumeration(client, store, login, account[0])
-            if blocked is None:
+            # Unstable bodies or a wrong password accepted say nothing about a
+            # limit per caller: the attempts still run (until 2026-11-16 they did
+            # not, so the brute-force check was skipped on any noisy body).
+            if blocked in (None, "ANSWER_NOT_STABLE", "WRONG_PASSWORD_ACCEPTED"):
                 self._attempts(client, store, login, account[0])
             else:
                 # The comparison could not be made, and its reason is the same
@@ -239,6 +337,26 @@ class Test17AuthenticationResistance(BaseTest):
             return self._finish()
         except SecurityClientError as exc:
             return self._error(exc)
+
+    def _limit_refusals(self, target: TargetContext, store: EvidenceStore) -> frozenset[int]:
+        """
+        The statuses the gateway's rate limits refuse with, besides 429 (APISIX's 503).
+
+        Every limit the gateway states counts, wherever it is: the login path's
+        routes are not resolved here, and a refusal is taken only after the
+        attempts had another status (until 2026-11-16 a 503 refusal ended as
+        UPSTREAM_UNAVAILABLE).
+        """
+        gateway = target.gateway
+        if gateway is None:
+            return frozenset()
+        limits = gateway.rate_limits()
+        self._record_gateway_concept(target, store, CONCEPT_RATE_LIMITS, limits)
+        return frozenset(
+            limit.refusal_status
+            for limit in limits.items
+            if limit.enabled and limit.refusal_status is not None and limit.refusal_status >= 400
+        )
 
     # ------------------------------------------------------------------
     # Sub-test 1: does the answer say whether the account exists
@@ -296,19 +414,28 @@ class Test17AuthenticationResistance(BaseTest):
                 detail="WRONG_PASSWORD_ACCEPTED",
             )
             return "WRONG_PASSWORD_ACCEPTED"
-        known_shapes = {_answer(r, username) for r in known_records}
-        other_shapes = {_answer(r, unknown) for r in unknown_records}
+        # Both names masked in both bodies: masking each body with its own name
+        # only made "Invalid user or password" differ for an account named
+        # "user" (until 2026-11-16, a false CERTAIN).
+        names = (username, unknown)
+        known_shapes = {_answer(r, names) for r in known_records}
+        other_shapes = {_answer(r, names) for r in unknown_records}
         if len(known_shapes) != 1 or len(other_shapes) != 1:
             # The same request twice gets two different answers: something in
             # the body changes by itself (a request id, a timestamp), so a
-            # difference between the two cases would prove nothing.
-            self._judge(known, store, _SUB_ENUMERATION, Outcome.NOT_VERIFIABLE, "ANSWER_NOT_STABLE")
+            # difference between the two bodies would prove nothing. The
+            # durations do not depend on the body: they are still compared.
+            if not self._timing(store, known_records, unknown_records, known, other):
+                self._judge(
+                    known, store, _SUB_ENUMERATION, Outcome.NOT_VERIFIABLE, "ANSWER_NOT_STABLE"
+                )
             return "ANSWER_NOT_STABLE"
         # The bodies and the durations are two channels, judged one after the
         # other: an answer that differs does not end the test, because a login
         # that is fixed to answer alike can still take longer for an account that
         # exists. "No discrepancy" is said only when the bodies agree.
         bodies_differ = known_shapes != other_shapes
+        server_error = ResponseCategory.SERVER_ERROR in {category_of(known), category_of(other)}
         if bodies_differ:
             # The finding cites the other account's answer as its support (rule 6):
             # it must be in evidence.json, which keeps only judged or pinned records.
@@ -331,7 +458,8 @@ class Test17AuthenticationResistance(BaseTest):
                         "registered ones. Answer the same way in both cases."
                     ),
                     supporting_refs=[other.record_id],
-                    confidence=Confidence.CERTAIN,
+                    # A server error on one side may be a transient: FIRM.
+                    confidence=Confidence.FIRM if server_error else Confidence.CERTAIN,
                     references=[
                         Reference(standard=Standard.CWE, id="CWE-204"),
                         Reference(standard=Standard.ASVS, id="v5.0.0-6.3.8"),
@@ -346,7 +474,33 @@ class Test17AuthenticationResistance(BaseTest):
             if not bodies_differ:
                 self._judge(known, store, _SUB_ENUMERATION, Outcome.ENFORCED, "TIMING_TOO_SMALL")
             return None
-        if known_ms >= other_ms * _TIMING_FACTOR:
+        if self._timing(store, known_records, unknown_records, known, other):
+            return None
+        if not bodies_differ:
+            self._judge(known, store, _SUB_ENUMERATION, Outcome.ENFORCED, "NO_DISCREPANCY")
+        return None
+
+    def _timing(
+        self,
+        store: EvidenceStore,
+        known_records: list[EvidenceRecord],
+        unknown_records: list[EvidenceRecord],
+        known: EvidenceRecord,
+        other: EvidenceRecord,
+    ) -> bool:
+        """
+        Judge the durations of the two cases; True when they tell the accounts apart.
+
+        A difference is a median at least _TIMING_FACTOR times the other's, or
+        every reading for the existing account slower than every other one by
+        _TIMING_GAP_MS.
+        """
+        known_ms = statistics.median(_durations(known_records))
+        other_ms = statistics.median(_durations(unknown_records))
+        if max(known_ms, other_ms) < _TIMING_FLOOR_MS:
+            return False
+        gap = min(_durations(known_records)) - max(_durations(unknown_records))
+        if known_ms >= other_ms * _TIMING_FACTOR or gap >= _TIMING_GAP_MS:
             store.pin_evidence(other)  # cited as support, as above
             self._judge(
                 known,
@@ -374,10 +528,8 @@ class Test17AuthenticationResistance(BaseTest):
                     ],
                 ),
             )
-            return None
-        if not bodies_differ:
-            self._judge(known, store, _SUB_ENUMERATION, Outcome.ENFORCED, "NO_DISCREPANCY")
-        return None
+            return True
+        return False
 
     # ------------------------------------------------------------------
     # Sub-test 2: does guessing get any harder
@@ -413,7 +565,12 @@ class Test17AuthenticationResistance(BaseTest):
                 first = record
             last = record
             category = category_of(record)
-            if category == ResponseCategory.RATE_LIMITED:
+            limited_here = (
+                record.response_status_code in self._refusals
+                and first is not record
+                and first.response_status_code != record.response_status_code
+            )
+            if category == ResponseCategory.RATE_LIMITED or limited_here:
                 self._judge(
                     record,
                     store,
@@ -429,7 +586,7 @@ class Test17AuthenticationResistance(BaseTest):
                 return
             # Every attempt is logged; a judged one replaces its step.
             self._step(record)
-            if blocks.blocked(_answer(record, unknown, password)):
+            if blocks.blocked(_answer(record, (unknown,), password)):
                 self._judge(record, store, _SUB_ATTEMPTS, Outcome.ENFORCED, "ATTEMPTS_BLOCKED")
                 log.info("test_1_7_blocked", attempt=attempt, status=record.response_status_code)
                 return
@@ -449,9 +606,7 @@ class Test17AuthenticationResistance(BaseTest):
                     return
             else:
                 slow_in_a_row = 0
-        if first is None or last is None:
-            self._record(_SUB_ATTEMPTS, Outcome.NOT_VERIFIABLE, "LOGIN_NOT_ANSWERING")
-            return
+        assert first is not None and last is not None  # noqa: S101 -- the loop always runs
         # The proof is the last attempt, still answered as the first was; the first
         # is cited as the answer it is compared with.
         store.pin_evidence(first)
@@ -476,6 +631,14 @@ class Test17AuthenticationResistance(BaseTest):
                 ),
                 supporting_refs=[first.record_id],
                 confidence=Confidence.FIRM,
+                # Its own references: until 2026-11-16 it carried the test's,
+                # the enumeration's CWE-204 and CWE-208 and not CWE-307.
+                references=[
+                    Reference(standard=Standard.OWASP_API_TOP10, id="API2:2023"),
+                    Reference(standard=Standard.CWE, id="CWE-307"),
+                    Reference(standard=Standard.ASVS, id="v5.0.0-6.3.1"),
+                    Reference(standard=Standard.NIST_SP, id="800-63B-4", section="3.2.2"),
+                ],
             ),
         )
 
@@ -646,7 +809,7 @@ class _Watch:
 
 
 def _answer(
-    record: EvidenceRecord, submitted: str, password: str | None = None
+    record: EvidenceRecord, submitted: tuple[str, ...], password: str | None = None
 ) -> tuple[int | None, str]:
     """
     What an answer says, for the comparison of the two cases.
@@ -659,7 +822,8 @@ def _answer(
 
     Args:
         record:    The answer.
-        submitted: The account name that was sent, to mask.
+        submitted: The account names of the comparison, every one masked
+                   (longest first) whichever was sent.
         password:  The password that was sent, to mask (it changes on every
                    repeated attempt).
 
@@ -669,10 +833,9 @@ def _answer(
     body = record.response_body or ""
     if password:
         body = body.replace(password, _MASK)
-    body = body.replace(submitted, _MASK)
-    local = submitted.split("@", 1)[0]
-    if local:
-        body = body.replace(local, _MASK)
+    names = {name for item in submitted for name in (item, item.split("@", 1)[0]) if name}
+    for name in sorted(names, key=len, reverse=True):
+        body = body.replace(name, _MASK)
     body = _DIGITS.sub("0", body)
     return record.response_status_code, " ".join(body.split())
 

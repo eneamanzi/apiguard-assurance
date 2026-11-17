@@ -42,7 +42,9 @@ carries the one the methodology proposes.
 
 ### 0.1 Every exposed endpoint is documented and authorised `[P0]`
 
-**References:** OWASP API9:2023 Improper Inventory Management, NIST SP 800-204 §3.1, OWASP ASVS 5.0.0 V4.1.1.
+**References:** OWASP API9:2023 Improper Inventory Management, OWASP ASVS 5.0.0 V4.1.4 (and V13.4.4 for TRACE),
+OWASP WSTG-CONF-06. (Until 2026-11-16 this line cited ASVS V4.1.1, the Content-Type requirement, and NIST SP
+800-204 §3.1, to re-verify.)
 
 **Concept.** Every endpoint active on the gateway corresponds to an entry in the official OpenAPI specification.
 Active but undocumented endpoints, called shadow APIs, are an unknown attack surface: they are not subject to
@@ -82,7 +84,7 @@ grey box approach, run if available).
 
 ### 0.2 The gateway rejects requests to unregistered paths (deny-by-default) `[P0]`
 
-**References:** NIST SP 800-204 §4.1, OWASP ASVS 5.0.0 V4.1.1.
+**References:** OWASP API8:2023 Security Misconfiguration, NIST SP 800-228 §3.2.1 (REC-API-13).
 
 **Concept.** The gateway blocks any request whose path does not match an explicitly registered route, instead of
 forwarding it to a default backend or a catch-all service. It acts as the primary enforcement point: `404 Not Found`
@@ -115,7 +117,8 @@ requests to invented paths and to variants of known paths.
 
 ### 0.3 Deprecated APIs are disabled or more closely monitored `[P0]`
 
-**References:** OWASP API9:2023 Improper Inventory Management, NIST SP 800-204 §3.1.3, OWASP ASVS 5.0.0 V4.1.1.
+**References:** OWASP API9:2023 Improper Inventory Management, RFC 9745 (Deprecation), RFC 8594 (Sunset), RFC 9110
+§15.5.11, NIST SP 800-228 §3.1.1 (REC-API-4.4).
 
 **Concept.** Endpoints marked `deprecated` in the API life cycle are either disabled (`410 Gone`) or subject to
 stricter rate limiting and verbose logging during the transition. Deprecated endpoints get less patching and
@@ -148,7 +151,8 @@ Admin API): not implemented, and not planned.
 ### 0.4 A backend answers only through the gateway `[P0]`
 
 **References:** OWASP API8:2023 Security Misconfiguration, NIST SP 800-228 §4.1, CWE-420 Unprotected Alternate
-Channel, OWASP ASVS v5.0.0-13.2.1.
+Channel. (ASVS v5.0.0-13.2.1, authenticated communication between components, is a different guarantee: the test
+page names it among its limitations.)
 
 **Concept.** A backend the gateway routes to must answer only through the gateway. A backend reachable directly, on
 its own address or an exposed port, is an alternate channel that skips every policy the gateway enforces (TLS,
@@ -184,7 +188,8 @@ not proof of isolation (a name that does not resolve on this network proves noth
 
 ### 1.1 Only authenticated requests reach protected resources `[P0]`
 
-**References:** OWASP API2:2023 Broken Authentication, NIST SP 800-63B-4 §4.3.1, OWASP ASVS 5.0.0 chapter V6.3.
+**References:** OWASP API2:2023 Broken Authentication, OWASP ASVS 5.0.0 V8.2.1, CWE-288 (the path variants), NIST SP
+800-228 §3.2.1, RFC 9110 §5.1.
 
 **Concept.** Every endpoint exposing sensitive data or privileged operations rejects requests without valid
 credentials before reaching the business logic. Enforcement (bearer JWT or opaque OAuth2 tokens in `Authorization`)
@@ -217,8 +222,7 @@ requests, or with deliberately malformed tokens, to every protected endpoint doc
 
 ### 1.2 Credentials are cryptographically valid `[P0]`
 
-**References:** OWASP API2:2023 Broken Authentication, RFC 8725 §3.2, OWASP ASVS 5.0.0 V9.1.1 and V11.5.1, NIST SP
-800-63B-4 §4.3.1.
+**References:** OWASP API2:2023 Broken Authentication, RFC 8725 §2.1, OWASP ASVS 5.0.0 V9.1.1 and V9.1.2.
 
 **Concept.** The gateway or the authentication middleware completely validates JWTs: extracts the signature,
 recomputes it with the issuer's public key (RS256/384/512) or the shared secret (HS256/384/512), and compares it
@@ -257,11 +261,12 @@ header and payload structure; for the algorithm confusion check, the public JWKS
 
 ### 1.3 Credentials are not expired `[P0]`
 
-**References:** OWASP API2:2023 Broken Authentication, RFC 7519 §4.1.4, OWASP ASVS 5.0.0 V9.2.1, NIST SP 800-63B-4 §4.2.
+**References:** OWASP API2:2023 Broken Authentication, RFC 7519 §4.1.4, OWASP ASVS 5.0.0 V9.2.1 and V7.3.2.
 
 **Concept.** The gateway compares the `exp` claim (Unix timestamp) with the current time and rejects tokens with
-`now >= exp`. A leeway of ±60 seconds is acceptable for clock skew between issuer and validator. NIST SP 800-63B-4
-recommends access tokens of 5-15 minutes, renewed with refresh tokens.
+`now >= exp`. A leeway of ±60 seconds is acceptable for clock skew between issuer and validator. Access tokens are
+kept short and renewed with refresh tokens (no standard sets the span: ASVS 7.3.2 asks for a maximum set by risk
+analysis).
 
 **Failure scenarios.**
 
@@ -284,8 +289,8 @@ administrative access.
 
 ### 1.4 Credentials have not been revoked `[P2]`
 
-**References:** OWASP API2:2023 Broken Authentication, RFC 7009 (OAuth 2.0 Token Revocation), RFC 7519 §4.1.7, OWASP
-ASVS 5.0.0 V7.4 and V9, NIST SP 800-63B-4 §5.1.
+**References:** OWASP API2:2023 Broken Authentication, RFC 7009 (OAuth 2.0 Token Revocation), OWASP ASVS 5.0.0
+V7.4.1.
 
 **Concept.** Cryptographically valid and unexpired tokens that have been explicitly revoked (logout, password change,
 reported compromise) are rejected. The implementation strategies (a central blacklist on Redis with the `jti` claim,
@@ -315,9 +320,11 @@ session store.
 
 ### 1.5 Credentials are not sent over insecure channels `[P2]`
 
-**References:** OWASP API2:2023, RFC 9110 §4.2.2, NIST SP 800-52 Rev. 2, OWASP ASVS v5.0.0-3.4.1, v5.0.0-4.1.2 and v5.0.0-12.2.1.
+**References:** OWASP API2:2023 and API8:2023, RFC 9110 §4.2.2, RFC 6797 §6.1, OWASP ASVS v5.0.0-3.4.1, v5.0.0-4.1.2
+and v5.0.0-12.2.1.
 
-**Concept.** Credentials travel only over TLS 1.2+, and the gateway enforces HTTPS (301/308 redirect) and HSTS. Cipher
+**Concept.** Credentials travel only over TLS 1.2+, and the gateway refuses plain HTTP on API endpoints (a redirect is
+allowed only on endpoints meant for a browser, ASVS v5.0.0-4.1.2) and sets HSTS. Cipher
 suites must give forward secrecy (ECDHE) and authenticated encryption (AES-GCM). The configuration part (HSTS,
 headers) is checkable statically; the protocol part needs an active scan.
 
@@ -343,7 +350,8 @@ parameters from the infrastructure team. The `testssl.sh` scan needs only networ
   (RFC 6962).
 - **[empirical test]** `GET http://host/users/me` over plain HTTP, with no credential (whether plain HTTP is
   answered shows without one, and none is exposed). Expected: connection refused
-  (port 80 closed) or a `301`/`308` redirect to HTTPS without processing the request. The only active test needed:
+  (port 80 closed); a `301`/`308` redirect to HTTPS is a transparent redirect, which ASVS v5.0.0-4.1.2 forbids on API
+  endpoints. The only active test needed:
   the redirect behaviour cannot be deduced from configuration.
 - **[audit]** The HTTPS response carries `Strict-Transport-Security: max-age=31536000; includeSubDomains` (ASVS
   v5.0.0-3.4.1), checkable with one `curl -I`.
@@ -420,11 +428,11 @@ limit, ASVS v5.0.0-6.3.1) and check they are slowed, blocked or answered `429`. 
 
 ### 2.1 Only authorised users reach privileged endpoints `[P1]`
 
-**References:** OWASP API5:2023 Broken Function Level Authorization, OWASP ASVS v5.0.0-8.1.1, v5.0.0-8.2.1 and
-v5.0.0-8.3.1, NIST SP 800-53 Rev. 5 AC-3.
+**References:** OWASP API5:2023 Broken Function Level Authorization, OWASP ASVS v5.0.0-8.2.1 and v5.0.0-8.3.1,
+NIST SP 800-53 Rev. 5 AC-3.
 
 **Concept.** After authentication, the gateway or the application middleware performs role-based access control
-(RBAC, NIST SP 800-162): every privileged endpoint rejects with `403 Forbidden` the requests of authenticated users
+(RBAC, ANSI INCITS 359): every privileged endpoint rejects with `403 Forbidden` the requests of authenticated users
 who lack the required role or scope. Authentication proves "who you are"; authorization proves "what you may do".
 
 **Failure scenarios.**
@@ -444,7 +452,7 @@ environment to run the calls against.
   (not `401`, since authenticated; not `200`). Repeat for every documented privileged endpoint.
 - **HTTP method confusion.** Test every method (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS) on each resource;
   each must carry the appropriate authorization check.
-- **Role hierarchy.** With a hierarchy such as `superadmin > admin > moderator > user` (NIST SP 800-162), a
+- **Role hierarchy.** With a hierarchy such as `superadmin > admin > moderator > user` (RBAC, ANSI INCITS 359), a
   `moderator` reaches `moderator` endpoints but not `admin` ones.
 
 ---
@@ -523,7 +531,7 @@ for the cross-ownership tests, and the documentation of the scopes each endpoint
 ### 2.4 Authorization policies are consistent across endpoints `[P1]`
 
 **References:** OWASP API8:2023 Security Misconfiguration, OWASP API9:2023 Improper Inventory Management, OWASP ASVS
-v5.0.0-8.1.1, NIST SP 800-53 Rev. 5 AC-3.
+v5.0.0-6.3.4, CWE-288, NIST SP 800-53 Rev. 5 AC-3.
 
 **Concept.** Equivalent endpoints, by API version, response format or alternative representation, apply identical
 authorization policies. Consistency is a configuration property of the gateway; its violation often comes from
@@ -552,8 +560,8 @@ convenience aliases) even if not documented in the current version.
 
 ### 2.5 The API does not expose excessive data `[P1]`
 
-**References:** OWASP API3:2023 Broken Object Property Level Authorization, OWASP ASVS v5.0.0-8.2.3 and v5.0.0-14.2.6,
-CWE-915, NIST SP 800-53 Rev. 5 AC-3.
+**References:** OWASP API3:2023 Broken Object Property Level Authorization, OWASP ASVS v5.0.0-15.3.1, v5.0.0-15.3.3 and
+v5.0.0-8.2.3, CWE-915, NIST SP 800-53 Rev. 5 AC-3.
 
 **Concept.** API responses contain only the fields the authenticated user may see, not the whole database object.
 Filtering happens server side, not client side (that would be security by obscurity): an attacker reads the raw HTTP
@@ -654,6 +662,8 @@ must be validated.
 - **[audit]** The mechanism protects against replay by a timestamp in the payload with a validity window of at most 5
   minutes, or a single-use nonce with a uniqueness check on Redis. Without either, the mechanism is vulnerable to
   replay however strong the algorithm.
+- **[audit]** The signature must cover the body (its digest) and the request method and path; a signature the
+  gateway accepts without them lets a proxy change the body or the target undetected (ASVS v5.0.0-4.1.5).
 - **[empirical test, only if the mechanism is implemented]** Request tampering: a request with a valid signature, body
   modified keeping the original signature. Expected `400` or `403` ("signature mismatch"). Replay: resend a request
   with its timestamp. Expected `400` ("request expired") after the configured window.
@@ -669,7 +679,8 @@ must be validated.
 **Concept.** The gateway applies rate limiting to prevent automated abuse (denial of service, brute force, scraping).
 The strategies (fixed window, sliding window, token bucket, leaky bucket) are native functions of every production API
 gateway. Limits apply per IP, per user ID (after authentication) and per API key. Exceeding the limit produces `429
-Too Many Requests` with a `Retry-After` header. This guarantee is separate from 7.1 (business flow protection)
+Too Many Requests` (or the status the gateway is configured to refuse with: APISIX's default is `503`) with a
+`Retry-After` header. This guarantee is separate from 7.1 (business flow protection)
 because it concerns infrastructure availability, not application logic.
 
 **Failure scenarios.**
@@ -702,7 +713,7 @@ configured limit must be known or derivable from the API documentation or respon
 
 ### 4.2 The system has timeouts that prevent resource lock `[P1]`
 
-**References:** OWASP API4:2023, CWE-400, NIST SP 800-204A §4.3.
+**References:** OWASP API4:2023, CWE-400, NIST SP 800-204A §4.3, OWASP ASVS 5.0.0 V13.2.6.
 
 **Concept.** Every I/O operation (database query, external HTTP call, file read) has a configured timeout. Without
 one, a thread stays blocked indefinitely if the resource does not answer; blocked threads accumulate, exhaust the
@@ -782,12 +793,14 @@ environment.
 
 ---
 
-### 4.4 The gateway limits request body size `[P1]`
+### 4.4 Request body size is limited at the boundary `[P1]`
 
-**References:** OWASP API4:2023 Unrestricted Resource Consumption, OWASP ASVS v5.0.0-2.4.1, RFC 9110 §15.5.14 (413
-Content Too Large), CWE-400 Uncontrolled Resource Consumption.
+**References:** OWASP API4:2023 Unrestricted Resource Consumption ("define and enforce a maximum size of data on all
+incoming parameters and payloads"), RFC 9110 §15.5.14 (413 Content Too Large), CWE-400 Uncontrolled Resource
+Consumption. ASVS 5.0.0 has no requirement on the size of a request body.
 
-**Concept.** The gateway must reject an oversized request body with `413` before routing it to the backend. Without
+**Concept.** An oversized request body must be refused with `413` before it is processed, by the gateway before
+routing it to the backend (where the limit belongs) or else by the application. Without
 a size limit a large body ties up memory and bandwidth and can exhaust the backend, a denial of service that costs
 the attacker a single request.
 
@@ -844,6 +857,10 @@ the logs this guarantee cannot be checked empirically from outside.
   escaped or sanitised in the log, and no separate entry generated.
 - **Real IP logging.** A request with `X-Forwarded-For` set; the logged IP is the real client's, not the proxy's or
   load balancer's.
+- **Credentials in the shipped record (from the configuration).** Without access to the logs, the gateway's
+  configuration still says what of the request its log plugins put in the record they ship: no header, query argument
+  or cookie carrying the credential leaves the gateway in clear, unless removed or masked first (ASVS v5.0.0-16.2.5,
+  CWE-532).
 
 ---
 
@@ -891,7 +908,7 @@ channel in the test environment to receive the alerts and check their latency an
 ### 6.1 Error handling and information disclosure `[P2]`
 
 **References:** OWASP API8:2023 Security Misconfiguration, OWASP ASVS 5.0.0 V13.4.2, V13.4.6 and V16.5.1, CWE-209, NIST
-SP 800-53 Rev. 5 SI-11 and SC-7.
+SP 800-53 Rev. 5 SI-11.
 
 **Concept.** API responses, in error conditions and in normal ones, do not expose internal technical information. Two
 vectors: **(1) detailed error messages** containing stack traces, SQL queries, file system paths or library versions
@@ -954,10 +971,11 @@ every response, including those of public endpoints.
 
 - **[audit]** `Strict-Transport-Security: max-age=31536000; includeSubDomains` (ASVS V3.4.1); a `max-age` under one
   year is suboptimal and the absence of the header is non-conforming.
-- **[audit]** `X-Frame-Options`: `DENY` or `SAMEORIGIN` (ASVS V3.4.6); `ALLOW-FROM` is deprecated.
+- **[audit]** CSP `frame-ancestors` not allowing any site (ASVS V3.4.6, which calls `X-Frame-Options` obsolete);
+  failing that, `X-Frame-Options`: `DENY` or `SAMEORIGIN` (`ALLOW-FROM` is deprecated).
 - **[audit]** `X-Content-Type-Options: nosniff` (ASVS V3.4.4).
 - **[audit]** `Content-Security-Policy` present and without `default-src *`; the minimum acceptable is
-  `default-src 'self'` (ASVS V3.4.3). A permissive policy with a wildcard is equivalent to none.
+  `default-src 'self'`, and ASVS V3.4.3 asks at least for `object-src 'none'` and `base-uri 'none'`. A permissive policy with a wildcard is equivalent to none.
 - **[audit]** `Permissions-Policy` disables the browser features the application does not use
   (`geolocation=(), camera=(), microphone=()`).
 - **[audit]** Consistency of the headers across all endpoints (public, authenticated, admin): present on one and absent
@@ -1065,7 +1083,7 @@ trail. The one partly empirical test (debug endpoint exposure) needs network con
 ### 7.1 Sensitive business flows are protected from automated abuse `[P1]`
 
 **References:** OWASP API6:2023 Unrestricted Access to Sensitive Business Flows, OWASP Automated Threats OAT-001 to
-OAT-021, OWASP ASVS 5.0.0 V2.4.1 and V2.4.2, NIST SP 800-63B-4 §5.2.5.
+OAT-021, OWASP ASVS 5.0.0 V2.4.1 and V2.4.2.
 
 **Concept.** Distinct from 4.1 (infrastructure rate limiting): it protects the business logic from automated abuse,
 not the availability of the service. Generic rate limiting limits request volume; protecting sensitive flows concerns
@@ -1121,7 +1139,8 @@ publicly documented; a valid standard user JWT for authenticated endpoints.
 **Test logic** (the categories checked; the concrete payload catalogue is in the tool's `ssrf_payloads` module).
 
 - **Cloud metadata access.** The metadata service addresses of AWS, GCP and Azure. Expected: `400 Bad Request`
-  ("forbidden IP range") or a timeout (ASVS V1.3.6).
+  ("forbidden IP range") (ASVS V1.3.6); a timeout is not a defence (the server may still be fetching), and a
+  rejection that reads like a failed fetch is not one either.
 - **Private IP range blocking.** Loopback, `localhost` and the RFC 1918 private ranges. Expected: all blocked.
 - **Encoding bypass.** Alternative notations of loopback addresses, including the IPv6 loopback. Expected: all blocked
   (robust validation of the resolved address, not a pattern on the string).
@@ -1170,8 +1189,8 @@ through the API.
 
 ### 7.4 The API consumes external services safely (webhook verification) `[P1]`
 
-**References:** OWASP API10:2023 Unsafe Consumption of APIs, NIST SP 800-161 Rev. 1, OWASP ASVS 5.0.0 V13.2.4 and V4,
-NIST SP 800-204 §4.3.
+**References:** CWE-347, OWASP Webhook Security Cheat Sheet, OWASP API10:2023 Unsafe Consumption of APIs (context:
+its text names data received from other APIs, not webhooks), OWASP ASVS 5.0.0 V4.1.5 (per-message signatures, L3).
 
 **Concept.** When the API receives webhooks from external providers (payment, CI/CD, CRM) or calls partner APIs, it
 verifies cryptographically the authenticity of the data before processing it. An unverified webhook can be forged by an

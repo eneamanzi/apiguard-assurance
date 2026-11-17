@@ -2418,9 +2418,9 @@
   <!-- ================================================================== -->
   <!-- Audit Trail Modal                                                    -->
   <!--                                                                      -->
-  <!-- Single reusable overlay, outside .container so il suo z-index non   -->
-  <!-- viene schiacciato da nessun ancestor con transform/isolation.        -->
-  <!-- Popolato on-demand da REPORT_DATA; nessuna richiesta di rete.        -->
+  <!-- Single reusable overlay, outside .container so that no ancestor    -->
+  <!-- with a transform or isolation flattens its z-index.                  -->
+  <!-- Filled on demand from REPORT_DATA; no network request.              -->
   <!-- ================================================================== -->
   <div id="audit-trail-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title-label">
     <div class="modal-panel" id="audit-trail-modal-panel">

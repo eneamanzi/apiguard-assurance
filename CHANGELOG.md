@@ -156,6 +156,190 @@ generated catalogue [`docs/05-tests/README.md`](docs/05-tests/README.md); `apigu
   (0.1, 1.1, 6.2) or documented with an old wording (0.2, 1.5 "Credential-bearing request ...", 1.6 "Session cookie
   without ..."), details not listed (1.1's `CREDENTIAL_REFUSED`, `NOT_SERVED` and its five malformed cases, 2.2's
   three `NO_*_OPERATION`, 7.2's four `SSRF_BLOCKED_*`). All aligned to the code.
+- **A test's oracle is declared in its code, and its page's tables are generated (2026-11-16).** Each case is one
+  line of `TestInfo.oracle` (`OracleCase`: when, outcome, detail, confidence); `dev:gen` writes section 6 of the
+  page from it (`oracle_table`) and section 8 from the titles of the test's findings (`finding_titles`), and a test
+  that records a judgement its oracle does not declare ends in ERROR (`AssessmentTest._record`), as one with an
+  undeclared sub-test did already. A test without a declared oracle is not checked; the tests move to it one at a
+  time, with their review. First: 4.4.
+- **4.4 reviewed (2026-11-16).** It sent a POST whatever the documented method of the write it probed: on an
+  operation documented only as PUT or PATCH a gateway may refuse the method before any size check (Kong's `404`
+  "no Route matched"), which read as a forwarded body; it now sends the documented method, and its finding names it.
+  ASVS v5.0.0-2.4.1 is no longer cited: it is about excessive calls (test 4.1), and ASVS 5.0.0 has no requirement on
+  the size of a request body; OWASP API4:2023 asks for it ("define and enforce a maximum size of data on all
+  incoming parameters and payloads"). A second sub-test, `chunked_body_rejected`, sends the same body in chunks
+  (`Transfer-Encoding: chunked`, no `Content-Length`; `SecurityClient` takes a tuple of chunks): a gateway that
+  weighs only the declared length lets it through. Kong's `request-size-limiting` and APISIX's `client-control`
+  refuse it with `413` (measured with a 1 MB limit on each). **Changed results**: on the three labs as configured
+  (no size limit), one more 4.4 finding, "Oversized body not rejected: <probe> (chunked)"; the probe is the same
+  documented POST. The guarantee said the gateway refuses the body, but a `413` from the gateway and one from the
+  application are the same answer, told apart only by signals of one gateway (rule 10): it now says the body is
+  refused before it is processed, by the gateway (where the limit belongs) or else by the application, and the
+  page's Limitations say which of the two answered is not told (catalogue heading "Request body size is limited at
+  the boundary").
+- **4.1 reviewed (2026-11-16).** Its oracle is declared in code; the review found these, each verified on a lab
+  variant (test page, section 12). A burst refused by a `401` or `403` was judged as it was: on a gateway that
+  authenticates before its limit (Kong and APISIX run authentication, ACL and IP restriction first: plugin priorities
+  read in the labs' gateways) a configured limit was reported "not enforced". Such a burst is now sent again with
+  user_a's credential (optional need), and refused again it is `NOT_VERIFIABLE/REFUSED_BEFORE_LIMIT`, without user_a
+  `NO_CREDENTIAL_TO_RETRY`. A limit's own refusal status is read (`RateLimit.refusal_status`: Kong `error_code`,
+  default `429`; APISIX `rejected_code`, default `503`): APISIX's default refusal ended as `LIMIT_OR_UNAVAILABLE`, now
+  `RATE_LIMITED`. The burst no longer has a size fixed in advance (twice the largest count plus one, which assumed a
+  burst shorter than the window): it goes on until every limit read is provably exceeded, or `max_burst`. The FIRM
+  finding without a limit read said "no limit at or below" the burst, while a burst may straddle two windows: it now
+  names the limits surely absent (fewer than half the burst per window as long as it). `ip_spoofing_resisted`
+  recorded `NOT_APPLICABLE/NO_LIMIT_TO_BYPASS` also when a limit may exist (`limit_enforced` not verifiable): now
+  `NOT_VERIFIABLE/NO_LIMIT_SEEN`; and `IP_SPOOF_BYPASS` is CERTAIN only when a plain request after the spoofed burst
+  is still refused, FIRM otherwise (shown for the first time on a real gateway: Kong trusting `X-Forwarded-For`).
+  The probe prefers a GET without a security requirement; a run of `503` reads as a possible limit after any answer
+  that says something, not only a served one; a request without an answer no longer counts as reaching the gateway.
+  **Changed results**: on crAPI the probe is `/workshop/api/mechanic/receive_report` (was `/workshop/api/mechanic/`),
+  still FAIL FIRM; the Forgejo labs unchanged.
+- **4.2 reviewed (2026-11-16).** ASVS v5.0.0-16.5.2 is no longer cited (it names circuit breakers and graceful
+  degradation, test 4.3); 13.2.6 is, the requirement that names connection timeouts to separate services. A timeout of
+  `0` now means "no bound" in the concept (`BackendTimeout`), and its detail `NOT_CONFIGURED` is `UNBOUNDED`: an unset
+  timeout is judged at its default, so "not configured" named the wrong case (neither gateway accepts `0`). The page
+  listed a finding title the code no longer wrote; sections 6 and 8 are now generated. No result changes.
+- **4.3 reviewed (2026-11-16).** A gateway whose Admin API answered neither read (circuit breakers, health checks)
+  was SKIP, against the rule of 2026-11-04 (a concept the gateway has and that could not be read makes the test
+  INCONCLUSIVE): now `NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE`, the shared detail, which also replaces its own
+  `GATEWAY_READ_FAILED`; SKIP only for a gateway that has neither concept. No result changes on the labs.
+- **A gateway concept that could not be read is a shared case (2026-11-16).** `CONCEPT_NOT_ACCESSIBLE`, recorded by
+  `BaseTest._unread_concept`, is in core with the answers that say nothing: a test whose oracle is declared may
+  record it without declaring it (otherwise test 4.2, with its oracle declared, would have ended in ERROR on an
+  unreadable Admin API), and the oracle table of every test that reads a concept shows it.
+- **An optional account whose login fails no longer makes the test ERROR (2026-11-16).** The engine logs in before a
+  test for every account it declares; a failed login of an optional one (`optional_needs`) made the test ERROR, seen
+  on APISIX when a rate limit refused user_a's login with `503`. The test now runs without it (a warning,
+  `test_optional_account_not_available`); a required one still makes it ERROR. Tests 0.3, 4.1 and 4.4 read the
+  optional account through one helper, `optional_role_parts()`, which no longer logs in by itself.
+- **Domain 6 reviewed (2026-11-16)**, oracles declared in code, each fix verified on the labs (test pages,
+  section 12). **6.1**: `no_debug_field` passed without looking at anything when the sampled answer was a JSON array
+  (Forgejo's `/api/v1/orgs`), a refusal or a HEAD: it now walks objects and arrays of served bodies, and records
+  `NOT_VERIFIABLE/NO_JSON_OBJECT` when none was looked at; debug names are exact or `_`-prefixed (a substring flagged
+  `search_query`); the error probe tries up to five writes until one is parsed (Forgejo's first is refused by scope,
+  so no error was ever provoked there: now `NO_STACK_TRACE` via `POST /api/v1/markup`); the request's own path is
+  taken out of the error body before scanning; a leaky header is CERTAIN only with a version, and `Via` naming a
+  version is judged; each finding cites its own ASVS requirement (the stack trace 16.5.1, not 13.4.2). **6.2**: a
+  header sent twice (`nosniff, nosniff`) read as missing, CERTAIN: now read as browsers do; `frame-ancestors
+  https://*` passed; X-Frame-Options alone is `XFO_ONLY` with a note (ASVS 3.4.6 asks for `frame-ancestors`); a refusal
+  without CORS headers was `ORIGIN_NOT_ALLOWED`, now only a served answer counts (`PROBE_NOT_SERVED` otherwise).
+  **6.4**: the credential found on a served debug path was copied in clear into `evidence.json` and the report: it is
+  now registered as a secret and redacted; a served `.env` or actuator body is read for credential-named keys
+  (`DB_PASSWORD=...`), not only token patterns; a header in Kong's header lists is keyed by its name; a redirect is
+  `NOT_VERIFIABLE/NOT_INTERPRETED`, not blocked; an unreadable configuration follows the shared rule
+  (`CONFIG_NOT_READABLE` is gone); five more credential patterns; the debug finding cites CWE-215 and ASVS
+  13.4.2/13.4.5. **Changed results**: 6.2 on the three labs records `XFO_ONLY` with a note; 6.1's `no_stack_trace` is
+  now proven on the Forgejo labs.
+- **Domain 7 reviewed (2026-11-16)**, oracles declared in code, each fix seen on a lab (test pages, section 12).
+  **7.2**: an endpoint that fetches the URL and answers a failed fetch with a `4xx` passed: crAPI's `contact_mechanic`
+  (SSRF-vulnerable, it returns the fetched page) answered its loopback payloads `400` "Could not connect" and they
+  read as blocked, one run away from a PASS on an essential class. An unreachable control (a random `.invalid` host)
+  now shows what a failed fetch looks like (`REJECTED_LIKE_UNREACHABLE`); the benign control is sent again after the
+  series and each ENFORCED waits for it; a payload's `2xx` carrying a cloud-metadata marker on an endpoint that returns
+  what it fetches is a proven `VIOLATION/SSRF_CONTENT_REFLECTED` (CERTAIN), the one exception to the listener
+  boundary; loopback payloads go before the cloud-metadata ones (which hang off-cloud); only an invalid or forbidden
+  answer is a rejection; ASVS v5.0.0-1.3.6 cited. **7.1**: `NO_ANTI_AUTOMATION` is FIRM (an acceptance is not an
+  effect); AWS WAF's and Cloudflare's challenge headers count; weak words count only after a served submission.
+  **7.3**: ASVS 2.3.4 cited; a resource not created is `NOT_VERIFIABLE/OBJECT_NOT_CREATED` (7.2 too), not ERROR.
+  **7.4**: the validly signed delivery goes last (an event-ID cache made the first order a false PASS or FAIL); a
+  forged delivery accepted is FIRM. **Changed results**: crAPI 7.2's `private_ip` is `REJECTED_LIKE_UNREACHABLE`
+  (INCONCLUSIVE, as the test was); crAPI 7.1 FIRM.
+- **Domain 0 reviewed (2026-11-16)**, oracles declared in code (test pages, sections 6, 8, 12). **0.4**: the adapters
+  report every target their gateway routes to, not only the health-checked ones (a Kong Service pointing straight at
+  a host, an APISIX upstream without `checks`, `UNKNOWN`), so the most common Kong setup is now tried (a checked APISIX
+  upstream's nodes were also added again by name, as unchecked, until the final regression run of 2026-11-17 showed it); a declared
+  loopback address is `GATEWAY_LOCAL_ADDRESS`, not asked on the tool's machine; a derived address answering while
+  the gateway refused the probe itself is `GATEWAY_REFUSED_PROBE`, not `ANOTHER_SERVICE`; the probe path prefers a
+  public GET. **0.1**: a `401`/`403` unlike the siblings is `REFUSED_BEFORE_METHOD`, not a FIRM
+  `UNDECLARED_METHOD_KNOWN` (an authentication runs before dispatch); TRACE refused likewise is not "not served"; an
+  undocumented version is calibrated against a random version, and a `404` unlike it is `VERSION_UNCLEAR`; the route
+  comparison prefixes the base URL's path; the Kong adapter anchors route regexes and writes PCRE's `(?<name>` as
+  Python's, and reports the routes of a disabled Service disabled; a regex that does not compile is `ROUTE_NOT_READ`,
+  not a CERTAIN finding; the TRACE finding cites ASVS 13.4.4. **0.2**: without a gateway `near_route_paths` is `NO_GATEWAY`; the over-match finding no longer says the route's policies
+  are skipped. **0.3**: a `404` unlike the siblings is not "still served"; a parametric path answering like a random
+  object is `OBJECT_OR_OPERATION_ABSENT` (NOT_VERIFIABLE). Unreadable concepts follow the shared rule
+  (`ROUTES_NOT_READABLE`, `ADDRESSES_NOT_READABLE` gone). The catalogue's references for 0.1 to 0.4 are the code's
+  (it cited ASVS V4.1.1, the Content-Type requirement). **Changed results**: crAPI 0.1 loses its
+  `UNDECLARED_METHOD_KNOWN` finding (now `REFUSED_BEFORE_METHOD`); crAPI 0.4 adds two FIRM findings (the identity and
+  community backends' declared addresses answer directly).
+- **Domain 1 reviewed (2026-11-16)**, oracles declared in code (test pages, sections 6, 8, 12). **1.1**: a write
+  without path parameters was probed on a random sibling of its path, so it never reached the operation (crAPI's
+  identity writes read `CREDENTIAL_REQUIRED` from a nonexistent path): it now goes to its own path; a `2xx` is compared
+  with a random path (`SERVED_LIKE_UNKNOWN`, `VARIANT_LIKE_UNKNOWN`: a catch-all no longer makes every path a
+  violation); a malformed credential not served is `CREDENTIAL_REFUSED` (a `400` was NOT_VERIFIABLE); an empty
+  `OPTIONS` answer is `OPTIONS_ANSWERED`; the variants cite CWE-288, not ASVS 6.3.4. **1.2, 1.4**: only `400`, `401`,
+  `403` are refusals (`NOT_A_REFUSAL` otherwise); a forged or revoked token served is CERTAIN only with the genuine
+  answer's shape. **1.4**: a credential creation the target did not evaluate is NOT_VERIFIABLE, not ERROR
+  (`ResourceSetupError` carries the answer); RFC 7519 4.1.7 dropped. **1.3**: `NO_EXP_CLAIM` is TENTATIVE; without
+  `iat` the lifetime is measured from the login. **1.5**: the plain-HTTP probe keeps the base URL's path; HSTS is not
+  judged on an answer that says nothing; NIST SP 800-52r2, which says nothing of HSTS, is no longer cited (RFC 6797);
+  findings cite their own references. **1.6**: findings are FIRM (whether a cookie carries the session is not
+  proven); the `__Host-`/`__Secure-` name prefix (ASVS 3.3.1) is checked; CWE-384 dropped. **1.7**: both account
+  names are masked in both bodies (a fixed text holding one name was a false CERTAIN); the attempts run even when the
+  comparison's bodies are unstable; durations are compared on unstable bodies too, and a 40 ms gap between every
+  reading counts; a stable `500` against a `401` is a disclosure (FIRM); a gateway limit's stated refusal status
+  (APISIX's `503`) counts as the limit; the brute-force finding cites CWE-307. The catalogue's references for 1.1 to
+  1.5 are the code's (it cited NIST SP 800-63B-4 sections that do not exist, ASVS 11.5.1, and a "5-15 minutes"
+  NIST does not state). **Results**: the same verdicts on the three labs.
+- **Domain 2 reviewed (2026-11-16)**, oracles declared in code (test pages, sections 6, 8, 12). **2.1**: a refusal of
+  user_a while the admin account is refused too is `ADMIN_REFUSED_TOO` (not verifiable), not `REFUSED` (the Forgejo
+  labs passed so while the admin token lacked `read:admin`); an operation the specification does not protect but
+  that refuses an anonymous request counts as protected; ASVS 8.1.1 dropped. **2.2**: `BOLA_READ` is CERTAIN only
+  with the owner's answer; `BOLA_DELETE` CERTAIN only served-then-gone, `DELETE_NOT_APPLIED` when the owner still
+  reads the object; an unavailable owner read is not `OWNER_NOT_SERVED_HERE`; a creation without an answer is not
+  ERROR. **2.4**: a sibling served like a random path under its version is `SERVED_LIKE_UNKNOWN` (a catch-all was a
+  CERTAIN violation); calibration per method; every safe operation is compared, not only those the specification
+  protects; ASVS 6.3.4 and CWE-288 replace 8.1.1. **2.5**: a sensitive-named boolean, object or count is not
+  exposure; `MASS_ASSIGNMENT` is FIRM and skips the keys the configured body sets; a create refused for the injected
+  fields is `INJECTED_CREATE_REFUSED` (not verifiable: rejected unknown fields and a wrong-typed bound field look alike); ASVS 15.3.1 and 15.3.3 replace 14.2.6. The catalogue's references follow
+  the code, and RBAC is attributed to ANSI INCITS 359, not NIST SP 800-162 (the ABAC guide). **Changed results**:
+  one Forgejo 2.1 operation is `ADMIN_REFUSED_TOO`; verdicts unchanged on the three labs.
+- **A login that answers only with a session cookie can be used (owner, 2026-11-16).** A resource value can read a
+  cookie the response sets, `cookie:<name>` (validated as a cookie name), and the JSON body is required only for a
+  value read from it, so a login answering `204` with `Set-Cookie` works; the credential is sent back as configured
+  (`send_as: {in: cookie}`), never through the client's cookie jar, which stays empty. Test 1.6 judges the cookie the
+  credential is read from CERTAIN, the others FIRM. Until then such a target could not be logged into and every test
+  needing an account ended in ERROR. Existing configurations are unchanged (verified: the account tests of domains 1
+  and 2 give the same results on the labs). Verified with a simulated login route on Forgejo + Kong; no lab has a
+  cookie-session API, so sending that cookie to a backend that accepts it is not exercised (1.6 Limitations). 1.6's
+  page no longer says the name prefixes are unchecked (`COOKIE_WITHOUT_PREFIX` checks them).
+- **5.1: a log shipper that ships the credential fails (owner, 2026-11-17).** New sub-test `secrets_not_shipped`:
+  per enabled shipper, whether the record it builds carries a request part where the target's credential travels
+  (the configured placement and the specification's security schemes), not removed (`CREDENTIAL_SHIPPED`, FIRM;
+  ASVS v5.0.0-16.2.5, CWE-532). The adapters state what each record carries (`LogShipper.request`,
+  `ShippedRequest`), read on the gateways' sources: Kong redacts only `authorization` and `proxy-authorization`
+  and ships the URI as received, `key-auth` `hide_credentials` clears its headers, `custom_fields_by_lua` on the
+  request leaves the record not stated; APISIX ships every header and the URI unless a `log_format` or a
+  `data-mask` (on the logger's route, or global) removes them, a route's `data-mask` running after a global logger.
+  Checked on variants of the three labs and against the records the gateways write (`file-log` on stdout, dummy
+  credentials). An independent review against the gateways' sources found five defects and three edge cases
+  before release (kafka `origin`, `jwt-auth`'s cookie, Kong's most specific `key-auth`, a plugin in two APISIX global
+  rules, Kong's shared custom fields; cached variables, `_meta`, routes by id), all fixed and run again. The labs ship no logs, so their results are unchanged (`NO_SHIPPER`). The page's sources and
+  remediation no longer cite ASVS 16.3.3 and NIST AU-2, which the code dropped on 2026-11-16.
+- **1.5: a protocol refusal is not cleartext processing (owner, 2026-11-16).** Kong answers plain HTTP on an
+  HTTPS-only route with `426 Please use HTTPS protocol`, which read as `HTTP_PROCESSED_CLEARTEXT` (CERTAIN), although
+  ASVS v5.0.0-4.1.2 forbids only the transparent redirect and the finding itself recommended answering an error. A
+  `426`, or a `4xx` the path does not get over HTTPS, is `ENFORCED/HTTP_REFUSED`; the same `4xx` as over HTTPS, a
+  `5xx`, a `2xx` and a redirect are judged as before; a `4xx` with no HTTPS answer that says something to compare is
+  `HTTPS_ANSWER_UNKNOWN` (not verifiable). Verified on Forgejo + Kong without the redirect: PASS.
+- **3.3, 5.1 and the external tests reviewed (2026-11-16)**; with them every test declares its oracle in code
+  (`TestInfo.oracle`), and every page's sections 6 and 8 are generated. **3.3**: a bounded replay window checked on a
+  date the signature need not cover is `REPLAY_DATE_NOT_SIGNED` (FIRM): Kong accepts `X-Date` or `Date` and
+  requires neither in the signature unless `enforce_headers` lists both (`SigningPolicy.date_signed`); a policy with
+  an anonymous fallback is `SIGNATURE_OPTIONAL` (`SigningPolicy.optional`); a new sub-test `content_signed` judges
+  whether the signature must cover the body digest and the method and path (`BODY_NOT_SIGNED`, `TARGET_NOT_SIGNED`,
+  FIRM; `SigningPolicy.body_signed` now means the body is signed, not only validated, and `target_signed` is new),
+  so all three labs now FAIL (Forgejo + APISIX validates the body but does not sign `digest`); a Kong variant with
+  `enforce_headers: [date, x-date, digest, request-line]` is PASS; ASVS 4.1.5 and 11.4.1 cited; the Kong lab's
+  comments on `hmac-auth` corrected (a NIST claim for the 300 s bound, md5 Kong does not accept, a body "in the
+  signature"). **5.1**: a Kong log shipper bound to one consumer no longer counts as logging every request; the
+  shippers are read before the configuration values; ASVS 16.3.3 dropped, NIST AU-4(1)/AU-9(2) named. **ext.1.5**:
+  an offered TLS 1.0/1.1 (testssl.sh rates it LOW) passed: now `DEPRECATED_PROTOCOL` (CERTAIN), with RFC 8996 and
+  ASVS 12.1.2, 12.2.2; a plain-HTTP base URL is SKIP, not ERROR. **ext.0.1**: the time limit no longer throws away
+  the base paths already searched (`SEARCH_INCOMPLETE` for the rest); a base path redirecting every unknown path is
+  `SEARCH_BLIND`. **ext.3.1**: a case quoting only `501` is `NOT_IMPLEMENTED`, not a finding; ASVS 16.5.3 cited.
+  **Changed results**: 3.3 FAIL on both Kong labs (their `hmac-auth` signs no date; until that day PASS).
 - **Every dependency is pinned to an exact version (2026-11-16).** The runtime dependencies used
   `>=FLOOR,<NEXT_MAJOR` ranges and the development tools floors only, so a clean checkout, the CI's included, took
   the newest releases: Typer 0.29 broke the checks with no change in the repository (below). `pyproject.toml` now

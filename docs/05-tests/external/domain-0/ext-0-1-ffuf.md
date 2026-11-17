@@ -78,15 +78,22 @@ No positive control: the test asks whether a path exists, not who may use it.
 
 ## 6. Oracle
 
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("ext.0.1.ffuf")) ]]] -->
+
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| the candidate answers unlike its unknown siblings | `VIOLATION/UNDOCUMENTED_PATH` | FIRM: it exists; it may be harmless |
-| it answers "not found" (404, 410) in another shape: another component said it (Kong's route `/api` also matches `/api-docs`, which Forgejo answers 404) | `NOT_APPLICABLE/NOT_FOUND` | - |
-| it answers like an unknown sibling (a false positive of ffuf) | `NOT_APPLICABLE/LIKE_UNKNOWN` | - |
-| the calibration is unstable | `NOT_VERIFIABLE/CALIBRATION_UNSTABLE` | - |
-| more than 100 answers kept by ffuf on one base path | `NOT_VERIFIABLE/TOOL_CALIBRATION_FAILED` | - |
-| a base path refuses an unknown path (401, 403): the search is blind there | `NOT_VERIFIABLE/SEARCH_BLIND` | - |
-| the search ended with no violation, on at least one base path that could tell | `ENFORCED/NO_UNDOCUMENTED_PATH` | - |
+| the candidate answers unlike random siblings under its parent | `VIOLATION/UNDOCUMENTED_PATH` | FIRM |
+| the candidate answers `404` or `410` in another shape (another component said not found) | `NOT_APPLICABLE/NOT_FOUND` | - |
+| the candidate answers like a random sibling (a false positive of ffuf) | `NOT_APPLICABLE/LIKE_UNKNOWN` | - |
+| the calibration of a base path or of a candidate's parent is unstable | `NOT_VERIFIABLE/CALIBRATION_UNSTABLE` | - |
+| a base path answers an unknown path with `401`, `403` or a redirect: the search is blind there | `NOT_VERIFIABLE/SEARCH_BLIND` | - |
+| ffuf kept more than 100 answers on one base path (its calibration did not hold) | `NOT_VERIFIABLE/TOOL_CALIBRATION_FAILED` | - |
+| a base path was not searched to the end within the time limit | `NOT_VERIFIABLE/SEARCH_INCOMPLETE` | - |
+| no violation, on at least one base path the search can tell | `ENFORCED/NO_UNDOCUMENTED_PATH` | - |
+
+<!-- [[[end]]] -->
+
+Until 2026-11-16 the time limit reached on one base path ended the whole test in ERROR, the base paths already searched lost: they are judged now, the others `SEARCH_INCOMPLETE`; and a base path that redirects every unknown path (to a login page) was counted as searchable: it is `SEARCH_BLIND`, like a `401`.
 
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("ext.0.1.ffuf", page=cog.inFile)) ]]] -->
 
@@ -110,8 +117,13 @@ search with nothing found (checked against a slow local server).
 
 ## 8. Findings
 
-One per undocumented path: "Undocumented path answers: GET `<path>`", the status and its category, the calibration
-pattern; `evidence_ref` the test's own request, `supporting_refs` the calibration probes.
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("ext.0.1.ffuf")) ]]] -->
+
+- "Undocumented path answers: GET <path>"
+
+<!-- [[[end]]] -->
+
+`evidence_ref` the re-verification request; the tool's raw output is kept as an artifact.
 
 ## 9. Effects on the target
 
@@ -141,6 +153,9 @@ For a deep search, Assetnote's `httparchive_apiroutes` (364,056 paths, https://w
 `wordlist`: at 30 requests per second about 3.4 hours per base path.
 
 ## 12. Validation
+
+**2026-11-16, after the review**: Forgejo + Kong **FAIL**, `/api/healthz` and `/api/swagger` FIRM, as before.
+
 
 Runs of 2026-10-22, the two tests of the guarantee together (ffuf 2.3.0, SecLists 2026.1, 30 requests per
 second); every lab healthy afterwards:

@@ -58,7 +58,7 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
-from src.core.test_metadata import DecisiveAnswer, Effect, Need, TestInfo
+from src.core.test_metadata import DecisiveAnswer, Effect, Need, OracleCase, TestInfo
 from src.external_tests.base import ExternalToolTest, ToolRun
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -71,6 +71,9 @@ _MAX_FINDINGS: int = 20
 # The statuses that mean the gateway could not reach the backend (RFC 9110:
 # 502 Bad Gateway, 503 Service Unavailable, 504 Gateway Timeout).
 _UNAVAILABLE_STATUSES: frozenset[str] = frozenset({"502", "503", "504"})
+# 501 Not Implemented: the method is not served, not a server error on the input
+# (categorize() puts it with 405; until 2026-11-16 it was a finding).
+_NOT_IMPLEMENTED_STATUS: str = "501"
 # How Schemathesis quotes a response status in a failure message: "[503]".
 _QUOTED_STATUS: re.Pattern[str] = re.compile(r"\[(\d{3})\]")
 # How Schemathesis names a test case whose request got no answer within
@@ -119,6 +122,9 @@ _COMMAND_CHARS: int = 1000
 
 _REFERENCES: tuple[Reference, ...] = (
     Reference(standard=Standard.ASVS, id="v5.0.0-2.2.1"),
+    # 16.5.3 (read 2026-11-16): fails gracefully when an exception occurs, what
+    # "no server error to a generated input" checks.
+    Reference(standard=Standard.ASVS, id="v5.0.0-16.5.3"),
     Reference(standard=Standard.NIST_SP, id="800-53r5", section="3.19"),
 )
 
@@ -144,6 +150,39 @@ class ExtTest31InputValidationSchemathesis(ExternalToolTest):
         optional_needs=(Need.USER_ACCOUNT,),
         effect=Effect.STRESSES_TARGET,
         sub_tests=(_SUB,),
+        oracle=(
+            OracleCase(
+                when="an operation answers a server error (`500`, ...) to a generated input",
+                outcome=Outcome.VIOLATION,
+                detail="INPUT_NOT_VALIDATED",
+                confidence=Confidence.FIRM,
+            ),
+            OracleCase(
+                when="no failure, and at least one operation was checked",
+                outcome=Outcome.ENFORCED,
+                detail="INPUT_VALIDATED",
+            ),
+            OracleCase(
+                when="every generated request to an operation got a `4xx`: never reached",
+                outcome=Outcome.NOT_VERIFIABLE,
+                detail="ONLY_4XX",
+            ),
+            OracleCase(
+                when="Schemathesis reports an operation as errored or skipped",
+                outcome=Outcome.NOT_VERIFIABLE,
+                detail="OPERATION_NOT_CHECKED",
+            ),
+            OracleCase(
+                when="an operation's failing cases quote only `501`: the method is not served",
+                outcome=Outcome.NOT_VERIFIABLE,
+                detail="NOT_IMPLEMENTED",
+            ),
+            OracleCase(
+                when="no failure, and no operation was checked",
+                outcome=Outcome.NOT_VERIFIABLE,
+                detail="NOTHING_CHECKED",
+            ),
+        ),
         decisive_answers=(
             DecisiveAnswer(
                 category=ResponseCategory.SERVER_ERROR,
@@ -255,7 +294,12 @@ class ExtTest31InputValidationSchemathesis(ExternalToolTest):
         failures: list[dict[str, str]] = []
         unavailable: list[dict[str, str]] = []
         for reported_failure in reported:
-            cases = _usable_cases(reported_failure.get("finding", ""))
+            message = reported_failure.get("finding", "")
+            statuses = set(_QUOTED_STATUS.findall(message))
+            if statuses == {_NOT_IMPLEMENTED_STATUS}:
+                self._record(_SUB, Outcome.NOT_VERIFIABLE, "NOT_IMPLEMENTED")
+                continue
+            cases = _usable_cases(message)
             if cases:
                 failures.append({**reported_failure, "finding": cases})
             else:
@@ -300,7 +344,7 @@ class ExtTest31InputValidationSchemathesis(ExternalToolTest):
                     detail=(
                         f"Schemathesis found that {operation} answers a server error to a "
                         f"generated input: {detail}. The input reached code that does not handle "
-                        "it, instead of being rejected with a 4xx (CWE-20, ASVS v5.0.0-2.2.1, "
+                        "it, instead of being rejected with a 4xx (CWE-20, ASVS v5.0.0-16.5.3, "
                         "NIST SP 800-53 Rev.5 SI-10). Validate every input against its type, "
                         "format, range and pattern before the business logic."
                     ),

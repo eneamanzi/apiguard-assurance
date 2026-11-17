@@ -15,7 +15,7 @@
 | Priority / strategy | P1 / BLACK_BOX |
 | Effect | READ_ONLY |
 | CWE | CWE-285 |
-| Standards | `OWASP API8:2023`, `OWASP API9:2023`, `OWASP ASVS v5.0.0-8.1.1`, `NIST SP 800-53r5, Section 3.1` |
+| Standards | `OWASP API9:2023`, `OWASP API8:2023`, `OWASP ASVS v5.0.0-6.3.4`, `CWE-288`, `NIST SP 800-53r5, Section 3.1` |
 | Tags | `authorization`, `consistency` |
 | Prerequisites | none |
 | Needs | - |
@@ -60,18 +60,29 @@ the documented path without a credential, then the sibling without a credential.
 
 ## 6. Oracle (`version_sibling_consistent`)
 
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("2.4")) ]]] -->
+
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| documented refused without a credential, sibling served (2xx) | `VIOLATION/VERSION_DROPS_AUTH` | CERTAIN (proven by contrast) |
-| documented refused, sibling refused, and a random path right under the sibling's version is not refused the same way | `ENFORCED/SIBLING_REFUSED` | - |
-| documented refused, sibling refused exactly as a random path under its version (a service refusing every path) | `NOT_VERIFIABLE/REFUSED_BEFORE_ROUTING` (until 2026-11-04 `SIBLING_REFUSED`) | - |
-| documented refused, sibling refused, and what a random path under its version answers is not stable | `NOT_VERIFIABLE/CALIBRATION_UNSTABLE` | - |
-| documented refused, sibling absent (404) | `NOT_APPLICABLE/SIBLING_ABSENT` | - |
-| the candidate version is entirely absent: three of its siblings answer `404` while their documented operation does not (or every such pair does, when there are fewer), and no sibling answers otherwise; a pair whose documented operation answers `404` too says nothing about the version and is not counted (since 2026-11-15) | `NOT_APPLICABLE/VERSION_ABSENT` (one per version) | - |
-| documented served without a credential (public) | `NOT_APPLICABLE/DOCUMENTED_NOT_PROTECTED` (that is 1.1's question) | - |
-| documented answered neither 2xx nor a refusal (no answer, a 404, a 5xx, a 429) | `NOT_VERIFIABLE/NO_RESPONSE`, `DOCUMENTED_NOT_JUDGEABLE` (until 2026-11-04 "not protected") | - |
-| the surface has no version sibling at all (the `version_siblings` rule found no pair) | `NOT_APPLICABLE/NO_VERSION_SIBLING` | - |
-| the sibling gives any other answer (a redirect, a `400`, a `405`, a rare code) | `NOT_VERIFIABLE/` its category (`REDIRECT`, `INVALID_REQUEST`, ...) | - |
+| the documented operation refuses an anonymous request and its version sibling serves it (`2xx`), unlike a random path under that version | `VIOLATION/VERSION_DROPS_AUTH` | CERTAIN |
+| the same, the random path's answer unreliable | `VIOLATION/VERSION_DROPS_AUTH` | FIRM |
+| the sibling is served exactly as a random path under its version (a catch-all) | `NOT_VERIFIABLE/SERVED_LIKE_UNKNOWN` | - |
+| both refuse, and a random path under the sibling's version is not refused alike | `ENFORCED/SIBLING_REFUSED` | - |
+| the sibling is refused exactly as a random path under its version | `NOT_VERIFIABLE/REFUSED_BEFORE_ROUTING` | - |
+| the sibling is refused and a random path under its version answers unstably | `NOT_VERIFIABLE/CALIBRATION_UNSTABLE` | - |
+| the documented operation answers neither `2xx` nor a refusal (`404`, ...) | `NOT_VERIFIABLE/DOCUMENTED_NOT_JUDGEABLE` | - |
+| the sibling's answer is `REDIRECT` | `NOT_VERIFIABLE/REDIRECT` | - |
+| the sibling's answer is `METHOD_NOT_ALLOWED` | `NOT_VERIFIABLE/METHOD_NOT_ALLOWED` | - |
+| the sibling's answer is `INVALID_REQUEST` | `NOT_VERIFIABLE/INVALID_REQUEST` | - |
+| the sibling's answer is `OTHER` | `NOT_VERIFIABLE/OTHER` | - |
+| the documented operation is served without a credential | `NOT_APPLICABLE/DOCUMENTED_NOT_PROTECTED` | - |
+| the sibling answers `404` | `NOT_APPLICABLE/SIBLING_ABSENT` | - |
+| up to three siblings answer `404` while their documented operation does not, and none answers otherwise | `NOT_APPLICABLE/VERSION_ABSENT` | - |
+| no safe operation has a version sibling | `NOT_APPLICABLE/NO_VERSION_SIBLING` | - |
+
+<!-- [[[end]]] -->
+
+Until 2026-11-16: a version sibling served `2xx` was CERTAIN even when a random path under that version is served alike (a single-page app behind `/`): now `SERVED_LIKE_UNKNOWN`, and FIRM when that answer is unreliable; the random path was calibrated once, with the last method probed, for every pair (now per method); only operations the specification protects were compared, so a specification without `security` hid every pair; an unavailable or throttled documented request was `DOCUMENTED_NOT_JUDGEABLE` (now the shared rule). ASVS 6.3.4 (no undocumented pathway) and CWE-288 replace ASVS 8.1.1, and the finding names API9:2023 first.
 
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("2.4", page=cog.inFile)) ]]] -->
 
@@ -95,8 +106,13 @@ when every existing sibling enforces the same policy.
 
 ## 8. Findings
 
-"Version sibling drops the authorization check: `<method> <sibling>`", `evidence_ref` the sibling request; the
-documented refusal is in the transaction log as the contrast.
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("2.4")) ]]] -->
+
+- "Version sibling drops the authorization check: <method> <sib_path>"
+
+<!-- [[[end]]] -->
+
+`evidence_ref` the sibling's answer; `supporting_refs` the random path's calibration when it decided.
 
 ## 9. Effects on the target
 
@@ -112,6 +128,9 @@ it from outside.
 None. The siblings are derived; the configuration adds nothing here.
 
 ## 12. Validation
+
+**2026-11-16, after the review** (domain 2 on the three labs as configured): Forgejo labs SKIP (no version sibling), crAPI **INCONCLUSIVE** (`REFUSED_BEFORE_ROUTING` on the identity service, `DOCUMENTED_NOT_JUDGEABLE`), as before.
+
 
 Runs of 2026-10-23; crAPI measured again on 2026-11-04 (2.4 alone):
 

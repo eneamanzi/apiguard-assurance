@@ -15,7 +15,7 @@
 | Priority / strategy | P2 / BLACK_BOX |
 | Effect | READ_ONLY |
 | CWE | CWE-326 |
-| Standards | `OWASP API8:2023`, `NIST SP 800-52r2`, `OWASP ASVS v5.0.0-12.1.1` |
+| Standards | `OWASP API8:2023`, `NIST SP 800-52r2`, `OWASP ASVS v5.0.0-12.1.1`, `OWASP ASVS v5.0.0-12.1.2`, `OWASP ASVS v5.0.0-12.2.2`, `RFC 8996` |
 | Tags | `transport-security`, `tls`, `cipher-suite`, `protocol-version` |
 | Prerequisites | none |
 | Needs | - |
@@ -70,21 +70,19 @@ was an error, and the findings of a scan with two ambiguous results were lost.
 
 ## 6. Oracle
 
-| testssl.sh finding | Outcome / detail | Confidence |
-|---|---|---|
-| HIGH / CRITICAL (weak protocol, weak cipher, known CVE, untrusted chain) | `VIOLATION/TLS_WEAKNESS` (one finding per item) | FIRM: the tool observed it on the target; we did not re-derive it |
-| HIGH / CRITICAL whose id is about revocation (no OCSP/CRL) | `NOT_VERIFIABLE/CERT_REVOCATION_NOT_CHECKABLE`, with a note | - |
-| an entry about testssl.sh's own scan, not the target (`engine_problem`: its bundled OpenSSL lacks an engine, seen on every lab; `scanProblem`; any FATAL entry) | a note naming it, without its local path (until 2026-11-05 it was a "TLS note" about the target, carrying the tool's path) | - |
-| a FATAL entry and no HIGH/CRITICAL weakness: the scan did not finish | `NOT_VERIFIABLE/SCAN_INCOMPLETE` | - |
-| WARN / MEDIUM | a note, not a verdict | - |
-| OK / INFO / LOW | ignored (not shown) | - |
-| no HIGH/CRITICAL weakness | `ENFORCED/NO_TLS_WEAKNESS` | - |
-| the scan could not connect / timed out | ERROR (the base class handles the tool error) | - |
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("ext.1.5.testssl")) ]]] -->
 
-The oracle is testssl.sh's own severity class (`HIGH`/`CRITICAL` fails, `WARN`/`MEDIUM` becomes a note), which is
-what rule 11 means by the tool's own judgement: this scanner rates what it finds instead of naming checks. The
-finding's id is read for one purpose, to recognise the certificate-revocation case and record it `NOT_VERIFIABLE`
-instead of failing on it. The severity is also printed in the finding text.
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| testssl.sh finds SSLv2, SSLv3, TLS 1.0 or TLS 1.1 offered (a handshake succeeded) | `VIOLATION/DEPRECATED_PROTOCOL` | CERTAIN |
+| testssl.sh rates a finding HIGH or CRITICAL (not about revocation) | `VIOLATION/TLS_WEAKNESS` | FIRM |
+| a HIGH or CRITICAL finding about revocation (no OCSP or CRL) | `NOT_VERIFIABLE/CERT_REVOCATION_NOT_CHECKABLE` | - |
+| no weakness, and a FATAL entry says the scan did not finish | `NOT_VERIFIABLE/SCAN_INCOMPLETE` | - |
+| no weakness and no deprecated protocol in a finished scan | `ENFORCED/NO_TLS_WEAKNESS` | - |
+
+<!-- [[[end]]] -->
+
+Until 2026-11-16 an offered TLS 1.0 or 1.1, which testssl.sh rates LOW ("offered (deprecated)"), was below the severities judged: a gateway offering them passed. They are `DEPRECATED_PROTOCOL` (CERTAIN: a handshake succeeded), as SSLv2 and SSLv3; RFC 8996 and ASVS 12.1.2 and 12.2.2 are cited. A plain-HTTP base URL is SKIP (testssl.sh exited 245 and the test ended in ERROR).
 
 ## 7. Outcomes
 
@@ -93,8 +91,14 @@ SKIP when testssl.sh is not installed. Otherwise FAIL on any HIGH/CRITICAL weakn
 
 ## 8. Findings
 
-"TLS weakness (`<severity>`): `<id>`", with the tool's finding text and CVE when present; `evidence_ref` is the
-tool's output artifact. The revocation case is a note, not a finding.
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("ext.1.5.testssl")) ]]] -->
+
+- "TLS weakness (<lower>): <identifier>"
+- "Deprecated TLS protocol offered: <identifier>"
+
+<!-- [[[end]]] -->
+
+`evidence_ref` testssl.sh's output artifact.
 
 ## 9. Effects on the target
 
@@ -111,6 +115,9 @@ No test parameter. The tool is configured under `external_tools.testssl` (`timeo
 `expected_version`, `dev_mode`). testssl.sh is the single TLS analysis tool for this guarantee.
 
 ## 12. Validation
+
+**2026-11-16, after the review**: Forgejo + Kong as configured **PASS** partial (revocation not checkable). The same with Kong started with `KONG_SSL_PROTOCOLS=TLSv1 TLSv1.1 TLSv1.2 TLSv1.3` and `KONG_SSL_CIPHER_SUITE=old` (a compose override, undone): **FAIL**, `DEPRECATED_PROTOCOL` CERTAIN for TLS1 and TLS1_1; until that day this variant passed.
+
 
 Runs of 2026-10-22:
 

@@ -62,13 +62,16 @@ services:
           - https
         https_redirect_status_code: 301
     plugins:
-      #- name: rate-limiting    # rimuovere il plugin per mostrare i finding del 4.1 (rate limiting)
+      # Not enabled: the lab has no rate limit, so test 4.1 reports it. Uncomment to see the test pass
+      # (its page, section 12).
+      #- name: rate-limiting
       #  config:
-      #    minute: 100          # soglia: 100 request al minuto per IP
-      #    policy: local        # contatore in RAM, unica opzione in DB-less
-      #    limit_by: ip         # chiave = IP TCP reale, non X-Forwarded-For
-      #    hide_client_headers: false  # espone X-RateLimit-* e Retry-After
-      #    fault_tolerant: true        # se il contatore è irraggiungibile, passa
+      #    minute: 5            # 5 requests per minute
+      #    policy: local        # counter in each node's memory (cluster needs a database)
+      #    limit_by: ip         # the client address Kong determines: the TCP peer, unless trusted_ips
+      #                         # and real_ip_header make it take a header
+      #    hide_client_headers: false  # send X-RateLimit-* and Retry-After
+      #    fault_tolerant: true        # Kong's default: proxy the request when the counter is unreachable
       - name: response-transformer
         config:
           add:
@@ -103,9 +106,13 @@ services:
   # Test 3.3 reads the full plugin list from the Admin API and audits the
   # hmac-auth config regardless of which service it is attached to.
   #
-  # To produce FAIL findings (useful for thesis documentation):
-  #   set clock_skew: 600         (exceeds 300s oracle -> FAIL)
-  #   add hmac-sha1 / hmac-md5 to algorithms (deprecated/broken -> FAIL)
+  # To produce FAIL findings:
+  #   set clock_skew: 600         (above the 300 s bound -> REPLAY_WINDOW_TOO_LARGE)
+  #   set anonymous: <consumer>   (a request without a signature passes -> SIGNATURE_OPTIONAL)
+  # As written, no enforce_headers: Kong checks the clock skew on X-Date or Date and requires
+  # neither in the signature, so test 3.3 reports REPLAY_DATE_NOT_SIGNED (add
+  # `enforce_headers: [date, x-date]` to see it pass). Kong accepts only hmac-sha1/256/384/512,
+  # so the default forbidden algorithm (md5) cannot be configured here.
   # ---------------------------------------------------------------------------
   - name: hmac-audit-dummy
     url: http://forgejo-upstream
@@ -120,9 +127,10 @@ services:
     plugins:
       - name: hmac-auth
         config:
-          clock_skew: 300               # compliant: <= 300 s (NIST SP 800-107 Rev.1 S5.3.2)
+          clock_skew: 300               # within the methodology's 300 s bound (no standard sets it)
           algorithms:
             - hmac-sha256
             - hmac-sha384
             - hmac-sha512
-          validate_request_body: true   # body included in signature (recommended for POST/PUT)
+          validate_request_body: true   # the Digest header is checked against the body; it is
+                                        # signed only when `digest` is in enforce_headers

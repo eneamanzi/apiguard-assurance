@@ -3,7 +3,7 @@
 > **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-22) ·
 > **Source of truth:**
 > [`src/tests/domain_0/test_0_3_deprecated_operations.py`](../../../src/tests/domain_0/test_0_3_deprecated_operations.py) ·
-> **Verified:** 2026-10-22
+> **Verified:** 2026-11-16
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("0.3", page=cog.inFile)) ]]] -->
 
@@ -66,24 +66,28 @@ nothing about what an operation returns.
 
 ## 6. Oracle
 
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("0.3")) ]]] -->
+
 | Case | Outcome / detail | Confidence |
 |---|---|---|
 | `410 Gone` | `ENFORCED/SWITCHED_OFF` | - |
-| `405 Method Not Allowed`: the method is no longer available on the path | `ENFORCED/METHOD_SWITCHED_OFF` (until 2026-11-04 read as "still served" when it differed from the siblings) | - |
-| a redirect, or an answer of no class: neither the operation running nor gone | `NOT_VERIFIABLE/ANSWER_NOT_INTERPRETED` | - |
-| served, with a `Sunset` date in the future | `ENFORCED/SUNSET_DECLARED` | - |
-| served, with a `Sunset` date in the past | `VIOLATION/PAST_SUNSET_STILL_SERVED` | FIRM |
-| served, with a `Deprecation` header and no `Sunset` | `VIOLATION/DEPRECATION_WITHOUT_SUNSET`: the deprecation is announced, the deadline is not | FIRM |
-| served, with neither header | `VIOLATION/DEPRECATED_WITHOUT_SUNSET` | FIRM |
-| served, with a `Sunset` that is not a date | `NOT_VERIFIABLE/SUNSET_NOT_A_DATE` (the old test counted this as compliant) | - |
-| the answer is the same as a random sibling's | `NOT_APPLICABLE/NOT_SERVED`: not served to this caller, though `404` is not the `410` the standard asks for | - |
-| refused without and with the credential | `NOT_VERIFIABLE/REFUSED_BEFORE_ANSWER` | - |
-| the calibration cannot be trusted | `NOT_VERIFIABLE/CALIBRATION_UNRELIABLE` | - |
-| a path parameter has no value in `path_seed` | `NOT_VERIFIABLE/PATH_NOT_FILLABLE`, named in a note | - |
-| the method writes | `NOT_VERIFIABLE/WRITE_METHOD_NOT_PROBED`, named in a note | - |
+| `405` or `501`: the method is no longer available on the path | `ENFORCED/METHOD_SWITCHED_OFF` | - |
+| served or validated (`2xx`, `4xx` invalid) unlike a random sibling, with neither `Deprecation` nor `Sunset` | `VIOLATION/DEPRECATED_WITHOUT_SUNSET` | FIRM |
+| served unlike a random sibling, with `Deprecation` and no `Sunset` | `VIOLATION/DEPRECATION_WITHOUT_SUNSET` | FIRM |
+| served unlike a random sibling, with a `Sunset` date that has passed | `VIOLATION/PAST_SUNSET_STILL_SERVED` | FIRM |
+| served unlike a random sibling, with a `Sunset` date in the future | `ENFORCED/SUNSET_DECLARED` | - |
+| served unlike a random sibling, with a `Sunset` that is not an HTTP-date | `NOT_VERIFIABLE/SUNSET_NOT_A_DATE` | - |
+| a path without parameters answers like a random sibling: the operation is gone | `NOT_APPLICABLE/NOT_SERVED` | - |
+| a path with parameters answers like a random object: the operation gone, or the seeded object not found | `NOT_VERIFIABLE/OBJECT_OR_OPERATION_ABSENT` | - |
+| refused (`401`, `403`) without a credential and with user_a's, or without and no user_a account | `NOT_VERIFIABLE/REFUSED_BEFORE_ANSWER` | - |
+| a redirect, a `404` unlike a random sibling, or an answer of no class | `NOT_VERIFIABLE/ANSWER_NOT_INTERPRETED` | - |
+| the calibration of the operation's siblings is unreliable | `NOT_VERIFIABLE/CALIBRATION_UNRELIABLE` | - |
+| the operation's method writes: not sent | `NOT_VERIFIABLE/WRITE_METHOD_NOT_PROBED` | - |
+| a path parameter has no value in `path_seed` | `NOT_VERIFIABLE/PATH_NOT_FILLABLE` | - |
 
-A `Deprecation` date in the past is not a violation: RFC 9745 says the date "may be in the past (the resource was
-deprecated at that date)". The deadline is `Sunset`'s business.
+<!-- [[[end]]] -->
+
+Until 2026-11-16 a `404` unlike a random sibling's (a framework's page where the handler's JSON was expected) was "still served", FIRM: now only a served or validated answer (`2xx`, `4xx` invalid) is the operation running; and a path with parameters answering like a random object was `NOT_APPLICABLE/NOT_SERVED`, although the seeded object may only be missing: now `NOT_VERIFIABLE/OBJECT_OR_OPERATION_ABSENT`.
 
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("0.3", page=cog.inFile)) ]]] -->
 
@@ -105,9 +109,14 @@ no deprecated functionality is served, and that question belongs to test `0.1`.
 
 ## 8. Findings
 
-One per operation: "Deprecated operation still served: `GET <path>`" (or "Operation served after its sunset"), with
-the status, the headers found or missing and the date read; `evidence_ref` the request, `supporting_refs` the
-calibration probes.
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("0.3")) ]]] -->
+
+- "Deprecated operation still served: <where>"
+- "Operation served after its sunset: <where>"
+
+<!-- [[[end]]] -->
+
+`evidence_ref` the operation's answer; `supporting_refs` the calibration of its siblings.
 
 ## 9. Effects on the target
 
@@ -124,6 +133,9 @@ transformation is a correct way of satisfying the guarantee.
 None. Everything comes from the specification and `path_seed`.
 
 ## 12. Validation
+
+**2026-11-16, after the review** (0.1 to 0.4 on the three labs as configured): both Forgejo labs **FAIL** (`DEPRECATED_WITHOUT_SUNSET`, 3 writes not probed), crAPI SKIP (no operation marked deprecated), as before.
+
 
 Runs of 2026-10-22, the three tests of the group together:
 

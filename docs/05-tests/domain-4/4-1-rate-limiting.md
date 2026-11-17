@@ -1,9 +1,9 @@
 # 4.1 Rate Limiting
 
-> **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-23) ·
+> **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-23), again with its oracle in code (2026-11-16) ·
 > **Source of truth:**
 > [`src/tests/domain_4/test_4_1_rate_limiting.py`](../../../src/tests/domain_4/test_4_1_rate_limiting.py) ·
-> **Verified:** 2026-11-15
+> **Verified:** 2026-11-16
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("4.1", page=cog.inFile)) ]]] -->
 
@@ -18,7 +18,7 @@
 | Standards | `OWASP API4:2023`, `OWASP ASVS v5.0.0-2.4.1`, `NIST SP 800-204, Section 4.5` |
 | Tags | `resource-consumption`, `rate-limiting` |
 | Prerequisites | none |
-| Needs | `GATEWAY` (optional) |
+| Needs | `GATEWAY` (optional), `USER_ACCOUNT` (optional) |
 | Parameters | [`tests.domain_4.test_4_1`](../../03-reference/01-configuration.md#testsdomain_4test_4_1) |
 
 <!-- [[[end]]] -->
@@ -27,10 +27,11 @@
 
 ## 1. Guarantee
 
-The gateway limits the request rate: past a limit it answers `429 Too Many Requests`, and the limit is keyed to the
-real connection, not to a header an attacker controls. A PASS promises a burst met a 429, and that spoofing
-a spoofed client address did not slip past it. The threat (OWASP API4:2023): an unlimited endpoint lets a loop exhaust the
-backend or brute-force a credential. ASVS v5.0.0-2.4.1 (anti-automation controls).
+The gateway limits the request rate: past a limit it refuses the request (`429 Too Many Requests`, or the status
+its limit is configured to answer with), and the limit is keyed to the real connection, not to a header an attacker
+controls. A PASS promises a burst was refused, and that a spoofed client address did not slip past the refusal.
+The threat (OWASP API4:2023): an unlimited endpoint lets a loop exhaust the backend or brute-force a credential.
+ASVS v5.0.0-2.4.1 (anti-automation controls against excessive calls).
 
 ## 2. Sub-tests and coverage of the methodology
 
@@ -42,54 +43,82 @@ backend or brute-force a credential. ASVS v5.0.0-2.4.1 (anti-automation controls
 
 ## 3. Inputs
 
-The documented GET endpoint to flood (derived: the shortest documented GET, or `probe_path`). With a gateway
-(`Need.GATEWAY`, optional), its rate limits (`rate_limits()`: requests per window of seconds, section 10) and its
-routes, both kept as evidence. A limit counts only when it may apply to the probe: for every route that may serve
-the path (a path that matches it, a method list that is empty or holds GET), the enabled limits on every request,
-on the route's backend and on the route (`src/tests/helpers/route_limits.py`). The route matching is a superset of
-the gateway's own (a regular expression is searched anywhere in the path; hosts and headers are not compared), so
-more routes count, never fewer.
+The documented GET endpoint to flood (derived: the shortest documented GET, one without a security requirement
+first; or `probe_path`). With a gateway (`Need.GATEWAY`, optional), its rate limits (`rate_limits()`: requests per
+window of seconds and the status a refused request gets, section 10) and its routes, both kept as evidence. A limit
+counts only when it may apply to the probe: for every route that may serve the path (a path that matches it, a
+method list that is empty or holds GET), the enabled limits on every request, on the route's backend and on the
+route (`src/tests/helpers/route_limits.py`). The route matching is a superset of the gateway's own (a regular
+expression is searched anywhere in the path; hosts and headers are not compared), so more routes count, never fewer.
 
-The burst budget is `max_burst`, unless every such route has limits counted per window: then the requests that
-exceed the largest of them within one window, at most `max_burst`. A burst may straddle a window boundary (Kong's
-windows are calendar periods, APISIX's start at the first request counted), and a run shorter than a window touches
-at most two windows, so the budget is twice the window's count plus one: then one window holds more than the count,
-wherever the boundaries fall. Until 2026-11-15 the budget was the smallest number anywhere in a rate-limiting
-plugin plus 5, read from the configuration text values; it was never read (those hold strings, and both gateways
-state a limit as a number), and had it been, it could come from a route the probe does not use.
+How long a burst runs: at most `max_burst` requests, and less when every route that may serve the path has limits
+counted per window. The burst then stops as soon as it provably put more than each limit's count in one of its
+windows (`answered > count × (⌊burst seconds / window⌋ + 2)`): a run shorter than a fixed window touches at most two
+windows, and each further window length it lasts adds one (Kong's windows are calendar periods, APISIX's start at
+the first request counted), so wherever the boundaries fall one window holds more than the count. Until 2026-11-16
+the burst was sized in advance as twice the largest count plus one, which assumed a burst shorter than the window: a
+slower burst against a short window ended unproven (`LIMIT_NOT_REACHED`) where going on would have proven it.
 
 ## 4. Preconditions and reference responses
 
-None beyond the attack surface. The 429 is the reference: `limit_enforced` is the baseline that `ip_spoofing_resisted`
-is judged against (a limit must exist before a bypass means anything).
+None beyond the attack surface; user_a's credential is used when configured (`Need.USER_ACCOUNT`, optional). A
+burst every answer of which refused it (`401`, `403`) says nothing about the limit: the backend may have refused
+requests the limit counted, or the gateway may have refused them before its limit ran (Kong and APISIX run
+authentication, ACL and IP restriction before their rate limits: plugin priorities read in the labs' Kong 3.9.3 and
+APISIX, 2026-11-16). The burst is then sent again with user_a's credential, and that one is judged. Until
+2026-11-16 the refused burst was judged as it was: on a gateway that authenticates before its limit, a configured
+limit read as "configured and not enforced", CERTAIN. The refusal of the plain burst (its status) is the reference
+the spoofed burst is judged against: a limit must exist before a bypass means anything.
 
 ## 5. Probes
 
-A burst of up to the budget of GETs, stopping at the first 429; then, only if the first burst met a 429, the same
-burst with a random client address per request, in those five headers. No credential. Effect `STRESSES_TARGET`: the test runs after all
-others (rule 7), and the burst stops at the 429 so a working limit is not flooded past its threshold.
+A burst of GETs (section 3), stopping at the first refusal: a `429`, or, once the burst had answers with another
+status, the status the gateway states for a limit that may apply (APISIX refuses with `503` by default). After a
+refused burst, the same with user_a's credential. Then, only if the plain burst was refused, the same burst with a
+random client address per request in `X-Forwarded-For`, `X-Real-IP`, `X-Client-IP`, `True-Client-IP` and
+`Forwarded` (`for=<address>`, RFC 7239), and, if that one is never refused, one plain request right after it: refused
+again, the limit still holds for the real connection while the spoofed requests passed. Effect `STRESSES_TARGET`:
+the test runs after all others (rule 7), and each burst stops at its refusal, so a working limit is not flooded past
+its threshold.
 
 ## 6. Oracle
+
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("4.1")) ]]] -->
 
 **`limit_enforced`**
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| a 429 within the budget | `ENFORCED/RATE_LIMITED` | - |
-| no 429 within the budget, and no limit read, or a route that may serve the path without one | `VIOLATION/NO_RATE_LIMIT`, the finding saying no limit applies at or below the budget (and naming the route) | FIRM: a limit above the budget, or one the adapter does not read, would not be seen |
-| no 429, and the burst went past every limit that may apply within one of its windows (`answered > count × (⌊burst seconds / window⌋ + 2)`), each counted on a counter shared by every node | `VIOLATION/NO_RATE_LIMIT`, the finding naming the limits | CERTAIN: the limit is configured and not enforced |
-| the same, with a limit counted per node (both gateways' `local` policy) | `VIOLATION/NO_RATE_LIMIT`, the finding adding "unless the gateway runs several nodes that each count their own requests" | FIRM: a burst spread over several nodes does not exceed a per-node count |
-| no 429, and a limit that may apply was not provably exceeded: its count above `max_burst`, a window too short for the burst's pace, or a limit not counted per window (APISIX's `limit-req`, which delays requests instead of refusing them) | `NOT_VERIFIABLE/LIMIT_NOT_REACHED`, with a note naming the limits (until 2026-11-15 `LIMIT_ABOVE_BUDGET`, for the first reason only) | - |
-| three answers in a row that say nothing (the table below; a `429` is this test's verdict); a single one does not stop the burst (until 2026-11-05 a single 5xx from the third request on did) | `NOT_VERIFIABLE/` the reason of the last (until 2026-11-16 always `UPSTREAM_UNAVAILABLE`) | - |
-| the same run of `503` after served answers: a limit that rejects with `503` instead of `429` (some gateways' default, APISIX's `limit-count` among them) looks exactly like a backend going down | `NOT_VERIFIABLE/LIMIT_OR_UNAVAILABLE` (seen on a scratch server answering `503` after 5 requests, 2026-11-05) | - |
+| the burst meets a `429`, or, after answers with another status, the status the gateway states for a limit that may apply (APISIX's default `503`) | `ENFORCED/RATE_LIMITED` | - |
+| no refusal, and the burst exceeded every limit read for the routes that may serve the path within one of its windows, each counted on a counter every node shares: the limit is configured and not enforced | `VIOLATION/NO_RATE_LIMIT` | CERTAIN |
+| no refusal within `max_burst`, and no limit read or a route that may serve the path without one (no limit of fewer than half the burst per window as long as the burst; a higher one is not seen); or every limit read exceeded, one counted per node | `VIOLATION/NO_RATE_LIMIT` | FIRM |
+| no refusal within `max_burst`, and a limit that may apply was not provably exceeded: its count above the cap, a window too short for the burst's pace, or not a count per window | `NOT_VERIFIABLE/LIMIT_NOT_REACHED` | - |
+| three `503` in a row after answers that said something: a limit refusing with `503` that the gateway does not state, or a backend going down | `NOT_VERIFIABLE/LIMIT_OR_UNAVAILABLE` | - |
+| every answer refused the burst (`401`, `403`), perhaps before the limit counted it, and no user_a account to send it again | `NOT_VERIFIABLE/NO_CREDENTIAL_TO_RETRY` | - |
+| the burst sent again with user_a's credential is refused all the same | `NOT_VERIFIABLE/REFUSED_BEFORE_LIMIT` | - |
 
 **`ip_spoofing_resisted`**
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| the spoofed burst still meets a 429 | `ENFORCED/SPOOF_RESISTED` | - |
-| it floods the full budget without a 429 | `VIOLATION/IP_SPOOF_BYPASS` | CERTAIN |
-| the plain burst found no limit | `NOT_APPLICABLE/NO_LIMIT_TO_BYPASS` | - |
+| the burst with a random client address per request meets the refusal the plain burst met | `ENFORCED/SPOOF_RESISTED` | - |
+| it is never refused, and a plain request right after it is: the limit counts the address a header claims | `VIOLATION/IP_SPOOF_BYPASS` | CERTAIN |
+| it is never refused, and neither is a plain request right after it (the limit's window may have ended during the burst) | `VIOLATION/IP_SPOOF_BYPASS` | FIRM |
+| the plain burst found no limit (`NO_RATE_LIMIT`) | `NOT_APPLICABLE/NO_LIMIT_TO_BYPASS` | - |
+| the plain burst could not tell whether a limit applies (`limit_enforced` not verifiable) | `NOT_VERIFIABLE/NO_LIMIT_SEEN` | - |
+
+<!-- [[[end]]] -->
+
+History of the cases. `LIMIT_NOT_REACHED` was `LIMIT_ABOVE_BUDGET` until 2026-11-15, for a limit above the cap only.
+`LIMIT_OR_UNAVAILABLE` was seen on a scratch server answering `503` after 5 requests (2026-11-05); until 2026-11-16
+it needed served answers before the `503`, now any answer that says something (a `401` from the backend shows it
+was reachable too). Until 2026-11-16: a `503` refusal the gateway states (APISIX's default) ended as
+`LIMIT_OR_UNAVAILABLE`; the FIRM finding without a limit read said "no limit at or below" the burst, while a burst
+can straddle two windows and only a limit below half of it is surely exceeded; `ip_spoofing_resisted` recorded
+`NOT_APPLICABLE/NO_LIMIT_TO_BYPASS` also when `limit_enforced` was not verifiable (a limit may exist), and
+`IP_SPOOF_BYPASS` was CERTAIN without the plain request after the spoofed burst. Until 2026-11-05 a single 5xx from
+the third request on stopped the burst; until 2026-11-16 a run that said nothing was always named
+`UPSTREAM_UNAVAILABLE`.
 
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("4.1", page=cog.inFile)) ]]] -->
 
@@ -106,32 +135,43 @@ The answers that say nothing about the guarantee by themselves, one rule for eve
 
 ## 7. Outcomes
 
-SKIP without a documented GET. FAIL on no limit or a spoofing bypass; PASS when a 429 arrives and spoofing is
-resisted.
+SKIP without a documented GET. FAIL on no limit or a spoofing bypass; PASS when the burst is refused and spoofing is
+resisted; INCONCLUSIVE when a limit is not provably exceeded, the backend fails, or the burst is refused without a
+credential to send it again.
 
 ## 8. Findings
 
-"No rate limit on `<path>`" (no limit read, or a route without one) / "Rate limit not enforced on `<path>`" (every
-limit that may apply exceeded, naming them; since 2026-11-15) / "Rate limit bypassed by spoofing the client address
-on `<path>`" (which of the five headers is not told apart), `evidence_ref` the burst's last request; with a gateway,
-its rate limits and routes are kept as evidence too.
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("4.1")) ]]] -->
+
+- "Rate limit not enforced on <path>"
+- "Rate limit bypassed by spoofing the client address on <path>"
+- "No rate limit on <path>"
+
+<!-- [[[end]]] -->
+
+"No rate limit" when no limit is read, or a route that may serve the path has none; "Rate limit not enforced" when
+every limit that may apply was exceeded, naming them (since 2026-11-15). `evidence_ref` the burst's last request;
+with a gateway, its rate limits and routes are kept as evidence too.
 
 ## 9. Effects on the target
 
-`STRESSES_TARGET`: a burst of requests (stops at the first 429). Runs last. No credential, no data changed.
+`STRESSES_TARGET`: up to three bursts (plain, with user_a's credential when the first is refused, spoofed when the
+plain one is refused) and one more request; each stops at its refusal. Runs last. No data changed.
 
 ## 10. Per gateway
 
-The 429 is observed from outside; the limits read through the adapter size the burst and decide the confidence
-(`rate_limits()`, mapping in the [adapter guide](../../02-guides/03-extending/04-add-a-gateway-adapter.md)):
+The refusal is observed from outside; the limits read through the adapter decide when a burst is enough, which
+status is a refusal, and the confidence (`rate_limits()`, mapping in the
+[adapter guide](../../02-guides/03-extending/04-add-a-gateway-adapter.md)):
 
 - **Kong** `rate-limiting`: `second` to `year`, each a window (a month counted as 28 days, a year as 365, their
   shortest lengths); a counter shared by every node with `policy` `cluster` or `redis` and `sync_rate` -1, per node
-  with `local` (the default). A plugin bound to a consumer is left out (it does not apply to an anonymous burst).
+  with `local` (the default); the refusal status `error_code` (default `429`). A plugin bound to a consumer is left
+  out (it does not apply to an anonymous burst).
 - **APISIX** `limit-count`: `count` per `time_window`; shared with a Redis policy and `sync_interval` -1, per node
-  with `local` (the default). `limit-req` is reported without a window. APISIX's `limit-count` rejects with `503` by
-  default: the burst then records `LIMIT_OR_UNAVAILABLE` (section 6); with `rejected_code: 429` it records
-  `RATE_LIMITED`.
+  with `local` (the default). `limit-req` is reported without a window. Both refuse with `rejected_code`, `503` by
+  default: read, it is the refusal (since 2026-11-16, `RATE_LIMITED`); without a gateway configured, a run of `503`
+  after other answers records `LIMIT_OR_UNAVAILABLE`.
 
 ## 11. Configuration
 
@@ -147,6 +187,29 @@ Section [`tests.domain_4.test_4_1`](../../03-reference/01-configuration.md#tests
 <!-- [[[end]]] -->
 
 ## 12. Validation
+
+**Runs of 2026-11-16, after the review** (4.1 alone; each variant undone and the lab checked back, Kong variants on
+`forgejo-service` of the Forgejo + Kong `kong.yml`, the APISIX one on the API route of `setup.sh`):
+
+| Variant | Result |
+|---|---|
+| the three labs as configured | **FAIL** FIRM on each. Forgejo: `/api/v1/orgs`, 150 requests. crAPI: the probe is now `/workshop/api/mechanic/receive_report`, the shortest GET without a security requirement (it was `/workshop/api/mechanic/`, answering `401`); it answers `400` (its required query parameters are not sent), so nothing is created, and the finding names `workshop-route` with no limit and "no limit of 74 requests or fewer per window of 0.6 s or longer" |
+| Kong `rate-limiting` `minute: 5`, `local` | **PASS**: a `429` at the 4th request (the run's earlier requests to the service counted too), the spoofed burst refused at once |
+| the same with `policy: redis` on an unreachable Redis, `fault_tolerant: true` | **FAIL** CERTAIN, "configured and not enforced": the burst stopped at 11 requests, the first count that proves the limit exceeded |
+| `minute: 200` | **INCONCLUSIVE**: `LIMIT_NOT_REACHED` after 150 requests, and `ip_spoofing_resisted` `NO_LIMIT_SEEN` (until that day `NOT_APPLICABLE`) |
+| `probe_path: /api/v1/user` (Forgejo answers `401` without a credential), no limit | **FAIL** FIRM: 150 refused requests, then 150 with user_a's credential, served |
+| the same, user_a removed from the configuration | **INCONCLUSIVE**: `NO_CREDENTIAL_TO_RETRY`, `NO_LIMIT_SEEN` |
+| the same with `minute: 5` | **PASS**: the backend's `401` answers were counted, a `429` at the 4th |
+| a route for `/api/v1/orgs` with `key-auth` and `rate-limiting` `minute: 5` | **INCONCLUSIVE**: 150 requests refused by Kong's `key-auth`, 150 more with user_a's Forgejo token refused alike: `REFUSED_BEFORE_LIMIT`. Until that day the refused burst was judged as it was: `NO_RATE_LIMIT` on a gateway whose limit sits behind its authentication |
+| `minute: 5`, `limit_by: ip`, Kong started with `KONG_TRUSTED_IPS=0.0.0.0/0,::/0` and `KONG_REAL_IP_HEADER=X-Forwarded-For` (a compose override; the lab's file untouched) | **FAIL** CERTAIN, `IP_SPOOF_BYPASS`: the plain burst refused at the 5th request, the spoofed one served 11 requests, and the plain request after it refused (`429`) again. First seen on a real gateway (until then on a scratch server only) |
+| APISIX `limit-count` `count: 5`, `time_window: 60`, no `rejected_code` (`503`) | **PASS**: the `503` after four served answers is the refusal the gateway states. Until that day this ended as `LIMIT_OR_UNAVAILABLE` |
+| the same with the `gateway` section removed from the configuration | **INCONCLUSIVE**, `LIMIT_OR_UNAVAILABLE`: four served answers, then three `503` |
+
+Not produced: `IP_SPOOF_BYPASS` FIRM (the limit's window ending during the spoofed burst), and the per-node FIRM row
+(seen on 2026-11-15 through a `pre-function`, below; its logic did not change).
+
+**Earlier runs** (the paragraphs and tables below) are kept for their history; their budgets and details are those
+of their day.
 
 Runs of 2026-10-23:
 
@@ -206,21 +269,29 @@ client header), with a `Retry-After` on the 429 (OWASP API4:2023, ASVS v5.0.0-2.
 
 ## 14. Limitations
 
-- The budget bounds the burst: a limit higher than `max_burst` (150 by default) is not reached. When the adapter
-  reads it, the test says `LIMIT_NOT_REACHED`; when it cannot (no gateway configured, a limit the adapter does not
-  know, such as a third-party plugin), the gateway is reported `NO_RATE_LIMIT` with FIRM confidence and a finding
-  that says "at or below 150 requests". Raise `max_burst` to look further.
+- `max_burst` bounds the burst, and the burst is sequential: a limit whose count is above `max_burst` is not
+  reached, whatever its window (an hourly limit of 1000 is missed, one of 100 is found), and a burst slower than
+  `count` requests per window never exceeds it. When the adapter reads the limit, the test says
+  `LIMIT_NOT_REACHED`; when it cannot (no gateway configured, a limit the adapter does not know, such as a
+  third-party plugin), the gateway is reported `NO_RATE_LIMIT` FIRM, and the finding says which limits are surely
+  absent: fewer than half the burst (74 requests with the default 150) per window as long as the burst. Raise
+  `max_burst` to look further.
 - CERTAIN needs a counter shared by every node: with both gateways' default `local` policy the finding is FIRM,
   since several nodes behind a load balancer each count only their share of the burst (Kong's documentation:
   "Less accurate ... it diverges" when scaling nodes; APISIX: "Each APISIX instance maintains its own counters").
 - The route matching that decides which limits apply compares paths and methods only, not hosts or headers: a
   route the probe does not reach can count, which makes the verdict more cautious (FIRM or `LIMIT_NOT_REACHED`),
   never more certain.
+- A burst refused with user_a's credential too is not judged (`REFUSED_BEFORE_LIMIT`); without user_a configured, a
+  refused burst is not judged either (`NO_CREDENTIAL_TO_RETRY`), also when the backend refused requests the limit had
+  counted (crAPI's `401`). With the credential, the limits the gateway applies to that account count as well; a
+  limit applied to anonymous clients only is then not seen.
+- A `503` refusal is recognised only when the gateway's limits are read: without them it cannot be told from a
+  backend going down (`LIMIT_OR_UNAVAILABLE`).
+- The spoofed burst covers the five headers above, not a header a gateway is configured to read under another name.
 - Retry-After reset and the per-user-vs-per-IP distinction are not tested.
-- A limit whose count is above the burst budget (`max_burst`) is not reached, whatever its window: what decides is
-  the count, not the period (an hourly limit of 1000 is missed, one of 100 is found; until 2026-11-05 this line
-  blamed the window). A very short window can be missed the other way: a burst slower than `count` requests per
-  window never exceeds it, and the test says `LIMIT_NOT_REACHED` rather than a violation.
+- When a limit that may apply states `503` as its refusal (APISIX's default), a backend going down in the middle of
+  the burst, after other answers, reads as the limit's refusal (`RATE_LIMITED`).
 
 ## 15. Sources
 

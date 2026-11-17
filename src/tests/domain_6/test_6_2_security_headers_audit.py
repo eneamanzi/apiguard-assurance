@@ -1,34 +1,18 @@
 """
 src/tests/domain_6/test_6_2_security_headers_audit.py
 
-Test 6.2: guarantee "the defensive security headers are set" (rewritten).
-OWASP API8:2023, OWASP ASVS v5.0.0 V3.4.
+Test 6.2: guarantee "the defensive security headers are set" (OWASP API8:2023,
+ASVS v5.0.0 V3.4).
 
-The headers that defend a browser client are present and sound, and are present
-**consistently** across the services of the API (a header on one endpoint and
-absent on another is a selective misconfiguration). The test samples one
-documented operation per service prefix (src/tests/helpers/sampling.py):
-
-    content_type_options  `X-Content-Type-Options: nosniff` (ASVS v5.0.0-3.4.4);
-    framing_protection    a `Content-Security-Policy` with `frame-ancestors`, or
-                          `X-Frame-Options: DENY`/`SAMEORIGIN`
-                          (ASVS v5.0.0-3.4.6);
-    cors_not_wildcard     the response to a cross-origin request does not reflect
-                          an arbitrary `Origin`, nor combine
-                          `Access-Control-Allow-Origin: *` with
-                          `Access-Control-Allow-Credentials: true`.
-
-Each check is ENFORCED only when it holds on every sampled endpoint; absent on
-all is a VIOLATION, present on some and absent on others an inconsistency
-VIOLATION. HSTS is test 1.5; Permissions-Policy is dropped (not in ASVS 3.4).
-
-An answer from a target unavailable, failing, throttling or silent (the shared
-rule, AssessmentTest._uninformative) is not the API's answer and is judged by
-none of the three checks: its headers may be the gateway's own error page (with
-the lab's backend stopped, 2026-11-14, the headers of Kong's `503` were judged
-present). A check left without any usable answer records NOT_VERIFIABLE with
-the reason of the answers left out (e.g. UPSTREAM_UNAVAILABLE).
-BLACK_BOX, READ_ONLY, no primary CWE (CWE-16 is a prohibited mapping category).
+On one documented read per service prefix (src/tests/helpers/sampling.py):
+`X-Content-Type-Options: nosniff` (content_type_options), a CSP
+`frame-ancestors` not allowing any site or else `X-Frame-Options`
+(framing_protection), and the answer to an arbitrary `Origin` (cors_not_wildcard).
+A header holds only when present on every sampled answer; present on some and
+absent on others is an inconsistency. A header sent twice is read as browsers
+read it (httpx joins the values with ", "). The oracle: info.oracle, generated
+on the test page. HSTS is test 1.5. BLACK_BOX, READ_ONLY, no primary CWE (CWE-16
+is a prohibited mapping category).
 
 Dependency rule: imports from stdlib, structlog and src.core, plus
 src.tests.base and src.tests.helpers.
@@ -39,6 +23,7 @@ from __future__ import annotations
 import httpx
 import structlog
 
+from src.core.assessment_test import category_of
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
@@ -47,6 +32,7 @@ from src.core.models import (
     Confidence,
     EvidenceRecord,
     Finding,
+    InfoNote,
     Outcome,
     Reference,
     ResponseCategory,
@@ -54,7 +40,7 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
-from src.core.test_metadata import Effect, TestInfo
+from src.core.test_metadata import Effect, OracleCase, TestInfo
 from src.tests.base import BaseTest
 from src.tests.helpers.sampling import sample_by_service
 
@@ -81,12 +67,86 @@ _REFERENCES: tuple[Reference, ...] = (
 )
 
 
-class Test62SecurityHeadersAudit(BaseTest):
-    """
-    Test 6.2 -- whether the defensive security headers are present and consistent.
+def _header_cases(sub_test: str, header: str) -> tuple[OracleCase, ...]:
+    """The cases of a header check, the same for both headers."""
+    return (
+        OracleCase(
+            sub_test=sub_test,
+            when=f"{header} on every usable sampled answer",
+            outcome=Outcome.ENFORCED,
+            detail="PRESENT",
+        ),
+        OracleCase(
+            sub_test=sub_test,
+            when=f"{header} absent from every usable sampled answer",
+            outcome=Outcome.VIOLATION,
+            detail="MISSING",
+            confidence=Confidence.CERTAIN,
+        ),
+        OracleCase(
+            sub_test=sub_test,
+            when=f"{header} on some sampled answers and absent from others",
+            outcome=Outcome.VIOLATION,
+            detail="INCONSISTENT",
+            confidence=Confidence.CERTAIN,
+        ),
+    )
 
-    The oracle of each sub-test is in the module docstring and on the test page.
-    """
+
+_ORACLE: tuple[OracleCase, ...] = (
+    *_header_cases(_SUB_CTO, "`X-Content-Type-Options: nosniff` (its first value)"),
+    *_header_cases(
+        _SUB_FRAME,
+        "a CSP `frame-ancestors` not allowing any site, or else `X-Frame-Options` with "
+        "one value, `DENY` or `SAMEORIGIN`,",
+    ),
+    OracleCase(
+        sub_test=_SUB_FRAME,
+        when="framing is refused on every sampled answer, by `X-Frame-Options` alone on some "
+        "(ASVS v5.0.0-3.4.6 asks for `frame-ancestors`: a note)",
+        outcome=Outcome.ENFORCED,
+        detail="XFO_ONLY",
+    ),
+    OracleCase(
+        sub_test=_SUB_CORS,
+        when="an answer to the arbitrary `Origin` reflects it with "
+        "`Access-Control-Allow-Credentials: true`",
+        outcome=Outcome.VIOLATION,
+        detail="CORS_ORIGIN_REFLECTED",
+        confidence=Confidence.CERTAIN,
+    ),
+    OracleCase(
+        sub_test=_SUB_CORS,
+        when="an answer carries `Access-Control-Allow-Origin: *` with credentials (browsers "
+        "refuse it)",
+        outcome=Outcome.VIOLATION,
+        detail="CORS_WILDCARD_CREDENTIALS",
+        confidence=Confidence.FIRM,
+    ),
+    OracleCase(
+        sub_test=_SUB_CORS,
+        when="some answers grant CORS, none to the arbitrary origin with credentials",
+        outcome=Outcome.ENFORCED,
+        detail="CORS_BOUNDED",
+    ),
+    OracleCase(
+        sub_test=_SUB_CORS,
+        when="no served answer to the arbitrary `Origin` grants it",
+        outcome=Outcome.ENFORCED,
+        detail="ORIGIN_NOT_ALLOWED",
+    ),
+    OracleCase(
+        sub_test=_SUB_CORS,
+        when="no answer to the arbitrary `Origin` was served, and the refusals (`401`, `403`, "
+        "...) grant nothing: the policy of a served answer is not seen",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="PROBE_NOT_SERVED",
+    ),
+)
+
+
+class Test62SecurityHeadersAudit(BaseTest):
+    """Test 6.2 -- whether the defensive security headers are present and consistent."""
 
     info = TestInfo(
         id="6.2",
@@ -98,6 +158,7 @@ class Test62SecurityHeadersAudit(BaseTest):
         tags=("security-headers", "cors"),
         effect=Effect.READ_ONLY,
         sub_tests=(_SUB_CTO, _SUB_FRAME, _SUB_CORS),
+        oracle=_ORACLE,
     )
 
     def execute(
@@ -130,6 +191,8 @@ class Test62SecurityHeadersAudit(BaseTest):
                 return self._skip("No documented GET endpoint to read the security headers from.")
             cto: dict[str, bool] = {}
             frame: dict[str, bool] = {}
+            # The sampled paths framed only by X-Frame-Options.
+            xfo_only: list[str] = []
             cors: dict[str, str] = {}
             # Each sampled response, and each answer to the cross-origin probe, is
             # kept by path: a finding names one endpoint, and its proof must be
@@ -149,15 +212,21 @@ class Test62SecurityHeadersAudit(BaseTest):
                     continue
                 records[path] = record
                 headers = {k.lower(): v for k, v in response.headers.items()}
-                cto[path] = headers.get("x-content-type-options", "").strip().lower() == "nosniff"
+                cto[path] = _first_value(headers.get("x-content-type-options", "")) == "nosniff"
                 frame[path] = _framing_ok(headers)
+                if (
+                    frame[path]
+                    and _frame_ancestors(headers.get("content-security-policy", "")) is None
+                ):
+                    xfo_only.append(path)
                 cors[path], cors_record = self._cors_ok(client, path)
                 if cors_record is not None:
                     cors_records[path] = cors_record
-            self._judge_header(store, _SUB_CTO, cto, records, _CTO_MSG, silent)
-            self._judge_header(store, _SUB_FRAME, frame, records, _FRAME_MSG, silent)
+            notes: list[InfoNote] = []
+            self._judge_cto(store, cto, records, silent)
+            self._judge_frame(store, frame, records, silent, xfo_only, notes)
             self._judge_cors(store, cors, cors_records, silent)
-            return self._finish(message=f"{len(sample)} endpoint(s) sampled.")
+            return self._finish(notes=notes, message=f"{len(sample)} endpoint(s) sampled.")
         except SecurityClientError as exc:
             return self._error(exc)
 
@@ -179,7 +248,11 @@ class Test62SecurityHeadersAudit(BaseTest):
         acao = headers.get("access-control-allow-origin", "").strip()
         acac = headers.get("access-control-allow-credentials", "").strip().lower()
         if not acao:
-            return _CORS_NO_GRANT, record
+            # A refusal without CORS headers says nothing of the served
+            # answer's policy (an application may add them only after its
+            # authentication): until 2026-11-16 it counted as not allowed.
+            served = category_of(record) == ResponseCategory.SERVED
+            return (_CORS_NO_GRANT if served else _CORS_NOT_SERVED), record
         if acac == "true" and acao == _PROBE_ORIGIN:
             return _CORS_REFLECTED, record
         if acac == "true" and acao == "*":
@@ -190,39 +263,96 @@ class Test62SecurityHeadersAudit(BaseTest):
         """Why an answer to the cross-origin probe says nothing about CORS (_uninformative)."""
         return self._uninformative(record, _SUB_CORS)
 
-    def _judge_header(
+    def _judge_cto(
         self,
         store: EvidenceStore,
-        sub_test: str,
         results: dict[str, bool],
         records: dict[str, EvidenceRecord],
-        message: str,
         silent: str | None,
     ) -> None:
-        """ENFORCED if present everywhere; VIOLATION if absent everywhere or inconsistent."""
-        if not results:
-            # No usable answer: the reason of those left out (until 2026-11-16
-            # always NO_RESPONSE, a backend that was down included).
-            self._record(sub_test, Outcome.NOT_VERIFIABLE, silent or "NO_RESPONSE")
-            return
-        present = [p for p, ok in results.items() if ok]
-        absent = [p for p, ok in results.items() if not ok]
+        """X-Content-Type-Options: nosniff on every sampled answer (ASVS v5.0.0-3.4.4)."""
+        absent = self._absent(_SUB_CTO, results, silent)
         if not absent:
-            self._record(sub_test, Outcome.ENFORCED, "PRESENT")
             return
-        detail = "INCONSISTENT" if present else "MISSING"
-        where = (
-            f"absent on {len(absent)} of {len(results)} sampled endpoints (e.g. {absent[0]})"
-            if present
-            else f"absent on all {len(results)} sampled endpoints (e.g. {absent[0]})"
-        )
+        partial = len(absent) < len(results)
         finding = Finding(
-            title=f"{message} {detail.lower()}",
-            detail=f"{message} is {where}. {_REMEDY[sub_test]}",
+            title=(
+                "X-Content-Type-Options: nosniff inconsistent across services"
+                if partial
+                else "X-Content-Type-Options: nosniff missing"
+            ),
+            detail=f"X-Content-Type-Options: nosniff is {_where(absent, results)}. "
+            "Set it at the gateway (ASVS v5.0.0-3.4.4).",
             confidence=Confidence.CERTAIN,
         )
-        # The proof is the response of the endpoint the finding names.
-        self._violation(store, sub_test, detail, finding, records.get(absent[0]))
+        detail = "INCONSISTENT" if partial else "MISSING"
+        self._violation(store, _SUB_CTO, detail, finding, records.get(absent[0]))
+
+    def _judge_frame(
+        self,
+        store: EvidenceStore,
+        results: dict[str, bool],
+        records: dict[str, EvidenceRecord],
+        silent: str | None,
+        xfo_only: list[str],
+        notes: list[InfoNote],
+    ) -> None:
+        """Framing refused on every sampled answer (ASVS v5.0.0-3.4.6)."""
+        absent = self._absent(_SUB_FRAME, results, silent, enforced=not xfo_only)
+        if absent is None:
+            return
+        if not absent:
+            self._record(_SUB_FRAME, Outcome.ENFORCED, "XFO_ONLY")
+            notes.append(
+                InfoNote(
+                    title="Framing refused by X-Frame-Options only",
+                    detail=(
+                        f"{len(xfo_only)} sampled endpoint(s) (e.g. {xfo_only[0]}) refuse framing "
+                        "with X-Frame-Options and no CSP frame-ancestors. Browsers honour it, but "
+                        "ASVS v5.0.0-3.4.6 asks for frame-ancestors and calls X-Frame-Options "
+                        "obsolete. Add Content-Security-Policy: frame-ancestors 'self'."
+                    ),
+                )
+            )
+            return
+        partial = len(absent) < len(results)
+        finding = Finding(
+            title=(
+                "Clickjacking protection inconsistent across services"
+                if partial
+                else "Clickjacking protection missing"
+            ),
+            detail=f"Clickjacking protection (CSP frame-ancestors or X-Frame-Options) is "
+            f"{_where(absent, results)}. Set Content-Security-Policy: frame-ancestors 'self' at "
+            "the gateway (ASVS v5.0.0-3.4.6).",
+            confidence=Confidence.CERTAIN,
+        )
+        detail = "INCONSISTENT" if partial else "MISSING"
+        self._violation(store, _SUB_FRAME, detail, finding, records.get(absent[0]))
+
+    def _absent(
+        self,
+        sub_test: str,
+        results: dict[str, bool],
+        silent: str | None,
+        *,
+        enforced: bool = True,
+    ) -> list[str] | None:
+        """
+        The sampled paths without the header, recording the sub-test when nothing is due.
+
+        No usable answer: NOT_VERIFIABLE with the reason of those left out.
+        Present everywhere: ENFORCED/PRESENT, unless `enforced` is False (the
+        caller records its own). Returns None when recorded here.
+        """
+        if not results:
+            self._record(sub_test, Outcome.NOT_VERIFIABLE, silent or "NO_RESPONSE")
+            return None
+        absent = [p for p, ok in results.items() if not ok]
+        if not absent and enforced:
+            self._record(sub_test, Outcome.ENFORCED, "PRESENT")
+            return None
+        return absent
 
     def _judge_cors(
         self,
@@ -278,6 +408,9 @@ class Test62SecurityHeadersAudit(BaseTest):
                 store, _SUB_CORS, "CORS_WILDCARD_CREDENTIALS", finding, records.get(wildcard[0])
             )
             return
+        if evaluated and all(results[p] == _CORS_NOT_SERVED for p in evaluated):
+            self._record(_SUB_CORS, Outcome.NOT_VERIFIABLE, "PROBE_NOT_SERVED")
+            return
         if not evaluated:
             # No usable answer to the cross-origin probe: nothing was learnt.
             unknown = (records.get(p) for p, state in results.items() if state == _CORS_UNKNOWN)
@@ -311,14 +444,20 @@ _CORS_REFLECTED: str = "reflected"
 _CORS_WILDCARD: str = "wildcard"
 _CORS_BOUNDED: str = "bounded"
 _CORS_NO_GRANT: str = "no_grant"
+_CORS_NOT_SERVED: str = "not_served"
 _CORS_UNKNOWN: str = "unknown"
-_CTO_MSG: str = "X-Content-Type-Options: nosniff"
-_FRAME_MSG: str = "Clickjacking protection (CSP frame-ancestors or X-Frame-Options)"
-_REMEDY: dict[str, str] = {
-    _SUB_CTO: "Set X-Content-Type-Options: nosniff at the gateway (ASVS v5.0.0-3.4.4).",
-    _SUB_FRAME: "Set Content-Security-Policy: frame-ancestors 'self' at the gateway "
-    "(ASVS v5.0.0-3.4.6).",
-}
+
+
+def _where(absent: list[str], results: dict[str, bool]) -> str:
+    """Where a header is missing, in words."""
+    if len(absent) < len(results):
+        return f"absent on {len(absent)} of {len(results)} sampled endpoints (e.g. {absent[0]})"
+    return f"absent on all {len(results)} sampled endpoints (e.g. {absent[0]})"
+
+
+def _first_value(value: str) -> str:
+    """The first of a header's values, lowercased (Fetch reads nosniff from the first)."""
+    return value.split(",")[0].strip().lower()
 
 
 def _framing_ok(headers: dict[str, str]) -> bool:
@@ -332,11 +471,13 @@ def _framing_ok(headers: dict[str, str]) -> bool:
     sources = _frame_ancestors(headers.get("content-security-policy", ""))
     if sources is not None:
         return not sources & _ANY_ANCESTOR
-    return headers.get("x-frame-options", "").strip().lower() in {"deny", "sameorigin"}
+    # HTML's rule: a list of values counts only when they are all the same.
+    values = {v.strip().lower() for v in headers.get("x-frame-options", "").split(",")}
+    return len(values) == 1 and values <= {"deny", "sameorigin"}
 
 
 # frame-ancestors sources that let any site embed the page.
-_ANY_ANCESTOR: frozenset[str] = frozenset({"*", "http:", "https:"})
+_ANY_ANCESTOR: frozenset[str] = frozenset({"*", "http:", "https:", "http://*", "https://*"})
 
 
 def _frame_ancestors(csp: str) -> set[str] | None:

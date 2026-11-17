@@ -3,7 +3,7 @@
 > **Audience:** analysts, contributors · **Status:** new in the test review (2026-10-22) ·
 > **Source of truth:**
 > [`src/tests/domain_1/test_1_7_authentication_resistance.py`](../../../src/tests/domain_1/test_1_7_authentication_resistance.py) ·
-> **Verified:** 2026-10-22
+> **Verified:** 2026-11-16
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("1.7", page=cog.inFile)) ]]] -->
 
@@ -18,7 +18,7 @@
 | Standards | `OWASP API2:2023`, `OWASP ASVS v5.0.0-6.3.8`, `OWASP ASVS v5.0.0-6.3.1`, `CWE-204`, `CWE-208`, `NIST SP 800-63B-4, Section 3.2.2` |
 | Tags | `authentication`, `brute-force` |
 | Prerequisites | none |
-| Needs | `USER_ACCOUNT` |
+| Needs | `USER_ACCOUNT`, `GATEWAY` (optional) |
 | Parameters | none |
 
 <!-- [[[end]]] -->
@@ -77,30 +77,32 @@ as a disclosure.
 
 ## 6. Oracle
 
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("1.7")) ]]] -->
+
+**`account_enumeration`**
+
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| the two cases answer the same, and the medians are within the factor | `ENFORCED/NO_DISCREPANCY` | - |
-| the bodies differ once the submitted name is masked, the same way on every reading | `VIOLATION/EXISTENCE_DISCLOSED_BY_ANSWER` (CWE-204) | CERTAIN: the two answers are the proof |
-| the median for the account that exists is at least 3 times the other, whether the bodies match or not (two channels, two remedies: a login fixed to answer alike can still take longer for an account that exists) | `VIOLATION/EXISTENCE_DISCLOSED_BY_TIMING` (CWE-208) | FIRM: a duration is noisy, and both medians are given |
-| the three readings of one case do not agree | `NOT_VERIFIABLE/ANSWER_NOT_STABLE` | - |
-| the bodies agree and both medians are under 5 ms | `ENFORCED/TIMING_TOO_SMALL`: the two durations are too small to compare, so the verdict rests on the bodies alone (when the bodies differ, their violation is the verdict and nothing is added) | - |
-| the wrong password is accepted | `NOT_VERIFIABLE/WRONG_PASSWORD_ACCEPTED` | - |
-| a `429` within the bound | `ENFORCED/ATTEMPTS_LIMITED` | - |
-| answers become slow within the bound | `ENFORCED/ATTEMPTS_SLOWED` | - |
-| the answer changes and stays changed within the bound (three consecutive answers alike and unlike the normal one, by status or by body, with the submitted values and digits masked): a `403`, a `423`, a `401` that now says "too many attempts" | `ENFORCED/ATTEMPTS_BLOCKED` | - |
-| 101 attempts answered as the first was and as quickly | `VIOLATION/ATTEMPTS_NOT_LIMITED` | FIRM |
-| the login endpoint did not answer an attempt (measured 2026-11-15: the case gives `NO_RESPONSE`, the row below; `LOGIN_NOT_ANSWERING`, written for it, is a guard the code cannot reach) | `NOT_VERIFIABLE/NO_RESPONSE` | - |
-| (`account_enumeration`) a reading answered `429`: throttled answers say nothing about which accounts exist; `repeated_attempts` still runs and judges its own `429` | `NOT_VERIFIABLE/RATE_LIMITED` (until 2026-11-16 readings all throttled alike were read as answers that agree: `ENFORCED/TIMING_TOO_SMALL`, produced that day on Forgejo + Kong with the login answering `429`) | - |
+| the masked bodies of the two cases differ, the same way on every reading | `VIOLATION/EXISTENCE_DISCLOSED_BY_ANSWER` | CERTAIN |
+| the same, one case answering `500` on every reading (a transient is possible) | `VIOLATION/EXISTENCE_DISCLOSED_BY_ANSWER` | FIRM |
+| the existing account's median is 3 times the other's, or every reading of it 40 ms slower than every other one (one median at least 5 ms) | `VIOLATION/EXISTENCE_DISCLOSED_BY_TIMING` | FIRM |
+| the bodies agree and the durations do not tell the accounts apart | `ENFORCED/NO_DISCREPANCY` | - |
+| the bodies agree and both medians are under 5 ms | `ENFORCED/TIMING_TOO_SMALL` | - |
+| the readings of one case do not agree, and the durations do not tell the accounts apart | `NOT_VERIFIABLE/ANSWER_NOT_STABLE` | - |
+| the wrong password for the existing account got a `2xx` | `NOT_VERIFIABLE/WRONG_PASSWORD_ACCEPTED` | - |
 
-**How a deliberate delay is told from ordinary variation.** The baseline is the median of the first 10 answers; an
-answer counts as slowed only when it is at least 3 times that baseline **and** at least 250 ms, and only when two
-in a row are. Measured on crAPI (2026-10-22): against a baseline of 4.6 ms a single answer of 30.75 ms was read as
-a limit, which is a PASS claimed where there is no control.
+**`repeated_attempts`**
 
-**Why the shared fingerprint is not used here.** For a JSON body it keeps the keys and not their values, and crAPI
-answers both cases with the same four keys and a different `message`, which it did not see. This test compares the
-body itself, with the submitted name masked and runs of digits collapsed, so that an answer echoing what was sent
-does not look like a disclosure.
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| a `429`, or the refusal status a gateway limit states (APISIX's `503`) after other answers, within the attempts | `ENFORCED/ATTEMPTS_LIMITED` | - |
+| three consecutive answers alike and unlike the normal one, by status or masked body | `ENFORCED/ATTEMPTS_BLOCKED` | - |
+| two answers in a row at least 3 times the baseline and at least 250 ms | `ENFORCED/ATTEMPTS_SLOWED` | - |
+| 101 attempts answered as the first was, with no growing delay | `VIOLATION/ATTEMPTS_NOT_LIMITED` | FIRM |
+
+<!-- [[[end]]] -->
+
+Until 2026-11-16: each body was masked with its own account name only, so a fixed text containing one of the names ("Invalid user or password" for an account named `user`) read as a disclosure, CERTAIN; `repeated_attempts` was not run when the comparison's bodies were unstable (a request id), or when a wrong password was accepted, so the brute-force check was skipped; on unstable bodies the durations were not compared either; a timing difference needed a 3-fold ratio, which a password hash behind a remote round trip does not reach (now also 40 ms between every reading); a `500` for one account and a `401` for the other was not verifiable (now a disclosure, FIRM); a gateway limit refusing with `503` (APISIX's default) was `UPSTREAM_UNAVAILABLE`; and the brute-force finding carried the enumeration's references, not CWE-307. `LOGIN_NOT_ANSWERING`, a case the code could not reach, is gone.
 
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("1.7", page=cog.inFile)) ]]] -->
 
@@ -111,7 +113,8 @@ The answers that say nothing about the guarantee by themselves, one rule for eve
 | `UPSTREAM_UNAVAILABLE` | every sub-test | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
 | `RATE_LIMITED` | `account_enumeration` | `NOT_VERIFIABLE/RATE_LIMITED` |
 | `RATE_LIMITED` | `repeated_attempts` | judged by the oracle above: a `429` to repeated failed attempts is the limit this sub-test looks for (`ATTEMPTS_LIMITED`). |
-| `SERVER_ERROR` | every sub-test | `NOT_VERIFIABLE/SERVER_ERROR` |
+| `SERVER_ERROR` | `repeated_attempts` | `NOT_VERIFIABLE/SERVER_ERROR` |
+| `SERVER_ERROR` | `account_enumeration` | judged by the oracle above: a `500` on every reading for one account and on none for the other is a status that tells them apart (ASVS v5.0.0-6.3.8 names response codes): compared like any answer, FIRM. |
 | `NO_RESPONSE` | every sub-test | `NOT_VERIFIABLE/NO_RESPONSE` |
 
 <!-- [[[end]]] -->
@@ -123,10 +126,15 @@ authenticates with a credential rather than with an account, or the role has no 
 
 ## 8. Findings
 
-One per disclosure and one for the missing limit: "The login answer says whether the account exists", "The login
-takes longer for an account that exists" (with both medians and the number of readings), "Failed authentication
-attempts are not limited" (with the bound and what NIST requires). `evidence_ref` the attempt for the account that
-exists, `supporting_refs` the attempt for the one that cannot.
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("1.7")) ]]] -->
+
+- "Failed authentication attempts are not limited"
+- "The login answer says whether the account exists"
+- "The login takes longer for an account that exists"
+
+<!-- [[[end]]] -->
+
+`evidence_ref` the existing account's answer, `supporting_refs` the other's; for the attempts, the last one and the first.
 
 ## 9. Effects on the target
 
@@ -147,6 +155,9 @@ as a `429` or as a growing delay.
 None. The login request comes from the operator's own `resources` section.
 
 ## 12. Validation
+
+**2026-11-16, after the review** (domain 1 on the three labs as configured): **FAIL** on the three labs, the same three findings as before (answer, timing, attempts).
+
 
 Runs of 2026-10-22, the three tests of the group together:
 

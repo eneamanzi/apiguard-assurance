@@ -50,7 +50,7 @@ from typing import Any, ClassVar, Literal
 
 import structlog
 
-from src.core.assessment_test import AssessmentTest, ParamsT
+from src.core.assessment_test import CONCEPT_NOT_ACCESSIBLE, AssessmentTest, ParamsT
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
@@ -58,9 +58,6 @@ from src.core.gateway.concepts import ConceptRead, ConceptStatus
 from src.core.models import InfoNote, Outcome, TestResult
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
-
-# The detail of a sub-test whose gateway concept exists but could not be read.
-_CONCEPT_NOT_ACCESSIBLE: str = "CONCEPT_NOT_ACCESSIBLE"
 
 # Label prefix of the evidence artifact of a gateway concept read by a test
 # (e.g. "gateway_backend_timeouts").
@@ -194,7 +191,7 @@ class BaseTest(AssessmentTest[ParamsT]):
             reason = f"Not applicable to this gateway: {concept}: {why}."
             return self._skip(reason=f"{reason} Evidence: {evidence_ref}.")
         for sub_test in self.info.sub_tests:
-            self._record(sub_test, Outcome.NOT_VERIFIABLE, _CONCEPT_NOT_ACCESSIBLE)
+            self._record(sub_test, Outcome.NOT_VERIFIABLE, CONCEPT_NOT_ACCESSIBLE)
         return self._finish(
             notes=[
                 InfoNote(

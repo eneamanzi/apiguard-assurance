@@ -64,6 +64,11 @@ _ALLOWED_METHODS: frozenset[str] = frozenset({"GET", "POST", "PUT", "PATCH", "DE
 _VALUE_NAME_PATTERN: re.Pattern[str] = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _PATH_PREFIX: str = "/"
 _DOTTED_SEPARATOR: str = "."
+# A value read from a cookie the response sets instead of from its JSON body:
+# "cookie:<name>" (a login that answers only with a session cookie).
+COOKIE_VALUE_PREFIX: str = "cookie:"
+# A cookie name is an RFC 6265 token: no separators, spaces or controls.
+_COOKIE_NAME_PATTERN: re.Pattern[str] = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
 
 
 # ---------------------------------------------------------------------------
@@ -186,10 +191,11 @@ class ResourceConfig(BaseModel):
     values: dict[str, str] = Field(
         default_factory=dict,
         description=(
-            "Values read from the JSON response, name → dotted path through objects (no "
-            "array indexes), e.g. `owner: owner.login`; the value found must be a string or "
-            "a number. A login resource needs `credential` (always masked as a secret); "
-            "other values are not secrets."
+            "Values read from the response, name → dotted path through the JSON body's "
+            "objects (no array indexes), e.g. `owner: owner.login`, the value found a string or "
+            "a number; or `cookie:<name>`, the value of a cookie the response sets (a session "
+            "cookie). A login resource needs `credential` (always masked as a secret); other "
+            "values are not secrets."
         ),
     )
     delete: DeleteRequest | None = Field(
@@ -214,6 +220,13 @@ class ResourceConfig(BaseModel):
                     f"value name '{name}' is reserved for the role's account or the "
                     f"random value ({', '.join(sorted(FIXED_PLACEHOLDERS))}): choose another."
                 )
+            if path.startswith(COOKIE_VALUE_PREFIX):
+                if not _COOKIE_NAME_PATTERN.fullmatch(path.removeprefix(COOKIE_VALUE_PREFIX)):
+                    raise ValueError(
+                        f"value '{name}': '{path}' names no cookie: write 'cookie:<name>', "
+                        "e.g. 'cookie:sessionid'."
+                    )
+                continue
             if not path or any(not part for part in path.split(_DOTTED_SEPARATOR)):
                 raise ValueError(
                     f"value '{name}': '{path}' is not a dotted path of the response, "

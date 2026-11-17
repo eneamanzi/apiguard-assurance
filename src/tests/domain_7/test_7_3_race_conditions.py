@@ -39,7 +39,7 @@ from typing import Annotated
 import structlog
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.core.assessment_test import NEEDED_TO_RUN, REFERS_TO_RESOURCE
+from src.core.assessment_test import NEEDED_TO_RUN, REFERS_TO_RESOURCE, category_of
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
@@ -50,15 +50,16 @@ from src.core.models import (
     Finding,
     Outcome,
     Reference,
+    ResponseCategory,
     Standard,
     TestResult,
     TestStrategy,
 )
 from src.core.templating import render
-from src.core.test_metadata import Effect, Need, TestInfo
+from src.core.test_metadata import Effect, Need, OracleCase, TestInfo
 from src.tests.base import BaseTest
 from src.tests.helpers.auth import acquire_tokens, auth_parts
-from src.tests.helpers.resources import create_resource
+from src.tests.helpers.resources import ResourceSetupError, create_resource
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -67,11 +68,35 @@ _BARRIER_TIMEOUT_SECONDS: float = 10.0
 
 _SUB: str = "concurrent_requests_safe"
 
-# A successful effect of the operation: a 2xx.
-_SUCCESS_STATUS: frozenset[int] = frozenset({200, 201, 202, 204})
-
 _RACE: str = "RACE_DOUBLE_EFFECT"
 _OPERATION_FAILED: str = "OPERATION_FAILED"
+_NOT_CREATED: str = "OBJECT_NOT_CREATED"
+
+_ORACLE: tuple[OracleCase, ...] = (
+    OracleCase(
+        when="at most `max_successful` of the concurrent requests were accepted (`2xx`) and the "
+        "others refused with an answer that says something",
+        outcome=Outcome.ENFORCED,
+        detail="CONCURRENCY_SERIALIZED",
+    ),
+    OracleCase(
+        when="more than `max_successful` were accepted (acceptances, not effects)",
+        outcome=Outcome.VIOLATION,
+        detail=_RACE,
+        confidence=Confidence.FIRM,
+    ),
+    OracleCase(
+        when="none was accepted, and no answer was one that says nothing: the operation refused "
+        "every attempt",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail=_OPERATION_FAILED,
+    ),
+    OracleCase(
+        when="the prepared resource could not be created",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail=_NOT_CREATED,
+    ),
+)
 
 
 class Test73RaceOperation(BaseModel):
@@ -139,11 +164,7 @@ class Test73Params(BaseModel):
 
 
 class Test73RaceConditions(BaseTest[Test73Params]):
-    """
-    Test 7.3 -- whether a once-only operation serializes concurrent attempts.
-
-    The oracle is in the module docstring and on the test page.
-    """
+    """Test 7.3 -- whether a once-only operation serializes concurrent attempts."""
 
     info = TestInfo(
         id="7.3",
@@ -156,11 +177,15 @@ class Test73RaceConditions(BaseTest[Test73Params]):
             # Concurrency) -- a check and the action depending on it must be a
             # single atomic operation to prevent TOCTOU race conditions.
             Reference(standard=Standard.ASVS, id="v5.0.0-15.4.2"),
+            # 2.3.4 (read 2026-11-16): business-logic locking so that limited
+            # resources cannot be double-booked, the coupon case.
+            Reference(standard=Standard.ASVS, id="v5.0.0-2.3.4"),
         ),
         tags=("business-logic", "concurrency"),
         needs=(Need.USER_ACCOUNT,),
         effect=Effect.STRESSES_TARGET,
         sub_tests=(_SUB,),
+        oracle=_ORACLE,
     )
 
     def execute(
@@ -192,7 +217,14 @@ class Test73RaceConditions(BaseTest[Test73Params]):
             except (AuthenticationSetupError, SecurityClientError) as exc:
                 return self._error(exc)
             parts = auth_parts(target, context, op.role)
-            values = self._resource_values(target, context, client, op)
+            try:
+                values = self._resource_values(target, context, client, op)
+            except (ResourceSetupError, SecurityClientError) as exc:
+                # A backend out of rotation or throttled refuses the creation
+                # (until 2026-11-16 the test ended in ERROR).
+                log.warning("test_7_3_object_not_created", error=str(exc))
+                self._record(_SUB, Outcome.NOT_VERIFIABLE, _NOT_CREATED)
+                return self._finish(message="The prepared resource could not be created.")
             path = str(render(op.path, values))
             records = self._fire(
                 client, op, path, dict(parts.headers), dict(parts.params), cfg.concurrency
@@ -271,7 +303,7 @@ class Test73RaceConditions(BaseTest[Test73Params]):
         max_successful: int,
     ) -> None:
         """Judge the burst: count successes against the allowed maximum."""
-        successes = [r for r in records if r.response_status_code in _SUCCESS_STATUS]
+        successes = [r for r in records if category_of(r) == ResponseCategory.SERVED]
         self._log_others(records, successes)
         if not successes:
             # No success: say why. A server that was unavailable or failing is not an
@@ -295,8 +327,9 @@ class Test73RaceConditions(BaseTest[Test73Params]):
         # FIRM, not CERTAIN: the test counts accepted requests (2xx), not effects. A
         # server that answers 2xx to a duplicate it does not apply would look the
         # same; on crAPI 15 accepted coupon applications credited 6 (2026-11-03).
+        count = len(successes)
         finding = Finding(
-            title=f"Race condition: {op.method} {path} accepted {len(successes)} times",
+            title=f"Race condition: {op.method} {path} accepted {count} times",
             detail=(
                 f"{concurrency} identical requests to {op.method} {path} were fired at the same "
                 f"instant; {len(successes)} were accepted (2xx), above the allowed maximum of "

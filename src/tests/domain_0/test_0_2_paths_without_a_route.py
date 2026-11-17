@@ -50,7 +50,7 @@ import re
 
 import structlog
 
-from src.core.assessment_test import category_of
+from src.core.assessment_test import CONCEPT_NOT_ACCESSIBLE, category_of
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
@@ -76,7 +76,7 @@ from src.core.references import (
     sibling_pattern,
 )
 from src.core.response_category import categorize
-from src.core.test_metadata import Effect, Need, TestInfo
+from src.core.test_metadata import Effect, Need, OracleCase, TestInfo
 from src.tests.base import BaseTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -127,6 +127,104 @@ _REFERENCES: tuple[Reference, ...] = (
     Reference(standard=Standard.NIST_SP, id="800-228", section="3.2.1"),
 )
 
+_ORACLE: tuple[OracleCase, ...] = (
+    OracleCase(
+        sub_test=_SUB_UNROUTED,
+        when="the gateway's refusal at random root paths differs from a backend's own refusal",
+        outcome=Outcome.ENFORCED,
+        detail="REFUSED_BY_GATEWAY",
+    ),
+    OracleCase(
+        sub_test=_SUB_UNROUTED,
+        when="a random path at the root is served (`2xx`)",
+        outcome=Outcome.VIOLATION,
+        detail="SERVED_WITHOUT_ROUTE",
+        confidence=Confidence.CERTAIN,
+    ),
+    OracleCase(
+        sub_test=_SUB_UNROUTED,
+        when="the two random root paths answered differently",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="REFUSAL_UNSTABLE",
+    ),
+    OracleCase(
+        sub_test=_SUB_UNROUTED,
+        when="an enabled route covers every path (a `/` prefix, a regex matching a random root "
+        "path, or no path at all)",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="CATCH_ALL_ROUTE",
+    ),
+    OracleCase(
+        sub_test=_SUB_UNROUTED,
+        when="none of the shortest documented paths gives a reliable backend refusal",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="BACKEND_REFUSAL_UNKNOWN",
+    ),
+    OracleCase(
+        sub_test=_SUB_UNROUTED,
+        when="the gateway's refusal has the backend refusal's fingerprint",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="REFUSALS_INDISTINGUISHABLE",
+    ),
+    OracleCase(
+        sub_test=_SUB_NEAR,
+        when="a neighbour of a route path (outside it by whole segments) is served (`2xx`)",
+        outcome=Outcome.VIOLATION,
+        detail="SERVED_WITHOUT_ROUTE",
+        confidence=Confidence.CERTAIN,
+    ),
+    OracleCase(
+        sub_test=_SUB_NEAR,
+        when="a neighbour answers unlike the gateway's refusal, neither `2xx` nor `401`, `403`",
+        outcome=Outcome.VIOLATION,
+        detail="ANSWERED_WITHOUT_ROUTE",
+        confidence=Confidence.FIRM,
+    ),
+    OracleCase(
+        sub_test=_SUB_NEAR,
+        when="no neighbour answered, and one got the gateway's refusal",
+        outcome=Outcome.ENFORCED,
+        detail="REFUSED_BY_GATEWAY",
+    ),
+    OracleCase(
+        sub_test=_SUB_NEAR,
+        when="no neighbour answered or got the gateway's refusal, and one was refused (`401`, "
+        "`403`)",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="REFUSED_BEFORE_ROUTING",
+    ),
+    OracleCase(
+        sub_test=_SUB_NEAR,
+        when="every neighbour is documented or covered by a route segment by segment",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="COVERED_BY_ROUTE",
+    ),
+    OracleCase(
+        sub_test=_SUB_NEAR,
+        when="the route path is a regular expression",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="REGEX_ROUTE_PATH",
+    ),
+    OracleCase(
+        sub_test=_SUB_NEAR,
+        when="the gateway's refusal is not trusted (`unrouted_paths` not ENFORCED)",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="REFUSAL_NOT_TRUSTED",
+    ),
+    OracleCase(
+        sub_test=_SUB_NEAR,
+        when="no gateway configured",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="NO_GATEWAY",
+    ),
+    OracleCase(
+        sub_test=_SUB_NEAR,
+        when="the gateway's adapter does not read routes",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="ROUTES_NOT_SUPPORTED",
+    ),
+)
+
 
 class Test02PathsWithoutARoute(BaseTest):
     """
@@ -147,6 +245,7 @@ class Test02PathsWithoutARoute(BaseTest):
         optional_needs=(Need.GATEWAY,),
         effect=Effect.READ_ONLY,
         sub_tests=(_SUB_UNROUTED, _SUB_NEAR),
+        oracle=_ORACLE,
     )
 
     def execute(
@@ -177,7 +276,10 @@ class Test02PathsWithoutARoute(BaseTest):
             refusal = context.references.gateway_refusal()
             guard = self._unrouted(target, context, refusal)
             if guard is None:
-                self._record(_SUB_NEAR, Outcome.NOT_VERIFIABLE, "REFUSAL_NOT_TRUSTED")
+                if target.gateway is None:
+                    self._record(_SUB_NEAR, Outcome.NOT_APPLICABLE, "NO_GATEWAY")
+                else:
+                    self._record(_SUB_NEAR, Outcome.NOT_VERIFIABLE, "REFUSAL_NOT_TRUSTED")
                 return self._finish(notes=notes)
             notes += self._near_routes(target, client, store, (refusal, guard))
             return self._finish(notes=notes)
@@ -315,18 +417,12 @@ class Test02PathsWithoutARoute(BaseTest):
             return []
         answer = target.gateway.routes()
         self._record_gateway_concept(target, store, CONCEPT_ROUTES, answer)
+        if answer.status == ConceptStatus.NOT_SUPPORTED:
+            self._record(_SUB_NEAR, Outcome.NOT_APPLICABLE, "ROUTES_NOT_SUPPORTED")
+            return []
         if answer.status != ConceptStatus.READ:
-            detail = (
-                "ROUTES_NOT_SUPPORTED"
-                if answer.status == ConceptStatus.NOT_SUPPORTED
-                else "ROUTES_NOT_READABLE"
-            )
-            outcome = (
-                Outcome.NOT_APPLICABLE
-                if answer.status == ConceptStatus.NOT_SUPPORTED
-                else Outcome.NOT_VERIFIABLE
-            )
-            self._record(_SUB_NEAR, outcome, detail)
+            # The shared rule (until 2026-11-16 ROUTES_NOT_READABLE).
+            self._record(_SUB_NEAR, Outcome.NOT_VERIFIABLE, CONCEPT_NOT_ACCESSIBLE)
             return []
         routes = [r for r in answer.items if r.enabled]
         surface = target.attack_surface
@@ -521,8 +617,9 @@ class Test02PathsWithoutARoute(BaseTest):
                 f". It sits next to the route '{route.name}', whose path {route_path.value} the "
                 f"gateway matches as {route_path.match.value} (backend: "
                 f"{route.backend or 'unknown'}): that route therefore registers more paths than "
-                "the API documents, and what it forwards arrives without the policies attached "
-                "to the route. Match the route path by whole segments, or make it exact."
+                "the API documents: paths of the backend outside the route's documented scope are "
+                "reachable through it (with the route's own policies). Match the route path by "
+                "whole segments, or make it exact."
             ),
             confidence=Confidence.CERTAIN if served else Confidence.FIRM,
         )

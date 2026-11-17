@@ -54,7 +54,7 @@ from src.core.models import (
     TestStrategy,
 )
 from src.core.references import RANDOM_SEGMENT, CalibrationPoint, fingerprint_of
-from src.core.test_metadata import Effect, TestInfo
+from src.core.test_metadata import Effect, OracleCase, TestInfo
 from src.tests.base import BaseTest
 from src.tests.helpers.path_resolver import resolve_path_with_seed
 
@@ -83,14 +83,81 @@ _REFUSED: frozenset[ResponseCategory] = frozenset(
 )
 
 _REFERENCES: tuple[Reference, ...] = (
-    # Read on the ASVS v5.0.0 source 2026-10-22: 8.1.1 (one access-control policy,
-    # enforced the same everywhere).
-    Reference(standard=Standard.OWASP_API_TOP10, id="API8:2023"),
     # API9:2023 (Improper Inventory Management): an older version still deployed
-    # without the current version's controls.
+    # without the current version's controls. ASVS v5.0.0 6.3.4 (read
+    # 2026-11-16): no undocumented pathway, the controls enforced consistently;
+    # 8.1.1, cited until then, asks for the policy's documentation.
     Reference(standard=Standard.OWASP_API_TOP10, id="API9:2023"),
-    Reference(standard=Standard.ASVS, id="v5.0.0-8.1.1"),
+    Reference(standard=Standard.OWASP_API_TOP10, id="API8:2023"),
+    Reference(standard=Standard.ASVS, id="v5.0.0-6.3.4"),
+    Reference(standard=Standard.CWE, id="CWE-288"),
     Reference(standard=Standard.NIST_SP, id="800-53r5", section="3.1"),
+)
+
+_ORACLE: tuple[OracleCase, ...] = (
+    OracleCase(
+        when="the documented operation refuses an anonymous request and its version sibling "
+        "serves it (`2xx`), unlike a random path under that version",
+        outcome=Outcome.VIOLATION,
+        detail="VERSION_DROPS_AUTH",
+        confidence=Confidence.CERTAIN,
+    ),
+    OracleCase(
+        when="the same, the random path's answer unreliable",
+        outcome=Outcome.VIOLATION,
+        detail="VERSION_DROPS_AUTH",
+        confidence=Confidence.FIRM,
+    ),
+    OracleCase(
+        when="the sibling is served exactly as a random path under its version (a catch-all)",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="SERVED_LIKE_UNKNOWN",
+    ),
+    OracleCase(
+        when="both refuse, and a random path under the sibling's version is not refused alike",
+        outcome=Outcome.ENFORCED,
+        detail="SIBLING_REFUSED",
+    ),
+    OracleCase(
+        when="the sibling is refused exactly as a random path under its version",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="REFUSED_BEFORE_ROUTING",
+    ),
+    OracleCase(
+        when="the sibling is refused and a random path under its version answers unstably",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="CALIBRATION_UNSTABLE",
+    ),
+    OracleCase(
+        when="the documented operation answers neither `2xx` nor a refusal (`404`, ...)",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="DOCUMENTED_NOT_JUDGEABLE",
+    ),
+    *(
+        OracleCase(
+            when=f"the sibling's answer is `{name}`", outcome=Outcome.NOT_VERIFIABLE, detail=name
+        )
+        for name in ("REDIRECT", "METHOD_NOT_ALLOWED", "INVALID_REQUEST", "OTHER")
+    ),
+    OracleCase(
+        when="the documented operation is served without a credential",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="DOCUMENTED_NOT_PROTECTED",
+    ),
+    OracleCase(
+        when="the sibling answers `404`", outcome=Outcome.NOT_APPLICABLE, detail="SIBLING_ABSENT"
+    ),
+    OracleCase(
+        when="up to three siblings answer `404` while their documented operation does not, and "
+        "none answers otherwise",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="VERSION_ABSENT",
+    ),
+    OracleCase(
+        when="no safe operation has a version sibling",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="NO_VERSION_SIBLING",
+    ),
 )
 
 
@@ -111,6 +178,7 @@ class Test24AuthorizationConsistency(BaseTest):
         tags=("authorization", "consistency"),
         effect=Effect.READ_ONLY,
         sub_tests=(_SUB,),
+        oracle=_ORACLE,
     )
 
     def execute(
@@ -186,9 +254,10 @@ class Test24AuthorizationConsistency(BaseTest):
         surface = target.attack_surface
         if surface is None:
             return {}
-        protected = [
-            e for e in surface.endpoints if e.method.upper() in _SAFE_METHODS and e.requires_auth
-        ]
+        # Every safe operation, protected or not by the specification: the test
+        # measures that the documented one refuses an anonymous request (a
+        # specification without `security` hid every pair until 2026-11-16).
+        protected = [e for e in surface.endpoints if e.method.upper() in _SAFE_METHODS]
         groups: dict[str, list[tuple[str, str, str]]] = {}
         seen: set[tuple[str, str, str]] = set()
         for fact in surface.derived_facts(_RULE_VERSION_SIBLINGS):
@@ -275,10 +344,11 @@ class Test24AuthorizationConsistency(BaseTest):
         if not answered and informative > 0 and (informative == _ABSENCE_PROBES or exhausted):
             self._record(_SUB, Outcome.NOT_APPLICABLE, "VERSION_ABSENT")
             return True
-        # What a random path right under this version answers, for the
-        # sibling's refusal (one point per version, cached by the references).
-        unknown = context.references.calibration(f"{candidate}/{RANDOM_SEGMENT}", method)
+        # What a random path right under this version answers, for each
+        # method (cached by the references; until 2026-11-16 one point, of the
+        # last method probed, served every pair).
         for method, documented, sibling in pairs:
+            unknown = context.references.calibration(f"{candidate}/{RANDOM_SEGMENT}", method)
             self._compare(client, store, (method, documented, sibling), target, unknown)
         return False
 
@@ -308,6 +378,10 @@ class Test24AuthorizationConsistency(BaseTest):
         if doc_record is None:
             self._record(_SUB, Outcome.NOT_VERIFIABLE, "NO_RESPONSE")
             return
+        silent = self._uninformative(doc_record, _SUB)
+        if silent is not None:
+            self._judge(doc_record, store, _SUB, Outcome.NOT_VERIFIABLE, silent)
+            return
         if category_of(doc_record) not in _REFUSED:
             self._step(doc_record)
             if category_of(doc_record) == ResponseCategory.SERVED:
@@ -331,6 +405,23 @@ class Test24AuthorizationConsistency(BaseTest):
             self._judge(sib_record, store, _SUB, Outcome.NOT_VERIFIABLE, uninformative)
             return
         if category == ResponseCategory.SERVED:
+            if not unknown.reliable or unknown.fingerprint is None:
+                confidence = Confidence.FIRM
+            elif fingerprint_of(sib_record) == unknown.fingerprint:
+                # A random path under the version is served the same (a
+                # catch-all, a single-page app behind `/`): not the operation
+                # (until 2026-11-16 a CERTAIN violation).
+                self._judge(
+                    sib_record,
+                    store,
+                    _SUB,
+                    Outcome.NOT_VERIFIABLE,
+                    "SERVED_LIKE_UNKNOWN",
+                    reference_responses=(unknown,),
+                )
+                return
+            else:
+                confidence = Confidence.CERTAIN
             self._judge(
                 sib_record,
                 store,
@@ -345,10 +436,10 @@ class Test24AuthorizationConsistency(BaseTest):
                         f"its version sibling {method} {sib_path} served it "
                         f"(HTTP {sib_record.response_status_code}). An older or alternative "
                         "version enforces a different policy, so the control is bypassed by "
-                        "changing the version (OWASP API8:2023). Apply the same authorization to "
-                        "every version, or retire the undocumented one."
+                        "changing the version (OWASP API9:2023, CWE-288). Apply the same "
+                        "authorization to every version, or retire the undocumented one."
                     ),
-                    confidence=Confidence.CERTAIN,
+                    confidence=confidence,
                 ),
             )
             return

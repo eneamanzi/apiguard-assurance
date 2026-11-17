@@ -70,17 +70,50 @@ is user_a's own, created and destroyed within the run.
 
 ## 6. Oracle (per sub-test)
 
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("2.2")) ]]] -->
+
+**`cross_user_read`**
+
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| user_b served (2xx) user_a's object | `VIOLATION/BOLA_READ` (CERTAIN: the object was handed over), `BOLA_MODIFY` (FIRM: the empty-bodied write was accepted, a change is not shown), `BOLA_DELETE` (CERTAIN when user_a's read afterwards finds the object gone, FIRM otherwise); until 2026-11-04 all three CERTAIN | as stated |
-| user_b refused (401, 403, 404), unlike the forged credential | `ENFORCED/REFUSED` | - |
-| a sub-resource read (`/repos/{owner}/{repo}/branches` next to `/repos/{owner}/{repo}`) served to user_b, after the object's own read refused user_b | `VIOLATION/BOLA_READ_SUBRESOURCE` | FIRM: the ownership check applied to the object is missing on a part of it, unless that part is public by design; the object's refusal is cited |
-| a sub-resource read the owner is not served either (an empty repository's latest release) | `NOT_APPLICABLE/OWNER_NOT_SERVED_HERE`: nothing to protect there | - |
-| user_b refused in the same category as the forged credential, or 401 when the control says nothing: user_b's credential may not have been accepted | `NOT_VERIFIABLE/CREDENTIAL_NOT_CONFIRMED` | - |
-| any other answer (400 or 422 from body validation, 405, a redirect): not a refusal of the user | `NOT_VERIFIABLE/NOT_A_REFUSAL` | - |
-| user_a not served its own object | `NOT_VERIFIABLE/OWNER_NOT_SERVED` | - |
-| no read / modify / delete operation on the object | `NOT_APPLICABLE/NO_READ_OPERATION`, `NO_MODIFY_OPERATION`, `NO_DELETE_OPERATION` | - |
-| the prepared resource did not create the object (on crAPI, a worn lab answers `400 Insufficient Balance`) | `NOT_VERIFIABLE/OBJECT_NOT_CREATED` | - |
+| user_b is refused (`401`, `403`, `404`) unlike the forged credential | `ENFORCED/REFUSED` | - |
+| user_b is refused like the forged credential, or `401` when the forged credential is not refused | `NOT_VERIFIABLE/CREDENTIAL_NOT_CONFIRMED` | - |
+| user_b's answer is neither `2xx` nor a refusal (a redirect, `400`, `405`) | `NOT_VERIFIABLE/NOT_A_REFUSAL` | - |
+| the prepared resource did not create the object | `NOT_VERIFIABLE/OBJECT_NOT_CREATED` | - |
+| user_b is served (`2xx`) user_a's object with the owner's answer | `VIOLATION/BOLA_READ` | CERTAIN |
+| user_b is served with another answer (a `200` may carry an error) | `VIOLATION/BOLA_READ` | FIRM |
+| user_b is served a sub-resource read after the object's own read refused user_b | `VIOLATION/BOLA_READ_SUBRESOURCE` | FIRM |
+| user_a is not served its own object's read | `NOT_VERIFIABLE/OWNER_NOT_SERVED` | - |
+| user_a is not served a sub-resource read either (not unavailable, a real refusal) | `NOT_APPLICABLE/OWNER_NOT_SERVED_HERE` | - |
+| no documented read addresses the object | `NOT_APPLICABLE/NO_READ_OPERATION` | - |
+
+**`cross_user_modify`**
+
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| user_b is refused (`401`, `403`, `404`) unlike the forged credential | `ENFORCED/REFUSED` | - |
+| user_b is refused like the forged credential, or `401` when the forged credential is not refused | `NOT_VERIFIABLE/CREDENTIAL_NOT_CONFIRMED` | - |
+| user_b's answer is neither `2xx` nor a refusal (a redirect, `400`, `405`) | `NOT_VERIFIABLE/NOT_A_REFUSAL` | - |
+| the prepared resource did not create the object | `NOT_VERIFIABLE/OBJECT_NOT_CREATED` | - |
+| user_b's empty-bodied `PATCH`/`PUT` on user_a's object is accepted (`2xx`) | `VIOLATION/BOLA_MODIFY` | FIRM |
+| no documented `PATCH`/`PUT` addresses the object | `NOT_APPLICABLE/NO_MODIFY_OPERATION` | - |
+
+**`cross_user_delete`**
+
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| user_b is refused (`401`, `403`, `404`) unlike the forged credential | `ENFORCED/REFUSED` | - |
+| user_b is refused like the forged credential, or `401` when the forged credential is not refused | `NOT_VERIFIABLE/CREDENTIAL_NOT_CONFIRMED` | - |
+| user_b's answer is neither `2xx` nor a refusal (a redirect, `400`, `405`) | `NOT_VERIFIABLE/NOT_A_REFUSAL` | - |
+| the prepared resource did not create the object | `NOT_VERIFIABLE/OBJECT_NOT_CREATED` | - |
+| user_b's `DELETE` is accepted, and the object served to user_a before is gone after | `VIOLATION/BOLA_DELETE` | CERTAIN |
+| user_b's `DELETE` is accepted, and the object is not shown gone | `VIOLATION/BOLA_DELETE` | FIRM |
+| user_b's `DELETE` is accepted, and user_a is still served the object: nothing was deleted | `NOT_VERIFIABLE/DELETE_NOT_APPLIED` | - |
+| no documented `DELETE` addresses the object | `NOT_APPLICABLE/NO_DELETE_OPERATION` | - |
+
+<!-- [[[end]]] -->
+
+Until 2026-11-16: a user_b read served was CERTAIN even when the answer was not the owner's (a `200` error envelope): now FIRM then; a delete answered `2xx` was CERTAIN on a `404` afterwards even when the owner's read had not been served before, and FIRM when the object was still there: now CERTAIN only served-then-gone, and `DELETE_NOT_APPLIED` (not verifiable) when the owner still reads it; an owner's sub-resource read that was unavailable or throttled was `OWNER_NOT_SERVED_HERE` (not applicable, hiding the unverified read); a creation without an answer ended the test in ERROR.
 
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("2.2", page=cog.inFile)) ]]] -->
 
@@ -102,8 +135,13 @@ is refused on every operation.
 
 ## 8. Findings
 
-"User reached another user's object: `<method> <path>`", `evidence_ref` the user_b request. The user_a positive
-control and the post-modify read are in the transaction log as the contrast.
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("2.2")) ]]] -->
+
+- "User reached another user's object: <method> <template>"
+
+<!-- [[[end]]] -->
+
+`evidence_ref` user_b's answer; for a sub-resource, `supporting_refs` user_b's refusal on the object itself.
 
 ## 9. Effects on the target
 
@@ -129,6 +167,9 @@ Section [`tests.domain_2.test_2_2`](../../03-reference/01-configuration.md#tests
 <!-- [[[end]]] -->
 
 ## 12. Validation
+
+**2026-11-16, after the review** (domain 2 on the three labs as configured): Forgejo labs **PASS**, crAPI **FAIL** (`BOLA_READ` CERTAIN on `/workshop/api/shop/orders/{order_id}`, user_b got the owner's answer), as before.
+
 
 Runs of 2026-10-23; measured again on 2026-11-04 (2.2 alone), after the corrections of that day, with the same verdicts:
 
@@ -198,6 +239,7 @@ the same answer (404) for "not yours" and "not found" so existence is not disclo
   the object's own read refused user_b, since that refusal is what a served sub-resource is read against. One
   modification and one deletion are probed (the first documented), so an ownership gap on another write is not
   covered. An object type with no resource configured is not covered either.
+- A refusal of a modify or a delete is not checked against the owner's own write (a scope-limited user_b token, or a gateway that does not route the method, reads as an ownership check).
 
 ## 15. Sources
 

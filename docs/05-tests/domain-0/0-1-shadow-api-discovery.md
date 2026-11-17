@@ -3,7 +3,7 @@
 > **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-21) ·
 > **Source of truth:**
 > [`src/tests/domain_0/test_0_1_shadow_api_discovery.py`](../../../src/tests/domain_0/test_0_1_shadow_api_discovery.py) ·
-> **Verified:** 2026-10-21
+> **Verified:** 2026-11-16
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("0.1", page=cog.inFile)) ]]] -->
 
@@ -88,60 +88,53 @@ ASVS v5.0.0-4.1.4: only the HTTP methods the API supports can be used, and unuse
 
 ## 6. Oracle
 
-**`undeclared_methods`** (one judgement per path and method):
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("0.1")) ]]] -->
+
+**`undeclared_methods`**
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| `METHOD_NOT_ALLOWED` (405, 501), the standard refusal | `ENFORCED/METHOD_REJECTED` | - |
-| the same answer as the same method on random siblings, and that answer is a refusal of the request itself (401, 403): the target did not look at the method | `NOT_VERIFIABLE/REFUSED_BEFORE_ROUTING` | - |
-| a path with parameters, any other answer (not 2xx, not 405): its random siblings are the same route, and an object that does not exist answers a handled method and an ignored one alike | `NOT_VERIFIABLE/NONEXISTENT_OBJECT` | - |
-| a path without parameters, the same answer as the same method on random siblings | `ENFORCED/METHOD_NOT_SERVED` | - |
-| `SERVED` (2xx): the method was executed | `VIOLATION/UNDECLARED_METHOD_HANDLED` | CERTAIN on a path without parameters, where random siblings answered otherwise; FIRM on a path with parameters, where nothing was compared (until 2026-11-04 CERTAIN, with a text claiming a comparison) |
-| a path without parameters next to a documented path with a parameter in its place (`/users/search` and `/users/{username}`): its random siblings reach that route, so a different answer is no evidence | `NOT_VERIFIABLE/SIBLING_ROUTE_DOCUMENTED` | - |
-| a path without parameters served (2xx) exactly as its random siblings (a server answering every path) | `NOT_VERIFIABLE/SERVED_LIKE_UNKNOWN` | - |
-| a path without parameters, a different answer from the same method on random siblings | `VIOLATION/UNDECLARED_METHOD_KNOWN` | FIRM: it rests on the assumption that a different answer means the endpoint knows the method |
+| an undeclared method, or TRACE, answers `405` or `501` | `ENFORCED/METHOD_REJECTED` | - |
+| a path without parameters answers the method like its random siblings, not `2xx` | `ENFORCED/METHOD_NOT_SERVED` | - |
+| a path without parameters serves the method (`2xx`) unlike its random siblings | `VIOLATION/UNDECLARED_METHOD_HANDLED` | CERTAIN |
+| a path with parameters serves the method (`2xx`) on a random object | `VIOLATION/UNDECLARED_METHOD_HANDLED` | FIRM |
+| a path without parameters answers the method unlike its siblings, neither `2xx` nor a refusal | `VIOLATION/UNDECLARED_METHOD_KNOWN` | FIRM |
+| refused (`401`, `403`) unlike the siblings, or TRACE refused: an authentication before the method | `NOT_VERIFIABLE/REFUSED_BEFORE_METHOD` | - |
+| answered like the siblings, which are refused (`401`, `403`) | `NOT_VERIFIABLE/REFUSED_BEFORE_ROUTING` | - |
+| a path with parameters answers neither `2xx` nor `405` | `NOT_VERIFIABLE/NONEXISTENT_OBJECT` | - |
+| a path next to a documented one with a parameter in its place answers otherwise than its siblings | `NOT_VERIFIABLE/SIBLING_ROUTE_DOCUMENTED` | - |
+| served `2xx` exactly as its random siblings (a catch-all) | `NOT_VERIFIABLE/SERVED_LIKE_UNKNOWN` | - |
+| the calibration of the random siblings is unreliable | `NOT_VERIFIABLE/CALIBRATION_UNSTABLE` | - |
+| TRACE answers `2xx` with the request line sent back | `VIOLATION/TRACE_ECHOED` | CERTAIN |
+| TRACE answers `2xx` without the echo | `NOT_VERIFIABLE/TRACE_SERVED_NO_ECHO` | - |
+| TRACE answers anything else (not found, invalid) | `ENFORCED/TRACE_NOT_SERVED` | - |
 
-**`TRACE`** (since 2026-11-05), asked once per service on its shortest documented `GET` path. A server that answers
-`TRACE` sends back the request it received (RFC 9110 §9.3.8), which lets a script in a browser read the headers of
-its own request, cookies included (Cross-Site Tracing). It is usually a server-wide setting, so it is not compared
-with random paths (a server echoing everywhere would read as "like an unknown path") and not asked per path (one
-finding per path would repeat one fact): the echo itself is the proof.
-
-| Case | Outcome / detail | Confidence |
-|---|---|---|
-| `2xx` with the request line (`TRACE /...`) sent back in the body | `VIOLATION/TRACE_ECHOED` | CERTAIN |
-| `405` or `501` | `ENFORCED/METHOD_REJECTED` | - |
-| any other answer (refused, not found): the request is not sent back | `ENFORCED/TRACE_NOT_SERVED` | - |
-| `2xx` without the echo: something handled TRACE, what is not known | `NOT_VERIFIABLE/TRACE_SERVED_NO_ECHO` | - |
-
-**`undocumented_versions`:**
+**`undocumented_versions`**
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| answers unlike the random siblings of its parent | `VIOLATION/UNDOCUMENTED_VERSION` | TENTATIVE: the candidate comes from a heuristic rule |
-| answers like an unknown sibling, and that answer is a refusal of the request itself (401, 403): the target refused before routing | `NOT_VERIFIABLE/REFUSED_BEFORE_ROUTING` | - |
-| answers like an unknown sibling, or `NOT_FOUND` | `ENFORCED/VERSION_ABSENT` | - |
-| no documented path carries a version segment | `NOT_APPLICABLE/NO_VERSIONED_PATH` | - |
-| the version group documents no operation | `NOT_APPLICABLE/NO_PATH_IN_GROUP` | - |
-| calibration unstable, or a spoiling answer | `NOT_VERIFIABLE/CALIBRATION_UNSTABLE`, `NOT_VERIFIABLE/<category>` | - |
+| answers like a path under a random version | `ENFORCED/VERSION_ABSENT` | - |
+| answers unlike a random version, neither not found nor refused | `VIOLATION/UNDOCUMENTED_VERSION` | TENTATIVE |
+| not found or refused unlike a random version: the version may exist without this path | `NOT_VERIFIABLE/VERSION_UNCLEAR` | - |
+| refused (`401`, `403`) like a random version | `NOT_VERIFIABLE/REFUSED_BEFORE_ROUTING` | - |
+| the calibration of the random versions is unreliable | `NOT_VERIFIABLE/CALIBRATION_UNSTABLE` | - |
+| no documented path has a version segment | `NOT_APPLICABLE/NO_VERSIONED_PATH` | - |
+| the version group documents no operation to lend | `NOT_APPLICABLE/NO_PATH_IN_GROUP` | - |
 
-**`gateway_route_drift`:**
+**`gateway_route_drift`**
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| an enabled route with a path under which no documented operation (nor the specification) falls | `VIOLATION/ROUTE_NOT_DOCUMENTED` | CERTAIN: the configuration read |
-| an enabled route whose every path covers documented operations, or is their parent | `ENFORCED/ROUTE_DOCUMENTED` | - |
-| a disabled route | `NOT_APPLICABLE/ROUTE_DISABLED` | - |
+| an enabled route each of whose paths has a documented path (after the base URL's path) or the specification under it | `ENFORCED/ROUTE_DOCUMENTED` | - |
+| an enabled route with a path under which no documented path falls | `VIOLATION/ROUTE_NOT_DOCUMENTED` | CERTAIN |
+| a route's regular expression does not compile in Python | `NOT_VERIFIABLE/ROUTE_NOT_READ` | - |
+| a disabled route (or one of a disabled service) | `NOT_APPLICABLE/ROUTE_DISABLED` | - |
 | no gateway configured | `NOT_APPLICABLE/NO_GATEWAY` | - |
-| the gateway does not expose its routes | `NOT_APPLICABLE/ROUTES_NOT_SUPPORTED` | - |
-| the routes could not be read | `NOT_VERIFIABLE/ROUTES_NOT_READABLE` | - |
+| the gateway's adapter does not read routes | `NOT_APPLICABLE/ROUTES_NOT_SUPPORTED` | - |
 
-How a route path matches (prefix, exact, regular expression) is the adapter's answer, not this test's guess: each
-adapter translates its gateway's own syntax (Kong writes a regular expression as `~<expression>`, APISIX a prefix as
-`<path>*`) into the neutral vocabulary of the `routes` concept. A gateway with another syntax needs only its
-adapter. A regular expression is tried on each documented path as written and with a number and a word in place of
-its parameters (`/users/1`, `/users/a`): a template like `/users/{id}` never matches `^/users/\d+$` as written, and
-until 2026-11-04 such a route was reported as not documented.
+<!-- [[[end]]] -->
+
+Until 2026-11-16: a `401` or `403` unlike the random siblings was `UNDECLARED_METHOD_KNOWN` (FIRM), although an authentication bound to the path refuses any method before dispatch (Django REST Framework authenticates in `initial()`, before the handler is looked up): now `REFUSED_BEFORE_METHOD`; TRACE refused with `401`/`403` was `TRACE_NOT_SERVED`, although Cross-Site Tracing runs with the victim's credentials; a version was calibrated against random siblings inside the candidate version itself, and any `404` read as `VERSION_ABSENT`; the routes were compared with the documented paths without the base URL's path, Kong's regular expressions were read unanchored and with PCRE's `(?<name>` (which Python does not compile: a CERTAIN finding), and the routes of a disabled Kong service counted; an unreadable routes concept was `ROUTES_NOT_READABLE`, now the shared `CONCEPT_NOT_ACCESSIBLE`. The TRACE finding cites ASVS v5.0.0-13.4.4 (it cited 4.1.4).
 
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("0.1", page=cog.inFile)) ]]] -->
 
@@ -163,11 +156,17 @@ runs and `gateway_route_drift` is `NOT_APPLICABLE`.
 
 ## 8. Findings
 
-One per path and undeclared method ("Undeclared method handled: `<method> <path>`" when it is served, "Undeclared
-method known: `<method> <path>`" when it answers otherwise than its random siblings), per undocumented version
-("Undocumented API version answers: `<method> <path>`"), per route without documentation ("Gateway route without
-documented paths: `<route>`"), and for an echoed TRACE ("TRACE enabled: `<path>`"). Each carries its proof: the test's own request (`evidence_ref`), the calibration probes for a version (`supporting_refs`), the
-routes read for a route.
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("0.1")) ]]] -->
+
+- "Undeclared method handled: <method> <path>"
+- "Undeclared method known: <method> <path>"
+- "Undocumented API version answers: <method> <path>"
+- "Gateway route without documented paths: <name>"
+- "TRACE enabled: <template>"
+
+<!-- [[[end]]] -->
+
+Each names the method and path, or the route; `evidence_ref` the answer, or the routes concept for a route.
 
 ## 9. Effects on the target
 
@@ -186,6 +185,9 @@ The other two sub-tests do not depend on the gateway.
 None: the test has no parameters and uses no prepared resource.
 
 ## 12. Validation
+
+**2026-11-16, after the review** (0.1 to 0.4 on the three labs as configured): **FAIL** on the three labs, on `gateway_route_drift` only (`hmac-audit-route`, as before). crAPI's `PUT /workshop/api/shop/orders` (`401` where random siblings get `404`) is now `REFUSED_BEFORE_METHOD`, not a finding: the crAPI view does define `PUT`, so the old finding was right by chance, not by proof.
+
 
 Runs of 2026-10-22, the two tests of the guarantee together; every lab healthy afterwards and its test
 resources intact. The rows on `undeclared_methods` of Forgejo and on `undocumented_versions` of crAPI were measured
@@ -301,6 +303,7 @@ gateway routes nothing documented uses.
   (until 2026-11-05 this line still described the FIRM finding removed on 2026-11-04).
 - `gateway_route_drift` compares paths, not methods: a route allowing more methods than the specification declares
   is seen by `undeclared_methods` instead.
+- A method refused by an authentication before dispatch is not probed with a credential: sending an undeclared write as user_a could change data, so the case stays `REFUSED_BEFORE_METHOD`.
 
 ## 15. Sources
 

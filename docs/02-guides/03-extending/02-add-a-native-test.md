@@ -163,7 +163,8 @@ change data, then the ones that stress the target), and `sub_tests` are the name
 status is computed from (`_SUB_REFUSES = "privileged_function_refuses_user"`, `_SUB_METHOD = "method_not_confused"`).
 `needs` lets the engine provide a declared account before the test runs and SKIP the
 test when the configuration does not supply it; `optional_needs` declares an account the test uses when it is
-configured and does without when it is not. `essential_sub_tests` (optional, a subset of `sub_tests`) names the
+configured and does without when it is not, or when its login does not work (read it with `optional_role_parts()`,
+`src/tests/helpers/auth.py`: `None` when there is no credential). `essential_sub_tests` (optional, a subset of `sub_tests`) names the
 sub-tests the test is mainly about: without a violation, a test none of whose essential sub-tests passed is
 `INCONCLUSIVE`, whatever the others say (test 7.2 declares `cloud_metadata` and `private_ip`).
 

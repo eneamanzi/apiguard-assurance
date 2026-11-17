@@ -42,7 +42,7 @@ mapping.
 |---|---|
 | `content_type_options` | "X-Content-Type-Options: nosniff" (ASVS 3.4.4) |
 | `framing_protection` | "X-Frame-Options / CSP frame-ancestors" (ASVS 3.4.6) |
-| `cors_not_wildcard` | "CORS strict: not `*` with credentials" |
+| `cors_not_wildcard` | the arbitrary `Origin` is not granted with credentials; the methodology states it under guarantee 6.3 ("CORS strict"), which has no test of its own, and this test covers that part (until 2026-11-16 this row quoted it as 6.2's) |
 | consistency | "present on one endpoint and absent on another is a misconfiguration": each check is judged across a sample |
 | left out | HSTS (test 1.5); Permissions-Policy (not in ASVS 3.4) |
 
@@ -60,19 +60,52 @@ The attack surface. For CORS, an arbitrary `Origin` is sent and the reflection j
 For each sampled endpoint, one GET (the three header checks) and one GET with an arbitrary `Origin` (CORS).
 READ_ONLY.
 
-## 6. Oracle (per sub-test, aggregated over the sample)
+## 6. Oracle
+
+Each check is judged over the sample: an answer of the table below is not the API's (it may be the gateway's own
+error page) and is left out; with no usable answer left a sub-test is `NOT_VERIFIABLE` with their reason.
+
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("6.2")) ]]] -->
+
+**`content_type_options`**
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| the header is present/sound on every sampled endpoint | `ENFORCED/PRESENT` | - |
-| absent on all sampled endpoints | `VIOLATION/MISSING` | CERTAIN |
-| present on some, absent on others | `VIOLATION/INCONSISTENT` | CERTAIN |
-| (CORS) the arbitrary origin is reflected with credentials | `VIOLATION/CORS_ORIGIN_REFLECTED` | CERTAIN: any site reads authenticated responses |
-| (CORS) `*` with credentials | `VIOLATION/CORS_WILDCARD_CREDENTIALS` | FIRM: browsers refuse this combination (Fetch standard), so it exposes nothing as it stands; it is a policy meant to share credentialed responses with any origin (ASVS v5.0.0-3.4.2 allows `*` only without sensitive information) |
-| (CORS) sampled endpoints send CORS headers and none allows an arbitrary origin with credentials | `ENFORCED/CORS_BOUNDED` | - |
-| (CORS) no usable answer grants any cross-origin access to the arbitrary `Origin` | `ENFORCED/ORIGIN_NOT_ALLOWED`: a browser refuses that origin the response | - |
-| (CORS) no usable answer at all to the cross-origin probe (each one of the table below) | `NOT_VERIFIABLE/` the reason of those answers (until 2026-11-16 always `NO_RESPONSE`) | - |
-| (headers) no usable answer at all among the sampled endpoints: an answer of the table below is not the API's (it may be the gateway's own error page) and is left out of the sample (since 2026-11-15) | `NOT_VERIFIABLE/` the reason of the answers left out (until 2026-11-16 always `NO_RESPONSE`) | - |
+| `X-Content-Type-Options: nosniff` (its first value) on every usable sampled answer | `ENFORCED/PRESENT` | - |
+| `X-Content-Type-Options: nosniff` (its first value) absent from every usable sampled answer | `VIOLATION/MISSING` | CERTAIN |
+| `X-Content-Type-Options: nosniff` (its first value) on some sampled answers and absent from others | `VIOLATION/INCONSISTENT` | CERTAIN |
+
+**`framing_protection`**
+
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| a CSP `frame-ancestors` not allowing any site, or else `X-Frame-Options` with one value, `DENY` or `SAMEORIGIN`, on every usable sampled answer | `ENFORCED/PRESENT` | - |
+| a CSP `frame-ancestors` not allowing any site, or else `X-Frame-Options` with one value, `DENY` or `SAMEORIGIN`, absent from every usable sampled answer | `VIOLATION/MISSING` | CERTAIN |
+| a CSP `frame-ancestors` not allowing any site, or else `X-Frame-Options` with one value, `DENY` or `SAMEORIGIN`, on some sampled answers and absent from others | `VIOLATION/INCONSISTENT` | CERTAIN |
+| framing is refused on every sampled answer, by `X-Frame-Options` alone on some (ASVS v5.0.0-3.4.6 asks for `frame-ancestors`: a note) | `ENFORCED/XFO_ONLY` | - |
+
+**`cors_not_wildcard`**
+
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| an answer to the arbitrary `Origin` reflects it with `Access-Control-Allow-Credentials: true` | `VIOLATION/CORS_ORIGIN_REFLECTED` | CERTAIN |
+| an answer carries `Access-Control-Allow-Origin: *` with credentials (browsers refuse it) | `VIOLATION/CORS_WILDCARD_CREDENTIALS` | FIRM |
+| some answers grant CORS, none to the arbitrary origin with credentials | `ENFORCED/CORS_BOUNDED` | - |
+| no served answer to the arbitrary `Origin` grants it | `ENFORCED/ORIGIN_NOT_ALLOWED` | - |
+| no answer to the arbitrary `Origin` was served, and the refusals (`401`, `403`, ...) grant nothing: the policy of a served answer is not seen | `NOT_VERIFIABLE/PROBE_NOT_SERVED` | - |
+
+<!-- [[[end]]] -->
+
+A header sent twice reaches the test joined (`nosniff, nosniff`, httpx's reading of repeated fields): nosniff counts
+when its first value is `nosniff` (the Fetch standard), X-Frame-Options when all its values are the same `DENY` or
+`SAMEORIGIN` (the HTML standard). Until 2026-11-16 the joined text was compared whole, so an application and a
+gateway both setting the header read as `MISSING`, CERTAIN; `frame-ancestors https://*` passed although it allows
+any site; X-Frame-Options alone was `PRESENT`, citing ASVS 3.4.6, which asks for `frame-ancestors` (now
+`XFO_ONLY` with a note); and a refusal without CORS headers was `ORIGIN_NOT_ALLOWED`, although an application may
+add them only after its authentication (now it counts only when served, else `PROBE_NOT_SERVED`).
+`CORS_WILDCARD_CREDENTIALS` is FIRM: browsers refuse `*` with credentials (Fetch standard), so it exposes nothing as
+it stands; it shows a policy meant to share credentialed responses with any origin (ASVS v5.0.0-3.4.2 allows `*`
+only without sensitive information).
 
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("6.2", page=cog.inFile)) ]]] -->
 
@@ -94,13 +127,20 @@ across the sample.
 
 ## 8. Findings
 
-"X-Content-Type-Options: nosniff missing/inconsistent", "Clickjacking protection ... missing/inconsistent", "Unsafe
-CORS: an arbitrary origin is allowed with credentials" (`CORS_ORIGIN_REFLECTED`), "CORS allows any origin ('*')
-together with credentials" (`CORS_WILDCARD_CREDENTIALS`), each naming how many sampled endpoints and an example. The
-proof (`evidence_ref`) is the response of that example endpoint, and for CORS the answer to the cross-origin probe on
-it. Until 2026-11-03 it was the last response sampled, which for an inconsistent header could be an endpoint that
-carries it: crAPI's two findings named `/community/api/v2/community/posts/recent` and pointed at
-`/workshop/api/mechanic/`, a response with both headers present.
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("6.2")) ]]] -->
+
+- "X-Content-Type-Options: nosniff inconsistent across services"
+- "X-Content-Type-Options: nosniff missing"
+- "Clickjacking protection inconsistent across services"
+- "Clickjacking protection missing"
+- "Unsafe CORS: an arbitrary origin is allowed with credentials"
+- "CORS allows any origin ('*') together with credentials"
+
+<!-- [[[end]]] -->
+
+Each names how many sampled endpoints and an example. The proof (`evidence_ref`) is the response of that example
+endpoint, and for CORS the answer to the cross-origin probe on it. Until 2026-11-03 it was the last response
+sampled, which for an inconsistent header could be an endpoint that carries it.
 
 ## 9. Effects on the target
 
@@ -116,6 +156,12 @@ services is exactly what a per-route gateway misconfiguration breaks.
 None.
 
 ## 12. Validation
+
+**2026-11-16, after the review**: **PASS** on the three labs, `framing_protection` as `XFO_ONLY` with its note (the
+labs' CSP is `default-src 'self'`, without `frame-ancestors`). Forgejo + Kong with a `post-function` on
+`forgejo-api-route` sending `X-Frame-Options: DENY` and `X-Content-Type-Options: nosniff` twice each (checked with
+`curl`: two lines of each): **PASS**; until that day the joined values (`DENY, DENY`) read as `MISSING`, CERTAIN. A
+`response-transformer` `append` did not repeat the headers on Kong 3.9.3 and proves nothing.
 
 Runs of 2026-10-28 (the coverage column was added when a skipped sub-test began to lower it):
 
@@ -158,9 +204,12 @@ frame-ancestors 'self'` (and `object-src 'none'`, `base-uri 'none'`), and a CORS
 
 - The sample is one endpoint per service: an inconsistency within a service (route A vs route B of the same prefix)
   may be missed.
-- X-Frame-Options is accepted for framing although ASVS 5.0 marks it obsolete in favour of CSP `frame-ancestors`
-  (it still protects browsers); the remedy recommends CSP. When a CSP `frame-ancestors` is present it decides, as in a
-  browser: one allowing any site (`*`, `http:`, `https:`) fails even next to `X-Frame-Options: DENY`.
+- X-Frame-Options alone is accepted for framing (`XFO_ONLY`, with a note), although ASVS 5.0 marks it obsolete in
+  favour of CSP `frame-ancestors`: it still protects browsers. When a CSP `frame-ancestors` is present it decides, as
+  in a browser: one allowing any site (`*`, `http:`, `https:`, `http://*`, `https://*`) fails even next to
+  `X-Frame-Options: DENY`.
+- CORS is probed with one arbitrary origin and a GET: an `Origin: null` granted with credentials (readable from a
+  sandboxed frame) and the preflight policy of cross-origin writes are not probed.
 - A CORS grant to the arbitrary origin without `Access-Control-Allow-Credentials: true` is `CORS_BOUNDED`: a browser
   then sends no cookie, so the responses it reads are the ones the probing site could fetch itself. ASVS
   v5.0.0-3.4.2 asks for an allowlist even then; that part is not judged.

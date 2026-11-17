@@ -89,7 +89,7 @@ from src.core.models import (
 from src.core.references import RANDOM_SEGMENT, Similarity, sibling_pattern
 from src.core.response_category import categorize
 from src.core.sensitive_paths import SENSITIVE_PATHS
-from src.core.test_metadata import DecisiveAnswer, Effect, TestInfo
+from src.core.test_metadata import DecisiveAnswer, Effect, OracleCase, TestInfo
 from src.external_tests.base import ExternalToolTest, ToolRun
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -119,8 +119,11 @@ _NOTE_EXAMPLES: int = 10
 # The categories in which a base path refuses an unknown path instead of
 # reporting it missing: an unauthenticated search is blind there.
 _REFUSING: frozenset[ResponseCategory] = frozenset(
-    {ResponseCategory.UNAUTHENTICATED, ResponseCategory.FORBIDDEN}
+    {ResponseCategory.UNAUTHENTICATED, ResponseCategory.FORBIDDEN, ResponseCategory.REDIRECT}
 )
+# A redirect counts too: every unknown path sent to a login page (SSO, an
+# oauth2 proxy) hides the protected ones as a 401 does (until 2026-11-16 such a
+# base path was counted as searchable).
 
 _SUB_TEST: str = "undocumented_paths"
 
@@ -215,6 +218,52 @@ class ExtTest01UndocumentedPathsFfuf(ExternalToolTest[ExtTest01FfufParams]):
         tool="ffuf",
         effect=Effect.STRESSES_TARGET,
         sub_tests=(_SUB_TEST,),
+        oracle=(
+            OracleCase(
+                when="the candidate answers unlike random siblings under its parent",
+                outcome=Outcome.VIOLATION,
+                detail="UNDOCUMENTED_PATH",
+                confidence=Confidence.FIRM,
+            ),
+            OracleCase(
+                when="the candidate answers `404` or `410` in another shape (another component "
+                "said not found)",
+                outcome=Outcome.NOT_APPLICABLE,
+                detail="NOT_FOUND",
+            ),
+            OracleCase(
+                when="the candidate answers like a random sibling (a false positive of ffuf)",
+                outcome=Outcome.NOT_APPLICABLE,
+                detail="LIKE_UNKNOWN",
+            ),
+            OracleCase(
+                when="the calibration of a base path or of a candidate's parent is unstable",
+                outcome=Outcome.NOT_VERIFIABLE,
+                detail="CALIBRATION_UNSTABLE",
+            ),
+            OracleCase(
+                when="a base path answers an unknown path with `401`, `403` or a redirect: the "
+                "search is blind there",
+                outcome=Outcome.NOT_VERIFIABLE,
+                detail="SEARCH_BLIND",
+            ),
+            OracleCase(
+                when="ffuf kept more than 100 answers on one base path (its calibration did not "
+                "hold)",
+                outcome=Outcome.NOT_VERIFIABLE,
+                detail="TOOL_CALIBRATION_FAILED",
+            ),
+            OracleCase(
+                when="a base path was not searched to the end within the time limit",
+                outcome=Outcome.NOT_VERIFIABLE,
+                detail="SEARCH_INCOMPLETE",
+            ),
+            OracleCase(
+                when="no violation, on at least one base path the search can tell",
+                outcome=Outcome.ENFORCED,
+                detail="NO_UNDOCUMENTED_PATH",
+            ),
+        ),
         decisive_answers=(
             DecisiveAnswer(
                 category=ResponseCategory.SERVER_ERROR,
@@ -343,6 +392,8 @@ class ExtTest01UndocumentedPathsFfuf(ExternalToolTest[ExtTest01FfufParams]):
                     candidates.append(bare)
 
         verifiable = self._searchable_bases(result, run)
+        for _unfinished in result.raw_output.get("unfinished_base_urls", []):
+            self._record(_SUB_TEST, Outcome.NOT_VERIFIABLE, "SEARCH_INCOMPLETE")
         violations = 0
         for path in candidates:
             violations += self._verify(path, run)

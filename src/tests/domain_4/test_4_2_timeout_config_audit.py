@@ -1,57 +1,17 @@
 """
 src/tests/domain_4/test_4_2_timeout_config_audit.py
 
-Test 4.2 -- Timeout Configuration Audit: Prevention of Resource Lock.
+Test 4.2: guarantee "the gateway bounds how long it waits for a backend"
+(OWASP API4:2023, NIST SP 800-204A section 4.3).
 
-Guarantee (docs/06-knowledge/03-guarantees.md, Section 4.2):
-    Every I/O operation (DB query, outbound HTTP call) must have a configured
-    timeout. Without timeouts, a single blocked thread occupies a slot in the
-    connection pool indefinitely; accumulated blocked threads exhaust the pool
-    and prevent the server from accepting new requests.
-
-    This test audits the gateway's timeouts towards its backends (connect,
-    read, write) against the oracle bounds of the methodology:
-
-        connect_timeout  <=  5 000 ms
-        read_timeout     <= 30 000 ms
-
-The bounds are the methodology's: NIST SP 800-204A lists timeouts among the
-resilience features a gateway or mesh configures (SM-DR9, section 4.3, for
-external resources) but sets no value (read on the PDF 2026-11-05).
-        write_timeout    <= 30 000 ms
-
-Strategy: WHITE_BOX -- Configuration Audit through the gateway adapter.
-Priority: P1 -- a missing timeout on any upstream service is a resource-lock
-    vulnerability that cascades into full pool exhaustion (CWE-400).
-
-A timeout the configuration does not set is judged at the value the gateway
-then applies, when its adapter states that default (`defaulted` in the concept:
-APISIX applies nginx's 60 s), with confidence FIRM. A timeout neither stated nor
-defaulted is not known: NOT_VERIFIABLE (until 2026-11-05 a VIOLATION claiming
-"no bound", which on APISIX was false: the bound is nginx's 60 s). Which
-branches a gateway can reach is on the test page (Kong always reports its
-defaults and refuses 0).
-
-Sub-tests: connect_timeout, read_timeout, write_timeout. For each backend (or
-route that overrides its backend's timeouts) and each timeout:
-
-    value in (0, maximum]    -> ENFORCED/WITHIN_LIMIT
-    value > maximum          -> VIOLATION/ABOVE_LIMIT (FIRM when the value is
-                                the gateway's default, CERTAIN when set)
-    value == 0               -> VIOLATION/NOT_CONFIGURED
-    value not stated (None)  -> NOT_VERIFIABLE/NOT_STATED
-
-Gateway access:
-    The test reads the neutral concept "backend timeouts" through the gateway
-    adapter (target.gateway.backend_timeouts(), src/core/gateway/concepts.py),
-    in seconds; the oracle thresholds stay in milliseconds (configuration) and
-    the values are converted. A concept not supported or not accessible gives
-    SKIP with the reason (BaseTest._unread_concept); no backend gives SKIP.
-
-EvidenceStore policy:
-    No HTTP request is made to the target API. The concept read is stored as
-    an artifact (BaseTest._record_gateway_concept) and every Finding points to
-    it through evidence_ref.
+A WHITE_BOX audit of the connect, read and write timeouts of every backend the
+gateway states (and of every route that overrides them), through the concept
+`backend_timeouts()` (seconds), against the methodology's thresholds
+(milliseconds, configuration; no standard sets a value). A timeout the
+configuration does not set is judged at the gateway's default, when the adapter
+states it (`defaulted`). One sub-test per timeout; the oracle: info.oracle,
+generated on the test page. No request is sent to the API: every finding points
+to the concept read.
 """  # noqa: N999
 
 from __future__ import annotations
@@ -75,7 +35,7 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
-from src.core.test_metadata import Effect, Need, TestInfo
+from src.core.test_metadata import Effect, Need, OracleCase, TestInfo
 from src.tests.base import BaseTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -95,20 +55,7 @@ TEST_42_MAX_WRITE_TIMEOUT_MS_DEFAULT: int = 30_000
 
 
 class Test42Params(BaseModel):
-    """
-    Tuning parameters for Test 4.2 (Timeout Configuration Audit).
-
-    Oracle thresholds are the methodology's (section 4.2; NIST SP 800-204A asks
-    for timeouts but sets no value):
-        connect_timeout  <= 5 000 ms  (5 s)
-        read_timeout     <= 30 000 ms (30 s)
-        write_timeout    <= 30 000 ms (30 s)
-
-    Thresholds in milliseconds; the backend timeouts the adapter reads are in
-    seconds and test 4.2 converts them.
-    Adjust these only when the target gateway is intentionally configured
-    with different timeouts and the deviation is accepted as a documented risk.
-    """
+    """Parameters of test 4.2: the methodology's thresholds, in milliseconds."""
 
     model_config = {"frozen": True, "extra": "forbid"}
 
@@ -152,15 +99,12 @@ _TIMEOUT_LABELS: tuple[tuple[str, str], ...] = (
 )
 _MS_PER_SECOND: int = 1000
 
-# A timeout of zero means "not configured". Kong defaults all three to
-# 60 000 ms, so a zero should not appear, but it gets a clear finding rather
-# than a confusing comparison.
-_TIMEOUT_UNCONFIGURED: int = 0
+# A timeout of 0: the gateway sets no bound (the concept's meaning).
+_NO_BOUND: int = 0
 
-# Details of the judgements (the oracle table above).
 _WITHIN_LIMIT: str = "WITHIN_LIMIT"
 _ABOVE_LIMIT: str = "ABOVE_LIMIT"
-_NOT_CONFIGURED: str = "NOT_CONFIGURED"
+_UNBOUNDED: str = "UNBOUNDED"
 _NOT_STATED: str = "NOT_STATED"
 
 # Word for the object a timeout applies to, in the findings.
@@ -179,8 +123,52 @@ _CONFIDENCE: Confidence = Confidence.CERTAIN
 _REFERENCES: tuple[Reference, ...] = (
     Reference(standard=Standard.OWASP_API_TOP10, id="API4:2023"),
     Reference(standard=Standard.NIST_SP, id="800-204A", section="4.3"),
-    Reference(standard=Standard.ASVS, id="v5.0.0-16.5.2"),
+    # ASVS v5.0.0 13.2.6 (read 2026-11-16): connections to separate services
+    # follow their documented configuration, connection timeouts among it.
+    # 16.5.2 (operate securely when external access fails) was cited until then:
+    # it is about circuit breakers and degradation (test 4.3).
+    Reference(standard=Standard.ASVS, id="v5.0.0-13.2.6"),
 )
+
+
+def _cases(sub_test: str) -> tuple[OracleCase, ...]:
+    """The oracle of one timeout, the same for the three."""
+    return (
+        OracleCase(
+            sub_test=sub_test,
+            when=f"the {sub_test} of a backend or route is within its threshold",
+            outcome=Outcome.ENFORCED,
+            detail=_WITHIN_LIMIT,
+        ),
+        OracleCase(
+            sub_test=sub_test,
+            when="it is set above its threshold",
+            outcome=Outcome.VIOLATION,
+            detail=_ABOVE_LIMIT,
+            confidence=Confidence.CERTAIN,
+        ),
+        OracleCase(
+            sub_test=sub_test,
+            when="it is not set, and the gateway's default, which its adapter states, is above "
+            "the threshold",
+            outcome=Outcome.VIOLATION,
+            detail=_ABOVE_LIMIT,
+            confidence=Confidence.FIRM,
+        ),
+        OracleCase(
+            sub_test=sub_test,
+            when="it is `0`: the gateway sets no bound",
+            outcome=Outcome.VIOLATION,
+            detail=_UNBOUNDED,
+            confidence=Confidence.CERTAIN,
+        ),
+        OracleCase(
+            sub_test=sub_test,
+            when="it is neither set nor stated as the gateway's default",
+            outcome=Outcome.NOT_VERIFIABLE,
+            detail=_NOT_STATED,
+        ),
+    )
 
 
 class Test42TimeoutConfigAudit(BaseTest[Test42Params]):
@@ -208,6 +196,7 @@ class Test42TimeoutConfigAudit(BaseTest[Test42Params]):
         needs=(Need.GATEWAY,),
         effect=Effect.READ_ONLY,
         sub_tests=tuple(label for label, _ in _TIMEOUT_LABELS),
+        oracle=tuple(case for label, _ in _TIMEOUT_LABELS for case in _cases(label)),
     )
 
     def execute(
@@ -220,14 +209,8 @@ class Test42TimeoutConfigAudit(BaseTest[Test42Params]):
         """
         Audit the timeouts towards the backends through the gateway adapter.
 
-        Execution flow:
-            1. A gateway adapter is configured (Need.GATEWAY: the engine skips
-               the test otherwise).
-            2. Read the concept "backend timeouts" and store it as evidence.
-            3. Not supported or not accessible: SKIP with the reason.
-            4. No backend: SKIP (nothing to audit).
-            5. Judge connect, read and write timeouts of each item against the
-               configured thresholds; the result is computed (_finish).
+        The concept read is kept as evidence; not supported or not accessible
+        gives the shared answer (_unread_concept), no backend a SKIP.
 
         Returns:
             TestResult: computed from the judgements, SKIP, or ERROR.
@@ -334,8 +317,8 @@ class Test42TimeoutConfigAudit(BaseTest[Test42Params]):
         """
         Judge one timeout of one backend or route.
 
-        Two conditions are a violation: the timeout is 0 ("not configured"), or
-        it exceeds max_value_ms.
+        Two conditions are a violation: the timeout is 0 (no bound), or it
+        exceeds max_value_ms.
 
         Args:
             subject:      "service '<name>'" or "route '<name>'", for the messages.
@@ -349,13 +332,12 @@ class Test42TimeoutConfigAudit(BaseTest[Test42Params]):
             (detail, finding): the finding is None when the timeout is compliant.
         """
         value_ms, is_default = value
-        if value_ms == _TIMEOUT_UNCONFIGURED:
-            return _NOT_CONFIGURED, Finding(
-                title=f"Timeout Not Configured: {label} == 0 on {subject}",
+        if value_ms == _NO_BOUND:
+            return _UNBOUNDED, Finding(
+                title=f"No timeout: {label} unbounded on {subject}",
                 detail=(
-                    f"{subject.capitalize()} has {label} = 0, which indicates the timeout is "
-                    f"not configured. An unconfigured timeout on a backend means a single slow "
-                    f"or unresponsive dependency can block a connection-pool thread "
+                    f"{subject.capitalize()} has {label} = 0: the gateway sets no bound, so a "
+                    f"single slow or unresponsive backend can hold a gateway worker "
                     f"indefinitely, leading to pool exhaustion and denial of service. "
                     f"Oracle: {label} must be > 0 and <= {max_value_ms} ms (the methodology's "
                     f"bound; NIST SP 800-204A asks for timeouts, SM-DR9)."

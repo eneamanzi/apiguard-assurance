@@ -3,7 +3,7 @@
 > **Audience:** analysts, contributors · **Status:** new in the test review (2026-10-22) ·
 > **Source of truth:**
 > [`src/tests/domain_0/test_0_4_backend_without_the_gateway.py`](../../../src/tests/domain_0/test_0_4_backend_without_the_gateway.py) ·
-> **Verified:** 2026-10-22
+> **Verified:** 2026-11-16
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("0.4", page=cog.inFile)) ]]] -->
 
@@ -80,29 +80,26 @@ refuses us" and "we are not there to ask".
 
 ## 6. Oracle
 
-The two kinds of candidate are judged differently, and the reason is a measurement of 2026-10-22: with the three
-labs running, `localhost:8000` (the host, and the port of crAPI's workshop backend) answers, but what answers is the
-other lab's gateway, not that backend.
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("0.4")) ]]] -->
 
-| Case | Candidate | Outcome / detail | Confidence |
-|---|---|---|---|
-| answers, with the shape the gateway gives for the same path | either | `VIOLATION/BACKEND_ANSWERS_DIRECTLY` | CERTAIN: the same application answered without the gateway |
-| answers something else over HTTP, or opens a connection whose answer cannot be read | the declared address | `VIOLATION/ADDRESS_ANSWERS_DIRECTLY` | FIRM: something is listening where the gateway says the backend is |
-| the same | the derived host and port | `NOT_APPLICABLE/ANOTHER_SERVICE` | - |
-| resolves, connection refused or timed out | the declared address | `ENFORCED/BACKEND_UNREACHABLE` | - |
-| the same | the derived host and port, after the declared address refused too | `ENFORCED/BACKEND_UNREACHABLE` | - |
-| the same | the derived host and port, when the declared address did not refuse (it does not resolve, or it answered) | `NOT_VERIFIABLE/DERIVED_REFUSAL_ONLY`: the port is not published on the gateway's host, which does not show the backend out of reach | - |
-| the name does not resolve | either | `NOT_VERIFIABLE/ADDRESS_NOT_RESOLVABLE`: the tool is not on that network, which proves nothing | - |
-| the address has no port | either | `NOT_VERIFIABLE/ADDRESS_WITHOUT_PORT` | - |
-| the gateway gives no address | - | `NOT_VERIFIABLE/NO_BACKEND_ADDRESS`, `ADDRESSES_NOT_READABLE`; `NOT_APPLICABLE/ADDRESSES_NOT_READABLE` when the gateway has no such concept | - |
-| the gateway answers the probe path with an answer that says nothing (the table below: its `503`, its `429`, no answer): there is no answer of the backend to match a direct one against, so no address is tried (the `503` since 2026-11-15; the `429` since 2026-11-16, used as the comparison before) | - | `NOT_VERIFIABLE/` its category | - |
-| no gateway configured (the engine records the test as SKIP before it runs, so this is a guard only) | - | `NOT_APPLICABLE/NO_GATEWAY` | - |
-| the specification declares no path without parameters for `GET` | - | `NOT_VERIFIABLE/NO_PROBE_PATH` | - |
-| no attempt left a record to judge (every attempt failed before a response could be read) | either | `NOT_VERIFIABLE/NO_ATTEMPT` | - |
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| an address answers with the status, media type and body shape the gateway gives for the path | `VIOLATION/BACKEND_ANSWERS_DIRECTLY` | CERTAIN |
+| an address the gateway declares answers unlike the gateway, or opens a connection whose answer cannot be read | `VIOLATION/ADDRESS_ANSWERS_DIRECTLY` | FIRM |
+| a declared address refuses or times out, or the derived one does after the declared one did | `ENFORCED/BACKEND_UNREACHABLE` | - |
+| the derived address (the target's host, the backend's port) refuses, but no declared address of that backend refused | `NOT_VERIFIABLE/DERIVED_REFUSAL_ONLY` | - |
+| the derived address answers unlike the gateway: another service | `NOT_APPLICABLE/ANOTHER_SERVICE` | - |
+| the derived address answers, and the gateway itself refused the probe (`401`, `403`): the two cannot be compared | `NOT_VERIFIABLE/GATEWAY_REFUSED_PROBE` | - |
+| a declared address is a loopback or link-local one: it means the gateway's own host, not reachable from here | `NOT_VERIFIABLE/GATEWAY_LOCAL_ADDRESS` | - |
+| the candidate's name does not resolve where the run started | `NOT_VERIFIABLE/ADDRESS_NOT_RESOLVABLE` | - |
+| a declared address has no port | `NOT_VERIFIABLE/ADDRESS_WITHOUT_PORT` | - |
+| the gateway states no backend address | `NOT_VERIFIABLE/NO_BACKEND_ADDRESS` | - |
+| the specification declares no `GET` path without parameters | `NOT_VERIFIABLE/NO_PROBE_PATH` | - |
+| the gateway's adapter does not read its backends' targets | `NOT_APPLICABLE/ADDRESSES_NOT_SUPPORTED` | - |
 
-The comparison of two answers uses the status, the media type and the shape of the body. The `Server` header is left
-out on purpose: a gateway sets or removes it, so the same application answers with a different one through the
-gateway and without it.
+<!-- [[[end]]] -->
+
+Until 2026-11-16: the backends' addresses came from the live health only, so a Kong Service pointing straight at a host (the common setup) and an APISIX upstream without health checks were never tried (the adapters now report them, `UNKNOWN`); a declared loopback address (`127.0.0.1:8080`, a sidecar) was asked on the tool's own machine, a false PASS or FAIL (now `GATEWAY_LOCAL_ADDRESS`); the derived address answering while the gateway refused the probe with its own authentication was `ANOTHER_SERVICE`, the main bypass missed (now `GATEWAY_REFUSED_PROBE`, and the probe path is a public GET when there is one); an unreadable concept was `ADDRESSES_NOT_READABLE` for both cases (now `NOT_APPLICABLE/ADDRESSES_NOT_SUPPORTED`, or the shared `CONCEPT_NOT_ACCESSIBLE`).
 
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("0.4", page=cog.inFile)) ]]] -->
 
@@ -123,9 +120,13 @@ SKIP when no gateway is configured (the need `GATEWAY`): without the backend add
 
 ## 8. Findings
 
-One per address: "Backend answers without the gateway: `<address>`", with the backend's name as the gateway calls
-it, which of the two candidates it was, the status and how the answer compares with the gateway's;
-`evidence_ref` the direct request, and the request through the gateway in the transaction log.
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("0.4")) ]]] -->
+
+- "Backend answers without the gateway: <address>"
+
+<!-- [[[end]]] -->
+
+`evidence_ref` the direct answer; the finding names the address and whether it is declared or derived.
 
 ## 9. Effects on the target
 
@@ -145,6 +146,9 @@ candidate is derived from what the gateway already says, and rule 5 asks to deri
 its backend somewhere neither candidate reaches, the parameter is added then.
 
 ## 12. Validation
+
+**2026-11-16, after the review** (0.1 to 0.4 on the three labs as configured): **FAIL** on the three labs. crAPI now has three findings: the workshop backend CERTAIN, as before, and the identity (`:8080`) and community (`:8087`) backends FIRM, declared addresses answering directly.
+
 
 Runs of 2026-10-22, the three tests of the group together; measured again on 2026-11-04 (0.4 alone), after the
 correction of that day:

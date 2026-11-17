@@ -1,9 +1,9 @@
 # 4.3 Circuit Breaker Audit
 
-> **Audience:** analysts, contributors · **Status:** reviewed test by test (2026-10-27) ·
+> **Audience:** analysts, contributors · **Status:** reviewed test by test (2026-10-27), again with its oracle in code (2026-11-16) ·
 > **Source of truth:**
 > [`src/tests/domain_4/test_4_3_circuit_breaker_audit.py`](../../../src/tests/domain_4/test_4_3_circuit_breaker_audit.py) ·
-> **Verified:** 2026-10-27
+> **Verified:** 2026-11-16
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("4.3", page=cog.inFile)) ]]] -->
 
@@ -58,28 +58,40 @@ request is sent.
 
 None: a configuration audit. The two concepts are read and pinned as evidence.
 
-## 6. Oracle (`degradation_configured`)
+## 6. Oracle
+
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("4.3")) ]]] -->
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| a circuit breaker is enabled | `ENFORCED/CIRCUIT_BREAKER` | CERTAIN |
-| no breaker, but a health check that detects failures (a passive threshold above zero, or an active probe on healthy targets) | `ENFORCED/HEALTH_CHECK` (a note: a compensating control, and which backends do not come back by themselves) | CERTAIN |
-| neither, and both concepts were answered (read, or not supported by the gateway) | `VIOLATION/NO_CIRCUIT_BREAKER` | CERTAIN |
-| neither, but a concept was **not accessible** | `NOT_VERIFIABLE/GATEWAY_READ_FAILED` (a note naming what could not be read) | - |
-| neither concept readable | SKIP (the reason names both concepts) | - |
+| an enabled circuit breaker | `ENFORCED/CIRCUIT_BREAKER` | - |
+| no breaker, and a health check that detects a failing backend: a compensating control (the note says whether an excluded backend comes back by itself) | `ENFORCED/HEALTH_CHECK` | - |
+| neither, each concept read or one the gateway does not have | `VIOLATION/NO_CIRCUIT_BREAKER` | CERTAIN |
+| neither in what was read, and a concept the gateway has could not be read | `NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE` | - |
 
-The last two rows are the same honesty rule as elsewhere: with the breakers unread, "the gateway has no breaker" is
-not a fact. A concept the gateway does not have at all (`NOT_SUPPORTED`) is different, and there the absence counts.
+<!-- [[[end]]] -->
+
+With the breakers unread, "the gateway has no breaker" is not a fact; a concept the gateway does not have at all
+(`NOT_SUPPORTED`) is different, and there the absence counts. A gateway that has neither concept is SKIP (nothing to
+apply). Until 2026-11-16 the not-verifiable detail was `GATEWAY_READ_FAILED`, now the shared
+`CONCEPT_NOT_ACCESSIBLE`, and a gateway whose Admin API answered neither read was SKIP, against the rule of
+2026-11-04 (a concept the gateway has and that could not be read is a check the run could not make: INCONCLUSIVE).
 
 ## 7. Outcomes
 
-SKIP when neither concept can be read. INCONCLUSIVE when nothing was found but part of the admin plane could not be
-read. FAIL when the gateway has no breaker and no health check that detects failures; PASS otherwise (with a note
+SKIP when the gateway has neither concept. INCONCLUSIVE when nothing was found but part of the admin plane could not
+be read. FAIL when the gateway has no breaker and no health check that detects failures; PASS otherwise (with a note
 when the control is a health check standing in for a breaker).
 
 ## 8. Findings
 
-"No circuit breaker or health check on the gateway", `evidence_ref` the circuit-breaker concept artifact, `supporting_refs` the health-check one.
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("4.3")) ]]] -->
+
+- "No circuit breaker or health check on the gateway"
+
+<!-- [[[end]]] -->
+
+`evidence_ref` the circuit-breaker concept artifact, `supporting_refs` the health-check one.
 
 ## 9. Effects on the target
 
@@ -112,6 +124,10 @@ None.
 
 ## 12. Validation
 
+**2026-11-16**, after the review (4.3 with 4.1, 4.2, 4.4 on each lab as configured): **PASS** on the three labs,
+`HEALTH_CHECK` with its note, as on 2026-10-27. The Admin API answering neither read is now INCONCLUSIVE
+(`CONCEPT_NOT_ACCESSIBLE`), no longer SKIP: the same branch as a single unread concept, seen through the proxy below.
+
 Runs of 2026-10-27, after the test-by-test review. **Every branch of the oracle was produced and observed**, and the
 table says how:
 
@@ -122,8 +138,8 @@ table says how:
 | `ENFORCED/CIRCUIT_BREAKER` | Forgejo + APISIX, a temporary route with the `api-breaker` plugin (threshold 3), then deleted | **PASS**, "The gateway has an enabled circuit breaker: breaker-probe-route (threshold 3)" |
 | the same on Kong | Forgejo + Kong read through a proxy that adds a `circuit-breaker` plugin with the dream11 plugin's own configuration (no plugin installed in the lab) | **PASS**, "threshold 51", from `failure_percent_threshold`: with the field names the adapter used before 2026-10-28 it printed "threshold None" |
 | `VIOLATION/NO_CIRCUIT_BREAKER` | Forgejo + Kong, the upstream's whole `healthchecks` block removed, then restored | **FAIL**, 1 finding, CERTAIN |
-| `NOT_VERIFIABLE/GATEWAY_READ_FAILED` | Forgejo + Kong read through a filtering proxy that serves `/upstreams` with zeroed thresholds and answers `500` on `/plugins` | **INCONCLUSIVE**, the note naming the breakers as unread |
-| SKIP | Forgejo + Kong with `gateway.admin.url` on a closed port | **SKIP**, the reason naming both concepts |
+| `NOT_VERIFIABLE/GATEWAY_READ_FAILED` (now `CONCEPT_NOT_ACCESSIBLE`) | Forgejo + Kong read through a filtering proxy that serves `/upstreams` with zeroed thresholds and answers `500` on `/plugins` | **INCONCLUSIVE**, the note naming the breakers as unread |
+| SKIP, until 2026-11-16 | Forgejo + Kong with `gateway.admin.url` on a closed port | **SKIP**, the reason naming both concepts; since 2026-11-16 this is `CONCEPT_NOT_ACCESSIBLE`, INCONCLUSIVE |
 
 Rule 9 is satisfied without a reservation: both sides of the judgement, and the two honest non-verdicts, are proven
 on a real gateway. The VIOLATION branch became reachable only with this review: before it, an upstream with no health
@@ -133,7 +149,7 @@ produced on Kong at all.
 **What each branch has been seen doing** (rule 9). Every branch of this test has been seen (the table above).
 Proven on a lab: `HEALTH_CHECK` (all three), `CIRCUIT_BREAKER` (Forgejo + APISIX), `NO_CIRCUIT_BREAKER` and the SKIP
 (Forgejo + Kong). Through a proxy in front of the Forgejo + Kong Admin API: `CIRCUIT_BREAKER` on Kong and
-`GATEWAY_READ_FAILED`.
+`GATEWAY_READ_FAILED` (now `CONCEPT_NOT_ACCESSIBLE`).
 
 ## 13. Remediation
 

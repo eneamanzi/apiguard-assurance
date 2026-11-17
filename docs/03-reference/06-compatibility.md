@@ -38,9 +38,9 @@ configuration of each test are on its page (`docs/05-tests/`, "Preconditions" an
 | Need | What the configuration must give | Required by | Used when present by |
 |---|---|---|---|
 | `ADMIN_ACCOUNT` | The credentials of the admin role | - | `2.1` |
-| `USER_ACCOUNT` | The credentials of the user_a role (an ordinary account) | `1.2`, `1.3`, `1.4`, `1.6`, `1.7`, `2.1`, `2.2`, `2.5`, `6.1`, `7.2`, `7.3` | `0.3`, `4.4`, `ext.3.1.schemathesis` |
+| `USER_ACCOUNT` | The credentials of the user_a role (an ordinary account) | `1.2`, `1.3`, `1.4`, `1.6`, `1.7`, `2.1`, `2.2`, `2.5`, `6.1`, `7.2`, `7.3` | `0.3`, `4.1`, `4.4`, `ext.3.1.schemathesis` |
 | `SECOND_USER_ACCOUNT` | The credentials of the user_b role (a second ordinary account, for cross-user tests) | `2.2` | - |
-| `GATEWAY` | A gateway section: adapter and Admin API | `0.4`, `3.3`, `4.2`, `4.3`, `5.1` | `0.1`, `0.2`, `4.1`, `4.4`, `6.4` |
+| `GATEWAY` | A gateway section: adapter and Admin API | `0.4`, `3.3`, `4.2`, `4.3`, `5.1` | `0.1`, `0.2`, `1.7`, `4.1`, `4.4`, `6.4` |
 | `REVOCABLE_LOGIN` | A login method that can revoke a credential (login with a delete request) | `1.4` | - |
 | `owned_object_resources` | The config.yaml `resources:` resources that each create a disposable object owned by user_a, whose identifiers (its `values`) name the path parameters of the object's by-id operations | `2.2`, `2.5` | - |
 | `race_operation` | The once-only operation to probe for a race condition | `7.3` | - |

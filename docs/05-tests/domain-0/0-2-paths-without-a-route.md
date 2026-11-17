@@ -3,7 +3,7 @@
 > **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-22) ·
 > **Source of truth:**
 > [`src/tests/domain_0/test_0_2_paths_without_a_route.py`](../../../src/tests/domain_0/test_0_2_paths_without_a_route.py) ·
-> **Verified:** 2026-10-22
+> **Verified:** 2026-11-16
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("0.2", page=cog.inFile)) ]]] -->
 
@@ -86,28 +86,36 @@ is processed by the business logic"; a path with no route is not in the schema a
 
 ## 6. Oracle
 
-What counts as a path the gateway has no route for: one that is neither equal to nor, segment by segment, under any
-route path. A route path matched as a plain string also matches its neighbours, so the route registers more paths
-than the API documents, which is what CWE-183 describes.
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("0.2")) ]]] -->
+
+**`unrouted_paths`**
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| the answer is `2xx` | `VIOLATION/SERVED_WITHOUT_ROUTE` | CERTAIN: something behind the gateway served it |
-| the answer refuses the request (401, 403) | `NOT_VERIFIABLE/REFUSED_BEFORE_ROUTING`: the policy of the over-matched route may have stopped it at the gateway, or a backend may have refused it after being reached | - |
-| the answer is unlike the gateway's refusal | `VIOLATION/ANSWERED_WITHOUT_ROUTE` | FIRM: with no route matched the gateway has no other answer, so another component answered |
-| the answer is like the gateway's refusal | `ENFORCED/REFUSED_BY_GATEWAY` | - |
-| the route path is matched by a regular expression | `NOT_APPLICABLE/REGEX_ROUTE_PATH`, named in a note | - |
-| every neighbour is covered by another route | `NOT_APPLICABLE/COVERED_BY_ROUTE` | - |
-| the refusal's two probes answered differently | `NOT_VERIFIABLE/REFUSAL_UNSTABLE` | - |
-| the gateway's refusal cannot be told from a backend's own | `NOT_VERIFIABLE/REFUSALS_INDISTINGUISHABLE` | - |
-| no documented path gave a reliable backend refusal for the guard | `NOT_VERIFIABLE/BACKEND_REFUSAL_UNKNOWN` | - |
-| a route covers every path: a `/` prefix, or (since 2026-11-15) a regex route path that matches a random path at the root, the shape of the refusal's probes (the expression tried with Python's `re`, as test 0.1 does; one it cannot compile is not interpreted) | `NOT_VERIFIABLE/CATCH_ALL_ROUTE`, with the route named | - |
-| the routes cannot be read | `NOT_VERIFIABLE/ROUTES_NOT_READABLE`; `NOT_APPLICABLE/ROUTES_NOT_SUPPORTED`, `NO_GATEWAY` | - |
-| the measured refusal cannot be trusted (the two probes at the root did not establish what the gateway answers where nothing matches) | `NOT_VERIFIABLE/REFUSAL_NOT_TRUSTED` for the neighbours sub-test, which rests on that refusal | - |
+| the gateway's refusal at random root paths differs from a backend's own refusal | `ENFORCED/REFUSED_BY_GATEWAY` | - |
+| a random path at the root is served (`2xx`) | `VIOLATION/SERVED_WITHOUT_ROUTE` | CERTAIN |
+| the two random root paths answered differently | `NOT_VERIFIABLE/REFUSAL_UNSTABLE` | - |
+| an enabled route covers every path (a `/` prefix, a regex matching a random root path, or no path at all) | `NOT_VERIFIABLE/CATCH_ALL_ROUTE` | - |
+| none of the shortest documented paths gives a reliable backend refusal | `NOT_VERIFIABLE/BACKEND_REFUSAL_UNKNOWN` | - |
+| the gateway's refusal has the backend refusal's fingerprint | `NOT_VERIFIABLE/REFUSALS_INDISTINGUISHABLE` | - |
 
-The `Server` header is not used. Measured on the labs (2026-10-22): neither Kong lab sends one and APISIX sends
-`Server: APISIX`, so the old check (a response is a backend's when the header holds no known gateway name) was
-unreliable in both directions, and it needed a list of gateway names in the configuration.
+**`near_route_paths`**
+
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| a neighbour of a route path (outside it by whole segments) is served (`2xx`) | `VIOLATION/SERVED_WITHOUT_ROUTE` | CERTAIN |
+| a neighbour answers unlike the gateway's refusal, neither `2xx` nor `401`, `403` | `VIOLATION/ANSWERED_WITHOUT_ROUTE` | FIRM |
+| no neighbour answered, and one got the gateway's refusal | `ENFORCED/REFUSED_BY_GATEWAY` | - |
+| no neighbour answered or got the gateway's refusal, and one was refused (`401`, `403`) | `NOT_VERIFIABLE/REFUSED_BEFORE_ROUTING` | - |
+| every neighbour is documented or covered by a route segment by segment | `NOT_APPLICABLE/COVERED_BY_ROUTE` | - |
+| the route path is a regular expression | `NOT_APPLICABLE/REGEX_ROUTE_PATH` | - |
+| the gateway's refusal is not trusted (`unrouted_paths` not ENFORCED) | `NOT_VERIFIABLE/REFUSAL_NOT_TRUSTED` | - |
+| no gateway configured | `NOT_APPLICABLE/NO_GATEWAY` | - |
+| the gateway's adapter does not read routes | `NOT_APPLICABLE/ROUTES_NOT_SUPPORTED` | - |
+
+<!-- [[[end]]] -->
+
+Until 2026-11-16 `near_route_paths` without a gateway recorded `REFUSAL_NOT_TRUSTED` instead of `NO_GATEWAY`; an unreadable routes concept was `ROUTES_NOT_READABLE` (now the shared `CONCEPT_NOT_ACCESSIBLE`); and the finding said a prefix over-match skips the route's policies, while the request passes through that route with them: what is exposed is backend paths outside its documented scope.
 
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("0.2", page=cog.inFile)) ]]] -->
 
@@ -130,9 +138,14 @@ sub-test's status follows from its judgements is rule 2 of the
 
 ## 8. Findings
 
-When the gateway's own refusal is a `2xx`: "A path with no route is served" (`SERVED_WITHOUT_ROUTE`), its proof
-the refusal's probes. One per route path: "Answered without a route: GET `<path>`", with the status, the route it sits next to, that
-route's path and match type, and its backend; `evidence_ref` the probe, `supporting_refs` the refusal's two probes.
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("0.2")) ]]] -->
+
+- "Answered without a route: GET <path>"
+- "A path with no route is served"
+
+<!-- [[[end]]] -->
+
+`evidence_ref` the neighbour's answer.
 
 ## 9. Effects on the target
 
@@ -152,6 +165,9 @@ None. The old parameter `gateway_server_identifiers` is removed: the APISIX lab 
 list of gateway names, and now needs nothing. The sampling maximum is a constant of the module (owner, 2026-10-22).
 
 ## 12. Validation
+
+**2026-11-16, after the review** (0.1 to 0.4 on the three labs as configured): Forgejo + Kong and crAPI **FAIL** (`ANSWERED_WITHOUT_ROUTE`, 1 and 2), Forgejo + APISIX **PASS**, as before.
+
 
 Runs of 2026-10-22, the three tests of the group together, every lab healthy afterwards:
 
@@ -209,6 +225,10 @@ expression anchored on a segment boundary), and attach the policies to the route
 - A forwarded path far from every route is `ext.0.1.ffuf`'s business.
 - An over-matched route whose policy refuses every request is reported as not verifiable, not as a pass: the policy
   did apply, but nothing proves a backend would not have been reached without it.
+- A neighbour refused with `401`/`403` unlike the gateway's no-route answer proves a route matched it (the policies of that route ran), but it is `REFUSED_BEFORE_ROUTING`, not a finding.
+- A route matched by host or header only (no path) covers every path of its host, but the routes concept carries
+  no host: it is not taken for a catch-all, so on a gateway routing this host that way the root probes may reach a
+  backend (a route of another host would otherwise hide the check on every gateway that routes by host).
 
 ## 15. Sources
 

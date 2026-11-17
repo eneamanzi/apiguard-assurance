@@ -55,13 +55,14 @@ from src.core.models import (
     InfoNote,
     Outcome,
     Reference,
+    ResponseCategory,
     Standard,
     TestResult,
     TestStrategy,
 )
 from src.core.models.runtime import SECRET_VALUE
 from src.core.response_category import UNINFORMATIVE_CATEGORIES
-from src.core.test_metadata import Effect, TestInfo
+from src.core.test_metadata import Effect, OracleCase, TestInfo
 from src.tests.base import BaseTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -69,8 +70,16 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 _SUB_ABSENT: str = "absent_signature_rejected"
 _SUB_INVALID: str = "invalid_signature_rejected"
 
-# A delivery the endpoint acted on: a 2xx.
-_ACCEPTED_STATUS: frozenset[int] = frozenset({200, 201, 202, 204})
+# A delivery refused: invalid, unauthenticated or forbidden (until 2026-11-16
+# any answer that was not a 2xx, a redirect included).
+_REFUSING: frozenset[ResponseCategory] = frozenset(
+    {
+        ResponseCategory.INVALID_REQUEST,
+        ResponseCategory.UNAUTHENTICATED,
+        ResponseCategory.FORBIDDEN,
+    }
+)
+_NOT_INTERPRETED: str = "ANSWER_NOT_INTERPRETED"
 
 # The invalid signature: a well-formed but wrong HMAC-SHA256 hex digest.
 _INVALID_SIGNATURE: str = "0" * 64
@@ -139,12 +148,47 @@ class Test74Params(BaseModel):
     )
 
 
-class Test74WebhookVerification(BaseTest[Test74Params]):
-    """
-    Test 7.4 -- whether a webhook receiver verifies the delivery signature.
+def _cases(sub_test: str, forged: str, detail: str) -> tuple[OracleCase, ...]:
+    """The oracle of one forged delivery."""
+    return (
+        OracleCase(
+            sub_test=sub_test,
+            when=f"{forged} answered `2xx`: accepted, which does not show it was acted on",
+            outcome=Outcome.VIOLATION,
+            detail=detail,
+            confidence=Confidence.FIRM,
+        ),
+        OracleCase(
+            sub_test=sub_test,
+            when=f"{forged} refused (`400`, `401`, `403`, ...), and a validly signed delivery "
+            "sent after it accepted",
+            outcome=Outcome.ENFORCED,
+            detail="SIGNATURE_REQUIRED",
+        ),
+        OracleCase(
+            sub_test=sub_test,
+            when=f"{forged} refused, and no validly signed delivery accepted (no secret, or no "
+            "usable answer to it)",
+            outcome=Outcome.NOT_VERIFIABLE,
+            detail="SIGNATURE_NOT_CONFIRMED",
+        ),
+        OracleCase(
+            sub_test=sub_test,
+            when=f"{forged} refused, and the validly signed delivery refused too",
+            outcome=Outcome.NOT_VERIFIABLE,
+            detail=_REJECTS_ALL,
+        ),
+        OracleCase(
+            sub_test=sub_test,
+            when=f"{forged} answered neither `2xx` nor a refusal (a redirect, `404`, `405`)",
+            outcome=Outcome.NOT_VERIFIABLE,
+            detail=_NOT_INTERPRETED,
+        ),
+    )
 
-    The oracle of each sub-test is in the module docstring and on the test page.
-    """
+
+class Test74WebhookVerification(BaseTest[Test74Params]):
+    """Test 7.4 -- whether a webhook receiver verifies the delivery signature."""
 
     info = TestInfo(
         id="7.4",
@@ -162,6 +206,10 @@ class Test74WebhookVerification(BaseTest[Test74Params]):
         tags=("business-logic", "webhook", "authenticity"),
         effect=Effect.CHANGES_DATA,
         sub_tests=(_SUB_ABSENT, _SUB_INVALID),
+        oracle=(
+            *_cases(_SUB_ABSENT, "the unsigned delivery", "UNSIGNED_ACCEPTED"),
+            *_cases(_SUB_INVALID, "the wrongly signed delivery", "BAD_SIGNATURE_ACCEPTED"),
+        ),
     )
 
     def execute(
@@ -189,25 +237,31 @@ class Test74WebhookVerification(BaseTest[Test74Params]):
             if endpoint is None:  # NEEDED_TO_RUN; the engine normally SKIPs first.
                 return self._skip("No webhook_endpoint configured for test 7.4.")
             raw = json.dumps(endpoint.body, separators=(",", ":"), sort_keys=True).encode("utf-8")
-            control = self._positive_control(client, endpoint, raw)
-            if control is False:
-                self._record(_SUB_ABSENT, Outcome.NOT_VERIFIABLE, _REJECTS_ALL)
-                self._record(_SUB_INVALID, Outcome.NOT_VERIFIABLE, _REJECTS_ALL)
-                return self._finish(message=f"{endpoint.path} rejects a valid signature too.")
-            confirmed = control is True
-            self._judge_delivery(
-                client, store, endpoint, raw, _SUB_ABSENT, signature=None, confirmed=confirmed
-            )
-            self._judge_delivery(
-                client,
-                store,
-                endpoint,
-                raw,
-                _SUB_INVALID,
-                signature=_INVALID_SIGNATURE,
-                confirmed=confirmed,
-            )
-            notes = None if confirmed else [_NOT_CONFIRMED_NOTE]
+            # The forged deliveries first, the valid one last: a receiver that
+            # drops a repeated event (an event-ID cache) would otherwise answer
+            # the forged ones as duplicates of the valid one (until 2026-11-16
+            # the valid one went first).
+            refused = [
+                refusal
+                for sub_test, signature in ((_SUB_ABSENT, None), (_SUB_INVALID, _INVALID_SIGNATURE))
+                if (
+                    refusal := self._judge_delivery(
+                        client, store, endpoint, raw, sub_test, signature
+                    )
+                )
+                is not None
+            ]
+            control = self._positive_control(client, endpoint, raw) if refused else True
+            for record, sub_test in refused:
+                if control is True:
+                    self._judge(record, store, sub_test, Outcome.ENFORCED, "SIGNATURE_REQUIRED")
+                elif control is False:
+                    self._judge(record, store, sub_test, Outcome.NOT_VERIFIABLE, _REJECTS_ALL)
+                else:
+                    self._judge(
+                        record, store, sub_test, Outcome.NOT_VERIFIABLE, "SIGNATURE_NOT_CONFIRMED"
+                    )
+            notes = None if control is not None else [_NOT_CONFIRMED_NOTE]
             return self._finish(notes=notes, message=f"{endpoint.method} {endpoint.path}.")
         except Exception as exc:  # noqa: BLE001 -- top-level guard (BaseTest contract)
             log.exception("test_7_4_unexpected_error", error=str(exc))
@@ -238,7 +292,7 @@ class Test74WebhookVerification(BaseTest[Test74Params]):
         self._step(record)
         if category_of(record) in UNINFORMATIVE_CATEGORIES:
             return None
-        accepted = record.response_status_code in _ACCEPTED_STATUS
+        accepted = category_of(record) == ResponseCategory.SERVED
         if not accepted:
             log.info(
                 "test_7_4_valid_signature_rejected",
@@ -254,48 +308,51 @@ class Test74WebhookVerification(BaseTest[Test74Params]):
         endpoint: Test74WebhookEndpoint,
         raw: bytes,
         sub_test: str,
-        *,
         signature: str | None,
-        confirmed: bool,
-    ) -> None:
+    ) -> tuple[EvidenceRecord, str] | None:
         """
-        Send one delivery (unsigned or wrongly signed) and judge its acceptance.
+        Send one forged delivery (unsigned or wrongly signed) and judge it.
 
-        confirmed: a validly signed delivery was accepted (_positive_control);
-        without it a rejection is not verifiable.
+        Returns:
+            The record and sub-test of a refusal, judged once the validly
+            signed delivery is answered; None when judged here.
         """
         record = self._send(client, endpoint, raw, signature)
         if record is None:
             self._record(sub_test, Outcome.NOT_VERIFIABLE, "NO_RESPONSE")
-            return
+            return None
         uninformative = self._uninformative(record, sub_test)
         if uninformative is not None:
             self._judge(record, store, sub_test, Outcome.NOT_VERIFIABLE, uninformative)
-            return
-        if record.response_status_code not in _ACCEPTED_STATUS:
-            if confirmed:
-                self._judge(record, store, sub_test, Outcome.ENFORCED, "SIGNATURE_REQUIRED")
-            else:
-                self._judge(
-                    record, store, sub_test, Outcome.NOT_VERIFIABLE, "SIGNATURE_NOT_CONFIRMED"
-                )
-            return
-        kind = "without a signature" if signature is None else "with an invalid signature"
+            return None
+        category = category_of(record)
+        if category in _REFUSING:
+            return record, sub_test
+        if category != ResponseCategory.SERVED:
+            self._judge(record, store, sub_test, Outcome.NOT_VERIFIABLE, _NOT_INTERPRETED)
+            return None
         detail = "UNSIGNED_ACCEPTED" if signature is None else "BAD_SIGNATURE_ACCEPTED"
         finding = Finding(
-            title=f"Webhook accepted {kind}: {endpoint.method} {endpoint.path}",
-            detail=(
-                f"A delivery to {endpoint.method} {endpoint.path} sent {kind} was accepted "
-                f"(HTTP {record.response_status_code}). The receiver acts on webhook payloads "
-                "without verifying their authenticity, so anyone who can reach the endpoint can "
-                "forge events (OWASP API10:2023, CWE-347; OWASP Webhook Security Cheat Sheet). "
-                "Verify an HMAC-SHA256 signature over the raw body on every delivery, in "
-                "constant time."
+            title=(
+                f"Webhook accepted without a signature: {endpoint.method} {endpoint.path}"
+                if signature is None
+                else "Webhook accepted with an invalid signature: "
+                f"{endpoint.method} {endpoint.path}"
             ),
-            confidence=Confidence.CERTAIN,
+            detail=(
+                f"A forged delivery to {endpoint.method} {endpoint.path} was accepted (HTTP "
+                f"{record.response_status_code}). The receiver does not reject webhook payloads "
+                "whose authenticity it cannot verify, so anyone who can reach the endpoint can "
+                "forge events (CWE-347; OWASP Webhook Security Cheat Sheet). An acceptance is not "
+                "proof the event was acted on (a receiver may queue and verify later): confirm on "
+                "the target. Verify an HMAC-SHA256 signature over the raw body on every delivery, "
+                "in constant time, before accepting it."
+            ),
+            confidence=Confidence.FIRM,
         )
         self._judge(record, store, sub_test, Outcome.VIOLATION, detail, finding)
         log.info("test_7_4_forged_delivery_accepted", path=endpoint.path, detail=detail)
+        return None
 
     def _send(
         self,

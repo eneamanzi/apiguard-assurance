@@ -301,7 +301,8 @@ tests:
     test_4_4:
       # The size of the body sent when the gateway's configured limit cannot be read.
       body_size_bytes: 2000000
-      # The documented write path to probe; empty derives the shortest documented write.
+      # The documented write path to probe, sent as a POST; empty derives the shortest documented
+      # write, sent with its documented method.
       probe_path: ''
 
   domain_5:

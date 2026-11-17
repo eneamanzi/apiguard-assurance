@@ -33,6 +33,10 @@ Generated parts:
     response_categories_table()
                             docs/04-architecture/03-assessment-model.md, the
                             categories of a response and their HTTP statuses
+    oracle_table(id)        section 6 of a test page: the test's oracle, case by
+                            case (TestInfo.oracle), one table per sub-test
+    finding_titles(id)      section 8 of a test page: the titles of its findings,
+                            read from the test's code
     uninformative_answers(id)
                             section 6 of each test page whose test applies the
                             rule of the answers that say nothing
@@ -75,7 +79,12 @@ from pydantic_core import PydanticUndefined
 from src.cli import app as cli_app
 from src.config.loader import mapping_entry_model, model_in_annotation
 from src.config.schema import ToolConfig
-from src.core.assessment_test import NEEDED_TO_RUN, AssessmentTest, has_marker
+from src.core.assessment_test import (
+    CONCEPT_NOT_ACCESSIBLE,
+    NEEDED_TO_RUN,
+    AssessmentTest,
+    has_marker,
+)
 from src.core.models import (
     STANDARD_FORMATS,
     DerivedFact,
@@ -1190,6 +1199,111 @@ _STATUS_RANGE: range = range(100, 600)
 _CATEGORY_LINE: re.Pattern[str] = re.compile(r"^\s*([A-Z_]+)\s+--\s+(.*)$")
 _ASSESSMENT_MODEL: Path = _ROOT / "docs" / "04-architecture" / "03-assessment-model.md"
 _RULE_ANCHOR: str = "#answers-that-say-nothing-about-the-guarantee"
+
+
+def oracle_table(test_id: str) -> str:
+    """
+    A test's oracle as declared in its code (TestInfo.oracle), for section 6 of its page.
+
+    Args:
+        test_id: The test.
+
+    Returns:
+        Markdown: one table per sub-test (headed by its name when the test has
+        several), a row per case: when, outcome and detail, confidence.
+
+    Raises:
+        ValueError: When the test declares no oracle.
+    """
+    info = next(t.info for t in _tests() if t.info.id == test_id)
+    if not info.oracle:
+        raise ValueError(f"test {test_id} declares no oracle (TestInfo.oracle)")
+    lines: list[str] = []
+    for sub_test in info.sub_tests:
+        cases = [c for c in info.oracle if info.case_sub_test(c) == sub_test]
+        if not cases:
+            continue
+        if len(info.sub_tests) > 1:
+            lines += [f"**`{sub_test}`**", ""]
+        lines += ["| Case | Outcome / detail | Confidence |", "|---|---|---|"]
+        for case in cases:
+            judgement = f"`{case.outcome.value}/{case.detail}"
+            if case.members:
+                kinds = ", ".join(f"`{m}`" for m in case.members)
+                judgement += f"<kind>`, the kind one of {kinds}"
+            else:
+                judgement += "`"
+            confidence = case.confidence.value if case.confidence else "-"
+            lines.append(f"| {_cell(case.when)} | {judgement} | {confidence} |")
+        if test_id in _ids_calling("_unread_concept"):
+            lines.append(
+                "| the gateway has the concept the test reads, and it could not be read (one "
+                "rule for every test that reads one) "
+                f"| `NOT_VERIFIABLE/{CONCEPT_NOT_ACCESSIBLE}` | - |"
+            )
+        lines.append("")
+    return _block(lines)
+
+
+def finding_titles(test_id: str) -> str:
+    """
+    The titles of a test's findings, read from its code, for section 8 of its page.
+
+    A value a title is built with is written by its name: f"Oversized body not
+    rejected: {path}" gives "Oversized body not rejected: <path>".
+
+    Args:
+        test_id: The test.
+
+    Returns:
+        Markdown: one bullet per title, in the order of the code.
+    """
+    source = next(
+        path
+        for folder in _TEST_SOURCES
+        for path in sorted(folder.rglob("*.py"))
+        if not path.name.startswith("_")
+        and test_id in _TEST_ID_IN_SOURCE.findall(path.read_text(encoding="utf-8"))
+    )
+    titles: list[str] = []
+    for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "Finding":
+            for keyword in node.keywords:
+                if keyword.arg == "title":
+                    titles += _titles_of(keyword.value)
+    if not titles:
+        return _block(["The test writes no finding."])
+    return _block([f'- "{title}"' for title in dict.fromkeys(titles)])
+
+
+def _titles_of(value: ast.expr) -> list[str]:
+    """The title (or both titles of a conditional one), each value written as <name>."""
+    if isinstance(value, ast.IfExp):
+        return _titles_of(value.body) + _titles_of(value.orelse)
+    if isinstance(value, ast.Constant):
+        return [str(value.value)]
+    if isinstance(value, ast.JoinedStr):
+        parts: list[str] = []
+        for part in value.values:
+            if isinstance(part, ast.Constant):
+                parts.append(str(part.value))
+            elif isinstance(part, ast.FormattedValue):
+                parts.append(f"<{_value_name(part.value)}>")
+        return ["".join(parts)]
+    return [f"<{_value_name(value)}>"]
+
+
+def _value_name(expression: ast.expr) -> str:
+    """The name a value is written by in a title: its last attribute or variable name."""
+    if isinstance(expression, ast.Attribute):
+        return expression.attr if expression.attr != "value" else _value_name(expression.value)
+    if isinstance(expression, ast.Name):
+        return expression.id
+    if isinstance(expression, ast.Call):
+        return _value_name(expression.func)
+    if isinstance(expression, ast.Subscript):
+        return _value_name(expression.value)
+    return "value"
 
 
 def _ids_applying_the_rule() -> set[str]:

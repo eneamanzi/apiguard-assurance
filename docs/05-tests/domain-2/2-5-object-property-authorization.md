@@ -15,7 +15,7 @@
 | Priority / strategy | P1 / GREY_BOX |
 | Effect | CHANGES_DATA |
 | CWE | CWE-213 |
-| Standards | `OWASP API3:2023`, `OWASP ASVS v5.0.0-14.2.6`, `OWASP ASVS v5.0.0-8.2.3`, `CWE-915`, `NIST SP 800-53r5, Section 3.1` |
+| Standards | `OWASP API3:2023`, `OWASP ASVS v5.0.0-15.3.1`, `OWASP ASVS v5.0.0-15.3.3`, `OWASP ASVS v5.0.0-8.2.3`, `CWE-915`, `NIST SP 800-53r5, Section 3.1` |
 | Tags | `authorization`, `excessive-data`, `mass-assignment` |
 | Prerequisites | none |
 | Needs | `USER_ACCOUNT`, `owned_object_resources` |
@@ -66,29 +66,32 @@ sentinel was kept. Both objects are deleted when their resource has a delete req
 
 ## 6. Oracle
 
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("2.5")) ]]] -->
+
 **`no_sensitive_field`**
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| a field whose name is sensitive is in the response with a value that discloses something | `VIOLATION/SENSITIVE_FIELD` | FIRM (the name is a heuristic) |
-| no sensitive field, or only with a null, empty or masked value | `ENFORCED/NO_SENSITIVE_FIELD` | - |
-| the object could not be read, or the read was refused or missing | `NOT_VERIFIABLE/OBJECT_NOT_READABLE`; an answer of the table below is named by it (until 2026-11-16 an unavailable, throttled or failing read was `OBJECT_NOT_READABLE` too) | - |
+| a sensitive-named field holds a value: a string not empty or masked, or a number for a card, SSN or CVV | `VIOLATION/SENSITIVE_FIELD` | FIRM |
+| no sensitive field holds a value | `ENFORCED/NO_SENSITIVE_FIELD` | - |
+| no documented read, or the read is not served | `NOT_VERIFIABLE/OBJECT_NOT_READABLE` | - |
+| the prepared resource did not create the object | `NOT_VERIFIABLE/OBJECT_NOT_CREATED` | - |
 
 **`mass_assignment`**
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| the prepared resource's create body is not a JSON object: the fields cannot be injected | `NOT_VERIFIABLE/FIELDS_NOT_INJECTED` | - |
-| the object read back shows none of the injected field names: whether they were bound cannot be seen | `NOT_VERIFIABLE/FIELDS_NOT_EXPOSED` | - |
-| an injected sentinel was kept in the object | `VIOLATION/MASS_ASSIGNMENT` | CERTAIN (the unique sentinel was read back) |
-| an injected field name is shown, and no sentinel kept | `ENFORCED/NO_MASS_ASSIGNMENT` | - |
-| the object could not be read, or the read was refused or missing | `NOT_VERIFIABLE/OBJECT_NOT_READABLE`; an answer of the table below is named by it | - |
+| an injected field (one the configured body does not set) is read back holding the sentinel | `VIOLATION/MASS_ASSIGNMENT` | FIRM |
+| an injected field name is shown without the sentinel | `ENFORCED/NO_MASS_ASSIGNMENT` | - |
+| the create with the injected fields is refused as invalid while the plain one works: unknown fields rejected, or a field bound with a wrong-typed value | `NOT_VERIFIABLE/INJECTED_CREATE_REFUSED` | - |
+| the read-back shows none of the injected field names | `NOT_VERIFIABLE/FIELDS_NOT_EXPOSED` | - |
+| the resource's create body is not a JSON object | `NOT_VERIFIABLE/FIELDS_NOT_INJECTED` | - |
+| no documented read, or the read is not served | `NOT_VERIFIABLE/OBJECT_NOT_READABLE` | - |
+| the prepared resource did not create the object | `NOT_VERIFIABLE/OBJECT_NOT_CREATED` | - |
 
-When the prepared resource does not create the object, neither sub-test has anything to judge and both record
-`NOT_VERIFIABLE/OBJECT_NOT_CREATED` (on crAPI, a worn lab answers `400 Insufficient Balance`).
+<!-- [[[end]]] -->
 
-Only unique **string** sentinels are injected: a boolean such as `admin: true` reflected in a response cannot be told
-from a field that is legitimately true (the owner's own permissions), which would be a false positive.
+Until 2026-11-16: a sensitive-named field was a finding whatever its value, so `has_password: true`, `secret_scanning: {...}` or `max_tokens: 4096` were excessive exposure: now only a string value (not masked), or a number under a card, SSN or CVV name, and not a name about a credential (`password_expires_at`); the mass-assignment sentinel replaced a key the configured body sets, and a reflected field was CERTAIN, although the API may let the client set it: now FIRM, and only the keys the body does not set are injected; a create refused as invalid because of the injected fields was `OBJECT_NOT_CREATED`: now `INJECTED_CREATE_REFUSED` (not verifiable: unknown fields rejected, or a bound field given a wrong-typed value, which the string sentinels cannot tell apart). ASVS 15.3.1 (only the required fields) and 15.3.3 (mass assignment) replace 14.2.6 (L3).
 
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("2.5", page=cog.inFile)) ]]] -->
 
@@ -110,8 +113,14 @@ neither is found.
 
 ## 8. Findings
 
-"Response carries sensitive field(s): `<names>`"; "Object bound client-controlled field(s): `<names>`". The object
-read is in the transaction log.
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("2.5")) ]]] -->
+
+- "Response carries sensitive field(s): <fields>"
+- "Object bound client-controlled field(s): <fields>"
+
+<!-- [[[end]]] -->
+
+`evidence_ref` the read-back; the titles name the fields.
 
 ## 9. Effects on the target
 
@@ -135,6 +144,9 @@ Section [`tests.domain_2.test_2_5`](../../03-reference/01-configuration.md#tests
 <!-- [[[end]]] -->
 
 ## 12. Validation
+
+**2026-11-16, after the review** (domain 2 on the three labs as configured): Forgejo labs **PASS**, crAPI **PASS** partial (`FIELDS_NOT_EXPOSED`), as before.
+
 
 Runs of 2026-10-23; the rows were measured again on 2026-11-04 (2.5 alone), after the corrections of the external
 audit:

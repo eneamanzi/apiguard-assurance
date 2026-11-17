@@ -55,7 +55,7 @@ from src.core.assessment_test import category_of
 from src.core.client import SecurityClient
 from src.core.context import ROLE_USER_A, TargetContext, TestContext
 from src.core.evidence import EvidenceStore
-from src.core.exceptions import AuthenticationSetupError, SecurityClientError
+from src.core.exceptions import SecurityClientError
 from src.core.models import (
     Confidence,
     EndpointRecord,
@@ -70,9 +70,9 @@ from src.core.models import (
     TestStrategy,
 )
 from src.core.references import CalibrationPoint, Credential, Similarity, sibling_pattern
-from src.core.test_metadata import Effect, Need, TestInfo
+from src.core.test_metadata import Effect, Need, OracleCase, TestInfo
 from src.tests.base import BaseTest
-from src.tests.helpers.auth import acquire_tokens, auth_parts
+from src.tests.helpers.auth import optional_role_parts
 from src.tests.helpers.path_resolver import (
     extract_param_names_from_path,
     resolve_path_with_seed,
@@ -102,6 +102,11 @@ _NOT_AN_ANSWER_OF_THE_OPERATION: frozenset[ResponseCategory] = frozenset(
 _REFUSING: frozenset[ResponseCategory] = frozenset(
     {ResponseCategory.UNAUTHENTICATED, ResponseCategory.FORBIDDEN}
 )
+# The answers that show the operation still runs: served, or its input
+# validated by it.
+_SERVED_OR_PROCESSED: frozenset[ResponseCategory] = frozenset(
+    {ResponseCategory.SERVED, ResponseCategory.INVALID_REQUEST}
+)
 
 # How many items a note lists by name.
 _NOTE_EXAMPLES: int = 12
@@ -112,6 +117,81 @@ _REFERENCES: tuple[Reference, ...] = (
     Reference(standard=Standard.RFC, id="8594"),
     Reference(standard=Standard.RFC, id="9110", section="15.5.11"),
     Reference(standard=Standard.NIST_SP, id="800-228", section="3.1.1"),
+)
+
+_ORACLE: tuple[OracleCase, ...] = (
+    OracleCase(when="`410 Gone`", outcome=Outcome.ENFORCED, detail="SWITCHED_OFF"),
+    OracleCase(
+        when="`405` or `501`: the method is no longer available on the path",
+        outcome=Outcome.ENFORCED,
+        detail="METHOD_SWITCHED_OFF",
+    ),
+    OracleCase(
+        when="served or validated (`2xx`, `4xx` invalid) unlike a random sibling, with neither "
+        "`Deprecation` nor `Sunset`",
+        outcome=Outcome.VIOLATION,
+        detail="DEPRECATED_WITHOUT_SUNSET",
+        confidence=Confidence.FIRM,
+    ),
+    OracleCase(
+        when="served unlike a random sibling, with `Deprecation` and no `Sunset`",
+        outcome=Outcome.VIOLATION,
+        detail="DEPRECATION_WITHOUT_SUNSET",
+        confidence=Confidence.FIRM,
+    ),
+    OracleCase(
+        when="served unlike a random sibling, with a `Sunset` date that has passed",
+        outcome=Outcome.VIOLATION,
+        detail="PAST_SUNSET_STILL_SERVED",
+        confidence=Confidence.FIRM,
+    ),
+    OracleCase(
+        when="served unlike a random sibling, with a `Sunset` date in the future",
+        outcome=Outcome.ENFORCED,
+        detail="SUNSET_DECLARED",
+    ),
+    OracleCase(
+        when="served unlike a random sibling, with a `Sunset` that is not an HTTP-date",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="SUNSET_NOT_A_DATE",
+    ),
+    OracleCase(
+        when="a path without parameters answers like a random sibling: the operation is gone",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="NOT_SERVED",
+    ),
+    OracleCase(
+        when="a path with parameters answers like a random object: the operation gone, or the "
+        "seeded object not found",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="OBJECT_OR_OPERATION_ABSENT",
+    ),
+    OracleCase(
+        when="refused (`401`, `403`) without a credential and with user_a's, or without and no "
+        "user_a account",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="REFUSED_BEFORE_ANSWER",
+    ),
+    OracleCase(
+        when="a redirect, a `404` unlike a random sibling, or an answer of no class",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="ANSWER_NOT_INTERPRETED",
+    ),
+    OracleCase(
+        when="the calibration of the operation's siblings is unreliable",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="CALIBRATION_UNRELIABLE",
+    ),
+    OracleCase(
+        when="the operation's method writes: not sent",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="WRITE_METHOD_NOT_PROBED",
+    ),
+    OracleCase(
+        when="a path parameter has no value in `path_seed`",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="PATH_NOT_FILLABLE",
+    ),
 )
 
 
@@ -134,6 +214,7 @@ class Test03DeprecatedOperations(BaseTest):
         optional_needs=(Need.USER_ACCOUNT,),
         effect=Effect.READ_ONLY,
         sub_tests=(_SUB_DEPRECATED,),
+        oracle=_ORACLE,
     )
 
     def execute(
@@ -171,7 +252,7 @@ class Test03DeprecatedOperations(BaseTest):
                     "no deprecated functionality is served: an endpoint the specification does "
                     "not document at all is test 0.1's question."
                 )
-            credential = self._credential(target, context, client)
+            credential = self._credential(target, context)
             not_probed: list[str] = []
             not_fillable: list[str] = []
             for endpoint in deprecated:
@@ -197,28 +278,10 @@ class Test03DeprecatedOperations(BaseTest):
     # The credential, when one is configured (optional need)
     # ------------------------------------------------------------------
 
-    def _credential(
-        self, target: TargetContext, context: TestContext, client: SecurityClient
-    ) -> Credential | None:
-        """
-        The user_a credential, for a second try on an operation that refuses.
-
-        Args:
-            target:  The run's target (credentials, placement).
-            context: The run's context (the role's credential).
-            client:  The run's HTTP client (the login goes through it).
-
-        Returns:
-            The Credential, or None when the role is not configured or its
-            login did not work (logged, the test goes on unauthenticated).
-        """
-        if not target.credentials.has_user_a():
-            return None
-        try:
-            acquire_tokens(target, context, client, required_roles=frozenset({ROLE_USER_A}))
-            parts = auth_parts(target, context, ROLE_USER_A)
-        except (AuthenticationSetupError, SecurityClientError) as exc:
-            log.warning("test_0_3_credential_unavailable", error=str(exc))
+    def _credential(self, target: TargetContext, context: TestContext) -> Credential | None:
+        """The user_a credential, for a second try on an operation that refuses (None: none)."""
+        parts = optional_role_parts(target, context, ROLE_USER_A)
+        if parts is None:
             return None
         return Credential(label=ROLE_USER_A, headers=dict(parts.headers), params=dict(parts.params))
 
@@ -291,14 +354,23 @@ class Test03DeprecatedOperations(BaseTest):
         point = context.references.calibration(
             sibling_pattern(endpoint.path, endpoint.parameters), method, used
         )
+        parametric = "{" in endpoint.path
         if similarity == Similarity.SAME_AS_UNKNOWN:
+            # On a path with parameters the siblings are random objects of the
+            # same route: answering like them may be the operation gone or the
+            # seeded object not found (until 2026-11-16 NOT_APPLICABLE either way).
+            outcome = Outcome.NOT_VERIFIABLE if parametric else Outcome.NOT_APPLICABLE
+            detail = "OBJECT_OR_OPERATION_ABSENT" if parametric else "NOT_SERVED"
             self._judge(
-                record,
-                store,
-                _SUB_DEPRECATED,
-                Outcome.NOT_APPLICABLE,
-                "NOT_SERVED",
-                reference_responses=(point,),
+                record, store, _SUB_DEPRECATED, outcome, detail, reference_responses=(point,)
+            )
+            return
+        if category not in _SERVED_OR_PROCESSED:
+            # A 404 unlike the siblings' (a framework's page where the handler's
+            # JSON 404 was expected) is not the operation running (until
+            # 2026-11-16 it was "still served", FIRM).
+            self._judge(
+                record, store, _SUB_DEPRECATED, Outcome.NOT_VERIFIABLE, "ANSWER_NOT_INTERPRETED"
             )
             return
         self._judge_declaration(record, store, endpoint, path, point)

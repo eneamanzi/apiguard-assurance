@@ -3,7 +3,7 @@
 > **Audience:** analysts, contributors · **Status:** new in the test review (2026-10-26) ·
 > **Source of truth:**
 > [`src/tests/domain_7/test_7_1_sensitive_flow_protection.py`](../../../src/tests/domain_7/test_7_1_sensitive_flow_protection.py) ·
-> **Verified:** 2026-10-26
+> **Verified:** 2026-11-16
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("7.1", page=cog.inFile)) ]]] -->
 
@@ -60,16 +60,19 @@ drives the real flow (announce it on a shared target); the burst is kept small.
 
 ## 6. Oracle
 
-**`anti_automation_present`**
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("7.1")) ]]] -->
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| a `429` (throttle) within the burst | `ENFORCED/ANTI_AUTOMATION_THROTTLE` | - |
-| a `4xx` whose body is a CAPTCHA / human-verification challenge | `ENFORCED/ANTI_AUTOMATION_CHALLENGE` | - |
-| every submission of the burst accepted (`2xx`), no control | `VIOLATION/NO_ANTI_AUTOMATION` | CERTAIN |
-| the flow refused the first submission without a challenge (a `401`, a `404`, a validation error): the burst did not exercise it | `NOT_VERIFIABLE/FLOW_NOT_ACCEPTED` | - |
-| served, then refused without a `429` or challenge words: a throttle this test does not recognise, or a business refusal (a duplicate), which cannot be told apart | `NOT_VERIFIABLE/REFUSED_AFTER_SERVED` | - |
-| the target was unavailable, failed or did not answer during the burst | `NOT_VERIFIABLE/` the reason of the first such answer (the table below; until 2026-11-16 `FLOW_UNAVAILABLE`) | - |
+| a `429` within the burst | `ENFORCED/ANTI_AUTOMATION_THROTTLE` | - |
+| a challenge: a WAF's challenge header on any answer, or a `400`, `401`, `403`, `409`, `422` asking for a CAPTCHA (words such as `challenge` or `too many` only after a submission was served) | `ENFORCED/ANTI_AUTOMATION_CHALLENGE` | - |
+| every submission of the burst answered `2xx`, no throttle and no challenge: accepted, which does not show that none was throttled silently | `VIOLATION/NO_ANTI_AUTOMATION` | FIRM |
+| the first submission was refused without a challenge: the burst did not exercise the flow | `NOT_VERIFIABLE/FLOW_NOT_ACCEPTED` | - |
+| served, then refused without a `429` or a challenge: an unrecognised throttle or a business refusal | `NOT_VERIFIABLE/REFUSED_AFTER_SERVED` | - |
+
+<!-- [[[end]]] -->
+
+Until 2026-11-16: `NO_ANTI_AUTOMATION` was CERTAIN, although a flow may answer `200` and drop the request silently (an OTP or reset flow that does not enumerate accounts); the weak words (`challenge`, `too many`, `slow down`) counted from the first submission, so `invalid code_challenge` read as a CAPTCHA; a WAF's challenge was not recognised (AWS WAF answers `202` with `x-amzn-waf-action: challenge`, which read as accepted).
 
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("7.1", page=cog.inFile)) ]]] -->
 
@@ -90,7 +93,13 @@ SKIP without `sensitive_flow`. FAIL when no control appears; PASS when a throttl
 
 ## 8. Findings
 
-"No anti-automation control on `<method> <path>`", `evidence_ref` the burst's last request.
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("7.1")) ]]] -->
+
+- "No anti-automation control on <method> <path>"
+
+<!-- [[[end]]] -->
+
+`evidence_ref` the burst's last request.
 
 ## 9. Effects on the target
 
@@ -119,6 +128,9 @@ Section [`tests.domain_7.test_7_1`](../../03-reference/01-configuration.md#tests
 <!-- [[[end]]] -->
 
 ## 12. Validation
+
+**2026-11-16, after the review**: crAPI as configured **FAIL** FIRM (`POST /identity/api/auth/forget-password`, 12 accepted). A Kong route answering `202` with `x-amzn-waf-action: challenge` (Forgejo + Kong, `pre-function`, undone): **PASS**, `ANTI_AUTOMATION_CHALLENGE` at the first submission.
+
 
 Runs of 2026-10-26 and 2026-11-03:
 

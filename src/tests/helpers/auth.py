@@ -133,6 +133,29 @@ def auth_parts(target: TargetContext, context: TestContext, role: str) -> Reques
     return credential_parts(target, credential)
 
 
+def optional_role_parts(
+    target: TargetContext, context: TestContext, role: str
+) -> RequestAuthParts | None:
+    """
+    A role's request parts, for a test that only goes further with them (an optional need).
+
+    The engine obtains the credential before the test runs; a role that is
+    not configured, or whose login did not work (logged by the engine), has
+    none and the test goes on without it.
+
+    Args:
+        target:  The run's target (placement).
+        context: The run's context (the role's credential).
+        role:    A ROLE_* constant.
+
+    Returns:
+        The parts, or None when the role has no credential.
+    """
+    if not context.has_token(role):
+        return None
+    return auth_parts(target, context, role)
+
+
 def credential_parts(target: TargetContext, credential: str) -> RequestAuthParts:
     """
     Return the request parts carrying a credential, as the placement says.

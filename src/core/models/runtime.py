@@ -221,8 +221,9 @@ class RuntimeCredentials(BaseModel):
         description=(
             "`login` only, **required** there: the name of a prepared resource "
             "(`resources`) whose create request logs in for a role (`auth: basic` or "
-            "`none`) and whose values include `credential`, the dotted path of the token in "
-            "the response."
+            "`none`) and whose values include `credential`: the dotted path of the token in "
+            "the response's JSON body, or `cookie:<name>` for a session cookie (then sent with "
+            "`send_as` `in: cookie`)."
         ),
     )
 

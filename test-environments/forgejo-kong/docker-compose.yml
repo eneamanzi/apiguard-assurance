@@ -46,8 +46,7 @@ services:
     volumes:
       - ../pki:/pki
 
-  # PostgreSQL 15: backend di persistenza per Forgejo.
-  # Versione Alpine per footprint ridotto in ambiente di laboratorio.
+  # PostgreSQL 15: Forgejo's database. The Alpine image, smaller, is enough for a lab.
   forgejo-db:
     image: postgres:15.19-alpine
     container_name: forgejo-db
@@ -66,9 +65,10 @@ services:
       timeout: 5s
       retries: 5
 
-  # Forgejo 14: API REST target dell'assessment.
-  # INSTALL_LOCK=true bypassa il wizard di primo avvio.
-  # ENABLE_SWAGGER=true espone /api/swagger per OpenAPI discovery.
+  # Forgejo 14: the REST API the assessment targets.
+  # INSTALL_LOCK=true skips the first-start installation wizard.
+  # ENABLE_SWAGGER=true serves the OpenAPI specification (/swagger.v1.json, which the tool
+  # downloads) and its viewer (/api/swagger).
   forgejo:
     image: codeberg.org/forgejo/forgejo:14.0.5
     container_name: forgejo

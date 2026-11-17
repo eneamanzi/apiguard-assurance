@@ -26,6 +26,7 @@ src.config, or src.discovery.
 
 from __future__ import annotations
 
+import re
 from typing import Any, TypeGuard
 
 import structlog
@@ -36,6 +37,9 @@ from src.core.gateway.base import (
     sorted_config_values,
 )
 from src.core.gateway.concepts import (
+    REQUEST_PART_EVERY,
+    REQUEST_PART_HEADER,
+    REQUEST_PART_QUERY,
     ActiveCheck,
     BackendTimeout,
     BodySizeLimit,
@@ -52,9 +56,12 @@ from src.core.gateway.concepts import (
     RateWindow,
     RouteMatch,
     RoutePath,
+    ShippedRequest,
     SigningPolicy,
     TargetHealth,
     TargetState,
+    http_status,
+    request_part,
 )
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -85,6 +92,32 @@ _SIGNING_PLUGINS: frozenset[str] = frozenset({"hmac-auth"})
 # kong/constants.lua, read 2026-11-04). file-log writes a file and syslog the
 # syslog of the gateway's own host: not a separate system (ASVS v5.0.0-16.4.3).
 _LOG_SHIPPING_PLUGINS: frozenset[str] = frozenset({"http-log", "tcp-log", "udp-log", "loggly"})
+# What their record carries (kong/pdk/log.lua, serialize, 3.9.3, read in the
+# lab's container 2026-11-17): every request header, with authorization and
+# proxy-authorization replaced by "REDACTED", and the query string, both as
+# `querystring` and inside `uri` and `url` (the request URI as received).
+_LOG_RECORD_CARRIES: tuple[str, ...] = (
+    request_part(REQUEST_PART_HEADER, REQUEST_PART_EVERY),
+    request_part(REQUEST_PART_QUERY, REQUEST_PART_EVERY),
+)
+_LOG_RECORD_REDACTED: tuple[str, ...] = (
+    request_part(REQUEST_PART_HEADER, "authorization"),
+    request_part(REQUEST_PART_HEADER, "proxy-authorization"),
+)
+# A shipper's custom_fields_by_lua sets record fields from Lua code: one on the
+# request part of the record (these fields, or below them) leaves its content
+# to code the adapter does not run.
+_LOG_FIELD_CUSTOM: str = "custom_fields_by_lua"
+_LOG_REQUEST_FIELDS: tuple[str, ...] = ("request", "upstream_uri")
+# key-auth with hide_credentials clears the headers of key_names from the
+# request before the log phase (kong/plugins/key-auth/handler.lua 3.9.3), so
+# the record no longer has them; it clears the query argument too, but the
+# record's `uri` keeps the URI as received, so a key in the query is shipped
+# anyway. The other plugins with hide_credentials hide Authorization, which the
+# record redacts already.
+_PLUGIN_KEY_AUTH: str = "key-auth"
+_KEY_AUTH_HIDE: str = "hide_credentials"
+_KEY_AUTH_NAMES: str = "key_names"
 _SIGNING_FIELD_ALGORITHMS: str = "algorithms"
 _SIGNING_FIELD_REPLAY_WINDOW: str = "clock_skew"
 _SIGNING_FIELD_BODY: str = "validate_request_body"
@@ -138,6 +171,8 @@ _RATE_PERIOD_SECONDS: dict[str, float] = {
 # kong/plugins/rate-limiting/handler.lua 3.9.0); another value syncs them
 # periodically.
 _RATE_SHARED_POLICIES: frozenset[str] = frozenset({"cluster", "redis"})
+# The status of a refused request: `error_code` (schema.lua 3.9.0: default 429).
+_RATE_REFUSAL_DEFAULT: int = 429
 _RATE_SYNC_REALTIME: float = -1.0
 # Body-size limits: Kong's own request-size-limiting plugin, its limit in the
 # unit of size_unit (megabytes by default), with the factors of its handler
@@ -165,6 +200,16 @@ _HTTP_PROTOCOLS: frozenset[str] = frozenset({"http", "https"})
 _KONG_REGEX_PREFIX: str = "~"
 
 
+# The date headers Kong's hmac-auth checks the clock skew on, either one.
+_SIGNED_DATES: frozenset[str] = frozenset({"date", "x-date"})
+# The digest header, and the pseudo-headers that put the method and path in the
+# signature (hmac-auth/access.lua 3.9.3).
+_DIGEST: str = "digest"
+_SIGNED_TARGETS: frozenset[str] = frozenset({"request-line", "@request-target"})
+# A PCRE named group "(?<name>" (not a lookbehind "(?<=", "(?<!").
+_PCRE_NAMED_GROUP: re.Pattern[str] = re.compile(r"\(\?<(?![=!])")
+
+
 def _route_path(path: str) -> RoutePath:
     """
     One Kong route path in the neutral vocabulary of the concept.
@@ -176,7 +221,14 @@ def _route_path(path: str) -> RoutePath:
         Its value without Kong's syntax, and how Kong matches it.
     """
     if path.startswith(_KONG_REGEX_PREFIX):
-        return RoutePath(value=path.removeprefix(_KONG_REGEX_PREFIX), match=RouteMatch.REGEX)
+        # Kong anchors the expression at the start of the path and accepts the
+        # PCRE named group "(?<name>", which Python writes "(?P<name>"
+        # (kong/router/transform.lua 3.9.3); until 2026-11-16 the value was
+        # given as written, and a named group did not compile.
+        expression = _PCRE_NAMED_GROUP.sub("(?P<", path.removeprefix(_KONG_REGEX_PREFIX))
+        if not expression.startswith("^"):
+            expression = "^" + expression
+        return RoutePath(value=expression, match=RouteMatch.REGEX)
     return RoutePath(value=path, match=RouteMatch.PREFIX)
 
 
@@ -260,9 +312,31 @@ class KongGatewayAdapter(BaseGatewayAdapter):
         return ConceptRead[HealthCheck].read(tuple(items))
 
     def _read_target_health(self) -> ConceptRead[TargetHealth]:
-        """Read the live health of the targets of each Kong Upstream."""
+        """
+        Read the live health of the targets of each Kong Upstream, and the enabled
+        Services that point straight at a host (no Upstream), as UNKNOWN.
+
+        A Service whose `host` is not an Upstream's name is a backend Kong routes
+        to without health checks (until 2026-11-16 it was left out, so test 0.4
+        never tried the most common Kong setup).
+        """
         items: list[TargetHealth] = []
-        for upstream in self._fetch_paginated(_PATH_UPSTREAMS):
+        upstreams = self._fetch_paginated(_PATH_UPSTREAMS)
+        upstream_names = {self._upstream_name(upstream) for upstream in upstreams}
+        for service in self._fetch_paginated(_PATH_SERVICES):
+            host = str(service.get("host") or "")
+            if not host or host in upstream_names or service.get("enabled") is False:
+                continue
+            port = service.get("port")
+            items.append(
+                TargetHealth(
+                    backend=self._service_name(service),
+                    target=f"{host}:{port}" if port else host,
+                    state=TargetState.UNKNOWN,
+                    counters=None,
+                )
+            )
+        for upstream in upstreams:
             name = self._upstream_name(upstream)
             health = self._fetch_single(_PATH_UPSTREAM_HEALTH.format(name=name))
             for target in health.get("data") or []:
@@ -281,18 +355,20 @@ class KongGatewayAdapter(BaseGatewayAdapter):
 
     def _read_routes(self) -> ConceptRead[GatewayRoute]:
         """Map each Kong Route, with the name of its Service as backend."""
-        service_names = {
-            str(s["id"]): self._service_name(s)
-            for s in self._fetch_paginated(_PATH_SERVICES)
-            if "id" in s
-        }
+        services = {str(s["id"]): s for s in self._fetch_paginated(_PATH_SERVICES) if "id" in s}
+        service_names = {sid: self._service_name(s) for sid, s in services.items()}
         items = tuple(
             GatewayRoute(
                 name=str(route.get("name") or route.get("id")),
                 paths=tuple(_route_path(str(path)) for path in route.get("paths") or ()),
                 methods=tuple(route.get("methods") or ()),
                 backend=service_names.get(str((route.get("service") or {}).get("id"))),
-                enabled=True,
+                # Kong keeps the routes of a disabled Service out of its router
+                # (kong/runloop/handler.lua 3.9.3); until 2026-11-16 always True.
+                enabled=(
+                    services.get(str((route.get("service") or {}).get("id")), {}).get("enabled")
+                    is not False
+                ),
                 source=f"route {route.get('name') or route.get('id')}",
             )
             for route in self._fetch_paginated(_PATH_ROUTES)
@@ -337,6 +413,7 @@ class KongGatewayAdapter(BaseGatewayAdapter):
             if str(plugin.get("name", "")).lower() not in _SIGNING_PLUGINS:
                 continue
             config: dict[str, Any] = plugin.get("config") or {}
+            required = {str(h).lower() for h in config.get(_SIGNING_FIELD_HEADERS) or ()}
             algorithms = config.get(_SIGNING_FIELD_ALGORITHMS)
             skew = config.get(_SIGNING_FIELD_REPLAY_WINDOW)
             body = config.get(_SIGNING_FIELD_BODY)
@@ -352,19 +429,43 @@ class KongGatewayAdapter(BaseGatewayAdapter):
                     replay_window_seconds=float(skew) if skew is not None else None,
                     replay_unlimited=False,
                     required_signed_headers=tuple(config.get(_SIGNING_FIELD_HEADERS) or ()),
-                    body_signed=bool(body) if body is not None else None,
+                    # The signature covers the headers the client lists; Kong
+                    # requires those of enforce_headers (access.lua 3.9.3): the
+                    # body counts only when its Digest must be signed, the
+                    # target when request-line or @request-target must be.
+                    body_signed=(bool(body) and _DIGEST in required) if body is not None else None,
+                    target_signed=bool(_SIGNED_TARGETS & required),
+                    # Kong checks the clock skew on X-Date or else Date
+                    # (hmac-auth/access.lua 3.9.3), each unsigned unless listed
+                    # in enforce_headers (default empty).
+                    date_signed=_SIGNED_DATES <= required,
+                    optional=bool(config.get("anonymous")),
                     source=f"plugin {plugin.get('name')} (id: {plugin.get('id', '<unknown>')})",
                 )
             )
         return ConceptRead[SigningPolicy].read(tuple(items))
 
     def _read_log_shipping(self) -> ConceptRead[LogShipper]:
-        """Map every log-shipping plugin (_LOG_SHIPPING_PLUGINS)."""
+        """
+        Map every log-shipping plugin (_LOG_SHIPPING_PLUGINS) that logs every client.
+
+        One bound to a consumer or a consumer group logs that client's requests
+        only, and _plugin_scope would report it GLOBAL: it is left out, as for
+        the limits (until 2026-11-16 it made test 5.1 pass).
+        """
         items: list[LogShipper] = []
-        for plugin in self._fetch_paginated(_PATH_PLUGINS):
+        hidden = self._hidden_keys()
+        # A value custom_fields_by_lua sets is kept on the request and applied
+        # by every later serialize() (kong/pdk/log.lua, set_serialize_value,
+        # ctx.serialize_values): any log plugin's field on the request part
+        # leaves every shipper's record not stated.
+        rewritten = any(
+            _rewrites_request(plugin)
+            for plugin in self._fetch_paginated(_PATH_PLUGINS)
+            if plugin.get("enabled", False)
+        )
+        for plugin in self._limit_plugins(_LOG_SHIPPING_PLUGINS):
             name = str(plugin.get("name", "")).lower()
-            if name not in _LOG_SHIPPING_PLUGINS:
-                continue
             scope, owner = self._plugin_scope(plugin)
             items.append(
                 LogShipper(
@@ -372,10 +473,44 @@ class KongGatewayAdapter(BaseGatewayAdapter):
                     name=owner,
                     plugin=name,
                     enabled=bool(plugin.get("enabled", False)),
+                    request=None if rewritten else _shipped_request((scope, owner), hidden),
                     source=f"plugin {plugin.get('name')} (id: {plugin.get('id', '<unknown>')})",
                 )
             )
         return ConceptRead[LogShipper].read(tuple(items))
+
+    def _hidden_keys(self) -> list[tuple[tuple[ConceptScope, str] | None, tuple[str, ...]]]:
+        """
+        The headers each enabled key-auth with hide_credentials clears, with its scope.
+
+        Kong runs one instance of a plugin per request, the most specific
+        (kong/runloop/plugins_iterator.lua, lookup_cfg): when another key-auth
+        does not hide, a hiding one may be replaced on part of the traffic, and
+        its scope is returned as None (removed in part only).
+
+        Returns:
+            (scope, name) of the plugin, or None, and the header parts it removes.
+        """
+        hidden: list[tuple[tuple[ConceptScope, str] | None, tuple[str, ...]]] = []
+        key_auths = [
+            plugin
+            for plugin in self._fetch_paginated(_PATH_PLUGINS)
+            if str(plugin.get("name", "")).lower() == _PLUGIN_KEY_AUTH
+            and plugin.get("enabled", False)
+        ]
+        overridable = any(not (p.get("config") or {}).get(_KEY_AUTH_HIDE) for p in key_auths)
+        for plugin in key_auths:
+            config = plugin.get("config") or {}
+            if not config.get(_KEY_AUTH_HIDE):
+                continue
+            names = config.get(_KEY_AUTH_NAMES) or []
+            hidden.append(
+                (
+                    None if overridable else self._plugin_scope(plugin),
+                    tuple(request_part(REQUEST_PART_HEADER, str(key)) for key in names),
+                )
+            )
+        return hidden
 
     def _read_config_values(self) -> ConceptRead[ConfigValue]:
         """Collect the Service addresses and every text value of the plugin configurations."""
@@ -443,6 +578,7 @@ class KongGatewayAdapter(BaseGatewayAdapter):
                     shared_counter=policy in _RATE_SHARED_POLICIES
                     and isinstance(sync_rate, int | float)
                     and float(sync_rate) == _RATE_SYNC_REALTIME,
+                    refusal_status=http_status(config.get("error_code", _RATE_REFUSAL_DEFAULT)),
                     source=f"plugin {plugin.get('name')} (id: {plugin.get('id', '<unknown>')})",
                 )
             )
@@ -616,6 +752,44 @@ def _service_address(service: dict[str, Any]) -> str | None:
     authority = f"{host}:{port}" if isinstance(port, int) else host
     tail = path if isinstance(path, str) and path else ""
     return f"{scheme}{authority}{tail}"
+
+
+def _rewrites_request(plugin: dict[str, Any]) -> bool:
+    """Whether a plugin's custom_fields_by_lua sets a field on the request part of the record."""
+    custom = (plugin.get("config") or {}).get(_LOG_FIELD_CUSTOM) or {}
+    return isinstance(custom, dict) and any(
+        str(key) == f or str(key).startswith(f"{f}.") for key in custom for f in _LOG_REQUEST_FIELDS
+    )
+
+
+def _shipped_request(
+    where: tuple[ConceptScope, str],
+    hidden: list[tuple[tuple[ConceptScope, str] | None, tuple[str, ...]]],
+) -> ShippedRequest:
+    """
+    What of the request a Kong log shipper's record carries (_LOG_RECORD_CARRIES).
+
+    A key-auth hiding its keys on the shipper's own scope, or globally, removes
+    them for all its traffic; one on another scope only for part of it (Kong
+    plugins on a Service and on one of its Routes are not related here).
+
+    Args:
+        where:  The shipper's scope and the name of the object it is attached to.
+        hidden: _hidden_keys() of the gateway.
+
+    Returns:
+        The record's request parts.
+    """
+    removed: list[str] = list(_LOG_RECORD_REDACTED)
+    in_part: list[str] = []
+    for scope, parts in hidden:
+        covers = scope is not None and (scope == where or scope[0] == ConceptScope.GLOBAL)
+        (removed if covers else in_part).extend(parts)
+    return ShippedRequest(
+        carries=_LOG_RECORD_CARRIES,
+        removed=tuple(sorted(set(removed))),
+        removed_in_part=tuple(sorted(set(in_part) - set(removed))),
+    )
 
 
 def _protocols(plugin: dict[str, Any]) -> frozenset[str]:

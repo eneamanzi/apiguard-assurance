@@ -58,7 +58,7 @@ from urllib.parse import urlsplit
 
 import structlog
 
-from src.core.assessment_test import category_of
+from src.core.assessment_test import CONCEPT_NOT_ACCESSIBLE, category_of
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
@@ -80,7 +80,7 @@ from src.core.models import (
 )
 from src.core.references import Similarity, random_sibling_path, sibling_pattern
 from src.core.response_category import categorize
-from src.core.test_metadata import Effect, Need, TestInfo
+from src.core.test_metadata import Effect, Need, OracleCase, TestInfo
 from src.tests.base import BaseTest
 from src.tests.helpers.sampling import sample_by_service
 
@@ -141,6 +141,188 @@ _REFERENCES: tuple[Reference, ...] = (
     Reference(standard=Standard.ASVS, id="v5.0.0-4.1.4"),
     Reference(standard=Standard.WSTG, id="WSTG-v42-CONF-06"),
 )
+# ASVS v5.0.0 13.4.4 (read 2026-11-16): TRACE not supported in production. The
+# TRACE finding cited 4.1.4 until then.
+_REFS_TRACE: tuple[Reference, ...] = (
+    Reference(standard=Standard.OWASP_API_TOP10, id="API8:2023"),
+    Reference(standard=Standard.ASVS, id="v5.0.0-13.4.4"),
+)
+
+_ORACLE: tuple[OracleCase, ...] = (
+    OracleCase(
+        sub_test=_SUB_METHODS,
+        when="an undeclared method, or TRACE, answers `405` or `501`",
+        outcome=Outcome.ENFORCED,
+        detail="METHOD_REJECTED",
+    ),
+    OracleCase(
+        sub_test=_SUB_METHODS,
+        when="a path without parameters answers the method like its random siblings, not `2xx`",
+        outcome=Outcome.ENFORCED,
+        detail="METHOD_NOT_SERVED",
+    ),
+    OracleCase(
+        sub_test=_SUB_METHODS,
+        when="a path without parameters serves the method (`2xx`) unlike its random siblings",
+        outcome=Outcome.VIOLATION,
+        detail="UNDECLARED_METHOD_HANDLED",
+        confidence=Confidence.CERTAIN,
+    ),
+    OracleCase(
+        sub_test=_SUB_METHODS,
+        when="a path with parameters serves the method (`2xx`) on a random object",
+        outcome=Outcome.VIOLATION,
+        detail="UNDECLARED_METHOD_HANDLED",
+        confidence=Confidence.FIRM,
+    ),
+    OracleCase(
+        sub_test=_SUB_METHODS,
+        when="a path without parameters answers the method unlike its siblings, neither `2xx` nor "
+        "a refusal",
+        outcome=Outcome.VIOLATION,
+        detail="UNDECLARED_METHOD_KNOWN",
+        confidence=Confidence.FIRM,
+    ),
+    OracleCase(
+        sub_test=_SUB_METHODS,
+        when="refused (`401`, `403`) unlike the siblings, or TRACE refused: an authentication "
+        "before the method",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="REFUSED_BEFORE_METHOD",
+    ),
+    OracleCase(
+        sub_test=_SUB_METHODS,
+        when="answered like the siblings, which are refused (`401`, `403`)",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="REFUSED_BEFORE_ROUTING",
+    ),
+    OracleCase(
+        sub_test=_SUB_METHODS,
+        when="a path with parameters answers neither `2xx` nor `405`",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="NONEXISTENT_OBJECT",
+    ),
+    OracleCase(
+        sub_test=_SUB_METHODS,
+        when="a path next to a documented one with a parameter in its place answers otherwise than "
+        "its siblings",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="SIBLING_ROUTE_DOCUMENTED",
+    ),
+    OracleCase(
+        sub_test=_SUB_METHODS,
+        when="served `2xx` exactly as its random siblings (a catch-all)",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="SERVED_LIKE_UNKNOWN",
+    ),
+    OracleCase(
+        sub_test=_SUB_METHODS,
+        when="the calibration of the random siblings is unreliable",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="CALIBRATION_UNSTABLE",
+    ),
+    OracleCase(
+        sub_test=_SUB_METHODS,
+        when="TRACE answers `2xx` with the request line sent back",
+        outcome=Outcome.VIOLATION,
+        detail="TRACE_ECHOED",
+        confidence=Confidence.CERTAIN,
+    ),
+    OracleCase(
+        sub_test=_SUB_METHODS,
+        when="TRACE answers `2xx` without the echo",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="TRACE_SERVED_NO_ECHO",
+    ),
+    OracleCase(
+        sub_test=_SUB_METHODS,
+        when="TRACE answers anything else (not found, invalid)",
+        outcome=Outcome.ENFORCED,
+        detail="TRACE_NOT_SERVED",
+    ),
+    OracleCase(
+        sub_test=_SUB_VERSIONS,
+        when="answers like a path under a random version",
+        outcome=Outcome.ENFORCED,
+        detail="VERSION_ABSENT",
+    ),
+    OracleCase(
+        sub_test=_SUB_VERSIONS,
+        when="answers unlike a random version, neither not found nor refused",
+        outcome=Outcome.VIOLATION,
+        detail="UNDOCUMENTED_VERSION",
+        confidence=Confidence.TENTATIVE,
+    ),
+    OracleCase(
+        sub_test=_SUB_VERSIONS,
+        when="not found or refused unlike a random version: the version may exist without this "
+        "path",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="VERSION_UNCLEAR",
+    ),
+    OracleCase(
+        sub_test=_SUB_VERSIONS,
+        when="refused (`401`, `403`) like a random version",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="REFUSED_BEFORE_ROUTING",
+    ),
+    OracleCase(
+        sub_test=_SUB_VERSIONS,
+        when="the calibration of the random versions is unreliable",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="CALIBRATION_UNSTABLE",
+    ),
+    OracleCase(
+        sub_test=_SUB_VERSIONS,
+        when="no documented path has a version segment",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="NO_VERSIONED_PATH",
+    ),
+    OracleCase(
+        sub_test=_SUB_VERSIONS,
+        when="the version group documents no operation to lend",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="NO_PATH_IN_GROUP",
+    ),
+    OracleCase(
+        sub_test=_SUB_ROUTES,
+        when="an enabled route each of whose paths has a documented path (after the base URL's "
+        "path) or the specification under it",
+        outcome=Outcome.ENFORCED,
+        detail="ROUTE_DOCUMENTED",
+    ),
+    OracleCase(
+        sub_test=_SUB_ROUTES,
+        when="an enabled route with a path under which no documented path falls",
+        outcome=Outcome.VIOLATION,
+        detail="ROUTE_NOT_DOCUMENTED",
+        confidence=Confidence.CERTAIN,
+    ),
+    OracleCase(
+        sub_test=_SUB_ROUTES,
+        when="a route's regular expression does not compile in Python",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="ROUTE_NOT_READ",
+    ),
+    OracleCase(
+        sub_test=_SUB_ROUTES,
+        when="a disabled route (or one of a disabled service)",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="ROUTE_DISABLED",
+    ),
+    OracleCase(
+        sub_test=_SUB_ROUTES,
+        when="no gateway configured",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="NO_GATEWAY",
+    ),
+    OracleCase(
+        sub_test=_SUB_ROUTES,
+        when="the gateway's adapter does not read routes",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="ROUTES_NOT_SUPPORTED",
+    ),
+)
 
 
 class Test01ShadowApiDiscovery(BaseTest):
@@ -162,6 +344,7 @@ class Test01ShadowApiDiscovery(BaseTest):
         optional_needs=(Need.GATEWAY,),
         effect=Effect.STRESSES_TARGET,
         sub_tests=(_SUB_METHODS, _SUB_VERSIONS, _SUB_ROUTES),
+        oracle=_ORACLE,
     )
 
     def execute(
@@ -286,6 +469,13 @@ class Test01ShadowApiDiscovery(BaseTest):
             echoed = _TRACE_ECHO.match(record.response_body or "") is not None
             if spoiled is not None:
                 self._judge(record, store, _SUB_METHODS, Outcome.NOT_VERIFIABLE, spoiled)
+            elif category in _REFUSING:
+                # Refused before the method was looked at (an authentication):
+                # Cross-Site Tracing runs with the victim's credentials, so this
+                # says nothing (until 2026-11-16 it was TRACE_NOT_SERVED).
+                self._judge(
+                    record, store, _SUB_METHODS, Outcome.NOT_VERIFIABLE, "REFUSED_BEFORE_METHOD"
+                )
             elif record.response_status_code in _TRACE_REFUSALS:
                 self._judge(record, store, _SUB_METHODS, Outcome.ENFORCED, "METHOD_REJECTED")
             elif category == ResponseCategory.SERVED and echoed:
@@ -304,9 +494,10 @@ class Test01ShadowApiDiscovery(BaseTest):
                             "the headers of its own request, cookies and credentials included "
                             "(Cross-Site Tracing), and it is a method the specification does "
                             "not declare. Disable TRACE at the gateway and the server (OWASP "
-                            "ASVS v5.0.0-4.1.4)."
+                            "ASVS v5.0.0-13.4.4)."
                         ),
                         confidence=Confidence.CERTAIN,
+                        references=list(_REFS_TRACE),
                     ),
                 )
             elif category == ResponseCategory.SERVED:
@@ -413,6 +604,15 @@ class Test01ShadowApiDiscovery(BaseTest):
             else:
                 outcome, detail = Outcome.ENFORCED, "METHOD_NOT_SERVED"
             self._judge(record, store, _SUB_METHODS, outcome, detail)
+            return
+        if not served and category in _REFUSING:
+            # A 401 or 403 unlike the siblings: an authentication bound to this
+            # path (a route of its own) refuses any method before dispatch, so
+            # it does not show the method is known (until 2026-11-16 a FIRM
+            # UNDECLARED_METHOD_KNOWN).
+            self._judge(
+                record, store, _SUB_METHODS, Outcome.NOT_VERIFIABLE, "REFUSED_BEFORE_METHOD"
+            )
             return
         if not served and sibling_captured:
             self._judge(
@@ -563,7 +763,13 @@ class Test01ShadowApiDiscovery(BaseTest):
             endpoint, suffix = sample
             path = f"{base}/{version}{suffix}"
             concrete = self._concrete_path(path, endpoint)
-            self._probe_version(concrete, endpoint.method, fact.value, context, client, store)
+            # Calibrated on a random version in place of this one: its siblings
+            # must leave the candidate version (until 2026-11-16 the last
+            # segment was replaced, inside the version itself).
+            unknown = f"{base}/{{version}}{concrete[len(base) + 1 + len(version) :]}"
+            self._probe_version(
+                concrete, unknown, endpoint.method, fact.value, context, client, store
+            )
             probed.append(f"{endpoint.method} {concrete}")
         if not probed:
             return []
@@ -620,6 +826,7 @@ class Test01ShadowApiDiscovery(BaseTest):
     def _probe_version(  # noqa: PLR0913 -- one probe needs all of it
         self,
         path: str,
+        unknown: str,
         method: str,
         candidate: str,
         context: TestContext,
@@ -631,6 +838,8 @@ class Test01ShadowApiDiscovery(BaseTest):
 
         Args:
             path:      The concrete path under the undocumented version.
+            unknown:   The same path with `{version}` in the version's place,
+                       the pattern of its random siblings.
             method:    The method the specification declares on that path; a
                        method with a body is sent with an empty one.
             candidate: The version directory the rule derived.
@@ -652,8 +861,8 @@ class Test01ShadowApiDiscovery(BaseTest):
             self._judge(record, store, _SUB_VERSIONS, Outcome.NOT_VERIFIABLE, detail)
             return
         references = context.references
-        similarity = references.same_as_unknown(record, template_path=path)
-        point = references.calibration(sibling_pattern(path), method)
+        similarity = references.same_as_unknown(record, template_path=unknown)
+        point = references.calibration(sibling_pattern(unknown), method)
         if similarity == Similarity.UNRELIABLE:
             self._judge(
                 record, store, _SUB_VERSIONS, Outcome.NOT_VERIFIABLE, "CALIBRATION_UNSTABLE"
@@ -667,8 +876,14 @@ class Test01ShadowApiDiscovery(BaseTest):
                 record, store, _SUB_VERSIONS, Outcome.NOT_VERIFIABLE, "REFUSED_BEFORE_ROUTING"
             )
             return
-        if similarity == Similarity.SAME_AS_UNKNOWN or category == ResponseCategory.NOT_FOUND:
+        if similarity == Similarity.SAME_AS_UNKNOWN:
             self._judge(record, store, _SUB_VERSIONS, Outcome.ENFORCED, "VERSION_ABSENT")
+            return
+        if category in (ResponseCategory.NOT_FOUND, *_REFUSING):
+            # Not found or refused, unlike an unknown version: the version may
+            # exist without this path, or a router refuse it; a 404 alone was
+            # VERSION_ABSENT until 2026-11-16.
+            self._judge(record, store, _SUB_VERSIONS, Outcome.NOT_VERIFIABLE, "VERSION_UNCLEAR")
             return
         self._judge(
             record,
@@ -711,27 +926,32 @@ class Test01ShadowApiDiscovery(BaseTest):
             return []
         answer = target.gateway.routes()
         evidence_ref = self._record_gateway_concept(target, store, CONCEPT_ROUTES, answer)
+        if answer.status == ConceptStatus.NOT_SUPPORTED:
+            self._record(_SUB_ROUTES, Outcome.NOT_APPLICABLE, "ROUTES_NOT_SUPPORTED")
+            return []
         if answer.status != ConceptStatus.READ:
-            detail = (
-                "ROUTES_NOT_SUPPORTED"
-                if answer.status == ConceptStatus.NOT_SUPPORTED
-                else "ROUTES_NOT_READABLE"
-            )
-            outcome = (
-                Outcome.NOT_APPLICABLE
-                if answer.status == ConceptStatus.NOT_SUPPORTED
-                else Outcome.NOT_VERIFIABLE
-            )
-            self._record(_SUB_ROUTES, outcome, detail)
+            # The shared rule (until 2026-11-16 ROUTES_NOT_READABLE).
+            self._record(_SUB_ROUTES, Outcome.NOT_VERIFIABLE, CONCEPT_NOT_ACCESSIBLE)
             return []
         surface = target.attack_surface
-        documented = sorted({e.path for e in surface.endpoints} if surface is not None else set())
+        # At the gateway a documented path follows the base URL's path (an
+        # OpenAPI 3 server prefix is not in the surface's paths; until
+        # 2026-11-16 it was left out, and every route looked undocumented).
+        prefix = urlsplit(target.endpoint_base_url()).path.rstrip("/")
+        documented = sorted(
+            {prefix + e.path for e in surface.endpoints} if surface is not None else set()
+        )
         spec_path = urlsplit(str(target.openapi_spec_url)).path if target.openapi_spec_url else None
         for route in answer.items:
             if not route.enabled:
                 self._record(_SUB_ROUTES, Outcome.NOT_APPLICABLE, "ROUTE_DISABLED")
                 continue
-            orphans = [p for p in route.paths if not _route_covers(p, documented, spec_path)]
+            covered = [_route_covers(p, documented, spec_path) for p in route.paths]
+            if None in covered:
+                # A regular expression Python cannot read: nothing is known.
+                self._record(_SUB_ROUTES, Outcome.NOT_VERIFIABLE, "ROUTE_NOT_READ")
+                continue
+            orphans = [p for p, ok in zip(route.paths, covered, strict=True) if not ok]
             if not orphans:
                 self._record(_SUB_ROUTES, Outcome.ENFORCED, "ROUTE_DOCUMENTED")
                 continue
@@ -785,7 +1005,9 @@ def _captured_by_a_template(declared: dict[str, set[str]]) -> frozenset[str]:
     )
 
 
-def _route_covers(route_path: RoutePath, documented: list[str], spec_path: str | None) -> bool:
+def _route_covers(
+    route_path: RoutePath, documented: list[str], spec_path: str | None
+) -> bool | None:
     """
     Whether a route's path has a documented path (or the specification) under it.
 
@@ -798,14 +1020,15 @@ def _route_covers(route_path: RoutePath, documented: list[str], spec_path: str |
         spec_path:  The path the specification is served at, if any.
 
     Returns:
-        True when at least one documented path falls under the route.
+        True when at least one documented path falls under the route; None
+        for a regular expression that does not compile.
     """
     candidates = [*documented, *([spec_path] if spec_path else [])]
     if route_path.match == RouteMatch.REGEX:
         try:
             expression = re.compile(route_path.value)
         except re.error:
-            return False
+            return None
         # A template is not a path a regex can match (/users/{id} against
         # ^/users/\d+$): it is tried as written and with a number and a word in
         # place of its parameters.

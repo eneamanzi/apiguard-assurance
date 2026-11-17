@@ -190,6 +190,10 @@ class FfufConnector(BaseSubprocessConnector):
         ]
         results: list[dict[str, Any]] = []
         commands: list[str] = []
+        # The base paths not searched to the end within the time limit: the
+        # test records them not verifiable and judges the others (until
+        # 2026-11-16 the whole run ended in ERROR, the finished ones lost).
+        unfinished: list[str] = []
         deadline = time.monotonic() + timeout_seconds
         start_ms = int(time.monotonic() * 1000)
         log.info(
@@ -204,15 +208,9 @@ class FfufConnector(BaseSubprocessConnector):
             for index, job in enumerate(jobs):
                 remaining = int(deadline - time.monotonic())
                 if remaining <= 0:
-                    raise ExternalToolError(
-                        message=(
-                            f"ffuf reached the time limit of {timeout_seconds}s after "
-                            f"{index} of {len(jobs)} base paths. Increase "
-                            "'external_tools.ffuf.timeout_seconds' in config.yaml."
-                        ),
-                        tool_name=self.TOOL_NAME,
-                        timed_out=True,
-                    )
+                    unfinished += [left.base_url for left in jobs[index:]]
+                    log.warning("ffuf_time_limit", searched=index, total=len(jobs))
+                    break
                 wordlist = temp_dir / f"words_{index}.txt"
                 wordlist.write_text("\n".join(job.words) + "\n", encoding="utf-8")
                 output = temp_dir / f"result_{index}.json"
@@ -239,17 +237,11 @@ class FfufConnector(BaseSubprocessConnector):
                 )
                 if time.monotonic() - job_start >= remaining:
                     # ffuf stops itself at -maxtime with exit code 0 and a
-                    # partial output: a search cut short, not a finished one,
-                    # whose silence would read as nothing found.
-                    raise ExternalToolError(
-                        message=(
-                            f"ffuf reached the time limit of {timeout_seconds}s during base "
-                            f"path {index + 1} of {len(jobs)}: the search did not finish. "
-                            "Increase 'external_tools.ffuf.timeout_seconds' in config.yaml."
-                        ),
-                        tool_name=self.TOOL_NAME,
-                        timed_out=True,
-                    )
+                    # partial output: a search cut short, whose silence would
+                    # read as nothing found, so neither it nor the rest counts.
+                    unfinished += [left.base_url for left in jobs[index:]]
+                    log.warning("ffuf_time_limit", searched=index, total=len(jobs))
+                    break
                 if exit_code != _FFUF_SUCCESS_EXIT_CODE:
                     raise ExternalToolError(
                         message=f"ffuf exited with code {exit_code} on {url}.",
@@ -279,7 +271,8 @@ class FfufConnector(BaseSubprocessConnector):
                 "command_json": command,
                 "results": results,
                 "all_count": len(results),
-                "base_urls": [job.base_url for job in jobs],
+                "base_urls": [job.base_url for job in jobs if job.base_url not in unfinished],
+                "unfinished_base_urls": unfinished,
             },
             exit_code=_FFUF_SUCCESS_EXIT_CODE,
             execution_time_ms=execution_time_ms,

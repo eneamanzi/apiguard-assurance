@@ -57,7 +57,7 @@ from src.core.models import (
     ResourceAuth,
     ResourceConfig,
 )
-from src.core.models.resources import CreateRequest, DeleteRequest
+from src.core.models.resources import COOKIE_VALUE_PREFIX, CreateRequest, DeleteRequest
 from src.core.templating import TemplateError, render
 from src.tests.helpers.auth_base import role_account
 
@@ -83,8 +83,18 @@ class ResourceSetupError(ToolBaseError):
 
     Distinct from SecurityClientError (transport failure): a response was
     received, but it is not a success or lacks a configured value. The
-    calling test returns ERROR with this message.
+    calling test returns ERROR with this message, or, when the answer says
+    nothing (`record`, a 503 or a 429), records it NOT_VERIFIABLE.
     """
+
+    def __init__(self, message: str, record: EvidenceRecord | None = None) -> None:
+        """
+        Args:
+            message: What failed.
+            record:  The create request and its answer, when one came back.
+        """
+        super().__init__(message)
+        self.record = record
 
 
 class PreparedResource(BaseModel):
@@ -150,24 +160,30 @@ def create_resource(
         raise ResourceSetupError(
             f"Resource '{name}' (role '{role}'): {resource.create.method} "
             f"{_fill(resource.create.path, fixed, name)} returned HTTP {response.status_code}. "
-            f"Response: {response.text[:_RESPONSE_PREVIEW]}"
+            f"Response: {response.text[:_RESPONSE_PREVIEW]}",
+            record=record,
         )
 
-    body = _json_object(response, resource, name) if resource.values else {}
+    # The JSON body is needed only for a value read from it: a login answering
+    # with a session cookie alone (204, no body) reads its credential from the
+    # cookie (`cookie:<name>`, since 2026-11-16).
+    from_body = any(not p.startswith(COOKIE_VALUE_PREFIX) for p in resource.values.values())
+    body = _json_object(response, resource, name) if from_body else {}
+    cookies = _set_cookies(response)
     # The values the delete request needs come first: teardown is registered
     # before any other value can fail.
     delete_names = _delete_value_names(resource)
     values: dict[str, str] = {}
     for value_name in sorted(delete_names):
         values[value_name] = _read_value(
-            body, resource.values[value_name], value_name, name, created_not_deleted=True
+            (body, cookies), resource.values[value_name], value_name, name, created_not_deleted=True
         )
     if resource.delete is not None:
         _register_teardown(target, context, resource.delete, {**fixed, **values}, name, role)
     for value_name, path in resource.values.items():
         if value_name not in values:
             values[value_name] = _read_value(
-                body, path, value_name, name, created_not_deleted=False
+                (body, cookies), path, value_name, name, created_not_deleted=False
             )
 
     credential = values.get(CREDENTIAL_VALUE)
@@ -367,14 +383,35 @@ def _json_object(response: httpx.Response, resource: ResourceConfig, name: str) 
     return body
 
 
+def _set_cookies(response: httpx.Response) -> dict[str, str]:
+    """The cookies a response sets, name to value (the first of a repeated name)."""
+    cookies: dict[str, str] = {}
+    for raw in response.headers.get_list("set-cookie"):
+        pair = raw.split(";", 1)[0]
+        cookie_name, separator, value = pair.partition("=")
+        if separator and cookie_name.strip():
+            cookies.setdefault(cookie_name.strip(), value.strip())
+    return cookies
+
+
 def _read_value(
-    body: dict[str, Any],
+    sources: tuple[dict[str, Any], dict[str, str]],
     path: str,
     value_name: str,
     name: str,
     created_not_deleted: bool,
 ) -> str:
-    """A string or number at a dotted path of the response."""
+    """A string or number at a dotted path of the JSON body, or a cookie's value (cookie:<name>)."""
+    body, cookies = sources
+    if path.startswith(COOKIE_VALUE_PREFIX):
+        cookie = cookies.get(path.removeprefix(COOKIE_VALUE_PREFIX))
+        if not cookie:
+            suffix = _NOT_DELETED if created_not_deleted else ""
+            raise ResourceSetupError(
+                f"Resource '{name}': value '{value_name}': the create response sets no cookie "
+                f"'{path.removeprefix(COOKIE_VALUE_PREFIX)}' with a value{suffix}."
+            )
+        return cookie
     node: Any = body
     for part in path.split(_DOTTED_SEPARATOR):
         if not isinstance(node, dict) or part not in node:

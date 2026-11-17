@@ -47,10 +47,12 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
-from src.core.test_metadata import Effect, Need, TestInfo
+from src.core.references import fingerprint_of
+from src.core.test_metadata import Effect, Need, OracleCase, TestInfo
 from src.tests.base import BaseTest
 from src.tests.helpers.anchor import Anchor, find_anchor
 from src.tests.helpers.auth import revocation_capability
+from src.tests.helpers.resources import ResourceSetupError
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -60,8 +62,52 @@ _SUB_REVOKED: str = "rejected_after_revocation"
 _REFERENCES: tuple[Reference, ...] = (
     Reference(standard=Standard.OWASP_API_TOP10, id="API2:2023"),
     Reference(standard=Standard.RFC, id="7009"),
-    Reference(standard=Standard.RFC, id="7519", section="4.1.7"),
     Reference(standard=Standard.ASVS, id="v5.0.0-7.4.1"),
+)
+# RFC 7519 section 4.1.7 (`jti`) was cited until 2026-11-16: the test never reads it.
+
+# A refusal of the revoked credential (RFC 6750 section 3.1: 400 or 401).
+_REFUSING: frozenset[ResponseCategory] = frozenset(
+    {
+        ResponseCategory.UNAUTHENTICATED,
+        ResponseCategory.FORBIDDEN,
+        ResponseCategory.INVALID_REQUEST,
+    }
+)
+
+_ORACLE: tuple[OracleCase, ...] = (
+    OracleCase(
+        when="the revoked credential is refused (`400`, `401`, `403`) at the anchor",
+        outcome=Outcome.ENFORCED,
+        detail="REFUSED_AFTER_REVOCATION",
+    ),
+    OracleCase(
+        when="it is served (`2xx`) with the answer it got before revocation",
+        outcome=Outcome.VIOLATION,
+        detail="ACCEPTED_AFTER_REVOCATION",
+        confidence=Confidence.CERTAIN,
+    ),
+    OracleCase(
+        when="it is served with another answer (a `200` may carry an error)",
+        outcome=Outcome.VIOLATION,
+        detail="ACCEPTED_AFTER_REVOCATION",
+        confidence=Confidence.FIRM,
+    ),
+    OracleCase(
+        when="it gets another answer (a redirect, `404`, ...)",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="NOT_A_REFUSAL",
+    ),
+    OracleCase(
+        when="no documented read accepts the new credential and refuses no credential",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="NO_WORKING_ANCHOR",
+    ),
+    OracleCase(
+        when="the delete request of the credential did not answer `2xx`",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="REVOCATION_NOT_CONFIRMED",
+    ),
 )
 
 
@@ -83,6 +129,7 @@ class Test14CredentialRevocation(BaseTest):
         needs=(Need.USER_ACCOUNT, Need.REVOCABLE_LOGIN),
         effect=Effect.CHANGES_DATA,
         sub_tests=(_SUB_REVOKED,),
+        oracle=_ORACLE,
     )
 
     def execute(
@@ -122,9 +169,21 @@ class Test14CredentialRevocation(BaseTest):
                     "No credential placement is configured, so the created credential cannot be "
                     "sent (credentials.auth_type is not set)."
                 )
-            credential = method.create_temporary_credential(
-                target, context, client, ROLE_USER_A, self.info.id
-            )
+            try:
+                credential = method.create_temporary_credential(
+                    target, context, client, ROLE_USER_A, self.info.id
+                )
+            except AuthenticationSetupError as exc:
+                # A creation the target did not evaluate (unavailable, throttled)
+                # says nothing; any other failure is a setup error (until
+                # 2026-11-16 both were ERROR).
+                cause = exc.__cause__
+                record = cause.record if isinstance(cause, ResourceSetupError) else None
+                reason = self._uninformative(record, _SUB_REVOKED) if record else None
+                if record is None or reason is None:
+                    raise
+                self._judge(record, store, _SUB_REVOKED, Outcome.NOT_VERIFIABLE, reason)
+                return self._finish()
             parts = placement.request_parts(credential.value)
             anchor = find_anchor(
                 target, client, dict(parts.headers), dict(parts.params), self.info.id
@@ -190,6 +249,7 @@ class Test14CredentialRevocation(BaseTest):
             self._judge(record, store, _SUB_REVOKED, Outcome.NOT_VERIFIABLE, uninformative)
             return
         if category == ResponseCategory.SERVED:
+            same = fingerprint_of(record) == fingerprint_of(anchor.record)
             for control in (anchor.record, anchor.refused, revocation):
                 store.pin_evidence(control)
             self._judge(
@@ -215,8 +275,11 @@ class Test14CredentialRevocation(BaseTest):
                         "missing invalidation only at expiry). Invalidate the credential at the "
                         "server on revocation."
                     ),
-                    confidence=Confidence.CERTAIN,
+                    confidence=Confidence.CERTAIN if same else Confidence.FIRM,
                 ),
             )
+            return
+        if category not in _REFUSING:
+            self._judge(record, store, _SUB_REVOKED, Outcome.NOT_VERIFIABLE, "NOT_A_REFUSAL")
             return
         self._judge(record, store, _SUB_REVOKED, Outcome.ENFORCED, "REFUSED_AFTER_REVOCATION")

@@ -52,11 +52,13 @@ src.tests.base.
 
 from __future__ import annotations
 
+import ipaddress
 import socket
 from urllib.parse import urlsplit
 
 import structlog
 
+from src.core.assessment_test import CONCEPT_NOT_ACCESSIBLE, category_of
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
@@ -76,7 +78,7 @@ from src.core.models import (
     TransportError,
 )
 from src.core.references import Fingerprint, fingerprint_of
-from src.core.test_metadata import DecisiveAnswer, Effect, Need, TestInfo
+from src.core.test_metadata import DecisiveAnswer, Effect, Need, OracleCase, TestInfo
 from src.tests.base import BaseTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -106,6 +108,83 @@ _REFERENCES: tuple[Reference, ...] = (
     Reference(standard=Standard.OWASP_API_TOP10, id="API8:2023"),
     Reference(standard=Standard.NIST_SP, id="800-228", section="4.1"),
 )
+# Host names that always mean the machine asking.
+_LOCAL_NAMES: frozenset[str] = frozenset({"localhost", "localhost.localdomain"})
+# The gateway's own refusal of the probe: a direct answer cannot be compared with it.
+_REFUSED: frozenset[ResponseCategory] = frozenset(
+    {ResponseCategory.UNAUTHENTICATED, ResponseCategory.FORBIDDEN}
+)
+
+_ORACLE: tuple[OracleCase, ...] = (
+    OracleCase(
+        when="an address answers with the status, media type and body shape the gateway gives "
+        "for the path",
+        outcome=Outcome.VIOLATION,
+        detail="BACKEND_ANSWERS_DIRECTLY",
+        confidence=Confidence.CERTAIN,
+    ),
+    OracleCase(
+        when="an address the gateway declares answers unlike the gateway, or opens a connection "
+        "whose answer cannot be read",
+        outcome=Outcome.VIOLATION,
+        detail="ADDRESS_ANSWERS_DIRECTLY",
+        confidence=Confidence.FIRM,
+    ),
+    OracleCase(
+        when="a declared address refuses or times out, or the derived one does after the "
+        "declared one did",
+        outcome=Outcome.ENFORCED,
+        detail="BACKEND_UNREACHABLE",
+    ),
+    OracleCase(
+        when="the derived address (the target's host, the backend's port) refuses, but no "
+        "declared address of that backend refused",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="DERIVED_REFUSAL_ONLY",
+    ),
+    OracleCase(
+        when="the derived address answers unlike the gateway: another service",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="ANOTHER_SERVICE",
+    ),
+    OracleCase(
+        when="the derived address answers, and the gateway itself refused the probe (`401`, "
+        "`403`): the two cannot be compared",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="GATEWAY_REFUSED_PROBE",
+    ),
+    OracleCase(
+        when="a declared address is a loopback or link-local one: it means the gateway's own "
+        "host, not reachable from here",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="GATEWAY_LOCAL_ADDRESS",
+    ),
+    OracleCase(
+        when="the candidate's name does not resolve where the run started",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="ADDRESS_NOT_RESOLVABLE",
+    ),
+    OracleCase(
+        when="a declared address has no port",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="ADDRESS_WITHOUT_PORT",
+    ),
+    OracleCase(
+        when="the gateway states no backend address",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="NO_BACKEND_ADDRESS",
+    ),
+    OracleCase(
+        when="the specification declares no `GET` path without parameters",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="NO_PROBE_PATH",
+    ),
+    OracleCase(
+        when="the gateway's adapter does not read its backends' targets",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="ADDRESSES_NOT_SUPPORTED",
+    ),
+)
 
 
 class Candidate:
@@ -134,11 +213,7 @@ class Candidate:
 
 
 class Test04BackendWithoutTheGateway(BaseTest):
-    """
-    Test 0.4 -- whether a backend answers without passing through the gateway.
-
-    The oracle is in the module docstring and on the test page.
-    """
+    """Test 0.4 -- whether a backend answers without passing through the gateway."""
 
     info = TestInfo(
         id="0.4",
@@ -151,6 +226,7 @@ class Test04BackendWithoutTheGateway(BaseTest):
         needs=(Need.GATEWAY,),
         effect=Effect.READ_ONLY,
         sub_tests=(_SUB_ADDRESSES,),
+        oracle=_ORACLE,
         decisive_answers=(
             DecisiveAnswer(
                 category=ResponseCategory.SERVER_ERROR,
@@ -262,18 +338,15 @@ class Test04BackendWithoutTheGateway(BaseTest):
             judgement is already recorded).
         """
         gateway = target.gateway
-        if gateway is None:
-            self._record(_SUB_ADDRESSES, Outcome.NOT_APPLICABLE, "NO_GATEWAY")
-            return None
+        assert gateway is not None  # noqa: S101 -- Need.GATEWAY, checked by the engine
         answer = gateway.target_health()
         self._record_gateway_concept(target, store, CONCEPT_TARGET_HEALTH, answer)
+        if answer.status == ConceptStatus.NOT_SUPPORTED:
+            self._record(_SUB_ADDRESSES, Outcome.NOT_APPLICABLE, "ADDRESSES_NOT_SUPPORTED")
+            return None
         if answer.status != ConceptStatus.READ:
-            outcome = (
-                Outcome.NOT_APPLICABLE
-                if answer.status == ConceptStatus.NOT_SUPPORTED
-                else Outcome.NOT_VERIFIABLE
-            )
-            self._record(_SUB_ADDRESSES, outcome, "ADDRESSES_NOT_READABLE")
+            # The shared rule (until 2026-11-16 ADDRESSES_NOT_READABLE).
+            self._record(_SUB_ADDRESSES, Outcome.NOT_VERIFIABLE, CONCEPT_NOT_ACCESSIBLE)
             return None
         own = urlsplit(str(target.base_url))
         own_host = own.hostname or ""
@@ -286,12 +359,22 @@ class Test04BackendWithoutTheGateway(BaseTest):
                 self._record(_SUB_ADDRESSES, Outcome.NOT_VERIFIABLE, "ADDRESS_WITHOUT_PORT")
                 continue
             host, port = parsed
+            if _local(host):
+                # 127.0.0.1 or localhost in the gateway's configuration is the
+                # gateway's own host (a sidecar), and here it would be the
+                # tool's: asking it says nothing (until 2026-11-16 it was asked).
+                self._record(_SUB_ADDRESSES, Outcome.NOT_VERIFIABLE, "GATEWAY_LOCAL_ADDRESS")
+                continue
             # The addresses the gateway states it resolved the target to (Kong
             # gives the name and, apart, its IP) are declared too: the gateway
             # says the backend is there (owner decision 2026-11-04). They come
             # before the derived address, which is judged
             # against the declared ones (_judge_candidate).
-            resolved = [r for r in (_host_port(a) for a in item.resolved) if r is not None]
+            resolved = [
+                r
+                for r in (_host_port(a) for a in item.resolved)
+                if r is not None and not _local(r[0])
+            ]
             options = [(host, port, True), *((h, p, True) for h, p in resolved)]
             options.append((own_host, port, False))
             for candidate_host, candidate_port, declared in options:
@@ -356,7 +439,7 @@ class Test04BackendWithoutTheGateway(BaseTest):
                     continue
             break
         if record is None:
-            self._record(_SUB_ADDRESSES, Outcome.NOT_VERIFIABLE, "NO_ATTEMPT")
+            self._record(_SUB_ADDRESSES, Outcome.NOT_VERIFIABLE, ResponseCategory.NO_RESPONSE.value)
             return
         self._judge_candidate(store, candidate, record, through, refused)
 
@@ -433,6 +516,14 @@ class Test04BackendWithoutTheGateway(BaseTest):
                 Outcome.VIOLATION,
                 "ADDRESS_ANSWERS_DIRECTLY",
                 self._finding(candidate, record, same=False, unread=False),
+            )
+            return
+        if category_of(through) in _REFUSED:
+            # The gateway refused the probe itself (its authentication): a
+            # backend answering 200 at its port is not "another service" for
+            # that (until 2026-11-16 it was, the main bypass missed).
+            self._judge(
+                record, store, _SUB_ADDRESSES, Outcome.NOT_VERIFIABLE, "GATEWAY_REFUSED_PROBE"
             )
             return
         self._judge(record, store, _SUB_ADDRESSES, Outcome.NOT_APPLICABLE, "ANOTHER_SERVICE")
@@ -516,10 +607,23 @@ def _probe_path(target: TargetContext) -> str | None:
     surface = target.attack_surface
     if surface is None:
         return None
-    paths = {e.path for e in surface.endpoints if e.method.upper() == "GET" and "{" not in e.path}
-    if not paths:
+    gets = [e for e in surface.endpoints if e.method.upper() == "GET" and "{" not in e.path]
+    if not gets:
         return None
-    return sorted(paths, key=lambda p: (len(p), p))[0]
+    # One without a security requirement first: the gateway then serves it
+    # rather than refusing it with its own authentication.
+    return min(gets, key=lambda e: (e.requires_auth, len(e.path), e.path)).path
+
+
+def _local(host: str) -> bool:
+    """Whether a host is a loopback or link-local address, or a local name."""
+    if host.lower() in _LOCAL_NAMES:
+        return True
+    try:
+        address = ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        return False
+    return address.is_loopback or address.is_link_local
 
 
 def _host_port(address: str) -> tuple[str, int] | None:

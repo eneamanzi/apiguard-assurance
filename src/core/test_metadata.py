@@ -34,7 +34,7 @@ from pydantic import (
     model_validator,
 )
 
-from src.core.models import ResponseCategory, TestStrategy
+from src.core.models import Confidence, Outcome, ResponseCategory, TestStrategy
 from src.core.models.standards import CWE_ID_PATTERN, Reference, Standard, duplicate_references
 from src.core.response_category import UNINFORMATIVE_CATEGORIES
 
@@ -240,6 +240,47 @@ def _cwe_id(value: str | None) -> str | None:
 _NonEmptyText = Annotated[str, AfterValidator(_not_blank)]
 
 
+# The detail of a judgement, e.g. "AUTH_BYPASS": uppercase words joined by
+# underscores, read with the outcome as "VIOLATION/AUTH_BYPASS". A family of
+# details (`SERVED_AS_<kind>`) is declared by its prefix, ending with "_".
+DETAIL_PATTERN: re.Pattern[str] = re.compile(r"^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$")
+
+
+class OracleCase(BaseModel):
+    """
+    One case of a test's oracle: when it applies, and the judgement it gives.
+
+    A test declares every case it records (TestInfo.oracle), but the answers
+    that say nothing (the shared rule): its page's oracle table is generated
+    from them, and a judgement the oracle does not declare is a programming
+    error (AssessmentTest._record).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    when: _NonEmptyText = Field(description="The situation, one short sentence (Markdown).")
+    outcome: Outcome = Field(description="What it means for the guarantee.")
+    detail: str = Field(
+        description="The detail recorded; for a family, its prefix ending with '_' (SERVED_AS_)."
+    )
+    confidence: Confidence | None = Field(
+        default=None,
+        description="The confidence of the finding: required for a VIOLATION, only then.",
+    )
+    sub_test: str | None = Field(
+        default=None, description="The sub-test; may be left out when the test has only one."
+    )
+    members: tuple[str, ...] = Field(
+        default=(), description="A family's members: the detail is the prefix followed by one."
+    )
+
+    def names(self) -> tuple[str, ...]:
+        """The details this case records: the detail, or each member of its family."""
+        if self.members:
+            return tuple(self.detail + member for member in self.members)
+        return (self.detail,)
+
+
 class DecisiveAnswer(BaseModel):
     """
     An uninformative category that is, for some sub-tests, the answer judged.
@@ -364,6 +405,13 @@ class TestInfo(BaseModel):
             "and the sub-tests that use a missing one record NOT_APPLICABLE."
         ),
     )
+    oracle: tuple[OracleCase, ...] = Field(
+        default=(),
+        description=(
+            "The test's oracle, case by case (the answers that say nothing excepted); its page's "
+            "table is generated from it. Empty: not yet declared, nothing is checked."
+        ),
+    )
     decisive_answers: tuple[DecisiveAnswer, ...] = Field(
         default=(),
         description=(
@@ -433,6 +481,7 @@ class TestInfo(BaseModel):
                     f"'rate-limit'; a standard goes in references"
                 )
         self._check_decisive_answers()
+        self._check_oracle()
         duplicates = duplicate_references(self.references)
         if duplicates:
             raise ValueError(f"references: cited more than once: {duplicates}")
@@ -461,6 +510,72 @@ class TestInfo(BaseModel):
                         f"decisive_answers: {answer.category.value} declared twice for {sub_test!r}"
                     )
                 seen.add((answer.category, sub_test))
+
+    def _check_oracle(self) -> None:
+        """Each case: a declared sub-test, a valid detail, a confidence only for a VIOLATION."""
+        seen: set[tuple[str, Outcome, str, Confidence | None]] = set()
+        for case in self.oracle:
+            sub_test = case.sub_test or self._only_sub_test("oracle")
+            if sub_test not in self.sub_tests:
+                raise ValueError(f"oracle: sub-test {sub_test!r} is not declared")
+            family = case.detail.endswith("_")
+            if family != bool(case.members):
+                raise ValueError(
+                    f"oracle: {case.detail!r}: a family ends with '_' and lists its members"
+                )
+            for detail in case.names():
+                if not DETAIL_PATTERN.match(detail):
+                    raise ValueError(f"oracle: {detail!r} must be UPPER_SNAKE_CASE")
+            if (case.confidence is not None) != (case.outcome == Outcome.VIOLATION):
+                raise ValueError(f"oracle: {case.detail}: a confidence goes with a VIOLATION only")
+            key = (sub_test, case.outcome, case.detail, case.confidence)
+            if key in seen:
+                raise ValueError(f"oracle: {case.outcome.value}/{case.detail} declared twice")
+            seen.add(key)
+
+    def _only_sub_test(self, field: str) -> str:
+        """The test's only sub-test, for an entry that leaves it out."""
+        if len(self.sub_tests) != 1:
+            raise ValueError(f"{field}: name the sub-test, the test has several")
+        return self.sub_tests[0]
+
+    def case_sub_test(self, case: OracleCase) -> str:
+        """
+        The sub-test of an oracle case (the only one when the case leaves it out).
+
+        Args:
+            case: A case of this test's oracle.
+
+        Returns:
+            Its sub-test.
+        """
+        return case.sub_test or self.sub_tests[0]
+
+    def declares(
+        self, sub_test: str, outcome: Outcome, detail: str, confidence: Confidence | None
+    ) -> bool:
+        """
+        Whether the oracle declares a judgement (always True for an oracle not declared).
+
+        Args:
+            sub_test:   The sub-test judged.
+            outcome:    The outcome recorded.
+            detail:     The detail recorded.
+            confidence: The finding's confidence (a VIOLATION), else None.
+
+        Returns:
+            True when a case of that sub-test gives this outcome and detail, with
+            this confidence for a VIOLATION.
+        """
+        if not self.oracle:
+            return True
+        return any(
+            self.case_sub_test(case) == sub_test
+            and case.outcome == outcome
+            and detail in case.names()
+            and case.confidence == confidence
+            for case in self.oracle
+        )
 
     def decides(self, category: ResponseCategory, sub_test: str) -> bool:
         """

@@ -158,6 +158,12 @@ class ConceptRead(BaseModel, Generic[ItemT]):
 # ---------------------------------------------------------------------------
 
 _SOURCE_DESCRIPTION: str = "Reference to the gateway's own object, for the evidence."
+# The range of HTTP status codes (RFC 9110 section 15).
+_HTTP_STATUS_MIN: int = 100
+_HTTP_STATUS_MAX: int = 599
+
+
+_TIMEOUT_VALUES: str = "0: no bound; None: not stated, value unknown."
 
 
 class BackendTimeout(BaseModel):
@@ -170,13 +176,16 @@ class BackendTimeout(BaseModel):
     )
     name: str = Field(min_length=1, description="Backend or route name.")
     connect_seconds: float | None = Field(
-        ge=0, description="Maximum time to open the connection; None: not stated, value unknown."
+        ge=0,
+        description=f"Maximum time to open the connection; {_TIMEOUT_VALUES}",
     )
     send_seconds: float | None = Field(
-        ge=0, description="Maximum time between two writes; None: not stated, value unknown."
+        ge=0,
+        description=f"Maximum time between two writes; {_TIMEOUT_VALUES}",
     )
     read_seconds: float | None = Field(
-        ge=0, description="Maximum time between two reads; None: not stated, value unknown."
+        ge=0,
+        description=f"Maximum time between two reads; {_TIMEOUT_VALUES}",
     )
     defaulted: tuple[str, ...] = Field(
         default=(),
@@ -289,7 +298,32 @@ class SigningPolicy(BaseModel):
         description="Headers the client must include in the signature."
     )
     body_signed: bool | None = Field(
-        description="Whether the body is covered by the signature; None: not stated."
+        description=(
+            "Whether a changed body is refused: the body checked against a digest the signature "
+            "must cover (an unsigned digest is recomputed by whoever changes the body); None: not "
+            "stated."
+        )
+    )
+    target_signed: bool | None = Field(
+        default=None,
+        description=(
+            "Whether the signature must cover the request's method and path; None: not stated."
+        ),
+    )
+    date_signed: bool | None = Field(
+        default=None,
+        description=(
+            "Whether the date the replay window is checked against must be in the signature "
+            "(every date header the gateway accepts); False: an unsigned fresh date passes the "
+            "check, so a captured request can be replayed; None: not stated."
+        ),
+    )
+    optional: bool = Field(
+        default=False,
+        description=(
+            "True when a request without a valid signature is let through as an anonymous "
+            "consumer instead of refused."
+        ),
     )
     source: str = Field(min_length=1, description=_SOURCE_DESCRIPTION)
 
@@ -398,7 +432,20 @@ class RateLimit(BaseModel):
             "pass the stated count; None: not stated."
         )
     )
+    refusal_status: int | None = Field(
+        ge=_HTTP_STATUS_MIN,
+        le=_HTTP_STATUS_MAX,
+        description="The HTTP status of a request refused over the limit; None: not stated.",
+    )
     source: str = Field(min_length=1, description=_SOURCE_DESCRIPTION)
+
+
+def http_status(value: object) -> int | None:
+    """An HTTP status from a configuration value (an integral number 100-599), else None."""
+    if isinstance(value, bool) or not isinstance(value, int | float) or value != int(value):
+        return None
+    status = int(value)
+    return status if _HTTP_STATUS_MIN <= status <= _HTTP_STATUS_MAX else None
 
 
 class BodySizeLimit(BaseModel):
@@ -419,6 +466,53 @@ class BodySizeLimit(BaseModel):
     source: str = Field(min_length=1, description=_SOURCE_DESCRIPTION)
 
 
+# The parts of a request a shipped log record can carry, written
+# '<kind>:<name>' with the name lowercased, or '<kind>:*' for every one of a
+# kind (ShippedRequest).
+REQUEST_PART_HEADER: str = "header"
+REQUEST_PART_QUERY: str = "query"
+REQUEST_PART_COOKIE: str = "cookie"
+REQUEST_PART_EVERY: str = "*"
+
+
+def request_part(kind: str, name: str) -> str:
+    """
+    Write one part of a request as ShippedRequest lists it.
+
+    Args:
+        kind: REQUEST_PART_HEADER, REQUEST_PART_QUERY or REQUEST_PART_COOKIE.
+        name: The header, query parameter or cookie name, or REQUEST_PART_EVERY.
+
+    Returns:
+        '<kind>:<name>', the name lowercased.
+    """
+    return f"{kind}:{name.lower()}"
+
+
+class ShippedRequest(BaseModel):
+    """
+    What of the request a log shipper's record carries in clear.
+
+    Each part is written by request_part(). A part in `removed` is taken out
+    or replaced before the record is built, for all the traffic the shipper
+    logs; one in `removed_in_part` may be, for part of it only (a setting on
+    another scope) or not wholly (a pattern replacing part of the value).
+    """
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    carries: tuple[str, ...] = Field(
+        description="The parts the record carries: 'header:<name>', 'query:<name>', "
+        "'cookie:<name>', or '<kind>:*' for every one of a kind."
+    )
+    removed: tuple[str, ...] = Field(
+        default=(), description="Parts removed or replaced for all the traffic it logs."
+    )
+    removed_in_part: tuple[str, ...] = Field(
+        default=(), description="Parts a setting may remove for part of that traffic only."
+    )
+
+
 class LogShipper(BaseModel):
     """A plugin that ships request logs to a system apart from the gateway."""
 
@@ -428,6 +522,13 @@ class LogShipper(BaseModel):
     name: str = Field(min_length=1, description="Backend or route name; 'global' for GLOBAL.")
     plugin: str = Field(min_length=1, description="The gateway's own name for the plugin.")
     enabled: bool = Field(description="Whether the plugin is active.")
+    request: ShippedRequest | None = Field(
+        default=None,
+        description=(
+            "What of the request each record carries; None: not stated (operator code decides "
+            "it, or the adapter does not read it)."
+        ),
+    )
     source: str = Field(min_length=1, description=_SOURCE_DESCRIPTION)
 
 
@@ -443,7 +544,13 @@ class HealthCounters(BaseModel):
 
 
 class TargetHealth(BaseModel):
-    """Live health of one target of a backend."""
+    """
+    One target of a backend the gateway routes to, with its live health.
+
+    A target the gateway routes to without checking its health (a Kong Service
+    pointing straight at a host, an APISIX upstream without `checks`) is
+    reported too, its state UNKNOWN.
+    """
 
     model_config = {"frozen": True, "extra": "forbid"}
 

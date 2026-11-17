@@ -63,7 +63,8 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
-from src.core.test_metadata import Effect, Need, TestInfo
+from src.core.references import fingerprint_of
+from src.core.test_metadata import Effect, Need, OracleCase, TestInfo
 from src.tests.base import BaseTest
 from src.tests.helpers.anchor import Anchor, find_anchor
 from src.tests.helpers.auth import auth_parts
@@ -83,6 +84,16 @@ _VARIANT_SUB: dict[JwtVariant, str] = {
     JwtVariant.STRIPPED_SIGNATURE: _SUB_STRIPPED,
 }
 
+# A refusal of the token: unauthenticated, forbidden, or a malformed request
+# (RFC 6750 section 3.1 answers an invalid token with 400 or 401).
+_REFUSING: frozenset[ResponseCategory] = frozenset(
+    {
+        ResponseCategory.UNAUTHENTICATED,
+        ResponseCategory.FORBIDDEN,
+        ResponseCategory.INVALID_REQUEST,
+    }
+)
+
 _REFERENCES: tuple[Reference, ...] = (
     # Read on the ASVS source 2026-10-22: 9.1.1 "validated using their digital
     # signature ... before accepting the token's contents" (the whole test);
@@ -91,6 +102,93 @@ _REFERENCES: tuple[Reference, ...] = (
     Reference(standard=Standard.ASVS, id="v5.0.0-9.1.1"),
     Reference(standard=Standard.ASVS, id="v5.0.0-9.1.2"),
     Reference(standard=Standard.RFC, id="8725", section="2.1"),
+)
+
+
+def _forgery(sub_test: str, variant: str, what: str) -> tuple[OracleCase, ...]:
+    """The cases of one key-free forgery."""
+    return (
+        OracleCase(
+            sub_test=sub_test,
+            when=f"{what} is served (`2xx`) at the anchor with the genuine token's answer",
+            outcome=Outcome.VIOLATION,
+            detail=f"ACCEPTED_{variant}",
+            confidence=Confidence.CERTAIN,
+        ),
+        OracleCase(
+            sub_test=sub_test,
+            when=f"{what} is served (`2xx`) with another answer (an error envelope may be a 200)",
+            outcome=Outcome.VIOLATION,
+            detail=f"ACCEPTED_{variant}",
+            confidence=Confidence.FIRM,
+        ),
+        OracleCase(
+            sub_test=sub_test,
+            when=f"{what} is refused (`400`, `401`, `403`)",
+            outcome=Outcome.ENFORCED,
+            detail="REFUSED",
+        ),
+        OracleCase(
+            sub_test=sub_test,
+            when=f"{what} gets another answer (a redirect, `404`, ...)",
+            outcome=Outcome.NOT_VERIFIABLE,
+            detail="NOT_A_REFUSAL",
+        ),
+        OracleCase(
+            sub_test=sub_test,
+            when="no documented read accepts the genuine token and refuses no credential",
+            outcome=Outcome.NOT_VERIFIABLE,
+            detail="NO_WORKING_ANCHOR",
+        ),
+        OracleCase(
+            sub_test=sub_test,
+            when="user_a's credential is not a JWT",
+            outcome=Outcome.NOT_APPLICABLE,
+            detail="NOT_A_JWT",
+        ),
+        OracleCase(
+            sub_test=sub_test,
+            when="no token value was stored for user_a (not reached: the engine provides it)",
+            outcome=Outcome.NOT_VERIFIABLE,
+            detail="NO_TOKEN_VALUE",
+        ),
+    )
+
+
+_ORACLE: tuple[OracleCase, ...] = (
+    *_forgery(
+        _SUB_UNSIGNED,
+        "ALG_NONE",
+        "the token with `alg` set to `none` (any spelling) and no signature",
+    ),
+    *_forgery(
+        _SUB_TAMPERED, "TAMPERED_PAYLOAD", "the token with a claim added and the original signature"
+    ),
+    *_forgery(_SUB_STRIPPED, "STRIPPED_SIGNATURE", "the token with its signature emptied"),
+    OracleCase(
+        sub_test=_SUB_CONFUSION,
+        when="a JWT and a working anchor: the attack needs the public key, not fetched",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="NEEDS_KEY_MATERIAL",
+    ),
+    OracleCase(
+        sub_test=_SUB_CONFUSION,
+        when="no working anchor",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="NO_WORKING_ANCHOR",
+    ),
+    OracleCase(
+        sub_test=_SUB_CONFUSION,
+        when="user_a's credential is not a JWT",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="NOT_A_JWT",
+    ),
+    OracleCase(
+        sub_test=_SUB_CONFUSION,
+        when="no token value was stored for user_a (not reached)",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="NO_TOKEN_VALUE",
+    ),
 )
 
 
@@ -113,6 +211,7 @@ class Test12CredentialCryptographicallyValid(BaseTest):
         needs=(Need.USER_ACCOUNT,),
         effect=Effect.READ_ONLY,
         sub_tests=(_SUB_UNSIGNED, _SUB_TAMPERED, _SUB_STRIPPED, _SUB_CONFUSION),
+        oracle=_ORACLE,
     )
 
     def execute(
@@ -158,6 +257,7 @@ class Test12CredentialCryptographicallyValid(BaseTest):
             )
             if anchor is None:
                 self._record_all(Outcome.NOT_VERIFIABLE, "NO_WORKING_ANCHOR")
+                self._record(_SUB_CONFUSION, Outcome.NOT_VERIFIABLE, "NO_WORKING_ANCHOR")
                 return self._finish()
             self._step(anchor.record)
             notes = self._probe_variants(client, store, context, anchor, view, parts)
@@ -262,6 +362,10 @@ class Test12CredentialCryptographicallyValid(BaseTest):
             self._judge(record, store, sub_test, Outcome.NOT_VERIFIABLE, uninformative)
             return False
         if category == ResponseCategory.SERVED:
+            # CERTAIN when the answer is the genuine token's own (same shape):
+            # a 200 carrying an error envelope is served too (until 2026-11-16
+            # always CERTAIN).
+            same = fingerprint_of(record) == fingerprint_of(anchor.record)
             # The controls the finding rests on: the genuine token served at the
             # anchor, and the anchor refused without a credential.
             store.pin_evidence(anchor.record)
@@ -283,10 +387,15 @@ class Test12CredentialCryptographicallyValid(BaseTest):
                         "key and refuse any token whose signature does not match."
                     ),
                     supporting_refs=[anchor.record.record_id, anchor.refused.record_id],
-                    confidence=Confidence.CERTAIN,
+                    confidence=Confidence.CERTAIN if same else Confidence.FIRM,
                 ),
             )
             return True
+        if category not in _REFUSING:
+            # A redirect, a 404, a 408: not a refusal of the token (until
+            # 2026-11-16 every non-2xx was REFUSED).
+            self._judge(record, store, sub_test, Outcome.NOT_VERIFIABLE, "NOT_A_REFUSAL")
+            return False
         self._judge(record, store, sub_test, Outcome.ENFORCED, "REFUSED")
         return False
 

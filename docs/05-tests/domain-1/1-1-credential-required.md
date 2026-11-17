@@ -3,7 +3,7 @@
 > **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-22) ·
 > **Source of truth:**
 > [`src/tests/domain_1/test_1_1_credential_required.py`](../../../src/tests/domain_1/test_1_1_credential_required.py) ·
-> **Verified:** 2026-11-15
+> **Verified:** 2026-11-16
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("1.1", page=cog.inFile)) ]]] -->
 
@@ -15,7 +15,7 @@
 | Priority / strategy | P0 / BLACK_BOX |
 | Effect | CHANGES_DATA |
 | CWE | CWE-306 |
-| Standards | `OWASP API2:2023`, `OWASP ASVS v5.0.0-8.2.1`, `OWASP ASVS v5.0.0-6.3.4`, `NIST SP 800-228, Section 3.2.1`, `RFC 9110, Section 5.1` |
+| Standards | `OWASP API2:2023`, `OWASP ASVS v5.0.0-8.2.1`, `CWE-288`, `NIST SP 800-228, Section 3.2.1`, `RFC 9110, Section 5.1` |
 | Tags | `authentication`, `access-control` |
 | Prerequisites | none |
 | Needs | - |
@@ -84,32 +84,45 @@ than anonymous access, so the operation refused it while serving an anonymous re
 
 ## 6. Oracle
 
-**What the specification's declaration is worth sets the confidence.** The OpenAPI rule makes an operation's own
-`security` a statement about that operation and the document's global `security` a default that may never have been
-thought about. Measured 2026-10-22: crAPI declares per operation (9 of its operations are marked public with
-`security: []`), Forgejo's 473 operations all inherit one global list and none declares anything of its own.
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("1.1")) ]]] -->
+
+**`no_credential`**
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| refused without a credential (401, 403) | `ENFORCED/CREDENTIAL_REQUIRED` | - |
-| answers `2xx` without a credential, the operation declaring its own requirement | `VIOLATION/SERVED_WITHOUT_CREDENTIAL` | FIRM |
-| answers `2xx` without a credential, the requirement being the document's default | `VIOLATION/SERVED_WITHOUT_CREDENTIAL`, the finding saying the operation may be public and undeclared | TENTATIVE |
+| refused without a credential (`401`, `403`) | `ENFORCED/CREDENTIAL_REQUIRED` | - |
+| served (`2xx`) without a credential, unlike a random path, the operation declaring its own requirement | `VIOLATION/SERVED_WITHOUT_CREDENTIAL` | FIRM |
+| the same, the requirement being the document's default | `VIOLATION/SERVED_WITHOUT_CREDENTIAL` | TENTATIVE |
+| served exactly as a random path is (a catch-all) | `NOT_VERIFIABLE/SERVED_LIKE_UNKNOWN` | - |
+| an `OPTIONS` answered `2xx` with no body (an `Allow` list, no data) | `NOT_VERIFIABLE/OPTIONS_ANSWERED` | - |
+| a redirect, not followed | `NOT_VERIFIABLE/REDIRECTED` | - |
+| an invalid-request `4xx`: validated without a credential | `NOT_VERIFIABLE/VALIDATED_WITHOUT_CREDENTIAL` | - |
+| another answer (`404`, `405`, ...), like a random sibling's | `NOT_VERIFIABLE/NOT_FOUND_LIKE_UNKNOWN` | - |
+| another answer, unlike a random sibling's or with an unreliable calibration | `NOT_VERIFIABLE/NOT_FOUND_OWN_ANSWER` | - |
 | the operation declares `security: []` | `NOT_APPLICABLE/DECLARED_PUBLIC` | - |
-| no security requirement anywhere | `NOT_APPLICABLE/NO_SECURITY_DECLARED` | - |
-| answers like a random sibling of its path | `NOT_VERIFIABLE/NOT_FOUND_LIKE_UNKNOWN` | - |
-| answers "not found" in its own shape | `NOT_VERIFIABLE/NOT_FOUND_OWN_ANSWER` | - |
-| answers `400` or `422`: the request was validated without a credential | `NOT_VERIFIABLE/VALIDATED_WITHOUT_CREDENTIAL` | - |
-| answers `3xx`, not followed | `NOT_VERIFIABLE/REDIRECTED` | - |
-| a credential that cannot be valid is accepted | `VIOLATION/ACCEPTED_<case>`, the case one of `EMPTY_CREDENTIAL`, `WORD_NULL`, `ARBITRARY_STRING` (the scheme followed by nothing, by `null`, by a random string) or `HEADER_LOWERCASE`, `HEADER_UPPERCASE` (the random string under the header name written in lower or upper case) | CERTAIN |
-| a credential that cannot be valid is refused (`401`, `403`) | `ENFORCED/CREDENTIAL_REFUSED` | - |
-| it is neither refused nor served (another answer) | `NOT_VERIFIABLE/NOT_SERVED` | - |
-| a path variant is served without a credential | `VIOLATION/SERVED_AS_<kind>` | CERTAIN |
-| a variant is refused or not routed | `ENFORCED/VARIANT_NOT_SERVED` | - |
-| a variant answers `3xx`, not followed | `ENFORCED/VARIANT_REDIRECTED`: the question is whether that spelling serves the operation, and a redirect serves nothing (a redirect of the endpoint itself is `REDIRECTED` above, because there it leaves open whether the control is a login page) | - |
-| no endpoint has a proven control to sample, so the malformed-credential and path-variant sub-tests have nothing to probe | `NOT_VERIFIABLE/NO_PROVEN_CONTROL` on both | - |
+| no security requirement applies, neither the document's nor the operation's | `NOT_APPLICABLE/NO_SECURITY_DECLARED` | - |
 
-A note states once whether the document declares security per operation, so that a heap of TENTATIVE findings is
-read for what it is.
+**`malformed_credential`**
+
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| a credential that cannot be valid is not served (refused, `400`, ...) | `ENFORCED/CREDENTIAL_REFUSED` | - |
+| a credential that cannot be valid is served (`2xx`) where none is refused | `VIOLATION/ACCEPTED_<kind>`, the kind one of `EMPTY_CREDENTIAL`, `WORD_NULL`, `ARBITRARY_STRING`, `EMPTY_CREDENTIAL_IN_QUERY`, `WORD_NULL_IN_QUERY`, `ARBITRARY_STRING_IN_QUERY`, `HEADER_LOWERCASE`, `HEADER_UPPERCASE` | CERTAIN |
+| no read operation was proven to require a credential | `NOT_VERIFIABLE/NO_PROVEN_CONTROL` | - |
+
+**`path_variants`**
+
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| a variant answers a redirect: that spelling serves nothing | `ENFORCED/VARIANT_REDIRECTED` | - |
+| a variant is refused or not routed | `ENFORCED/VARIANT_NOT_SERVED` | - |
+| a variant is served (`2xx`) without a credential where the path itself is refused | `VIOLATION/SERVED_AS_<kind>`, the kind one of `UPPER_SEGMENT`, `TRAILING_SLASH`, `DOUBLE_SLASH`, `DOT_SEGMENT`, `DOT_DOT_SEGMENT`, `ENCODED_SLASH`, `DOUBLE_ENCODED`, `PATH_PARAMETER` | CERTAIN |
+| a variant is served exactly as a random path spelled the same way (a catch-all) | `NOT_VERIFIABLE/VARIANT_LIKE_UNKNOWN` | - |
+| no read operation was proven to require a credential | `NOT_VERIFIABLE/NO_PROVEN_CONTROL` | - |
+
+<!-- [[[end]]] -->
+
+Until 2026-11-16: a write without path parameters was probed with its last segment replaced by a random one, so it never reached the operation (crAPI's identity writes read `CREDENTIAL_REQUIRED` from Spring's `401` on a path that does not exist, Forgejo's `POST /api/v1/markdown` was a random path against random paths); now it goes to its own path (with parameters, still a random object). A `2xx` was never compared with a random path, so a catch-all (a single-page app behind `/`) made every protected path a violation: now `SERVED_LIKE_UNKNOWN`, and `VARIANT_LIKE_UNKNOWN` for a path variant. A malformed credential refused with `400` (RFC 6750 section 3.1) or another non-`2xx` was `NOT_SERVED`, NOT_VERIFIABLE: now `CREDENTIAL_REFUSED`. An empty `OPTIONS` answer is `OPTIONS_ANSWERED`, not a served operation. The variants cite CWE-288 (ASVS 6.3.4, cited until then, is about authentication pathways).
 
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("1.1", page=cog.inFile)) ]]] -->
 
@@ -131,11 +144,15 @@ is rule 2 of the [assessment model](../../04-architecture/03-assessment-model.md
 
 ## 8. Findings
 
-One per operation: "Served without a credential: `<method> <path>`", with the status, where the requirement is
-declared and what each of the two cases means; one per accepted malformed credential ("Credential that cannot be
-valid accepted: `<method> <path>`") and per served variant ("Path variant served without a credential: `<method>
-<variant>`"), with the header or the spelling that passed. `evidence_ref` the probe, `supporting_refs` the calibration where one was
-used.
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("1.1")) ]]] -->
+
+- "Served without a credential: <method> <path>"
+- "Credential that cannot be valid accepted: <method> <path>"
+- "Path variant served without a credential: <method> <path>"
+
+<!-- [[[end]]] -->
+
+Each names the method and path; `evidence_ref` the answer, with the anchor's records as support where the finding rests on them.
 
 ## 9. Effects on the target
 
@@ -155,6 +172,9 @@ not (APISIX) both pass `path_variants` as long as the variant is not served.
 None. The old test's parameters are gone with it.
 
 ## 12. Validation
+
+**2026-11-16, after the review** (domain 1 on the three labs as configured): Forgejo labs **FAIL** (78 TENTATIVE `SERVED_WITHOUT_CREDENTIAL`, the specification declaring security only globally), crAPI **FAIL** (2 FIRM), as before; crAPI's 20 protected writes now answer `401` on their own paths.
+
 
 Runs of 2026-10-22, the three tests of the group together:
 

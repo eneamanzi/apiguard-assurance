@@ -2,42 +2,18 @@
 src/tests/domain_4/test_4_3_circuit_breaker_audit.py
 
 Test 4.3: guarantee "the system degrades gracefully with a circuit breaker"
-. OWASP API4:2023.
+(OWASP API4:2023).
 
-A circuit breaker stops a failing downstream from cascading: it opens after N
-failures and answers at once instead of waiting for a timeout on every request.
-Not every gateway has a dedicated breaker; a passive health check (a backend is
-taken out of rotation after repeated failures) is the equivalent control, and
-is accepted as a compensating one.
+A circuit breaker stops a failing backend from holding every request for its
+timeout. A health check that takes a failing backend out of rotation is the
+equivalent control, accepted as a compensating one. It counts only when it can
+detect a failure: a passive threshold above zero, or an active probe of healthy
+targets (both gateways answer with their defaults filled in, intervals of zero
+included, so the record's presence proves nothing). Whether an excluded target
+comes back by itself (an active probe of unhealthy targets) is said in the note.
 
-A health check counts only when it can *detect* a failing backend: passive
-thresholds above zero, or an active probe on healthy targets (an interval above
-zero).  Both gateways answer with their defaults filled in, so a backend with no
-health check at all still comes back with a full `active` record whose intervals
-are zero: reading "the record exists" as "a check is configured" would turn
-every such backend into a pass.  Re-enabling an excluded backend is a separate
-property (`HealthCheck.recovers_automatically`, an active probe on unhealthy
-targets): it is not required for the control to exist, and the note says when it
-is missing.
-
-The test reads two gateway concepts through the adapter and judges the single
-sub-test `degradation_configured`:
-
-    a circuit breaker is enabled                  ENFORCED/CIRCUIT_BREAKER
-    else a health check that detects failures     ENFORCED/HEALTH_CHECK (a note:
-                                                    a compensating control, and
-                                                    whether it recovers)
-    neither, and both concepts were answered      VIOLATION/NO_CIRCUIT_BREAKER
-    neither, but one concept was not accessible   NOT_VERIFIABLE/GATEWAY_READ_FAILED
-    neither concept readable                      SKIP
-
-The NOT_VERIFIABLE case is the honest answer to a half-read admin plane: with
-the breakers unread, "the gateway has no breaker" is not a fact.  A concept the
-gateway does not have at all (NOT_SUPPORTED) is different: there the absence is
-a fact and the violation stands.
-
-WHITE_BOX (the gateway Admin API), READ_ONLY. Rebuilt on the new base from the
-test on `main`, keeping the passive-health-check-as-breaker reasoning.
+WHITE_BOX audit of two gateway concepts, READ_ONLY; one sub-test, its oracle:
+info.oracle, generated on the test page.
 
 Dependency rule: imports from stdlib, structlog and src.core, plus
 src.tests.base.
@@ -49,6 +25,7 @@ from typing import Any
 
 import structlog
 
+from src.core.assessment_test import CONCEPT_NOT_ACCESSIBLE
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
@@ -69,7 +46,7 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
-from src.core.test_metadata import Effect, Need, TestInfo
+from src.core.test_metadata import Effect, Need, OracleCase, TestInfo
 from src.tests.base import BaseTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -79,7 +56,7 @@ _SUB: str = "degradation_configured"
 _DETAIL_BREAKER: str = "CIRCUIT_BREAKER"
 _DETAIL_HEALTH_CHECK: str = "HEALTH_CHECK"
 _DETAIL_NONE: str = "NO_CIRCUIT_BREAKER"
-_DETAIL_NOT_READ: str = "GATEWAY_READ_FAILED"
+_DETAIL_NOT_READ: str = CONCEPT_NOT_ACCESSIBLE
 
 _REFERENCES: tuple[Reference, ...] = (
     # Read on the ASVS v5.0.0 source 2026-10-23: 16.5.2 (an automated recovery
@@ -89,14 +66,34 @@ _REFERENCES: tuple[Reference, ...] = (
     Reference(standard=Standard.NIST_SP, id="800-204", section="4.5.1"),
 )
 
+_ORACLE: tuple[OracleCase, ...] = (
+    OracleCase(
+        when="an enabled circuit breaker",
+        outcome=Outcome.ENFORCED,
+        detail=_DETAIL_BREAKER,
+    ),
+    OracleCase(
+        when="no breaker, and a health check that detects a failing backend: a compensating "
+        "control (the note says whether an excluded backend comes back by itself)",
+        outcome=Outcome.ENFORCED,
+        detail=_DETAIL_HEALTH_CHECK,
+    ),
+    OracleCase(
+        when="neither, each concept read or one the gateway does not have",
+        outcome=Outcome.VIOLATION,
+        detail=_DETAIL_NONE,
+        confidence=Confidence.CERTAIN,
+    ),
+    OracleCase(
+        when="neither in what was read, and a concept the gateway has could not be read",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail=_DETAIL_NOT_READ,
+    ),
+)
+
 
 class Test43CircuitBreakerAudit(BaseTest):
-    """
-    Test 4.3 -- whether the gateway degrades gracefully (a breaker or a passive
-    health check).
-
-    The oracle is in the module docstring and on the test page.
-    """
+    """Test 4.3 -- whether the gateway degrades gracefully (a breaker or a health check)."""
 
     info = TestInfo(
         id="4.3",
@@ -109,6 +106,7 @@ class Test43CircuitBreakerAudit(BaseTest):
         needs=(Need.GATEWAY,),
         effect=Effect.READ_ONLY,
         sub_tests=(_SUB,),
+        oracle=_ORACLE,
     )
 
     def execute(
@@ -153,11 +151,12 @@ class Test43CircuitBreakerAudit(BaseTest):
                 self._record(_SUB, Outcome.ENFORCED, _DETAIL_HEALTH_CHECK)
                 return self._finish(notes=[_health_check_note(detecting, ref_hc)])
 
-            if breakers.status != ConceptStatus.READ and checks.status != ConceptStatus.READ:
+            unsupported = ConceptStatus.NOT_SUPPORTED
+            if breakers.status == unsupported and checks.status == unsupported:
                 return self._skip(
                     reason=(
-                        "Neither circuit breakers nor health checks could be read from the "
-                        f"gateway (circuit breakers: {_why(breakers)}; health checks: "
+                        "Not applicable to this gateway: it has neither circuit breakers nor "
+                        f"health checks (circuit breakers: {_why(breakers)}; health checks: "
                         f"{_why(checks)}). Evidence: {ref_cb}, {ref_hc}."
                     )
                 )

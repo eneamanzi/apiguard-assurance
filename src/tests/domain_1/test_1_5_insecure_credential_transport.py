@@ -72,7 +72,7 @@ from src.core.models import (
     TestStrategy,
     TransportError,
 )
-from src.core.test_metadata import Effect, TestInfo
+from src.core.test_metadata import DecisiveAnswer, Effect, OracleCase, TestInfo
 from src.tests.base import BaseTest
 from src.tests.helpers.path_resolver import resolve_path_with_seed
 
@@ -103,8 +103,11 @@ _HTTPS_DEFAULT_PORT: int = 443
 _ROOT_PATH: str = "/"
 
 # The lower bound of an acceptable HSTS floor (one day); the default is one year
-# (NIST SP 800-52 Rev.2, ASVS v5.0.0-3.4.1).
+# (ASVS v5.0.0-3.4.1; NIST SP 800-52r2, cited until 2026-11-16, says nothing of HSTS).
 _HSTS_MIN_FLOOR_SECONDS: int = 86_400
+# 426 Upgrade Required (RFC 9110 section 15.5.22): Kong's answer to plain HTTP on a
+# route that accepts only HTTPS.
+_UPGRADE_REQUIRED: int = 426
 _HSTS_DEFAULT_MAX_AGE_SECONDS: int = 31_536_000
 
 _REFERENCES: tuple[Reference, ...] = (
@@ -120,13 +123,140 @@ _REFERENCES: tuple[Reference, ...] = (
     Reference(standard=Standard.OWASP_API_TOP10, id="API2:2023"),
     Reference(standard=Standard.OWASP_API_TOP10, id="API8:2023"),
     Reference(standard=Standard.RFC, id="9110", section="4.2.2"),
-    Reference(standard=Standard.NIST_SP, id="800-52r2"),
+    Reference(standard=Standard.RFC, id="6797", section="6.1"),
     Reference(standard=Standard.ASVS, id="v5.0.0-3.4.1"),
     Reference(standard=Standard.ASVS, id="v5.0.0-12.2.1"),
     # 4.1.2 (read on the source 2026-11-04): only user-facing endpoints
     # redirect from HTTP to HTTPS; other endpoints implement no transparent
     # redirect, so that a client sending cleartext requests is not hidden.
     Reference(standard=Standard.ASVS, id="v5.0.0-4.1.2"),
+)
+# Each finding cites its own (until 2026-11-16 every one cited all of them).
+_REFS_HTTP: tuple[Reference, ...] = (
+    Reference(standard=Standard.OWASP_API_TOP10, id="API2:2023"),
+    Reference(standard=Standard.OWASP_API_TOP10, id="API8:2023"),
+    Reference(standard=Standard.RFC, id="9110", section="4.2.2"),
+    Reference(standard=Standard.ASVS, id="v5.0.0-4.1.2"),
+    Reference(standard=Standard.ASVS, id="v5.0.0-12.2.1"),
+)
+_REFS_HSTS: tuple[Reference, ...] = (
+    Reference(standard=Standard.OWASP_API_TOP10, id="API8:2023"),
+    Reference(standard=Standard.RFC, id="6797", section="6.1"),
+    Reference(standard=Standard.ASVS, id="v5.0.0-3.4.1"),
+)
+
+_ORACLE: tuple[OracleCase, ...] = (
+    OracleCase(
+        sub_test=_SUB_TLS,
+        when="`base_url` is `http://`: no TLS at all",
+        outcome=Outcome.VIOLATION,
+        detail="PLAIN_HTTP",
+        confidence=Confidence.CERTAIN,
+    ),
+    OracleCase(
+        sub_test=_SUB_TLS,
+        when="the plain-HTTP connection is refused: nothing listens there",
+        outcome=Outcome.ENFORCED,
+        detail="HTTP_PORT_UNREACHABLE",
+    ),
+    OracleCase(
+        sub_test=_SUB_TLS,
+        when="the plain-HTTP probe timed out or broke before an answer",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="HTTP_PORT_NO_ANSWER",
+    ),
+    OracleCase(
+        sub_test=_SUB_TLS,
+        when="`base_url` not on port 443 and no `http_url`: the HTTP listener is unknown",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="HTTP_LISTENER_UNKNOWN",
+    ),
+    OracleCase(
+        sub_test=_SUB_TLS,
+        when="a `301`/`308` to an `https://` location (ASVS v5.0.0-4.1.2)",
+        outcome=Outcome.VIOLATION,
+        detail="TRANSPARENT_REDIRECT",
+        confidence=Confidence.CERTAIN,
+    ),
+    OracleCase(
+        sub_test=_SUB_TLS,
+        when="a `301`/`308` whose location is not `https`",
+        outcome=Outcome.VIOLATION,
+        detail="WEAK_REDIRECT",
+        confidence=Confidence.CERTAIN,
+    ),
+    OracleCase(
+        sub_test=_SUB_TLS,
+        when="any other redirect",
+        outcome=Outcome.VIOLATION,
+        detail="TEMPORARY_REDIRECT",
+        confidence=Confidence.CERTAIN,
+    ),
+    OracleCase(
+        sub_test=_SUB_TLS,
+        when="a `2xx` over plain HTTP",
+        outcome=Outcome.VIOLATION,
+        detail="HTTP_SERVED_CLEARTEXT",
+        confidence=Confidence.CERTAIN,
+    ),
+    OracleCase(
+        sub_test=_SUB_TLS,
+        when="any other answer over plain HTTP: the same `4xx` as over HTTPS, or a `5xx`",
+        outcome=Outcome.VIOLATION,
+        detail="HTTP_PROCESSED_CLEARTEXT",
+        confidence=Confidence.CERTAIN,
+    ),
+    OracleCase(
+        sub_test=_SUB_TLS,
+        when="`426`, or a `4xx` the same path does not get over HTTPS: the protocol is refused "
+        "and the client told (owner, 2026-11-16)",
+        outcome=Outcome.ENFORCED,
+        detail="HTTP_REFUSED",
+    ),
+    OracleCase(
+        sub_test=_SUB_TLS,
+        when="a `4xx` other than `426`, and no HTTPS answer that says something to compare it with",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="HTTPS_ANSWER_UNKNOWN",
+    ),
+    OracleCase(
+        sub_test=_SUB_HSTS,
+        when="HSTS with `max-age` at least `hsts_min_max_age_seconds` and `includeSubDomains`",
+        outcome=Outcome.ENFORCED,
+        detail="HSTS_COMPLIANT",
+    ),
+    OracleCase(
+        sub_test=_SUB_HSTS,
+        when="the HTTPS answer has no `Strict-Transport-Security`",
+        outcome=Outcome.VIOLATION,
+        detail="HSTS_MISSING",
+        confidence=Confidence.CERTAIN,
+    ),
+    OracleCase(
+        sub_test=_SUB_HSTS,
+        when="`max-age` absent or below `hsts_min_max_age_seconds`",
+        outcome=Outcome.VIOLATION,
+        detail="HSTS_MAX_AGE_LOW",
+        confidence=Confidence.CERTAIN,
+    ),
+    OracleCase(
+        sub_test=_SUB_HSTS,
+        when="`max-age` sufficient, no `includeSubDomains`",
+        outcome=Outcome.VIOLATION,
+        detail="HSTS_NO_SUBDOMAINS",
+        confidence=Confidence.FIRM,
+    ),
+    OracleCase(
+        sub_test=_SUB_HSTS,
+        when="`base_url` is plain HTTP: no TLS to carry HSTS",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="NO_TLS",
+    ),
+)
+# Any answer over plain HTTP is the verdict of credential_forced_onto_tls.
+_CLEARTEXT_ANSWER: str = (
+    "any answer over plain HTTP means the request crossed the network in cleartext: judged by "
+    "the oracle above (no answer is `HTTP_PORT_NO_ANSWER`)."
 )
 
 
@@ -147,7 +277,7 @@ class Test15Params(BaseModel):
         default=_HSTS_DEFAULT_MAX_AGE_SECONDS,
         description=(
             "Lowest acceptable max-age (seconds) in the Strict-Transport-Security header. "
-            "NIST SP 800-52 Rev.2, OWASP ASVS v5.0.0-3.4.1 ask for at least one year. "
+            "OWASP ASVS v5.0.0-3.4.1 asks for at least one year. "
             f"Default: {_HSTS_DEFAULT_MAX_AGE_SECONDS} (one year)."
         ),
     )
@@ -180,6 +310,16 @@ class Test15InsecureCredentialTransport(BaseTest[Test15Params]):
         tags=("transport-security", "tls", "hsts"),
         effect=Effect.READ_ONLY,
         sub_tests=(_SUB_TLS, _SUB_HSTS),
+        oracle=_ORACLE,
+        decisive_answers=tuple(
+            DecisiveAnswer(category=category, sub_tests=(_SUB_TLS,), reason=_CLEARTEXT_ANSWER)
+            for category in (
+                ResponseCategory.UPSTREAM_UNAVAILABLE,
+                ResponseCategory.RATE_LIMITED,
+                ResponseCategory.SERVER_ERROR,
+                ResponseCategory.NO_RESPONSE,
+            )
+        ),
     )
 
     def execute(
@@ -212,8 +352,9 @@ class Test15InsecureCredentialTransport(BaseTest[Test15Params]):
             if missing is not None:
                 return missing
             probe_path = self._documented_path(target)
-            self._check_http(target, client, store, cfg, base_url, probe_path)
-            self._check_hsts(client, store, cfg, probe_path)
+            # The HTTPS answer first: the plain-HTTP one is compared with it.
+            https = self._check_hsts(client, store, cfg, probe_path)
+            self._check_http(target, client, store, cfg, base_url, probe_path, https)
             return self._finish()
         except Exception as exc:  # noqa: BLE001 -- top-level guard (BaseTest contract)
             return self._error(exc)
@@ -296,6 +437,7 @@ class Test15InsecureCredentialTransport(BaseTest[Test15Params]):
         cfg: Test15Params,
         base_url: str,
         probe_path: str,
+        https: EvidenceRecord | None,
     ) -> None:
         """
         Send a plain-HTTP GET to a documented path and judge the answer.
@@ -317,6 +459,10 @@ class Test15InsecureCredentialTransport(BaseTest[Test15Params]):
             self._record(_SUB_TLS, Outcome.NOT_VERIFIABLE, "HTTP_LISTENER_UNKNOWN")
             return
         origin = self._http_origin(cfg, base_url)
+        # The base URL's own path goes before the documented path, as the
+        # HTTPS requests have it (until 2026-11-16 it was dropped: an unrouted
+        # path was asked in cleartext).
+        probe_path = urlsplit(base_url).path.rstrip("/") + probe_path
         try:
             response, record = client.request(
                 "GET",
@@ -337,7 +483,7 @@ class Test15InsecureCredentialTransport(BaseTest[Test15Params]):
                     exc.record, store, _SUB_TLS, Outcome.NOT_VERIFIABLE, "HTTP_PORT_NO_ANSWER"
                 )
             return
-        self._judge_http(response.headers, record, store, origin, probe_path)
+        self._judge_http(response.headers, record, store, origin, probe_path, https)
 
     def _judge_http(
         self,
@@ -346,10 +492,13 @@ class Test15InsecureCredentialTransport(BaseTest[Test15Params]):
         store: EvidenceStore,
         origin: str,
         probe_path: str,
+        https: EvidenceRecord | None,
     ) -> None:
         """
-        Judge a plain-HTTP response: any answer is a cleartext exposure, a
-        redirect to https included (ASVS v5.0.0-4.1.2).
+        Judge a plain-HTTP response (ASVS v5.0.0-4.1.2): a redirect hides the
+        mistake from the client, an answer serves it; an error refusing the
+        protocol tells it (owner, 2026-11-16: until then every answer was a
+        violation, Kong's `426 Please use HTTPS protocol` included).
 
         Args:
             headers:    The response headers (for the Location of a redirect).
@@ -380,8 +529,27 @@ class Test15InsecureCredentialTransport(BaseTest[Test15Params]):
                         "endpoints (close the HTTP listener for them, or answer an error)."
                     ),
                     confidence=Confidence.CERTAIN,
+                    references=list(_REFS_HTTP),
                 ),
             )
+            return
+        client_error = status is not None and 400 <= status < 500
+        compared = https is not None and self._uninformative(https, _SUB_TLS) is None
+        if client_error and status != _UPGRADE_REQUIRED and not compared:
+            # No HTTPS answer to compare the 4xx with (none, or a 503 or 429):
+            # whether the route refuses the protocol or answers as over HTTPS
+            # is not known.
+            self._judge(record, store, _SUB_TLS, Outcome.NOT_VERIFIABLE, "HTTPS_ANSWER_UNKNOWN")
+            return
+        refuses = status == _UPGRADE_REQUIRED or (
+            client_error and https is not None and https.response_status_code != status
+        )
+        if refuses:
+            # A 426, or a 4xx the HTTPS request does not get: the protocol is
+            # refused, and the client is told. The same 4xx as over HTTPS (a
+            # 401 on both) means the route answers over HTTP as it does over
+            # HTTPS: processed in cleartext.
+            self._judge(record, store, _SUB_TLS, Outcome.ENFORCED, "HTTP_REFUSED")
             return
         if category == ResponseCategory.REDIRECT:
             detail, why = (
@@ -413,9 +581,10 @@ class Test15InsecureCredentialTransport(BaseTest[Test15Params]):
                     "or downgrades the connection. Refuse plain HTTP on API endpoints (close the "
                     "HTTP listener for them, or answer an error): a redirect, even to HTTPS, is "
                     "allowed only on endpoints meant for a browser (OWASP ASVS v5.0.0-4.1.2, "
-                    "RFC 9110 section 4.2.2, NIST SP 800-52 Rev.2)."
+                    "RFC 9110 section 4.2.2)."
                 ),
                 confidence=Confidence.CERTAIN,
+                references=list(_REFS_HTTP),
             ),
         )
 
@@ -425,7 +594,7 @@ class Test15InsecureCredentialTransport(BaseTest[Test15Params]):
         store: EvidenceStore,
         cfg: Test15Params,
         probe_path: str,
-    ) -> None:
+    ) -> EvidenceRecord | None:
         """
         Send an HTTPS GET to a documented path and judge the HSTS header.
 
@@ -434,6 +603,9 @@ class Test15InsecureCredentialTransport(BaseTest[Test15Params]):
             store:      The test's evidence store.
             cfg:        The test's parameters (the max-age bound).
             probe_path: The documented path to read.
+
+        Returns:
+            The HTTPS answer, the plain-HTTP one's comparison; None without one.
         """
         try:
             response, record = client.request("GET", probe_path, test_id=self.info.id)
@@ -442,7 +614,13 @@ class Test15InsecureCredentialTransport(BaseTest[Test15Params]):
             if exc.record is None:
                 raise
             self._judge(exc.record, store, _SUB_HSTS, Outcome.NOT_VERIFIABLE, "NO_RESPONSE")
-            return
+            return None
+        uninformative = self._uninformative(record, _SUB_HSTS)
+        if uninformative is not None:
+            # The gateway's own 503 or 429 may lack the header the API sets
+            # (until 2026-11-16 judged as HSTS_MISSING, CERTAIN).
+            self._judge(record, store, _SUB_HSTS, Outcome.NOT_VERIFIABLE, uninformative)
+            return record
         value = _header(response.headers, _HSTS_HEADER)
         if not value:
             self._judge(
@@ -461,9 +639,10 @@ class Test15InsecureCredentialTransport(BaseTest[Test15Params]):
                         f"{cfg.hsts_min_max_age_seconds} seconds and includeSubDomains."
                     ),
                     confidence=Confidence.CERTAIN,
+                    references=list(_REFS_HSTS),
                 ),
             )
-            return
+            return record
         match = _HSTS_MAX_AGE.search(value)
         max_age = int(match.group(1)) if match else None
         if max_age is None or max_age < cfg.hsts_min_max_age_seconds:
@@ -478,14 +657,15 @@ class Test15InsecureCredentialTransport(BaseTest[Test15Params]):
                     detail=(
                         f"The HSTS header on GET {probe_path} is {value!r}: its max-age "
                         f"({'absent' if max_age is None else max_age}) is below the "
-                        f"{cfg.hsts_min_max_age_seconds} seconds asked for (NIST SP 800-52 Rev.2, "
-                        "ASVS v5.0.0-3.4.1). A short max-age leaves a window in which a browser "
-                        "still tries plain HTTP."
+                        f"{cfg.hsts_min_max_age_seconds} seconds asked for (ASVS v5.0.0-3.4.1). "
+                        "A short max-age leaves a window in which a browser still tries plain "
+                        "HTTP."
                     ),
                     confidence=Confidence.CERTAIN,
+                    references=list(_REFS_HSTS),
                 ),
             )
-            return
+            return record
         if _HSTS_INCLUDE_SUBDOMAINS not in value.lower().replace(" ", ""):
             self._judge(
                 record,
@@ -503,10 +683,12 @@ class Test15InsecureCredentialTransport(BaseTest[Test15Params]):
                         "max-age already forces HTTPS on this host."
                     ),
                     confidence=Confidence.FIRM,
+                    references=list(_REFS_HSTS),
                 ),
             )
-            return
+            return record
         self._judge(record, store, _SUB_HSTS, Outcome.ENFORCED, "HSTS_COMPLIANT")
+        return record
 
 
 def _header(headers: object, name: str) -> str:

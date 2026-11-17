@@ -60,21 +60,39 @@ for any later such check is logged in a note.
 
 ## 6. Oracle
 
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("1.3")) ]]] -->
+
+**`expiry_declared`**
+
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| no `exp` claim | `VIOLATION/NO_EXP_CLAIM` | FIRM: the token never expires on its own |
-| `exp` present | `ENFORCED/EXP_DECLARED` | - |
-| `exp - iat` over the bound (24 hours) | `VIOLATION/LIFETIME_EXCESSIVE`, the finding carrying the measured span | TENTATIVE: the token's purpose cannot be read from it |
-| `exp - iat` within the bound | `ENFORCED/LIFETIME_BOUNDED` | - |
-| no usable `iat` | `NOT_VERIFIABLE/NO_IAT_CLAIM` | - |
-| `exp` present but not a number (RFC 7519 NumericDate) | `NOT_VERIFIABLE/EXP_NOT_NUMERIC` | - |
-| `exp` not after `iat` | `NOT_VERIFIABLE/EXP_NOT_AFTER_IAT` | - |
-| the past-expiry case | `NOT_VERIFIABLE/NEEDS_KEY_MATERIAL` | - |
-| the credential is not a JWT | `NOT_APPLICABLE/NOT_A_JWT` | - |
+| the token carries a numeric `exp` | `ENFORCED/EXP_DECLARED` | - |
+| the token carries no `exp` (only server-side state, unseen, could end it) | `VIOLATION/NO_EXP_CLAIM` | TENTATIVE |
+| `exp` is not a NumericDate | `NOT_VERIFIABLE/EXP_NOT_NUMERIC` | - |
+| user_a's credential is not a JWT | `NOT_APPLICABLE/NOT_A_JWT` | - |
 
-The 24-hour bound is a heuristic, not a line ASVS draws (ASVS v5.0.0-7.3.2 asks for an absolute maximum "according
-to risk analysis"), so its finding is TENTATIVE and carries the measured lifetime for the reader to judge. It is a
-constant of the module, not a parameter (owner, 2026-10-22).
+**`lifetime_bounded`**
+
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| `exp` minus `iat`, or minus the login's time without `iat`, is at most 24 hours | `ENFORCED/LIFETIME_BOUNDED` | - |
+| the same span is over 24 hours | `VIOLATION/LIFETIME_EXCESSIVE` | TENTATIVE |
+| no `iat`, and a configured token (no login to date it) | `NOT_VERIFIABLE/NO_IAT_CLAIM` | - |
+| `exp` is not after the start | `NOT_VERIFIABLE/EXP_NOT_AFTER_IAT` | - |
+| `exp` is not a NumericDate | `NOT_VERIFIABLE/EXP_NOT_NUMERIC` | - |
+| no `exp`: nothing to bound (the declared sub-test reports it) | `NOT_APPLICABLE/NO_EXPIRY_TO_BOUND` | - |
+| user_a's credential is not a JWT | `NOT_APPLICABLE/NOT_A_JWT` | - |
+
+**`expired_rejected`**
+
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| a JWT: an expired one cannot be minted without the signing key | `NOT_VERIFIABLE/NEEDS_KEY_MATERIAL` | - |
+| user_a's credential is not a JWT | `NOT_APPLICABLE/NOT_A_JWT` | - |
+
+<!-- [[[end]]] -->
+
+Until 2026-11-16 a token without `exp` was FIRM, although `exp` is optional (RFC 7519 section 4.1.4) and server-side state may end it: now TENTATIVE; without `iat` the lifetime was not judged: now it is measured from the login that returned the token; and `lifetime_bounded` recorded nothing after a missing or non-numeric `exp`.
 
 ## 7. Outcomes
 
@@ -83,8 +101,14 @@ SKIP when every sub-test is `NOT_APPLICABLE` (opaque token). Otherwise FAIL on a
 
 ## 8. Findings
 
-"The credential declares no expiry" (FIRM), or "The credential's lifetime is long" (TENTATIVE, with the span);
-`evidence_ref` the login record that carries the token.
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("1.3")) ]]] -->
+
+- "The credential declares no expiry"
+- "The credential's lifetime is long"
+
+<!-- [[[end]]] -->
+
+`evidence_ref` the login response that returned the token (none for a configured token).
 
 ## 9. Effects on the target
 
@@ -99,6 +123,9 @@ Independent of the gateway: the claims are the issuer's, read from the token.
 None.
 
 ## 12. Validation
+
+**2026-11-16, after the review** (domain 1 on the three labs as configured): crAPI **FAIL** (`LIFETIME_EXCESSIVE`, 7 days), the Forgejo labs SKIP (opaque tokens), as before.
+
 
 Runs of 2026-10-22, the three tests of the group together:
 
@@ -129,6 +156,8 @@ request (ASVS v5.0.0-9.2.1) and set an absolute maximum lifetime (ASVS v5.0.0-7.
 - The lifetime bound is a heuristic reported at TENTATIVE confidence, because the token's purpose (access or
   refresh) cannot be read from it.
 - An opaque token is not examined: its lifetime is managed at the server, out of view.
+- An opaque token's `expires_in` (RFC 6749 section 5.1) is not read: an opaque token is `NOT_A_JWT`.
+- A configured static token whose `exp` has passed is not sent to check that it is refused.
 
 ## 15. Sources
 

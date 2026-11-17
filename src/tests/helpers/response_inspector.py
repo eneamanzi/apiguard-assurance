@@ -41,7 +41,6 @@ import from src.core, src.engine, or any third-party library.
 from __future__ import annotations
 
 import re
-from typing import Any
 
 from src.tests.data.inspector_patterns import STACK_TRACE_PATTERNS
 
@@ -69,23 +68,28 @@ _FILESYSTEM_PATH_PATTERN: re.Pattern[str] = re.compile(
 # Debug and leaky-header definitions
 # ---------------------------------------------------------------------------
 
-# Debug field name substrings.  Any field whose lowercased name contains one
-# of these strings is considered a debug artifact.
-_DEBUG_FIELD_SUBSTRINGS: tuple[str, ...] = (
-    "_debug",
-    "_sql",
-    "_query",
-    "_trace",
-    "_internal",
-    "debuginfo",
-    "debug_info",
-    "shardkey",
-    "shard_key",
-    "cachekey",
-    "cache_key",
-    "databaseid",
-    "database_id",
+# Debug field names, compared with a key lowercased and without "_" and "-": a
+# key that is one of them, or a key starting with "_" whose rest starts with one
+# of _DEBUG_PREFIXED (`_debug`, `_sql_text`). A substring match flagged ordinary
+# fields (`search_query`, `is_internal`) until 2026-11-16.
+_DEBUG_FIELD_NAMES: frozenset[str] = frozenset(
+    {
+        "debug",
+        "debuginfo",
+        "debugdata",
+        "debugmessage",
+        "stacktrace",
+        "sqlquery",
+        "rawsql",
+        "shardkey",
+        "cachekey",
+        "databaseid",
+    }
 )
+_DEBUG_PREFIXED: tuple[str, ...] = ("debug", "sql", "query", "trace", "internal", "stack")
+# How deep, and into how many items of each array, a body is walked.
+_MAX_DEPTH: int = 4
+_MAX_ITEMS: int = 20
 
 # Headers that should NOT appear in API responses (information leakage).
 LEAKY_HEADERS: frozenset[str] = frozenset(
@@ -94,8 +98,13 @@ LEAKY_HEADERS: frozenset[str] = frozenset(
         "x-aspnet-version",
         "x-aspnetmvc-version",
         "server",  # only leaky if it contains version info
+        "via",  # only leaky if it names a product with its version
     }
 )
+# A product with its version, as `Server` and `Via` write it ("kong/3.9.3").
+_PRODUCT_VERSION: re.Pattern[str] = re.compile(r"[A-Za-z][\w.-]*/\d")
+# A version number anywhere in a header value.
+_VERSION_NUMBER: re.Pattern[str] = re.compile(r"\d+\.\d+")
 
 
 # ---------------------------------------------------------------------------
@@ -146,29 +155,52 @@ def contains_stack_trace(body: str) -> list[str]:
     return found
 
 
-def extract_debug_fields(data: dict[str, Any]) -> list[str]:
+def extract_debug_fields(data: object, depth: int = 0) -> list[str]:
     """
-    Return a list of field names that appear to be debug artifacts.
+    The field names of a JSON body that look like debug artifacts.
 
-    Checks whether any key in the dict (lowercased) contains a known debug
-    field substring.  Only inspects top-level keys — debug fields at
-    deeper nesting levels are less likely to be intentional API surface.
+    Walks objects and the first items of arrays, a few levels deep (an API's
+    records sit inside an array or an envelope).
 
     Args:
-        data: Parsed JSON response body as a dict.
+        data:  A parsed JSON body (object, array or value).
+        depth: How deep the walk already is.
 
     Returns:
-        List of field names identified as debug artifacts.
-        Empty list if none are found.
+        The debug-looking keys found, each once, in the order met.
     """
+    if depth > _MAX_DEPTH:
+        return []
     found: list[str] = []
-    for key in data:
-        key_lower = key.lower()
-        for substring in _DEBUG_FIELD_SUBSTRINGS:
-            if substring in key_lower:
-                found.append(key)
-                break
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if _is_debug_name(str(key)) and key not in found:
+                found.append(str(key))
+            found += [k for k in extract_debug_fields(value, depth + 1) if k not in found]
+    elif isinstance(data, list):
+        for item in data[:_MAX_ITEMS]:
+            found += [k for k in extract_debug_fields(item, depth + 1) if k not in found]
     return found
+
+
+def has_json_object(data: object) -> bool:
+    """Whether a parsed JSON body is an object, or an array holding one: fields to look at."""
+    if isinstance(data, dict):
+        return True
+    return isinstance(data, list) and any(isinstance(item, dict) for item in data[:_MAX_ITEMS])
+
+
+def _is_debug_name(key: str) -> bool:
+    """Whether a key names a debug artifact (_DEBUG_FIELD_NAMES, _DEBUG_PREFIXED)."""
+    plain = key.lower().replace("_", "").replace("-", "")
+    if plain in _DEBUG_FIELD_NAMES:
+        return True
+    return key.startswith("_") and plain.startswith(_DEBUG_PREFIXED)
+
+
+def versioned_value(value: str) -> bool:
+    """Whether a header value carries a version number."""
+    return _VERSION_NUMBER.search(value) is not None
 
 
 def find_leaky_headers(headers: dict[str, str]) -> list[str]:
@@ -196,7 +228,11 @@ def find_leaky_headers(headers: dict[str, str]) -> list[str]:
 
         if header_name == "server":
             # 'Server: nginx' is acceptable; 'Server: nginx/1.18.0' is not.
-            if "/" in value or re.search(r"\d+\.\d+", value):
+            if "/" in value or versioned_value(value):
+                found.append(header_name)
+        elif header_name == "via":
+            # 'Via: 1.1 proxy' is acceptable; 'Via: 1.1 kong/3.9.3' names its version.
+            if _PRODUCT_VERSION.search(value):
                 found.append(header_name)
         else:
             found.append(header_name)

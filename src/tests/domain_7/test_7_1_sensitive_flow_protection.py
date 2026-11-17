@@ -4,28 +4,14 @@ src/tests/domain_7/test_7_1_sensitive_flow_protection.py
 Test 7.1: guarantee "a sensitive business flow resists automated abuse" (OWASP
 API6:2023).
 
-A high-value flow (one-time-password request, coupon redemption, sign-up,
-password reset) must not be drivable by a script at machine speed: the server
-must throw an anti-automation control in the way (a CAPTCHA or human-verification
-challenge, or an aggressive throttle). The test submits the configured sensitive
-flow repeatedly and looks for such a control.
+A burst of identical submissions of the configured flow (an OTP request, a
+coupon, a sign-up) looks for an anti-automation control: a throttle (`429`) or a
+human-verification challenge (a CAPTCHA in the body, or the challenge header of
+AWS WAF or Cloudflare). Its oracle: info.oracle, generated on the test page.
+Infrastructure rate limiting is 4.1, login brute force 1.7 (rule 10).
 
-    anti_automation_present  a burst of identical submissions meets a throttle
-                             (429) or a challenge (a 4xx whose body asks for a
-                             CAPTCHA / human verification) -> ENFORCED; the whole
-                             burst is accepted unthrottled -> VIOLATION /
-                             NO_ANTI_AUTOMATION; the flow errors for another
-                             reason -> NOT_VERIFIABLE.
-
-Boundary (rule 10): infrastructure rate limiting on any endpoint is 4.1; this is
-the business-flow control on a *declared* sensitive flow, where even a modest
-automated rate is abuse and the control may be a CAPTCHA, not only a 429. Login
-brute force / enumeration is 1.7.
-
-BLACK_BOX by default (sensitive flows are often reachable without a session); a
-role is used when the flow is configured with one. Effect CHANGES_DATA: the
-burst submits the real flow (announce it on a shared target; keep the burst
-small).
+BLACK_BOX by default (a role when the flow is configured with one),
+CHANGES_DATA: the burst submits the real flow.
 
 Dependency rule: imports from stdlib, structlog, pydantic and src.core, plus
 src.tests.base and src.tests.helpers.
@@ -54,7 +40,7 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
-from src.core.test_metadata import DecisiveAnswer, Effect, TestInfo
+from src.core.test_metadata import DecisiveAnswer, Effect, OracleCase, TestInfo
 from src.tests.base import BaseTest
 from src.tests.helpers.auth import acquire_tokens, auth_parts
 
@@ -68,13 +54,22 @@ _CHALLENGE_KEYWORDS: tuple[str, ...] = (
     "captcha",
     "recaptcha",
     "hcaptcha",
-    "challenge",
+    "turnstile",
     "human verification",
     "are you human",
     "bot detected",
-    "too many",
-    "slow down",
 )
+# Words a challenge uses, but an ordinary refusal too ("invalid code_challenge",
+# "too many recipients"): they count only after a submission was served (until
+# 2026-11-16 they counted from the first, a false ENFORCED).
+_WEAK_CHALLENGE_KEYWORDS: tuple[str, ...] = ("challenge", "too many", "slow down")
+# A WAF's challenge, on any status (a 2xx included): AWS WAF answers 202 or 405
+# with `x-amzn-waf-action: challenge|captcha`, Cloudflare sets `cf-mitigated:
+# challenge` (their documentation, read 2026-11-16).
+_WAF_CHALLENGE_HEADERS: dict[str, frozenset[str]] = {
+    "x-amzn-waf-action": frozenset({"challenge", "captcha"}),
+    "cf-mitigated": frozenset({"challenge"}),
+}
 
 # Status codes a challenge may use (besides 429, handled as RATE_LIMITED).
 _CHALLENGE_STATUS: frozenset[int] = frozenset({400, 401, 403, 409, 422})
@@ -136,12 +131,43 @@ class Test71Params(BaseModel):
     )
 
 
-class Test71SensitiveFlowProtection(BaseTest[Test71Params]):
-    """
-    Test 7.1 -- whether a sensitive business flow resists automated abuse.
+_ORACLE: tuple[OracleCase, ...] = (
+    OracleCase(
+        when="a `429` within the burst",
+        outcome=Outcome.ENFORCED,
+        detail=_ENFORCED_THROTTLE,
+    ),
+    OracleCase(
+        when="a challenge: a WAF's challenge header on any answer, or a `400`, `401`, `403`, "
+        "`409`, `422` asking for a CAPTCHA (words such as `challenge` or `too many` only after "
+        "a submission was served)",
+        outcome=Outcome.ENFORCED,
+        detail=_ENFORCED_CHALLENGE,
+    ),
+    OracleCase(
+        when="every submission of the burst answered `2xx`, no throttle and no challenge: "
+        "accepted, which does not show that none was throttled silently",
+        outcome=Outcome.VIOLATION,
+        detail="NO_ANTI_AUTOMATION",
+        confidence=Confidence.FIRM,
+    ),
+    OracleCase(
+        when="the first submission was refused without a challenge: the burst did not "
+        "exercise the flow",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail=_FLOW_REFUSED,
+    ),
+    OracleCase(
+        when="served, then refused without a `429` or a challenge: an unrecognised throttle or "
+        "a business refusal",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail=_REFUSED_AFTER_SERVED,
+    ),
+)
 
-    The oracle is in the module docstring and on the test page.
-    """
+
+class Test71SensitiveFlowProtection(BaseTest[Test71Params]):
+    """Test 7.1 -- whether a sensitive business flow resists automated abuse."""
 
     info = TestInfo(
         id="7.1",
@@ -158,6 +184,7 @@ class Test71SensitiveFlowProtection(BaseTest[Test71Params]):
         tags=("business-logic", "anti-automation"),
         effect=Effect.CHANGES_DATA,
         sub_tests=(_SUB,),
+        oracle=_ORACLE,
         decisive_answers=(
             DecisiveAnswer(
                 category=ResponseCategory.RATE_LIMITED,
@@ -234,13 +261,15 @@ class Test71SensitiveFlowProtection(BaseTest[Test71Params]):
         both are NOT_VERIFIABLE, never "all accepted".
         """
         records: list[EvidenceRecord] = []
+        served = False
         for sent in range(1, burst_size + 1):
             record = self._send(client, flow, headers, params)
             if record is None:
                 continue
             records.append(record)
             self._step(record)  # every submission is logged; a judged one replaces its step
-            detail = self._control(record)
+            detail = self._control(record, served_before=served)
+            served = served or category_of(record) == ResponseCategory.SERVED
             if detail is not None:
                 self._judge(record, store, _SUB, Outcome.ENFORCED, detail)
                 log.info("test_7_1_control_seen", path=flow.path, after=sent, detail=detail)
@@ -271,21 +300,26 @@ class Test71SensitiveFlowProtection(BaseTest[Test71Params]):
             title=f"No anti-automation control on {flow.method} {flow.path}",
             detail=(
                 f"{burst_size} identical submissions of the sensitive flow {flow.method} "
-                f"{flow.path} were all accepted with no throttle (429) and no human-verification "
-                "challenge. A script can drive this high-value flow at machine speed, enabling "
+                f"{flow.path} were all accepted (2xx) with no throttle (429) and no "
+                "human-verification challenge. An acceptance is not proof the flow ran each time "
+                "(a flow may answer 200 and drop the request silently): confirm on the target. A "
+                "script can drive this high-value flow at machine speed, enabling "
                 "abuse such as mass sign-up, OTP flooding, or coupon draining (OWASP API6:2023, "
                 "ASVS v5.0.0-2.4.1). Add a CAPTCHA or an anti-automation throttle to the flow."
             ),
-            confidence=Confidence.CERTAIN,
+            confidence=Confidence.FIRM,
         )
         self._judge(last, store, _SUB, Outcome.VIOLATION, "NO_ANTI_AUTOMATION", finding)
 
-    def _control(self, record: EvidenceRecord) -> str | None:
+    def _control(self, record: EvidenceRecord, *, served_before: bool) -> str | None:
         """The anti-automation detail if this response is a control, else None."""
         if category_of(record) == ResponseCategory.RATE_LIMITED:
             return _ENFORCED_THROTTLE
+        headers = {k.lower(): v.strip().lower() for k, v in record.response_headers.items()}
+        if any(headers.get(name) in values for name, values in _WAF_CHALLENGE_HEADERS.items()):
+            return _ENFORCED_CHALLENGE
         status = record.response_status_code
-        if status in _CHALLENGE_STATUS and _is_challenge(record):
+        if status in _CHALLENGE_STATUS and _is_challenge(record, weak=served_before):
             return _ENFORCED_CHALLENGE
         return None
 
@@ -311,7 +345,8 @@ class Test71SensitiveFlowProtection(BaseTest[Test71Params]):
         return record
 
 
-def _is_challenge(record: EvidenceRecord) -> bool:
-    """True when the response body reads like a CAPTCHA / human-verification challenge."""
+def _is_challenge(record: EvidenceRecord, *, weak: bool) -> bool:
+    """True when the body reads like a challenge (the weak words too, when `weak`)."""
     body = (record.response_body or "").lower()
-    return any(keyword in body for keyword in _CHALLENGE_KEYWORDS)
+    keywords = _CHALLENGE_KEYWORDS + (_WEAK_CHALLENGE_KEYWORDS if weak else ())
+    return any(keyword in body for keyword in keywords)

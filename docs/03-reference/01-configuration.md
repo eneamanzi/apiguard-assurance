@@ -218,7 +218,7 @@ it when it is there to confirm that an endpoint really is privileged. Always pro
 | `admin_token` | string \| null | none | `static_token` only: the token of the administrator role. Write it as a `${VAR}` placeholder: never logged, and masked in every output when it has 8 characters or more. |
 | `user_a_token` | string \| null | none | `static_token` only: the token of the first non-privileged role. Write it as a `${VAR}` placeholder: never logged, and masked in every output when it has 8 characters or more. |
 | `user_b_token` | string \| null | none | `static_token` only: the token of the second non-privileged role. Write it as a `${VAR}` placeholder: never logged, and masked in every output when it has 8 characters or more. |
-| `login_resource` | string \| null | none | `login` only, **required** there: the name of a prepared resource (`resources`) whose create request logs in for a role (`auth: basic` or `none`) and whose values include `credential`, the dotted path of the token in the response. |
+| `login_resource` | string \| null | none | `login` only, **required** there: the name of a prepared resource (`resources`) whose create request logs in for a role (`auth: basic` or `none`) and whose values include `credential`: the dotted path of the token in the response's JSON body, or `cookie:<name>` for a session cookie (then sent with `send_as` `in: cookie`). |
 | `security_scheme` | string \| null | none | Name of the specification's security scheme the credential is sent with. **Required** when the specification declares more than one scheme that can carry a token (e.g. Forgejo: `AuthorizationHeaderToken`). Not with `basic`. |
 | `send_as` | object \| null | none | Where and how the credential is sent. Every field left out comes from the specification's scheme; with no usable scheme `in` and `name` are required. With a declared scheme `in` and `name` may only repeat the scheme's, and a `prefix` is allowed only for an `apiKey` scheme (Forgejo: `prefix: "token "`). Not with `basic`. |
 | `send_as.in` | `header` \| `query` \| `cookie` \| null | none | Where the credential is sent: `header`, `query` or `cookie`. |
@@ -267,7 +267,7 @@ login chooses the role a resource is created for. None by default. Design: [D6](
 | `<name>.create.auth` | `credential` \| `basic` \| `none` | `credential` | How the request authenticates: `credential` (the role's credential, sent as `credentials` says), `basic` (HTTP Basic with the role's username and password), `none` (nothing). |
 | `<name>.create.method` | string | `POST` | Method of the create request: `GET`, `POST`, `PUT`, `PATCH` or `DELETE`. |
 | `<name>.create.body` | JSON | none | JSON body; strings may use the same placeholders as the path, in quotes. |
-| `<name>.values` | map string → string | `{}` | Values read from the JSON response, name → dotted path through objects (no array indexes), e.g. `owner: owner.login`; the value found must be a string or a number. A login resource needs `credential` (always masked as a secret); other values are not secrets. |
+| `<name>.values` | map string → string | `{}` | Values read from the response, name → dotted path through the JSON body's objects (no array indexes), e.g. `owner: owner.login`, the value found a string or a number; or `cookie:<name>`, the value of a cookie the response sets (a session cookie). A login resource needs `credential` (always masked as a secret); other values are not secrets. |
 | `<name>.delete` | object \| null | none | The request that deletes the resource at teardown; without it nothing is deleted. |
 | `<name>.delete.path` | string | required with `delete` | Path, starting with `/`; may use `{username}`, `{password}`, `{random}` and, in a delete request, the names of `values`. |
 | `<name>.delete.auth` | `credential` \| `basic` \| `none` | `credential` | How the request authenticates: `credential` (the role's credential, sent as `credentials` says), `basic` (HTTP Basic with the role's username and password), `none` (nothing). |
@@ -348,7 +348,7 @@ Test [1.5](../05-tests/domain-1/1-5-credentials-over-an-insecure-channel.md), Cr
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `hsts_min_max_age_seconds` | int ≥86400 | `31536000` | Lowest acceptable max-age (seconds) in the Strict-Transport-Security header. NIST SP 800-52 Rev.2, OWASP ASVS v5.0.0-3.4.1 ask for at least one year. Default: 31536000 (one year). |
+| `hsts_min_max_age_seconds` | int ≥86400 | `31536000` | Lowest acceptable max-age (seconds) in the Strict-Transport-Security header. OWASP ASVS v5.0.0-3.4.1 asks for at least one year. Default: 31536000 (one year). |
 | `http_url` | string | `""` | The API in plain HTTP, when its HTTP listener is on a non-standard port: only the origin (scheme://host[:port]) is used, the path is derived from the specification. Empty (default) derives the origin from base_url (scheme to http, port 443 dropped); with base_url on another port, the HTTP listener is then unknown and not probed. |
 
 ### `tests.domain_2.test_2_2`
@@ -402,7 +402,7 @@ Test [4.4](../05-tests/domain-4/4-4-request-size-limits.md), Request Size Limits
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `body_size_bytes` | int ≥1024 | `2000000` | The size of the body sent when the gateway's configured limit cannot be read. A body above a sane API limit (default 2 MB); a gateway that accepts it has no small body-size limit. |
-| `probe_path` | string | `""` | The documented write path to probe; empty derives the shortest documented write. |
+| `probe_path` | string | `""` | The documented write path to probe, sent as a POST; empty derives the shortest documented write, sent with its documented method. |
 
 ### `tests.domain_6.test_6_4`
 

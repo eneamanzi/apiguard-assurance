@@ -15,7 +15,7 @@
 | Priority / strategy | P1 / GREY_BOX |
 | Effect | READ_ONLY |
 | CWE | CWE-285 |
-| Standards | `OWASP API5:2023`, `OWASP ASVS v5.0.0-8.2.1`, `OWASP ASVS v5.0.0-8.1.1`, `OWASP ASVS v5.0.0-8.3.1`, `NIST SP 800-53r5, Section 3.1` |
+| Standards | `OWASP API5:2023`, `OWASP ASVS v5.0.0-8.2.1`, `OWASP ASVS v5.0.0-8.3.1`, `NIST SP 800-53r5, Section 3.1` |
 | Tags | `authorization`, `bfla` |
 | Prerequisites | none |
 | Needs | `USER_ACCOUNT`, `ADMIN_ACCOUNT` (optional) |
@@ -68,27 +68,38 @@ resolved from `path_seed`. A destructive method on a derived candidate is not se
 
 ## 6. Oracle
 
-**`privileged_function_refuses_user`** (per privileged operation)
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("2.1")) ]]] -->
+
+**`privileged_function_refuses_user`**
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| user_a served (2xx), the op requires auth | `VIOLATION/BFLA` | FIRM: that the operation is privileged rests on its path's name; the admin control, when it ran, is cited and shows the operation exists (until 2026-11-04 CERTAIN with the control, and the control not cited) |
-| user_a served (2xx), the op is public in the spec | `NOT_APPLICABLE/PUBLIC_ENDPOINT` (that is 1.1's question) | - |
-| user_a refused (401/403, or a 404) in the same category as the forged credential, or 401 when the control says nothing: user_a's credential may not have been accepted | `NOT_VERIFIABLE/CREDENTIAL_NOT_CONFIRMED` | - |
-| user_a refused (401/403), unlike the forged credential | `ENFORCED/REFUSED` | - |
-| user_a 404, admin served it | `ENFORCED/REFUSED_HIDDEN` | - |
-| user_a 404, admin also non-2xx or no admin | `NOT_VERIFIABLE/ENDPOINT_NOT_CONFIRMED` | - |
-| a destructive method, not sent | `NOT_VERIFIABLE/DESTRUCTIVE_NOT_PROBED` | - |
-| no privileged operation was derived (no documented path has an `admin` or `management` segment) | `NOT_APPLICABLE/NO_PRIVILEGED_ENDPOINT` on both sub-tests, the run saying "No privileged operation found" | - |
-| no privileged path offered more than one safe method, so consistency between methods cannot be judged | `NOT_APPLICABLE/SINGLE_SAFE_METHOD` | - |
-| any other answer (a redirect, a `400`, a `405`, a rare code) | `NOT_VERIFIABLE/` its category (`REDIRECT`, `INVALID_REQUEST`, ...) | - |
+| user_a is served (`2xx`) a privileged operation the specification protects, or that refuses an anonymous request | `VIOLATION/BFLA` | FIRM |
+| user_a is served an operation that is public: declared so, and served anonymously too | `NOT_APPLICABLE/PUBLIC_ENDPOINT` | - |
+| user_a is refused (`401`, `403`) unlike the forged credential, and the admin account (when configured) is served | `ENFORCED/REFUSED` | - |
+| user_a gets `404` while the admin account is served | `ENFORCED/REFUSED_HIDDEN` | - |
+| user_a and the admin account are both refused: a scope or a precondition, not the role | `NOT_VERIFIABLE/ADMIN_REFUSED_TOO` | - |
+| user_a is refused like the forged credential, or `401` when the forged credential is not refused | `NOT_VERIFIABLE/CREDENTIAL_NOT_CONFIRMED` | - |
+| user_a gets `404` and no admin account, or the admin account is not served either | `NOT_VERIFIABLE/ENDPOINT_NOT_CONFIRMED` | - |
+| a destructive method of a privileged path, never sent | `NOT_VERIFIABLE/DESTRUCTIVE_NOT_PROBED` | - |
+| user_a's answer is `REDIRECT`: neither served nor refused | `NOT_VERIFIABLE/REDIRECT` | - |
+| user_a's answer is `METHOD_NOT_ALLOWED`: neither served nor refused | `NOT_VERIFIABLE/METHOD_NOT_ALLOWED` | - |
+| user_a's answer is `INVALID_REQUEST`: neither served nor refused | `NOT_VERIFIABLE/INVALID_REQUEST` | - |
+| user_a's answer is `OTHER`: neither served nor refused | `NOT_VERIFIABLE/OTHER` | - |
+| no documented path has an `admin` or `management` segment | `NOT_APPLICABLE/NO_PRIVILEGED_ENDPOINT` | - |
 
-**`method_not_confused`**: safe methods of one path give user_a different outcomes -> `VIOLATION/METHOD_CONFUSION`
-(FIRM, as `BFLA`: that the path is privileged rests on its name); two or more agree -> `ENFORCED/METHODS_CONSISTENT`;
-one safe method only -> `NOT_APPLICABLE`. A method the specification declares public is left out of the comparison:
-served because it is public, it says nothing about the privilege check of another method. No lab
-documents two safe methods on one privileged path (HEAD is rarely documented), so this sub-test is `NOT_APPLICABLE`
-on all three and both of its judged branches are unproven (rule 9).
+**`method_not_confused`**
+
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| the protected safe methods of one privileged path give user_a different outcomes | `VIOLATION/METHOD_CONFUSION` | FIRM |
+| two or more protected safe methods of one privileged path agree | `ENFORCED/METHODS_CONSISTENT` | - |
+| no privileged path has two decided protected safe methods | `NOT_APPLICABLE/SINGLE_SAFE_METHOD` | - |
+| no documented path has an `admin` or `management` segment | `NOT_APPLICABLE/NO_PRIVILEGED_ENDPOINT` | - |
+
+<!-- [[[end]]] -->
+
+Until 2026-11-16 a refusal of user_a was `REFUSED` even when the admin account was refused too (a token without the scope refuses every account: the Forgejo labs passed so while the admin token lacked `read:admin`): now `ADMIN_REFUSED_TOO`; and an operation the specification does not protect (no `security`) was `PUBLIC_ENDPOINT` even when it refuses an anonymous request: now that refusal makes it protected, and serving user_a is a BFLA. ASVS 8.1.1 (the policy's documentation) is no longer cited.
 
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("2.1", page=cog.inFile)) ]]] -->
 
@@ -110,8 +121,14 @@ privileged operation refused user_a (partial when operations stayed not verifiab
 
 ## 8. Findings
 
-"Ordinary user reached a privileged function: `<method> <path>`", `evidence_ref` the user_a request,
-`supporting_refs` the admin positive control. "Inconsistent authorization across methods: `<path>`".
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("2.1")) ]]] -->
+
+- "Ordinary user reached a privileged function: <method> <template_path>"
+- "Inconsistent authorization across methods: <path>"
+
+<!-- [[[end]]] -->
+
+`evidence_ref` user_a's answer; `supporting_refs` the admin positive control when it ran.
 
 ## 9. Effects on the target
 
@@ -129,6 +146,9 @@ None. What counts as privileged is derived in Phase 2 by the rule `privileged_en
 The old parameters that let the operator list privileged paths and their method are gone with the old test.
 
 ## 12. Validation
+
+**2026-11-16, after the review** (domain 2 on the three labs as configured): Forgejo labs **PASS** partial (10 refused; one operation `ADMIN_REFUSED_TOO`, the admin refused as well), crAPI **FAIL** (`GET /workshop/api/management/users/all`), as before.
+
 
 Runs of 2026-10-23; measured again on 2026-11-04 (2.1 alone), after the correction of the external audit, with the same verdicts:
 
@@ -182,6 +202,8 @@ not rely on the interface hiding the action.
 - Role hierarchy beyond user/admin and OAuth scope escalation are out of scope (no lab exercises them).
 - A privileged operation whose resource must exist first stays not verifiable when neither admin nor the seed
   supplies it.
+- A catch-all `2xx` on a privileged path is not compared with a random path: it would read as a BFLA.
+- Only documented safe methods are sent: a privileged `GET` matched by a rule on `GET` only is not probed with `HEAD`.
 
 ## 15. Sources
 

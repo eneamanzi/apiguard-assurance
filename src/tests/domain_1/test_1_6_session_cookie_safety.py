@@ -54,7 +54,8 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
-from src.core.test_metadata import Effect, Need, TestInfo
+from src.core.models.resources import COOKIE_VALUE_PREFIX, CREDENTIAL_VALUE
+from src.core.test_metadata import Effect, Need, OracleCase, TestInfo
 from src.tests.base import BaseTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -69,11 +70,52 @@ _ATTRIBUTES: tuple[tuple[str, str, str, str], ...] = (
     ("secure", "COOKIE_WITHOUT_SECURE", "CWE-614", "v5.0.0-3.3.1"),
     ("httponly", "COOKIE_WITHOUT_HTTPONLY", "CWE-1004", "v5.0.0-3.3.4"),
     ("samesite", "COOKIE_WITHOUT_SAMESITE", "CWE-1275", "v5.0.0-3.3.2"),
+    ("prefix", "COOKIE_WITHOUT_PREFIX", "CWE-614", "v5.0.0-3.3.1"),
 )
 
 # The `SameSite` values that restrict anything. `None` is a value the standard
 # allows and it restricts nothing, so it counts as absent (RFC 6265bis).
 _SAMESITE_RESTRICTING: frozenset[str] = frozenset({"strict", "lax"})
+# The cookie-name prefixes browsers enforce (RFC 6265bis): ASVS v5.0.0-3.3.1
+# asks for `__Secure-` when `__Host-` is not used (read 2026-11-16).
+_NAME_PREFIXES: tuple[str, ...] = ("__host-", "__secure-")
+
+_ORACLE: tuple[OracleCase, ...] = (
+    OracleCase(
+        when="a cookie the login sets has `Secure`, `HttpOnly` (not asked of an anti-CSRF "
+        "cookie), `SameSite=Strict` or `Lax`, and a `__Host-` or `__Secure-` name",
+        outcome=Outcome.ENFORCED,
+        detail="COOKIE_SAFE",
+    ),
+    *(
+        OracleCase(
+            when=f"{cookie} lacks {what}",
+            outcome=Outcome.VIOLATION,
+            detail=detail,
+            confidence=confidence,
+        )
+        for cookie, confidence in (
+            (
+                "the cookie the configuration reads the credential from (`cookie:<name>`)",
+                Confidence.CERTAIN,
+            ),
+            (
+                "another cookie the login sets (whether it carries the session is not proven: it "
+                "may be a load balancer's)",
+                Confidence.FIRM,
+            ),
+        )
+        for what, detail in (
+            ("`Secure`", "COOKIE_WITHOUT_SECURE"),
+            ("`HttpOnly` (its name has neither `csrf` nor `xsrf`)", "COOKIE_WITHOUT_HTTPONLY"),
+            (
+                "a restricting `SameSite` (absent, `None` or another value)",
+                "COOKIE_WITHOUT_SAMESITE",
+            ),
+            ("a `__Host-` or `__Secure-` name prefix", "COOKIE_WITHOUT_PREFIX"),
+        )
+    ),
+)
 
 # Each one read on its source, 2026-10-22 (rule 8): ASVS 3.3.1 asks for
 # `Secure`, 3.3.4 for `HttpOnly` on a cookie that scripts must not read, and
@@ -86,17 +128,12 @@ _REFERENCES: tuple[Reference, ...] = (
     Reference(standard=Standard.ASVS, id="v5.0.0-3.3.4"),
     Reference(standard=Standard.CWE, id="CWE-614"),
     Reference(standard=Standard.CWE, id="CWE-1275"),
-    Reference(standard=Standard.CWE, id="CWE-384"),
     Reference(standard=Standard.RFC, id="6265", section="4.1.2"),
 )
 
 
 class Test16SessionCookieSafety(BaseTest):
-    """
-    Test 1.6 -- whether the cookies a login sets protect the session they carry.
-
-    The oracle is in the module docstring and on the test page.
-    """
+    """Test 1.6 -- whether the cookies a login sets protect the session they carry."""
 
     info = TestInfo(
         id="1.6",
@@ -109,6 +146,7 @@ class Test16SessionCookieSafety(BaseTest):
         needs=(Need.USER_ACCOUNT,),
         effect=Effect.READ_ONLY,
         sub_tests=(_SUB_COOKIES,),
+        oracle=_ORACLE,
     )
 
     def execute(
@@ -134,7 +172,7 @@ class Test16SessionCookieSafety(BaseTest):
         # The login has already happened: the engine obtains the credential of
         # every account a test declares as a need before running it, so the
         # artefact is there whenever the role is configured as a login.
-        del target, client
+        del client
         artefact = context.login_artefact(ROLE_USER_A)
         if artefact is None:
             return self._skip(
@@ -150,11 +188,14 @@ class Test16SessionCookieSafety(BaseTest):
                 "a cookie, so there is nothing to judge."
             )
         store.pin_evidence(artefact.record)
+        session = _session_cookie(target, artefact.resource)
         for raw in cookies:
-            self._judge_cookie(raw, artefact.resource, artefact.record.record_id)
+            self._judge_cookie(raw, artefact.resource, artefact.record.record_id, session)
         return self._finish()
 
-    def _judge_cookie(self, raw: str, resource: str, evidence_ref: str) -> None:
+    def _judge_cookie(
+        self, raw: str, resource: str, evidence_ref: str, session: str | None
+    ) -> None:
         """
         Judge one `Set-Cookie` of the login response.
 
@@ -162,8 +203,11 @@ class Test16SessionCookieSafety(BaseTest):
             raw:          The header as sent, already redacted in the record.
             resource:     The login resource that produced it.
             evidence_ref: The login record, as the finding's proof.
+            session:      The name of the cookie the credential is read from, if
+                          the configuration reads it from one.
         """
         name = raw.split("=", 1)[0].strip()
+        carries_session = session is not None and name == session
         present = _attributes(raw)
         # An anti-CSRF cookie is read by the page's script on purpose (the
         # double-submit pattern): ASVS v5.0.0-3.3.4 asks HttpOnly only of a
@@ -172,7 +216,8 @@ class Test16SessionCookieSafety(BaseTest):
         missing = [
             (detail, entry, requirement)
             for attribute, detail, entry, requirement in _ATTRIBUTES
-            if not _restricts(attribute, present) and not (script_read and attribute == _HTTPONLY)
+            if not _restricts(attribute, present, name)
+            and not (script_read and attribute == _HTTPONLY)
         ]
         if not missing:
             self._record(_SUB_COOKIES, Outcome.ENFORCED, "COOKIE_SAFE")
@@ -189,11 +234,20 @@ class Test16SessionCookieSafety(BaseTest):
                         f"The login of role user_a (resource '{resource}') sets the cookie "
                         f"'{name}' without a restricting `{attribute}` attribute. "
                         f"{_WHY[attribute]} Set it on every cookie that carries a session or a "
-                        "credential."
+                        "credential. "
+                        + (
+                            "This cookie carries the session: the configuration reads the "
+                            "credential from it."
+                            if carries_session
+                            else "Whether this cookie carries one is not proven here (an "
+                            "infrastructure cookie, such as a load balancer's, needs none of this)."
+                        )
                     ),
                     evidence_ref=evidence_ref,
-                    # The header as the target sent it: the observed fact.
-                    confidence=Confidence.CERTAIN,
+                    # The header is the observed fact; that this cookie carries
+                    # the session is not (a load balancer's or a CDN's cookie
+                    # is set on the same response): FIRM, CERTAIN until 2026-11-16.
+                    confidence=Confidence.CERTAIN if carries_session else Confidence.FIRM,
                     references=[
                         Reference(standard=Standard.CWE, id=entry),
                         Reference(standard=Standard.ASVS, id=requirement),
@@ -221,7 +275,19 @@ _WHY: dict[str, str] = {
         "Without it, or with `SameSite=None`, another site can make the browser send the cookie "
         "with a request the user did not mean to make."
     ),
+    "prefix": (
+        "Without `__Host-` or `__Secure-` in its name, the browser does not guarantee it was set "
+        "over HTTPS by this host, so a subdomain or a plain-HTTP page can overwrite it (ASVS "
+        "v5.0.0-3.3.1)."
+    ),
 }
+
+
+def _session_cookie(target: TargetContext, resource: str) -> str | None:
+    """The cookie the login resource reads the credential from (`cookie:<name>`), if any."""
+    definition = target.resources.get(resource)
+    path = definition.values.get(CREDENTIAL_VALUE, "") if definition is not None else ""
+    return path.removeprefix(COOKIE_VALUE_PREFIX) if path.startswith(COOKIE_VALUE_PREFIX) else None
 
 
 def _attributes(raw: str) -> dict[str, str]:
@@ -243,17 +309,20 @@ def _attributes(raw: str) -> dict[str, str]:
     return found
 
 
-def _restricts(attribute: str, present: dict[str, str]) -> bool:
+def _restricts(attribute: str, present: dict[str, str], name: str) -> bool:
     """
     Whether one attribute is there and restricts something.
 
     Args:
-        attribute: `secure`, `httponly` or `samesite`.
+        attribute: `secure`, `httponly`, `samesite`, or `prefix` (the name's).
         present:   The cookie's attributes.
+        name:      The cookie's name.
 
     Returns:
         True when the attribute protects the cookie. `SameSite=None` does not.
     """
+    if attribute == "prefix":
+        return name.lower().startswith(_NAME_PREFIXES)
     if attribute not in present:
         return False
     if attribute == "samesite":

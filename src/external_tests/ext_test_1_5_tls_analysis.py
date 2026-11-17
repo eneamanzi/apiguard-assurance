@@ -44,12 +44,16 @@ Dependency rule:
 
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 import structlog
 
 from src.connectors.base import BaseConnector, ConnectorResult
 from src.connectors.testssl import TestsslConnector
 from src.connectors.types import TlsFinding
+from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
+from src.core.evidence import EvidenceStore
 from src.core.models import (
     Confidence,
     Finding,
@@ -60,13 +64,14 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
-from src.core.test_metadata import Effect, TestInfo
+from src.core.test_metadata import Effect, OracleCase, TestInfo
 from src.external_tests.base import ExternalToolTest, ToolRun
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
 # The single sub-test.
 _SUB_TLS: str = "tls_configuration"
+_HTTPS: str = "https"
 
 # testssl.sh severities that are a weakness of the target.
 _FAIL_SEVERITIES: frozenset[str] = frozenset({"HIGH", "CRITICAL"})
@@ -101,8 +106,56 @@ _REVOCATION_MARKERS: tuple[str, ...] = ("revocation",)
 _REFERENCES: tuple[Reference, ...] = (
     Reference(standard=Standard.OWASP_API_TOP10, id="API8:2023"),
     Reference(standard=Standard.NIST_SP, id="800-52r2"),
+    # ASVS v5.0.0 (read 2026-11-16): 12.1.1 only TLS 1.2 and 1.3, 12.1.2 the
+    # recommended cipher suites, 12.2.2 publicly trusted certificates; RFC 8996
+    # deprecates TLS 1.0 and 1.1 (MUST NOT be used).
     Reference(standard=Standard.ASVS, id="v5.0.0-12.1.1"),
+    Reference(standard=Standard.ASVS, id="v5.0.0-12.1.2"),
+    Reference(standard=Standard.ASVS, id="v5.0.0-12.2.2"),
+    Reference(standard=Standard.RFC, id="8996"),
 )
+# The protocol versions no longer allowed, as testssl.sh names them. It rates an
+# offered TLS 1.0 or 1.1 LOW ("offered (deprecated)"), below the severities
+# judged: a gateway offering them passed until 2026-11-16.
+_DEPRECATED_PROTOCOLS: frozenset[str] = frozenset({"SSLv2", "SSLv3", "TLS1", "TLS1_1"})
+_OFFERED: str = "offered"
+
+_ORACLE: tuple[OracleCase, ...] = (
+    OracleCase(
+        when="testssl.sh finds SSLv2, SSLv3, TLS 1.0 or TLS 1.1 offered (a handshake succeeded)",
+        outcome=Outcome.VIOLATION,
+        detail="DEPRECATED_PROTOCOL",
+        confidence=Confidence.CERTAIN,
+    ),
+    OracleCase(
+        when="testssl.sh rates a finding HIGH or CRITICAL (not about revocation)",
+        outcome=Outcome.VIOLATION,
+        detail="TLS_WEAKNESS",
+        confidence=Confidence.FIRM,
+    ),
+    OracleCase(
+        when="a HIGH or CRITICAL finding about revocation (no OCSP or CRL)",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="CERT_REVOCATION_NOT_CHECKABLE",
+    ),
+    OracleCase(
+        when="no weakness, and a FATAL entry says the scan did not finish",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="SCAN_INCOMPLETE",
+    ),
+    OracleCase(
+        when="no weakness and no deprecated protocol in a finished scan",
+        outcome=Outcome.ENFORCED,
+        detail="NO_TLS_WEAKNESS",
+    ),
+)
+
+
+def _deprecated_offered(finding: TlsFinding) -> bool:
+    """Whether a finding says a deprecated protocol version is offered."""
+    identifier = str(finding.get("id", ""))
+    text = str(finding.get("finding", "")).strip().lower()
+    return identifier in _DEPRECATED_PROTOCOLS and text.startswith(_OFFERED)
 
 
 def _is_revocation(finding: TlsFinding) -> bool:
@@ -163,7 +216,28 @@ class ExtTest15TlsAnalysis(ExternalToolTest):
         tool="testssl",
         effect=Effect.READ_ONLY,
         sub_tests=(_SUB_TLS,),
+        oracle=_ORACLE,
     )
+
+    def _run(
+        self,
+        target: TargetContext,
+        context: TestContext,
+        client: SecurityClient,
+        store: EvidenceStore,
+    ) -> TestResult:
+        """
+        SKIP a plain-HTTP base URL: there is no TLS to scan (test 1.5 judges plain HTTP).
+
+        Until 2026-11-16 testssl.sh was run on it, exited 245 and the test ended
+        in ERROR.
+        """
+        if urlsplit(target.endpoint_base_url()).scheme != _HTTPS:
+            return self._skip(
+                "The base URL is not https: there is no TLS to scan here; test 1.5 judges a "
+                "plain-HTTP API."
+            )
+        return super()._run(target, context, client, store)
 
     def _build_connector(self) -> BaseConnector:
         """Instantiate a fresh TestsslConnector (no I/O)."""
@@ -231,6 +305,10 @@ class ExtTest15TlsAnalysis(ExternalToolTest):
                 problems.append(f"{finding.get('id', 'unknown')} ({severity})")
                 incomplete = incomplete or severity == _FATAL
                 continue
+            if _deprecated_offered(finding):
+                self._record_deprecated(finding, run.artifact_ref)
+                weaknesses += 1
+                continue
             if severity in _FAIL_SEVERITIES:
                 if _is_revocation(finding):
                     self._record_revocation(finding)
@@ -278,6 +356,27 @@ class ExtTest15TlsAnalysis(ExternalToolTest):
                     "(NIST SP 800-52 Rev.2, ASVS v5.0.0-12.1.1)."
                 ),
                 confidence=Confidence.FIRM,
+                evidence_ref=artifact_ref,
+            ),
+        )
+
+    def _record_deprecated(self, finding: TlsFinding, artifact_ref: str) -> None:
+        """Record an offered deprecated protocol version as a VIOLATION (CERTAIN)."""
+        identifier = str(finding.get("id", "unknown"))
+        self._record(
+            _SUB_TLS,
+            Outcome.VIOLATION,
+            "DEPRECATED_PROTOCOL",
+            Finding(
+                title=f"Deprecated TLS protocol offered: {identifier}",
+                detail=(
+                    f"testssl.sh completed a handshake with {identifier}, a protocol version that "
+                    "must not be used (RFC 8996 for TLS 1.0 and 1.1; SSL long before): a client "
+                    "or a man in the middle that downgrades the connection gets weaker "
+                    "protection. Offer only TLS 1.2 and 1.3 at the gateway (ASVS "
+                    "v5.0.0-12.1.1)."
+                ),
+                confidence=Confidence.CERTAIN,
                 evidence_ref=artifact_ref,
             ),
         )

@@ -15,7 +15,7 @@
 | Priority / strategy | P2 / WHITE_BOX |
 | Effect | CHANGES_DATA |
 | CWE | CWE-613 |
-| Standards | `OWASP API2:2023`, `RFC 7009`, `RFC 7519, Section 4.1.7`, `OWASP ASVS v5.0.0-7.4.1` |
+| Standards | `OWASP API2:2023`, `RFC 7009`, `OWASP ASVS v5.0.0-7.4.1` |
 | Tags | `authentication`, `credential-lifecycle` |
 | Prerequisites | none |
 | Needs | `USER_ACCOUNT`, `REVOCABLE_LOGIN` |
@@ -63,14 +63,20 @@ again. One created credential, revoked and cleaned up.
 
 ## 6. Oracle
 
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("1.4")) ]]] -->
+
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| the revoked credential is refused (non-2xx) | `ENFORCED/REFUSED_AFTER_REVOCATION` | - |
-| it still answers 2xx | `VIOLATION/ACCEPTED_AFTER_REVOCATION` | CERTAIN: the credential outlives its revocation |
-| the login cannot revoke | SKIP (the need is not met) | - |
-| no anchor requires the credential | `NOT_VERIFIABLE/NO_WORKING_ANCHOR` | - |
-| the target did not confirm the revocation | `NOT_VERIFIABLE/REVOCATION_NOT_CONFIRMED` | - |
-| no credential placement configured | SKIP | - |
+| the revoked credential is refused (`400`, `401`, `403`) at the anchor | `ENFORCED/REFUSED_AFTER_REVOCATION` | - |
+| it is served (`2xx`) with the answer it got before revocation | `VIOLATION/ACCEPTED_AFTER_REVOCATION` | CERTAIN |
+| it is served with another answer (a `200` may carry an error) | `VIOLATION/ACCEPTED_AFTER_REVOCATION` | FIRM |
+| it gets another answer (a redirect, `404`, ...) | `NOT_VERIFIABLE/NOT_A_REFUSAL` | - |
+| no documented read accepts the new credential and refuses no credential | `NOT_VERIFIABLE/NO_WORKING_ANCHOR` | - |
+| the delete request of the credential did not answer `2xx` | `NOT_VERIFIABLE/REVOCATION_NOT_CONFIRMED` | - |
+
+<!-- [[[end]]] -->
+
+Until 2026-11-16 every non-`2xx` answer to the revoked credential was `REFUSED_AFTER_REVOCATION` (now `400`, `401`, `403`, the rest `NOT_A_REFUSAL`); a served one was CERTAIN whatever it answered (now FIRM when unlike the answer before revocation); a credential creation the target did not evaluate (`503`, `429`) ended the test in ERROR (now the shared rule); and RFC 7519 section 4.1.7 (`jti`), never read, was cited.
 
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("1.4", page=cog.inFile)) ]]] -->
 
@@ -92,8 +98,13 @@ credential is accepted, PASS when it is refused.
 
 ## 8. Findings
 
-"Revoked credential still accepted: `<method> <path>`", with the status; `evidence_ref` the reuse request,
-`supporting_refs` the creation and the revocation records.
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("1.4")) ]]] -->
+
+- "Revoked credential still accepted: <method> <path>"
+
+<!-- [[[end]]] -->
+
+`evidence_ref` the reuse; `supporting_refs` the anchor accepted before revocation, refused without a credential, and the revocation.
 
 ## 9. Effects on the target
 
@@ -110,6 +121,9 @@ reuse request.
 None. The old `protected_endpoint` parameter is gone: the anchor is derived.
 
 ## 12. Validation
+
+**2026-11-16, after the review** (domain 1 on the three labs as configured): both Forgejo labs **PASS**, crAPI SKIP (its login cannot revoke), as before.
+
 
 Runs of 2026-10-22, the three tests of the group together:
 

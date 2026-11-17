@@ -3,41 +3,23 @@ src/tests/domain_4/test_4_4_request_size_limits.py
 
 Test 4.4: guarantee "the gateway limits the request body size" (new). OWASP API4:2023.
 
-A gateway should reject an oversized request body with `413 Request Entity Too
-Large` before it is routed or processed; without a limit, a large body ties up
-memory and bandwidth and can exhaust the backend. The test sends a documented
-write endpoint an oversized body, unauthenticated, and expects a 413: the
-gateway rejects it by size before the backend's own authentication, so no
-credential is needed and nothing is created.
+The test sends a documented write, with its documented method, an oversized
+body and expects `413` (its oracle: info.oracle, generated on its page). The body
+({"data": "AAA..."}) holds no field a real write expects, so nothing is created.
 
-    oversized_body_rejected  a body above the limit answers 413 -> ENFORCED;
-                             anything else means the gateway forwarded it ->
-                             VIOLATION/NO_SIZE_LIMIT.
+A `401` or `403` does not say who refused: the application after the gateway
+forwarded the body, or the gateway before its size check (Kong runs key-auth
+before request-size-limiting). The body is then sent with user_a's credential,
+and if refused again with a forged one: the same status means user_a's did not
+get past the first refuser.
 
-A 401 or 403 does not say who refused: the application, after the gateway
-forwarded the body, or the gateway itself, before its size check (Kong runs
-key-auth before request-size-limiting). The same body is then sent once more
-with user_a's credential, when the configuration provides it (owner decision
-2026-11-04), and its answer is judged as above. When that is
-refused too, a forged credential (a random value placed as the run's credential
-is) tells who refused: the same status as the forged one means user_a's
-credential did not get past the first refuser,
-NOT_VERIFIABLE/REFUSED_BEFORE_SIZE_CHECK; a different one means it did, so the
-body went past it without a 413 (Forgejo: forged 401, user_a 403 for a token
-scope). Without a credential the first refusal is
-NOT_VERIFIABLE/NO_CREDENTIAL_TO_RETRY. The body ({"data": "AAA..."})
-holds no field a real write expects, so an application refuses it rather than
-creating anything.
+The same body is then sent in chunks (Transfer-Encoding: chunked, no
+Content-Length): a gateway that weighs only the declared length lets it through.
 
-The size sent is a configured size (`body_size_bytes`), unless the gateway's
-own limits can be read (`Need.GATEWAY`, optional: `body_size_limits()`, in
-bytes) and every route that may serve the path has one: then the largest limit
-that may apply to the probe (the limits on every request, on the backend and on
-the route, src/tests/helpers/route_limits.py) plus a margin, so the body is
-above whichever the gateway applies. A body above every such limit and not
-refused is a limit configured and not enforced (CERTAIN); a body of the
-configured size not refused says only that no limit applies at that size
-(FIRM). BLACK_BOX, effect `STRESSES_TARGET`.
+The size is `body_size_bytes`, unless the gateway's limits can be read
+(body_size_limits(), src/tests/helpers/route_limits.py) for every route that may
+serve the probe: then the largest of them plus a margin, so the body is above
+whichever the gateway applies. BLACK_BOX, effect `STRESSES_TARGET`.
 
 Dependency rule: imports from stdlib, structlog and src.core, plus
 src.tests.base and src.tests.helpers.
@@ -45,7 +27,8 @@ src.tests.base and src.tests.helpers.
 
 from __future__ import annotations
 
-from typing import Annotated
+import json
+from typing import Annotated, NamedTuple
 
 import structlog
 from pydantic import BaseModel, ConfigDict, Field
@@ -55,7 +38,7 @@ from src.core.auth_placement import RequestAuthParts
 from src.core.client import SecurityClient
 from src.core.context import ROLE_USER_A, TargetContext, TestContext
 from src.core.evidence import EvidenceStore
-from src.core.exceptions import AuthenticationSetupError, SecurityClientError
+from src.core.exceptions import SecurityClientError
 from src.core.gateway.base import CONCEPT_BODY_SIZE_LIMITS, CONCEPT_ROUTES
 from src.core.models import (
     Confidence,
@@ -69,22 +52,28 @@ from src.core.models import (
     TestStrategy,
 )
 from src.core.references import random_sibling_path, random_token
-from src.core.test_metadata import Effect, Need, TestInfo
+from src.core.test_metadata import Effect, Need, OracleCase, TestInfo
 from src.tests.base import BaseTest
-from src.tests.helpers.auth import acquire_tokens, auth_parts, credential_parts
+from src.tests.helpers.auth import credential_parts, optional_role_parts
 from src.tests.helpers.route_limits import limits_for_request
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
 _SUB: str = "oversized_body_rejected"
+# The same body sent in chunks, without a Content-Length: a gateway that weighs
+# only the declared length lets it through.
+_SUB_CHUNKED: str = "chunked_body_rejected"
+# The size of each chunk of the chunked body.
+_CHUNK_BYTES: int = 65536
+_JSON_CONTENT_TYPE: str = "application/json"
 
 # HTTP status for an oversized body (RFC 9110: Content Too Large).
 _PAYLOAD_TOO_LARGE: int = 413
 
 # Write methods whose body a size limit applies to.
 _WRITE_METHODS: frozenset[str] = frozenset({"POST", "PUT", "PATCH"})
-# The method of the probe (_send_oversized).
-_PROBE_METHOD: str = "POST"
+# The method of a probe path given in the configuration (probe_path).
+_CONFIGURED_METHOD: str = "POST"
 
 # Added to a limit read from the gateway so the body crosses it.
 _SIZE_MARGIN_BYTES: int = 1024
@@ -94,6 +83,62 @@ _SIZE_MARGIN_BYTES: int = 1024
 _REFUSED: frozenset[ResponseCategory] = frozenset(
     {ResponseCategory.UNAUTHENTICATED, ResponseCategory.FORBIDDEN}
 )
+
+
+class _Probe(NamedTuple):
+    """What is sent: the write, the size of its body, and whether in chunks."""
+
+    method: str
+    path: str
+    size: int
+    chunked: bool
+
+    @property
+    def label(self) -> str:
+        """The probe as a finding names it: "POST /path", "(chunked)" when it is."""
+        return f"{self.method} {self.path}" + (" (chunked)" if self.chunked else "")
+
+
+def _cases(sub_test: str, body: str) -> tuple[OracleCase, ...]:
+    """The oracle of one sub-test: the same cases for the body sent whole or in chunks."""
+    return (
+        OracleCase(
+            sub_test=sub_test,
+            when=f"{body} answers `413`",
+            outcome=Outcome.ENFORCED,
+            detail="SIZE_LIMIT_ENFORCED",
+        ),
+        OracleCase(
+            sub_test=sub_test,
+            when=f"{body}, above every limit read for the routes that may serve the path, is not "
+            "rejected: the limit is configured and not enforced",
+            outcome=Outcome.VIOLATION,
+            detail="NO_SIZE_LIMIT",
+            confidence=Confidence.CERTAIN,
+        ),
+        OracleCase(
+            sub_test=sub_test,
+            when=f"no limit read for every route that may serve the path, and {body} of "
+            "`body_size_bytes` is not rejected (a larger limit may exist)",
+            outcome=Outcome.VIOLATION,
+            detail="NO_SIZE_LIMIT",
+            confidence=Confidence.FIRM,
+        ),
+        OracleCase(
+            sub_test=sub_test,
+            when=f"{body} is refused (`401`, `403`) without a credential, and no user_a account "
+            "to retry",
+            outcome=Outcome.NOT_VERIFIABLE,
+            detail="NO_CREDENTIAL_TO_RETRY",
+        ),
+        OracleCase(
+            sub_test=sub_test,
+            when=f"{body} is refused with user_a's credential too, with the status a forged "
+            "credential gets: the credential did not get past the first refuser",
+            outcome=Outcome.NOT_VERIFIABLE,
+            detail="REFUSED_BEFORE_SIZE_CHECK",
+        ),
+    )
 
 
 class Test44Params(BaseModel):
@@ -112,7 +157,8 @@ class Test44Params(BaseModel):
     probe_path: str = Field(
         default="",
         description=(
-            "The documented write path to probe; empty derives the shortest documented write."
+            "The documented write path to probe, sent as a POST; empty derives the shortest "
+            "documented write, sent with its documented method."
         ),
     )
 
@@ -120,8 +166,6 @@ class Test44Params(BaseModel):
 class Test44RequestSizeLimits(BaseTest[Test44Params]):
     """
     Test 4.4 -- whether the gateway rejects an oversized request body.
-
-    The oracle is in the module docstring and on the test page.
     """
 
     info = TestInfo(
@@ -131,14 +175,18 @@ class Test44RequestSizeLimits(BaseTest[Test44Params]):
         strategy=TestStrategy.BLACK_BOX,
         cwe="CWE-400",
         references=(
+            # API4:2023, How To Prevent: "Define and enforce a maximum size of data
+            # on all incoming parameters and payloads". ASVS v5.0.0-2.4.1 was cited
+            # until 2026-11-16: it is about excessive calls (test 4.1), and ASVS
+            # 5.0.0 has no requirement on the size of a request body.
             Reference(standard=Standard.OWASP_API_TOP10, id="API4:2023"),
-            Reference(standard=Standard.ASVS, id="v5.0.0-2.4.1"),
             Reference(standard=Standard.RFC, id="9110", section="15.5.14"),
         ),
         tags=("resource-consumption", "size-limit"),
         optional_needs=(Need.GATEWAY, Need.USER_ACCOUNT),
         effect=Effect.STRESSES_TARGET,
-        sub_tests=(_SUB,),
+        sub_tests=(_SUB, _SUB_CHUNKED),
+        oracle=(*_cases(_SUB, "the body"), *_cases(_SUB_CHUNKED, "the chunked body")),
     )
 
     def execute(
@@ -165,68 +213,71 @@ class Test44RequestSizeLimits(BaseTest[Test44Params]):
             missing = self._requires_attack_surface(target)
             if missing is not None:
                 return missing
-            path = self._probe_path(target)
-            if path is None:
+            probe = self._probe(target)
+            if probe is None:
                 return self._skip("No documented write endpoint to probe for a size limit.")
-            size, basis, certain = self._size(target, store, path)
-            record = _send_oversized(client, path, size)
-            if record is not None and category_of(record) in _REFUSED:
-                self._step(record)
-                user_a = self._user_a(target, context, client)
-                if user_a is None:
-                    self._judge(
-                        record, store, _SUB, Outcome.NOT_VERIFIABLE, "NO_CREDENTIAL_TO_RETRY"
-                    )
-                    return self._finish()
-                record = _send_oversized(client, path, size, user_a)
-                if record is not None and category_of(record) in _REFUSED:
-                    forged = _send_oversized(
-                        client, path, size, credential_parts(target, random_token())
-                    )
-                    if forged is not None:
-                        self._step(forged)
-                    if forged is None or forged.response_status_code == record.response_status_code:
-                        self._judge(
-                            record,
-                            store,
-                            _SUB,
-                            Outcome.NOT_VERIFIABLE,
-                            "REFUSED_BEFORE_SIZE_CHECK",
-                        )
-                        return self._finish()
-            self._judge_oversized(record, store, path, size, basis, certain)
+            method, path = probe
+            size, basis, certain = self._size(target, store, method, path)
+            for sub_test, chunked in ((_SUB, False), (_SUB_CHUNKED, True)):
+                sent = _Probe(method, path, size, chunked)
+                self._probe_body(target, context, client, store, sub_test, sent, basis, certain)
             return self._finish()
         except Exception as exc:  # noqa: BLE001 -- top-level guard (BaseTest contract)
             log.exception("test_4_4_unexpected_error", error=str(exc))
             return self._error(exc)
 
-    def _user_a(
-        self, target: TargetContext, context: TestContext, client: SecurityClient
-    ) -> RequestAuthParts | None:
+    def _probe_body(
+        self,
+        target: TargetContext,
+        context: TestContext,
+        client: SecurityClient,
+        store: EvidenceStore,
+        sub_test: str,
+        probe: _Probe,
+        basis: str,
+        certain: bool,
+    ) -> None:
         """
-        user_a's request parts, for the retry after a 401 or 403.
+        Send the oversized body, retry after a refusal with user_a's credential, judge it.
 
         Args:
-            target:  The run's target (credentials, placement).
-            context: The run's context (the role's credential).
-            client:  The run's HTTP client (the login goes through it).
-
-        Returns:
-            The parts, or None when the role is not configured or its login did
-            not work (logged).
+            target:   The run's target (credential placement).
+            context:  The run's context (user_a's credential).
+            client:   The run's HTTP client.
+            store:    The test's evidence store.
+            sub_test: The sub-test judged.
+            probe:    What is sent (method, path, size, chunked or not).
+            basis:    What the size rests on, for a finding (_size).
+            certain:  Whether the size is above every limit read (_size).
         """
-        if not target.credentials.has_user_a():
-            return None
-        try:
-            acquire_tokens(target, context, client, required_roles=frozenset({ROLE_USER_A}))
-            return auth_parts(target, context, ROLE_USER_A)
-        except (AuthenticationSetupError, SecurityClientError) as exc:
-            log.warning("test_4_4_no_credential", error=str(exc))
-            return None
+        record = _send_oversized(client, probe)
+        if record is not None and category_of(record) in _REFUSED:
+            self._step(record)
+            user_a = optional_role_parts(target, context, ROLE_USER_A)
+            if user_a is None:
+                self._judge(
+                    record, store, sub_test, Outcome.NOT_VERIFIABLE, "NO_CREDENTIAL_TO_RETRY"
+                )
+                return
+            record = _send_oversized(client, probe, user_a)
+            if record is not None and category_of(record) in _REFUSED:
+                forged = _send_oversized(client, probe, credential_parts(target, random_token()))
+                if forged is not None:
+                    self._step(forged)
+                if forged is None or forged.response_status_code == record.response_status_code:
+                    self._judge(
+                        record, store, sub_test, Outcome.NOT_VERIFIABLE, "REFUSED_BEFORE_SIZE_CHECK"
+                    )
+                    return
+        self._judge_oversized(record, store, sub_test, probe, basis, certain)
 
-    def _probe_path(self, target: TargetContext) -> str | None:
+    def _probe(self, target: TargetContext) -> tuple[str, str] | None:
         """
-        The write path to probe: the configured one, or the shortest documented write.
+        The write to probe, method and path: the configured path, or the shortest documented write.
+
+        The documented method is sent (until 2026-11-16 always POST: on an
+        operation documented only as PUT a gateway may refuse a POST before its
+        size check, Kong's "no Route matched", read as a forwarded body).
 
         A write that requires authentication is preferred: the probe is sent
         unauthenticated, so the gateway's size check (a 413) comes first and the
@@ -238,7 +289,7 @@ class Test44RequestSizeLimits(BaseTest[Test44Params]):
         """
         cfg = self.params(target)
         if cfg.probe_path:
-            return cfg.probe_path
+            return _CONFIGURED_METHOD, cfg.probe_path
         surface = target.attack_surface
         if surface is None:
             return None
@@ -250,12 +301,13 @@ class Test44RequestSizeLimits(BaseTest[Test44Params]):
         # seed: the gateway applies its size limit to the route before anything
         # looks the object up, so a path that exists adds nothing and risks the
         # oversized body reaching a real object.
+        method = shortest.method.upper()
         if "{" in shortest.path:
-            return random_sibling_path(shortest.path, shortest.parameters)
-        return shortest.path
+            return method, random_sibling_path(shortest.path, shortest.parameters)
+        return method, shortest.path
 
     def _size(
-        self, target: TargetContext, store: EvidenceStore, path: str
+        self, target: TargetContext, store: EvidenceStore, method: str, path: str
     ) -> tuple[int, str, bool]:
         """
         The body size to send, what it rests on, and whether it is above a limit read.
@@ -267,6 +319,7 @@ class Test44RequestSizeLimits(BaseTest[Test44Params]):
         Args:
             target: The run's target (gateway, base URL, parameters).
             store:  The test's evidence store.
+            method: The method of the probe.
             path:   The path to probe.
 
         Returns:
@@ -280,9 +333,7 @@ class Test44RequestSizeLimits(BaseTest[Test44Params]):
         limits = gateway.body_size_limits()
         self._record_gateway_concept(target, store, CONCEPT_BODY_SIZE_LIMITS, limits)
         self._record_gateway_concept(target, store, CONCEPT_ROUTES, gateway.routes())
-        routes = limits_for_request(
-            gateway, limits, target.endpoint_base_url(), path, _PROBE_METHOD
-        )
+        routes = limits_for_request(gateway, limits, target.endpoint_base_url(), path, method)
         if routes is None:
             return default, f"{default} bytes (no configured limit was readable)", False
         unlimited = [entry.route.name for entry in routes if not entry.limits]
@@ -319,39 +370,39 @@ class Test44RequestSizeLimits(BaseTest[Test44Params]):
         self,
         record: EvidenceRecord | None,
         store: EvidenceStore,
-        path: str,
-        size: int,
+        sub_test: str,
+        probe: _Probe,
         basis: str,
         certain: bool,
     ) -> None:
         """Judge the answer to the oversized body (`_size`: the basis and the confidence)."""
         if record is None:
-            self._record(_SUB, Outcome.NOT_VERIFIABLE, "NO_RESPONSE")
+            self._record(sub_test, Outcome.NOT_VERIFIABLE, "NO_RESPONSE")
             return
         status = record.response_status_code
         if status == _PAYLOAD_TOO_LARGE:
-            self._judge(record, store, _SUB, Outcome.ENFORCED, "SIZE_LIMIT_ENFORCED")
+            self._judge(record, store, sub_test, Outcome.ENFORCED, "SIZE_LIMIT_ENFORCED")
             return
         # An answer that says nothing about the size limit: a 429 among them,
         # the body refused for the rate before anything weighed it (until
         # 2026-11-16 it was read as a forwarded body, a false NO_SIZE_LIMIT).
         uninformative = self._uninformative(record, _SUB)
         if uninformative is not None:
-            self._judge(record, store, _SUB, Outcome.NOT_VERIFIABLE, uninformative)
+            self._judge(record, store, sub_test, Outcome.NOT_VERIFIABLE, uninformative)
             return
         # The gateway forwarded the oversized body (it answered something other
         # than 413): there is no size limit at this size.
         self._judge(
             record,
             store,
-            _SUB,
+            sub_test,
             Outcome.VIOLATION,
             "NO_SIZE_LIMIT",
             Finding(
-                title=f"Oversized body not rejected: {path}",
+                title=f"Oversized body not rejected: {probe.label}",
                 detail=(
-                    f"A body of {size} bytes sent to {path} answered HTTP {status}, not 413: the "
-                    f"gateway forwarded it ({basis})"
+                    f"A body of {probe.size} bytes sent to {probe.label} answered HTTP {status}, "
+                    f"not 413: the gateway forwarded it ({basis})"
                     + (": the limit is configured and not enforced. " if certain else ". ")
                     + "Without a body-size limit a large body ties up memory and bandwidth and can "
                     "exhaust the backend (OWASP API4:2023). Configure a request-size limit on the "
@@ -363,19 +414,30 @@ class Test44RequestSizeLimits(BaseTest[Test44Params]):
 
 
 def _send_oversized(
-    client: SecurityClient, path: str, size: int, credential: RequestAuthParts | None = None
+    client: SecurityClient, probe: _Probe, credential: RequestAuthParts | None = None
 ) -> EvidenceRecord | None:
-    """Send a write with an oversized JSON body, with a credential if given; its record or None."""
-    body = {"data": "A" * size}
+    """
+    Send the write with an oversized JSON body, whole or in chunks; its record or None.
+
+    A chunked body goes as a tuple of chunks (SecurityClient sends it with
+    Transfer-Encoding: chunked and no Content-Length).
+    """
+    body = json.dumps({"data": "A" * probe.size}).encode()
     parts = credential or RequestAuthParts()
+    headers = {**dict(parts.headers), "Content-Type": _JSON_CONTENT_TYPE}
+    content: bytes | tuple[bytes, ...] = body
+    if probe.chunked:
+        content = tuple(
+            body[start : start + _CHUNK_BYTES] for start in range(0, len(body), _CHUNK_BYTES)
+        )
     try:
         _response, record = client.request(
-            "POST",
-            path,
+            probe.method,
+            probe.path,
             test_id="4.4",
-            headers=dict(parts.headers) or None,
+            headers=headers,
             params=dict(parts.params) or None,
-            json=body,
+            content=content,
         )
     except SecurityClientError as exc:
         return exc.record

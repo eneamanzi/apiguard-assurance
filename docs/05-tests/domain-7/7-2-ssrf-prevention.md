@@ -3,7 +3,7 @@
 > **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-26) ·
 > **Source of truth:**
 > [`src/tests/domain_7/test_7_2_ssrf_prevention.py`](../../../src/tests/domain_7/test_7_2_ssrf_prevention.py) ·
-> **Verified:** 2026-10-26
+> **Verified:** 2026-11-16
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("7.2", page=cog.inFile)) ]]] -->
 
@@ -15,7 +15,7 @@
 | Priority / strategy | P0 / GREY_BOX |
 | Effect | CHANGES_DATA |
 | CWE | CWE-918 |
-| Standards | `OWASP API7:2023`, `OWASP WSTG-v42-INPV-19` |
+| Standards | `OWASP API7:2023`, `OWASP WSTG-v42-INPV-19`, `OWASP ASVS v5.0.0-1.3.6` |
 | Tags | `ssrf`, `business-logic` |
 | Prerequisites | none |
 | Needs | `USER_ACCOUNT`, `url_accepting_endpoint` |
@@ -75,23 +75,115 @@ not stop the series.
 
 ## 6. Oracle
 
-Honesty boundary (owner decision 2026-10-23): a `2xx` means the endpoint *accepted* the URL, which is not proof the
-server made the outbound call. Confirming the call would need an out-of-band listener the tool controls; that
-listener is not built and not planned (decided 2026-10-27), so an accepted URL is `NOT_VERIFIABLE`, never a pass and
-never an unproven violation. This is a permanent boundary of the test, not a gap waiting to be filled.
+Honesty boundary (owner decision 2026-10-23): a `2xx` means the endpoint *accepted* the URL, not that the server made the outbound call; confirming the call would need an out-of-band listener the tool controls, not built and not planned (2026-10-27), so an accepted URL is `NOT_VERIFIABLE`. One exception is proof, not inference (since 2026-11-16): when the benign control's answer carries example.com's page, the endpoint returns what it fetches, and a payload's `2xx` carrying a cloud-metadata marker is the internal service's content.
 
-| Case | Outcome / detail |
-|---|---|
-| rejected (`4xx` other than `429`) and the benign control was accepted | `ENFORCED/SSRF_BLOCKED_SCHEME`, `SSRF_BLOCKED_MALFORMED`, `SSRF_BLOCKED_VALIDATION` or `SSRF_BLOCKED_UNKNOWN`, by how the rejection reads |
-| a `401`, a redirect (not followed) or a `404`: not a rejection of the URL (the credential refused, an answer not read, perhaps the fetched page's own `404`) | `NOT_VERIFIABLE/CREDENTIAL_REFUSED`, `REDIRECTED`, `NOT_FOUND` |
-| rejected (`4xx`) but the benign control was also rejected | `NOT_VERIFIABLE/BASELINE_REJECTED` |
-| accepted (`2xx`) | `NOT_VERIFIABLE/OUTBOUND_NOT_CONFIRMED` |
-| the benign control gives an answer of the table below (its silence is a plain `NO_RESPONSE`: the control is not a payload) | `NOT_VERIFIABLE/` its category on every payload category (until 2026-11-16 a silent or failing control was `UPSTREAM_UNAVAILABLE`) |
-| a `5xx` outside the categories of the table below (`501`, `511`) | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`: the URL was not evaluated (a `500` was named so too until 2026-11-16) |
-| no response (the server may have blocked on the outbound call) | `NOT_VERIFIABLE/SSRF_PROBE_TIMEOUT` |
-| not sent, after a payload got no answer or the gateway's `502`, `503`, `504` (Probes) | `NOT_VERIFIABLE/NOT_SENT_AFTER_TIMEOUT` |
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("7.2")) ]]] -->
 
-The confirmed-SSRF `VIOLATION` requires the deferred listener; the test never emits it on its own.
+**`cloud_metadata`**
+
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| the payload is refused as invalid or forbidden (`400`, `403`, `422`, ...), the benign URL accepted before and after the series, and unlike the unreachable URL | `ENFORCED/SSRF_BLOCKED_<kind>`, the kind one of `SCHEME`, `MALFORMED`, `VALIDATION`, `UNKNOWN` | - |
+| refused exactly as the unreachable URL is: a failed fetch, not a block | `NOT_VERIFIABLE/REJECTED_LIKE_UNREACHABLE` | - |
+| refused while the benign URL is refused too, before or after the series | `NOT_VERIFIABLE/BASELINE_REJECTED` | - |
+| accepted (`2xx`) with a cloud-metadata marker in the answer, the endpoint reflecting what it fetches | `VIOLATION/SSRF_CONTENT_REFLECTED` | CERTAIN |
+| accepted (`2xx`): the outbound call is not observable | `NOT_VERIFIABLE/OUTBOUND_NOT_CONFIRMED` | - |
+| `401`: the credential refused | `NOT_VERIFIABLE/CREDENTIAL_REFUSED` | - |
+| a redirect, not followed | `NOT_VERIFIABLE/REDIRECTED` | - |
+| `404`, perhaps the fetched page's own | `NOT_VERIFIABLE/NOT_FOUND` | - |
+| another answer (`405`, `408`, a status of no class, a `5xx` outside the shared rule) | `NOT_VERIFIABLE/ANSWER_NOT_INTERPRETED` | - |
+| no answer: the server may still be fetching the URL | `NOT_VERIFIABLE/SSRF_PROBE_TIMEOUT` | - |
+| not sent: an earlier payload got no answer or the gateway's `502`, `503`, `504` | `NOT_VERIFIABLE/NOT_SENT_AFTER_TIMEOUT` | - |
+| the prepared resource could not be created | `NOT_VERIFIABLE/OBJECT_NOT_CREATED` | - |
+
+**`private_ip`**
+
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| the payload is refused as invalid or forbidden (`400`, `403`, `422`, ...), the benign URL accepted before and after the series, and unlike the unreachable URL | `ENFORCED/SSRF_BLOCKED_<kind>`, the kind one of `SCHEME`, `MALFORMED`, `VALIDATION`, `UNKNOWN` | - |
+| refused exactly as the unreachable URL is: a failed fetch, not a block | `NOT_VERIFIABLE/REJECTED_LIKE_UNREACHABLE` | - |
+| refused while the benign URL is refused too, before or after the series | `NOT_VERIFIABLE/BASELINE_REJECTED` | - |
+| accepted (`2xx`) with a cloud-metadata marker in the answer, the endpoint reflecting what it fetches | `VIOLATION/SSRF_CONTENT_REFLECTED` | CERTAIN |
+| accepted (`2xx`): the outbound call is not observable | `NOT_VERIFIABLE/OUTBOUND_NOT_CONFIRMED` | - |
+| `401`: the credential refused | `NOT_VERIFIABLE/CREDENTIAL_REFUSED` | - |
+| a redirect, not followed | `NOT_VERIFIABLE/REDIRECTED` | - |
+| `404`, perhaps the fetched page's own | `NOT_VERIFIABLE/NOT_FOUND` | - |
+| another answer (`405`, `408`, a status of no class, a `5xx` outside the shared rule) | `NOT_VERIFIABLE/ANSWER_NOT_INTERPRETED` | - |
+| no answer: the server may still be fetching the URL | `NOT_VERIFIABLE/SSRF_PROBE_TIMEOUT` | - |
+| not sent: an earlier payload got no answer or the gateway's `502`, `503`, `504` | `NOT_VERIFIABLE/NOT_SENT_AFTER_TIMEOUT` | - |
+| the prepared resource could not be created | `NOT_VERIFIABLE/OBJECT_NOT_CREATED` | - |
+
+**`encoding_bypass`**
+
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| the payload is refused as invalid or forbidden (`400`, `403`, `422`, ...), the benign URL accepted before and after the series, and unlike the unreachable URL | `ENFORCED/SSRF_BLOCKED_<kind>`, the kind one of `SCHEME`, `MALFORMED`, `VALIDATION`, `UNKNOWN` | - |
+| refused exactly as the unreachable URL is: a failed fetch, not a block | `NOT_VERIFIABLE/REJECTED_LIKE_UNREACHABLE` | - |
+| refused while the benign URL is refused too, before or after the series | `NOT_VERIFIABLE/BASELINE_REJECTED` | - |
+| accepted (`2xx`) with a cloud-metadata marker in the answer, the endpoint reflecting what it fetches | `VIOLATION/SSRF_CONTENT_REFLECTED` | CERTAIN |
+| accepted (`2xx`): the outbound call is not observable | `NOT_VERIFIABLE/OUTBOUND_NOT_CONFIRMED` | - |
+| `401`: the credential refused | `NOT_VERIFIABLE/CREDENTIAL_REFUSED` | - |
+| a redirect, not followed | `NOT_VERIFIABLE/REDIRECTED` | - |
+| `404`, perhaps the fetched page's own | `NOT_VERIFIABLE/NOT_FOUND` | - |
+| another answer (`405`, `408`, a status of no class, a `5xx` outside the shared rule) | `NOT_VERIFIABLE/ANSWER_NOT_INTERPRETED` | - |
+| no answer: the server may still be fetching the URL | `NOT_VERIFIABLE/SSRF_PROBE_TIMEOUT` | - |
+| not sent: an earlier payload got no answer or the gateway's `502`, `503`, `504` | `NOT_VERIFIABLE/NOT_SENT_AFTER_TIMEOUT` | - |
+| the prepared resource could not be created | `NOT_VERIFIABLE/OBJECT_NOT_CREATED` | - |
+
+**`forbidden_protocol`**
+
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| the payload is refused as invalid or forbidden (`400`, `403`, `422`, ...), the benign URL accepted before and after the series, and unlike the unreachable URL | `ENFORCED/SSRF_BLOCKED_<kind>`, the kind one of `SCHEME`, `MALFORMED`, `VALIDATION`, `UNKNOWN` | - |
+| refused exactly as the unreachable URL is: a failed fetch, not a block | `NOT_VERIFIABLE/REJECTED_LIKE_UNREACHABLE` | - |
+| refused while the benign URL is refused too, before or after the series | `NOT_VERIFIABLE/BASELINE_REJECTED` | - |
+| accepted (`2xx`) with a cloud-metadata marker in the answer, the endpoint reflecting what it fetches | `VIOLATION/SSRF_CONTENT_REFLECTED` | CERTAIN |
+| accepted (`2xx`): the outbound call is not observable | `NOT_VERIFIABLE/OUTBOUND_NOT_CONFIRMED` | - |
+| `401`: the credential refused | `NOT_VERIFIABLE/CREDENTIAL_REFUSED` | - |
+| a redirect, not followed | `NOT_VERIFIABLE/REDIRECTED` | - |
+| `404`, perhaps the fetched page's own | `NOT_VERIFIABLE/NOT_FOUND` | - |
+| another answer (`405`, `408`, a status of no class, a `5xx` outside the shared rule) | `NOT_VERIFIABLE/ANSWER_NOT_INTERPRETED` | - |
+| no answer: the server may still be fetching the URL | `NOT_VERIFIABLE/SSRF_PROBE_TIMEOUT` | - |
+| not sent: an earlier payload got no answer or the gateway's `502`, `503`, `504` | `NOT_VERIFIABLE/NOT_SENT_AFTER_TIMEOUT` | - |
+| the prepared resource could not be created | `NOT_VERIFIABLE/OBJECT_NOT_CREATED` | - |
+
+**`dns_bypass`**
+
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| the payload is refused as invalid or forbidden (`400`, `403`, `422`, ...), the benign URL accepted before and after the series, and unlike the unreachable URL | `ENFORCED/SSRF_BLOCKED_<kind>`, the kind one of `SCHEME`, `MALFORMED`, `VALIDATION`, `UNKNOWN` | - |
+| refused exactly as the unreachable URL is: a failed fetch, not a block | `NOT_VERIFIABLE/REJECTED_LIKE_UNREACHABLE` | - |
+| refused while the benign URL is refused too, before or after the series | `NOT_VERIFIABLE/BASELINE_REJECTED` | - |
+| accepted (`2xx`) with a cloud-metadata marker in the answer, the endpoint reflecting what it fetches | `VIOLATION/SSRF_CONTENT_REFLECTED` | CERTAIN |
+| accepted (`2xx`): the outbound call is not observable | `NOT_VERIFIABLE/OUTBOUND_NOT_CONFIRMED` | - |
+| `401`: the credential refused | `NOT_VERIFIABLE/CREDENTIAL_REFUSED` | - |
+| a redirect, not followed | `NOT_VERIFIABLE/REDIRECTED` | - |
+| `404`, perhaps the fetched page's own | `NOT_VERIFIABLE/NOT_FOUND` | - |
+| another answer (`405`, `408`, a status of no class, a `5xx` outside the shared rule) | `NOT_VERIFIABLE/ANSWER_NOT_INTERPRETED` | - |
+| no answer: the server may still be fetching the URL | `NOT_VERIFIABLE/SSRF_PROBE_TIMEOUT` | - |
+| not sent: an earlier payload got no answer or the gateway's `502`, `503`, `504` | `NOT_VERIFIABLE/NOT_SENT_AFTER_TIMEOUT` | - |
+| the prepared resource could not be created | `NOT_VERIFIABLE/OBJECT_NOT_CREATED` | - |
+
+**`url_parser_confusion`**
+
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| the payload is refused as invalid or forbidden (`400`, `403`, `422`, ...), the benign URL accepted before and after the series, and unlike the unreachable URL | `ENFORCED/SSRF_BLOCKED_<kind>`, the kind one of `SCHEME`, `MALFORMED`, `VALIDATION`, `UNKNOWN` | - |
+| refused exactly as the unreachable URL is: a failed fetch, not a block | `NOT_VERIFIABLE/REJECTED_LIKE_UNREACHABLE` | - |
+| refused while the benign URL is refused too, before or after the series | `NOT_VERIFIABLE/BASELINE_REJECTED` | - |
+| accepted (`2xx`) with a cloud-metadata marker in the answer, the endpoint reflecting what it fetches | `VIOLATION/SSRF_CONTENT_REFLECTED` | CERTAIN |
+| accepted (`2xx`): the outbound call is not observable | `NOT_VERIFIABLE/OUTBOUND_NOT_CONFIRMED` | - |
+| `401`: the credential refused | `NOT_VERIFIABLE/CREDENTIAL_REFUSED` | - |
+| a redirect, not followed | `NOT_VERIFIABLE/REDIRECTED` | - |
+| `404`, perhaps the fetched page's own | `NOT_VERIFIABLE/NOT_FOUND` | - |
+| another answer (`405`, `408`, a status of no class, a `5xx` outside the shared rule) | `NOT_VERIFIABLE/ANSWER_NOT_INTERPRETED` | - |
+| no answer: the server may still be fetching the URL | `NOT_VERIFIABLE/SSRF_PROBE_TIMEOUT` | - |
+| not sent: an earlier payload got no answer or the gateway's `502`, `503`, `504` | `NOT_VERIFIABLE/NOT_SENT_AFTER_TIMEOUT` | - |
+| the prepared resource could not be created | `NOT_VERIFIABLE/OBJECT_NOT_CREATED` | - |
+
+<!-- [[[end]]] -->
+
+Until 2026-11-16: a rejection was ENFORCED whatever it looked like, so an endpoint that tries the URL and answers a failed fetch with a `4xx` passed. crAPI's `contact_mechanic` answers `400` "Could not connect to mechanic api" to any URL it cannot reach, an SSRF-vulnerable endpoint (it returns the fetched page), and its loopback payloads read as blocked. Now the unreachable control (a random `.invalid` host) shows what a failed fetch looks like, and a rejection with its fingerprint is `REJECTED_LIKE_UNREACHABLE`. The benign control was sent once, before the series: a quota or a duplicate rule refusing every URL from the middle of the series turned the rest into ENFORCED; now each ENFORCED waits for the benign control sent again after the series. Any `4xx` that was not `401`, `404`, `429` was a rejection (a `405`, a `408`); now only an invalid or forbidden answer, the rest `ANSWER_NOT_INTERPRETED` (a `5xx` outside the shared rule was `UPSTREAM_UNAVAILABLE`). The cloud-metadata class went first: off-cloud its link-local address hangs (crAPI: a `504` after 30 s) and stopped the series before the loopback payloads; loopback now goes first. A prepared resource that could not be created ended the test in ERROR.
 
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("7.2", page=cog.inFile)) ]]] -->
 
@@ -115,9 +207,13 @@ listener.
 
 ## 8. Findings
 
-None without the listener (an accepted URL is `NOT_VERIFIABLE`). An `InfoNote` is added when any URL was accepted (the
-listener would confirm it), when the baseline was rejected, when the endpoint was unavailable, or when the series
-stopped after a timeout.
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("7.2")) ]]] -->
+
+- "SSRF: internal content returned for <description>"
+
+<!-- [[[end]]] -->
+
+A finding only for a proven SSRF (`SSRF_CONTENT_REFLECTED`), one per payload, `evidence_ref` its answer. An `InfoNote` is added when the endpoint returns what it fetches, when a URL was accepted unproven (the listener would confirm it), when the benign URL was rejected before or after the series, when the endpoint was unavailable, or when the series stopped after a timeout.
 
 ## 9. Effects on the target
 
@@ -146,6 +242,9 @@ Section [`tests.domain_7.test_7_2`](../../03-reference/01-configuration.md#tests
 <!-- [[[end]]] -->
 
 ## 12. Validation
+
+**2026-11-16, after the review**: both Forgejo labs **INCONCLUSIVE** as before (58 URLs accepted, `OUTBOUND_NOT_CONFIRMED`; 15 rejected as malformed or by scheme, confirmed by the benign URL after the series). crAPI **INCONCLUSIVE**: the 10 loopback payloads rejected like the unreachable URL (`400` "Could not connect to mechanic api", `REJECTED_LIKE_UNREACHABLE`), then a `504`, and the rest not sent; the note says the endpoint returns the content it fetches. Before the review this endpoint gave ENFORCED on `private_ip`, an essential class: a PASS on a vulnerable endpoint was one run away. A Forgejo + Kong route (`pre-function`, undone) returning example.com's page, `ami-id` for `169.254.169.254`, `400 {"message"}` for an unreachable host and `400 {"error","code"}` for the rest: **FAIL**, 9 `SSRF_CONTENT_REFLECTED` CERTAIN on `cloud_metadata`, 16 `SSRF_BLOCKED_VALIDATION` on `private_ip` confirmed by the closing control.
+
 
 Runs of 2026-10-26; measured again on 2026-11-04 (7.2 alone), after the stop rule:
 
@@ -187,6 +286,8 @@ Validate the resolved IP of a client URL against the full set of private/loopbac
 - An endpoint that fetches the URL synchronously and hangs on an internal address leaves the payloads after the first
   hang unsent (`NOT_SENT_AFTER_TIMEOUT`): the price of not taking the backend out of service. Verifying them needs
   a re-run with fewer `payload_categories`, each run stopping again at its first hang.
+- A failed fetch and a block that answer with the same status and body shape are told apart by nothing: such a rejection is `REJECTED_LIKE_UNREACHABLE`, never ENFORCED, even when the endpoint did validate the URL.
+- Without a `resource`, every accepted URL may leave an object on the target (a webhook): rule 7 asks for a resource the tool removes.
 
 ## 15. Sources
 

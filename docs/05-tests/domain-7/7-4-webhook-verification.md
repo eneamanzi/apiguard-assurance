@@ -3,7 +3,7 @@
 > **Audience:** analysts, contributors · **Status:** new in the test review (2026-10-26) ·
 > **Source of truth:**
 > [`src/tests/domain_7/test_7_4_webhook_verification.py`](../../../src/tests/domain_7/test_7_4_webhook_verification.py) ·
-> **Verified:** 2026-10-26
+> **Verified:** 2026-11-16
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("7.4", page=cog.inFile)) ]]] -->
 
@@ -63,15 +63,31 @@ Up to three deliveries of the same raw body: (optionally) validly signed, then u
 
 ## 6. Oracle
 
-**`absent_signature_rejected` / `invalid_signature_rejected`**
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("7.4")) ]]] -->
+
+**`absent_signature_rejected`**
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| the delivery is refused (a `4xx` other than `429`), and a validly signed one was accepted | `ENFORCED/SIGNATURE_REQUIRED` | - |
-| the delivery is refused, and no validly signed one was accepted (no secret, or no usable answer to it) | `NOT_VERIFIABLE/SIGNATURE_NOT_CONFIRMED` | - |
-| the unsigned delivery is accepted (`2xx`) | `VIOLATION/UNSIGNED_ACCEPTED` | CERTAIN |
-| the wrongly signed delivery is accepted (`2xx`) | `VIOLATION/BAD_SIGNATURE_ACCEPTED` | CERTAIN |
-| a valid signature was itself rejected | `NOT_VERIFIABLE/REJECTS_ALL` (both sub-tests) | - |
+| the unsigned delivery answered `2xx`: accepted, which does not show it was acted on | `VIOLATION/UNSIGNED_ACCEPTED` | FIRM |
+| the unsigned delivery refused (`400`, `401`, `403`, ...), and a validly signed delivery sent after it accepted | `ENFORCED/SIGNATURE_REQUIRED` | - |
+| the unsigned delivery refused, and no validly signed delivery accepted (no secret, or no usable answer to it) | `NOT_VERIFIABLE/SIGNATURE_NOT_CONFIRMED` | - |
+| the unsigned delivery refused, and the validly signed delivery refused too | `NOT_VERIFIABLE/REJECTS_ALL` | - |
+| the unsigned delivery answered neither `2xx` nor a refusal (a redirect, `404`, `405`) | `NOT_VERIFIABLE/ANSWER_NOT_INTERPRETED` | - |
+
+**`invalid_signature_rejected`**
+
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| the wrongly signed delivery answered `2xx`: accepted, which does not show it was acted on | `VIOLATION/BAD_SIGNATURE_ACCEPTED` | FIRM |
+| the wrongly signed delivery refused (`400`, `401`, `403`, ...), and a validly signed delivery sent after it accepted | `ENFORCED/SIGNATURE_REQUIRED` | - |
+| the wrongly signed delivery refused, and no validly signed delivery accepted (no secret, or no usable answer to it) | `NOT_VERIFIABLE/SIGNATURE_NOT_CONFIRMED` | - |
+| the wrongly signed delivery refused, and the validly signed delivery refused too | `NOT_VERIFIABLE/REJECTS_ALL` | - |
+| the wrongly signed delivery answered neither `2xx` nor a refusal (a redirect, `404`, `405`) | `NOT_VERIFIABLE/ANSWER_NOT_INTERPRETED` | - |
+
+<!-- [[[end]]] -->
+
+Until 2026-11-16 the validly signed delivery went first: a receiver that drops a repeated event (an event-ID cache, as the OWASP Webhook Security Cheat Sheet recommends) answered the forged ones as duplicates, a false PASS, or acknowledged them with `200`, a false FAIL; now it goes last, and only when a forged delivery was refused. A forged delivery accepted was CERTAIN, although a receiver may acknowledge at once and verify from a queue (the cheat sheet's advice): now FIRM. Any answer but a `2xx` counted as a refusal (a redirect included).
 
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("7.4", page=cog.inFile)) ]]] -->
 
@@ -93,8 +109,14 @@ SKIP without `webhook_endpoint`. FAIL when a forged or unsigned delivery is acce
 
 ## 8. Findings
 
-"Webhook accepted without a signature / with an invalid signature: `<method> <path>`", `evidence_ref` the accepted
-delivery.
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("7.4")) ]]] -->
+
+- "Webhook accepted without a signature: <method> <path>"
+- "Webhook accepted with an invalid signature: <method> <path>"
+
+<!-- [[[end]]] -->
+
+`evidence_ref` the accepted delivery.
 
 ## 9. Effects on the target
 
@@ -124,6 +146,9 @@ Section [`tests.domain_7.test_7_4`](../../03-reference/01-configuration.md#tests
 <!-- [[[end]]] -->
 
 ## 12. Validation
+
+**2026-11-16, after the review**: a Forgejo + Kong route (`pre-function`, undone) accepting a delivery with a non-zero `X-Sig` and refusing the others with `401`: **PASS**, both forged deliveries refused, then the validly signed one accepted.
+
 
 Runs of 2026-10-26:
 
@@ -181,6 +206,7 @@ OWASP Webhook Security Cheat Sheet).
   is not built and not planned (decided 2026-10-27).
 - Only the `{signature}` placeholder is supported in `signature_format`; schemes that sign a timestamp+body tuple
   need an extension.
+- Only a hex HMAC-SHA256 over the raw body can be built (`signature_format`): a receiver expecting base64 (Shopify's scheme) refuses the valid delivery too, `REJECTS_ALL`.
 
 ## 15. Sources
 

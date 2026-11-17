@@ -24,9 +24,9 @@ otherwise user_a's credential may simply not have been accepted.
 
 Only safe methods (GET, HEAD) of a privileged operation are sent: a
 destructive method is never probed (rule 5). Where a privileged path documents
-a destructive method we did not probe, `method_not_confused` records that the
-method's authorization was not verified, so the coverage gap is visible rather
-than hidden.
+a destructive method we did not probe, `privileged_function_refuses_user`
+records that the method's authorization was not verified, so the coverage gap
+is visible rather than hidden.
 
 Sub-tests:
 
@@ -36,9 +36,10 @@ Sub-tests:
                                       named).
 
 The admin account is an optional need: when the configuration provides it, the
-admin positive control proves the operation exists and is genuinely privileged,
-so a refusal is known to be about the role (confidence CERTAIN). Without it the
-verdict rests on the path's shape and the specification's `security` (FIRM).
+admin positive control proves the operation exists and answers the admin, so a
+refusal of user_a is about the role; a refusal of both is not verifiable. A
+finding is FIRM either way: that the operation is privileged rests on its path's
+name. The oracle: info.oracle, generated on the test page.
 
 Dependency rule: imports from stdlib, structlog and src.core, plus
 src.tests.base and src.tests.helpers.
@@ -66,7 +67,7 @@ from src.core.models import (
     TestStrategy,
 )
 from src.core.references import Credential, random_token
-from src.core.test_metadata import Effect, Need, TestInfo
+from src.core.test_metadata import Effect, Need, OracleCase, TestInfo
 from src.tests.base import BaseTest
 from src.tests.helpers.auth import auth_parts, credential_parts
 from src.tests.helpers.path_resolver import resolve_path_with_seed
@@ -96,23 +97,115 @@ _REFUSED: frozenset[ResponseCategory] = frozenset(
 _CONTROL_REFUSALS: frozenset[ResponseCategory] = _REFUSED | {ResponseCategory.NOT_FOUND}
 
 _REFERENCES: tuple[Reference, ...] = (
-    # Read on the ASVS v5.0.0 source 2026-10-22: 8.1.1 (a documented and enforced
-    # access-control policy), 8.3.1 (function-level access control at the server).
+    # Read on the ASVS v5.0.0 source: 8.2.1 (function-level access), 8.3.1
+    # (enforced at the server). 8.1.1, cited until 2026-11-16, asks for the
+    # policy's documentation, which a probe cannot see.
     Reference(standard=Standard.OWASP_API_TOP10, id="API5:2023"),
     Reference(standard=Standard.ASVS, id="v5.0.0-8.2.1"),
-    Reference(standard=Standard.ASVS, id="v5.0.0-8.1.1"),
     Reference(standard=Standard.ASVS, id="v5.0.0-8.3.1"),
     Reference(standard=Standard.NIST_SP, id="800-53r5", section="3.1"),
 )
 
+_ORACLE: tuple[OracleCase, ...] = (
+    OracleCase(
+        sub_test=_SUB_REFUSES,
+        when="user_a is served (`2xx`) a privileged operation the specification protects, or that "
+        "refuses an anonymous request",
+        outcome=Outcome.VIOLATION,
+        detail="BFLA",
+        confidence=Confidence.FIRM,
+    ),
+    OracleCase(
+        sub_test=_SUB_REFUSES,
+        when="user_a is served an operation that is public: declared so, and served anonymously "
+        "too",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="PUBLIC_ENDPOINT",
+    ),
+    OracleCase(
+        sub_test=_SUB_REFUSES,
+        when="user_a is refused (`401`, `403`) unlike the forged credential, and the admin "
+        "account (when configured) is served",
+        outcome=Outcome.ENFORCED,
+        detail="REFUSED",
+    ),
+    OracleCase(
+        sub_test=_SUB_REFUSES,
+        when="user_a gets `404` while the admin account is served",
+        outcome=Outcome.ENFORCED,
+        detail="REFUSED_HIDDEN",
+    ),
+    OracleCase(
+        sub_test=_SUB_REFUSES,
+        when="user_a and the admin account are both refused: a scope or a precondition, not the "
+        "role",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="ADMIN_REFUSED_TOO",
+    ),
+    OracleCase(
+        sub_test=_SUB_REFUSES,
+        when="user_a is refused like the forged credential, or `401` when the forged credential "
+        "is not refused",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="CREDENTIAL_NOT_CONFIRMED",
+    ),
+    OracleCase(
+        sub_test=_SUB_REFUSES,
+        when="user_a gets `404` and no admin account, or the admin account is not served either",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="ENDPOINT_NOT_CONFIRMED",
+    ),
+    OracleCase(
+        sub_test=_SUB_REFUSES,
+        when="a destructive method of a privileged path, never sent",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="DESTRUCTIVE_NOT_PROBED",
+    ),
+    *(
+        OracleCase(
+            sub_test=_SUB_REFUSES,
+            when=f"user_a's answer is `{name}`: neither served nor refused",
+            outcome=Outcome.NOT_VERIFIABLE,
+            detail=name,
+        )
+        for name in ("REDIRECT", "METHOD_NOT_ALLOWED", "INVALID_REQUEST", "OTHER")
+    ),
+    OracleCase(
+        sub_test=_SUB_REFUSES,
+        when="no documented path has an `admin` or `management` segment",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="NO_PRIVILEGED_ENDPOINT",
+    ),
+    OracleCase(
+        sub_test=_SUB_METHOD,
+        when="the protected safe methods of one privileged path give user_a different outcomes",
+        outcome=Outcome.VIOLATION,
+        detail="METHOD_CONFUSION",
+        confidence=Confidence.FIRM,
+    ),
+    OracleCase(
+        sub_test=_SUB_METHOD,
+        when="two or more protected safe methods of one privileged path agree",
+        outcome=Outcome.ENFORCED,
+        detail="METHODS_CONSISTENT",
+    ),
+    OracleCase(
+        sub_test=_SUB_METHOD,
+        when="no privileged path has two decided protected safe methods",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="SINGLE_SAFE_METHOD",
+    ),
+    OracleCase(
+        sub_test=_SUB_METHOD,
+        when="no documented path has an `admin` or `management` segment",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="NO_PRIVILEGED_ENDPOINT",
+    ),
+)
+
 
 class Test21FunctionLevelAuthorization(BaseTest):
-    """
-    Test 2.1 -- whether a privileged function refuses an ordinary user.
-
-    The oracle of each sub-test is in the module docstring and on the test
-    page.
-    """
+    """Test 2.1 -- whether a privileged function refuses an ordinary user."""
 
     info = TestInfo(
         id="2.1",
@@ -126,6 +219,7 @@ class Test21FunctionLevelAuthorization(BaseTest):
         optional_needs=(Need.ADMIN_ACCOUNT,),
         effect=Effect.READ_ONLY,
         sub_tests=(_SUB_REFUSES, _SUB_METHOD),
+        oracle=_ORACLE,
     )
 
     def execute(
@@ -159,7 +253,7 @@ class Test21FunctionLevelAuthorization(BaseTest):
             if not privileged:
                 self._record(_SUB_REFUSES, Outcome.NOT_APPLICABLE, "NO_PRIVILEGED_ENDPOINT")
                 self._record(_SUB_METHOD, Outcome.NOT_APPLICABLE, "NO_PRIVILEGED_ENDPOINT")
-                return self._finish(message="No privileged operation found or configured.")
+                return self._finish(message="No privileged operation found.")
             served: dict[str, dict[str, bool | None]] = {}
             for method, path, requires_auth in privileged:
                 if method not in _SAFE_METHODS:
@@ -272,7 +366,14 @@ class Test21FunctionLevelAuthorization(BaseTest):
             return None
         if category == ResponseCategory.SERVED:
             return self._served(
-                store, context, method, template_path, concrete_path, requires_auth, admin, record
+                store,
+                context,
+                method,
+                template_path,
+                concrete_path,
+                requires_auth or _refused_anonymously(client, method, concrete_path, self.info.id),
+                admin,
+                record,
             )
         if category in _REFUSED or category == ResponseCategory.NOT_FOUND:
             if not self._credential_confirmed(client, method, concrete_path, forged, category):
@@ -281,6 +382,14 @@ class Test21FunctionLevelAuthorization(BaseTest):
                 )
                 return None
         if category in _REFUSED:
+            if _admin_control(context, method, concrete_path, admin) is False:
+                # The admin account is refused too: a scope or a precondition
+                # refuses everyone, not the role (until 2026-11-16 REFUSED; the
+                # Forgejo labs passed so while the admin token lacked read:admin).
+                self._judge(
+                    record, store, _SUB_REFUSES, Outcome.NOT_VERIFIABLE, "ADMIN_REFUSED_TOO"
+                )
+                return None
             self._judge(record, store, _SUB_REFUSES, Outcome.ENFORCED, "REFUSED")
             return False
         if category == ResponseCategory.NOT_FOUND:
@@ -466,6 +575,18 @@ def _send(
     except SecurityClientError as exc:
         return exc.record
     return record
+
+
+def _refused_anonymously(client: SecurityClient, method: str, path: str, test_id: str) -> bool:
+    """
+    Whether the operation refuses a request with no credential (401, 403).
+
+    A specification without `security` marks nothing protected; an operation
+    that refuses an anonymous request while serving user_a is protected in
+    practice (until 2026-11-16 it was PUBLIC_ENDPOINT).
+    """
+    record = _send(client, method, path, RequestAuthParts(), test_id)
+    return record is not None and category_of(record) in _REFUSED
 
 
 def _admin_control(

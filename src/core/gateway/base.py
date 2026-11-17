@@ -358,7 +358,9 @@ class BaseGatewayAdapter(ABC):
 
         Which of its plugins send request logs over the network is the
         adapter's knowledge (a plugin writing on the gateway's own host does
-        not count): test 5.1 only asks (owner decision 2026-11-04).
+        not count): test 5.1 only asks (owner decision 2026-11-04). So is what
+        of the request each one's record carries (LogShipper.request), left
+        None when the adapter does not read it.
         """
         return ConceptRead[LogShipper].not_supported(self._not_read(CONCEPT_LOG_SHIPPING))
 

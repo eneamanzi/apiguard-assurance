@@ -67,14 +67,56 @@ algorithm-confusion and re-signing cases are not sent: they need the public or t
 
 ## 6. Oracle
 
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("1.2")) ]]] -->
+
+**`unsigned_rejected`**
+
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| the variant is refused (non-2xx) | `ENFORCED/REFUSED` | - |
-| the variant answers 2xx where the genuine token does | `VIOLATION/ACCEPTED_<variant>` | CERTAIN: the server did not verify the signature |
-| the credential is not a JWT | `NOT_APPLICABLE/NOT_A_JWT` | - |
-| no anchor requires the credential | `NOT_VERIFIABLE/NO_WORKING_ANCHOR` | - |
-| the placement carries no single token value | `NOT_VERIFIABLE/NO_TOKEN_VALUE` | - |
-| algorithm confusion, no public key | `NOT_VERIFIABLE/NEEDS_KEY_MATERIAL` | - |
+| the token with `alg` set to `none` (any spelling) and no signature is served (`2xx`) at the anchor with the genuine token's answer | `VIOLATION/ACCEPTED_ALG_NONE` | CERTAIN |
+| the token with `alg` set to `none` (any spelling) and no signature is served (`2xx`) with another answer (an error envelope may be a 200) | `VIOLATION/ACCEPTED_ALG_NONE` | FIRM |
+| the token with `alg` set to `none` (any spelling) and no signature is refused (`400`, `401`, `403`) | `ENFORCED/REFUSED` | - |
+| the token with `alg` set to `none` (any spelling) and no signature gets another answer (a redirect, `404`, ...) | `NOT_VERIFIABLE/NOT_A_REFUSAL` | - |
+| no documented read accepts the genuine token and refuses no credential | `NOT_VERIFIABLE/NO_WORKING_ANCHOR` | - |
+| user_a's credential is not a JWT | `NOT_APPLICABLE/NOT_A_JWT` | - |
+| no token value was stored for user_a (not reached: the engine provides it) | `NOT_VERIFIABLE/NO_TOKEN_VALUE` | - |
+
+**`tampered_rejected`**
+
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| the token with a claim added and the original signature is served (`2xx`) at the anchor with the genuine token's answer | `VIOLATION/ACCEPTED_TAMPERED_PAYLOAD` | CERTAIN |
+| the token with a claim added and the original signature is served (`2xx`) with another answer (an error envelope may be a 200) | `VIOLATION/ACCEPTED_TAMPERED_PAYLOAD` | FIRM |
+| the token with a claim added and the original signature is refused (`400`, `401`, `403`) | `ENFORCED/REFUSED` | - |
+| the token with a claim added and the original signature gets another answer (a redirect, `404`, ...) | `NOT_VERIFIABLE/NOT_A_REFUSAL` | - |
+| no documented read accepts the genuine token and refuses no credential | `NOT_VERIFIABLE/NO_WORKING_ANCHOR` | - |
+| user_a's credential is not a JWT | `NOT_APPLICABLE/NOT_A_JWT` | - |
+| no token value was stored for user_a (not reached: the engine provides it) | `NOT_VERIFIABLE/NO_TOKEN_VALUE` | - |
+
+**`stripped_rejected`**
+
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| the token with its signature emptied is served (`2xx`) at the anchor with the genuine token's answer | `VIOLATION/ACCEPTED_STRIPPED_SIGNATURE` | CERTAIN |
+| the token with its signature emptied is served (`2xx`) with another answer (an error envelope may be a 200) | `VIOLATION/ACCEPTED_STRIPPED_SIGNATURE` | FIRM |
+| the token with its signature emptied is refused (`400`, `401`, `403`) | `ENFORCED/REFUSED` | - |
+| the token with its signature emptied gets another answer (a redirect, `404`, ...) | `NOT_VERIFIABLE/NOT_A_REFUSAL` | - |
+| no documented read accepts the genuine token and refuses no credential | `NOT_VERIFIABLE/NO_WORKING_ANCHOR` | - |
+| user_a's credential is not a JWT | `NOT_APPLICABLE/NOT_A_JWT` | - |
+| no token value was stored for user_a (not reached: the engine provides it) | `NOT_VERIFIABLE/NO_TOKEN_VALUE` | - |
+
+**`algorithm_confusion`**
+
+| Case | Outcome / detail | Confidence |
+|---|---|---|
+| a JWT and a working anchor: the attack needs the public key, not fetched | `NOT_VERIFIABLE/NEEDS_KEY_MATERIAL` | - |
+| no working anchor | `NOT_VERIFIABLE/NO_WORKING_ANCHOR` | - |
+| user_a's credential is not a JWT | `NOT_APPLICABLE/NOT_A_JWT` | - |
+| no token value was stored for user_a (not reached) | `NOT_VERIFIABLE/NO_TOKEN_VALUE` | - |
+
+<!-- [[[end]]] -->
+
+Until 2026-11-16 every non-`2xx` answer was `REFUSED` (a redirect, a `404`, a `408`): now only `400`, `401`, `403`, the rest `NOT_A_REFUSAL`; a forged token served was CERTAIN even when the answer was not the genuine token's (a `200` error envelope): now FIRM then; and `algorithm_confusion` recorded nothing without an anchor (SKIP).
 
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("1.2", page=cog.inFile)) ]]] -->
 
@@ -96,8 +138,13 @@ forgery, PASS when all were refused, with `algorithm_confusion` INCONCLUSIVE whe
 
 ## 8. Findings
 
-One per accepted forgery: "Invalid token accepted: `<variant>`", with the anchor and the status; `evidence_ref` the
-request carrying the forged token, which is pinned.
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("1.2")) ]]] -->
+
+- "Invalid token accepted: <label>"
+
+<!-- [[[end]]] -->
+
+`evidence_ref` the answer to the forged token; `supporting_refs` the anchor accepted with the genuine token and refused without one.
 
 ## 9. Effects on the target
 
@@ -115,6 +162,9 @@ that input is not planned (owner, 2026-10-22: native, no speculative jwt_tool an
 2026-10-27), so those cases stay `NEEDS_KEY_MATERIAL`.
 
 ## 12. Validation
+
+**2026-11-16, after the review** (domain 1 on the three labs as configured): crAPI **FAIL** (`alg: none` accepted), the Forgejo labs SKIP (opaque tokens), as before.
+
 
 Runs of 2026-10-22, the three tests of the group together:
 
@@ -160,6 +210,7 @@ on an allowlist (never `none`): ASVS v5.0.0-9.1.1 and 9.1.2.
   section 11.
 - A target that issues an opaque token is not examined here (its validation is the server's business).
 - The anchor is a documented read; an API with no protected documented read cannot be tested this way.
+- One anchor is used, the first documented read the genuine token is accepted on: behind one gateway each service may verify tokens itself (crAPI has three), and the others are not tried.
 
 ## 15. Sources
 

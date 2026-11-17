@@ -32,7 +32,7 @@ methodology's own claims are broader
 | `1.5` | Credentials Over an Insecure Channel | P2 | BLACK_BOX | READ_ONLY | CWE-319 | - | [1.5](domain-1/1-5-credentials-over-an-insecure-channel.md) |
 | `ext.1.5.testssl` | TLS Stack Analysis (testssl.sh) | P2 | BLACK_BOX | READ_ONLY | CWE-326 | - | [ext.1.5.testssl](external/domain-1/ext-1-5-testssl.md) |
 | `1.6` | Session Cookie Safety | P3 | GREY_BOX | READ_ONLY | CWE-1004 | `USER_ACCOUNT` | [1.6](domain-1/1-6-session-cookie-safety.md) |
-| `1.7` | Authentication Endpoints Resist Guessing | P1 | GREY_BOX | STRESSES_TARGET | CWE-307 | `USER_ACCOUNT` | [1.7](domain-1/1-7-authentication-resistance.md) |
+| `1.7` | Authentication Endpoints Resist Guessing | P1 | GREY_BOX | STRESSES_TARGET | CWE-307 | `USER_ACCOUNT`, `GATEWAY` (optional) | [1.7](domain-1/1-7-authentication-resistance.md) |
 | **Domain 2 - Authorization and Access Control** | | | | | | | |
 | `2.1` | Function-Level Authorization | P1 | GREY_BOX | READ_ONLY | CWE-285 | `USER_ACCOUNT`, `ADMIN_ACCOUNT` (optional) | [2.1](domain-2/2-1-function-level-authorization.md) |
 | `2.2` | Object-Level Authorization | P0 | GREY_BOX | CHANGES_DATA | CWE-639 | `USER_ACCOUNT`, `SECOND_USER_ACCOUNT`, `owned_object_resources` | [2.2](domain-2/2-2-object-level-authorization.md) |
@@ -42,7 +42,7 @@ methodology's own claims are broader
 | `ext.3.1.schemathesis` | Input Validation (Schemathesis) | P2 | BLACK_BOX | STRESSES_TARGET | CWE-20 | `USER_ACCOUNT` (optional) | [ext.3.1.schemathesis](external/domain-3/ext-3-1-schemathesis.md) |
 | `3.3` | Request Signing Audit | P3 | WHITE_BOX | READ_ONLY | CWE-347 | `GATEWAY` | [3.3](domain-3/3-3-request-signing-audit.md) |
 | **Domain 4 - Availability and Resilience** | | | | | | | |
-| `4.1` | Rate Limiting | P0 | BLACK_BOX | STRESSES_TARGET | CWE-770 | `GATEWAY` (optional) | [4.1](domain-4/4-1-rate-limiting.md) |
+| `4.1` | Rate Limiting | P0 | BLACK_BOX | STRESSES_TARGET | CWE-770 | `GATEWAY` (optional), `USER_ACCOUNT` (optional) | [4.1](domain-4/4-1-rate-limiting.md) |
 | `4.2` | Timeout Configuration Audit -- Prevention of Resource Lock | P1 | WHITE_BOX | READ_ONLY | CWE-400 | `GATEWAY` | [4.2](domain-4/4-2-timeout-config-audit.md) |
 | `4.3` | Circuit Breaker Audit | P1 | WHITE_BOX | READ_ONLY | CWE-400 | `GATEWAY` | [4.3](domain-4/4-3-circuit-breaker-audit.md) |
 | `4.4` | Request Size Limits | P1 | BLACK_BOX | STRESSES_TARGET | CWE-400 | `GATEWAY` (optional), `USER_ACCOUNT` (optional) | [4.4](domain-4/4-4-request-size-limits.md) |

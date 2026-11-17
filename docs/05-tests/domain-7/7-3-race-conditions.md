@@ -3,7 +3,7 @@
 > **Audience:** analysts, contributors · **Status:** new in the test review (2026-10-26) ·
 > **Source of truth:**
 > [`src/tests/domain_7/test_7_3_race_conditions.py`](../../../src/tests/domain_7/test_7_3_race_conditions.py) ·
-> **Verified:** 2026-10-26
+> **Verified:** 2026-11-16
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("7.3", page=cog.inFile)) ]]] -->
 
@@ -15,7 +15,7 @@
 | Priority / strategy | P1 / GREY_BOX |
 | Effect | STRESSES_TARGET |
 | CWE | CWE-362 |
-| Standards | `OWASP ASVS v5.0.0-15.4.2` |
+| Standards | `OWASP ASVS v5.0.0-15.4.2`, `OWASP ASVS v5.0.0-2.3.4` |
 | Tags | `business-logic`, `concurrency` |
 | Prerequisites | none |
 | Needs | `USER_ACCOUNT`, `race_operation` |
@@ -61,15 +61,18 @@ others, rule 7) and it changes data on the target: announce it on a shared targe
 
 ## 6. Oracle
 
-**`concurrent_requests_safe`**
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("7.3")) ]]] -->
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| at most `max_successful` of the N requests succeeded (`2xx`) and the others were refused | `ENFORCED/CONCURRENCY_SERIALIZED` | - |
-| at most `max_successful` succeeded but others said nothing (the table below): the server fell over, it did not serialize | `NOT_VERIFIABLE/` the reason of the first such answer | - |
-| more than `max_successful` were accepted (`2xx`) | `VIOLATION/RACE_DOUBLE_EFFECT` | FIRM: the test counts acceptances, not effects (a server answering `2xx` to a duplicate it does not apply would look the same) |
-| none succeeded, and an answer said nothing (the table below) | `NOT_VERIFIABLE/` the reason of the first such answer | - |
-| none succeeded otherwise (the operation refused every attempt) | `NOT_VERIFIABLE/OPERATION_FAILED` | - |
+| at most `max_successful` of the concurrent requests were accepted (`2xx`) and the others refused with an answer that says something | `ENFORCED/CONCURRENCY_SERIALIZED` | - |
+| more than `max_successful` were accepted (acceptances, not effects) | `VIOLATION/RACE_DOUBLE_EFFECT` | FIRM |
+| none was accepted, and no answer was one that says nothing: the operation refused every attempt | `NOT_VERIFIABLE/OPERATION_FAILED` | - |
+| the prepared resource could not be created | `NOT_VERIFIABLE/OBJECT_NOT_CREATED` | - |
+
+<!-- [[[end]]] -->
+
+Until 2026-11-16 a success was a status among `200`, `201`, `202`, `204` (now any `2xx`), and a prepared resource that could not be created ended the test in ERROR.
 
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("7.3", page=cog.inFile)) ]]] -->
 
@@ -91,8 +94,13 @@ serialized.
 
 ## 8. Findings
 
-"Race condition: `<method> <path>` took effect `<n>` times", `evidence_ref` one of the successful concurrent
-requests.
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("7.3")) ]]] -->
+
+- "Race condition: <method> <path> accepted <count> times"
+
+<!-- [[[end]]] -->
+
+`evidence_ref` one of the accepted concurrent requests.
 
 ## 9. Effects on the target
 
@@ -122,6 +130,9 @@ Section [`tests.domain_7.test_7_3`](../../03-reference/01-configuration.md#tests
 <!-- [[[end]]] -->
 
 ## 12. Validation
+
+**2026-11-16, after the review**: crAPI not reset: **INCONCLUSIVE**, `OPERATION_FAILED`, all 15 requests answered `400` "Coupon code is already claimed by you" (user_a had claimed `APIGUARD-RACE` in earlier runs); the reset lab gives the FAIL below.
+
 
 Runs of 2026-11-03:
 

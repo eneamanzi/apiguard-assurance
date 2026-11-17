@@ -1607,15 +1607,27 @@ class AssessmentEngine:
         # The credential of every account a test declares is obtained before it
         # runs, as the gateway is given to it: a declared need is provided, so
         # no test logs in for itself (group B, 2026-10-22). The login happens
-        # once per role and is reused by every later test; a role whose login
-        # does not work makes this test ERROR with the reason, and the others go
-        # on. Without any such need nothing is sent, so a run of tests that
-        # need no account never logs in.
-        roles = frozenset(role for need, role in NEED_ROLES.items() if test.info.uses(need))
-        if roles:
+        # once per role and is reused by every later test. A required role whose
+        # login does not work makes this test ERROR with the reason, and the
+        # others go on; an optional one is logged and the test runs without it
+        # (until 2026-11-16 it was ERROR too). Without any such need nothing is
+        # sent, so a run of tests that need no account never logs in.
+        required = frozenset(role for need, role in NEED_ROLES.items() if need in test.info.needs)
+        optional = frozenset(role for need, role in NEED_ROLES.items() if test.info.uses(need))
+        for roles, is_required in ((required, True), (optional - required, False)):
+            if not roles:
+                continue
             try:
                 acquire_tokens(target, context, client, required_roles=roles)
             except (AuthenticationSetupError, SecurityClientError) as exc:
+                if not is_required:
+                    log.warning(
+                        "test_optional_account_not_available",
+                        test_id=test_id,
+                        roles=sorted(roles),
+                        error=str(exc),
+                    )
+                    continue
                 log.error(
                     "test_account_not_available",
                     test_id=test_id,

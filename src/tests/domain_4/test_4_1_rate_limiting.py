@@ -3,48 +3,22 @@ src/tests/domain_4/test_4_1_rate_limiting.py
 
 Test 4.1: guarantee "the gateway limits the request rate" (OWASP API4:2023).
 
-A gateway must stop a flood: past a limit it answers `429 Too Many Requests`.
-The test sends a burst to a documented endpoint and looks for the 429, then
-repeats the burst with a different, spoofed client address on every request to
-check the limit is keyed to the real connection, not to a header an attacker
-controls.
+A burst of GETs to a documented endpoint looks for a rate limit's refusal (a
+`429`, or the status the gateway states for a limit that may apply); then the
+same burst with a random client address per request, in every header that may
+carry one, checks the limit is keyed to the real connection (its oracle:
+info.oracle, generated on the test page).
 
-    limit_enforced        a burst reaches a 429 -> ENFORCED; none within the
-                          budget -> VIOLATION/NO_RATE_LIMIT;
-    ip_spoofing_resisted  the same burst with a random client address per
-                          request, in every header that carries one
-                          (_SPOOF_HEADERS), still reaches a 429 -> ENFORCED; it floods
-                          freely while the plain burst was limited ->
-                          VIOLATION/IP_SPOOF_BYPASS.
+The gateway's limits, when the adapter reads them (`Need.GATEWAY`, optional,
+src/tests/helpers/route_limits.py), decide when a burst is enough: it goes on
+until it provably exceeded every limit that may apply within one of its windows
+(_exceeded), at most `max_burst` requests, and stops at the first refusal. A
+burst every answer of which refused it (`401`, `403`) may have been refused
+before the limit counted it (Kong and APISIX run authentication, ACL and IP
+restriction before their rate limits): it is sent again with user_a's
+credential.
 
-The gateway's own limits, when the adapter can read them (`Need.GATEWAY`,
-optional: `rate_limits()`, requests per window of seconds), size the burst and
-sharpen the verdict. A limit counts only when it may apply to the probe: the
-limits on every request, on the backend and on the route, for every route that
-may serve the path (src/tests/helpers/route_limits.py). The burst may straddle
-the boundary of a fixed window, so it must send more than twice a window's
-count to put more than the count in one window (_BOUNDARY_WINDOWS); the budget
-is that, for the largest of the limits that may apply, capped by `max_burst`.
-After a burst without a 429:
-
-    no limit read, or a route that may serve the path has none
-        -> VIOLATION/NO_RATE_LIMIT, FIRM: "no limit at or below this many
-           requests", a higher limit, or one the adapter does not read, would
-           not be seen;
-    every limit that may apply was exceeded within one of its windows (by the
-    burst's measured duration)
-        -> VIOLATION/NO_RATE_LIMIT, CERTAIN when every one is counted on a
-           counter shared by all the gateway's nodes, else FIRM: a per-node
-           counter is not exceeded when the burst is spread over several nodes;
-    a limit that may apply was not provably exceeded (above the cap, a window
-    too short for the burst's pace, or a limit not counted per window)
-        -> NOT_VERIFIABLE/LIMIT_NOT_REACHED.
-
-The burst stops at the first 429, so a working limit is not flooded past its
-threshold.
-
-BLACK_BOX (no credential: an anonymous flood), effect `STRESSES_TARGET` (it runs
-after every other test, rule 7).
+BLACK_BOX, effect `STRESSES_TARGET` (it runs after every other test, rule 7).
 
 Dependency rule: imports from stdlib, structlog and src.core, plus
 src.tests.base and src.tests.helpers.
@@ -61,8 +35,9 @@ import structlog
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.assessment_test import category_of
+from src.core.auth_placement import RequestAuthParts
 from src.core.client import SecurityClient
-from src.core.context import TargetContext, TestContext
+from src.core.context import ROLE_USER_A, TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.exceptions import SecurityClientError
 from src.core.gateway.base import CONCEPT_RATE_LIMITS, CONCEPT_ROUTES
@@ -79,8 +54,9 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
-from src.core.test_metadata import DecisiveAnswer, Effect, Need, TestInfo
+from src.core.test_metadata import DecisiveAnswer, Effect, Need, OracleCase, TestInfo
 from src.tests.base import BaseTest
+from src.tests.helpers.auth import optional_role_parts
 from src.tests.helpers.path_resolver import resolve_path_with_seed
 from src.tests.helpers.route_limits import RouteLimits, limits_for_request
 
@@ -89,12 +65,10 @@ log: structlog.BoundLogger = structlog.get_logger(__name__)
 _SUB_LIMIT: str = "limit_enforced"
 _SUB_SPOOF: str = "ip_spoofing_resisted"
 
-# The headers an attacker spoofs to pretend to be many clients, all set to the
-# same random address on each request; the gateway must key its limit to the
-# real TCP connection, not to these values. X-Forwarded-For (the de facto
-# standard), Forwarded (RFC 7239, as "for=<address>"), X-Real-IP (nginx's
-# realip module, which Kong and APISIX build on), X-Client-IP and
-# True-Client-IP (set by CDNs): one burst covers them all (# only X-Forwarded-For was sent).
+# The headers that carry a client address, all set to the same random address
+# on each spoofed request: X-Forwarded-For (de facto standard), X-Real-IP
+# (nginx's realip module), X-Client-IP and True-Client-IP (CDNs), and Forwarded
+# (RFC 7239, as "for=<address>").
 _SPOOF_HEADERS: tuple[str, ...] = (
     "X-Forwarded-For",
     "X-Real-IP",
@@ -103,15 +77,118 @@ _SPOOF_HEADERS: tuple[str, ...] = (
 )
 _FORWARDED_HEADER: str = "Forwarded"
 
-# The method of the burst's requests.
 _BURST_METHOD: str = "GET"
-
-# A run of requests shorter than one window touches at most two fixed windows,
-# and each further window length it lasts adds one: more than this many times a
-# window's count puts more than the count in one window, wherever the window
-# boundaries fall (Kong's are calendar periods, APISIX's start at the first
-# request counted).
+_TOO_MANY_REQUESTS: int = 429
+# What some limits answer over the limit (APISIX's default), and an unavailable backend too.
+_SERVICE_UNAVAILABLE: int = 503
+# Answers that may come from a refusal that runs before the limit counts the request.
+_REFUSED: frozenset[ResponseCategory] = frozenset(
+    {ResponseCategory.UNAUTHENTICATED, ResponseCategory.FORBIDDEN}
+)
+# A run of requests shorter than a fixed window touches at most two windows,
+# and each further window length it lasts adds one (Kong's windows are
+# calendar periods, APISIX's start at the first request counted).
 _BOUNDARY_WINDOWS: int = 2
+# How many answers that say nothing, in a row, end a burst (a single one does not).
+_SPOIL_SAMPLE: int = 3
+
+_NO_LIMIT_RISK: str = (
+    " Without a rate limit a loop can exhaust the backend's resources or brute-force a "
+    "credential (OWASP API4:2023, ASVS v5.0.0-2.4.1). Configure a rate-limiting plugin on the "
+    "gateway."
+)
+
+_ORACLE: tuple[OracleCase, ...] = (
+    OracleCase(
+        sub_test=_SUB_LIMIT,
+        when="the burst meets a `429`, or, after answers with another status, the status the "
+        "gateway states for a limit that may apply (APISIX's default `503`)",
+        outcome=Outcome.ENFORCED,
+        detail="RATE_LIMITED",
+    ),
+    OracleCase(
+        sub_test=_SUB_LIMIT,
+        when="no refusal, and the burst exceeded every limit read for the routes that may serve "
+        "the path within one of its windows, each counted on a counter every node shares: the "
+        "limit is configured and not enforced",
+        outcome=Outcome.VIOLATION,
+        detail="NO_RATE_LIMIT",
+        confidence=Confidence.CERTAIN,
+    ),
+    OracleCase(
+        sub_test=_SUB_LIMIT,
+        when="no refusal within `max_burst`, and no limit read or a route that may serve the path "
+        "without one (no limit of fewer than half the burst per window as long as the burst; a "
+        "higher one is not seen); or every limit read exceeded, one counted per node",
+        outcome=Outcome.VIOLATION,
+        detail="NO_RATE_LIMIT",
+        confidence=Confidence.FIRM,
+    ),
+    OracleCase(
+        sub_test=_SUB_LIMIT,
+        when="no refusal within `max_burst`, and a limit that may apply was not provably "
+        "exceeded: its count above the cap, a window too short for the burst's pace, or not a "
+        "count per window",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="LIMIT_NOT_REACHED",
+    ),
+    OracleCase(
+        sub_test=_SUB_LIMIT,
+        when="three `503` in a row after answers that said something: a limit refusing with "
+        "`503` that the gateway does not state, or a backend going down",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="LIMIT_OR_UNAVAILABLE",
+    ),
+    OracleCase(
+        sub_test=_SUB_LIMIT,
+        when="every answer refused the burst (`401`, `403`), perhaps before the limit counted "
+        "it, and no user_a account to send it again",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="NO_CREDENTIAL_TO_RETRY",
+    ),
+    OracleCase(
+        sub_test=_SUB_LIMIT,
+        when="the burst sent again with user_a's credential is refused all the same",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="REFUSED_BEFORE_LIMIT",
+    ),
+    OracleCase(
+        sub_test=_SUB_SPOOF,
+        when="the burst with a random client address per request meets the refusal the plain "
+        "burst met",
+        outcome=Outcome.ENFORCED,
+        detail="SPOOF_RESISTED",
+    ),
+    OracleCase(
+        sub_test=_SUB_SPOOF,
+        when="it is never refused, and a plain request right after it is: the limit counts "
+        "the address a header claims",
+        outcome=Outcome.VIOLATION,
+        detail="IP_SPOOF_BYPASS",
+        confidence=Confidence.CERTAIN,
+    ),
+    OracleCase(
+        sub_test=_SUB_SPOOF,
+        when="it is never refused, and neither is a plain request right after it (the limit's "
+        "window may have ended during the burst)",
+        outcome=Outcome.VIOLATION,
+        detail="IP_SPOOF_BYPASS",
+        confidence=Confidence.FIRM,
+    ),
+    OracleCase(
+        sub_test=_SUB_SPOOF,
+        when="the plain burst found no limit (`NO_RATE_LIMIT`)",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="NO_LIMIT_TO_BYPASS",
+    ),
+    OracleCase(
+        sub_test=_SUB_SPOOF,
+        when="the plain burst could not tell whether a limit applies (`limit_enforced` not "
+        "verifiable)",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="NO_LIMIT_SEEN",
+    ),
+)
 
 
 class Test41Params(BaseModel):
@@ -135,12 +212,27 @@ class Test41Params(BaseModel):
     )
 
 
-class Test41RateLimiting(BaseTest[Test41Params]):
-    """
-    Test 4.1 -- whether the gateway enforces a rate limit and resists IP spoofing.
+class _Burst(BaseModel):
+    """What one burst produced."""
 
-    The oracle of each sub-test is in the module docstring and on the test page.
-    """
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+
+    sent: int
+    # Requests answered (they reached the gateway, which counted them), and the
+    # time from the first request to the last answer.
+    answered: int
+    seconds: float
+    # The answer that refused the burst as a limit does, if any.
+    limited: EvidenceRecord | None
+    last: EvidenceRecord | None
+    # Why the burst ended on answers that say nothing (_uninformative), if it did.
+    failing: str | None = None
+    # Every answer refused the request (_REFUSED).
+    refused_only: bool = False
+
+
+class Test41RateLimiting(BaseTest[Test41Params]):
+    """Test 4.1 -- whether the gateway enforces a rate limit and resists IP spoofing."""
 
     info = TestInfo(
         id="4.1",
@@ -149,14 +241,14 @@ class Test41RateLimiting(BaseTest[Test41Params]):
         strategy=TestStrategy.BLACK_BOX,
         cwe="CWE-770",
         references=(
-            # Read on the ASVS v5.0.0 source 2026-10-23: 2.4.1 (anti-automation /
-            # rate limiting against resource-consumption abuse).
+            # ASVS v5.0.0 2.4.1 (read 2026-11-16): anti-automation controls
+            # against excessive calls to application functions.
             Reference(standard=Standard.OWASP_API_TOP10, id="API4:2023"),
             Reference(standard=Standard.ASVS, id="v5.0.0-2.4.1"),
             Reference(standard=Standard.NIST_SP, id="800-204", section="4.5"),
         ),
         tags=("resource-consumption", "rate-limiting"),
-        optional_needs=(Need.GATEWAY,),
+        optional_needs=(Need.GATEWAY, Need.USER_ACCOUNT),
         effect=Effect.STRESSES_TARGET,
         sub_tests=(_SUB_LIMIT, _SUB_SPOOF),
         decisive_answers=(
@@ -165,6 +257,7 @@ class Test41RateLimiting(BaseTest[Test41Params]):
                 reason="a `429` is the rate limit this test looks for: the burst stops at it.",
             ),
         ),
+        oracle=_ORACLE,
     )
 
     def execute(
@@ -175,11 +268,11 @@ class Test41RateLimiting(BaseTest[Test41Params]):
         store: EvidenceStore,
     ) -> TestResult:
         """
-        Flood a documented endpoint, then flood it again spoofing the client IP.
+        Flood a documented endpoint, then flood it again spoofing the client address.
 
         Args:
             target:  The run's target (surface, gateway, path seed).
-            context: Unused.
+            context: The run's context (user_a's credential, for a refused burst).
             client:  The run's HTTP client.
             store:   The test's evidence store.
 
@@ -187,7 +280,6 @@ class Test41RateLimiting(BaseTest[Test41Params]):
             self._finish(), self._requires_attack_surface(...), self._skip(...),
             or self._error(exc).
         """
-        del context
         try:
             missing = self._requires_attack_surface(target)
             if missing is not None:
@@ -195,167 +287,169 @@ class Test41RateLimiting(BaseTest[Test41Params]):
             path = self._probe_path(target)
             if path is None:
                 return self._skip("No documented GET endpoint to probe for a rate limit.")
-            budget, routes = self._budget(target, store, path)
-            plain = self._burst(client, path, budget, spoof=False)
-            notes = self._judge_limit(store, path, plain, routes)
-            self._judge_spoofing(client, store, path, budget, plain)
-            return self._finish(notes=notes, message=f"Burst budget {budget} on {path}.")
+            cap = self.params(target).max_burst
+            routes = self._limits(target, store, path)
+            flood = _Flood(client, path, cap, routes)
+            plain, credential = self._plain_burst(target, context, flood)
+            if plain is None:
+                self._record(_SUB_SPOOF, Outcome.NOT_VERIFIABLE, "NO_LIMIT_SEEN")
+                return self._finish(message=f"Burst on {path} refused without a credential.")
+            notes, no_limit = self._judge_limit(store, flood, plain)
+            self._judge_spoofing(store, flood, plain, credential, no_limit=no_limit)
+            return self._finish(notes=notes, message=f"Burst of {plain.sent} requests on {path}.")
         except Exception as exc:  # noqa: BLE001 -- top-level guard (BaseTest contract)
             log.exception("test_4_1_unexpected_error", error=str(exc))
             return self._error(exc)
 
     def _probe_path(self, target: TargetContext) -> str | None:
-        """The path to flood: the configured one, or the shortest documented GET."""
+        """The path to flood: the configured one, or the shortest documented GET, public first."""
         cfg = self.params(target)
         if cfg.probe_path:
             return cfg.probe_path
         surface = target.attack_surface
         if surface is None:
             return None
-        gets = [e for e in surface.endpoints if e.method.upper() == "GET"]
+        gets = [e for e in surface.endpoints if e.method.upper() == _BURST_METHOD]
         if not gets:
             return None
-        shortest = min(gets, key=lambda e: (len(e.path), e.path))
+        shortest = min(gets, key=lambda e: (e.requires_auth, len(e.path), e.path))
         return resolve_path_with_seed(shortest.path, target.path_seed)
 
-    def _budget(
+    def _limits(
         self, target: TargetContext, store: EvidenceStore, path: str
-    ) -> tuple[int, tuple[RouteLimits[RateLimit], ...] | None]:
-        """
-        The burst size, and the limits that may apply to the probe.
-
-        The concepts read are kept as evidence. The size is the cap unless
-        every route that may serve the path has limits counted per window:
-        then enough to exceed the largest of them in one window
-        (_needed_requests), within the cap.
-
-        Args:
-            target: The run's target (gateway, base URL, parameters).
-            store:  The test's evidence store.
-            path:   The path to flood.
-
-        Returns:
-            The budget, and the routes that may serve the path with their
-            limits (None when nothing is known of them).
-        """
-        cap = self.params(target).max_burst
+    ) -> tuple[RouteLimits[RateLimit], ...] | None:
+        """The routes that may serve the probe with their limits (None: unknown); evidence."""
         gateway = target.gateway
         if gateway is None:
-            return cap, None
+            return None
         limits = gateway.rate_limits()
         self._record_gateway_concept(target, store, CONCEPT_RATE_LIMITS, limits)
         self._record_gateway_concept(target, store, CONCEPT_ROUTES, gateway.routes())
-        routes = limits_for_request(
-            gateway, limits, target.endpoint_base_url(), path, _BURST_METHOD
-        )
-        needed = _needed_requests(routes)
-        return (cap if needed is None else min(cap, needed)), routes
+        return limits_for_request(gateway, limits, target.endpoint_base_url(), path, _BURST_METHOD)
+
+    def _plain_burst(
+        self, target: TargetContext, context: TestContext, flood: _Flood
+    ) -> tuple[_Burst | None, RequestAuthParts | None]:
+        """
+        The plain burst, sent again with user_a's credential when every answer refused it.
+
+        Returns:
+            The burst to judge and the credential it carried; (None, None) when
+            it was refused and no credential could be had (recorded here).
+        """
+        plain = self._burst(flood, spoof=False, limited_by=None, credential=None)
+        if plain.limited is not None or plain.failing is not None or not plain.refused_only:
+            return plain, None
+        if plain.last is not None:
+            self._step(plain.last)
+        credential = optional_role_parts(target, context, ROLE_USER_A)
+        if credential is None:
+            self._record(_SUB_LIMIT, Outcome.NOT_VERIFIABLE, "NO_CREDENTIAL_TO_RETRY")
+            return None, None
+        return self._burst(flood, spoof=False, limited_by=None, credential=credential), credential
 
     def _burst(
         self,
-        client: SecurityClient,
-        path: str,
-        budget: int,
+        flood: _Flood,
         *,
         spoof: bool,
-    ) -> _BurstResult:
+        limited_by: int | None,
+        credential: RequestAuthParts | None,
+    ) -> _Burst:
         """
-        Send up to `budget` GETs, stopping at the first 429.
+        Send GETs until a refusal, enough to exceed every known limit, a failing run, or the cap.
 
         Args:
-            client: The run's HTTP client.
-            path:   The path to flood.
-            budget: The largest number of requests to send.
-            spoof:  Send a random client address on every request (_spoofed_headers),
-                    for the spoofing sub-test.
+            flood:      The path, the cap and the limits that may apply.
+            spoof:      A random client address on every request (_spoofed_headers).
+            limited_by: The status that counts as the limit (the plain burst's
+                        refusal); None for the plain burst (_Flood.refuses).
+            credential: user_a's request parts, or None.
 
         Returns:
-            The burst's result: how many requests, whether a 429 was seen (and
-            its record), and whether the upstream was failing.
+            The burst's result.
         """
+        sub_test = _SUB_SPOOF if spoof else _SUB_LIMIT
         last: EvidenceRecord | None = None
-        failing_in_a_row = 0
-        served_before = False
         answered = 0
+        failing_in_a_row = 0
+        statuses: set[int] = set()
+        refused_only = True
+        informative_before = False
+        sent = 0
         started = time.monotonic()
-        for sent in range(1, budget + 1):
-            headers = _spoofed_headers() if spoof else None
-            record = _send(client, path, headers)
-            if record is None:
-                continue
+        for sent in range(1, flood.cap + 1):
+            record = _send(flood.client, flood.path, credential, spoof=spoof)
             last = record
-            answered += 1
-            category = category_of(record)
-            if category == ResponseCategory.RATE_LIMITED:
-                return _BurstResult(
-                    sent=sent,
-                    answered=answered,
-                    seconds=time.monotonic() - started,
-                    limited_record=record,
-                    last_record=last,
-                    upstream_failing=False,
+            seconds = time.monotonic() - started
+            status = record.response_status_code
+            if status is not None:
+                answered += 1
+                is_limit = (
+                    status == limited_by
+                    if limited_by is not None
+                    else flood.refuses(status, statuses)
                 )
-            failing = self._uninformative(record, _SUB_SPOOF if spoof else _SUB_LIMIT)
-            if failing is not None:
-                failing_in_a_row += 1
-            else:
+                if is_limit:
+                    return _Burst(
+                        sent=sent, answered=answered, seconds=seconds, limited=record, last=record
+                    )
+                statuses.add(status)
+            failing = self._uninformative(record, sub_test)
+            if failing is None:
                 failing_in_a_row = 0
-                served_before = served_before or category == ResponseCategory.SERVED
-            if failing_in_a_row >= _SPOIL_SAMPLE:
-                # The endpoint keeps failing: flooding it further says nothing
-                # (a run of failures, not a single one). After
-                # answers that were served, a run of 503 may be a limit that
-                # rejects with 503 instead of 429.
-                return _BurstResult(
-                    sent=sent,
-                    answered=answered,
-                    seconds=time.monotonic() - started,
-                    limited_record=None,
-                    last_record=last,
-                    upstream_failing=True,
-                    failing_reason=failing,
-                    maybe_limit=served_before
-                    and record.response_status_code == _SERVICE_UNAVAILABLE,
-                )
-        return _BurstResult(
-            sent=budget,
+                informative_before = True
+                refused_only = refused_only and category_of(record) in _REFUSED
+            else:
+                failing_in_a_row += 1
+                if failing_in_a_row >= _SPOIL_SAMPLE:
+                    maybe_limit = (
+                        limited_by is None and informative_before and status == _SERVICE_UNAVAILABLE
+                    )
+                    return _Burst(
+                        sent=sent,
+                        answered=answered,
+                        seconds=seconds,
+                        limited=None,
+                        last=record,
+                        failing="LIMIT_OR_UNAVAILABLE" if maybe_limit else failing,
+                    )
+            if flood.enough(answered, seconds):
+                break
+        return _Burst(
+            sent=sent,
             answered=answered,
             seconds=time.monotonic() - started,
-            limited_record=None,
-            last_record=last,
-            upstream_failing=False,
+            limited=None,
+            last=last,
+            refused_only=refused_only and informative_before,
         )
 
     def _judge_limit(
-        self,
-        store: EvidenceStore,
-        path: str,
-        plain: _BurstResult,
-        routes: tuple[RouteLimits[RateLimit], ...] | None,
-    ) -> list[InfoNote]:
+        self, store: EvidenceStore, flood: _Flood, plain: _Burst
+    ) -> tuple[list[InfoNote], bool]:
         """
-        Judge whether the plain burst met a rate limit (module docstring: the cases).
-
-        Args:
-            store:  The test's evidence store.
-            path:   The path flooded.
-            plain:  The plain burst's result.
-            routes: The routes that may serve the path with their limits, or None.
+        Judge whether the plain burst met a rate limit (info.oracle, `limit_enforced`).
 
         Returns:
-            A note naming the limits not provably exceeded, when there are some.
+            A note naming the limits not provably exceeded, when there are some;
+            and whether the burst found no limit (NO_RATE_LIMIT).
         """
-        if plain.upstream_failing:
-            detail = "LIMIT_OR_UNAVAILABLE" if plain.maybe_limit else plain.failing_reason
-            self._record(_SUB_LIMIT, Outcome.NOT_VERIFIABLE, detail)
-            return []
-        if plain.limited_record is not None:
-            self._judge(plain.limited_record, store, _SUB_LIMIT, Outcome.ENFORCED, "RATE_LIMITED")
-            return []
+        if plain.limited is not None:
+            self._judge(plain.limited, store, _SUB_LIMIT, Outcome.ENFORCED, "RATE_LIMITED")
+            return [], False
+        if plain.failing is not None:
+            self._record(_SUB_LIMIT, Outcome.NOT_VERIFIABLE, plain.failing)
+            return [], False
+        if plain.refused_only:
+            self._record(_SUB_LIMIT, Outcome.NOT_VERIFIABLE, "REFUSED_BEFORE_LIMIT")
+            return [], False
+        path = flood.path
         burst = (
             f"{plain.answered} requests to {path} in a burst of {plain.seconds:.1f} s all "
-            "answered without a 429 Too Many Requests"
+            "answered without a refusal"
         )
+        routes = flood.routes
         unlimited = None if routes is None else [r for r in routes if not r.limits]
         if routes is None or unlimited:
             stated = (
@@ -367,38 +461,38 @@ class Test41RateLimiting(BaseTest[Test41Params]):
             finding = Finding(
                 title=f"No rate limit on {path}",
                 detail=(
-                    f"{burst}.{stated} No limit applies at or below that rate; a higher limit "
-                    "would not be seen by this burst (raise max_burst to look further)."
-                    + _NO_LIMIT_RISK
+                    f"{burst}.{stated} No limit of {(plain.answered - 1) // 2} requests or fewer "
+                    f"per window of {plain.seconds:.1f} s or longer applies (a burst may straddle "
+                    "two windows); a higher limit would not be seen by this burst (raise "
+                    "max_burst to look further)." + _NO_LIMIT_RISK
                 ),
                 confidence=Confidence.FIRM,
             )
-            self._violation(store, _SUB_LIMIT, "NO_RATE_LIMIT", finding, plain.last_record)
-            return []
+            self._violation(store, _SUB_LIMIT, "NO_RATE_LIMIT", finding, plain.last)
+            return [], True
         limits = _distinct_limits(routes)
         unproven = [
             limit for limit in limits if not _exceeded(limit, plain.answered, plain.seconds)
         ]
         if unproven:
             self._record(_SUB_LIMIT, Outcome.NOT_VERIFIABLE, "LIMIT_NOT_REACHED")
-            return [
-                InfoNote(
-                    title="Rate limit not reached",
-                    detail=(
-                        f"{burst}, and the burst did not provably go past every limit the "
-                        f"gateway states for the routes that may serve it: "
-                        f"{'; '.join(_describe(limit) for limit in unproven)}. A limit above "
-                        "max_burst, one whose window is too short for the burst's pace, or one "
-                        "not counted per window, cannot be judged by this burst."
-                    ),
-                )
-            ]
+            note = InfoNote(
+                title="Rate limit not reached",
+                detail=(
+                    f"{burst}, and the burst did not provably go past every limit the "
+                    f"gateway states for the routes that may serve it: "
+                    f"{'; '.join(_describe(limit) for limit in unproven)}. A limit above "
+                    "max_burst, one whose window is too short for the burst's pace, or one "
+                    "not counted per window, cannot be judged by this burst."
+                ),
+            )
+            return [note], False
         shared = all(limit.shared_counter is True for limit in limits)
-        stated = "; ".join(_describe(limit) for limit in limits)
         finding = Finding(
             title=f"Rate limit not enforced on {path}",
             detail=(
-                f"{burst}, although the gateway states {stated} for the routes that may serve "
+                f"{burst}, although the gateway states "
+                f"{'; '.join(_describe(limit) for limit in limits)} for the routes that may serve "
                 "it, and the burst went past each within one of its windows: the limit is "
                 "configured and not enforced"
                 + (
@@ -413,44 +507,60 @@ class Test41RateLimiting(BaseTest[Test41Params]):
             ),
             confidence=Confidence.CERTAIN if shared else Confidence.FIRM,
         )
-        self._violation(store, _SUB_LIMIT, "NO_RATE_LIMIT", finding, plain.last_record)
-        return []
+        self._violation(store, _SUB_LIMIT, "NO_RATE_LIMIT", finding, plain.last)
+        return [], True
 
     def _judge_spoofing(
         self,
-        client: SecurityClient,
         store: EvidenceStore,
-        path: str,
-        budget: int,
-        plain: _BurstResult,
+        flood: _Flood,
+        plain: _Burst,
+        credential: RequestAuthParts | None,
+        *,
+        no_limit: bool,
     ) -> None:
-        """Judge the IP-spoofing bypass, only when there was a limit to bypass."""
-        if plain.limited_record is None:
-            self._record(_SUB_SPOOF, Outcome.NOT_APPLICABLE, "NO_LIMIT_TO_BYPASS")
+        """Judge the IP-spoofing bypass (info.oracle, `ip_spoofing_resisted`)."""
+        if plain.limited is None:
+            if no_limit:
+                self._record(_SUB_SPOOF, Outcome.NOT_APPLICABLE, "NO_LIMIT_TO_BYPASS")
+            else:
+                self._record(_SUB_SPOOF, Outcome.NOT_VERIFIABLE, "NO_LIMIT_SEEN")
             return
-        spoofed = self._burst(client, path, budget, spoof=True)
-        if spoofed.upstream_failing:
-            self._record(_SUB_SPOOF, Outcome.NOT_VERIFIABLE, spoofed.failing_reason)
+        refusal = plain.limited.response_status_code
+        spoofed = self._burst(flood, spoof=True, limited_by=refusal, credential=credential)
+        if spoofed.failing is not None:
+            self._record(_SUB_SPOOF, Outcome.NOT_VERIFIABLE, spoofed.failing)
             return
-        if spoofed.limited_record is not None:
-            self._judge(
-                spoofed.limited_record, store, _SUB_SPOOF, Outcome.ENFORCED, "SPOOF_RESISTED"
-            )
+        if spoofed.limited is not None:
+            self._judge(spoofed.limited, store, _SUB_SPOOF, Outcome.ENFORCED, "SPOOF_RESISTED")
             return
+        control = _send(flood.client, flood.path, credential, spoof=False)
+        self._step(control)
+        still_limited = control.response_status_code == refusal
         finding = Finding(
-            title=f"Rate limit bypassed by spoofing the client address on {path}",
+            title=f"Rate limit bypassed by spoofing the client address on {flood.path}",
             detail=(
-                f"A plain burst to {path} met a 429 after {plain.sent} requests, but the same "
-                f"burst with a random client address on every request, in "
-                f"{', '.join((*_SPOOF_HEADERS, _FORWARDED_HEADER))}, sent {budget} without a "
-                "429. The gateway keys its rate limit to a client-controlled header (which of "
-                "these is not told apart), so an attacker rotates it and floods freely (OWASP "
-                "API4:2023). Key the limit to the real connection, or trust these headers only "
-                "from known proxies."
+                f"A plain burst to {flood.path} was refused ({refusal}) after {plain.sent} "
+                f"requests, but the same burst with a random client address on every request, "
+                f"in {', '.join((*_SPOOF_HEADERS, _FORWARDED_HEADER))}, sent {spoofed.sent} "
+                "without a refusal"
+                + (
+                    f", and a plain request right after it was refused ({refusal}) again: the "
+                    "limit counts the address a header claims"
+                    if still_limited
+                    else (
+                        f"; a plain request right after it was not refused "
+                        f"({control.response_status_code}), so the limit's window may have "
+                        "ended during the spoofed burst"
+                    )
+                )
+                + " (which header is not told apart). An attacker rotates it and floods freely "
+                "(OWASP API4:2023). Key the limit to the real connection, or trust these headers "
+                "only from known proxies."
             ),
-            confidence=Confidence.CERTAIN,
+            confidence=Confidence.CERTAIN if still_limited else Confidence.FIRM,
         )
-        self._violation(store, _SUB_SPOOF, "IP_SPOOF_BYPASS", finding, spoofed.last_record)
+        self._violation(store, _SUB_SPOOF, "IP_SPOOF_BYPASS", finding, spoofed.last)
 
     def _violation(
         self,
@@ -467,58 +577,56 @@ class Test41RateLimiting(BaseTest[Test41Params]):
             self._record(sub_test, Outcome.VIOLATION, detail, finding)
 
 
-# The risk a finding of this sub-test names.
-_NO_LIMIT_RISK: str = (
-    " Without a rate limit a loop can exhaust the backend's resources or brute-force a "
-    "credential (OWASP API4:2023, ASVS v5.0.0-2.4.1). Configure a rate-limiting plugin on the "
-    "gateway."
-)
+class _Flood:
+    """The burst's target, cap and the limits that may apply, with the rules they give."""
 
-# How many failing answers in a row end the burst (a single transient 5xx does
-# not stop it).
-_SPOIL_SAMPLE: int = 3
-# 503 Service Unavailable: what some gateways' rate limiters answer over the
-# limit (instead of 429), and what an unavailable backend answers too.
-_SERVICE_UNAVAILABLE: int = 503
+    def __init__(
+        self,
+        client: SecurityClient,
+        path: str,
+        cap: int,
+        routes: tuple[RouteLimits[RateLimit], ...] | None,
+    ) -> None:
+        """
+        Args:
+            client: The run's HTTP client.
+            path:   The path to flood.
+            cap:    The largest burst (max_burst).
+            routes: The routes that may serve the path with their limits, or None.
+        """
+        self.client = client
+        self.path = path
+        self.cap = cap
+        self.routes = routes
+        limits = [] if routes is None else _distinct_limits(routes)
+        self._refusals = frozenset(
+            limit.refusal_status
+            for limit in limits
+            if limit.refusal_status is not None and limit.refusal_status != _TOO_MANY_REQUESTS
+        )
+        countable = (
+            routes is not None
+            and all(entry.limits for entry in routes)
+            and all(limit.windows for limit in limits)
+        )
+        self._limits = limits if countable else []
 
+    def refuses(self, status: int, earlier: set[int]) -> bool:
+        """
+        Whether an answer of the plain burst is a limit's refusal.
 
-class _BurstResult(BaseModel):
-    """What one burst produced."""
+        A `429`, or a status a limit that may apply states, once the burst had
+        answers with another status (the limit lets the first requests through).
+        """
+        if status == _TOO_MANY_REQUESTS:
+            return True
+        return status in self._refusals and bool(earlier - {status})
 
-    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
-
-    sent: int
-    # Requests that got an answer (they reached the gateway, which counted
-    # them), and the time from the first request to the last answer.
-    answered: int
-    seconds: float
-    limited_record: EvidenceRecord | None
-    last_record: EvidenceRecord | None
-    upstream_failing: bool
-    # The failing run is 503s after served answers: possibly a limit rejecting
-    # with 503 (some gateways' default) rather than an unavailable backend.
-    maybe_limit: bool = False
-    # Why the last answer of a failing run says nothing (_uninformative).
-    failing_reason: str = ResponseCategory.UPSTREAM_UNAVAILABLE.value
-
-
-def _needed_requests(routes: tuple[RouteLimits[RateLimit], ...] | None) -> int | None:
-    """
-    Requests enough to exceed, in one window, every limit that may apply.
-
-    For each limit, the smallest of its windows' counts times _BOUNDARY_WINDOWS,
-    plus one (a burst shorter than that window); the largest over the limits.
-    None when nothing is known of the limits, a route that may serve the path
-    has none, or a limit is not counted per window: the budget is then the cap.
-    """
-    if routes is None or any(not entry.limits for entry in routes):
-        return None
-    limits = _distinct_limits(routes)
-    if any(not limit.windows for limit in limits):
-        return None
-    return max(
-        min(window.requests for window in limit.windows) * _BOUNDARY_WINDOWS + 1 for limit in limits
-    )
+    def enough(self, answered: int, seconds: float) -> bool:
+        """Whether the burst exceeded every limit that may apply (False when they are not known)."""
+        return bool(self._limits) and all(
+            _exceeded(limit, answered, seconds) for limit in self._limits
+        )
 
 
 def _distinct_limits(routes: tuple[RouteLimits[RateLimit], ...]) -> list[RateLimit]:
@@ -566,11 +674,25 @@ def _random_ip() -> str:
 
 
 def _send(
-    client: SecurityClient, path: str, headers: dict[str, str] | None
-) -> EvidenceRecord | None:
-    """One GET; its record, or None on a transport failure."""
+    client: SecurityClient,
+    path: str,
+    credential: RequestAuthParts | None,
+    *,
+    spoof: bool,
+) -> EvidenceRecord:
+    """One GET, with user_a's credential and spoofed addresses when given; its record."""
+    parts = credential or RequestAuthParts()
+    headers = {**parts.headers, **(_spoofed_headers() if spoof else {})}
     try:
-        _response, record = client.request("GET", path, test_id="4.1", headers=headers)
+        _response, record = client.request(
+            _BURST_METHOD,
+            path,
+            test_id="4.1",
+            headers=headers or None,
+            params=dict(parts.params) or None,
+        )
     except SecurityClientError as exc:
+        if exc.record is None:
+            raise
         return exc.record
     return record

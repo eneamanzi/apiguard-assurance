@@ -53,7 +53,7 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
-from src.core.test_metadata import Effect, Need, TestInfo
+from src.core.test_metadata import Effect, Need, OracleCase, TestInfo
 from src.tests.base import BaseTest
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
@@ -81,6 +81,80 @@ _REFERENCES: tuple[Reference, ...] = (
     Reference(standard=Standard.ASVS, id="v5.0.0-7.3.2"),
 )
 
+_ORACLE: tuple[OracleCase, ...] = (
+    OracleCase(
+        sub_test=_SUB_DECLARED,
+        when="the token carries a numeric `exp`",
+        outcome=Outcome.ENFORCED,
+        detail="EXP_DECLARED",
+    ),
+    OracleCase(
+        sub_test=_SUB_DECLARED,
+        when="the token carries no `exp` (only server-side state, unseen, could end it)",
+        outcome=Outcome.VIOLATION,
+        detail="NO_EXP_CLAIM",
+        confidence=Confidence.TENTATIVE,
+    ),
+    OracleCase(
+        sub_test=_SUB_DECLARED,
+        when="`exp` is not a NumericDate",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="EXP_NOT_NUMERIC",
+    ),
+    OracleCase(
+        sub_test=_SUB_LIFETIME,
+        when="`exp` minus `iat`, or minus the login's time without `iat`, is at most 24 hours",
+        outcome=Outcome.ENFORCED,
+        detail="LIFETIME_BOUNDED",
+    ),
+    OracleCase(
+        sub_test=_SUB_LIFETIME,
+        when="the same span is over 24 hours",
+        outcome=Outcome.VIOLATION,
+        detail="LIFETIME_EXCESSIVE",
+        confidence=Confidence.TENTATIVE,
+    ),
+    OracleCase(
+        sub_test=_SUB_LIFETIME,
+        when="no `iat`, and a configured token (no login to date it)",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="NO_IAT_CLAIM",
+    ),
+    OracleCase(
+        sub_test=_SUB_LIFETIME,
+        when="`exp` is not after the start",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="EXP_NOT_AFTER_IAT",
+    ),
+    OracleCase(
+        sub_test=_SUB_LIFETIME,
+        when="`exp` is not a NumericDate",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="EXP_NOT_NUMERIC",
+    ),
+    OracleCase(
+        sub_test=_SUB_LIFETIME,
+        when="no `exp`: nothing to bound (the declared sub-test reports it)",
+        outcome=Outcome.NOT_APPLICABLE,
+        detail="NO_EXPIRY_TO_BOUND",
+    ),
+    OracleCase(
+        sub_test=_SUB_EXPIRED,
+        when="a JWT: an expired one cannot be minted without the signing key",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail="NEEDS_KEY_MATERIAL",
+    ),
+    *(
+        OracleCase(
+            sub_test=sub_test,
+            when="user_a's credential is not a JWT",
+            outcome=Outcome.NOT_APPLICABLE,
+            detail="NOT_A_JWT",
+        )
+        for sub_test in (_SUB_DECLARED, _SUB_LIFETIME, _SUB_EXPIRED)
+    ),
+)
+
 
 class Test13CredentialExpiry(BaseTest):
     """
@@ -101,6 +175,7 @@ class Test13CredentialExpiry(BaseTest):
         needs=(Need.USER_ACCOUNT,),
         effect=Effect.READ_ONLY,
         sub_tests=(_SUB_DECLARED, _SUB_LIFETIME, _SUB_EXPIRED),
+        oracle=_ORACLE,
     )
 
     def execute(
@@ -152,13 +227,16 @@ class Test13CredentialExpiry(BaseTest):
             if artefact is not None:
                 store.pin_evidence(artefact.record)
                 evidence_ref = artefact.record.record_id
-            self._judge_claims(view.claims, evidence_ref)
+            issued = artefact.record.timestamp_utc.timestamp() if artefact is not None else None
+            self._judge_claims(view.claims, evidence_ref, issued)
             self._record(_SUB_EXPIRED, Outcome.NOT_VERIFIABLE, "NEEDS_KEY_MATERIAL")
             return self._finish(notes=[_expired_note()])
         except AuthenticationSetupError as exc:
             return self._error(exc)
 
-    def _judge_claims(self, claims: dict[str, object], evidence_ref: str | None) -> None:
+    def _judge_claims(
+        self, claims: dict[str, object], evidence_ref: str | None, issued: float | None
+    ) -> None:
         """
         Judge the `exp` and `iat` claims of the obtained token.
 
@@ -166,11 +244,14 @@ class Test13CredentialExpiry(BaseTest):
             claims:       The token's payload.
             evidence_ref: The login response that carried the token, as the
                           findings' proof; None when no login produced it.
+            issued:       When the login that returned the token was sent; None
+                          for a configured token.
         """
         if "exp" in claims and _timestamp(claims["exp"]) is None:
             # An `exp` that is not a NumericDate (RFC 7519 section 4.1.4) is not a
             # missing one: what it means depends on the verifier.
             self._record(_SUB_DECLARED, Outcome.NOT_VERIFIABLE, "EXP_NOT_NUMERIC")
+            self._record(_SUB_LIFETIME, Outcome.NOT_VERIFIABLE, "EXP_NOT_NUMERIC")
             return
         exp = _timestamp(claims.get("exp"))
         if exp is None:
@@ -181,25 +262,33 @@ class Test13CredentialExpiry(BaseTest):
                 Finding(
                     title="The credential declares no expiry",
                     detail=(
-                        "The JWT of role user_a carries no `exp` claim, so it never expires on "
-                        "its own: a token stolen once stays usable for good, and no absolute "
-                        "session lifetime can be enforced (ASVS v5.0.0-7.3.2). Add an `exp` "
-                        "claim and keep it short."
+                        "The JWT of role user_a carries no `exp` claim: it declares no expiry, "
+                        "and only state kept at the server (a session store, a revocation list) "
+                        "can end it, which cannot be seen from outside. Without such state a "
+                        "stolen token stays usable for good (ASVS v5.0.0-7.3.2). Add an `exp` "
+                        "claim and keep it short. Reported with low confidence: `exp` is optional "
+                        "(RFC 7519 section 4.1.4)."
                     ),
                     evidence_ref=evidence_ref,
-                    confidence=Confidence.FIRM,
+                    confidence=Confidence.TENTATIVE,
                 ),
             )
+            self._record(_SUB_LIFETIME, Outcome.NOT_APPLICABLE, "NO_EXPIRY_TO_BOUND")
             return
         self._record(_SUB_DECLARED, Outcome.ENFORCED, "EXP_DECLARED")
         iat = _timestamp(claims.get("iat"))
-        if iat is None:
+        if iat is None and issued is None:
             self._record(_SUB_LIFETIME, Outcome.NOT_VERIFIABLE, "NO_IAT_CLAIM")
             return
-        if exp <= iat:
+        # Without `iat`, the login that returned the token dates it (a fresh
+        # token is issued by that login); until 2026-11-16 nothing was judged.
+        since = iat if iat is not None else issued
+        assert since is not None  # noqa: S101 -- one of the two, checked above
+        if exp <= since:
             self._record(_SUB_LIFETIME, Outcome.NOT_VERIFIABLE, "EXP_NOT_AFTER_IAT")
             return
-        lifetime = int(exp - iat)
+        lifetime = int(exp - since)
+        start = f"`iat` {_utc(since)}" if iat is not None else f"the login at {_utc(since)}"
         if lifetime > _LIFETIME_WARN_SECONDS:
             self._record(
                 _SUB_LIFETIME,
@@ -209,7 +298,7 @@ class Test13CredentialExpiry(BaseTest):
                     title="The credential's lifetime is long",
                     detail=(
                         f"The JWT of role user_a is valid for {_human(lifetime)} "
-                        f"(`iat` {_utc(iat)}, `exp` {_utc(exp)}; the token itself is redacted "
+                        f"(from {start} to `exp` {_utc(exp)}; the token itself is redacted "
                         f"in the evidence). A bearer token presented on every request with an "
                         "absolute lifetime this long widens the window in which a stolen token "
                         "is usable (ASVS v5.0.0-7.3.2 asks for an absolute maximum set by risk "

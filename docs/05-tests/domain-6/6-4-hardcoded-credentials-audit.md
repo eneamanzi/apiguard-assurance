@@ -3,7 +3,7 @@
 > **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-23) ·
 > **Source of truth:**
 > [`src/tests/domain_6/test_6_4_hardcoded_credentials_audit.py`](../../../src/tests/domain_6/test_6_4_hardcoded_credentials_audit.py) ·
-> **Verified:** 2026-10-23
+> **Verified:** 2026-11-16
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("6.4", page=cog.inFile)) ]]] -->
 
@@ -41,9 +41,11 @@ CWE-798; ASVS v5.0.0-13.3.1 (secrets in a vault, not in source or artifacts).
 
 ## 3. Inputs
 
-The debug endpoint paths to probe (`debug_endpoint_paths`, configured; none means the sub-test is not applicable).
-The gateway's configuration values read through the adapter (`config_values`, `Need.GATEWAY` optional). Secret values
-are masked (`SecretStr`).
+The debug endpoint paths to probe (`debug_endpoint_paths`, configured; none, the tool's own, section 5). The
+gateway's configuration values read through the adapter (`config_values`, `Need.GATEWAY` optional), masked
+(`SecretStr`). Every credential found in a served body is registered as a secret before its record is kept, so the
+outputs (evidence, report) show it redacted: until 2026-11-16 a served credential was written in clear into
+`evidence.json` and the report's transaction log.
 
 ## 4. Preconditions and reference responses
 
@@ -54,32 +56,47 @@ None for the debug probe (unauthenticated). The config scan needs a gateway; wit
 An unauthenticated GET to each configured debug path, or, when none is configured, to each of the tool's six paths that
 expose configuration (`src/core/sensitive_paths.py`, kind CONFIGURATION: `actuator/env`, `actuator/configprops`,
 `server-info`, `.env`, `.git/config`, `.git/HEAD`) under the root and each service prefix (its body scanned for
-credential patterns); a read of
+credential patterns and for credential-named keys with a real value: `KEY=VALUE` lines, JSON pairs, an actuator's
+`name`/`value`); a read of
 `config_values`, each value scanned by pattern and by a credential-named key holding a non-placeholder value.
 READ_ONLY.
 
 ## 6. Oracle
 
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("6.4")) ]]] -->
+
 **`debug_endpoint_no_secret`**
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| a debug path answers 2xx and its body matches a credential pattern | `VIOLATION/DEBUG_SECRET` | FIRM |
-| it is not found (`404`) | `ENFORCED/DEBUG_NOT_FOUND` | - |
-| it is refused (another non-2xx) | `ENFORCED/DEBUG_BLOCKED` | - |
-| 2xx with no credential | `ENFORCED/DEBUG_NO_SECRET` | - |
+| a path answers `2xx` without a credential and its body holds a credential pattern, or a credential-named key with a real value | `VIOLATION/DEBUG_SECRET` | FIRM |
+| it answers `2xx` and its body holds no credential | `ENFORCED/DEBUG_NO_SECRET` | - |
+| it answers `404` or `410` | `ENFORCED/DEBUG_NOT_FOUND` | - |
+| it is refused (`401`, `403`, `400`, `405`, ...) | `ENFORCED/DEBUG_BLOCKED` | - |
+| it answers a redirect (not followed) or a status of no class | `NOT_VERIFIABLE/NOT_INTERPRETED` | - |
 
 **`gateway_config_no_secret`**
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| a config value matches a credential pattern | `VIOLATION/CONFIG_SECRET` | FIRM |
-| a value that refers to a secret kept elsewhere, written as the gateway writes it (Kong `{vault://...}`, APISIX `$secret://...`, `$ENV://...`; the adapter states its syntax) | not reported: it is what the remediation asks for (until 2026-11-05 it was a `CONFIG_SECRET` finding) | - |
-| a credential-named key holds a long non-placeholder value | `VIOLATION/CONFIG_SECRET` | TENTATIVE |
-| none found among the values read | `ENFORCED/CONFIG_NO_SECRET` | - |
-| the read succeeded and returned **no value at all** | `NOT_VERIFIABLE/NO_CONFIG_VALUE` | - |
-| no gateway configured | `NOT_APPLICABLE/NO_GATEWAY` | - |
-| the configuration cannot be read | `NOT_VERIFIABLE/CONFIG_NOT_READABLE` | - |
+| a gateway configuration value matches a credential pattern | `VIOLATION/CONFIG_SECRET` | FIRM |
+| a credential-named key (a header's name in a header list) holds a non-placeholder value of 8 characters or more, not a secret reference | `VIOLATION/CONFIG_SECRET` | TENTATIVE |
+| no value read holds a credential (secret references excepted) | `ENFORCED/CONFIG_NO_SECRET` | - |
+| the read succeeded and returned no value at all | `NOT_VERIFIABLE/NO_CONFIG_VALUE` | - |
+| no gateway is configured | `NOT_APPLICABLE/NO_GATEWAY` | - |
+| the gateway's adapter does not read configuration values | `NOT_APPLICABLE/CONFIG_NOT_SUPPORTED` | - |
+
+<!-- [[[end]]] -->
+
+A value that refers to a secret kept elsewhere, written as the gateway writes it (Kong `{vault://...}`, APISIX
+`$secret://...`, `$ENV://...`; the adapter states its syntax), is not reported: it is what the remediation asks for
+(until 2026-11-05 it was a `CONFIG_SECRET` finding). Until 2026-11-16: a served body was matched against the token
+patterns only, so a served `.env` holding `DB_PASSWORD=...` or an actuator's unmasked `spring.datasource.password`
+was `DEBUG_NO_SECRET`; a redirect counted as `DEBUG_BLOCKED`; a header in Kong's header lists
+(`request-transformer` `add.headers: ["X-Api-Key:..."]`) was keyed `headers[3]`, never credential-named, while
+APISIX's map form was caught; and an unreadable configuration was `CONFIG_NOT_READABLE` whether the gateway lacked
+the concept (now `NOT_APPLICABLE/CONFIG_NOT_SUPPORTED`) or it could not be read (now the shared
+`CONCEPT_NOT_ACCESSIBLE`).
 
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("6.4", page=cog.inFile)) ]]] -->
 
@@ -100,10 +117,20 @@ FAIL on an exposed credential; PASS when the debug endpoints and the config are 
 
 ## 8. Findings
 
-"Debug endpoint exposes a credential: `<path>`", "Credential pattern in gateway config: ...", "Probable plaintext
-credential in gateway config: ...", each pointing to the request or the config concept artifact. One finding per
-value per configuration object: when the same value is under several keys of one object, the strongest finding is
-kept (a matched pattern before a credential-named key) and names the other keys (since 2026-11-15).
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("6.4")) ]]] -->
+
+- "Credential pattern in gateway config: <location>"
+- "Probable plaintext credential in gateway config: <location>"
+- "Debug endpoint exposes a credential: <path>"
+
+<!-- [[[end]]] -->
+
+Each points to the request or the config concept artifact. One finding per value per configuration object: when
+the same value is under several keys of one object, the strongest finding is kept (a matched pattern before a
+credential-named key) and names the other keys (since 2026-11-15). The debug finding cites CWE-215 and ASVS
+v5.0.0-13.4.2/13.4.5 (a secret served by a debug path may come from the environment, not the code; until
+2026-11-16 it cited CWE-798); the configuration findings CWE-798 and ASVS 13.3.1; the NIST reference is SP 800-53r5's
+IA family (IA-5(7), no embedded static authenticators).
 
 ## 9. Effects on the target
 
@@ -128,6 +155,14 @@ Section [`tests.domain_6.test_6_4`](../../03-reference/01-configuration.md#tests
 <!-- [[[end]]] -->
 
 ## 12. Validation
+
+**2026-11-16, after the review** (Forgejo + Kong, each variant undone and the lab checked back): the three labs as
+configured **PASS**. A route `~/\.env$` whose `pre-function` serves `DB_PASSWORD=lab-dummy-0001xyz`, with
+`debug_endpoint_paths: ["/.env"]`: **FAIL**, `DEBUG_SECRET` FIRM ("credential-named key DB_PASSWORD"), and the value
+appears in no output in clear (`evidence.json` shows `DB_PASSWORD=[REDACTED: credential exposed at /.env ...]`);
+until that day the body matched no pattern and was `DEBUG_NO_SECRET`. A `request-transformer` on `forgejo-service`
+adding the header `X-Api-Key:lab-dummy-not-real-0001`: **FAIL**, `CONFIG_SECRET` TENTATIVE; until that day the key
+read was `headers[1]`. The `pre-function` holding an AWS key example in its code was flagged FIRM too (the pattern).
 
 Runs of 2026-10-29 (the coverage column was added when a skipped sub-test began to lower it):
 
@@ -201,15 +236,19 @@ v5.0.0-13.3.1, CWE-798); make debug endpoints return 401/403 or remove them in p
   this test. The labs have no consumers, so the difference shows on none of them; adding the Kong reader would be a
   new capability and was not done (2026-11-03).
 - The debug sub-test probes the configured paths, or the six default ones; another debug endpoint is not found here
-  (that is `ext.0.1.ffuf`, which searches the tool's 38 sensitive paths, without reading a credential in them).
+  (that is `ext.0.1.ffuf`, which searches the tool's 38 sensitive paths, without reading a credential in them). The
+  defaults leave out `actuator/heapdump`, `actuator/logfile`, `actuator/httpexchanges` and `debug/vars`: configure
+  them in `debug_endpoint_paths` where they may exist.
 - The config scan sees only what the adapter's `config_values` exposes; a secret in a file the Admin API does not
   surface (Kong DB-less) is not reached.
-- The semantic-key rule is a heuristic (TENTATIVE): a long non-secret value in a credential-named key is a false
-  positive, a secret in a differently-named key a false negative.
-- The pattern set is six shapes (credentials inside a URL, AWS access key, Stripe live and test keys, GitHub
-  personal access token, PEM private key). There is no generic rule for a bearer token or an API key, so
-  `Authorization: Bearer <opaque>` in a plugin header is caught only by the semantic-key rule, if the key is named
-  like a credential.
+- The credential-named key rule is a heuristic (TENTATIVE in the configuration, where the value is masked and judged
+  by its key and length; FIRM in a served body, where it is seen): a long non-secret value in a credential-named key
+  is a false positive, a secret in a differently-named key a false negative. A key ending in `token` counts, a
+  fragment of one (`token_type`, `max_tokens`) does not.
+- The patterns are ten shapes (credentials inside a URL, the user name may be empty; AWS access key; Stripe live and
+  test keys; GitHub classic and fine-grained tokens; PEM private keys, OpenSSH, DSA and encrypted ones included;
+  Slack tokens; Google API keys). There is no generic rule for a bearer token or an API key: `Authorization: Bearer
+  <opaque>` is caught by the credential-named key rule (a header's name in a header list counts as its key).
 
 ## 15. Sources
 

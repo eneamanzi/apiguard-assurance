@@ -15,7 +15,7 @@
 | Priority / strategy | P2 / BLACK_BOX |
 | Effect | STRESSES_TARGET |
 | CWE | CWE-20 |
-| Standards | `OWASP ASVS v5.0.0-2.2.1`, `NIST SP 800-53r5, Section 3.19` |
+| Standards | `OWASP ASVS v5.0.0-2.2.1`, `OWASP ASVS v5.0.0-16.5.3`, `NIST SP 800-53r5, Section 3.19` |
 | Tags | `input-validation`, `injection`, `fuzzing` |
 | Prerequisites | none |
 | Needs | `USER_ACCOUNT` (optional) |
@@ -79,16 +79,20 @@ data the tool cannot clean up."
 
 ## 6. Oracle (`input_validated`)
 
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("ext.3.1.schemathesis")) ]]] -->
+
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| no operation answered a server error, and at least one was reached | `ENFORCED/INPUT_VALIDATED` | - |
-| an operation answered a server error to a generated input | `VIOLATION/INPUT_NOT_VALIDATED` (one per operation, up to 20 reported), quoting each failing test case with its reproduction command | FIRM (the tool observed it) |
-| an operation's only failing test cases quote `502`, `503` or `504` (an unavailable backend) | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`, no finding | - |
-| an operation's only failing test cases are requests that got no answer in time (Schemathesis's "Response timeout"): no answer is no server error (since 2026-11-15) | `NOT_VERIFIABLE/NO_RESPONSE`, no finding | - |
-| every generated request to an operation got a `4xx` (Schemathesis's warning "returned only 4xx responses"): never reached: without a credential, the one Schemathesis makes up for the declared security schemes answers `401` (Forgejo); with user_a's, every generated input of that operation was refused | `NOT_VERIFIABLE/ONLY_4XX` | - |
+| an operation answers a server error (`500`, ...) to a generated input | `VIOLATION/INPUT_NOT_VALIDATED` | FIRM |
+| no failure, and at least one operation was checked | `ENFORCED/INPUT_VALIDATED` | - |
+| every generated request to an operation got a `4xx`: never reached | `NOT_VERIFIABLE/ONLY_4XX` | - |
 | Schemathesis reports an operation as errored or skipped | `NOT_VERIFIABLE/OPERATION_NOT_CHECKED` | - |
-| no operation was checked at all | `NOT_VERIFIABLE/NOTHING_CHECKED` | - |
-| the tool could not connect / timed out | ERROR (the base class handles it) | - |
+| an operation's failing cases quote only `501`: the method is not served | `NOT_VERIFIABLE/NOT_IMPLEMENTED` | - |
+| no failure, and no operation was checked | `NOT_VERIFIABLE/NOTHING_CHECKED` | - |
+
+<!-- [[[end]]] -->
+
+Until 2026-11-16 a failing case quoting only `501` (Not Implemented, the method not served) was `INPUT_NOT_VALIDATED`: now `NOT_IMPLEMENTED`, not verifiable. ASVS v5.0.0-16.5.3 (fail gracefully on an exception) is cited, what "no server error to a generated input" checks.
 
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("ext.3.1.schemathesis", page=cog.inFile)) ]]] -->
 
@@ -111,8 +115,13 @@ INCONCLUSIVE when nothing could be checked.
 
 ## 8. Findings
 
-"Server error on a generated input: `<METHOD> <path>`", quoting each failing test case and the command that
-reproduces it; `evidence_ref` the tool output artifact, which keeps Schemathesis's messages whole.
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("ext.3.1.schemathesis")) ]]] -->
+
+- "<_FINDING_TITLE>: <operation>"
+
+<!-- [[[end]]] -->
+
+`evidence_ref` Schemathesis's output artifact; at most 20 operations get a finding, the others are only counted in the message.
 
 ## 9. Effects on the target
 
@@ -134,6 +143,9 @@ cases per operation, default 5), `request_timeout_seconds` (how long each genera
 slower one counts as failed).
 
 ## 12. Validation
+
+**2026-11-16, after the review**: not run (Schemathesis not installed on the machine of that day); its logic changed only for `501`.
+
 
 Runs of 2026-11-04, after the corrections of that day (only `not_a_server_error`, the cases judged one by one,
 `ONLY_4XX`):

@@ -15,7 +15,7 @@
 | Priority / strategy | P2 / BLACK_BOX |
 | Effect | READ_ONLY |
 | CWE | CWE-319 |
-| Standards | `OWASP API2:2023`, `OWASP API8:2023`, `RFC 9110, Section 4.2.2`, `NIST SP 800-52r2`, `OWASP ASVS v5.0.0-3.4.1`, `OWASP ASVS v5.0.0-12.2.1`, `OWASP ASVS v5.0.0-4.1.2` |
+| Standards | `OWASP API2:2023`, `OWASP API8:2023`, `RFC 9110, Section 4.2.2`, `RFC 6797, Section 6.1`, `OWASP ASVS v5.0.0-3.4.1`, `OWASP ASVS v5.0.0-12.2.1`, `OWASP ASVS v5.0.0-4.1.2` |
 | Tags | `transport-security`, `tls`, `hsts` |
 | Prerequisites | none |
 | Needs | - |
@@ -72,30 +72,54 @@ Two read-only requests, both through the client so they are recorded:
 
 ## 6. Oracle
 
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("1.5")) ]]] -->
+
 **`credential_forced_onto_tls`**
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| `base_url` on a port other than 443 and no `http_url`: where the plain-HTTP listener is, is unknown, and asking the HTTPS port in cleartext says nothing about it (Kong answers it `400`) | `NOT_VERIFIABLE/HTTP_LISTENER_UNKNOWN`, nothing sent (until 2026-11-04 the HTTPS port was asked and its answer judged) | - |
-| the connection to the HTTP origin is refused: nothing listens there | `ENFORCED/HTTP_PORT_UNREACHABLE` | - |
-| a timeout or a dropped connection (a slow listener, a filter: not known which) | `NOT_VERIFIABLE/HTTP_PORT_NO_ANSWER` (until 2026-11-04 `ENFORCED`) | - |
-| `301`/`308` whose `Location` scheme is `https` | `VIOLATION/TRANSPARENT_REDIRECT` (ASVS v5.0.0-4.1.2) | CERTAIN |
-| `301`/`308` whose `Location` is not `https` | `VIOLATION/WEAK_REDIRECT` | CERTAIN |
-| a temporary redirect (`302`, `307`) | `VIOLATION/TEMPORARY_REDIRECT` | CERTAIN |
-| any `2xx` (served in cleartext) | `VIOLATION/HTTP_SERVED_CLEARTEXT` | CERTAIN |
-| any other answer (the server processed the cleartext request) | `VIOLATION/HTTP_PROCESSED_CLEARTEXT` | CERTAIN |
-| `base_url` is plain HTTP | `VIOLATION/PLAIN_HTTP` | CERTAIN |
+| `base_url` is `http://`: no TLS at all | `VIOLATION/PLAIN_HTTP` | CERTAIN |
+| the plain-HTTP connection is refused: nothing listens there | `ENFORCED/HTTP_PORT_UNREACHABLE` | - |
+| the plain-HTTP probe timed out or broke before an answer | `NOT_VERIFIABLE/HTTP_PORT_NO_ANSWER` | - |
+| `base_url` not on port 443 and no `http_url`: the HTTP listener is unknown | `NOT_VERIFIABLE/HTTP_LISTENER_UNKNOWN` | - |
+| a `301`/`308` to an `https://` location (ASVS v5.0.0-4.1.2) | `VIOLATION/TRANSPARENT_REDIRECT` | CERTAIN |
+| a `301`/`308` whose location is not `https` | `VIOLATION/WEAK_REDIRECT` | CERTAIN |
+| any other redirect | `VIOLATION/TEMPORARY_REDIRECT` | CERTAIN |
+| a `2xx` over plain HTTP | `VIOLATION/HTTP_SERVED_CLEARTEXT` | CERTAIN |
+| any other answer over plain HTTP: the same `4xx` as over HTTPS, or a `5xx` | `VIOLATION/HTTP_PROCESSED_CLEARTEXT` | CERTAIN |
+| `426`, or a `4xx` the same path does not get over HTTPS: the protocol is refused and the client told (owner, 2026-11-16) | `ENFORCED/HTTP_REFUSED` | - |
+| a `4xx` other than `426`, and no HTTPS answer that says something to compare it with | `NOT_VERIFIABLE/HTTPS_ANSWER_UNKNOWN` | - |
 
 **`hsts_present`**
 
 | Case | Outcome / detail | Confidence |
 |---|---|---|
-| header present, `max-age` within the bound, `includeSubDomains` | `ENFORCED/HSTS_COMPLIANT` | - |
-| header absent | `VIOLATION/HSTS_MISSING` | CERTAIN |
-| no answer over HTTPS | `NOT_VERIFIABLE/NO_RESPONSE` | - |
-| `max-age` below the bound (or absent) | `VIOLATION/HSTS_MAX_AGE_LOW` | CERTAIN |
-| `max-age` sufficient but no `includeSubDomains` | `VIOLATION/HSTS_NO_SUBDOMAINS` | FIRM |
-| `base_url` is plain HTTP | `NOT_APPLICABLE/NO_TLS` | - |
+| HSTS with `max-age` at least `hsts_min_max_age_seconds` and `includeSubDomains` | `ENFORCED/HSTS_COMPLIANT` | - |
+| the HTTPS answer has no `Strict-Transport-Security` | `VIOLATION/HSTS_MISSING` | CERTAIN |
+| `max-age` absent or below `hsts_min_max_age_seconds` | `VIOLATION/HSTS_MAX_AGE_LOW` | CERTAIN |
+| `max-age` sufficient, no `includeSubDomains` | `VIOLATION/HSTS_NO_SUBDOMAINS` | FIRM |
+| `base_url` is plain HTTP: no TLS to carry HSTS | `NOT_APPLICABLE/NO_TLS` | - |
+
+<!-- [[[end]]] -->
+
+Any answer over plain HTTP is this test's verdict on `credential_forced_onto_tls` (the request crossed the network in cleartext), so the answers of the table below are judged there by the oracle; on `hsts_present` they follow the rule (until 2026-11-16 a gateway's own `503` lacking HSTS was `HSTS_MISSING`, CERTAIN). Until then the plain-HTTP probe dropped the base URL's path, so an unrouted path was asked; NIST SP 800-52r2 was cited for HSTS and its one-year floor, which it does not mention (ASVS v5.0.0-3.4.1 and RFC 6797 are the sources); and every finding cited all seven references.
+
+<!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("1.5", page=cog.inFile)) ]]] -->
+
+The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
+
+| Answer | Sub-tests | Outcome / detail |
+|---|---|---|
+| `UPSTREAM_UNAVAILABLE` | `hsts_present` | `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` |
+| `UPSTREAM_UNAVAILABLE` | `credential_forced_onto_tls` | judged by the oracle above: any answer over plain HTTP means the request crossed the network in cleartext: judged by the oracle above (no answer is `HTTP_PORT_NO_ANSWER`). |
+| `RATE_LIMITED` | `hsts_present` | `NOT_VERIFIABLE/RATE_LIMITED` |
+| `RATE_LIMITED` | `credential_forced_onto_tls` | judged by the oracle above: any answer over plain HTTP means the request crossed the network in cleartext: judged by the oracle above (no answer is `HTTP_PORT_NO_ANSWER`). |
+| `SERVER_ERROR` | `hsts_present` | `NOT_VERIFIABLE/SERVER_ERROR` |
+| `SERVER_ERROR` | `credential_forced_onto_tls` | judged by the oracle above: any answer over plain HTTP means the request crossed the network in cleartext: judged by the oracle above (no answer is `HTTP_PORT_NO_ANSWER`). |
+| `NO_RESPONSE` | `hsts_present` | `NOT_VERIFIABLE/NO_RESPONSE` |
+| `NO_RESPONSE` | `credential_forced_onto_tls` | judged by the oracle above: any answer over plain HTTP means the request crossed the network in cleartext: judged by the oracle above (no answer is `HTTP_PORT_NO_ANSWER`). |
+
+<!-- [[[end]]] -->
 
 ## 7. Outcomes
 
@@ -104,11 +128,18 @@ any violation; PASS when nothing answers the HTTP request and the HSTS header is
 
 ## 8. Findings
 
-- "The API is served over plain HTTP" (PLAIN_HTTP), config-level, no `evidence_ref`;
-- "API request accepted over plain HTTP: `<origin><path>`" (the request served or processed in cleartext) and "API
-  endpoint redirects plain HTTP to HTTPS: `<origin><path>`" (`TRANSPARENT_REDIRECT`), `evidence_ref` the HTTP probe;
-- "No HSTS header on the API response" / "HSTS max-age is below the bound" / "HSTS does not cover subdomains",
-  `evidence_ref` the HTTPS probe.
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("1.5")) ]]] -->
+
+- "The API is served over plain HTTP"
+- "API request accepted over plain HTTP: <origin><probe_path>"
+- "API endpoint redirects plain HTTP to HTTPS: <origin><probe_path>"
+- "No HSTS header on the API response"
+- "HSTS max-age is below the bound"
+- "HSTS does not cover subdomains"
+
+<!-- [[[end]]] -->
+
+`evidence_ref` the plain-HTTP answer or the HTTPS answer read for HSTS; each finding cites its own references.
 
 ## 9. Effects on the target
 
@@ -127,7 +158,7 @@ Section [`tests.domain_1.test_1_5`](../../03-reference/01-configuration.md#tests
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `hsts_min_max_age_seconds` | int ≥86400 | `31536000` | Lowest acceptable max-age (seconds) in the Strict-Transport-Security header. NIST SP 800-52 Rev.2, OWASP ASVS v5.0.0-3.4.1 ask for at least one year. Default: 31536000 (one year). |
+| `hsts_min_max_age_seconds` | int ≥86400 | `31536000` | Lowest acceptable max-age (seconds) in the Strict-Transport-Security header. OWASP ASVS v5.0.0-3.4.1 asks for at least one year. Default: 31536000 (one year). |
 | `http_url` | string | `""` | The API in plain HTTP, when its HTTP listener is on a non-standard port: only the origin (scheme://host[:port]) is used, the path is derived from the specification. Empty (default) derives the origin from base_url (scheme to http, port 443 dropped); with base_url on another port, the HTTP listener is then unknown and not probed. |
 
 <!-- [[[end]]] -->
@@ -136,6 +167,18 @@ The labs set `http_url` to the gateway's HTTP listener (`http://localhost:8000`/
 HTTPS on a non-standard port; a real deployment with HTTPS on 443 and HTTP on 80 needs no override.
 
 ## 12. Validation
+
+**2026-11-16, Kong's `426`** (owner: "fai come pensi sia più sensato"): a route that accepts only HTTPS, without a
+redirect, makes Kong answer plain HTTP with `426 Please use HTTPS protocol`. ASVS v5.0.0-4.1.2 forbids the transparent
+redirect because it hides the mistake from the client; an error that refuses the protocol tells it, which is what
+this test's own remediation asks. So a `426`, or a `4xx` the same path does not get over HTTPS, is now
+`ENFORCED/HTTP_REFUSED`; the same `4xx` as over HTTPS (a `401` on both: the route serves HTTP as it serves HTTPS) and
+a `5xx` stay `HTTP_PROCESSED_CLEARTEXT`. Until that day every answer was a violation (decision of 2026-11-04, now
+refined). Forgejo + Kong with `https_redirect_status_code` removed from `forgejo-api-route` (undone): **PASS**,
+`HTTP_REFUSED`, HSTS compliant.
+
+**2026-11-16, after the review** (domain 1 on the three labs as configured): **FAIL** on the three labs (`TRANSPARENT_REDIRECT`, Kong's and APISIX's `301`), HSTS compliant, as before.
+
 
 Runs of 2026-10-22; measured again on 2026-11-04 (1.5 alone) after the decision on redirects, with the same answers:
 
