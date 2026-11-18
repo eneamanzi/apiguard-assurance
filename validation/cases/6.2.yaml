@@ -1,0 +1,186 @@
+test: '6.2'
+name: Security Headers Audit
+sub_tests:
+
+  content_type_options:
+
+    - id: ENFORCED/PRESENT
+      situation: '`X-Content-Type-Options: nosniff` (its first value) on every usable sampled answer'
+      expected:
+        outcome: ENFORCED
+        detail: PRESENT
+      how: 'the lab as built: the service''s response-transformer sets X-Content-Type-Options: nosniff on the sampled
+        answer'
+      lab: forgejo-kong
+      variant: none
+
+    - id: VIOLATION/MISSING/CERTAIN
+      situation: '`X-Content-Type-Options: nosniff` (its first value) absent from every usable sampled answer'
+      expected:
+        outcome: VIOLATION
+        detail: MISSING
+        confidence: CERTAIN
+      how: forgejo-service's response-transformer no longer adds or replaces X-Content-Type-Options and X-Frame-Options
+        and removes Forgejo's own
+      lab: forgejo-kong
+      variant: kong-6-2-nosniff-framing-removed
+
+    - id: VIOLATION/INCONSISTENT/CERTAIN
+      situation: '`X-Content-Type-Options: nosniff` (its first value) on some sampled answers and absent from others'
+      expected:
+        outcome: VIOLATION
+        detail: INCONSISTENT
+        confidence: CERTAIN
+      how: crAPI's response-transformer sets nosniff and X-Frame-Options under replace only, so the community service's
+        answers (which send neither) lack them while identity's and workshop's carry them
+      lab: crapi-kong
+      variant: kong-6-2-headers-replace-only
+
+  framing_protection:
+
+    - id: ENFORCED/PRESENT
+      situation: a CSP `frame-ancestors` not allowing any site, or else `X-Frame-Options` with one value, `DENY`
+        or `SAMEORIGIN`, on every usable sampled answer
+      expected:
+        outcome: ENFORCED
+        detail: PRESENT
+      how: 'forgejo-service''s response-transformer adds Content-Security-Policy: default-src ''self''; frame-ancestors
+        ''none'', so every sampled answer has a frame-ancestors that allows no site'
+      lab: forgejo-kong
+      variant: kong-6-2-frame-ancestors
+
+    - id: VIOLATION/MISSING/CERTAIN
+      situation: a CSP `frame-ancestors` not allowing any site, or else `X-Frame-Options` with one value, `DENY`
+        or `SAMEORIGIN`, absent from every usable sampled answer
+      expected:
+        outcome: VIOLATION
+        detail: MISSING
+        confidence: CERTAIN
+      how: forgejo-service's response-transformer no longer sets X-Frame-Options and removes Forgejo's own SAMEORIGIN;
+        its CSP (default-src 'self') has no frame-ancestors
+      lab: forgejo-kong
+      variant: kong-6-2-nosniff-framing-removed
+
+    - id: VIOLATION/INCONSISTENT/CERTAIN
+      situation: a CSP `frame-ancestors` not allowing any site, or else `X-Frame-Options` with one value, `DENY`
+        or `SAMEORIGIN`, on some sampled answers and absent from others
+      expected:
+        outcome: VIOLATION
+        detail: INCONSISTENT
+        confidence: CERTAIN
+      how: crAPI's response-transformer sets X-Frame-Options under replace only, so the community service's answers
+        lack it while identity's and workshop's carry it
+      lab: crapi-kong
+      variant: kong-6-2-headers-replace-only
+
+    - id: ENFORCED/XFO_ONLY
+      situation: 'framing is refused on every sampled answer, by `X-Frame-Options` alone on some (ASVS v5.0.0-3.4.6
+        asks for `frame-ancestors`: a note)'
+      expected:
+        outcome: ENFORCED
+        detail: XFO_ONLY
+      how: 'the lab as built: X-Frame-Options: DENY on the sampled answer and a CSP default-src ''self'' without
+        frame-ancestors'
+      lab: forgejo-kong
+      variant: none
+
+  cors_not_wildcard:
+
+    - id: VIOLATION/CORS_ORIGIN_REFLECTED/CERTAIN
+      situation: 'an answer to the arbitrary `Origin` reflects it with `Access-Control-Allow-Credentials: true`'
+      expected:
+        outcome: VIOLATION
+        detail: CORS_ORIGIN_REFLECTED
+        confidence: CERTAIN
+      how: a temporary route GET ~/api/v1/orgs$ whose pre-function (header_filter) sends back the request's Origin
+        with Access-Control-Allow-Credentials true on Forgejo's answer
+      lab: forgejo-kong
+      variant: kong-6-2-orgs-cors-reflected
+
+    - id: VIOLATION/CORS_WILDCARD_CREDENTIALS/FIRM
+      situation: 'an answer carries `Access-Control-Allow-Origin: *` with credentials (browsers refuse it)'
+      expected:
+        outcome: VIOLATION
+        detail: CORS_WILDCARD_CREDENTIALS
+        confidence: FIRM
+      how: 'a temporary route GET ~/api/v1/orgs$ whose pre-function (header_filter) sends Access-Control-Allow-Origin:
+        * with Access-Control-Allow-Credentials true on Forgejo''s answer'
+      lab: forgejo-kong
+      variant: kong-6-2-orgs-cors-wildcard
+
+    - id: ENFORCED/CORS_BOUNDED
+      situation: some answers grant CORS, none to the arbitrary origin with credentials
+      expected:
+        outcome: ENFORCED
+        detail: CORS_BOUNDED
+      how: 'the lab as built: crAPI''s answers grant CORS, none to the arbitrary origin with credentials'
+      lab: crapi-kong
+      variant: none
+
+    - id: ENFORCED/ORIGIN_NOT_ALLOWED
+      situation: no served answer to the arbitrary `Origin` grants it
+      expected:
+        outcome: ENFORCED
+        detail: ORIGIN_NOT_ALLOWED
+      how: 'the lab as built: Forgejo serves GET /api/v1/orgs to the arbitrary Origin with no CORS header'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/PROBE_NOT_SERVED
+      situation: 'no answer to the arbitrary `Origin` was served, and the refusals (`401`, `403`, ...) grant nothing:
+        the policy of a served answer is not seen'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: PROBE_NOT_SERVED
+      how: a temporary route GET ~/api/v1/orgs$ (the only sampled read) answers 401 itself with request-termination,
+        with no CORS header, to the plain GET and to the cross-origin probe
+      lab: forgejo-kong
+      variant: kong-6-2-orgs-401
+
+  any_sub_test:
+
+    - id: NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE
+      situation: 'an answer of this category on any sub-test that does not judge it: 502, 503, 504: the gateway
+        could not reach the backend, or the backend did not answer in time. It says nothing about the guarantee
+        (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: UPSTREAM_UNAVAILABLE
+      how: a temporary route on the sampled read GET ~/api/v1/orgs$ answers 503 itself, to the plain GET and to
+        the cross-origin probe
+      lab: forgejo-kong
+      variant: kong-0-4-probe-503
+
+    - id: NOT_VERIFIABLE/RATE_LIMITED
+      situation: 'an answer of this category on any sub-test that does not judge it: 429: refused for the rate of
+        the requests. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: RATE_LIMITED
+      how: a temporary route on the sampled read GET ~/api/v1/orgs$ answers 429 itself
+      lab: forgejo-kong
+      variant: kong-0-4-probe-429
+
+    - id: NOT_VERIFIABLE/SERVER_ERROR
+      situation: 'an answer of this category on any sub-test that does not judge it: 500, 505-508, 510: the application
+        failed. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: SERVER_ERROR
+      how: a temporary route GET ~/api/v1/orgs$ answers 500 itself
+      lab: forgejo-kong
+      variant: kong-1-5-orgs-500
+
+    - id: NOT_VERIFIABLE/NO_RESPONSE
+      situation: 'an answer of this category on any sub-test that does not judge it: No HTTP response: timeout,
+        connection refused, TLS error, connection reset. It says nothing about the guarantee (one rule for every
+        test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_RESPONSE
+      how: a temporary route on the sampled read GET ~/api/v1/orgs$ sleeps 7 s before proxying, past the run's read
+        timeout of 5 s
+      lab: forgejo-kong
+      variant: kong-0-4-probe-slow
+      config:
+        target.read_timeout: 5.0

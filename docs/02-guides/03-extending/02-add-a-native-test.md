@@ -258,7 +258,7 @@ and the transaction log into the `TestResult`:
 
 | Helper | Use |
 |---|---|
-| `_record(sub_test, outcome, detail, finding=None)` | Record one judgement: the outcome of one case of a declared sub-test. |
+| `_record(sub_test, outcome, detail, finding=None, *, by_rule=False)` | Record one judgement: the outcome of one case of a declared sub-test. |
 | `_finish(notes=None, message=None)` | The result of a test that ran to the end, computed from its judgements. |
 | `_skip(reason, notes=None)` | SKIP before the start: something the test needs is missing. |
 | `_error(exc, message=None)` | ERROR from an exception, for the except block of a test. |
@@ -326,8 +326,10 @@ engine records SKIP before `execute()`), then read the neutral concepts you need
 adapter](04-add-a-gateway-adapter.md)). Store each answer with `self._record_gateway_concept(target, store, CONCEPT_...,
 answer)` and use the returned id as the findings' `evidence_ref`; when the answer is not READ, return
 `self._unread_concept(...)` (SKIP when the gateway has no such concept, INCONCLUSIVE with
-`CONCEPT_NOT_ACCESSIBLE` when it has it but it could not be read), or add an InfoNote if the test can still judge
-another part.
+`CONCEPT_NOT_ACCESSIBLE` when it has it but it could not be read, on every sub-test), or add an InfoNote if the
+test can still judge another part. A test that records `CONCEPT_NOT_ACCESSIBLE` itself, on one sub-test (the others
+still judged), declares that case in its oracle like any other: `_record` refuses it undeclared, so the page and the
+validation cases show it.
 
 **Resources created on the target** must be registered immediately after creation:
 `context.register_resource_for_teardown(method, path, headers=None)`. Phase 6 deletes them in reverse order.

@@ -1,0 +1,206 @@
+test: '2.4'
+name: Authorization Consistency
+sub_tests:
+
+  version_sibling_consistent:
+
+    - id: VIOLATION/VERSION_DROPS_AUTH/CERTAIN
+      situation: the documented operation refuses an anonymous request and its version sibling serves it (`2xx`),
+        unlike a random path under that version
+      expected:
+        outcome: VIOLATION
+        detail: VERSION_DROPS_AUTH
+        confidence: CERTAIN
+      how: the v2 forwarding to v1, and a temporary route GET ~/api/v2/user$ answering 200 without a credential
+        while GET /api/v1/user refuses 401 and a random path under /api/v2 gets Forgejo's 404
+      lab: forgejo-kong
+      variant: kong-2-4-v2-user-served
+
+    - id: VIOLATION/VERSION_DROPS_AUTH/FIRM
+      situation: the same, the random path's answer unreliable
+      expected:
+        outcome: VIOLATION
+        detail: VERSION_DROPS_AUTH
+        confidence: FIRM
+      how: the same served GET ~/api/v2/user$, with a route answering the random probe names (zqxv + hex) 404 with
+        one of two body shapes in turn, so the random path under /api/v2 is unreliable
+      lab: forgejo-kong
+      variant: kong-2-4-v2-unstable-unknown
+
+    - id: NOT_VERIFIABLE/SERVED_LIKE_UNKNOWN
+      situation: the sibling is served exactly as a random path under its version (a catch-all)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: SERVED_LIKE_UNKNOWN
+      how: a temporary prefix route /api/v2 answering 200 with one fixed body to every request, so each sibling
+        is served exactly as a random path under /api/v2
+      lab: forgejo-kong
+      variant: kong-2-4-v2-catch-all
+
+    - id: ENFORCED/SIBLING_REFUSED
+      situation: both refuse, and a random path under the sibling's version is not refused alike
+      expected:
+        outcome: ENFORCED
+        detail: SIBLING_REFUSED
+      how: 'the v2 forwarding to v1 (a service url http://forgejo-upstream/api/v1, route /api/v2, strip_path true):
+        the v2 siblings refuse 401 like v1, while a random path under /api/v2 gets Forgejo''s 404'
+      lab: forgejo-kong
+      variant: kong-2-4-v2-forward
+
+    - id: NOT_VERIFIABLE/REFUSED_BEFORE_ROUTING
+      situation: the sibling is refused exactly as a random path under its version
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: REFUSED_BEFORE_ROUTING
+      how: 'the lab as built: the v1 and v3 siblings of the protected identity operations answer 401 exactly as
+        a random path under /identity/api/v1/ and /v3/'
+      lab: crapi-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/CALIBRATION_UNSTABLE
+      situation: the sibling is refused and a random path under its version answers unstably
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: CALIBRATION_UNSTABLE
+      how: the v2 forwarding to v1, and a route matching the random probe names (zqxv + hex) answering 404 with
+        one of two body shapes in turn
+      lab: forgejo-kong
+      variant: kong-2-4-v2-unstable-unknown
+
+    - id: NOT_VERIFIABLE/DOCUMENTED_NOT_JUDGEABLE
+      situation: the documented operation answers neither `2xx` nor a refusal (`404`, ...)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: DOCUMENTED_NOT_JUDGEABLE
+      how: 'the lab as built: the two community operations answer 404 with the seeded identifiers'
+      lab: crapi-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/REDIRECT
+      situation: the sibling's answer is `REDIRECT`
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: REDIRECT
+      how: the v2 forwarding to v1, and a route GET ~/api/v2/user/repos$ answering 302 to https://localhost:8443/
+        itself (GET /api/v1/user/repos refuses 401)
+      lab: forgejo-kong
+      variant: kong-2-4-v2-user-repos-302
+
+    - id: NOT_VERIFIABLE/METHOD_NOT_ALLOWED
+      situation: the sibling's answer is `METHOD_NOT_ALLOWED`
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: METHOD_NOT_ALLOWED
+      how: the v2 forwarding to v1, and a route GET ~/api/v2/user/repos$ answering 405 itself
+      lab: forgejo-kong
+      variant: kong-2-4-v2-user-repos-405
+
+    - id: NOT_VERIFIABLE/INVALID_REQUEST
+      situation: the sibling's answer is `INVALID_REQUEST`
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: INVALID_REQUEST
+      how: the v2 forwarding to v1, and a route GET ~/api/v2/user/repos$ answering 400 itself
+      lab: forgejo-kong
+      variant: kong-2-4-v2-user-repos-400
+
+    - id: NOT_VERIFIABLE/OTHER
+      situation: the sibling's answer is `OTHER`
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: OTHER
+      how: the v2 forwarding to v1, and a route GET ~/api/v2/user/repos$ answering 418 itself (OTHER in response_category.py)
+      lab: forgejo-kong
+      variant: kong-2-4-v2-user-repos-418
+
+    - id: NOT_APPLICABLE/DOCUMENTED_NOT_PROTECTED
+      situation: the documented operation is served without a credential
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: DOCUMENTED_NOT_PROTECTED
+      how: 'the v2 forwarding to v1: the documented reads Forgejo serves without a credential'
+      lab: forgejo-kong
+      variant: kong-2-4-v2-forward
+
+    - id: NOT_APPLICABLE/SIBLING_ABSENT
+      situation: the sibling answers `404`
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: SIBLING_ABSENT
+      how: the v2 forwarding to v1, and a route GET ~/api/v2/user/repos$ answering 404 itself
+      lab: forgejo-kong
+      variant: kong-2-4-v2-user-repos-404
+
+    - id: NOT_APPLICABLE/VERSION_ABSENT
+      situation: up to three siblings answer `404` while their documented operation does not, and none answers otherwise
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: VERSION_ABSENT
+      how: 'the lab as built: Forgejo documents only /api/v1, and three /api/v2 siblings answer 404 while their
+        v1 operation does not'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_APPLICABLE/NO_VERSION_SIBLING
+      situation: no safe operation has a version sibling
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NO_VERSION_SIBLING
+      how: the run reads a copy of Forgejo's specification with basePath /api/vlatest, so no documented path has
+        a version segment and no sibling is derived
+      lab: forgejo-kong
+      variant: none
+      spec:
+        set:
+          basePath: /api/vlatest
+        add_operations: []
+        drop_plain_get: false
+        drop_operations: []
+
+  any_sub_test:
+
+    - id: NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE
+      situation: 'an answer of this category on any sub-test that does not judge it: 502, 503, 504: the gateway
+        could not reach the backend, or the backend did not answer in time. It says nothing about the guarantee
+        (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: UPSTREAM_UNAVAILABLE
+      how: 'the forgejo container stopped (the specification read from a copy taken before): Kong answers 502/503
+        to the documented operations'
+      lab: forgejo-kong
+      variant: forgejo-stopped
+
+    - id: NOT_VERIFIABLE/RATE_LIMITED
+      situation: 'an answer of this category on any sub-test that does not judge it: 429: refused for the rate of
+        the requests. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: RATE_LIMITED
+      how: the v2 forwarding to v1, and a route GET ~/api/v2/user/repos$ answering 429 itself
+      lab: forgejo-kong
+      variant: kong-2-4-v2-user-repos-429
+
+    - id: NOT_VERIFIABLE/SERVER_ERROR
+      situation: 'an answer of this category on any sub-test that does not judge it: 500, 505-508, 510: the application
+        failed. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: SERVER_ERROR
+      how: the v2 forwarding to v1, and a route GET ~/api/v2/user/repos$ answering 500 itself
+      lab: forgejo-kong
+      variant: kong-2-4-v2-user-repos-500
+
+    - id: NOT_VERIFIABLE/NO_RESPONSE
+      situation: 'an answer of this category on any sub-test that does not judge it: No HTTP response: timeout,
+        connection refused, TLS error, connection reset. It says nothing about the guarantee (one rule for every
+        test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_RESPONSE
+      how: the v2 forwarding to v1, and a route GET ~/api/v2/user/repos$ sleeping 7 s, past the run's read timeout
+        of 5 s
+      lab: forgejo-kong
+      variant: kong-2-4-v2-user-repos-slow
+      config:
+        target.read_timeout: 5.0

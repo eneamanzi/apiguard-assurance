@@ -1,0 +1,169 @@
+test: '2.5'
+name: Object Property-Level Authorization
+sub_tests:
+
+  no_sensitive_field:
+
+    - id: VIOLATION/SENSITIVE_FIELD/FIRM
+      situation: 'a sensitive-named field holds a value: a string not empty or masked, or a number for a card, SSN
+        or CVV'
+      expected:
+        outcome: VIOLATION
+        detail: SENSITIVE_FIELD
+        confidence: FIRM
+      how: 'a route answers the repository''s read 200 with an object holding "salt": "lab-dummy-value"'
+      lab: forgejo-kong
+      variant: kong-2-5-read-sensitive
+
+    - id: ENFORCED/NO_SENSITIVE_FIELD
+      situation: no sensitive field holds a value
+      expected:
+        outcome: ENFORCED
+        detail: NO_SENSITIVE_FIELD
+      how: 'the lab as built: user_a''s private repository, read back, carries no sensitive field'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/OBJECT_NOT_READABLE
+      situation: no documented read, or the read is not served
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: OBJECT_NOT_READABLE
+      how: a route answers the repository's read 404 to everyone
+      lab: forgejo-kong
+      variant: kong-2-repo-read-404
+
+    - id: NOT_VERIFIABLE/OBJECT_NOT_CREATED
+      situation: the prepared resource did not create the object
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: OBJECT_NOT_CREATED
+      how: the repository resource's create body is given a name Forgejo refuses (spaces), so both creates answer
+        422
+      lab: forgejo-kong
+      variant: none
+      config:
+        resources.repository.create.body.name: not a valid name
+
+  mass_assignment:
+
+    - id: VIOLATION/MASS_ASSIGNMENT/FIRM
+      situation: an injected field (one the configured body does not set) is read back holding the sentinel
+      expected:
+        outcome: VIOLATION
+        detail: MASS_ASSIGNMENT
+        confidence: FIRM
+      how: a pre-function on POST /api/v1/user/repos keeps the create body in Kong's shared memory (the request
+        still reaches Forgejo) and the repository's read answers that body back, so the injected sentinels come
+        back
+      lab: forgejo-kong
+      variant: kong-2-5-read-echoes-create
+
+    - id: ENFORCED/NO_MASS_ASSIGNMENT
+      situation: an injected field name is shown without the sentinel
+      expected:
+        outcome: ENFORCED
+        detail: NO_MASS_ASSIGNMENT
+      how: 'the lab as built: the repository created with injected role/owner/... shows owner (the real owner),
+        not the sentinel'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/INJECTED_CREATE_REFUSED
+      situation: 'the create with the injected fields is refused as invalid while the plain one works: unknown fields
+        rejected, or a field bound with a wrong-typed value'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: INJECTED_CREATE_REFUSED
+      how: a pre-function on POST /api/v1/user/repos answers 422 to a create body holding the sentinel apiguard-mass-probe
+        and passes the plain create to Forgejo
+      lab: forgejo-kong
+      variant: kong-2-5-injected-create-422
+
+    - id: NOT_VERIFIABLE/FIELDS_NOT_EXPOSED
+      situation: the read-back shows none of the injected field names
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: FIELDS_NOT_EXPOSED
+      how: 'the lab as built: the crAPI order read back shows none of the injected field names (its owner is `user`)'
+      lab: crapi-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/FIELDS_NOT_INJECTED
+      situation: the resource's create body is not a JSON object
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: FIELDS_NOT_INJECTED
+      how: the repository resource's create body is the JSON string "not-an-object", so no field can be merged into
+        it
+      lab: forgejo-kong
+      variant: none
+      config:
+        resources.repository.create.body: not-an-object
+
+    - id: NOT_VERIFIABLE/OBJECT_NOT_READABLE
+      situation: no documented read, or the read is not served
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: OBJECT_NOT_READABLE
+      how: a route answers the repository's read 404 to everyone
+      lab: forgejo-kong
+      variant: kong-2-repo-read-404
+
+    - id: NOT_VERIFIABLE/OBJECT_NOT_CREATED
+      situation: the prepared resource did not create the object
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: OBJECT_NOT_CREATED
+      how: 'the repository resource''s create body is given a name Forgejo refuses (spaces): the plain create fails
+        too, so the injected create''s refusal is OBJECT_NOT_CREATED'
+      lab: forgejo-kong
+      variant: none
+      config:
+        resources.repository.create.body.name: not a valid name
+
+  any_sub_test:
+
+    - id: NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE
+      situation: 'an answer of this category on any sub-test that does not judge it: 502, 503, 504: the gateway
+        could not reach the backend, or the backend did not answer in time. It says nothing about the guarantee
+        (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: UPSTREAM_UNAVAILABLE
+      how: 'a route answers the repository''s read 503 to everyone: both read-backs unavailable'
+      lab: forgejo-kong
+      variant: kong-2-repo-read-503
+
+    - id: NOT_VERIFIABLE/RATE_LIMITED
+      situation: 'an answer of this category on any sub-test that does not judge it: 429: refused for the rate of
+        the requests. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: RATE_LIMITED
+      how: 'a route answers the repository''s read 429 to everyone: both read-backs throttled'
+      lab: forgejo-kong
+      variant: kong-2-repo-read-429
+
+    - id: NOT_VERIFIABLE/SERVER_ERROR
+      situation: 'an answer of this category on any sub-test that does not judge it: 500, 505-508, 510: the application
+        failed. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: SERVER_ERROR
+      how: 'a route answers the repository''s read 500 to everyone: both read-backs fail'
+      lab: forgejo-kong
+      variant: kong-2-repo-read-500
+
+    - id: NOT_VERIFIABLE/NO_RESPONSE
+      situation: 'an answer of this category on any sub-test that does not judge it: No HTTP response: timeout,
+        connection refused, TLS error, connection reset. It says nothing about the guarantee (one rule for every
+        test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_RESPONSE
+      how: a route makes the repository's read sleep 7 s, past the run's 5 s read timeout
+      lab: forgejo-kong
+      variant: kong-2-repo-read-slow
+      config:
+        target.read_timeout: 5.0

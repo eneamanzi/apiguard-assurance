@@ -1,0 +1,266 @@
+{
+  "meta": {
+    "date": "2026-11-17 11:40 UTC",
+    "commit": "f3d2743",
+    "dirty": true,
+    "tool_version": "0.1.0"
+  },
+  "cases": [
+    {
+      "test": "3.3",
+      "id": "algorithm_strong/ENFORCED/STRONG_ALGORITHM",
+      "situation": "no allowed algorithm is forbidden",
+      "expected": "ENFORCED STRONG_ALGORITHM",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the lab as built: hmac-sha256, -384, -512 only",
+      "observed": [
+        "ENFORCED STRONG_ALGORITHM"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "3.3",
+      "id": "replay_protected/VIOLATION/REPLAY_DATE_NOT_SIGNED/FIRM",
+      "situation": "a bounded window, checked against a date the signature need not cover (a fresh unsigned date passes)",
+      "expected": "VIOLATION REPLAY_DATE_NOT_SIGNED FIRM",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the lab as built: hmac-auth checks the clock skew on X-Date or Date and requires neither in the signature",
+      "observed": [
+        "VIOLATION REPLAY_DATE_NOT_SIGNED FIRM"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "3.3",
+      "id": "content_signed/VIOLATION/BODY_NOT_SIGNED/FIRM",
+      "situation": "a changed body is not refused: no body check, or a digest the signature need not cover (FIRM: a client may sign it anyway, the gateway does not require it)",
+      "expected": "VIOLATION BODY_NOT_SIGNED FIRM",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the lab as built: the body is validated but digest is not required in the signature",
+      "observed": [
+        "VIOLATION BODY_NOT_SIGNED FIRM"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "3.3",
+      "id": "algorithm_strong/NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE",
+      "situation": "the gateway has the concept the test reads, and it could not be read (one rule for every test that reads one)",
+      "expected": "NOT_VERIFIABLE CONCEPT_NOT_ACCESSIBLE",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the run's gateway.admin.url points to a closed port",
+      "observed": [
+        "NOT_VERIFIABLE CONCEPT_NOT_ACCESSIBLE"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "3.3",
+      "id": "replay_protected/NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE",
+      "situation": "the gateway has the concept the test reads, and it could not be read (one rule for every test that reads one)",
+      "expected": "NOT_VERIFIABLE CONCEPT_NOT_ACCESSIBLE",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the run's gateway.admin.url points to a closed port",
+      "observed": [
+        "NOT_VERIFIABLE CONCEPT_NOT_ACCESSIBLE"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "3.3",
+      "id": "content_signed/NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE",
+      "situation": "the gateway has the concept the test reads, and it could not be read (one rule for every test that reads one)",
+      "expected": "NOT_VERIFIABLE CONCEPT_NOT_ACCESSIBLE",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the run's gateway.admin.url points to a closed port",
+      "observed": [
+        "NOT_VERIFIABLE CONCEPT_NOT_ACCESSIBLE"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "3.3",
+      "id": "content_signed/ENFORCED/CONTENT_SIGNED",
+      "situation": "the policy requires the body's digest and the request's method and path in the signature",
+      "expected": "ENFORCED CONTENT_SIGNED",
+      "lab": "forgejo-kong",
+      "variant": "kong-hmac-all-headers",
+      "how": "hmac-auth requires date, x-date, digest and request-line",
+      "observed": [
+        "ENFORCED CONTENT_SIGNED"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "3.3",
+      "id": "algorithm_strong/VIOLATION/SIGNATURE_OPTIONAL/FIRM",
+      "situation": "the policy lets a request without a valid signature through as an anonymous consumer",
+      "expected": "VIOLATION SIGNATURE_OPTIONAL FIRM",
+      "lab": "forgejo-kong",
+      "variant": "kong-hmac-anonymous",
+      "how": "hmac-auth given an anonymous consumer: an unsigned request passes as that consumer",
+      "observed": [
+        "ENFORCED STRONG_ALGORITHM",
+        "VIOLATION SIGNATURE_OPTIONAL FIRM"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "3.3",
+      "id": "content_signed/VIOLATION/TARGET_NOT_SIGNED/FIRM",
+      "situation": "the body is covered, the method and path need not be",
+      "expected": "VIOLATION TARGET_NOT_SIGNED FIRM",
+      "lab": "forgejo-kong",
+      "variant": "kong-hmac-digest-only",
+      "how": "hmac-auth requires digest but not request-line",
+      "observed": [
+        "VIOLATION TARGET_NOT_SIGNED FIRM"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "3.3",
+      "id": "algorithm_strong/VIOLATION/WEAK_ALGORITHM/FIRM",
+      "situation": "the policy allows an algorithm of `forbidden_algorithms`",
+      "expected": "VIOLATION WEAK_ALGORITHM FIRM",
+      "lab": "forgejo-kong",
+      "variant": "kong-hmac-sha1-window-600",
+      "how": "hmac-auth allows hmac-sha1, and the run forbids hmac-sha1",
+      "observed": [
+        "VIOLATION WEAK_ALGORITHM FIRM"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "3.3",
+      "id": "replay_protected/VIOLATION/REPLAY_WINDOW_TOO_LARGE/CERTAIN",
+      "situation": "a window above `max_replay_window_seconds`",
+      "expected": "VIOLATION REPLAY_WINDOW_TOO_LARGE CERTAIN",
+      "lab": "forgejo-kong",
+      "variant": "kong-hmac-sha1-window-600",
+      "how": "hmac-auth with a 600 s clock skew, above the 300 s bound",
+      "observed": [
+        "VIOLATION REPLAY_WINDOW_TOO_LARGE CERTAIN"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "3.3",
+      "id": "replay_protected/ENFORCED/REPLAY_BOUNDED",
+      "situation": "a window within `max_replay_window_seconds`, on a date the signature must cover",
+      "expected": "ENFORCED REPLAY_BOUNDED",
+      "lab": "forgejo-apisix",
+      "variant": "none",
+      "how": "the lab as built: APISIX checks Date, signed by default (signed_headers defaults to date)",
+      "observed": [
+        "ENFORCED REPLAY_BOUNDED"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "3.3",
+      "id": "algorithm_strong/NOT_APPLICABLE/NO_SIGNING",
+      "situation": "no enabled signing policy",
+      "expected": "NOT_APPLICABLE NO_SIGNING",
+      "lab": "forgejo-apisix",
+      "variant": "apisix-no-signing",
+      "how": "hmac-auth removed from the only route that has it",
+      "observed": [
+        "NOT_APPLICABLE NO_SIGNING"
+      ],
+      "verdict": "SKIP",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "3.3",
+      "id": "replay_protected/NOT_APPLICABLE/NO_SIGNING",
+      "situation": "no enabled signing policy",
+      "expected": "NOT_APPLICABLE NO_SIGNING",
+      "lab": "forgejo-apisix",
+      "variant": "apisix-no-signing",
+      "how": "hmac-auth removed from the only route that has it",
+      "observed": [
+        "NOT_APPLICABLE NO_SIGNING"
+      ],
+      "verdict": "SKIP",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "3.3",
+      "id": "content_signed/NOT_APPLICABLE/NO_SIGNING",
+      "situation": "no enabled signing policy",
+      "expected": "NOT_APPLICABLE NO_SIGNING",
+      "lab": "forgejo-apisix",
+      "variant": "apisix-no-signing",
+      "how": "hmac-auth removed from the only route that has it",
+      "observed": [
+        "NOT_APPLICABLE NO_SIGNING"
+      ],
+      "verdict": "SKIP",
+      "verdict_from_cases": true,
+      "result": "OK"
+    }
+  ],
+  "not_producible": [
+    {
+      "test": "3.3",
+      "id": "algorithm_strong/NOT_VERIFIABLE/ALGORITHMS_NOT_STATED",
+      "situation": "the gateway does not state the policy's algorithms",
+      "group": "gateway",
+      "reason": "Kong's Admin API gives every field of the plugin with its default, and the APISIX adapter fills a field left out from the plugin's schema read from the running APISIX: the supported gateways always state it"
+    },
+    {
+      "test": "3.3",
+      "id": "replay_protected/VIOLATION/REPLAY_UNBOUNDED/CERTAIN",
+      "situation": "the gateway states that the request's date is never checked",
+      "group": "gateway",
+      "reason": "Kong requires clock_skew > 0, and APISIX 3.19 refuses 0 (its Admin API answered 400, 'expected 0 to be at least 1')"
+    },
+    {
+      "test": "3.3",
+      "id": "replay_protected/NOT_VERIFIABLE/REPLAY_WINDOW_NOT_STATED",
+      "situation": "the gateway states no replay window",
+      "group": "gateway",
+      "reason": "Kong's Admin API gives every field of the plugin with its default, and the APISIX adapter fills a field left out from the plugin's schema read from the running APISIX: the supported gateways always state it"
+    },
+    {
+      "test": "3.3",
+      "id": "content_signed/NOT_VERIFIABLE/CONTENT_NOT_STATED",
+      "situation": "the gateway does not state what the signature must cover",
+      "group": "gateway",
+      "reason": "Kong's Admin API gives every field of the plugin with its default, and the APISIX adapter fills a field left out from the plugin's schema read from the running APISIX: the supported gateways always state it"
+    }
+  ]
+}

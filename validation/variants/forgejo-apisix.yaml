@@ -1,0 +1,118 @@
+# Variants of the Forgejo + APISIX lab (test-environments/forgejo-apisix). Each is a call to APISIX's Admin API,
+# undone by validation/run.py (apisix/setup.sh applied again, objects the variant created deleted, the Admin API
+# checked equal to its state before).
+
+apisix-no-signing:
+  what: hmac-auth removed from the route hmac-audit-route, so no signing policy is left
+  changes:
+  - kind: apisix_admin
+    method: PATCH
+    path: routes/hmac-audit-route
+    body:
+      plugins:
+        hmac-auth: null
+
+apisix-route-disabled:
+  what: the route hmac-audit-route disabled (status 0)
+  changes:
+  - kind: apisix_admin
+    method: PATCH
+    path: routes/hmac-audit-route
+    body:
+      status: 0
+
+apisix-0-4-node-without-port:
+  what: 'an upstream validation-0-4-no-port, without health checks, whose only node is {host: forgejo, weight: 1},
+    no port'
+  changes:
+  - kind: apisix_admin
+    method: PUT
+    path: upstreams/validation-0-4-no-port
+    body:
+      name: validation-0-4-no-port
+      type: roundrobin
+      nodes:
+      - host: forgejo
+        weight: 1
+
+apisix-4-1-orgs-limit-count-5:
+  what: a route validation-4-1-orgs, GET /api/v1/orgs to forgejo-upstream, priority 10, with limit-count count 5
+    per 60 s, key remote_addr, policy local, no rejected_code (503)
+  changes:
+  - kind: apisix_admin
+    method: PUT
+    path: routes/validation-4-1-orgs
+    body:
+      name: validation-4-1-orgs
+      uri: /api/v1/orgs
+      methods:
+      - GET
+      priority: 10
+      upstream_id: forgejo-upstream
+      plugins:
+        limit-count:
+          count: 5
+          time_window: 60
+          key_type: var
+          key: remote_addr
+          policy: local
+
+apisix-4-2-upstream-no-timeout:
+  what: the timeout object removed from the upstream forgejo-upstream, so APISIX applies nginx's 60 s proxy timeouts
+  changes:
+  - kind: apisix_admin
+    method: PATCH
+    path: upstreams/forgejo-upstream
+    body:
+      timeout: null
+
+apisix-4-3-breaker-route:
+  what: a route validation-4-3-breaker on /validation-4-3-breaker to forgejo-upstream, with api-breaker (502 when
+    open, 3 failures)
+  changes:
+  - kind: apisix_admin
+    method: PUT
+    path: routes/validation-4-3-breaker
+    body:
+      name: validation-4-3-breaker
+      uri: /validation-4-3-breaker
+      upstream_id: forgejo-upstream
+      plugins:
+        api-breaker:
+          break_response_code: 502
+          unhealthy:
+            failures: 3
+
+apisix-5-1-logger-mask-regex:
+  what: a global rule with http-logger (to http://127.0.0.1:9/validation) and a data-mask removing the Sudo and
+    X-FORGEJO-OTP headers and the access_token, token, sudo query arguments, Authorization masked by a regex
+  changes:
+  - kind: apisix_admin
+    method: PUT
+    path: global_rules/validation-5-1
+    body:
+      plugins:
+        http-logger:
+          uri: http://127.0.0.1:9/validation
+        data-mask:
+          request:
+          - type: header
+            name: Authorization
+            action: regex
+            regex: .+
+            value: '***'
+          - type: header
+            name: Sudo
+            action: remove
+          - type: header
+            name: X-FORGEJO-OTP
+            action: remove
+          - type: query
+            name: access_token
+            action: remove
+          - type: query
+            name: token
+            action: remove
+          - type: query
+            name: sudo
+            action: remove

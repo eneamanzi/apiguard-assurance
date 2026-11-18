@@ -1,0 +1,220 @@
+test: '0.2'
+name: Paths Without a Route
+sub_tests:
+
+  unrouted_paths:
+
+    - id: ENFORCED/REFUSED_BY_GATEWAY
+      situation: the gateway's refusal at random root paths differs from a backend's own refusal
+      expected:
+        outcome: ENFORCED
+        detail: REFUSED_BY_GATEWAY
+      how: 'the lab as built: Kong answers a random root path with {"message":"no Route matched with those values"},
+        unlike Forgejo''s own 404'
+      lab: forgejo-kong
+      variant: none
+
+    - id: VIOLATION/SERVED_WITHOUT_ROUTE/CERTAIN
+      situation: a random path at the root is served (`2xx`)
+      expected:
+        outcome: VIOLATION
+        detail: SERVED_WITHOUT_ROUTE
+        confidence: CERTAIN
+      how: 'a prefix route /zqxv whose pre-function answers 200: Kong matches the random root probes (/zqxv<hex>)
+        with it as a plain-string prefix, so a root path is served; not a catch-all for the code (not ''/'', not
+        a regex)'
+      lab: forgejo-kong
+      variant: kong-route-zqxv-served
+
+    - id: NOT_VERIFIABLE/REFUSAL_UNSTABLE
+      situation: the two random root paths answered differently
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: REFUSAL_UNSTABLE
+      how: a route ~/zqxv[0-9a-f]+$ whose pre-function answers 404 with one of two body shapes in turn, so the two
+        root probes differ
+      lab: forgejo-kong
+      variant: kong-route-zqxv-unstable
+
+    - id: NOT_VERIFIABLE/CATCH_ALL_ROUTE
+      situation: an enabled route covers every path (a `/` prefix, a regex matching a random root path, or no path
+        at all)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: CATCH_ALL_ROUTE
+      how: 'a route with path / on forgejo-service: every path has a route'
+      lab: forgejo-kong
+      variant: kong-route-catch-all
+
+    - id: NOT_VERIFIABLE/BACKEND_REFUSAL_UNKNOWN
+      situation: none of the shortest documented paths gives a reliable backend refusal
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: BACKEND_REFUSAL_UNKNOWN
+      how: 'the forgejo container stopped: no documented path gives a reliable backend refusal'
+      lab: forgejo-kong
+      variant: forgejo-stopped
+
+    - id: NOT_VERIFIABLE/REFUSALS_INDISTINGUISHABLE
+      situation: the gateway's refusal has the backend refusal's fingerprint
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: REFUSALS_INDISTINGUISHABLE
+      how: 'a prefix route /zqxv on forgejo-service whose pre-function prefixes the path with /api/v1: the root
+        probes get Forgejo''s own 404, the same fingerprint as the backend refusal'
+      lab: forgejo-kong
+      variant: kong-route-zqxv-to-forgejo
+
+  near_route_paths:
+
+    - id: VIOLATION/SERVED_WITHOUT_ROUTE/CERTAIN
+      situation: a neighbour of a route path (outside it by whole segments) is served (`2xx`)
+      expected:
+        outcome: VIOLATION
+        detail: SERVED_WITHOUT_ROUTE
+        confidence: CERTAIN
+      how: 'a prefix route /review-served whose pre-function answers 200: Kong also matches /review-served-<random>
+        with it, and that neighbour is served'
+      lab: forgejo-kong
+      variant: kong-route-review-served
+
+    - id: VIOLATION/ANSWERED_WITHOUT_ROUTE/FIRM
+      situation: a neighbour answers unlike the gateway's refusal, neither `2xx` nor `401`, `403`
+      expected:
+        outcome: VIOLATION
+        detail: ANSWERED_WITHOUT_ROUTE
+        confidence: FIRM
+      how: 'the lab as built: Kong''s prefix route /api forwards /api-<rand>, which Forgejo answers with its own
+        ''Not found.'''
+      lab: forgejo-kong
+      variant: none
+
+    - id: ENFORCED/REFUSED_BY_GATEWAY
+      situation: no neighbour answered, and one got the gateway's refusal
+      expected:
+        outcome: ENFORCED
+        detail: REFUSED_BY_GATEWAY
+      how: 'the lab as built: APISIX matches /api/* by segment and refuses every neighbour with its own 404 Route
+        Not Found'
+      lab: forgejo-apisix
+      variant: none
+
+    - id: NOT_VERIFIABLE/REFUSED_BEFORE_ROUTING
+      situation: no neighbour answered or got the gateway's refusal, and one was refused (`401`, `403`)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: REFUSED_BEFORE_ROUTING
+      how: 'the lab as built: the neighbours of /hmac-audit-probe-not-a-real-path answer 401 from Kong''s hmac-auth
+        plugin'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_APPLICABLE/COVERED_BY_ROUTE
+      situation: every neighbour is documented or covered by a route segment by segment
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: COVERED_BY_ROUTE
+      how: 'prefix routes /review-cov and /review-cov/inner: every neighbour of the second falls under the first
+        segment by segment'
+      lab: forgejo-kong
+      variant: kong-route-review-cov
+
+    - id: NOT_APPLICABLE/REGEX_ROUTE_PATH
+      situation: the route path is a regular expression
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: REGEX_ROUTE_PATH
+      how: 'the lab as built: the route path ~/swagger\.v1\.json$ is a regular expression'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/REFUSAL_NOT_TRUSTED
+      situation: the gateway's refusal is not trusted (`unrouted_paths` not ENFORCED)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: REFUSAL_NOT_TRUSTED
+      how: 'the forgejo container stopped: unrouted_paths is BACKEND_REFUSAL_UNKNOWN, so the gateway''s refusal
+        is not trusted'
+      lab: forgejo-kong
+      variant: forgejo-stopped
+
+    - id: NOT_APPLICABLE/NO_GATEWAY
+      situation: no gateway configured
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NO_GATEWAY
+      how: the run's configuration has no gateway section
+      lab: forgejo-kong
+      variant: none
+      config:
+        gateway: null
+
+    - id: NOT_APPLICABLE/ROUTES_NOT_SUPPORTED
+      situation: the gateway's adapter does not read routes
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: ROUTES_NOT_SUPPORTED
+      how: ''
+      lab: ''
+      variant: ''
+      not_producible:
+        group: code
+        reason: 'no adapter without routes exists: both the Kong and the APISIX adapter read routes, so the NOT_SUPPORTED
+          answer cannot be reached'
+
+    - id: NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE
+      situation: the gateway has routes, and they could not be read
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: CONCEPT_NOT_ACCESSIBLE
+      how: the run's gateway.admin.url points to a closed port
+      lab: forgejo-kong
+      variant: none
+      config:
+        gateway.admin.url: https://127.0.0.1:9
+
+  any_sub_test:
+
+    - id: NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE
+      situation: 'an answer of this category on any sub-test that does not judge it: 502, 503, 504: the gateway
+        could not reach the backend, or the backend did not answer in time. It says nothing about the guarantee
+        (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: UPSTREAM_UNAVAILABLE
+      how: a route ~/api[-.]?zqxv[0-9a-f]+$ (the three neighbours of /api) whose pre-function answers 503
+      lab: forgejo-kong
+      variant: kong-route-api-neighbours-503
+
+    - id: NOT_VERIFIABLE/RATE_LIMITED
+      situation: 'an answer of this category on any sub-test that does not judge it: 429: refused for the rate of
+        the requests. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: RATE_LIMITED
+      how: the same route answering 429
+      lab: forgejo-kong
+      variant: kong-route-api-neighbours-429
+
+    - id: NOT_VERIFIABLE/SERVER_ERROR
+      situation: 'an answer of this category on any sub-test that does not judge it: 500, 505-508, 510: the application
+        failed. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: SERVER_ERROR
+      how: the same route answering 500
+      lab: forgejo-kong
+      variant: kong-route-api-neighbours-500
+
+    - id: NOT_VERIFIABLE/NO_RESPONSE
+      situation: 'an answer of this category on any sub-test that does not judge it: No HTTP response: timeout,
+        connection refused, TLS error, connection reset. It says nothing about the guarantee (one rule for every
+        test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_RESPONSE
+      how: the same route sleeping 7 s, with the run's read timeout at 5 s
+      lab: forgejo-kong
+      variant: kong-route-api-neighbours-slow
+      config:
+        target.read_timeout: 5.0

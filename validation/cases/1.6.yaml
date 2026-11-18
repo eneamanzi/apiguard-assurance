@@ -1,0 +1,296 @@
+test: '1.6'
+name: Session Cookie Safety
+sub_tests:
+
+  cookie_attributes:
+
+    - id: ENFORCED/COOKIE_SAFE
+      situation: a cookie the login sets has `Secure`, `HttpOnly` (not asked of an anti-CSRF cookie), `SameSite=Strict`
+        or `Lax`, and a `__Host-` or `__Secure-` name
+      expected:
+        outcome: ENFORCED
+        detail: COOKIE_SAFE
+      how: 'a temporary route /lab-login answers 204 with ''__Host-sid=...; Path=/; Secure; HttpOnly; SameSite=Strict''
+        and ''AWSALB=...; Path=/''; the run logs in through it (credential read from cookie:__Host-sid, sent back
+        as cookie __Host-sid) with a copy of the specification without security schemes: __Host-sid has every attribute'
+      lab: forgejo-kong
+      variant: kong-1-6-cookie-login
+      config:
+        credentials.login_resource: cookie-login
+        credentials.security_scheme: null
+        credentials.send_as:
+          in: cookie
+          name: __Host-sid
+        resources.cookie-login:
+          create:
+            path: /lab-login
+            auth: none
+            body:
+              user: '{username}'
+              pass: '{password}'
+          values:
+            credential: cookie:__Host-sid
+      spec:
+        set:
+          securityDefinitions: {}
+          security: []
+        add_operations: []
+        drop_plain_get: false
+
+    - id: VIOLATION/COOKIE_WITHOUT_SECURE/CERTAIN
+      situation: the cookie the configuration reads the credential from (`cookie:<name>`) lacks `Secure`
+      expected:
+        outcome: VIOLATION
+        detail: COOKIE_WITHOUT_SECURE
+        confidence: CERTAIN
+      how: 'the temporary route /lab-login answers 204 with ''sid=...; Path=/'' only, and the run reads the credential
+        from cookie:sid (sent back as cookie sid), specification without security schemes: the session cookie lacks
+        Secure'
+      lab: forgejo-kong
+      variant: kong-1-6-cookie-login-bare
+      config:
+        credentials.login_resource: cookie-login
+        credentials.security_scheme: null
+        credentials.send_as:
+          in: cookie
+          name: sid
+        resources.cookie-login:
+          create:
+            path: /lab-login
+            auth: none
+            body:
+              user: '{username}'
+              pass: '{password}'
+          values:
+            credential: cookie:sid
+      spec:
+        set:
+          securityDefinitions: {}
+          security: []
+        add_operations: []
+        drop_plain_get: false
+
+    - id: VIOLATION/COOKIE_WITHOUT_HTTPONLY/CERTAIN
+      situation: the cookie the configuration reads the credential from (`cookie:<name>`) lacks `HttpOnly` (its
+        name has neither `csrf` nor `xsrf`)
+      expected:
+        outcome: VIOLATION
+        detail: COOKIE_WITHOUT_HTTPONLY
+        confidence: CERTAIN
+      how: 'the same run as COOKIE_WITHOUT_SECURE/CERTAIN: the session cookie sid lacks HttpOnly'
+      lab: forgejo-kong
+      variant: kong-1-6-cookie-login-bare
+      config:
+        credentials.login_resource: cookie-login
+        credentials.security_scheme: null
+        credentials.send_as:
+          in: cookie
+          name: sid
+        resources.cookie-login:
+          create:
+            path: /lab-login
+            auth: none
+            body:
+              user: '{username}'
+              pass: '{password}'
+          values:
+            credential: cookie:sid
+      spec:
+        set:
+          securityDefinitions: {}
+          security: []
+        add_operations: []
+        drop_plain_get: false
+
+    - id: VIOLATION/COOKIE_WITHOUT_SAMESITE/CERTAIN
+      situation: the cookie the configuration reads the credential from (`cookie:<name>`) lacks a restricting `SameSite`
+        (absent, `None` or another value)
+      expected:
+        outcome: VIOLATION
+        detail: COOKIE_WITHOUT_SAMESITE
+        confidence: CERTAIN
+      how: 'the same run as COOKIE_WITHOUT_SECURE/CERTAIN: the session cookie sid has no SameSite'
+      lab: forgejo-kong
+      variant: kong-1-6-cookie-login-bare
+      config:
+        credentials.login_resource: cookie-login
+        credentials.security_scheme: null
+        credentials.send_as:
+          in: cookie
+          name: sid
+        resources.cookie-login:
+          create:
+            path: /lab-login
+            auth: none
+            body:
+              user: '{username}'
+              pass: '{password}'
+          values:
+            credential: cookie:sid
+      spec:
+        set:
+          securityDefinitions: {}
+          security: []
+        add_operations: []
+        drop_plain_get: false
+
+    - id: VIOLATION/COOKIE_WITHOUT_PREFIX/CERTAIN
+      situation: the cookie the configuration reads the credential from (`cookie:<name>`) lacks a `__Host-` or `__Secure-`
+        name prefix
+      expected:
+        outcome: VIOLATION
+        detail: COOKIE_WITHOUT_PREFIX
+        confidence: CERTAIN
+      how: 'the same run as COOKIE_WITHOUT_SECURE/CERTAIN: the session cookie is named sid, without __Host- or __Secure-'
+      lab: forgejo-kong
+      variant: kong-1-6-cookie-login-bare
+      config:
+        credentials.login_resource: cookie-login
+        credentials.security_scheme: null
+        credentials.send_as:
+          in: cookie
+          name: sid
+        resources.cookie-login:
+          create:
+            path: /lab-login
+            auth: none
+            body:
+              user: '{username}'
+              pass: '{password}'
+          values:
+            credential: cookie:sid
+      spec:
+        set:
+          securityDefinitions: {}
+          security: []
+        add_operations: []
+        drop_plain_get: false
+
+    - id: VIOLATION/COOKIE_WITHOUT_SECURE/FIRM
+      situation: 'another cookie the login sets (whether it carries the session is not proven: it may be a load
+        balancer''s) lacks `Secure`'
+      expected:
+        outcome: VIOLATION
+        detail: COOKIE_WITHOUT_SECURE
+        confidence: FIRM
+      how: 'the same run as COOKIE_SAFE: the second cookie AWSALB, not the one the credential is read from, lacks
+        Secure'
+      lab: forgejo-kong
+      variant: kong-1-6-cookie-login
+      config:
+        credentials.login_resource: cookie-login
+        credentials.security_scheme: null
+        credentials.send_as:
+          in: cookie
+          name: __Host-sid
+        resources.cookie-login:
+          create:
+            path: /lab-login
+            auth: none
+            body:
+              user: '{username}'
+              pass: '{password}'
+          values:
+            credential: cookie:__Host-sid
+      spec:
+        set:
+          securityDefinitions: {}
+          security: []
+        add_operations: []
+        drop_plain_get: false
+
+    - id: VIOLATION/COOKIE_WITHOUT_HTTPONLY/FIRM
+      situation: 'another cookie the login sets (whether it carries the session is not proven: it may be a load
+        balancer''s) lacks `HttpOnly` (its name has neither `csrf` nor `xsrf`)'
+      expected:
+        outcome: VIOLATION
+        detail: COOKIE_WITHOUT_HTTPONLY
+        confidence: FIRM
+      how: 'the same run as COOKIE_SAFE: AWSALB lacks HttpOnly'
+      lab: forgejo-kong
+      variant: kong-1-6-cookie-login
+      config:
+        credentials.login_resource: cookie-login
+        credentials.security_scheme: null
+        credentials.send_as:
+          in: cookie
+          name: __Host-sid
+        resources.cookie-login:
+          create:
+            path: /lab-login
+            auth: none
+            body:
+              user: '{username}'
+              pass: '{password}'
+          values:
+            credential: cookie:__Host-sid
+      spec:
+        set:
+          securityDefinitions: {}
+          security: []
+        add_operations: []
+        drop_plain_get: false
+
+    - id: VIOLATION/COOKIE_WITHOUT_SAMESITE/FIRM
+      situation: 'another cookie the login sets (whether it carries the session is not proven: it may be a load
+        balancer''s) lacks a restricting `SameSite` (absent, `None` or another value)'
+      expected:
+        outcome: VIOLATION
+        detail: COOKIE_WITHOUT_SAMESITE
+        confidence: FIRM
+      how: 'the same run as COOKIE_SAFE: AWSALB has no SameSite'
+      lab: forgejo-kong
+      variant: kong-1-6-cookie-login
+      config:
+        credentials.login_resource: cookie-login
+        credentials.security_scheme: null
+        credentials.send_as:
+          in: cookie
+          name: __Host-sid
+        resources.cookie-login:
+          create:
+            path: /lab-login
+            auth: none
+            body:
+              user: '{username}'
+              pass: '{password}'
+          values:
+            credential: cookie:__Host-sid
+      spec:
+        set:
+          securityDefinitions: {}
+          security: []
+        add_operations: []
+        drop_plain_get: false
+
+    - id: VIOLATION/COOKIE_WITHOUT_PREFIX/FIRM
+      situation: 'another cookie the login sets (whether it carries the session is not proven: it may be a load
+        balancer''s) lacks a `__Host-` or `__Secure-` name prefix'
+      expected:
+        outcome: VIOLATION
+        detail: COOKIE_WITHOUT_PREFIX
+        confidence: FIRM
+      how: 'the same run as COOKIE_SAFE: AWSALB has neither __Host- nor __Secure- in its name'
+      lab: forgejo-kong
+      variant: kong-1-6-cookie-login
+      config:
+        credentials.login_resource: cookie-login
+        credentials.security_scheme: null
+        credentials.send_as:
+          in: cookie
+          name: __Host-sid
+        resources.cookie-login:
+          create:
+            path: /lab-login
+            auth: none
+            body:
+              user: '{username}'
+              pass: '{password}'
+          values:
+            credential: cookie:__Host-sid
+      spec:
+        set:
+          securityDefinitions: {}
+          security: []
+        add_operations: []
+        drop_plain_get: false

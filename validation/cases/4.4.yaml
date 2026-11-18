@@ -1,0 +1,171 @@
+test: '4.4'
+name: Request Size Limits
+sub_tests:
+
+  oversized_body_rejected:
+
+    - id: ENFORCED/SIZE_LIMIT_ENFORCED
+      situation: the body answers `413`
+      expected:
+        outcome: ENFORCED
+        detail: SIZE_LIMIT_ENFORCED
+      how: 'request-size-limiting allowed_payload_size 1 (MB) on forgejo-service: the body of 1049600 bytes to POST
+        /api/v1/orgs answers 413'
+      lab: forgejo-kong
+      variant: kong-4-4-size-limit-1mb
+
+    - id: VIOLATION/NO_SIZE_LIMIT/CERTAIN
+      situation: 'the body, above every limit read for the routes that may serve the path, is not rejected: the
+        limit is configured and not enforced'
+      expected:
+        outcome: VIOLATION
+        detail: NO_SIZE_LIMIT
+        confidence: CERTAIN
+      how: 'the 1 MB plugin on forgejo-service and a route POST ~/api/v1/orgs$ whose pre-function answers 200 before
+        the size check: the body above the limit read is not rejected'
+      lab: forgejo-kong
+      variant: kong-4-4-size-limit-bypassed
+
+    - id: VIOLATION/NO_SIZE_LIMIT/FIRM
+      situation: no limit read for every route that may serve the path, and the body of `body_size_bytes` is not
+        rejected (a larger limit may exist)
+      expected:
+        outcome: VIOLATION
+        detail: NO_SIZE_LIMIT
+        confidence: FIRM
+      how: 'the lab as built: no size limit; the 2 MB body to POST /api/v1/orgs answers 401, then 403 with user_a''s
+        token, 401 with the forged one: forwarded'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/NO_CREDENTIAL_TO_RETRY
+      situation: the body is refused (`401`, `403`) without a credential, and no user_a account to retry
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_CREDENTIAL_TO_RETRY
+      how: 'the lab as built, user_a removed from the run''s configuration: the body refused 401 without a credential
+        to retry'
+      lab: forgejo-kong
+      variant: none
+      config:
+        credentials.user_a_username: null
+        credentials.user_a_password: null
+
+    - id: NOT_VERIFIABLE/REFUSED_BEFORE_SIZE_CHECK
+      situation: 'the body is refused with user_a''s credential too, with the status a forged credential gets: the
+        credential did not get past the first refuser'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: REFUSED_BEFORE_SIZE_CHECK
+      how: 'a route ~/api/v1/orgs$ with key-auth before request-size-limiting: the body refused 401 without a credential,
+        with user_a''s Forgejo token, and with the forged one'
+      lab: forgejo-kong
+      variant: kong-4-orgs-key-auth
+
+  chunked_body_rejected:
+
+    - id: ENFORCED/SIZE_LIMIT_ENFORCED
+      situation: the chunked body answers `413`
+      expected:
+        outcome: ENFORCED
+        detail: SIZE_LIMIT_ENFORCED
+      how: 'request-size-limiting allowed_payload_size 1 (MB) on forgejo-service: the chunked body of 1049600 bytes
+        to POST /api/v1/orgs answers 413 (the same run as the whole body)'
+      lab: forgejo-kong
+      variant: kong-4-4-size-limit-1mb
+
+    - id: VIOLATION/NO_SIZE_LIMIT/CERTAIN
+      situation: 'the chunked body, above every limit read for the routes that may serve the path, is not rejected:
+        the limit is configured and not enforced'
+      expected:
+        outcome: VIOLATION
+        detail: NO_SIZE_LIMIT
+        confidence: CERTAIN
+      how: 'the 1 MB plugin on forgejo-service and a route POST ~/api/v1/orgs$ whose pre-function answers 200 before
+        the size check: the chunked body above the limit read is not rejected (the same run as the whole body)'
+      lab: forgejo-kong
+      variant: kong-4-4-size-limit-bypassed
+
+    - id: VIOLATION/NO_SIZE_LIMIT/FIRM
+      situation: no limit read for every route that may serve the path, and the chunked body of `body_size_bytes`
+        is not rejected (a larger limit may exist)
+      expected:
+        outcome: VIOLATION
+        detail: NO_SIZE_LIMIT
+        confidence: FIRM
+      how: 'the lab as built: no size limit; the 2 MB chunked body to POST /api/v1/orgs answers 401, then 403 with
+        user_a''s token, 401 with the forged one: forwarded'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/NO_CREDENTIAL_TO_RETRY
+      situation: the chunked body is refused (`401`, `403`) without a credential, and no user_a account to retry
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_CREDENTIAL_TO_RETRY
+      how: 'the lab as built, user_a removed from the run''s configuration: the chunked body refused 401 without
+        a credential to retry'
+      lab: forgejo-kong
+      variant: none
+      config:
+        credentials.user_a_username: null
+        credentials.user_a_password: null
+
+    - id: NOT_VERIFIABLE/REFUSED_BEFORE_SIZE_CHECK
+      situation: 'the chunked body is refused with user_a''s credential too, with the status a forged credential
+        gets: the credential did not get past the first refuser'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: REFUSED_BEFORE_SIZE_CHECK
+      how: 'a route ~/api/v1/orgs$ with key-auth before request-size-limiting: the chunked body refused 401 without
+        a credential, with user_a''s Forgejo token, and with the forged one'
+      lab: forgejo-kong
+      variant: kong-4-orgs-key-auth
+
+  any_sub_test:
+
+    - id: NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE
+      situation: 'an answer of this category on any sub-test that does not judge it: 502, 503, 504: the gateway
+        could not reach the backend, or the backend did not answer in time. It says nothing about the guarantee
+        (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: UPSTREAM_UNAVAILABLE
+      how: 'the forgejo container stopped (the specification read from a local copy): Kong answers the oversized
+        POST with 502/503'
+      lab: forgejo-kong
+      variant: forgejo-stopped
+
+    - id: NOT_VERIFIABLE/RATE_LIMITED
+      situation: 'an answer of this category on any sub-test that does not judge it: 429: refused for the rate of
+        the requests. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: RATE_LIMITED
+      how: a route POST ~/api/v1/orgs$ whose pre-function reads the body and answers 429
+      lab: forgejo-kong
+      variant: kong-4-4-orgs-post-429
+
+    - id: NOT_VERIFIABLE/SERVER_ERROR
+      situation: 'an answer of this category on any sub-test that does not judge it: 500, 505-508, 510: the application
+        failed. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: SERVER_ERROR
+      how: a route POST ~/api/v1/orgs$ whose pre-function reads the body and answers 500
+      lab: forgejo-kong
+      variant: kong-4-4-orgs-post-500
+
+    - id: NOT_VERIFIABLE/NO_RESPONSE
+      situation: 'an answer of this category on any sub-test that does not judge it: No HTTP response: timeout,
+        connection refused, TLS error, connection reset. It says nothing about the guarantee (one rule for every
+        test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_RESPONSE
+      how: a route POST ~/api/v1/orgs$ whose pre-function reads the body, then sleeps 7 s before Forgejo answers,
+        with the run's read timeout at 5 s (a POST is not retried)
+      lab: forgejo-kong
+      variant: kong-4-4-orgs-post-slow
+      config:
+        target.read_timeout: 5.0

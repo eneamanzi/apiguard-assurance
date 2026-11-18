@@ -1,0 +1,103 @@
+test: ext.3.1.schemathesis
+name: Input Validation (Schemathesis)
+sub_tests:
+
+  input_validated:
+
+    - id: VIOLATION/INPUT_NOT_VALIDATED/FIRM
+      situation: an operation answers a server error (`500`, ...) to a generated input
+      expected:
+        outcome: VIOLATION
+        detail: INPUT_NOT_VALIDATED
+        confidence: FIRM
+      how: 'crAPI as built, with user_a''s credential (reads only): GET /workshop/api/shop/orders/{order_id} answers
+        500 to a generated input'
+      lab: crapi-kong
+      variant: none
+
+    - id: ENFORCED/INPUT_VALIDATED
+      situation: no failure, and at least one operation was checked
+      expected:
+        outcome: ENFORCED
+        detail: INPUT_VALIDATED
+      how: 'Forgejo + Kong as built, with user_a''s credential (reads only): the GET operations reached answer no
+        server error'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/ONLY_4XX
+      situation: 'every generated request to an operation got a `4xx`: never reached'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: ONLY_4XX
+      how: 'same run as INPUT_VALIDATED: the organization, admin and notification reads answer 403 to user_a''s
+        token (repository and user scopes) on every generated request'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/OPERATION_NOT_CHECKED
+      situation: Schemathesis reports an operation as errored or skipped
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: OPERATION_NOT_CHECKED
+      how: 'unauthenticated (user_a not configured), target.base_url on a closed port (the specification still read
+        through Kong): Schemathesis reports every operation errored'
+      lab: forgejo-kong
+      variant: none
+      config:
+        target.base_url: https://127.0.0.1:9
+        credentials.user_a_username: null
+        credentials.user_a_password: null
+
+    - id: NOT_VERIFIABLE/NOT_IMPLEMENTED
+      situation: 'an operation''s failing cases quote only `501`: the method is not served'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NOT_IMPLEMENTED
+      how: 'with user_a''s credential (reads only), a temporary route GET ~/api/v1/version$ answers 501 itself:
+        every failing case of that operation quotes only [501]'
+      lab: forgejo-kong
+      variant: kong-ext-3-1-version-501
+
+    - id: NOT_VERIFIABLE/NOTHING_CHECKED
+      situation: no failure, and no operation was checked
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NOTHING_CHECKED
+      how: 'unauthenticated (user_a not configured), the forgejo container stopped, the specification read from
+        a copy: every operation gets Kong''s 503, none is checked'
+      lab: forgejo-kong
+      variant: forgejo-stopped
+      config:
+        credentials.user_a_username: null
+        credentials.user_a_password: null
+
+  any_sub_test:
+
+    - id: NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE
+      situation: 'an answer of this category on any sub-test that does not judge it: 502, 503, 504: the gateway
+        could not reach the backend, or the backend did not answer in time. It says nothing about the guarantee
+        (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: UPSTREAM_UNAVAILABLE
+      how: 'same run as NOTHING_CHECKED: the forgejo container stopped, every operation''s failing cases quote only
+        Kong''s 503'
+      lab: forgejo-kong
+      variant: forgejo-stopped
+      config:
+        credentials.user_a_username: null
+        credentials.user_a_password: null
+
+    - id: NOT_VERIFIABLE/NO_RESPONSE
+      situation: 'an answer of this category on any sub-test that does not judge it: No HTTP response: timeout,
+        connection refused, TLS error, connection reset. It says nothing about the guarantee (one rule for every
+        test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_RESPONSE
+      how: 'with user_a''s credential (reads only), a temporary route GET ~/api/v1/version$ waits 7 s before proxying:
+        every generated request to it exceeds request_timeout_seconds (5 s), so its failing cases quote only the
+        timeout (a deprecated operation would not do: Schemathesis runs with --exclude-deprecated)'
+      lab: forgejo-kong
+      variant: kong-ext-3-1-version-slow

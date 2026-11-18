@@ -1,0 +1,225 @@
+test: '4.2'
+name: Timeout Configuration Audit -- Prevention of Resource Lock
+sub_tests:
+
+  connect_timeout:
+
+    - id: ENFORCED/WITHIN_LIMIT
+      situation: the connect_timeout of a backend or route is within its threshold
+      expected:
+        outcome: ENFORCED
+        detail: WITHIN_LIMIT
+      how: 'the lab as built: forgejo-service and hmac-audit-dummy at 5,000 / 30,000 / 30,000 ms'
+      lab: forgejo-kong
+      variant: none
+
+    - id: VIOLATION/ABOVE_LIMIT/CERTAIN
+      situation: it is set above its threshold
+      expected:
+        outcome: VIOLATION
+        detail: ABOVE_LIMIT
+        confidence: CERTAIN
+      how: the lab as built (connect_timeout 5,000 ms, stated by Kong as set), with the run's max_connect_timeout_ms
+        lowered to 4,000
+      lab: forgejo-kong
+      variant: none
+      config:
+        tests.domain_4.test_4_2.max_connect_timeout_ms: 4000
+
+    - id: VIOLATION/ABOVE_LIMIT/FIRM
+      situation: it is not set, and the gateway's default, which its adapter states, is above the threshold
+      expected:
+        outcome: VIOLATION
+        detail: ABOVE_LIMIT
+        confidence: FIRM
+      how: 'the timeout object removed from APISIX''s forgejo-upstream: the adapter states nginx''s 60 s default,
+        named in defaulted'
+      lab: forgejo-apisix
+      variant: apisix-4-2-upstream-no-timeout
+
+    - id: VIOLATION/UNBOUNDED/CERTAIN
+      situation: 'it is `0`: the gateway sets no bound'
+      expected:
+        outcome: VIOLATION
+        detail: UNBOUNDED
+        confidence: CERTAIN
+      how: ''
+      lab: ''
+      variant: ''
+      not_producible:
+        group: gateway
+        reason: Kong's schema forbids 0 ('value should be between 1 and 2147483646'), APISIX's too (exclusiveMinimum
+          0 on each timeout)
+
+    - id: NOT_VERIFIABLE/NOT_STATED
+      situation: it is neither set nor stated as the gateway's default
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NOT_STATED
+      how: ''
+      lab: ''
+      variant: ''
+      not_producible:
+        group: gateway
+        reason: 'both adapters state a default: Kong reports its 60,000 ms defaults as if set, the APISIX adapter
+          states nginx''s 60 s'
+
+    - id: NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE
+      situation: the gateway has the concept the test reads, and it could not be read (one rule for every test that
+        reads one)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: CONCEPT_NOT_ACCESSIBLE
+      how: the run's gateway.admin.url points to a closed port
+      lab: forgejo-kong
+      variant: none
+      config:
+        gateway.admin.url: https://127.0.0.1:9
+
+  read_timeout:
+
+    - id: ENFORCED/WITHIN_LIMIT
+      situation: the read_timeout of a backend or route is within its threshold
+      expected:
+        outcome: ENFORCED
+        detail: WITHIN_LIMIT
+      how: 'the lab as built: read_timeout 30,000 ms on both services'
+      lab: forgejo-kong
+      variant: none
+
+    - id: VIOLATION/ABOVE_LIMIT/CERTAIN
+      situation: it is set above its threshold
+      expected:
+        outcome: VIOLATION
+        detail: ABOVE_LIMIT
+        confidence: CERTAIN
+      how: the lab as built (read_timeout 30,000 ms, stated by Kong as set), with the run's max_read_timeout_ms
+        lowered to 20,000
+      lab: forgejo-kong
+      variant: none
+      config:
+        tests.domain_4.test_4_2.max_read_timeout_ms: 20000
+
+    - id: VIOLATION/ABOVE_LIMIT/FIRM
+      situation: it is not set, and the gateway's default, which its adapter states, is above the threshold
+      expected:
+        outcome: VIOLATION
+        detail: ABOVE_LIMIT
+        confidence: FIRM
+      how: 'the timeout object removed from APISIX''s forgejo-upstream: the adapter states nginx''s 60 s default,
+        named in defaulted'
+      lab: forgejo-apisix
+      variant: apisix-4-2-upstream-no-timeout
+
+    - id: VIOLATION/UNBOUNDED/CERTAIN
+      situation: 'it is `0`: the gateway sets no bound'
+      expected:
+        outcome: VIOLATION
+        detail: UNBOUNDED
+        confidence: CERTAIN
+      how: ''
+      lab: ''
+      variant: ''
+      not_producible:
+        group: gateway
+        reason: Kong's schema forbids 0 ('value should be between 1 and 2147483646'), APISIX's too (exclusiveMinimum
+          0 on each timeout)
+
+    - id: NOT_VERIFIABLE/NOT_STATED
+      situation: it is neither set nor stated as the gateway's default
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NOT_STATED
+      how: ''
+      lab: ''
+      variant: ''
+      not_producible:
+        group: gateway
+        reason: 'both adapters state a default: Kong reports its 60,000 ms defaults as if set, the APISIX adapter
+          states nginx''s 60 s'
+
+    - id: NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE
+      situation: the gateway has the concept the test reads, and it could not be read (one rule for every test that
+        reads one)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: CONCEPT_NOT_ACCESSIBLE
+      how: the run's gateway.admin.url points to a closed port
+      lab: forgejo-kong
+      variant: none
+      config:
+        gateway.admin.url: https://127.0.0.1:9
+
+  write_timeout:
+
+    - id: ENFORCED/WITHIN_LIMIT
+      situation: the write_timeout of a backend or route is within its threshold
+      expected:
+        outcome: ENFORCED
+        detail: WITHIN_LIMIT
+      how: 'the lab as built: write_timeout 30,000 ms on both services'
+      lab: forgejo-kong
+      variant: none
+
+    - id: VIOLATION/ABOVE_LIMIT/CERTAIN
+      situation: it is set above its threshold
+      expected:
+        outcome: VIOLATION
+        detail: ABOVE_LIMIT
+        confidence: CERTAIN
+      how: the lab as built (write_timeout 30,000 ms, stated by Kong as set), with the run's max_write_timeout_ms
+        lowered to 20,000
+      lab: forgejo-kong
+      variant: none
+      config:
+        tests.domain_4.test_4_2.max_write_timeout_ms: 20000
+
+    - id: VIOLATION/ABOVE_LIMIT/FIRM
+      situation: it is not set, and the gateway's default, which its adapter states, is above the threshold
+      expected:
+        outcome: VIOLATION
+        detail: ABOVE_LIMIT
+        confidence: FIRM
+      how: 'the timeout object removed from APISIX''s forgejo-upstream: the adapter states nginx''s 60 s default,
+        named in defaulted'
+      lab: forgejo-apisix
+      variant: apisix-4-2-upstream-no-timeout
+
+    - id: VIOLATION/UNBOUNDED/CERTAIN
+      situation: 'it is `0`: the gateway sets no bound'
+      expected:
+        outcome: VIOLATION
+        detail: UNBOUNDED
+        confidence: CERTAIN
+      how: ''
+      lab: ''
+      variant: ''
+      not_producible:
+        group: gateway
+        reason: Kong's schema forbids 0 ('value should be between 1 and 2147483646'), APISIX's too (exclusiveMinimum
+          0 on each timeout)
+
+    - id: NOT_VERIFIABLE/NOT_STATED
+      situation: it is neither set nor stated as the gateway's default
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NOT_STATED
+      how: ''
+      lab: ''
+      variant: ''
+      not_producible:
+        group: gateway
+        reason: 'both adapters state a default: Kong reports its 60,000 ms defaults as if set, the APISIX adapter
+          states nginx''s 60 s'
+
+    - id: NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE
+      situation: the gateway has the concept the test reads, and it could not be read (one rule for every test that
+        reads one)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: CONCEPT_NOT_ACCESSIBLE
+      how: the run's gateway.admin.url points to a closed port
+      lab: forgejo-kong
+      variant: none
+      config:
+        gateway.admin.url: https://127.0.0.1:9

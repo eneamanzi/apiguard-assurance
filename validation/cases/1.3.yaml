@@ -1,0 +1,203 @@
+test: '1.3'
+name: Credential Expiry
+sub_tests:
+
+  expiry_declared:
+
+    - id: ENFORCED/EXP_DECLARED
+      situation: the token carries a numeric `exp`
+      expected:
+        outcome: ENFORCED
+        detail: EXP_DECLARED
+      how: 'the lab as built: crAPI''s login returns a JWT with a numeric exp'
+      lab: crapi-kong
+      variant: none
+
+    - id: VIOLATION/NO_EXP_CLAIM/TENTATIVE
+      situation: the token carries no `exp` (only server-side state, unseen, could end it)
+      expected:
+        outcome: VIOLATION
+        detail: NO_EXP_CLAIM
+        confidence: TENTATIVE
+      how: 'user_a''s credential is a configured static token, a fictitious unsigned JWT with payload {sub: apiguard-lab,
+        iat: 1700000000} and no exp (the test only reads it, it sends it nowhere)'
+      lab: crapi-kong
+      variant: none
+      config:
+        credentials.auth_type: static_token
+        credentials.login_resource: null
+        credentials.admin_username: null
+        credentials.admin_password: null
+        credentials.user_a_username: null
+        credentials.user_a_password: null
+        credentials.user_b_username: null
+        credentials.user_b_password: null
+        credentials.user_a_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhcGlndWFyZC1sYWIiLCJpYXQiOjE3MDAwMDAwMDB9.lab-dummy-signature
+
+    - id: NOT_VERIFIABLE/EXP_NOT_NUMERIC
+      situation: '`exp` is not a NumericDate'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: EXP_NOT_NUMERIC
+      how: 'user_a''s credential is a configured static token, a fictitious unsigned JWT with payload {sub: apiguard-lab,
+        iat: 1700000000, exp: "tomorrow"}'
+      lab: crapi-kong
+      variant: none
+      config:
+        credentials.auth_type: static_token
+        credentials.login_resource: null
+        credentials.admin_username: null
+        credentials.admin_password: null
+        credentials.user_a_username: null
+        credentials.user_a_password: null
+        credentials.user_b_username: null
+        credentials.user_b_password: null
+        credentials.user_a_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhcGlndWFyZC1sYWIiLCJpYXQiOjE3MDAwMDAwMDAsImV4cCI6InRvbW9ycm93In0.lab-dummy-signature
+
+    - id: NOT_APPLICABLE/NOT_A_JWT
+      situation: user_a's credential is not a JWT
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NOT_A_JWT
+      how: 'the lab as built: Forgejo''s API token is opaque (sha1), not a JWT'
+      lab: forgejo-kong
+      variant: none
+
+  lifetime_bounded:
+
+    - id: ENFORCED/LIFETIME_BOUNDED
+      situation: '`exp` minus `iat`, or minus the login''s time without `iat`, is at most 24 hours'
+      expected:
+        outcome: ENFORCED
+        detail: LIFETIME_BOUNDED
+      how: user_a's credential is a configured static token, a fictitious unsigned JWT with iat 1700000000 and exp
+        one hour later
+      lab: crapi-kong
+      variant: none
+      config:
+        credentials.auth_type: static_token
+        credentials.login_resource: null
+        credentials.admin_username: null
+        credentials.admin_password: null
+        credentials.user_a_username: null
+        credentials.user_a_password: null
+        credentials.user_b_username: null
+        credentials.user_b_password: null
+        credentials.user_a_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhcGlndWFyZC1sYWIiLCJpYXQiOjE3MDAwMDAwMDAsImV4cCI6MTcwMDAwMzYwMH0.lab-dummy-signature
+
+    - id: VIOLATION/LIFETIME_EXCESSIVE/TENTATIVE
+      situation: the same span is over 24 hours
+      expected:
+        outcome: VIOLATION
+        detail: LIFETIME_EXCESSIVE
+        confidence: TENTATIVE
+      how: 'the lab as built: crAPI''s JWT lives 7 days (exp - iat)'
+      lab: crapi-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/NO_IAT_CLAIM
+      situation: no `iat`, and a configured token (no login to date it)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_IAT_CLAIM
+      how: user_a's credential is a configured static token (no login to date it), a fictitious unsigned JWT with
+        exp 1700003600 and no iat
+      lab: crapi-kong
+      variant: none
+      config:
+        credentials.auth_type: static_token
+        credentials.login_resource: null
+        credentials.admin_username: null
+        credentials.admin_password: null
+        credentials.user_a_username: null
+        credentials.user_a_password: null
+        credentials.user_b_username: null
+        credentials.user_b_password: null
+        credentials.user_a_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhcGlndWFyZC1sYWIiLCJleHAiOjE3MDAwMDM2MDB9.lab-dummy-signature
+
+    - id: NOT_VERIFIABLE/EXP_NOT_AFTER_IAT
+      situation: '`exp` is not after the start'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: EXP_NOT_AFTER_IAT
+      how: user_a's credential is a configured static token, a fictitious unsigned JWT with iat 1700003600 and exp
+        1700000000 (before iat)
+      lab: crapi-kong
+      variant: none
+      config:
+        credentials.auth_type: static_token
+        credentials.login_resource: null
+        credentials.admin_username: null
+        credentials.admin_password: null
+        credentials.user_a_username: null
+        credentials.user_a_password: null
+        credentials.user_b_username: null
+        credentials.user_b_password: null
+        credentials.user_a_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhcGlndWFyZC1sYWIiLCJpYXQiOjE3MDAwMDM2MDAsImV4cCI6MTcwMDAwMDAwMH0.lab-dummy-signature
+
+    - id: NOT_VERIFIABLE/EXP_NOT_NUMERIC
+      situation: '`exp` is not a NumericDate'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: EXP_NOT_NUMERIC
+      how: 'the same static token as expiry_declared/EXP_NOT_NUMERIC (exp "tomorrow"): one run records both sub-tests'
+      lab: crapi-kong
+      variant: none
+      config:
+        credentials.auth_type: static_token
+        credentials.login_resource: null
+        credentials.admin_username: null
+        credentials.admin_password: null
+        credentials.user_a_username: null
+        credentials.user_a_password: null
+        credentials.user_b_username: null
+        credentials.user_b_password: null
+        credentials.user_a_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhcGlndWFyZC1sYWIiLCJpYXQiOjE3MDAwMDAwMDAsImV4cCI6InRvbW9ycm93In0.lab-dummy-signature
+
+    - id: NOT_APPLICABLE/NO_EXPIRY_TO_BOUND
+      situation: 'no `exp`: nothing to bound (the declared sub-test reports it)'
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NO_EXPIRY_TO_BOUND
+      how: 'the same static token as expiry_declared/NO_EXP_CLAIM (no exp): one run records both sub-tests'
+      lab: crapi-kong
+      variant: none
+      config:
+        credentials.auth_type: static_token
+        credentials.login_resource: null
+        credentials.admin_username: null
+        credentials.admin_password: null
+        credentials.user_a_username: null
+        credentials.user_a_password: null
+        credentials.user_b_username: null
+        credentials.user_b_password: null
+        credentials.user_a_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhcGlndWFyZC1sYWIiLCJpYXQiOjE3MDAwMDAwMDB9.lab-dummy-signature
+
+    - id: NOT_APPLICABLE/NOT_A_JWT
+      situation: user_a's credential is not a JWT
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NOT_A_JWT
+      how: 'the lab as built: Forgejo''s API token is opaque (sha1), not a JWT'
+      lab: forgejo-kong
+      variant: none
+
+  expired_rejected:
+
+    - id: NOT_VERIFIABLE/NEEDS_KEY_MATERIAL
+      situation: 'a JWT: an expired one cannot be minted without the signing key'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NEEDS_KEY_MATERIAL
+      how: 'the lab as built: crAPI''s token is a JWT and the tool has no signing key'
+      lab: crapi-kong
+      variant: none
+
+    - id: NOT_APPLICABLE/NOT_A_JWT
+      situation: user_a's credential is not a JWT
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NOT_A_JWT
+      how: 'the lab as built: Forgejo''s API token is opaque (sha1), not a JWT'
+      lab: forgejo-kong
+      variant: none

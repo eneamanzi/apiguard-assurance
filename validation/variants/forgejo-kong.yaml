@@ -1,0 +1,3792 @@
+# Variants of the Forgejo + Kong lab (test-environments/forgejo-kong). Each is a temporary change to kong/kong.yml,
+# applied and undone by validation/run.py (Kong recreated, the file restored and checked identical).
+
+kong-hmac-all-headers:
+  what: hmac-auth of hmac-audit-dummy requires date, x-date, digest and request-line in the signature
+  changes:
+  - kind: kong_plugin_set
+    service: hmac-audit-dummy
+    plugin: hmac-auth
+    set:
+      enforce_headers:
+      - date
+      - x-date
+      - digest
+      - request-line
+
+kong-hmac-digest-only:
+  what: hmac-auth of hmac-audit-dummy requires date, x-date and digest, not request-line
+  changes:
+  - kind: kong_plugin_set
+    service: hmac-audit-dummy
+    plugin: hmac-auth
+    set:
+      enforce_headers:
+      - date
+      - x-date
+      - digest
+
+kong-hmac-sha1-window-600:
+  what: hmac-auth of hmac-audit-dummy also allows hmac-sha1, with a 600 s clock skew
+  changes:
+  - kind: kong_plugin_set
+    service: hmac-audit-dummy
+    plugin: hmac-auth
+    set:
+      algorithms:
+      - hmac-sha1
+      - hmac-sha256
+      - hmac-sha384
+      - hmac-sha512
+      clock_skew: 600
+
+kong-hmac-anonymous:
+  what: hmac-auth of hmac-audit-dummy lets an unsigned request through as the consumer 'anonymous-caller'
+  changes:
+  - kind: kong_entity_add
+    list: consumers
+    item:
+      username: anonymous-caller
+  - kind: kong_plugin_set
+    service: hmac-audit-dummy
+    plugin: hmac-auth
+    set:
+      anonymous: anonymous-caller
+
+kong-0-1-served-routes:
+  what: 'a service of its own whose routes answer without reaching Forgejo: 200 to the undeclared methods of /api/v1/version
+    and /api/v1/users/<any>/heatmap, 400 to those of /api/v1/settings/api and /api/v1/users/search, 200 to /api/v2/orgs'
+  changes:
+  - kind: kong_entity_add
+    list: services
+    item:
+      name: validation-0-1-served
+      url: http://forgejo-upstream
+      routes:
+      - name: v01-version-served
+        paths:
+        - ~/api/v1/version$
+        methods:
+        - POST
+        - PUT
+        - PATCH
+        - DELETE
+        strip_path: false
+        protocols:
+        - https
+        plugins:
+        - name: request-termination
+          config:
+            status_code: 200
+            content_type: application/json
+            body: '{"validation":"served"}'
+      - name: v01-heatmap-served
+        paths:
+        - ~/api/v1/users/[^/]+/heatmap$
+        methods:
+        - POST
+        - PUT
+        - PATCH
+        - DELETE
+        strip_path: false
+        protocols:
+        - https
+        plugins:
+        - name: request-termination
+          config:
+            status_code: 200
+            content_type: application/json
+            body: '{"validation":"served"}'
+      - name: v01-settings-known
+        paths:
+        - ~/api/v1/settings/api$
+        methods:
+        - POST
+        - PUT
+        - PATCH
+        - DELETE
+        strip_path: false
+        protocols:
+        - https
+        plugins:
+        - name: request-termination
+          config:
+            status_code: 400
+            content_type: application/json
+            body: '{"validation":"known"}'
+      - name: v01-search-known
+        paths:
+        - ~/api/v1/users/search$
+        methods:
+        - POST
+        - PUT
+        - PATCH
+        - DELETE
+        strip_path: false
+        protocols:
+        - https
+        plugins:
+        - name: request-termination
+          config:
+            status_code: 400
+            content_type: application/json
+            body: '{"validation":"known"}'
+      - name: v01-version-v2
+        paths:
+        - ~/api/v2/orgs$
+        strip_path: false
+        protocols:
+        - https
+        plugins:
+        - name: request-termination
+          config:
+            status_code: 200
+            content_type: application/json
+            body: '{"validation":"v2"}'
+
+kong-0-1-version-not-found-other:
+  what: a route ~/api/v2/orgs$ answers 404 with a JSON body of a shape Forgejo's 404 does not have
+  changes:
+  - kind: kong_entity_add
+    list: services
+    item:
+      name: validation-0-1-v2-404
+      url: http://forgejo-upstream
+      routes:
+      - name: v01-version-v2-404
+        paths:
+        - ~/api/v2/orgs$
+        strip_path: false
+        protocols:
+        - https
+        plugins:
+        - name: request-termination
+          config:
+            status_code: 404
+            content_type: application/json
+            body: '{"validation":{"v2":"not here"}}'
+
+kong-0-1-catch-all:
+  what: a route ~/api/v1/[^/]+$ answers 200 with the same body to every method, documented or random path alike
+  changes:
+  - kind: kong_entity_add
+    list: services
+    item:
+      name: validation-0-1-catch-all
+      url: http://forgejo-upstream
+      routes:
+      - name: v01-catch-all
+        paths:
+        - ~/api/v1/[^/]+$
+        strip_path: false
+        protocols:
+        - https
+        plugins:
+        - name: request-termination
+          config:
+            status_code: 200
+            content_type: application/json
+            body: '{"validation":"any"}'
+
+kong-0-1-unstable-unknown:
+  what: a route matching the tool's random probe names (zqxv + hex) answers 404 with one of two JSON body shapes
+    in turn
+  changes:
+  - kind: kong_entity_add
+    list: services
+    item:
+      name: validation-0-1-unstable
+      url: http://forgejo-upstream
+      routes:
+      - name: v01-unstable
+        paths:
+        - ~/.*zqxv[0-9a-f]+.*$
+        strip_path: false
+        protocols:
+        - https
+        plugins:
+        - name: pre-function
+          config:
+            access:
+            - local n = 0 return function() n = n + 1 if n % 2 == 0 then return kong.response.exit(404, {message
+              = 'a'}) end return kong.response.exit(404, {error = {code = 1}}) end
+
+kong-0-1-version-429-slow-post:
+  what: /api/v1/version answers 429 to PUT, PATCH, DELETE and makes POST sleep 7 s before answering 200
+  changes:
+  - kind: kong_entity_add
+    list: services
+    item:
+      name: validation-0-1-rate-slow
+      url: http://forgejo-upstream
+      routes:
+      - name: v01-version-429
+        paths:
+        - ~/api/v1/version$
+        methods:
+        - PUT
+        - PATCH
+        - DELETE
+        strip_path: false
+        protocols:
+        - https
+        plugins:
+        - name: request-termination
+          config:
+            status_code: 429
+            content_type: application/json
+            body: '{"validation":"slow down"}'
+      - name: v01-version-slow
+        paths:
+        - ~/api/v1/version$
+        methods:
+        - POST
+        strip_path: false
+        protocols:
+        - https
+        plugins:
+        - name: pre-function
+          config:
+            access:
+            - ngx.sleep(7) return kong.response.exit(200, {validation = 'slow'})
+
+kong-0-1-route-regex-unreadable:
+  what: a route whose regular expression ~/api/v1/\p{L}+-validation$ Kong accepts and Python's re does not compile
+  changes:
+  - kind: kong_entity_add
+    list: services
+    item:
+      name: validation-0-1-regex
+      url: http://forgejo-upstream
+      routes:
+      - name: v01-regex-unreadable
+        paths:
+        - ~/api/v1/\p{L}+-validation$
+        strip_path: false
+        protocols:
+        - https
+
+forgejo-stopped:
+  what: the forgejo container stopped, so Kong cannot reach the backend
+  changes:
+  - kind: stop_container
+    container: forgejo
+
+kong-route-zqxv-served:
+  what: a prefix route /zqxv on forgejo-service whose pre-function answers 200, matching the random root probes
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: zqxv-served
+      paths:
+      - /zqxv
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(200, {message = "served"})
+      service: forgejo-service
+
+kong-route-zqxv-unstable:
+  what: a route ~/zqxv[0-9a-f]+$ whose pre-function answers 404 with one of two body shapes in turn
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: zqxv-unstable
+      paths:
+      - ~/zqxv[0-9a-f]+$
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr("zqxv_flip", 1, 0) if n % 2 == 0 then return kong.response.exit(404,
+            {message = "a"}) end return kong.response.exit(404, "b")
+      service: forgejo-service
+
+kong-route-zqxv-to-forgejo:
+  what: a prefix route /zqxv on forgejo-service sending the root probes to Forgejo under /api/v1
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: zqxv-to-forgejo
+      paths:
+      - /zqxv
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - kong.service.request.set_path("/api/v1" .. kong.request.get_path())
+      service: forgejo-service
+
+kong-route-catch-all:
+  what: a route / on forgejo-service, covering every path
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: catch-all
+      paths:
+      - /
+      strip_path: false
+      protocols:
+      - https
+      service: forgejo-service
+
+kong-route-review-served:
+  what: a prefix route /review-served on forgejo-service whose pre-function answers 200
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: review-served
+      paths:
+      - /review-served
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(200, {message = "served"})
+      service: forgejo-service
+
+kong-route-review-cov:
+  what: prefix routes /review-cov and /review-cov/inner on forgejo-service
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: review-cov
+      paths:
+      - /review-cov
+      strip_path: false
+      protocols:
+      - https
+      service: forgejo-service
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: review-cov-inner
+      paths:
+      - /review-cov/inner
+      strip_path: false
+      protocols:
+      - https
+      service: forgejo-service
+
+kong-route-api-neighbours-503:
+  what: a route ~/api[-.]?zqxv[0-9a-f]+$ (the neighbours of /api) answering 503
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: api-neighbours-503
+      paths:
+      - ~/api[-.]?zqxv[0-9a-f]+$
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(503, {message = "unavailable"})
+      service: forgejo-service
+
+kong-route-api-neighbours-429:
+  what: a route ~/api[-.]?zqxv[0-9a-f]+$ (the neighbours of /api) answering 429
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: api-neighbours-429
+      paths:
+      - ~/api[-.]?zqxv[0-9a-f]+$
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(429, {message = "rate limited"})
+      service: forgejo-service
+
+kong-route-api-neighbours-500:
+  what: a route ~/api[-.]?zqxv[0-9a-f]+$ (the neighbours of /api) answering 500
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: api-neighbours-500
+      paths:
+      - ~/api[-.]?zqxv[0-9a-f]+$
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(500, {message = "failed"})
+      service: forgejo-service
+
+kong-route-api-neighbours-slow:
+  what: a route ~/api[-.]?zqxv[0-9a-f]+$ (the neighbours of /api) sleeping 7 s before answering
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: api-neighbours-slow
+      paths:
+      - ~/api[-.]?zqxv[0-9a-f]+$
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - ngx.sleep(7) return kong.response.exit(404, {message = "late"})
+      service: forgejo-service
+
+kong-0-3-sunset-future:
+  what: 'a route on the deprecated read times/user-a adds ''Sunset: Sat, 31 Dec 2099 23:59:59 GMT'' to Forgejo''s
+    answer'
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-0-3-deprecated-read
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/times/user-a$
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          header_filter:
+          - kong.response.set_header("Sunset", "Sat, 31 Dec 2099 23:59:59 GMT")
+
+kong-0-3-sunset-past:
+  what: 'a route on the deprecated read times/user-a adds ''Sunset: Wed, 01 Jan 2020 00:00:00 GMT'' to Forgejo''s
+    answer'
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-0-3-deprecated-read
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/times/user-a$
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          header_filter:
+          - kong.response.set_header("Sunset", "Wed, 01 Jan 2020 00:00:00 GMT")
+
+kong-0-3-deprecation-only:
+  what: 'a route on the deprecated read times/user-a adds ''Deprecation: @1688169599'' to Forgejo''s answer'
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-0-3-deprecated-read
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/times/user-a$
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          header_filter:
+          - kong.response.set_header("Deprecation", "@1688169599")
+
+kong-0-3-sunset-not-a-date:
+  what: 'a route on the deprecated read times/user-a adds ''Sunset: soon'' to Forgejo''s answer'
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-0-3-deprecated-read
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/times/user-a$
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          header_filter:
+          - kong.response.set_header("Sunset", "soon")
+
+kong-0-3-gone:
+  what: a route on the deprecated read times/user-a answers 410 itself
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-0-3-deprecated-read
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/times/user-a$
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(410, {message = "gone"})
+
+kong-0-3-method-not-allowed:
+  what: a route on the deprecated read times/user-a answers 405 itself
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-0-3-deprecated-read
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/times/user-a$
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(405, {message = "method not allowed"})
+
+kong-0-3-redirect:
+  what: a route on the deprecated read times/user-a answers 302 to https://localhost:8443/ itself
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-0-3-deprecated-read
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/times/user-a$
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(302, nil, {Location = "https://localhost:8443/"})
+
+kong-0-3-unauthorized:
+  what: a route on the deprecated read times/user-a answers 401 itself, with or without a credential
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-0-3-deprecated-read
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/times/user-a$
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(401, {message = "unauthorized"})
+
+kong-0-3-answer-429:
+  what: a route on the deprecated read times/user-a answers 429 itself
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-0-3-deprecated-read
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/times/user-a$
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(429, {message = "rate limited"})
+
+kong-0-3-answer-500:
+  what: a route on the deprecated read times/user-a answers 500 itself
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-0-3-deprecated-read
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/times/user-a$
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(500, {message = "server error"})
+
+kong-0-3-answer-503:
+  what: a route on the deprecated read times/user-a answers 503 itself
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-0-3-deprecated-read
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/times/user-a$
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(503, {message = "unavailable"})
+
+kong-0-3-slow:
+  what: a route on the deprecated read times/user-a waits 7 s before proxying to Forgejo
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-0-3-deprecated-read
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/times/user-a$
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - ngx.sleep(7)
+
+kong-0-3-times-404-alike:
+  what: a route on times/<any user> (the deprecated read and its random siblings) answers the same 404 itself
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-0-3-deprecated-read
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/times/[^/]+$
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(404, {message = "not found"})
+
+kong-0-3-times-404-random-shape:
+  what: a route on times/<any user> (the deprecated read and its random siblings) answers 404 with a body of one
+    of two shapes, alternating from one request to the next
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-0-3-deprecated-read
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/times/[^/]+$
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = 0 return function() n = n + 1 if n % 2 == 0 then return kong.response.exit(404, {message =
+            "not found"}) end return kong.response.exit(404, "<html><body>Not Found</body></html>", {["Content-Type"]
+            = "text/html"}) end
+
+kong-0-4-upstream-unreachable:
+  what: a Kong upstream validation-0-4-unreachable whose only target is 192.0.2.1:3999, where nothing answers
+  changes:
+  - kind: kong_entity_add
+    list: upstreams
+    item:
+      name: validation-0-4-unreachable
+      targets:
+      - target: 192.0.2.1:3999
+
+kong-0-4-upstream-loopback:
+  what: a Kong upstream validation-0-4-loopback whose only target is 127.0.0.1:3999
+  changes:
+  - kind: kong_entity_add
+    list: upstreams
+    item:
+      name: validation-0-4-loopback
+      targets:
+      - target: 127.0.0.1:3999
+
+kong-0-4-no-target:
+  what: forgejo-upstream left without targets, and a route on the probe path GET ~/api/v1/orgs$ whose pre-function
+    answers 200
+  changes:
+  - kind: kong_entity_set
+    list: upstreams
+    name: forgejo-upstream
+    set:
+      targets: []
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-0-4-probe
+      service: forgejo-service
+      paths:
+      - ~/api/v1/orgs$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(200, {})
+
+kong-0-4-probe-503:
+  what: a route on the probe path GET ~/api/v1/orgs$ whose pre-function answers 503
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-0-4-probe
+      service: forgejo-service
+      paths:
+      - ~/api/v1/orgs$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(503, {message = "unavailable"})
+
+kong-0-4-probe-429:
+  what: a route on the probe path GET ~/api/v1/orgs$ whose pre-function answers 429
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-0-4-probe
+      service: forgejo-service
+      paths:
+      - ~/api/v1/orgs$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(429, {message = "rate limited"})
+
+kong-0-4-probe-slow:
+  what: a route on the probe path GET ~/api/v1/orgs$ whose pre-function sleeps 7 s, then Forgejo answers
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-0-4-probe
+      service: forgejo-service
+      paths:
+      - ~/api/v1/orgs$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - ngx.sleep(7)
+
+kong-ffuf-probe-names-unstable:
+  what: a route matching the tool's random probe names (zqxv<hex>) answers 404 with one of two body shapes in turn
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-probe-names-unstable
+      service: forgejo-service
+      paths:
+      - ~/.*zqxv[0-9a-f]+.*$
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = 0 return function() n = n + 1 if n % 2 == 0 then return kong.response.exit(404, {message =
+            'not found'}) end return kong.response.exit(404, 'Not Found\n') end
+
+kong-ffuf-v1-random-lines:
+  what: a route /api/v1/ answers 200 with a random number of lines, so ffuf's calibration does not hold there
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-v1-random-lines
+      service: forgejo-service
+      paths:
+      - /api/v1/
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(200, string.rep('w x\n', math.random(1, 2000)))
+
+kong-healthz-reverify-503:
+  what: GET /api/healthz passes ffuf's requests (its User-Agent) to Forgejo and answers any other client 503
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-healthz-503
+      service: forgejo-service
+      paths:
+      - ~/api/healthz$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local ua = kong.request.get_header('user-agent') or '' if not ua:find('Fuzz Faster U Fool', 1, true)
+            then return kong.response.exit(503, {message = 'unavailable'}) end
+
+kong-healthz-reverify-429:
+  what: GET /api/healthz passes ffuf's requests (its User-Agent) to Forgejo and answers any other client 429
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-healthz-429
+      service: forgejo-service
+      paths:
+      - ~/api/healthz$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local ua = kong.request.get_header('user-agent') or '' if not ua:find('Fuzz Faster U Fool', 1, true)
+            then return kong.response.exit(429, {message = 'too many requests'}) end
+
+kong-healthz-reverify-slow:
+  what: GET /api/healthz passes ffuf's requests (its User-Agent) to Forgejo and makes any other client wait 7 s
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-healthz-slow
+      service: forgejo-service
+      paths:
+      - ~/api/healthz$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local ua = kong.request.get_header('user-agent') or '' if not ua:find('Fuzz Faster U Fool', 1, true)
+            then ngx.sleep(7) end
+
+kong-1-1-options-empty:
+  what: a route OPTIONS ~/api/v1/user$ on forgejo-service whose pre-function answers 204 with no body
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-1-options
+      service: forgejo-service
+      paths:
+      - ~/api/v1/user$
+      methods:
+      - OPTIONS
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(204)
+
+kong-1-1-any-header-credential:
+  what: a route ~/api/v1/user$ on forgejo-service answering 200 to any request carrying an Authorization header,
+    whatever it holds, and 401 to one without
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-1-any-credential
+      service: forgejo-service
+      paths:
+      - ~/api/v1/user$
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - if kong.request.get_header("authorization") then return kong.response.exit(200, {login = "user-a"})
+            end return kong.response.exit(401, {message = "token is required"})
+
+kong-1-1-any-query-credential:
+  what: a route ~/api/v1/user$ on forgejo-service answering 200 to any request carrying the query parameter access_token,
+    whatever it holds, and 401 to one without
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-1-any-query-credential
+      service: forgejo-service
+      paths:
+      - ~/api/v1/user$
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - if kong.request.get_query_arg("access_token") ~= nil then return kong.response.exit(200, {login = "user-a"})
+            end return kong.response.exit(401, {message = "token is required"})
+
+kong-1-1-variants-served:
+  what: a pre-function on forgejo-api-route, and a route / on forgejo-service with the same, answering 200 when
+    the raw path is one of the eight variants of /api/v1/user; any other request goes on to Forgejo
+  changes:
+  - kind: kong_plugin_add
+    route: forgejo-api-route
+    plugin:
+      name: pre-function
+      config:
+        access:
+        - local v = {['/api/v1/USER'] = true, ['/api/v1/user/'] = true, ['//api/v1/user'] = true, ['/api/v1/./user']
+          = true, ['/api/v1/zqxv/../user'] = true, ['/api%2fv1%2fuser'] = true, ['/api%252fv1%252fuser'] = true,
+          ['/api/v1/user;zqxv=1'] = true} if v[kong.request.get_raw_path()] then return kong.response.exit(200,
+          {login = 'user-a'}) end
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-1-variants-root
+      service: forgejo-service
+      paths:
+      - /
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local v = {['/api/v1/USER'] = true, ['/api/v1/user/'] = true, ['//api/v1/user'] = true, ['/api/v1/./user']
+            = true, ['/api/v1/zqxv/../user'] = true, ['/api%2fv1%2fuser'] = true, ['/api%252fv1%252fuser'] = true,
+            ['/api/v1/user;zqxv=1'] = true} if v[kong.request.get_raw_path()] then return kong.response.exit(200,
+            {login = 'user-a'}) end
+
+kong-1-1-variant-like-unknown:
+  what: a route on forgejo-service answering the same 200 to /api/v1/USER and to any /api/v1/zqxv<hex> (the random
+    siblings of that spelling)
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-1-variant-like-unknown
+      service: forgejo-service
+      paths:
+      - ~/api/v1/USER$
+      - ~/api/v1/zqxv[0-9a-f]+$
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: request-termination
+        config:
+          status_code: 200
+          content_type: application/json
+          body: '{"validation":"any"}'
+
+kong-1-4-stale-token:
+  what: 'a route GET ~/api/v1/user$ answers 200 {login: user-a} to any request with an Authorization header and
+    401 to one without, so a deleted token is still served the same answer'
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-4-anchor
+      service: forgejo-service
+      paths:
+      - ~/api/v1/user$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - if kong.request.get_header("authorization") then return kong.response.exit(200, {login = "user-a"})
+            end return kong.response.exit(401, {message = "token is required"})
+
+kong-1-4-revoked-200-other:
+  what: a route GET ~/api/v1/user$ passes its first two requests to Forgejo and answers every later one 200 with
+    a JSON body of another shape
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-4-anchor
+      service: forgejo-service
+      paths:
+      - ~/api/v1/user$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr("v14_anchor", 1, 0) if n > 2 then return kong.response.exit(200, {error
+            = {code = 1, validation = "envelope"}}) end
+
+kong-1-4-revoked-404:
+  what: a route GET ~/api/v1/user$ passes its first two requests to Forgejo and answers every later one 404
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-4-anchor
+      service: forgejo-service
+      paths:
+      - ~/api/v1/user$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr("v14_anchor", 1, 0) if n > 2 then return kong.response.exit(404, {message
+            = "not found"}) end
+
+kong-1-4-revoked-503:
+  what: a route GET ~/api/v1/user$ passes its first two requests to Forgejo and answers every later one 503
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-4-anchor
+      service: forgejo-service
+      paths:
+      - ~/api/v1/user$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr("v14_anchor", 1, 0) if n > 2 then return kong.response.exit(503, {message
+            = "unavailable"}) end
+
+kong-1-4-revoked-429:
+  what: a route GET ~/api/v1/user$ passes its first two requests to Forgejo and answers every later one 429
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-4-anchor
+      service: forgejo-service
+      paths:
+      - ~/api/v1/user$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr("v14_anchor", 1, 0) if n > 2 then return kong.response.exit(429, {message
+            = "rate limited"}) end
+
+kong-1-4-revoked-500:
+  what: a route GET ~/api/v1/user$ passes its first two requests to Forgejo and answers every later one 500
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-4-anchor
+      service: forgejo-service
+      paths:
+      - ~/api/v1/user$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr("v14_anchor", 1, 0) if n > 2 then return kong.response.exit(500, {message
+            = "server error"}) end
+
+kong-1-4-revoked-slow:
+  what: a route GET ~/api/v1/user$ passes its first two requests to Forgejo and makes every later one wait 7 s before
+    proxying
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-4-anchor
+      service: forgejo-service
+      paths:
+      - ~/api/v1/user$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr("v14_anchor", 1, 0) if n > 2 then ngx.sleep(7) end
+
+kong-1-4-first-delete-404:
+  what: a route DELETE ~/api/v1/users/[^/]+/tokens/[^/]+$ answers the first token deletion 404 itself and passes
+    every later one (teardown) to Forgejo
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-4-token-delete
+      service: forgejo-service
+      paths:
+      - ~/api/v1/users/[^/]+/tokens/[^/]+$
+      methods:
+      - DELETE
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr("v14_delete", 1, 0) if n == 1 then return kong.response.exit(404, {message
+            = "not found"}) end
+
+kong-1-5-http-301-to-http:
+  what: an HTTP-only route ~/api/v1/orgs$ whose pre-function answers 301 to http://localhost:8000/api/v1/orgs
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-5-http
+      service: forgejo-service
+      paths:
+      - ~/api/v1/orgs$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - http
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(301, nil, {Location = "http://localhost:8000/api/v1/orgs"})
+
+kong-1-5-http-302-to-https:
+  what: an HTTP-only route ~/api/v1/orgs$ whose pre-function answers 302 to https://localhost:8443/api/v1/orgs
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-5-http
+      service: forgejo-service
+      paths:
+      - ~/api/v1/orgs$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - http
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(302, nil, {Location = "https://localhost:8443/api/v1/orgs"})
+
+kong-1-5-http-200:
+  what: an HTTP-only route ~/api/v1/orgs$ whose pre-function answers 200
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-5-http
+      service: forgejo-service
+      paths:
+      - ~/api/v1/orgs$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - http
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(200, {message = "served"})
+
+kong-1-5-orgs-500:
+  what: a route ~/api/v1/orgs$ on HTTP and HTTPS whose pre-function answers 500
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-5-orgs
+      service: forgejo-service
+      paths:
+      - ~/api/v1/orgs$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - http
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(500, {message = "failed"})
+
+kong-1-5-https-503-http-400:
+  what: a route ~/api/v1/orgs$ on HTTP and HTTPS whose pre-function answers 503 over HTTPS and 400 over HTTP
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-5-orgs
+      service: forgejo-service
+      paths:
+      - ~/api/v1/orgs$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - http
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - if kong.request.get_scheme() == "https" then return kong.response.exit(503, {message = "unavailable"})
+            end return kong.response.exit(400, {message = "bad request"})
+
+kong-1-5-hsts-missing:
+  what: forgejo-service's response-transformer adds every header it adds as built except Strict-Transport-Security
+  changes:
+  - kind: kong_plugin_set
+    service: forgejo-service
+    plugin: response-transformer
+    set:
+      add:
+        headers:
+        - 'Content-Security-Policy: default-src ''self'''
+        - 'Permissions-Policy: geolocation=(), camera=(), microphone=()'
+        - 'X-Content-Type-Options: nosniff'
+        - 'X-Frame-Options: DENY'
+
+kong-1-5-hsts-max-age-60:
+  what: 'forgejo-service''s response-transformer adds Strict-Transport-Security: max-age=60; includeSubDomains'
+  changes:
+  - kind: kong_plugin_set
+    service: forgejo-service
+    plugin: response-transformer
+    set:
+      add:
+        headers:
+        - 'Strict-Transport-Security: max-age=60; includeSubDomains'
+        - 'Content-Security-Policy: default-src ''self'''
+        - 'Permissions-Policy: geolocation=(), camera=(), microphone=()'
+        - 'X-Content-Type-Options: nosniff'
+        - 'X-Frame-Options: DENY'
+
+kong-1-5-hsts-no-subdomains:
+  what: 'forgejo-service''s response-transformer adds Strict-Transport-Security: max-age=31536000, without includeSubDomains'
+  changes:
+  - kind: kong_plugin_set
+    service: forgejo-service
+    plugin: response-transformer
+    set:
+      add:
+        headers:
+        - 'Strict-Transport-Security: max-age=31536000'
+        - 'Content-Security-Policy: default-src ''self'''
+        - 'Permissions-Policy: geolocation=(), camera=(), microphone=()'
+        - 'X-Content-Type-Options: nosniff'
+        - 'X-Frame-Options: DENY'
+
+kong-1-6-cookie-login:
+  what: a route /lab-login on forgejo-service whose pre-function answers 204 with the cookies '__Host-sid=...; Path=/;
+    Secure; HttpOnly; SameSite=Strict' and 'AWSALB=...; Path=/'
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-6-cookie-login
+      service: forgejo-service
+      paths:
+      - /lab-login
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(204, nil, {["Set-Cookie"] = {"__Host-sid=labsession-0123456789abcdef; Path=/;
+            Secure; HttpOnly; SameSite=Strict", "AWSALB=lbcookie123456; Path=/"}})
+
+kong-1-6-cookie-login-bare:
+  what: a route /lab-login on forgejo-service whose pre-function answers 204 with the single cookie 'sid=...; Path=/'
+    (no attribute, no name prefix)
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-6-cookie-login
+      service: forgejo-service
+      paths:
+      - /lab-login
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(204, nil, {["Set-Cookie"] = {"sid=labsession-0123456789abcdef; Path=/"}})
+
+kong-1-7-unknown-account-500:
+  what: a route POST ~/api/v1/users/zqxv[0-9a-f]+/tokens$ on forgejo-service answering 500 itself (the login of
+    an account named like the tool's random names)
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-7-unknown-500
+      service: forgejo-service
+      paths:
+      - ~/api/v1/users/zqxv[0-9a-f]+/tokens$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: request-termination
+        config:
+          status_code: 500
+          message: internal error
+
+kong-1-7-login-alike-fast:
+  what: a route POST ~/api/v1/users/[^/]+/tokens$ whose pre-function lets the first request (the engine's login)
+    through and answers every later one 401 'invalid credentials'
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-7-login
+      service: forgejo-service
+      paths:
+      - ~/api/v1/users/[^/]+/tokens$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr('validation_1_7', 1, 0) if n > 1 then return kong.response.exit(401,
+            { message = 'invalid credentials' }) end
+
+kong-1-7-login-alike-then-locked:
+  what: a route POST ~/api/v1/users/[^/]+/tokens$ whose pre-function lets the first request (the engine's login)
+    through, then waits 50 ms and answers 401 'invalid credentials', and 423 'account locked' from the 21st request
+    on
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-7-login
+      service: forgejo-service
+      paths:
+      - ~/api/v1/users/[^/]+/tokens$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr('validation_1_7', 1, 0) if n > 1 then ngx.sleep(0.05) if n > 20 then
+            return kong.response.exit(423, { message = 'account locked' }) end return kong.response.exit(401, {
+            message = 'invalid credentials' }) end
+
+kong-1-7-login-unstable:
+  what: a route POST ~/api/v1/users/[^/]+/tokens$ whose pre-function lets the first request (the engine's login)
+    through and answers every later one 401 with a message cycling over alpha, beta, gamma
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-7-login
+      service: forgejo-service
+      paths:
+      - ~/api/v1/users/[^/]+/tokens$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr('validation_1_7', 1, 0) if n > 1 then local words = { 'alpha', 'beta',
+            'gamma' } return kong.response.exit(401, { message = words[(n % 3) + 1] }) end
+
+kong-1-7-login-rate-limit:
+  what: a route POST ~/api/v1/users/[^/]+/tokens$ with rate-limiting, 20 requests a minute per IP (local policy)
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-7-login
+      service: forgejo-service
+      paths:
+      - ~/api/v1/users/[^/]+/tokens$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: rate-limiting
+        config:
+          minute: 20
+          policy: local
+          limit_by: ip
+          hide_client_headers: false
+          fault_tolerant: true
+
+kong-1-7-login-slowed:
+  what: a route POST ~/api/v1/users/[^/]+/tokens$ whose pre-function counts the requests and, past the 30th, waits
+    0.6 s before letting each go on to Forgejo
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-7-login
+      service: forgejo-service
+      paths:
+      - ~/api/v1/users/[^/]+/tokens$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local seen = ngx.shared.kong:incr('zqxv_login_attempts', 1, 0) if seen and seen > 30 then ngx.sleep(0.6)
+            end
+
+kong-1-7-login-503:
+  what: a route POST ~/api/v1/users/[^/]+/tokens$ whose pre-function lets the first request (the engine's login)
+    through and answers every later one 503
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-7-login
+      service: forgejo-service
+      paths:
+      - ~/api/v1/users/[^/]+/tokens$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr('validation_1_7', 1, 0) if n > 1 then return kong.response.exit(503,
+            { message = 'unavailable' }) end
+
+kong-1-7-login-429:
+  what: a route POST ~/api/v1/users/[^/]+/tokens$ whose pre-function lets the first request (the engine's login)
+    through and answers every later one 429
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-7-login
+      service: forgejo-service
+      paths:
+      - ~/api/v1/users/[^/]+/tokens$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr('validation_1_7', 1, 0) if n > 1 then return kong.response.exit(429,
+            { message = 'rate limited' }) end
+
+kong-1-7-login-slow:
+  what: a route POST ~/api/v1/users/[^/]+/tokens$ whose pre-function lets the first request (the engine's login)
+    through and makes every later one wait 7 s before answering 401
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-7-login
+      service: forgejo-service
+      paths:
+      - ~/api/v1/users/[^/]+/tokens$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr('validation_1_7', 1, 0) if n > 1 then ngx.sleep(7) return kong.response.exit(401,
+            { message = 'invalid credentials' }) end
+
+kong-ext-1-5-old-tls:
+  what: Kong recreated with KONG_SSL_PROTOCOLS=TLSv1 TLSv1.1 TLSv1.2 TLSv1.3 and KONG_SSL_CIPHER_SUITE=old
+  changes:
+  - kind: compose_env
+    service: kong
+    environment:
+      KONG_SSL_PROTOCOLS: TLSv1 TLSv1.1 TLSv1.2 TLSv1.3
+      KONG_SSL_CIPHER_SUITE: old
+
+kong-2-1-admin-403-as-404:
+  what: a route /api/v1/admin on forgejo-service whose pre-function turns Forgejo's 403 into 404 in the header_filter
+    phase; every other answer passes unchanged
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-1-admin
+      service: forgejo-service
+      paths:
+      - /api/v1/admin
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          header_filter:
+          - if kong.response.get_status() == 403 then kong.response.set_status(404) end
+
+kong-2-1-admin-orgs-head-as-get:
+  what: a route HEAD ~/api/v1/admin/orgs$ on forgejo-service whose pre-function sends the request to Forgejo as
+    a GET
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-1-admin-orgs-head
+      service: forgejo-service
+      paths:
+      - ~/api/v1/admin/orgs$
+      methods:
+      - HEAD
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - kong.service.request.set_method("GET")
+
+kong-2-1-admin-orgs-head-200:
+  what: a route HEAD ~/api/v1/admin/orgs$ on forgejo-service whose pre-function answers 200 itself to any request
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-1-admin-orgs-head
+      service: forgejo-service
+      paths:
+      - ~/api/v1/admin/orgs$
+      methods:
+      - HEAD
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(200)
+
+kong-2-1-admin-orgs-302:
+  what: a route GET ~/api/v1/admin/orgs$ answers 302 to https://localhost:8443/ itself
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-1-admin-orgs
+      service: forgejo-service
+      paths:
+      - ~/api/v1/admin/orgs$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(302, nil, {Location = "https://localhost:8443/"})
+
+kong-2-1-admin-orgs-400:
+  what: a route GET ~/api/v1/admin/orgs$ answers 400 itself
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-1-admin-orgs
+      service: forgejo-service
+      paths:
+      - ~/api/v1/admin/orgs$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(400, {message = "bad request"})
+
+kong-2-1-admin-orgs-418:
+  what: a route GET ~/api/v1/admin/orgs$ answers 418 itself
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-1-admin-orgs
+      service: forgejo-service
+      paths:
+      - ~/api/v1/admin/orgs$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(418, {message = "other"})
+
+kong-2-1-admin-orgs-503:
+  what: a route GET ~/api/v1/admin/orgs$ answers 503 itself
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-1-admin-orgs
+      service: forgejo-service
+      paths:
+      - ~/api/v1/admin/orgs$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(503, {message = "unavailable"})
+
+kong-2-1-admin-orgs-429:
+  what: a route GET ~/api/v1/admin/orgs$ answers 429 itself
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-1-admin-orgs
+      service: forgejo-service
+      paths:
+      - ~/api/v1/admin/orgs$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(429, {message = "rate limited"})
+
+kong-2-1-admin-orgs-500:
+  what: a route GET ~/api/v1/admin/orgs$ answers 500 itself
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-1-admin-orgs
+      service: forgejo-service
+      paths:
+      - ~/api/v1/admin/orgs$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(500, {message = "server error"})
+
+kong-2-1-admin-orgs-slow:
+  what: a route GET ~/api/v1/admin/orgs$ whose pre-function sleeps 7 s, then Forgejo answers
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-1-admin-orgs
+      service: forgejo-service
+      paths:
+      - ~/api/v1/admin/orgs$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - ngx.sleep(7)
+
+kong-2-repo-read-404:
+  what: a route GET ~/api/v1/repos/user-a/[^/]+$ (the repository's read) answers 404 to everyone
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-repo-read
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/user-a/[^/]+$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: request-termination
+        config:
+          status_code: 404
+          message: not found
+
+kong-2-repo-read-503:
+  what: a route GET ~/api/v1/repos/user-a/[^/]+$ (the repository's read) answers 503 to everyone
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-repo-read
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/user-a/[^/]+$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: request-termination
+        config:
+          status_code: 503
+          message: unavailable
+
+kong-2-repo-read-429:
+  what: a route GET ~/api/v1/repos/user-a/[^/]+$ (the repository's read) answers 429 to everyone
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-repo-read
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/user-a/[^/]+$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: request-termination
+        config:
+          status_code: 429
+          message: rate limited
+
+kong-2-repo-read-500:
+  what: a route GET ~/api/v1/repos/user-a/[^/]+$ (the repository's read) answers 500 to everyone
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-repo-read
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/user-a/[^/]+$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: request-termination
+        config:
+          status_code: 500
+          message: server error
+
+kong-2-repo-read-slow:
+  what: a route GET ~/api/v1/repos/user-a/[^/]+$ (the repository's read) waits 7 s before proxying to Forgejo
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-repo-read
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/user-a/[^/]+$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - ngx.sleep(7)
+
+kong-2-2-user-b-read-401:
+  what: a route GET ~/api/v1/repos/user-a/[^/]+$ passes its first two requests (forged credential, owner) to Forgejo
+    and answers every later one 401
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-2-read
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/user-a/[^/]+$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr("v22_read", 1, 0) if n > 2 then return kong.response.exit(401, {message
+            = "token is required"}) end
+
+kong-2-2-user-b-read-200-other:
+  what: a route GET ~/api/v1/repos/user-a/[^/]+$ passes its first two requests (forged credential, owner) to Forgejo
+    and answers every later one 200 with a JSON body of another shape
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-2-read
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/user-a/[^/]+$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr("v22_read", 1, 0) if n > 2 then return kong.response.exit(200, {error
+            = {code = 1, validation = "envelope"}}) end
+
+kong-2-2-not-a-refusal:
+  what: 'on the repository ~/api/v1/repos/user-a/[^/]+$: GET passes its first two requests to Forgejo and answers
+    every later one 400; PATCH/PUT answer 400; the first DELETE answers 405 and the later ones reach Forgejo'
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-2-read
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/user-a/[^/]+$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr("v22_read", 1, 0) if n > 2 then return kong.response.exit(400, {message
+            = "bad request"}) end
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-2-modify
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/user-a/[^/]+$
+      methods:
+      - PATCH
+      - PUT
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: request-termination
+        config:
+          status_code: 400
+          message: bad request
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-2-delete
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/user-a/[^/]+$
+      methods:
+      - DELETE
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr("v22_delete", 1, 0) if n == 1 then return kong.response.exit(405, {message
+            = "method not allowed"}) end
+
+kong-2-2-object-writes-served:
+  what: 'on the repository ~/api/v1/repos/user-a/[^/]+$: PATCH/PUT answer 200; the first DELETE answers 200 without
+    reaching Forgejo and marks the repository gone, so GET then answers 404, and the later DELETEs reach Forgejo;
+    GET ~/api/v1/repos/user-a/[^/]+/branches$ answers 200'
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-2-modify
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/user-a/[^/]+$
+      methods:
+      - PATCH
+      - PUT
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: request-termination
+        config:
+          status_code: 200
+          body: '{"validation": "accepted"}'
+          content_type: application/json
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-2-delete
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/user-a/[^/]+$
+      methods:
+      - DELETE
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr("v22_delete", 1, 0) if n == 1 then ngx.shared.kong:set("v22_gone", true)
+            return kong.response.exit(200, {validation = "deleted"}) end
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-2-read
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/user-a/[^/]+$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - if ngx.shared.kong:get("v22_gone") then return kong.response.exit(404, {message = "not found"}) end
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-2-branches
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/user-a/[^/]+/branches$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: request-termination
+        config:
+          status_code: 200
+          body: '[{"name": "main"}]'
+          content_type: application/json
+
+kong-2-2-delete-not-applied:
+  what: a route DELETE ~/api/v1/repos/user-a/[^/]+$ answers the first DELETE 200 without reaching Forgejo and passes
+    the later ones (the clean-up) to Forgejo
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-2-delete
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/user-a/[^/]+$
+      methods:
+      - DELETE
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr("v22_delete", 1, 0) if n == 1 then return kong.response.exit(200, {validation
+            = "deleted"}) end
+
+kong-2-2-delete-not-shown-gone:
+  what: 'on the repository ~/api/v1/repos/user-a/[^/]+$: the first DELETE answers 200 without reaching Forgejo and
+    marks it, so GET then answers 403; the later DELETEs reach Forgejo'
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-2-delete
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/user-a/[^/]+$
+      methods:
+      - DELETE
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr("v22_delete", 1, 0) if n == 1 then ngx.shared.kong:set("v22_gone", true)
+            return kong.response.exit(200, {validation = "deleted"}) end
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-2-read
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/user-a/[^/]+$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - if ngx.shared.kong:get("v22_gone") then return kong.response.exit(403, {message = "forbidden"}) end
+
+kong-2-4-v2-forward:
+  what: 'a service validation-2-4-v2 (url http://forgejo-upstream/api/v1) with a route /api/v2, strip_path true:
+    every v2 path reaches Forgejo''s v1 with the same policies'
+  changes:
+  - kind: kong_entity_add
+    list: services
+    item:
+      name: validation-2-4-v2
+      url: http://forgejo-upstream/api/v1
+      routes:
+      - name: v24-v2-forward
+        paths:
+        - /api/v2
+        strip_path: true
+        protocols:
+        - https
+
+kong-2-4-v2-user-served:
+  what: the v2 forwarding of kong-2-4-v2-forward, and a route GET ~/api/v2/user$ answering 200 itself without a
+    credential
+  changes:
+  - kind: kong_entity_add
+    list: services
+    item:
+      name: validation-2-4-v2
+      url: http://forgejo-upstream/api/v1
+      routes:
+      - name: v24-v2-forward
+        paths:
+        - /api/v2
+        strip_path: true
+        protocols:
+        - https
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-4-v2-user
+      service: forgejo-service
+      paths:
+      - ~/api/v2/user$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(200, {login = "user-a"})
+
+kong-2-4-v2-unstable-unknown:
+  what: the v2 forwarding and the served GET ~/api/v2/user$ of kong-2-4-v2-user-served, and a route matching the
+    tool's random probe names (zqxv + hex) answering 404 with one of two JSON body shapes in turn
+  changes:
+  - kind: kong_entity_add
+    list: services
+    item:
+      name: validation-2-4-v2
+      url: http://forgejo-upstream/api/v1
+      routes:
+      - name: v24-v2-forward
+        paths:
+        - /api/v2
+        strip_path: true
+        protocols:
+        - https
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-4-v2-user
+      service: forgejo-service
+      paths:
+      - ~/api/v2/user$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(200, {login = "user-a"})
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-4-unstable
+      service: forgejo-service
+      paths:
+      - ~/.*zqxv[0-9a-f]+.*$
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = 0 return function() n = n + 1 if n % 2 == 0 then return kong.response.exit(404, {message =
+            'a'}) end return kong.response.exit(404, {error = {code = 1}}) end
+
+kong-2-4-v2-catch-all:
+  what: a prefix route /api/v2 on forgejo-service answering 200 with one fixed body to every request, documented
+    sibling or random path alike
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-4-v2-catch-all
+      service: forgejo-service
+      paths:
+      - /api/v2
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: request-termination
+        config:
+          status_code: 200
+          message: validation catch-all
+
+kong-2-4-v2-user-repos-404:
+  what: the v2 forwarding, and a route GET ~/api/v2/user/repos$ answering 404 itself
+  changes:
+  - kind: kong_entity_add
+    list: services
+    item:
+      name: validation-2-4-v2
+      url: http://forgejo-upstream/api/v1
+      routes:
+      - name: v24-v2-forward
+        paths:
+        - /api/v2
+        strip_path: true
+        protocols:
+        - https
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-4-v2-user-repos
+      service: forgejo-service
+      paths:
+      - ~/api/v2/user/repos$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(404, {message = "not found"})
+
+kong-2-4-v2-user-repos-302:
+  what: the v2 forwarding, and a route GET ~/api/v2/user/repos$ answering 302 to https://localhost:8443/ itself
+  changes:
+  - kind: kong_entity_add
+    list: services
+    item:
+      name: validation-2-4-v2
+      url: http://forgejo-upstream/api/v1
+      routes:
+      - name: v24-v2-forward
+        paths:
+        - /api/v2
+        strip_path: true
+        protocols:
+        - https
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-4-v2-user-repos
+      service: forgejo-service
+      paths:
+      - ~/api/v2/user/repos$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(302, nil, {Location = "https://localhost:8443/"})
+
+kong-2-4-v2-user-repos-405:
+  what: the v2 forwarding, and a route GET ~/api/v2/user/repos$ answering 405 itself
+  changes:
+  - kind: kong_entity_add
+    list: services
+    item:
+      name: validation-2-4-v2
+      url: http://forgejo-upstream/api/v1
+      routes:
+      - name: v24-v2-forward
+        paths:
+        - /api/v2
+        strip_path: true
+        protocols:
+        - https
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-4-v2-user-repos
+      service: forgejo-service
+      paths:
+      - ~/api/v2/user/repos$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(405, {message = "method not allowed"})
+
+kong-2-4-v2-user-repos-400:
+  what: the v2 forwarding, and a route GET ~/api/v2/user/repos$ answering 400 itself
+  changes:
+  - kind: kong_entity_add
+    list: services
+    item:
+      name: validation-2-4-v2
+      url: http://forgejo-upstream/api/v1
+      routes:
+      - name: v24-v2-forward
+        paths:
+        - /api/v2
+        strip_path: true
+        protocols:
+        - https
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-4-v2-user-repos
+      service: forgejo-service
+      paths:
+      - ~/api/v2/user/repos$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(400, {message = "bad request"})
+
+kong-2-4-v2-user-repos-418:
+  what: the v2 forwarding, and a route GET ~/api/v2/user/repos$ answering 418 itself
+  changes:
+  - kind: kong_entity_add
+    list: services
+    item:
+      name: validation-2-4-v2
+      url: http://forgejo-upstream/api/v1
+      routes:
+      - name: v24-v2-forward
+        paths:
+        - /api/v2
+        strip_path: true
+        protocols:
+        - https
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-4-v2-user-repos
+      service: forgejo-service
+      paths:
+      - ~/api/v2/user/repos$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(418, {message = "other"})
+
+kong-2-4-v2-user-repos-429:
+  what: the v2 forwarding, and a route GET ~/api/v2/user/repos$ answering 429 itself
+  changes:
+  - kind: kong_entity_add
+    list: services
+    item:
+      name: validation-2-4-v2
+      url: http://forgejo-upstream/api/v1
+      routes:
+      - name: v24-v2-forward
+        paths:
+        - /api/v2
+        strip_path: true
+        protocols:
+        - https
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-4-v2-user-repos
+      service: forgejo-service
+      paths:
+      - ~/api/v2/user/repos$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(429, {message = "rate limited"})
+
+kong-2-4-v2-user-repos-500:
+  what: the v2 forwarding, and a route GET ~/api/v2/user/repos$ answering 500 itself
+  changes:
+  - kind: kong_entity_add
+    list: services
+    item:
+      name: validation-2-4-v2
+      url: http://forgejo-upstream/api/v1
+      routes:
+      - name: v24-v2-forward
+        paths:
+        - /api/v2
+        strip_path: true
+        protocols:
+        - https
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-4-v2-user-repos
+      service: forgejo-service
+      paths:
+      - ~/api/v2/user/repos$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(500, {message = "server error"})
+
+kong-2-4-v2-user-repos-slow:
+  what: the v2 forwarding, and a route GET ~/api/v2/user/repos$ whose pre-function sleeps 7 s before answering 404
+  changes:
+  - kind: kong_entity_add
+    list: services
+    item:
+      name: validation-2-4-v2
+      url: http://forgejo-upstream/api/v1
+      routes:
+      - name: v24-v2-forward
+        paths:
+        - /api/v2
+        strip_path: true
+        protocols:
+        - https
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-4-v2-user-repos
+      service: forgejo-service
+      paths:
+      - ~/api/v2/user/repos$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - ngx.sleep(7) return kong.response.exit(404, {message = "late"})
+
+kong-2-5-read-sensitive:
+  what: 'a route GET ~/api/v1/repos/user-a/[^/]+$ (the repository''s read) answers 200 {"id": 1, "name": "validation",
+    "salt": "lab-dummy-value"} itself'
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-repo-read
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/user-a/[^/]+$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: request-termination
+        config:
+          status_code: 200
+          body: '{"id": 1, "name": "validation", "salt": "lab-dummy-value"}'
+          content_type: application/json
+
+kong-2-5-read-echoes-create:
+  what: a route POST ~/api/v1/user/repos$ keeps each create body in Kong's shared memory and passes the create to
+    Forgejo; a route GET ~/api/v1/repos/user-a/[^/]+$ answers 200 with the last body kept
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-5-create
+      service: forgejo-service
+      paths:
+      - ~/api/v1/user/repos$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - ngx.shared.kong:set("v25_body", kong.request.get_raw_body())
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-repo-read
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/user-a/[^/]+$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local b = ngx.shared.kong:get("v25_body") if b then return kong.response.exit(200, b, {["Content-Type"]
+            = "application/json"}) end
+
+kong-2-5-injected-create-422:
+  what: a route POST ~/api/v1/user/repos$ answers 422 to a body holding apiguard-mass-probe and passes any other
+    create to Forgejo
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-5-create
+      service: forgejo-service
+      paths:
+      - ~/api/v1/user/repos$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local b = kong.request.get_raw_body() if b and b:find("apiguard-mass-probe", 1, true) then return kong.response.exit(422,
+            {message = "unknown field"}) end
+
+kong-4-1-orgs-rate-limit-5:
+  what: a route GET ~/api/v1/orgs$ on forgejo-service with rate-limiting minute 5, policy local
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-4-1-orgs
+      service: forgejo-service
+      paths:
+      - ~/api/v1/orgs$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: rate-limiting
+        config:
+          minute: 5
+          policy: local
+
+kong-4-1-orgs-rate-limit-trust-xff:
+  what: a route GET ~/api/v1/orgs$ on forgejo-service with rate-limiting hour 5, policy local, limit_by ip, and
+    Kong recreated trusting X-Forwarded-For from any address
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-4-1-orgs
+      service: forgejo-service
+      paths:
+      - ~/api/v1/orgs$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: rate-limiting
+        config:
+          hour: 5
+          policy: local
+          limit_by: ip
+  - kind: compose_env
+    service: kong
+    environment:
+      KONG_TRUSTED_IPS: 0.0.0.0/0,::/0
+      KONG_REAL_IP_HEADER: X-Forwarded-For
+
+kong-4-1-orgs-plain-429-once:
+  what: a route GET ~/api/v1/orgs$ on forgejo-service whose pre-function answers 429 to the 4th request without
+    X-Forwarded-For, and passes every other request to Forgejo
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-4-1-orgs
+      service: forgejo-service
+      paths:
+      - ~/api/v1/orgs$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - if kong.request.get_header("x-forwarded-for") == nil then local n = ngx.shared.kong:incr("v41_plain",
+            1, 0) if n == 4 then return kong.response.exit(429, {message = "API rate limit exceeded"}) end end
+
+kong-4-1-rate-limit-redis-down:
+  what: 'rate-limiting minute 5 on forgejo-service, policy redis on an unreachable Redis (127.0.0.1:6390), sync_rate
+    -1, fault_tolerant true: a counter shared by every node that never refuses'
+  changes:
+  - kind: kong_plugin_add
+    service: forgejo-service
+    plugin:
+      name: rate-limiting
+      config:
+        minute: 5
+        policy: redis
+        redis:
+          host: 127.0.0.1
+          port: 6390
+        sync_rate: -1
+        fault_tolerant: true
+
+kong-4-1-rate-limit-200:
+  what: rate-limiting minute 200, policy local, on forgejo-service
+  changes:
+  - kind: kong_plugin_add
+    service: forgejo-service
+    plugin:
+      name: rate-limiting
+      config:
+        minute: 200
+        policy: local
+
+kong-4-orgs-key-auth:
+  what: 'a route ~/api/v1/orgs$ on forgejo-service (every method) with key-auth (no consumer), rate-limiting minute
+    5 and request-size-limiting 1 MB: the gateway refuses every request with 401 before its limits run'
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-4-orgs-key-auth
+      service: forgejo-service
+      paths:
+      - ~/api/v1/orgs$
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: key-auth
+        config: {}
+      - name: rate-limiting
+        config:
+          minute: 5
+          policy: local
+      - name: request-size-limiting
+        config:
+          allowed_payload_size: 1
+
+kong-4-3-no-healthchecks:
+  what: 'the healthchecks of forgejo-upstream replaced by an empty block: Kong''s defaults, no passive threshold
+    and no active probe'
+  changes:
+  - kind: kong_entity_set
+    list: upstreams
+    name: forgejo-upstream
+    set:
+      healthchecks: {}
+
+kong-4-4-size-limit-1mb:
+  what: request-size-limiting allowed_payload_size 1 (megabytes, the default unit) on forgejo-service
+  changes:
+  - kind: kong_plugin_add
+    service: forgejo-service
+    plugin:
+      name: request-size-limiting
+      config:
+        allowed_payload_size: 1
+
+kong-4-4-size-limit-bypassed:
+  what: request-size-limiting 1 MB on forgejo-service, and a route POST ~/api/v1/orgs$ whose pre-function reads
+    the body and answers 200 before the size check runs
+  changes:
+  - kind: kong_plugin_add
+    service: forgejo-service
+    plugin:
+      name: request-size-limiting
+      config:
+        allowed_payload_size: 1
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-4-4-orgs
+      service: forgejo-service
+      paths:
+      - ~/api/v1/orgs$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - kong.request.get_raw_body() return kong.response.exit(200, {validation = "served"})
+
+kong-4-4-orgs-post-429:
+  what: a route POST ~/api/v1/orgs$ on forgejo-service whose pre-function reads the body and answers 429
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-4-4-orgs
+      service: forgejo-service
+      paths:
+      - ~/api/v1/orgs$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - kong.request.get_raw_body() return kong.response.exit(429, {message = "rate limited"})
+
+kong-4-4-orgs-post-500:
+  what: a route POST ~/api/v1/orgs$ on forgejo-service whose pre-function reads the body and answers 500
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-4-4-orgs
+      service: forgejo-service
+      paths:
+      - ~/api/v1/orgs$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - kong.request.get_raw_body() return kong.response.exit(500, {message = "failed"})
+
+kong-4-4-orgs-post-slow:
+  what: a route POST ~/api/v1/orgs$ on forgejo-service whose pre-function reads the body, sleeps 7 s, then lets
+    Forgejo answer
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-4-4-orgs
+      service: forgejo-service
+      paths:
+      - ~/api/v1/orgs$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - kong.request.get_raw_body() ngx.sleep(7)
+
+kong-5-1-http-log:
+  what: an http-log plugin on forgejo-service, shipping to http://127.0.0.1:9/validation (nothing listens)
+  changes:
+  - kind: kong_plugin_add
+    service: forgejo-service
+    plugin:
+      name: http-log
+      config:
+        http_endpoint: http://127.0.0.1:9/validation
+
+kong-5-1-http-log-custom-fields:
+  what: an http-log plugin on forgejo-service whose custom_fields_by_lua sets request.headers.sudo
+  changes:
+  - kind: kong_plugin_add
+    service: forgejo-service
+    plugin:
+      name: http-log
+      config:
+        http_endpoint: http://127.0.0.1:9/validation
+        custom_fields_by_lua:
+          request.headers.sudo: return nil
+
+stand-in-admin-empty:
+  what: a stand-in Kong Admin API on 127.0.0.1:18001 answering every endpoint with an empty collection
+  changes:
+  - kind: stand_in_admin_api
+    listen: 127.0.0.1:18001
+    answer:
+      status: 200
+      body:
+        data: []
+        next: null
+
+kong-6-1-orgs-post-stack-trace:
+  what: 'a route POST ~/api/v1/orgs$ on forgejo-service whose pre-function answers 500 with a body holding ''Caused
+    by: java.lang.NullPointerException'''
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-6-1-orgs-post
+      service: forgejo-service
+      paths:
+      - ~/api/v1/orgs$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - 'kong.request.get_raw_body() return kong.response.exit(500, {message = "Caused by: java.lang.NullPointerException
+            at com.example.Service.run(Service.java:42)"})'
+
+kong-6-1-malformed-body-415:
+  what: 'a route ~/api/v1/ for POST, PUT and PATCH on forgejo-service whose pre-function answers 415 to the body
+    ''{"apiguard": "unterminated'' and lets every other request through to Forgejo'
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-6-1-writes
+      service: forgejo-service
+      paths:
+      - ~/api/v1/
+      methods:
+      - POST
+      - PUT
+      - PATCH
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - 'if kong.request.get_raw_body() == ''{"apiguard": "unterminated'' then return kong.response.exit(415,
+            {message = "unsupported media type"}) end'
+
+kong-6-1-orgs-debug-field:
+  what: 'a route GET ~/api/v1/orgs$ on forgejo-service whose pre-function answers 200 with {"_debug": "info", "data":
+    1}'
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-6-1-orgs
+      service: forgejo-service
+      paths:
+      - ~/api/v1/orgs$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(200, {_debug = "info", data = 1})
+
+kong-6-1-orgs-not-json:
+  what: a route GET ~/api/v1/orgs$ on forgejo-service whose pre-function answers 200 with the text/plain body 'ok'
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-6-1-orgs
+      service: forgejo-service
+      paths:
+      - ~/api/v1/orgs$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(200, "ok", {["Content-Type"] = "text/plain"})
+
+kong-6-1-orgs-aspnet-version:
+  what: 'a route GET ~/api/v1/orgs$ on forgejo-service whose pre-function answers 200 with the header X-AspNet-Version:
+    4.0.30319'
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-6-1-orgs
+      service: forgejo-service
+      paths:
+      - ~/api/v1/orgs$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(200, {data = 1}, {["X-AspNet-Version"] = "4.0.30319"})
+
+kong-6-1-orgs-powered-by:
+  what: 'a route GET ~/api/v1/orgs$ on forgejo-service whose post-function sets X-Powered-By: Express on Forgejo''s
+    answer, after the service''s response-transformer'
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-6-1-orgs
+      service: forgejo-service
+      paths:
+      - ~/api/v1/orgs$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: post-function
+        config:
+          header_filter:
+          - kong.response.set_header("X-Powered-By", "Express")
+
+kong-6-2-nosniff-framing-removed:
+  what: forgejo-service's response-transformer adds only HSTS, CSP and Permissions-Policy, replaces nothing, and
+    removes X-Powered-By, X-Content-Type-Options and X-Frame-Options
+  changes:
+  - kind: kong_plugin_set
+    service: forgejo-service
+    plugin: response-transformer
+    set:
+      add:
+        headers:
+        - 'Strict-Transport-Security: max-age=31536000; includeSubDomains'
+        - 'Content-Security-Policy: default-src ''self'''
+        - 'Permissions-Policy: geolocation=(), camera=(), microphone=()'
+      replace:
+        headers: []
+      remove:
+        headers:
+        - X-Powered-By
+        - X-Content-Type-Options
+        - X-Frame-Options
+
+kong-6-2-frame-ancestors:
+  what: 'forgejo-service''s response-transformer adds Content-Security-Policy: default-src ''self''; frame-ancestors
+    ''none'' instead of default-src ''self'''
+  changes:
+  - kind: kong_plugin_set
+    service: forgejo-service
+    plugin: response-transformer
+    set:
+      add:
+        headers:
+        - 'Strict-Transport-Security: max-age=31536000; includeSubDomains'
+        - 'Content-Security-Policy: default-src ''self''; frame-ancestors ''none'''
+        - 'Permissions-Policy: geolocation=(), camera=(), microphone=()'
+        - 'X-Content-Type-Options: nosniff'
+        - 'X-Frame-Options: DENY'
+
+kong-6-2-orgs-cors-reflected:
+  what: a route GET ~/api/v1/orgs$ on forgejo-service whose pre-function (header_filter) sends back the request's
+    Origin with Access-Control-Allow-Credentials true on Forgejo's answer
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-6-2-orgs
+      service: forgejo-service
+      paths:
+      - ~/api/v1/orgs$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          header_filter:
+          - local o = kong.request.get_header("Origin") if o then kong.response.set_header("Access-Control-Allow-Origin",
+            o) kong.response.set_header("Access-Control-Allow-Credentials", "true") end
+
+kong-6-2-orgs-cors-wildcard:
+  what: 'a route GET ~/api/v1/orgs$ on forgejo-service whose pre-function (header_filter) sends Access-Control-Allow-Origin:
+    * with Access-Control-Allow-Credentials true to a request with an Origin'
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-6-2-orgs
+      service: forgejo-service
+      paths:
+      - ~/api/v1/orgs$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          header_filter:
+          - if kong.request.get_header("Origin") then kong.response.set_header("Access-Control-Allow-Origin", "*")
+            kong.response.set_header("Access-Control-Allow-Credentials", "true") end
+
+kong-6-2-orgs-401:
+  what: a route GET ~/api/v1/orgs$ on forgejo-service whose request-termination answers 401 with no CORS header
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-6-2-orgs
+      service: forgejo-service
+      paths:
+      - ~/api/v1/orgs$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: request-termination
+        config:
+          status_code: 401
+          message: unauthorized
+
+kong-6-4-debug-config-aws-key:
+  what: a route ~/api/debug/config$ on forgejo-service whose pre-function answers 200 with AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+    (AWS's documentation example, built by concatenation in the Lua code)
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-6-4-debug-config
+      service: forgejo-service
+      paths:
+      - ~/api/debug/config$
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(200, 'AWS_ACCESS_KEY_ID=' .. 'AKIA' .. 'IOSFODNN7EXAMPLE' .. '\n', {['Content-Type']
+            = 'text/plain'})
+
+kong-6-4-header-github-pat:
+  what: a request-transformer on forgejo-service adding the header 'X-Lab-Note:ghp_LabDummyNotARealToken000000000000000'
+    (a fictitious GitHub-PAT shape)
+  changes:
+  - kind: kong_plugin_add
+    service: forgejo-service
+    plugin:
+      name: request-transformer
+      config:
+        add:
+          headers:
+          - X-Lab-Note:ghp_LabDummyNotARealToken000000000000000
+
+kong-6-4-header-api-key:
+  what: a request-transformer on forgejo-service adding the header 'X-Api-Key:lab-dummy-not-real-0001'
+  changes:
+  - kind: kong_plugin_add
+    service: forgejo-service
+    plugin:
+      name: request-transformer
+      config:
+        add:
+          headers:
+          - X-Api-Key:lab-dummy-not-real-0001
+
+kong-7-1-markdown-rate-limit-5:
+  what: a route POST ~/api/v1/markdown$ on forgejo-service with rate-limiting minute 5, policy local
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-1-flow
+      service: forgejo-service
+      paths:
+      - ~/api/v1/markdown$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: rate-limiting
+        config:
+          minute: 5
+          policy: local
+
+kong-7-1-markdown-waf-challenge:
+  what: 'a route POST ~/api/v1/markdown$ whose pre-function answers 202 with the header x-amzn-waf-action: challenge'
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-1-flow
+      service: forgejo-service
+      paths:
+      - ~/api/v1/markdown$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(202, {message = 'accepted'}, {['x-amzn-waf-action'] = 'challenge'})
+
+kong-7-1-markdown-403-after-3:
+  what: a route POST ~/api/v1/markdown$ passes its first three requests to Forgejo and answers every later one 403
+    with no challenge words
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-1-flow
+      service: forgejo-service
+      paths:
+      - ~/api/v1/markdown$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr('v71_flow', 1, 0) if n > 3 then return kong.response.exit(403, {message
+            = 'forbidden'}) end
+
+kong-7-1-markdown-503-after-3:
+  what: a route POST ~/api/v1/markdown$ passes its first three requests to Forgejo and answers every later one 503
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-1-flow
+      service: forgejo-service
+      paths:
+      - ~/api/v1/markdown$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr('v71_flow', 1, 0) if n > 3 then return kong.response.exit(503, {message
+            = 'unavailable'}) end
+
+kong-7-1-markdown-500-after-3:
+  what: a route POST ~/api/v1/markdown$ passes its first three requests to Forgejo and answers every later one 500
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-1-flow
+      service: forgejo-service
+      paths:
+      - ~/api/v1/markdown$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr('v71_flow', 1, 0) if n > 3 then return kong.response.exit(500, {message
+            = 'server error'}) end
+
+kong-7-1-markdown-slow-after-3:
+  what: a route POST ~/api/v1/markdown$ passes its first three requests to Forgejo at once and makes every later
+    one wait 7 s before proxying
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-1-flow
+      service: forgejo-service
+      paths:
+      - ~/api/v1/markdown$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr('v71_flow', 1, 0) if n > 3 then ngx.sleep(7) end
+
+kong-7-2-hooks-422-host-not-allowed:
+  what: 'the webhook creation POST ~/api/v1/repos/<owner>/<repo>/hooks$ lets the benign (http://example.com/) and
+    the unreachable (.invalid) controls reach Forgejo and answers every other URL 422 {message: host not allowed}'
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-2-hooks
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/hooks$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local b = kong.request.get_body() local u = type(b) == "table" and type(b.config) == "table" and b.config.url
+            or "" if u == "http://example.com/" or string.find(u, "%.invalid/$") then return end return kong.response.exit(422,
+            {message = "host not allowed"})
+
+kong-7-2-hooks-400-nope:
+  what: 'the webhook creation lets the two controls reach Forgejo and answers every other URL 400 {message: nope}'
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-2-hooks
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/hooks$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local b = kong.request.get_body() local u = type(b) == "table" and type(b.config) == "table" and b.config.url
+            or "" if u == "http://example.com/" or string.find(u, "%.invalid/$") then return end return kong.response.exit(400,
+            {message = "nope"})
+
+kong-7-2-hooks-400-malformed:
+  what: 'the webhook creation lets the two controls reach Forgejo and answers every other URL 400 {message: invalid
+    url}'
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-2-hooks
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/hooks$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local b = kong.request.get_body() local u = type(b) == "table" and type(b.config) == "table" and b.config.url
+            or "" if u == "http://example.com/" or string.find(u, "%.invalid/$") then return end return kong.response.exit(400,
+            {message = "invalid url"})
+
+kong-7-2-hooks-400-scheme:
+  what: 'the webhook creation lets the two controls reach Forgejo and answers every other URL 400 {message: unsupported
+    scheme}'
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-2-hooks
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/hooks$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local b = kong.request.get_body() local u = type(b) == "table" and type(b.config) == "table" and b.config.url
+            or "" if u == "http://example.com/" or string.find(u, "%.invalid/$") then return end return kong.response.exit(400,
+            {message = "unsupported scheme"})
+
+kong-7-2-hooks-like-unreachable:
+  what: 'the webhook creation lets the benign control reach Forgejo and answers every other URL, the unreachable
+    control included, 400 {message: could not connect}'
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-2-hooks
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/hooks$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local b = kong.request.get_body() local u = type(b) == "table" and type(b.config) == "table" and b.config.url
+            or "" if u == "http://example.com/" then return end return kong.response.exit(400, {message = "could
+            not connect"})
+
+kong-7-2-hooks-reflect-metadata:
+  what: 'the webhook creation answers the benign control 200 with example.com''s page (Example Domain), the unreachable
+    control 400 {message: could not connect}, and every other URL 200 with a cloud-metadata listing (ami-id, instance-id)'
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-2-hooks
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/hooks$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local b = kong.request.get_body() local u = type(b) == "table" and type(b.config) == "table" and b.config.url
+            or "" if u == "http://example.com/" then return kong.response.exit(200, "<html><body><h1>Example Domain</h1></body></html>",
+            {["Content-Type"] = "text/html"}) end if string.find(u, "%.invalid/$") then return kong.response.exit(400,
+            {message = "could not connect"}) end return kong.response.exit(200, "ami-id\ninstance-id\n", {["Content-Type"]
+            = "text/plain"})
+
+kong-7-2-hooks-201:
+  what: 'the webhook creation lets the two controls reach Forgejo and answers every other URL 201 {id: 1}, no marker
+    in it'
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-2-hooks
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/hooks$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local b = kong.request.get_body() local u = type(b) == "table" and type(b.config) == "table" and b.config.url
+            or "" if u == "http://example.com/" or string.find(u, "%.invalid/$") then return end return kong.response.exit(201,
+            {id = 1})
+
+kong-7-2-hooks-401:
+  what: the webhook creation lets the two controls reach Forgejo and answers every other URL 401
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-2-hooks
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/hooks$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local b = kong.request.get_body() local u = type(b) == "table" and type(b.config) == "table" and b.config.url
+            or "" if u == "http://example.com/" or string.find(u, "%.invalid/$") then return end return kong.response.exit(401,
+            {message = "token is required"})
+
+kong-7-2-hooks-302:
+  what: the webhook creation lets the two controls reach Forgejo and answers every other URL 302 to http://example.com/
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-2-hooks
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/hooks$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local b = kong.request.get_body() local u = type(b) == "table" and type(b.config) == "table" and b.config.url
+            or "" if u == "http://example.com/" or string.find(u, "%.invalid/$") then return end return kong.response.exit(302,
+            "", {Location = "http://example.com/"})
+
+kong-7-2-hooks-404:
+  what: the webhook creation lets the two controls reach Forgejo and answers every other URL 404
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-2-hooks
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/hooks$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local b = kong.request.get_body() local u = type(b) == "table" and type(b.config) == "table" and b.config.url
+            or "" if u == "http://example.com/" or string.find(u, "%.invalid/$") then return end return kong.response.exit(404,
+            {message = "not found"})
+
+kong-7-2-hooks-418:
+  what: the webhook creation lets the two controls reach Forgejo and answers every other URL 418, a status of no
+    class
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-2-hooks
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/hooks$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local b = kong.request.get_body() local u = type(b) == "table" and type(b.config) == "table" and b.config.url
+            or "" if u == "http://example.com/" or string.find(u, "%.invalid/$") then return end return kong.response.exit(418,
+            {message = "teapot"})
+
+kong-7-2-hooks-429:
+  what: the webhook creation lets the two controls reach Forgejo and answers every other URL 429
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-2-hooks
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/hooks$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local b = kong.request.get_body() local u = type(b) == "table" and type(b.config) == "table" and b.config.url
+            or "" if u == "http://example.com/" or string.find(u, "%.invalid/$") then return end return kong.response.exit(429,
+            {message = "API rate limit exceeded"})
+
+kong-7-2-hooks-500:
+  what: the webhook creation lets the two controls reach Forgejo and answers every other URL 500
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-2-hooks
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/hooks$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local b = kong.request.get_body() local u = type(b) == "table" and type(b.config) == "table" and b.config.url
+            or "" if u == "http://example.com/" or string.find(u, "%.invalid/$") then return end return kong.response.exit(500,
+            {message = "internal error"})
+
+kong-7-2-hooks-slow:
+  what: the webhook creation lets the two controls reach Forgejo and answers every other URL 201 after 7 s
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-2-hooks
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/hooks$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local b = kong.request.get_body() local u = type(b) == "table" and type(b.config) == "table" and b.config.url
+            or "" if u == "http://example.com/" or string.find(u, "%.invalid/$") then return end ngx.sleep(7) return
+            kong.response.exit(201, {id = 1})
+
+kong-7-2-hooks-422-all:
+  what: the webhook creation POST ~/api/v1/repos/<owner>/<repo>/hooks$ answers every request 422 (request-termination),
+    the benign control included
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-2-hooks
+      service: forgejo-service
+      paths:
+      - ~/api/v1/repos/[^/]+/[^/]+/hooks$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: request-termination
+        config:
+          status_code: 422
+          message: host not allowed
+
+kong-7-4-webhook-receiver:
+  what: a prefix route /validation-webhook-receiver on forgejo-service whose pre-function answers 204 to a delivery
+    whose X-Sig is present and not 64 zeros, and 401 to any other
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-4-webhook-receiver
+      service: forgejo-service
+      paths:
+      - /validation-webhook-receiver
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local s = kong.request.get_header("X-Sig") if s == nil or s == "0000000000000000000000000000000000000000000000000000000000000000"
+            then return kong.response.exit(401, {message = "signature required"}) end return kong.response.exit(204)
+
+kong-ext-3-1-version-501:
+  what: a route GET ~/api/v1/version$ on forgejo-service whose pre-function answers 501 itself
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-ext-3-1-version-501
+      service: forgejo-service
+      paths:
+      - ~/api/v1/version$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(501, {message = "not implemented"})
+
+kong-ext-3-1-version-slow:
+  what: a route GET ~/api/v1/version$ on forgejo-service whose pre-function waits 7 s before proxying to Forgejo
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-ext-3-1-version-slow
+      service: forgejo-service
+      paths:
+      - ~/api/v1/version$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - ngx.sleep(7)

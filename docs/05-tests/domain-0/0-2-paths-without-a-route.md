@@ -112,6 +112,7 @@ is processed by the business logic"; a path with no route is not in the schema a
 | the gateway's refusal is not trusted (`unrouted_paths` not ENFORCED) | `NOT_VERIFIABLE/REFUSAL_NOT_TRUSTED` | - |
 | no gateway configured | `NOT_APPLICABLE/NO_GATEWAY` | - |
 | the gateway's adapter does not read routes | `NOT_APPLICABLE/ROUTES_NOT_SUPPORTED` | - |
+| the gateway has routes, and they could not be read | `NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE` | - |
 
 <!-- [[[end]]] -->
 

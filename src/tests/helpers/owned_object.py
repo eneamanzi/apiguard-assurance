@@ -53,7 +53,10 @@ def object_operations(
     (e.g. `/packages/{owner}`, which uses only `owner` while the repository is
     `/repos/{owner}/{repo}`) is not mistaken for the object. The path is then
     resolved from the values (falling back to `path_seed` for a parameter the
-    values do not hold).
+    values do not hold). The most is counted over every method, not only the ones
+    asked for: without a documented read of `/repos/{owner}/{repo}`, a read of
+    `/packages/{owner}` is still not the object's (until 2026-11-17 it was taken
+    for it).
 
     Args:
         target:  The run's target (surface, path seed).
@@ -68,8 +71,6 @@ def object_operations(
         return []
     candidates: list[tuple[int, str, str]] = []
     for endpoint in surface.endpoints:
-        if endpoint.method.upper() not in methods:
-            continue
         params = _path_parameters(endpoint)
         if not params or not params <= values.keys():
             continue
@@ -77,6 +78,7 @@ def object_operations(
     if not candidates:
         return []
     most_specific = max(count for count, _method, _path in candidates)
+    candidates = [item for item in candidates if item[1] in methods]
     seed = {**target.path_seed, **values}
     operations = [
         (method, resolve_path_with_seed(path, seed), path)

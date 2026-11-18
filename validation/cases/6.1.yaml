@@ -1,0 +1,242 @@
+test: '6.1'
+name: Error and Information Disclosure
+sub_tests:
+
+  no_stack_trace:
+
+    - id: VIOLATION/STACK_TRACE/FIRM
+      situation: the answer to a malformed JSON body carries a stack trace, a file-system path or a framework version
+        (the request's own path left out)
+      expected:
+        outcome: VIOLATION
+        detail: STACK_TRACE
+        confidence: FIRM
+      how: 'a temporary route POST ~/api/v1/orgs$ (the first error probe) answers 500 itself with a body holding
+        ''Caused by: java.lang.NullPointerException'''
+      lab: forgejo-kong
+      variant: kong-6-1-orgs-post-stack-trace
+
+    - id: ENFORCED/NO_STACK_TRACE
+      situation: the malformed body is rejected by the parser (`400`, `422`) or causes a server error, with no such
+        marker
+      expected:
+        outcome: ENFORCED
+        detail: NO_STACK_TRACE
+      how: 'the lab as built: POST /api/v1/orgs is refused 403 by the token''s scope, then POST /api/v1/markup parses
+        the malformed body and answers 422 with no marker'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/ERROR_NOT_PROVOKED
+      situation: 'none of up to 5 writes parsed the body (refused before parsing, `404`, `415`, accepted): no error
+        was provoked'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: ERROR_NOT_PROVOKED
+      how: a temporary regex route ~/api/v1/ for POST, PUT and PATCH whose pre-function answers 415 to a request
+        whose body is the test's malformed JSON and passes every other request (the engine's login) to Forgejo,
+        so none of the five writes parses it
+      lab: forgejo-kong
+      variant: kong-6-1-malformed-body-415
+
+    - id: NOT_APPLICABLE/NO_ERROR_PROBE
+      situation: the specification documents no write (`POST`, `PUT`, `PATCH`)
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NO_ERROR_PROBE
+      how: the run reads a local copy of Forgejo's specification whose only path is GET /orgs (no write documented)
+      lab: forgejo-kong
+      variant: none
+      spec:
+        set:
+          paths:
+            /orgs:
+              get:
+                produces:
+                  - application/json
+                tags:
+                  - organization
+                summary: List all organizations
+                operationId: orgGetAll
+                responses:
+                  '200':
+                    $ref: '#/responses/OrganizationList'
+        add_operations: []
+        drop_plain_get: false
+        drop_operations: []
+
+  no_debug_field:
+
+    - id: VIOLATION/DEBUG_FIELD/FIRM
+      situation: a served JSON body has a debug-named field at any depth (`_debug`, `_sql...`, `debugInfo`, `stackTrace`,
+        `shardKey`, ...)
+      expected:
+        outcome: VIOLATION
+        detail: DEBUG_FIELD
+        confidence: FIRM
+      how: 'a temporary route GET ~/api/v1/orgs$ (the sampled read) answers 200 itself with the object {"_debug":
+        "info", "data": 1}'
+      lab: forgejo-kong
+      variant: kong-6-1-orgs-debug-field
+
+    - id: ENFORCED/CLEAN
+      situation: the served JSON bodies looked at carry no debug-named field
+      expected:
+        outcome: ENFORCED
+        detail: CLEAN
+      how: 'the lab as built: GET /api/v1/orgs is served an array of organization objects with no debug-named field'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/NO_JSON_OBJECT
+      situation: 'no sampled read was served a JSON object (or an array of objects): no field was looked at'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_JSON_OBJECT
+      how: a temporary route GET ~/api/v1/orgs$ answers 200 itself with the text/plain body 'ok', so no sampled
+        read is served a JSON object
+      lab: forgejo-kong
+      variant: kong-6-1-orgs-not-json
+
+    - id: NOT_APPLICABLE/NO_READ_ENDPOINT
+      situation: the specification documents no `GET` or `HEAD`
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NO_READ_ENDPOINT
+      how: the run reads a local copy of Forgejo's specification whose only path is POST /markup (no GET or HEAD
+        documented)
+      lab: forgejo-kong
+      variant: none
+      spec:
+        set:
+          paths:
+            /markup:
+              post:
+                consumes:
+                  - application/json
+                produces:
+                  - text/html
+                tags:
+                  - miscellaneous
+                summary: Render a markup document as HTML
+                operationId: renderMarkup
+                parameters:
+                  - name: body
+                    in: body
+                    schema:
+                      $ref: '#/definitions/MarkupOption'
+                responses:
+                  '200':
+                    $ref: '#/responses/MarkupRender'
+                  '422':
+                    $ref: '#/responses/validationError'
+        add_operations: []
+        drop_plain_get: false
+        drop_operations: []
+
+  no_leaky_header:
+
+    - id: VIOLATION/LEAKY_HEADER/CERTAIN
+      situation: a sampled answer carries a leaky header naming a version
+      expected:
+        outcome: VIOLATION
+        detail: LEAKY_HEADER
+        confidence: CERTAIN
+      how: 'a temporary route GET ~/api/v1/orgs$ answers 200 itself with the header X-AspNet-Version: 4.0.30319'
+      lab: forgejo-kong
+      variant: kong-6-1-orgs-aspnet-version
+
+    - id: VIOLATION/LEAKY_HEADER/FIRM
+      situation: a sampled answer carries `X-Powered-By` or `X-AspNet*` without a version
+      expected:
+        outcome: VIOLATION
+        detail: LEAKY_HEADER
+        confidence: FIRM
+      how: 'a temporary route GET ~/api/v1/orgs$ whose post-function (header_filter, after the service''s response-transformer)
+        sets X-Powered-By: Express on Forgejo''s answer'
+      lab: forgejo-kong
+      variant: kong-6-1-orgs-powered-by
+
+    - id: ENFORCED/CLEAN
+      situation: no sampled answer carries a leaky header
+      expected:
+        outcome: ENFORCED
+        detail: CLEAN
+      how: 'the lab as built: the sampled answer carries no leaky header (the service''s response-transformer removes
+        X-Powered-By)'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_APPLICABLE/NO_READ_ENDPOINT
+      situation: the specification documents no `GET` or `HEAD`
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NO_READ_ENDPOINT
+      how: the run reads a local copy of Forgejo's specification whose only path is POST /markup (no GET or HEAD
+        documented)
+      lab: forgejo-kong
+      variant: none
+      spec:
+        set:
+          paths:
+            /markup:
+              post:
+                consumes:
+                  - application/json
+                produces:
+                  - text/html
+                tags:
+                  - miscellaneous
+                summary: Render a markup document as HTML
+                operationId: renderMarkup
+                parameters:
+                  - name: body
+                    in: body
+                    schema:
+                      $ref: '#/definitions/MarkupOption'
+                responses:
+                  '200':
+                    $ref: '#/responses/MarkupRender'
+                  '422':
+                    $ref: '#/responses/validationError'
+        add_operations: []
+        drop_plain_get: false
+        drop_operations: []
+
+  any_sub_test:
+
+    - id: NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE
+      situation: 'an answer of this category on any sub-test that does not judge it: 502, 503, 504: the gateway
+        could not reach the backend, or the backend did not answer in time. It says nothing about the guarantee
+        (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: UPSTREAM_UNAVAILABLE
+      how: 'a temporary route on the sampled read GET ~/api/v1/orgs$ answers 503 itself: no_debug_field and no_leaky_header
+        have no usable answer'
+      lab: forgejo-kong
+      variant: kong-0-4-probe-503
+
+    - id: NOT_VERIFIABLE/RATE_LIMITED
+      situation: 'an answer of this category on any sub-test that does not judge it: 429: refused for the rate of
+        the requests. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: RATE_LIMITED
+      how: a temporary route on the sampled read GET ~/api/v1/orgs$ answers 429 itself
+      lab: forgejo-kong
+      variant: kong-0-4-probe-429
+
+    - id: NOT_VERIFIABLE/NO_RESPONSE
+      situation: 'an answer of this category on any sub-test that does not judge it: No HTTP response: timeout,
+        connection refused, TLS error, connection reset. It says nothing about the guarantee (one rule for every
+        test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_RESPONSE
+      how: a temporary route on the sampled read GET ~/api/v1/orgs$ sleeps 7 s before proxying, past the run's read
+        timeout of 5 s
+      lab: forgejo-kong
+      variant: kong-0-4-probe-slow
+      config:
+        target.read_timeout: 5.0

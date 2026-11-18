@@ -1,0 +1,221 @@
+test: '3.3'
+name: Request Signing Audit
+sub_tests:
+
+  algorithm_strong:
+
+    - id: VIOLATION/SIGNATURE_OPTIONAL/FIRM
+      situation: the policy lets a request without a valid signature through as an anonymous consumer
+      expected:
+        outcome: VIOLATION
+        detail: SIGNATURE_OPTIONAL
+        confidence: FIRM
+      how: 'hmac-auth given an anonymous consumer: an unsigned request passes as that consumer'
+      lab: forgejo-kong
+      variant: kong-hmac-anonymous
+
+    - id: VIOLATION/WEAK_ALGORITHM/FIRM
+      situation: the policy allows an algorithm of `forbidden_algorithms`
+      expected:
+        outcome: VIOLATION
+        detail: WEAK_ALGORITHM
+        confidence: FIRM
+      how: hmac-auth allows hmac-sha1, and the run forbids hmac-sha1
+      lab: forgejo-kong
+      variant: kong-hmac-sha1-window-600
+      config:
+        tests.domain_3.test_3_3.forbidden_algorithms:
+          - hmac-md5
+          - md5
+          - hmac-sha1
+
+    - id: ENFORCED/STRONG_ALGORITHM
+      situation: no allowed algorithm is forbidden
+      expected:
+        outcome: ENFORCED
+        detail: STRONG_ALGORITHM
+      how: 'the lab as built: hmac-sha256, -384, -512 only'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/ALGORITHMS_NOT_STATED
+      situation: the gateway does not state the policy's algorithms
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: ALGORITHMS_NOT_STATED
+      how: ''
+      lab: ''
+      variant: ''
+      not_producible:
+        group: gateway
+        reason: 'Kong''s Admin API gives every field of the plugin with its default, and the APISIX adapter fills
+          a field left out from the plugin''s schema read from the running APISIX: the supported gateways always
+          state it'
+
+    - id: NOT_APPLICABLE/NO_SIGNING
+      situation: no enabled signing policy
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NO_SIGNING
+      how: hmac-auth removed from the only route that has it
+      lab: forgejo-apisix
+      variant: apisix-no-signing
+
+    - id: NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE
+      situation: the gateway has the concept the test reads, and it could not be read (one rule for every test that
+        reads one)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: CONCEPT_NOT_ACCESSIBLE
+      how: the run's gateway.admin.url points to a closed port
+      lab: forgejo-kong
+      variant: none
+      config:
+        gateway.admin.url: https://127.0.0.1:9
+
+  replay_protected:
+
+    - id: VIOLATION/REPLAY_UNBOUNDED/CERTAIN
+      situation: the gateway states that the request's date is never checked
+      expected:
+        outcome: VIOLATION
+        detail: REPLAY_UNBOUNDED
+        confidence: CERTAIN
+      how: ''
+      lab: ''
+      variant: ''
+      not_producible:
+        group: gateway
+        reason: Kong requires clock_skew > 0, and APISIX 3.19 refuses 0 (its Admin API answered 400, 'expected 0
+          to be at least 1')
+
+    - id: VIOLATION/REPLAY_WINDOW_TOO_LARGE/CERTAIN
+      situation: a window above `max_replay_window_seconds`
+      expected:
+        outcome: VIOLATION
+        detail: REPLAY_WINDOW_TOO_LARGE
+        confidence: CERTAIN
+      how: hmac-auth with a 600 s clock skew, above the 300 s bound
+      lab: forgejo-kong
+      variant: kong-hmac-sha1-window-600
+
+    - id: VIOLATION/REPLAY_DATE_NOT_SIGNED/FIRM
+      situation: a bounded window, checked against a date the signature need not cover (a fresh unsigned date passes)
+      expected:
+        outcome: VIOLATION
+        detail: REPLAY_DATE_NOT_SIGNED
+        confidence: FIRM
+      how: 'the lab as built: hmac-auth checks the clock skew on X-Date or Date and requires neither in the signature'
+      lab: forgejo-kong
+      variant: none
+
+    - id: ENFORCED/REPLAY_BOUNDED
+      situation: a window within `max_replay_window_seconds`, on a date the signature must cover
+      expected:
+        outcome: ENFORCED
+        detail: REPLAY_BOUNDED
+      how: 'the lab as built: APISIX checks Date, signed by default (signed_headers defaults to date)'
+      lab: forgejo-apisix
+      variant: none
+
+    - id: NOT_VERIFIABLE/REPLAY_WINDOW_NOT_STATED
+      situation: the gateway states no replay window
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: REPLAY_WINDOW_NOT_STATED
+      how: ''
+      lab: ''
+      variant: ''
+      not_producible:
+        group: gateway
+        reason: 'Kong''s Admin API gives every field of the plugin with its default, and the APISIX adapter fills
+          a field left out from the plugin''s schema read from the running APISIX: the supported gateways always
+          state it'
+
+    - id: NOT_APPLICABLE/NO_SIGNING
+      situation: no enabled signing policy
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NO_SIGNING
+      how: hmac-auth removed from the only route that has it
+      lab: forgejo-apisix
+      variant: apisix-no-signing
+
+    - id: NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE
+      situation: the gateway has the concept the test reads, and it could not be read (one rule for every test that
+        reads one)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: CONCEPT_NOT_ACCESSIBLE
+      how: the run's gateway.admin.url points to a closed port
+      lab: forgejo-kong
+      variant: none
+      config:
+        gateway.admin.url: https://127.0.0.1:9
+
+  content_signed:
+
+    - id: ENFORCED/CONTENT_SIGNED
+      situation: the policy requires the body's digest and the request's method and path in the signature
+      expected:
+        outcome: ENFORCED
+        detail: CONTENT_SIGNED
+      how: hmac-auth requires date, x-date, digest and request-line
+      lab: forgejo-kong
+      variant: kong-hmac-all-headers
+
+    - id: VIOLATION/BODY_NOT_SIGNED/FIRM
+      situation: 'a changed body is not refused: no body check, or a digest the signature need not cover (FIRM:
+        a client may sign it anyway, the gateway does not require it)'
+      expected:
+        outcome: VIOLATION
+        detail: BODY_NOT_SIGNED
+        confidence: FIRM
+      how: 'the lab as built: the body is validated but digest is not required in the signature'
+      lab: forgejo-kong
+      variant: none
+
+    - id: VIOLATION/TARGET_NOT_SIGNED/FIRM
+      situation: the body is covered, the method and path need not be
+      expected:
+        outcome: VIOLATION
+        detail: TARGET_NOT_SIGNED
+        confidence: FIRM
+      how: hmac-auth requires digest but not request-line
+      lab: forgejo-kong
+      variant: kong-hmac-digest-only
+
+    - id: NOT_VERIFIABLE/CONTENT_NOT_STATED
+      situation: the gateway does not state what the signature must cover
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: CONTENT_NOT_STATED
+      how: ''
+      lab: ''
+      variant: ''
+      not_producible:
+        group: gateway
+        reason: 'Kong''s Admin API gives every field of the plugin with its default, and the APISIX adapter fills
+          a field left out from the plugin''s schema read from the running APISIX: the supported gateways always
+          state it'
+
+    - id: NOT_APPLICABLE/NO_SIGNING
+      situation: no enabled signing policy
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NO_SIGNING
+      how: hmac-auth removed from the only route that has it
+      lab: forgejo-apisix
+      variant: apisix-no-signing
+
+    - id: NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE
+      situation: the gateway has the concept the test reads, and it could not be read (one rule for every test that
+        reads one)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: CONCEPT_NOT_ACCESSIBLE
+      how: the run's gateway.admin.url points to a closed port
+      lab: forgejo-kong
+      variant: none
+      config:
+        gateway.admin.url: https://127.0.0.1:9

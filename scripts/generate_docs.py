@@ -87,6 +87,7 @@ from src.core.assessment_test import (
 )
 from src.core.models import (
     STANDARD_FORMATS,
+    CaseCount,
     DerivedFact,
     EvidenceFile,
     EvidenceRecord,
@@ -798,6 +799,7 @@ _REPORT_MODELS: dict[str, type[BaseModel]] = {
         DomainSummary,
         TestResultRow,
         SubTestResult,
+        CaseCount,
         Finding,
         InfoNote,
         Reference,
@@ -1201,6 +1203,13 @@ _ASSESSMENT_MODEL: Path = _ROOT / "docs" / "04-architecture" / "03-assessment-mo
 _RULE_ANCHOR: str = "#answers-that-say-nothing-about-the-guarantee"
 
 
+# The case every test reading a gateway concept adds to its oracle (_unread_concept).
+CONCEPT_NOT_ACCESSIBLE_CASE: str = (
+    "the gateway has the concept the test reads, and it could not be read (one rule for every "
+    "test that reads one)"
+)
+
+
 def oracle_table(test_id: str) -> str:
     """
     A test's oracle as declared in its code (TestInfo.oracle), for section 6 of its page.
@@ -1237,9 +1246,7 @@ def oracle_table(test_id: str) -> str:
             lines.append(f"| {_cell(case.when)} | {judgement} | {confidence} |")
         if test_id in _ids_calling("_unread_concept"):
             lines.append(
-                "| the gateway has the concept the test reads, and it could not be read (one "
-                "rule for every test that reads one) "
-                f"| `NOT_VERIFIABLE/{CONCEPT_NOT_ACCESSIBLE}` | - |"
+                f"| {CONCEPT_NOT_ACCESSIBLE_CASE} | `NOT_VERIFIABLE/{CONCEPT_NOT_ACCESSIBLE}` | - |"
             )
         lines.append("")
     return _block(lines)

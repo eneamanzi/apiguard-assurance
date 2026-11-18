@@ -15,6 +15,36 @@ generated catalogue [`docs/05-tests/README.md`](docs/05-tests/README.md); `apigu
 
 ### Added
 
+- **Validation of the oracles by script (`validation/`, 2026-11-17).** Every case of every test's oracle (577: the
+  declared rows, the concept not accessible, the answers that say nothing) has a file per test saying how it is
+  produced on a lab, or why it cannot be (26, with their group); the lab changes are written once per lab
+  (`validation/variants/`). `validation/run.py` applies each change, runs only the tests concerned, compares the
+  case each test recorded (`sub_tests[].cases`) with the declared one, undoes the change and stops unless the lab is
+  back to its recorded state; the result names the commit. `validation/check.py`, in `dev:check`, keeps the files
+  equal to the code (and so to the generated pages): a changed oracle fails until its case is updated. First runs:
+  domain 0 and 3.3, every producible case as declared (one variant of 0.3 made deterministic); `SIGNATURE_OPTIONAL`
+  of 3.3 seen for the first time. The dev environment installs the `schemathesis` extra, so a campaign runs
+  `ext.3.1.schemathesis` too.
+- **1.5 took an HTTPS `503` as a different answer (2026-11-17, found by `validation/`).** A plain-HTTP `4xx` is a
+  refusal of the protocol when HTTPS answers otherwise; the HTTPS answer was screened with the sub-test's own
+  decisive answers, which judge a `503` over HTTP, so an HTTPS `503` made an HTTP `400` `ENFORCED/HTTP_REFUSED`. An
+  HTTPS answer that says nothing now compares with nothing: `NOT_VERIFIABLE/HTTPS_ANSWER_UNKNOWN`, as the oracle
+  declares. **Changed results**: none on the three labs as built (their HTTPS probe is served).
+- **2.2 and 2.5 could take a less specific operation for the object (2026-11-17, found by `validation/`).** The
+  operations addressing the created object were the most specific ones per method: with no documented read of
+  `/repos/{owner}/{repo}`, a read of `/packages/{owner}` was taken for the object's. The most specific is now counted
+  over every method, then the methods asked for are kept, so such a specification gives `NO_READ_OPERATION`.
+  **Changed results**: none on the three labs as built (every method has the object's own operation).
+- **Tests that record a concept not accessible on one sub-test declare it (2026-11-17).** 0.1, 0.2, 0.4 and 6.4
+  recorded `NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE` on one sub-test without declaring it, which the core allowed for
+  every test: their pages' oracle tables did not show the case. Only `_unread_concept` (every sub-test) records it
+  undeclared now; the four declare it, and their pages show it. No result changes.
+- **The report names every case judged (2026-11-17).** Each sub-test of `apiguard_report.json` has `cases`: the rows
+  of the test's oracle judged in the run (outcome, detail, confidence) and how many times (`CaseCount`). Until then
+  only the not-verifiable cases kept their detail, so an `ENFORCED/CONTENT_SIGNED` and an `ENFORCED/REPLAY_BOUNDED`
+  both read "1 enforced", and a run could not be compared row by row with the declared oracle (needed to measure,
+  by script, which cases a campaign produced). The counters and reasons are now derived from the cases, so they
+  cannot disagree; no verdict changes (verified: the three labs give the same results before and after).
 - **Every test page says which branches of its oracle have been seen (2026-11-14).** The 17 native pages that did
   not have it got the paragraph "What each branch has been seen doing" (rule 9) at the end of their Validation
   section, written only from what that section records: proven on a lab, seen off the labs (a scratch server, a

@@ -1,0 +1,187 @@
+test: '1.7'
+name: Authentication Endpoints Resist Guessing
+sub_tests:
+
+  account_enumeration:
+
+    - id: VIOLATION/EXISTENCE_DISCLOSED_BY_ANSWER/CERTAIN
+      situation: the masked bodies of the two cases differ, the same way on every reading
+      expected:
+        outcome: VIOLATION
+        detail: EXISTENCE_DISCLOSED_BY_ANSWER
+        confidence: CERTAIN
+      how: 'the lab as built: Forgejo answers a wrong password for user-a 401 ''user''s password is invalid'' and
+        an account that cannot exist 401 ''user does not exist'', the same on every reading'
+      lab: forgejo-kong
+      variant: none
+
+    - id: VIOLATION/EXISTENCE_DISCLOSED_BY_ANSWER/FIRM
+      situation: the same, one case answering `500` on every reading (a transient is possible)
+      expected:
+        outcome: VIOLATION
+        detail: EXISTENCE_DISCLOSED_BY_ANSWER
+        confidence: FIRM
+      how: a temporary route on POST ~/api/v1/users/zqxv[0-9a-f]+/tokens$ answers 500 itself, so the account that
+        cannot exist (a zqxv name) gets 500 on every reading while user-a gets Forgejo's 401
+      lab: forgejo-kong
+      variant: kong-1-7-unknown-account-500
+
+    - id: VIOLATION/EXISTENCE_DISCLOSED_BY_TIMING/FIRM
+      situation: the existing account's median is 3 times the other's, or every reading of it 40 ms slower than
+        every other one (one median at least 5 ms)
+      expected:
+        outcome: VIOLATION
+        detail: EXISTENCE_DISCLOSED_BY_TIMING
+        confidence: FIRM
+      how: 'the lab as built: Forgejo verifies the password hash only for user-a, medians about 400 ms against a
+        few ms'
+      lab: forgejo-kong
+      variant: none
+
+    - id: ENFORCED/NO_DISCREPANCY
+      situation: the bodies agree and the durations do not tell the accounts apart
+      expected:
+        outcome: ENFORCED
+        detail: NO_DISCREPANCY
+      how: a temporary route on POST ~/api/v1/users/[^/]+/tokens$ lets the engine's login through, then waits 50
+        ms and answers 401 'invalid credentials' to every failed attempt (both accounts alike, in the same time,
+        medians above 5 ms); after 20 requests it answers 423 'account locked'
+      lab: forgejo-kong
+      variant: kong-1-7-login-alike-then-locked
+
+    - id: ENFORCED/TIMING_TOO_SMALL
+      situation: the bodies agree and both medians are under 5 ms
+      expected:
+        outcome: ENFORCED
+        detail: TIMING_TOO_SMALL
+      how: a temporary route on POST ~/api/v1/users/[^/]+/tokens$ lets the engine's login through and answers every
+        failed attempt 401 'invalid credentials' itself, in less than 5 ms
+      lab: forgejo-kong
+      variant: kong-1-7-login-alike-fast
+
+    - id: NOT_VERIFIABLE/ANSWER_NOT_STABLE
+      situation: the readings of one case do not agree, and the durations do not tell the accounts apart
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: ANSWER_NOT_STABLE
+      how: a temporary route on POST ~/api/v1/users/[^/]+/tokens$ lets the engine's login through and answers every
+        failed attempt 401 with a body cycling over three words, in less than 5 ms
+      lab: forgejo-kong
+      variant: kong-1-7-login-unstable
+
+    - id: NOT_VERIFIABLE/WRONG_PASSWORD_ACCEPTED
+      situation: the wrong password for the existing account got a `2xx`
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: WRONG_PASSWORD_ACCEPTED
+      how: 'the run''s login resource is the public GET /api/v1/version, auth none, no body, credential read from
+        ''version'': every attempt is answered 200'
+      lab: forgejo-kong
+      variant: none
+      config:
+        credentials.login_resource: version-login
+        resources.version-login:
+          create:
+            path: /api/v1/version
+            method: GET
+            auth: none
+            body: null
+          values:
+            credential: version
+
+  repeated_attempts:
+
+    - id: ENFORCED/ATTEMPTS_LIMITED
+      situation: a `429`, or the refusal status a gateway limit states (APISIX's `503`) after other answers, within
+        the attempts
+      expected:
+        outcome: ENFORCED
+        detail: ATTEMPTS_LIMITED
+      how: 'a temporary route on POST ~/api/v1/users/[^/]+/tokens$ with rate-limiting, 20 a minute per IP: the login
+        and the six comparison attempts pass, a later attempt gets Kong''s 429'
+      lab: forgejo-kong
+      variant: kong-1-7-login-rate-limit
+
+    - id: ENFORCED/ATTEMPTS_BLOCKED
+      situation: three consecutive answers alike and unlike the normal one, by status or masked body
+      expected:
+        outcome: ENFORCED
+        detail: ATTEMPTS_BLOCKED
+      how: 'the same run as NO_DISCREPANCY: from the 21st request on the route the attempts are answered 423 ''account
+        locked'', three alike in a row after the 401s'
+      lab: forgejo-kong
+      variant: kong-1-7-login-alike-then-locked
+
+    - id: ENFORCED/ATTEMPTS_SLOWED
+      situation: two answers in a row at least 3 times the baseline and at least 250 ms
+      expected:
+        outcome: ENFORCED
+        detail: ATTEMPTS_SLOWED
+      how: a temporary route on POST ~/api/v1/users/[^/]+/tokens$ whose pre-function counts the requests and, past
+        the 30th, waits 0.6 s before letting the request go on to Forgejo
+      lab: forgejo-kong
+      variant: kong-1-7-login-slowed
+
+    - id: VIOLATION/ATTEMPTS_NOT_LIMITED/FIRM
+      situation: 101 attempts answered as the first was, with no growing delay
+      expected:
+        outcome: VIOLATION
+        detail: ATTEMPTS_NOT_LIMITED
+        confidence: FIRM
+      how: 'the lab as built: Forgejo answers the 101 attempts against an account that cannot exist alike, with
+        no limit'
+      lab: forgejo-kong
+      variant: none
+
+  any_sub_test:
+
+    - id: NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE
+      situation: 'an answer of this category on any sub-test that does not judge it: 502, 503, 504: the gateway
+        could not reach the backend, or the backend did not answer in time. It says nothing about the guarantee
+        (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: UPSTREAM_UNAVAILABLE
+      how: 'a temporary route on POST ~/api/v1/users/[^/]+/tokens$ lets the engine''s login through and answers
+        503 to every failed attempt: the first reading of account_enumeration is 503, and repeated_attempts records
+        the same reason'
+      lab: forgejo-kong
+      variant: kong-1-7-login-503
+
+    - id: NOT_VERIFIABLE/RATE_LIMITED
+      situation: 'an answer of this category on any sub-test that does not judge it: 429: refused for the rate of
+        the requests. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: RATE_LIMITED
+      how: 'a temporary route on POST ~/api/v1/users/[^/]+/tokens$ lets the engine''s login through and answers
+        429 to every failed attempt: account_enumeration records RATE_LIMITED (repeated_attempts then judges the
+        429 itself, ATTEMPTS_LIMITED)'
+      lab: forgejo-kong
+      variant: kong-1-7-login-429
+
+    - id: NOT_VERIFIABLE/SERVER_ERROR
+      situation: 'an answer of this category on any sub-test that does not judge it: 500, 505-508, 510: the application
+        failed. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: SERVER_ERROR
+      how: 'the same run as EXISTENCE_DISCLOSED_BY_ANSWER/FIRM: the first repeated attempt against the zqxv account
+        gets 500, which repeated_attempts does not judge'
+      lab: forgejo-kong
+      variant: kong-1-7-unknown-account-500
+
+    - id: NOT_VERIFIABLE/NO_RESPONSE
+      situation: 'an answer of this category on any sub-test that does not judge it: No HTTP response: timeout,
+        connection refused, TLS error, connection reset. It says nothing about the guarantee (one rule for every
+        test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_RESPONSE
+      how: 'a temporary route on POST ~/api/v1/users/[^/]+/tokens$ lets the engine''s login through and sleeps 7
+        s before answering the failed attempts, with the run''s target.read_timeout at 5.0: both sub-tests record
+        NO_RESPONSE'
+      lab: forgejo-kong
+      variant: kong-1-7-login-slow
+      config:
+        target.read_timeout: 5.0

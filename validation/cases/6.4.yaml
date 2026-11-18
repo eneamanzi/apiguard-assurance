@@ -1,0 +1,195 @@
+test: '6.4'
+name: Hardcoded Credentials Audit
+sub_tests:
+
+  debug_endpoint_no_secret:
+
+    - id: VIOLATION/DEBUG_SECRET/FIRM
+      situation: a path answers `2xx` without a credential and its body holds a credential pattern, or a credential-named
+        key with a real value
+      expected:
+        outcome: VIOLATION
+        detail: DEBUG_SECRET
+        confidence: FIRM
+      how: a route ~/api/debug/config$ (a configured debug path) whose pre-function answers 200 with AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE,
+        the key built in the Lua code by concatenation so the gateway's configuration does not hold it as one string
+      lab: forgejo-kong
+      variant: kong-6-4-debug-config-aws-key
+
+    - id: ENFORCED/DEBUG_NO_SECRET
+      situation: it answers `2xx` and its body holds no credential
+      expected:
+        outcome: ENFORCED
+        detail: DEBUG_NO_SECRET
+      how: 'the lab as built: /api/v1/settings/api answers 200 with Forgejo''s public API settings, no credential'
+      lab: forgejo-kong
+      variant: none
+
+    - id: ENFORCED/DEBUG_NOT_FOUND
+      situation: it answers `404` or `410`
+      expected:
+        outcome: ENFORCED
+        detail: DEBUG_NOT_FOUND
+      how: 'the lab as built: ten of the configured debug paths answer 404, from Forgejo or from Kong''s deny-by-default'
+      lab: forgejo-kong
+      variant: none
+
+    - id: ENFORCED/DEBUG_BLOCKED
+      situation: it is refused (`401`, `403`, `400`, `405`, ...)
+      expected:
+        outcome: ENFORCED
+        detail: DEBUG_BLOCKED
+      how: 'the lab as built, no debug_endpoint_paths: the default paths under /identity are refused unauthenticated
+        by crAPI''s identity service'
+      lab: crapi-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/NOT_INTERPRETED
+      situation: it answers a redirect (not followed) or a status of no class
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NOT_INTERPRETED
+      how: the only debug path configured is the deprecated read times/user-a, on which a route answers 302 itself
+        (redirect, not followed)
+      lab: forgejo-kong
+      variant: kong-0-3-redirect
+      config:
+        tests.domain_6.test_6_4.debug_endpoint_paths:
+          - /api/v1/repos/user-a/test-repo/times/user-a
+
+  gateway_config_no_secret:
+
+    - id: VIOLATION/CONFIG_SECRET/FIRM
+      situation: a gateway configuration value matches a credential pattern
+      expected:
+        outcome: VIOLATION
+        detail: CONFIG_SECRET
+        confidence: FIRM
+      how: 'a request-transformer on forgejo-service adds the header ''X-Lab-Note:ghp_LabDummyNotARealToken000000000000000''
+        (a GitHub-PAT shape, under a name that is not credential-named): the config scan matches the pattern'
+      lab: forgejo-kong
+      variant: kong-6-4-header-github-pat
+
+    - id: VIOLATION/CONFIG_SECRET/TENTATIVE
+      situation: a credential-named key (a header's name in a header list) holds a non-placeholder value of 8 characters
+        or more, not a secret reference
+      expected:
+        outcome: VIOLATION
+        detail: CONFIG_SECRET
+        confidence: TENTATIVE
+      how: 'a request-transformer on forgejo-service adds the header ''X-Api-Key:lab-dummy-not-real-0001'': a credential-named
+        header with a 22-character non-placeholder value'
+      lab: forgejo-kong
+      variant: kong-6-4-header-api-key
+
+    - id: ENFORCED/CONFIG_NO_SECRET
+      situation: no value read holds a credential (secret references excepted)
+      expected:
+        outcome: ENFORCED
+        detail: CONFIG_NO_SECRET
+      how: 'the lab as built: no Kong configuration value holds a credential'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/NO_CONFIG_VALUE
+      situation: the read succeeded and returned no value at all
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_CONFIG_VALUE
+      how: the run's gateway.admin.url points to a stand-in Kong Admin API on 127.0.0.1 answering every endpoint
+        with an empty collection
+      lab: forgejo-kong
+      variant: stand-in-admin-empty
+      config:
+        gateway.admin.url: http://127.0.0.1:18001
+        gateway.admin.tls: null
+
+    - id: NOT_APPLICABLE/NO_GATEWAY
+      situation: no gateway is configured
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NO_GATEWAY
+      how: the run's configuration has no gateway section
+      lab: forgejo-kong
+      variant: none
+      config:
+        gateway: null
+
+    - id: NOT_APPLICABLE/CONFIG_NOT_SUPPORTED
+      situation: the gateway's adapter does not read configuration values
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: CONFIG_NOT_SUPPORTED
+      how: ''
+      lab: ''
+      variant: ''
+      not_producible:
+        group: code
+        reason: both supported adapters read configuration values (KongGatewayAdapter and ApisixGatewayAdapter override
+          _read_config_values); only an adapter without it reaches this guard
+
+    - id: NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE
+      situation: the gateway has configuration values, and they could not be read
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: CONCEPT_NOT_ACCESSIBLE
+      how: the run's gateway.admin.url points to a closed port
+      lab: forgejo-kong
+      variant: none
+      config:
+        gateway.admin.url: https://127.0.0.1:9
+
+  any_sub_test:
+
+    - id: NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE
+      situation: 'an answer of this category on any sub-test that does not judge it: 502, 503, 504: the gateway
+        could not reach the backend, or the backend did not answer in time. It says nothing about the guarantee
+        (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: UPSTREAM_UNAVAILABLE
+      how: 'the forgejo container stopped: Kong answers 503 on the configured debug paths it routes to Forgejo'
+      lab: forgejo-kong
+      variant: forgejo-stopped
+
+    - id: NOT_VERIFIABLE/RATE_LIMITED
+      situation: 'an answer of this category on any sub-test that does not judge it: 429: refused for the rate of
+        the requests. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: RATE_LIMITED
+      how: the only debug path configured is the deprecated read times/user-a, on which a route answers 429 itself
+      lab: forgejo-kong
+      variant: kong-0-3-answer-429
+      config:
+        tests.domain_6.test_6_4.debug_endpoint_paths:
+          - /api/v1/repos/user-a/test-repo/times/user-a
+
+    - id: NOT_VERIFIABLE/SERVER_ERROR
+      situation: 'an answer of this category on any sub-test that does not judge it: 500, 505-508, 510: the application
+        failed. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: SERVER_ERROR
+      how: the only debug path configured is the deprecated read times/user-a, on which a route answers 500 itself
+      lab: forgejo-kong
+      variant: kong-0-3-answer-500
+      config:
+        tests.domain_6.test_6_4.debug_endpoint_paths:
+          - /api/v1/repos/user-a/test-repo/times/user-a
+
+    - id: NOT_VERIFIABLE/NO_RESPONSE
+      situation: 'an answer of this category on any sub-test that does not judge it: No HTTP response: timeout,
+        connection refused, TLS error, connection reset. It says nothing about the guarantee (one rule for every
+        test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_RESPONSE
+      how: the only debug path configured is the deprecated read times/user-a, on which a route waits 7 s before
+        proxying, with the run's target.read_timeout 5.0
+      lab: forgejo-kong
+      variant: kong-0-3-slow
+      config:
+        target.read_timeout: 5.0
+        tests.domain_6.test_6_4.debug_endpoint_paths:
+          - /api/v1/repos/user-a/test-repo/times/user-a

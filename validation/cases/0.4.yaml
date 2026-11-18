@@ -1,0 +1,188 @@
+test: '0.4'
+name: Backend Reachable Without the Gateway
+sub_tests:
+
+  backend_addresses:
+
+    - id: VIOLATION/BACKEND_ANSWERS_DIRECTLY/CERTAIN
+      situation: an address answers with the status, media type and body shape the gateway gives for the path
+      expected:
+        outcome: VIOLATION
+        detail: BACKEND_ANSWERS_DIRECTLY
+        confidence: CERTAIN
+      how: 'the lab as built: Kong declares forgejo:3000, states it resolved it to an IP of the lab network, and
+        that IP answers the probe path GET /api/v1/orgs 200 with the shape Kong gives'
+      lab: forgejo-kong
+      variant: none
+
+    - id: VIOLATION/ADDRESS_ANSWERS_DIRECTLY/FIRM
+      situation: an address the gateway declares answers unlike the gateway, or opens a connection whose answer
+        cannot be read
+      expected:
+        outcome: VIOLATION
+        detail: ADDRESS_ANSWERS_DIRECTLY
+        confidence: FIRM
+      how: 'the lab as built: at the addresses Kong resolved crapi-identity:8080 and crapi-community:8087 to, the
+        services answer the workshop probe path with their own 401/404, unlike the gateway'
+      lab: crapi-kong
+      variant: none
+
+    - id: ENFORCED/BACKEND_UNREACHABLE
+      situation: a declared address refuses or times out, or the derived one does after the declared one did
+      expected:
+        outcome: ENFORCED
+        detail: BACKEND_UNREACHABLE
+      how: 'a temporary Kong upstream whose only target is 192.0.2.1:3999 (TEST-NET-1, nothing answers): the declared
+        address refuses or times out, then the derived localhost:3999 refuses after it'
+      lab: forgejo-kong
+      variant: kong-0-4-upstream-unreachable
+
+    - id: NOT_VERIFIABLE/DERIVED_REFUSAL_ONLY
+      situation: the derived address (the target's host, the backend's port) refuses, but no declared address of
+        that backend refused
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: DERIVED_REFUSAL_ONLY
+      how: 'the lab as built: the derived localhost:3000 refuses, while the declared forgejo:3000 does not resolve
+        and its resolved IP answers'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_APPLICABLE/ANOTHER_SERVICE
+      situation: 'the derived address answers unlike the gateway: another service'
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: ANOTHER_SERVICE
+      how: 'the lab as built, with forgejo-kong running too: the derived localhost:8000 (the workshop''s port) answers
+        with forgejo-kong''s HTTP proxy, not like crAPI''s gateway'
+      lab: crapi-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/GATEWAY_REFUSED_PROBE
+      situation: 'the derived address answers, and the gateway itself refused the probe (`401`, `403`): the two
+        cannot be compared'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: GATEWAY_REFUSED_PROBE
+      how: key-auth (no consumer) on crAPI's workshop-service, so the gateway answers the probe path /workshop/api/mechanic/receive_report
+        401, while the derived localhost:8000 (forgejo-kong's HTTP proxy, running) answers
+      lab: crapi-kong
+      variant: kong-0-4-workshop-key-auth
+
+    - id: NOT_VERIFIABLE/GATEWAY_LOCAL_ADDRESS
+      situation: 'a declared address is a loopback or link-local one: it means the gateway''s own host, not reachable
+        from here'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: GATEWAY_LOCAL_ADDRESS
+      how: 'a temporary Kong upstream whose only target is 127.0.0.1:3999: a loopback declared address'
+      lab: forgejo-kong
+      variant: kong-0-4-upstream-loopback
+
+    - id: NOT_VERIFIABLE/ADDRESS_NOT_RESOLVABLE
+      situation: the candidate's name does not resolve where the run started
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: ADDRESS_NOT_RESOLVABLE
+      how: 'the lab as built: Kong declares forgejo:3000, a name that does not resolve from the run host'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/ADDRESS_WITHOUT_PORT
+      situation: a declared address has no port
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: ADDRESS_WITHOUT_PORT
+      how: 'a temporary APISIX upstream, without health checks, whose only node is written {host: forgejo, weight:
+        1} with no port: the adapter reads it from the Admin API as ''forgejo'''
+      lab: forgejo-apisix
+      variant: apisix-0-4-node-without-port
+
+    - id: NOT_VERIFIABLE/NO_BACKEND_ADDRESS
+      situation: the gateway states no backend address
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_BACKEND_ADDRESS
+      how: 'forgejo-upstream emptied of its target, and a temporary route on the probe path GET ~/api/v1/orgs$ answering
+        200 itself; the specification read from a local copy: Kong states no backend address and still answers the
+        probe'
+      lab: forgejo-kong
+      variant: kong-0-4-no-target
+      spec:
+        set: {}
+        add_operations: []
+        drop_plain_get: false
+
+    - id: NOT_VERIFIABLE/NO_PROBE_PATH
+      situation: the specification declares no `GET` path without parameters
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_PROBE_PATH
+      how: the run reads a local copy of Forgejo's specification with every GET path without parameters removed
+      lab: forgejo-kong
+      variant: none
+      spec:
+        set: {}
+        add_operations: []
+        drop_plain_get: true
+
+    - id: NOT_APPLICABLE/ADDRESSES_NOT_SUPPORTED
+      situation: the gateway's adapter does not read its backends' targets
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: ADDRESSES_NOT_SUPPORTED
+      how: ''
+      lab: ''
+      variant: ''
+      not_producible:
+        group: code
+        reason: both supported adapters read the backends' targets (KongGatewayAdapter and ApisixGatewayAdapter
+          override _read_target_health); only an adapter without it reaches this guard
+
+    - id: NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE
+      situation: the gateway has its backends' targets, and they could not be read
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: CONCEPT_NOT_ACCESSIBLE
+      how: the run's gateway.admin.url points to a closed port
+      lab: forgejo-kong
+      variant: none
+      config:
+        gateway.admin.url: https://127.0.0.1:9
+
+  any_sub_test:
+
+    - id: NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE
+      situation: 'an answer of this category on any sub-test that does not judge it: 502, 503, 504: the gateway
+        could not reach the backend, or the backend did not answer in time. It says nothing about the guarantee
+        (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: UPSTREAM_UNAVAILABLE
+      how: a temporary Kong route on the probe path GET ~/api/v1/orgs$ answers 503 itself
+      lab: forgejo-kong
+      variant: kong-0-4-probe-503
+
+    - id: NOT_VERIFIABLE/RATE_LIMITED
+      situation: 'an answer of this category on any sub-test that does not judge it: 429: refused for the rate of
+        the requests. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: RATE_LIMITED
+      how: a temporary Kong route on the probe path GET ~/api/v1/orgs$ answers 429 itself
+      lab: forgejo-kong
+      variant: kong-0-4-probe-429
+
+    - id: NOT_VERIFIABLE/NO_RESPONSE
+      situation: 'an answer of this category on any sub-test that does not judge it: No HTTP response: timeout,
+        connection refused, TLS error, connection reset. It says nothing about the guarantee (one rule for every
+        test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_RESPONSE
+      how: a temporary Kong route on the probe path GET ~/api/v1/orgs$ sleeps 7 s before proxying, and the run's
+        read timeout is 5 s
+      lab: forgejo-kong
+      variant: kong-0-4-probe-slow
+      config:
+        target.read_timeout: 5.0

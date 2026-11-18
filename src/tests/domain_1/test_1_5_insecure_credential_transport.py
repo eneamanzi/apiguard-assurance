@@ -72,6 +72,7 @@ from src.core.models import (
     TestStrategy,
     TransportError,
 )
+from src.core.response_category import UNINFORMATIVE_CATEGORIES
 from src.core.test_metadata import DecisiveAnswer, Effect, OracleCase, TestInfo
 from src.tests.base import BaseTest
 from src.tests.helpers.path_resolver import resolve_path_with_seed
@@ -534,7 +535,11 @@ class Test15InsecureCredentialTransport(BaseTest[Test15Params]):
             )
             return
         client_error = status is not None and 400 <= status < 500
-        compared = https is not None and self._uninformative(https, _SUB_TLS) is None
+        # The HTTPS answer is only a comparison here: one that says nothing (a 503,
+        # a 429, ...) compares with nothing, whatever this sub-test decides about
+        # the HTTP answer (decisive_answers; until 2026-11-17 an HTTPS 503 made a
+        # 400 over HTTP read as a refusal of the protocol).
+        compared = https is not None and category_of(https) not in UNINFORMATIVE_CATEGORIES
         if client_error and status != _UPGRADE_REQUIRED and not compared:
             # No HTTPS answer to compare the 4xx with (none, or a 503 or 429):
             # whether the route refuses the protocol or answers as over HTTPS

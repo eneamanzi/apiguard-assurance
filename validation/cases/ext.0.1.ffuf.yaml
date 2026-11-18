@@ -1,0 +1,124 @@
+test: ext.0.1.ffuf
+name: Undocumented Paths Answer (ffuf path search, re-verified)
+sub_tests:
+
+  undocumented_paths:
+
+    - id: VIOLATION/UNDOCUMENTED_PATH/FIRM
+      situation: the candidate answers unlike random siblings under its parent
+      expected:
+        outcome: VIOLATION
+        detail: UNDOCUMENTED_PATH
+        confidence: FIRM
+      how: 'the lab as built: /api/healthz and /api/swagger answer 200 and are not in the specification'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_APPLICABLE/NOT_FOUND
+      situation: the candidate answers `404` or `410` in another shape (another component said not found)
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NOT_FOUND
+      how: 'the lab as built: /api-doc and /api-docs reach Forgejo through Kong''s prefix route /api and answer
+        Forgejo''s 404, unlike Kong''s own 404 for a random root path'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_APPLICABLE/LIKE_UNKNOWN
+      situation: the candidate answers like a random sibling (a false positive of ffuf)
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: LIKE_UNKNOWN
+      how: 'the lab as built: ffuf keeps /api-docs/v1/openapi.json, which on re-verification answers 404 like its
+        random siblings'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/CALIBRATION_UNSTABLE
+      situation: the calibration of a base path or of a candidate's parent is unstable
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: CALIBRATION_UNSTABLE
+      how: a temporary Kong route matching the tool's random probe names (zqxv<hex>) answers 404 with one of two
+        body shapes in turn, so the calibration of every base path and candidate parent is unstable
+      lab: forgejo-kong
+      variant: kong-ffuf-probe-names-unstable
+
+    - id: NOT_VERIFIABLE/SEARCH_BLIND
+      situation: 'a base path answers an unknown path with `401`, `403` or a redirect: the search is blind there'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: SEARCH_BLIND
+      how: 'the lab as built: /identity/api/ and /identity/api/v2/ answer 401 to an unknown path'
+      lab: crapi-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/TOOL_CALIBRATION_FAILED
+      situation: ffuf kept more than 100 answers on one base path (its calibration did not hold)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: TOOL_CALIBRATION_FAILED
+      how: a temporary Kong route /api/v1/ answers 200 with a random number of lines, so ffuf keeps more than 100
+        answers on that base path
+      lab: forgejo-kong
+      variant: kong-ffuf-v1-random-lines
+
+    - id: NOT_VERIFIABLE/SEARCH_INCOMPLETE
+      situation: a base path was not searched to the end within the time limit
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: SEARCH_INCOMPLETE
+      how: 'ffuf limited to 5 requests per second with the minimum time limit of 60 s: the root alone (about 500
+        words) needs about 100 s, so no base path is searched to the end'
+      lab: forgejo-kong
+      variant: none
+      config:
+        external_tools.ffuf.rate_limit_rps: 5
+        external_tools.ffuf.timeout_seconds: 60
+
+    - id: ENFORCED/NO_UNDOCUMENTED_PATH
+      situation: no violation, on at least one base path the search can tell
+      expected:
+        outcome: ENFORCED
+        detail: NO_UNDOCUMENTED_PATH
+      how: 'the lab as built: no undocumented path among the lists on the eight base paths that can tell'
+      lab: crapi-kong
+      variant: none
+
+  any_sub_test:
+
+    - id: NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE
+      situation: 'an answer of this category on any sub-test that does not judge it: 502, 503, 504: the gateway
+        could not reach the backend, or the backend did not answer in time. It says nothing about the guarantee
+        (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: UPSTREAM_UNAVAILABLE
+      how: a temporary Kong route GET ~/api/healthz$ lets ffuf's request through to Forgejo and answers the test's
+        re-verification 503
+      lab: forgejo-kong
+      variant: kong-healthz-reverify-503
+
+    - id: NOT_VERIFIABLE/RATE_LIMITED
+      situation: 'an answer of this category on any sub-test that does not judge it: 429: refused for the rate of
+        the requests. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: RATE_LIMITED
+      how: the same route answers the test's re-verification of /api/healthz 429
+      lab: forgejo-kong
+      variant: kong-healthz-reverify-429
+
+    - id: NOT_VERIFIABLE/NO_RESPONSE
+      situation: 'an answer of this category on any sub-test that does not judge it: No HTTP response: timeout,
+        connection refused, TLS error, connection reset. It says nothing about the guarantee (one rule for every
+        test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_RESPONSE
+      how: the same route sleeps 7 s on the test's re-verification of /api/healthz, beyond the run's read timeout
+        of 5 s
+      lab: forgejo-kong
+      variant: kong-healthz-reverify-slow
+      config:
+        target.read_timeout: 5.0

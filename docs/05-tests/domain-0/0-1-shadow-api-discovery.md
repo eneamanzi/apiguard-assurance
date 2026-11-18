@@ -131,6 +131,7 @@ ASVS v5.0.0-4.1.4: only the HTTP methods the API supports can be used, and unuse
 | a disabled route (or one of a disabled service) | `NOT_APPLICABLE/ROUTE_DISABLED` | - |
 | no gateway configured | `NOT_APPLICABLE/NO_GATEWAY` | - |
 | the gateway's adapter does not read routes | `NOT_APPLICABLE/ROUTES_NOT_SUPPORTED` | - |
+| the gateway has routes, and they could not be read | `NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE` | - |
 
 <!-- [[[end]]] -->
 

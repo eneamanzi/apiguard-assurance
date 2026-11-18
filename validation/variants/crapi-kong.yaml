@@ -1,0 +1,408 @@
+# Variants of the crAPI + Kong lab (test-environments/crapi-kong), applied and undone by validation/run.py.
+
+kong-0-4-workshop-key-auth:
+  what: 'key-auth, with no consumer, on the service workshop-service: the gateway answers every workshop path 401'
+  changes:
+  - kind: kong_plugin_add
+    service: workshop-service
+    plugin:
+      name: key-auth
+
+kong-1-2-mechanic-auth-header-200:
+  what: a route GET ~/workshop/api/mechanic/$ answers 200 with one fixed body to any request carrying an Authorization
+    header and 401 to one without it
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-2-anchor
+      service: workshop-service
+      paths:
+      - ~/workshop/api/mechanic/$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - if kong.request.get_header("authorization") then return kong.response.exit(200, {validation = "served"})
+            end return kong.response.exit(401, {message = "unauthorized"})
+
+kong-1-2-mechanic-degraded-200-other:
+  what: a route GET ~/workshop/api/mechanic/$ passes its first two requests to crAPI and answers every later one
+    200 with a body of another shape
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-2-anchor
+      service: workshop-service
+      paths:
+      - ~/workshop/api/mechanic/$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr("v12_anchor", 1, 0) if n > 2 then return kong.response.exit(200, {error
+            = {code = 1, validation = "envelope"}}) end
+
+kong-1-2-mechanic-degraded-401:
+  what: a route GET ~/workshop/api/mechanic/$ passes its first two requests to crAPI and answers every later one
+    401
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-2-anchor
+      service: workshop-service
+      paths:
+      - ~/workshop/api/mechanic/$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr("v12_anchor", 1, 0) if n > 2 then return kong.response.exit(401, {message
+            = "invalid token"}) end
+
+kong-1-2-mechanic-degraded-404:
+  what: a route GET ~/workshop/api/mechanic/$ passes its first two requests to crAPI and answers every later one
+    404
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-2-anchor
+      service: workshop-service
+      paths:
+      - ~/workshop/api/mechanic/$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr("v12_anchor", 1, 0) if n > 2 then return kong.response.exit(404, {message
+            = "not found"}) end
+
+kong-1-2-mechanic-degraded-503:
+  what: a route GET ~/workshop/api/mechanic/$ passes its first two requests to crAPI and answers every later one
+    503
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-2-anchor
+      service: workshop-service
+      paths:
+      - ~/workshop/api/mechanic/$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr("v12_anchor", 1, 0) if n > 2 then return kong.response.exit(503, {message
+            = "unavailable"}) end
+
+kong-1-2-mechanic-degraded-429:
+  what: a route GET ~/workshop/api/mechanic/$ passes its first two requests to crAPI and answers every later one
+    429
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-2-anchor
+      service: workshop-service
+      paths:
+      - ~/workshop/api/mechanic/$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr("v12_anchor", 1, 0) if n > 2 then return kong.response.exit(429, {message
+            = "rate limited"}) end
+
+kong-1-2-mechanic-degraded-500:
+  what: a route GET ~/workshop/api/mechanic/$ passes its first two requests to crAPI and answers every later one
+    500
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-2-anchor
+      service: workshop-service
+      paths:
+      - ~/workshop/api/mechanic/$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr("v12_anchor", 1, 0) if n > 2 then return kong.response.exit(500, {message
+            = "server error"}) end
+
+kong-1-2-mechanic-degraded-slow:
+  what: a route GET ~/workshop/api/mechanic/$ passes its first two requests to crAPI at once and makes every later
+    one wait 7 s before proxying
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-1-2-anchor
+      service: workshop-service
+      paths:
+      - ~/workshop/api/mechanic/$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr("v12_anchor", 1, 0) if n > 2 then ngx.sleep(7) end
+
+kong-5-1-identity-http-log:
+  what: an http-log plugin on identity-service, shipping to http://127.0.0.1:9/validation (nothing listens)
+  changes:
+  - kind: kong_plugin_add
+    service: identity-service
+    plugin:
+      name: http-log
+      config:
+        http_endpoint: http://127.0.0.1:9/validation
+
+kong-6-2-headers-replace-only:
+  what: the services' response-transformer sets X-Content-Type-Options and X-Frame-Options under replace only (no
+    longer under add), as the lab was before 2026-11-05
+  changes:
+  - kind: kong_plugin_set
+    service: identity-service
+    plugin: response-transformer
+    set:
+      add:
+        headers:
+        - 'Strict-Transport-Security: max-age=31536000; includeSubDomains'
+        - 'Content-Security-Policy: default-src ''self'''
+        - 'Permissions-Policy: geolocation=(), camera=(), microphone=()'
+  - kind: kong_plugin_set
+    service: community-service
+    plugin: response-transformer
+    set:
+      add:
+        headers:
+        - 'Strict-Transport-Security: max-age=31536000; includeSubDomains'
+        - 'Content-Security-Policy: default-src ''self'''
+        - 'Permissions-Policy: geolocation=(), camera=(), microphone=()'
+  - kind: kong_plugin_set
+    service: workshop-service
+    plugin: response-transformer
+    set:
+      add:
+        headers:
+        - 'Strict-Transport-Security: max-age=31536000; includeSubDomains'
+        - 'Content-Security-Policy: default-src ''self'''
+        - 'Permissions-Policy: geolocation=(), camera=(), microphone=()'
+
+kong-7-3-coupon-first-200-then-400:
+  what: a route POST ~/workshop/api/shop/apply_coupon$ whose pre-function answers the first request 200 and every
+    later one 400 'Coupon code is already claimed by you', reaching crAPI with none
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-3-apply-coupon
+      service: workshop-service
+      paths:
+      - ~/workshop/api/shop/apply_coupon$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - local n = ngx.shared.kong:incr('v73_coupon', 1, 0) if n == 1 then return kong.response.exit(200, {credit
+            = 10, message = 'Coupon successfully applied!'}) end return kong.response.exit(400, {message = 'Coupon
+            code is already claimed by you'})
+
+kong-7-3-coupon-503:
+  what: a route POST ~/workshop/api/shop/apply_coupon$ whose pre-function answers 503
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-3-apply-coupon
+      service: workshop-service
+      paths:
+      - ~/workshop/api/shop/apply_coupon$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(503, {message = 'unavailable'})
+
+kong-7-3-coupon-429:
+  what: a route POST ~/workshop/api/shop/apply_coupon$ whose pre-function answers 429
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-3-apply-coupon
+      service: workshop-service
+      paths:
+      - ~/workshop/api/shop/apply_coupon$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(429, {message = 'rate limited'})
+
+kong-7-3-coupon-500:
+  what: a route POST ~/workshop/api/shop/apply_coupon$ whose pre-function answers 500
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-3-apply-coupon
+      service: workshop-service
+      paths:
+      - ~/workshop/api/shop/apply_coupon$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(500, {message = 'server error'})
+
+kong-7-3-coupon-slow:
+  what: a route POST ~/workshop/api/shop/apply_coupon$ whose pre-function waits 7 s before proxying to crAPI
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-3-apply-coupon
+      service: workshop-service
+      paths:
+      - ~/workshop/api/shop/apply_coupon$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - ngx.sleep(7)
+
+kong-7-3-new-coupon-403:
+  what: a route POST ~/community/api/v2/coupon/new-coupon$ on community-service whose pre-function answers 403,
+    so no coupon is created
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-3-new-coupon
+      service: community-service
+      paths:
+      - ~/community/api/v2/coupon/new-coupon$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(403, {message = 'forbidden'})
+
+kong-7-3-coupon-400:
+  what: a route POST ~/workshop/api/shop/apply_coupon$ whose pre-function answers every request 400 'Coupon code is
+    already claimed by you', reaching crAPI with none
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-7-3-apply-coupon
+      service: workshop-service
+      paths:
+      - ~/workshop/api/shop/apply_coupon$
+      methods:
+      - POST
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(400, {message = 'Coupon code is already claimed by you'})
+
+kong-2-1-users-all-public:
+  what: a route GET ~/workshop/api/management/users/all$ whose pre-function answers 200 with a JSON list to every
+    request, with or without a credential, reaching crAPI with none
+  changes:
+  - kind: kong_entity_add
+    list: routes
+    item:
+      name: validation-2-1-users-all
+      service: workshop-service
+      paths:
+      - ~/workshop/api/management/users/all$
+      methods:
+      - GET
+      strip_path: false
+      protocols:
+      - https
+      plugins:
+      - name: pre-function
+        config:
+          access:
+          - return kong.response.exit(200, {users = {}})

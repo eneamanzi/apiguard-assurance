@@ -1,0 +1,1596 @@
+{
+  "meta": {
+    "date": "2026-11-17 22:09 UTC",
+    "commit": "f3d2743",
+    "dirty": true,
+    "tool_version": "0.1.0",
+    "reset": [
+      "crapi-kong"
+    ]
+  },
+  "cases": [
+    {
+      "test": "1.5",
+      "id": "credential_forced_onto_tls/VIOLATION/PLAIN_HTTP/CERTAIN",
+      "situation": "`base_url` is `http://`: no TLS at all",
+      "expected": "VIOLATION PLAIN_HTTP CERTAIN",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "base_url pointed at Kong's plain-HTTP listener http://localhost:8000, the specification kept on HTTPS",
+      "observed": [
+        "VIOLATION PLAIN_HTTP CERTAIN"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "1.5",
+      "id": "hsts_present/NOT_APPLICABLE/NO_TLS",
+      "situation": "`base_url` is plain HTTP: no TLS to carry HSTS",
+      "expected": "NOT_APPLICABLE NO_TLS",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "base_url pointed at Kong's plain-HTTP listener http://localhost:8000 (the same run as PLAIN_HTTP)",
+      "observed": [
+        "NOT_APPLICABLE NO_TLS"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "1.5",
+      "id": "credential_forced_onto_tls/ENFORCED/HTTP_PORT_UNREACHABLE",
+      "situation": "the plain-HTTP connection is refused: nothing listens there",
+      "expected": "ENFORCED HTTP_PORT_UNREACHABLE",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "http_url set to http://localhost:8999, where nothing listens: the plain-HTTP connection is refused",
+      "observed": [
+        "ENFORCED HTTP_PORT_UNREACHABLE"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "1.5",
+      "id": "credential_forced_onto_tls/NOT_VERIFIABLE/HTTP_PORT_NO_ANSWER",
+      "situation": "the plain-HTTP probe timed out or broke before an answer",
+      "expected": "NOT_VERIFIABLE HTTP_PORT_NO_ANSWER",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "http_url set to http://10.255.255.1:80, a non-routable address: the plain-HTTP probe times out",
+      "observed": [
+        "NOT_VERIFIABLE HTTP_PORT_NO_ANSWER"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "1.5",
+      "id": "credential_forced_onto_tls/NOT_VERIFIABLE/HTTP_LISTENER_UNKNOWN",
+      "situation": "`base_url` not on port 443 and no `http_url`: the HTTP listener is unknown",
+      "expected": "NOT_VERIFIABLE HTTP_LISTENER_UNKNOWN",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "http_url emptied, base_url kept on port 8443: the plain-HTTP listener is not known and not probed",
+      "observed": [
+        "NOT_VERIFIABLE HTTP_LISTENER_UNKNOWN"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "1.5",
+      "id": "credential_forced_onto_tls/VIOLATION/TRANSPARENT_REDIRECT/CERTAIN",
+      "situation": "a `301`/`308` to an `https://` location (ASVS v5.0.0-4.1.2)",
+      "expected": "VIOLATION TRANSPARENT_REDIRECT CERTAIN",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the lab as built: Kong answers plain-HTTP GET /api/v1/orgs with 301 to https (https_redirect_status_code: 301)",
+      "observed": [
+        "VIOLATION TRANSPARENT_REDIRECT CERTAIN"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "1.5",
+      "id": "hsts_present/ENFORCED/HSTS_COMPLIANT",
+      "situation": "HSTS with `max-age` at least `hsts_min_max_age_seconds` and `includeSubDomains`",
+      "expected": "ENFORCED HSTS_COMPLIANT",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the lab as built: the HTTPS GET /api/v1/orgs carries max-age=31536000; includeSubDomains",
+      "observed": [
+        "ENFORCED HSTS_COMPLIANT"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.1",
+      "id": "privileged_function_refuses_user/ENFORCED/REFUSED",
+      "situation": "user_a is refused (`401`, `403`) unlike the forged credential, and the admin account (when configured) is served",
+      "expected": "ENFORCED REFUSED",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the lab as built: the /api/v1/admin reads refuse user_a 403, the forged credential gets 401, and the admin token (scope read:admin) is served",
+      "observed": [
+        "ENFORCED REFUSED",
+        "NOT_VERIFIABLE ADMIN_REFUSED_TOO",
+        "NOT_VERIFIABLE DESTRUCTIVE_NOT_PROBED",
+        "NOT_VERIFIABLE ENDPOINT_NOT_CONFIRMED"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.1",
+      "id": "privileged_function_refuses_user/NOT_VERIFIABLE/ADMIN_REFUSED_TOO",
+      "situation": "user_a and the admin account are both refused: a scope or a precondition, not the role",
+      "expected": "NOT_VERIFIABLE ADMIN_REFUSED_TOO",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the lab as built: one /api/v1/admin read refuses user_a and the admin token alike",
+      "observed": [
+        "ENFORCED REFUSED",
+        "NOT_VERIFIABLE ADMIN_REFUSED_TOO",
+        "NOT_VERIFIABLE DESTRUCTIVE_NOT_PROBED",
+        "NOT_VERIFIABLE ENDPOINT_NOT_CONFIRMED"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.1",
+      "id": "privileged_function_refuses_user/NOT_VERIFIABLE/ENDPOINT_NOT_CONFIRMED",
+      "situation": "user_a gets `404` and no admin account, or the admin account is not served either",
+      "expected": "NOT_VERIFIABLE ENDPOINT_NOT_CONFIRMED",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the lab as built: the /api/v1/admin/quota reads answer 404 to user_a and to the admin token as well",
+      "observed": [
+        "ENFORCED REFUSED",
+        "NOT_VERIFIABLE ADMIN_REFUSED_TOO",
+        "NOT_VERIFIABLE DESTRUCTIVE_NOT_PROBED",
+        "NOT_VERIFIABLE ENDPOINT_NOT_CONFIRMED"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.1",
+      "id": "privileged_function_refuses_user/NOT_VERIFIABLE/DESTRUCTIVE_NOT_PROBED",
+      "situation": "a destructive method of a privileged path, never sent",
+      "expected": "NOT_VERIFIABLE DESTRUCTIVE_NOT_PROBED",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the lab as built: the specification documents POST, PATCH and DELETE on /api/v1/admin paths, never sent",
+      "observed": [
+        "ENFORCED REFUSED",
+        "NOT_VERIFIABLE ADMIN_REFUSED_TOO",
+        "NOT_VERIFIABLE DESTRUCTIVE_NOT_PROBED",
+        "NOT_VERIFIABLE ENDPOINT_NOT_CONFIRMED"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.1",
+      "id": "method_not_confused/NOT_APPLICABLE/SINGLE_SAFE_METHOD",
+      "situation": "no privileged path has two decided protected safe methods",
+      "expected": "NOT_APPLICABLE SINGLE_SAFE_METHOD",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the lab as built: every privileged path documents a single safe method (GET)",
+      "observed": [
+        "NOT_APPLICABLE SINGLE_SAFE_METHOD"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.2",
+      "id": "cross_user_read/ENFORCED/REFUSED",
+      "situation": "user_b is refused (`401`, `403`, `404`) unlike the forged credential",
+      "expected": "ENFORCED REFUSED",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the lab as built: user_a's private repository is read by user_b, Forgejo answers 404 while the forged credential gets 401",
+      "observed": [
+        "ENFORCED REFUSED",
+        "NOT_APPLICABLE OWNER_NOT_SERVED_HERE"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.2",
+      "id": "cross_user_read/NOT_APPLICABLE/OWNER_NOT_SERVED_HERE",
+      "situation": "user_a is not served a sub-resource read either (not unavailable, a real refusal)",
+      "expected": "NOT_APPLICABLE OWNER_NOT_SERVED_HERE",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the lab as built: of the repository's sub-resource reads, 14 are not served to the owner either",
+      "observed": [
+        "ENFORCED REFUSED",
+        "NOT_APPLICABLE OWNER_NOT_SERVED_HERE"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.2",
+      "id": "cross_user_modify/ENFORCED/REFUSED",
+      "situation": "user_b is refused (`401`, `403`, `404`) unlike the forged credential",
+      "expected": "ENFORCED REFUSED",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the lab as built: user_b's empty PATCH on user_a's repository answers 404 while the forged credential gets 401",
+      "observed": [
+        "ENFORCED REFUSED"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.2",
+      "id": "cross_user_delete/ENFORCED/REFUSED",
+      "situation": "user_b is refused (`401`, `403`, `404`) unlike the forged credential",
+      "expected": "ENFORCED REFUSED",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the lab as built: user_b's DELETE on user_a's repository answers 404 while the forged credential gets 401",
+      "observed": [
+        "ENFORCED REFUSED"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.5",
+      "id": "no_sensitive_field/ENFORCED/NO_SENSITIVE_FIELD",
+      "situation": "no sensitive field holds a value",
+      "expected": "ENFORCED NO_SENSITIVE_FIELD",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the lab as built: user_a's private repository, read back, carries no sensitive field",
+      "observed": [
+        "ENFORCED NO_SENSITIVE_FIELD"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.5",
+      "id": "mass_assignment/ENFORCED/NO_MASS_ASSIGNMENT",
+      "situation": "an injected field name is shown without the sentinel",
+      "expected": "ENFORCED NO_MASS_ASSIGNMENT",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the lab as built: the repository created with injected role/owner/... shows owner (the real owner), not the sentinel",
+      "observed": [
+        "ENFORCED NO_MASS_ASSIGNMENT"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "ext.3.1.schemathesis",
+      "id": "input_validated/ENFORCED/INPUT_VALIDATED",
+      "situation": "no failure, and at least one operation was checked",
+      "expected": "ENFORCED INPUT_VALIDATED",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "Forgejo + Kong as built, with user_a's credential (reads only): the GET operations reached answer no server error",
+      "observed": [
+        "ENFORCED INPUT_VALIDATED",
+        "NOT_VERIFIABLE ONLY_4XX"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "ext.3.1.schemathesis",
+      "id": "input_validated/NOT_VERIFIABLE/ONLY_4XX",
+      "situation": "every generated request to an operation got a `4xx`: never reached",
+      "expected": "NOT_VERIFIABLE ONLY_4XX",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "same run as INPUT_VALIDATED: the organization, admin and notification reads answer 403 to user_a's token (repository and user scopes) on every generated request",
+      "observed": [
+        "ENFORCED INPUT_VALIDATED",
+        "NOT_VERIFIABLE ONLY_4XX"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.1",
+      "id": "privileged_function_refuses_user/NOT_VERIFIABLE/METHOD_NOT_ALLOWED",
+      "situation": "user_a's answer is `METHOD_NOT_ALLOWED`: neither served nor refused",
+      "expected": "NOT_VERIFIABLE METHOD_NOT_ALLOWED",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the run reads a local copy of Forgejo's specification with a HEAD operation added to /admin/orgs; Forgejo answers HEAD there 405",
+      "observed": [
+        "ENFORCED REFUSED",
+        "NOT_VERIFIABLE ADMIN_REFUSED_TOO",
+        "NOT_VERIFIABLE DESTRUCTIVE_NOT_PROBED",
+        "NOT_VERIFIABLE ENDPOINT_NOT_CONFIRMED",
+        "NOT_VERIFIABLE METHOD_NOT_ALLOWED"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.1",
+      "id": "privileged_function_refuses_user/NOT_APPLICABLE/NO_PRIVILEGED_ENDPOINT",
+      "situation": "no documented path has an `admin` or `management` segment",
+      "expected": "NOT_APPLICABLE NO_PRIVILEGED_ENDPOINT",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the run reads a local copy of Forgejo's specification whose paths are replaced by GET /version only, so no path has an admin or management segment",
+      "observed": [
+        "NOT_APPLICABLE NO_PRIVILEGED_ENDPOINT"
+      ],
+      "verdict": "SKIP",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.1",
+      "id": "method_not_confused/NOT_APPLICABLE/NO_PRIVILEGED_ENDPOINT",
+      "situation": "no documented path has an `admin` or `management` segment",
+      "expected": "NOT_APPLICABLE NO_PRIVILEGED_ENDPOINT",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the run reads a local copy of Forgejo's specification whose paths are replaced by GET /version only",
+      "observed": [
+        "NOT_APPLICABLE NO_PRIVILEGED_ENDPOINT"
+      ],
+      "verdict": "SKIP",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.2",
+      "id": "cross_user_read/NOT_VERIFIABLE/OBJECT_NOT_CREATED",
+      "situation": "the prepared resource did not create the object",
+      "expected": "NOT_VERIFIABLE OBJECT_NOT_CREATED",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the repository resource's create body is given a name Forgejo refuses (spaces), so the create answers 422 and no object exists",
+      "observed": [
+        "NOT_VERIFIABLE OBJECT_NOT_CREATED"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.2",
+      "id": "cross_user_modify/NOT_VERIFIABLE/OBJECT_NOT_CREATED",
+      "situation": "the prepared resource did not create the object",
+      "expected": "NOT_VERIFIABLE OBJECT_NOT_CREATED",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the repository resource's create body is given a name Forgejo refuses (spaces): no object, every sub-test records it",
+      "observed": [
+        "NOT_VERIFIABLE OBJECT_NOT_CREATED"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.2",
+      "id": "cross_user_delete/NOT_VERIFIABLE/OBJECT_NOT_CREATED",
+      "situation": "the prepared resource did not create the object",
+      "expected": "NOT_VERIFIABLE OBJECT_NOT_CREATED",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the repository resource's create body is given a name Forgejo refuses (spaces): no object, every sub-test records it",
+      "observed": [
+        "NOT_VERIFIABLE OBJECT_NOT_CREATED"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.5",
+      "id": "no_sensitive_field/NOT_VERIFIABLE/OBJECT_NOT_CREATED",
+      "situation": "the prepared resource did not create the object",
+      "expected": "NOT_VERIFIABLE OBJECT_NOT_CREATED",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the repository resource's create body is given a name Forgejo refuses (spaces), so both creates answer 422",
+      "observed": [
+        "NOT_VERIFIABLE OBJECT_NOT_CREATED"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.5",
+      "id": "mass_assignment/NOT_VERIFIABLE/OBJECT_NOT_CREATED",
+      "situation": "the prepared resource did not create the object",
+      "expected": "NOT_VERIFIABLE OBJECT_NOT_CREATED",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the repository resource's create body is given a name Forgejo refuses (spaces): the plain create fails too, so the injected create's refusal is OBJECT_NOT_CREATED",
+      "observed": [
+        "NOT_VERIFIABLE OBJECT_NOT_CREATED"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.2",
+      "id": "cross_user_read/NOT_APPLICABLE/NO_READ_OPERATION",
+      "situation": "no documented read addresses the object",
+      "expected": "NOT_APPLICABLE NO_READ_OPERATION",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the specification's local copy without GET/HEAD on every path whose parameters are only {owner} and {repo}",
+      "observed": [
+        "NOT_APPLICABLE NO_READ_OPERATION"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.2",
+      "id": "cross_user_modify/NOT_APPLICABLE/NO_MODIFY_OPERATION",
+      "situation": "no documented `PATCH`/`PUT` addresses the object",
+      "expected": "NOT_APPLICABLE NO_MODIFY_OPERATION",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the specification's local copy without PATCH/PUT on every path whose parameters are only {owner} and {repo}",
+      "observed": [
+        "NOT_APPLICABLE NO_MODIFY_OPERATION"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.5",
+      "id": "mass_assignment/NOT_VERIFIABLE/FIELDS_NOT_INJECTED",
+      "situation": "the resource's create body is not a JSON object",
+      "expected": "NOT_VERIFIABLE FIELDS_NOT_INJECTED",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "the repository resource's create body is the JSON string \"not-an-object\", so no field can be merged into it",
+      "observed": [
+        "NOT_VERIFIABLE FIELDS_NOT_INJECTED"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "ext.3.1.schemathesis",
+      "id": "input_validated/NOT_VERIFIABLE/OPERATION_NOT_CHECKED",
+      "situation": "Schemathesis reports an operation as errored or skipped",
+      "expected": "NOT_VERIFIABLE OPERATION_NOT_CHECKED",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "unauthenticated (user_a not configured), target.base_url on a closed port (the specification still read through Kong): Schemathesis reports every operation errored",
+      "observed": [
+        "NOT_VERIFIABLE NOTHING_CHECKED",
+        "NOT_VERIFIABLE OPERATION_NOT_CHECKED"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "ext.3.1.schemathesis",
+      "id": "input_validated/NOT_VERIFIABLE/NOTHING_CHECKED",
+      "situation": "no failure, and no operation was checked",
+      "expected": "NOT_VERIFIABLE NOTHING_CHECKED",
+      "lab": "forgejo-kong",
+      "variant": "forgejo-stopped",
+      "how": "unauthenticated (user_a not configured), the forgejo container stopped, the specification read from a copy: every operation gets Kong's 503, none is checked",
+      "observed": [
+        "NOT_VERIFIABLE NOTHING_CHECKED",
+        "NOT_VERIFIABLE UPSTREAM_UNAVAILABLE"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "ext.3.1.schemathesis",
+      "id": "*/NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE",
+      "situation": "an answer of this category on any sub-test that does not judge it: 502, 503, 504: the gateway could not reach the backend, or the backend did not answer in time. It says nothing about the guarantee (one rule for every test)",
+      "expected": "NOT_VERIFIABLE UPSTREAM_UNAVAILABLE",
+      "lab": "forgejo-kong",
+      "variant": "forgejo-stopped",
+      "how": "same run as NOTHING_CHECKED: the forgejo container stopped, every operation's failing cases quote only Kong's 503",
+      "observed": [
+        "NOT_VERIFIABLE NOTHING_CHECKED",
+        "NOT_VERIFIABLE UPSTREAM_UNAVAILABLE"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "ext.3.1.schemathesis",
+      "id": "*/NOT_VERIFIABLE/NO_RESPONSE",
+      "situation": "an answer of this category on any sub-test that does not judge it: No HTTP response: timeout, connection refused, TLS error, connection reset. It says nothing about the guarantee (one rule for every test)",
+      "expected": "NOT_VERIFIABLE NO_RESPONSE",
+      "lab": "forgejo-kong",
+      "variant": "kong-0-3-slow",
+      "how": "with user_a's credential (reads only, path_seed fills owner, repo and user), the temporary route on the deprecated read times/user-a waits 7 s before proxying: every generated request to it exceeds request_timeout_seconds (5 s)",
+      "observed": [
+        "ENFORCED INPUT_VALIDATED",
+        "NOT_VERIFIABLE ONLY_4XX"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "DIFFERENT"
+    },
+    {
+      "test": "1.5",
+      "id": "*/NOT_VERIFIABLE/RATE_LIMITED",
+      "situation": "an answer of this category on any sub-test that does not judge it: 429: refused for the rate of the requests. It says nothing about the guarantee (one rule for every test)",
+      "expected": "NOT_VERIFIABLE RATE_LIMITED",
+      "lab": "forgejo-kong",
+      "variant": "kong-0-4-probe-429",
+      "how": "a route on the probe path GET ~/api/v1/orgs$ whose pre-function answers 429: hsts_present gets the 429",
+      "observed": [
+        "ENFORCED HTTP_REFUSED",
+        "NOT_VERIFIABLE RATE_LIMITED"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "1.5",
+      "id": "credential_forced_onto_tls/ENFORCED/HTTP_REFUSED",
+      "situation": "`426`, or a `4xx` the same path does not get over HTTPS: the protocol is refused and the client told (owner, 2026-11-16)",
+      "expected": "ENFORCED HTTP_REFUSED",
+      "lab": "forgejo-kong",
+      "variant": "kong-0-4-probe-503",
+      "how": "a route on the probe path GET ~/api/v1/orgs$, HTTPS only with no https_redirect_status_code: Kong answers the plain-HTTP probe 426",
+      "observed": [
+        "ENFORCED HTTP_REFUSED"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "1.5",
+      "id": "*/NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE",
+      "situation": "an answer of this category on any sub-test that does not judge it: 502, 503, 504: the gateway could not reach the backend, or the backend did not answer in time. It says nothing about the guarantee (one rule for every test)",
+      "expected": "NOT_VERIFIABLE UPSTREAM_UNAVAILABLE",
+      "lab": "forgejo-kong",
+      "variant": "kong-0-4-probe-503",
+      "how": "a route on the probe path GET ~/api/v1/orgs$ whose pre-function answers 503: hsts_present gets the gateway's 503",
+      "observed": [
+        "ENFORCED HTTP_REFUSED",
+        "NOT_VERIFIABLE UPSTREAM_UNAVAILABLE"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "1.5",
+      "id": "*/NOT_VERIFIABLE/NO_RESPONSE",
+      "situation": "an answer of this category on any sub-test that does not judge it: No HTTP response: timeout, connection refused, TLS error, connection reset. It says nothing about the guarantee (one rule for every test)",
+      "expected": "NOT_VERIFIABLE NO_RESPONSE",
+      "lab": "forgejo-kong",
+      "variant": "kong-0-4-probe-slow",
+      "how": "a route on the probe path GET ~/api/v1/orgs$ whose pre-function sleeps 7 s, with the run's read_timeout at 5 s: the HTTPS probe gets no answer",
+      "observed": [
+        "ENFORCED HTTP_REFUSED",
+        "NOT_VERIFIABLE NO_RESPONSE"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "1.5",
+      "id": "hsts_present/VIOLATION/HSTS_MAX_AGE_LOW/CERTAIN",
+      "situation": "`max-age` absent or below `hsts_min_max_age_seconds`",
+      "expected": "VIOLATION HSTS_MAX_AGE_LOW CERTAIN",
+      "lab": "forgejo-kong",
+      "variant": "kong-1-5-hsts-max-age-60",
+      "how": "the HSTS value of forgejo-service's response-transformer set to max-age=60; includeSubDomains",
+      "observed": [
+        "VIOLATION HSTS_MAX_AGE_LOW CERTAIN"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "1.5",
+      "id": "hsts_present/VIOLATION/HSTS_MISSING/CERTAIN",
+      "situation": "the HTTPS answer has no `Strict-Transport-Security`",
+      "expected": "VIOLATION HSTS_MISSING CERTAIN",
+      "lab": "forgejo-kong",
+      "variant": "kong-1-5-hsts-missing",
+      "how": "the Strict-Transport-Security line removed from forgejo-service's response-transformer",
+      "observed": [
+        "VIOLATION HSTS_MISSING CERTAIN"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "1.5",
+      "id": "hsts_present/VIOLATION/HSTS_NO_SUBDOMAINS/FIRM",
+      "situation": "`max-age` sufficient, no `includeSubDomains`",
+      "expected": "VIOLATION HSTS_NO_SUBDOMAINS FIRM",
+      "lab": "forgejo-kong",
+      "variant": "kong-1-5-hsts-no-subdomains",
+      "how": "the HSTS value of forgejo-service's response-transformer set to max-age=31536000, without includeSubDomains",
+      "observed": [
+        "VIOLATION HSTS_NO_SUBDOMAINS FIRM"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "1.5",
+      "id": "credential_forced_onto_tls/VIOLATION/HTTP_SERVED_CLEARTEXT/CERTAIN",
+      "situation": "a `2xx` over plain HTTP",
+      "expected": "VIOLATION HTTP_SERVED_CLEARTEXT CERTAIN",
+      "lab": "forgejo-kong",
+      "variant": "kong-1-5-http-200",
+      "how": "an HTTP-only route ~/api/v1/orgs$ whose pre-function answers 200",
+      "observed": [
+        "VIOLATION HTTP_SERVED_CLEARTEXT CERTAIN"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "1.5",
+      "id": "credential_forced_onto_tls/VIOLATION/WEAK_REDIRECT/CERTAIN",
+      "situation": "a `301`/`308` whose location is not `https`",
+      "expected": "VIOLATION WEAK_REDIRECT CERTAIN",
+      "lab": "forgejo-kong",
+      "variant": "kong-1-5-http-301-to-http",
+      "how": "an HTTP-only route ~/api/v1/orgs$ whose pre-function answers 301 to http://localhost:8000/api/v1/orgs",
+      "observed": [
+        "VIOLATION WEAK_REDIRECT CERTAIN"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "1.5",
+      "id": "credential_forced_onto_tls/VIOLATION/TEMPORARY_REDIRECT/CERTAIN",
+      "situation": "any other redirect",
+      "expected": "VIOLATION TEMPORARY_REDIRECT CERTAIN",
+      "lab": "forgejo-kong",
+      "variant": "kong-1-5-http-302-to-https",
+      "how": "an HTTP-only route ~/api/v1/orgs$ whose pre-function answers 302 to https://localhost:8443/api/v1/orgs",
+      "observed": [
+        "VIOLATION TEMPORARY_REDIRECT CERTAIN"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "1.5",
+      "id": "credential_forced_onto_tls/NOT_VERIFIABLE/HTTPS_ANSWER_UNKNOWN",
+      "situation": "a `4xx` other than `426`, and no HTTPS answer that says something to compare it with",
+      "expected": "NOT_VERIFIABLE HTTPS_ANSWER_UNKNOWN",
+      "lab": "forgejo-kong",
+      "variant": "kong-1-5-https-503-http-400",
+      "how": "a route ~/api/v1/orgs$ on both protocols whose pre-function answers 503 over HTTPS and 400 over HTTP: a 4xx other than 426 with no HTTPS answer to compare it with",
+      "observed": [
+        "NOT_VERIFIABLE HTTPS_ANSWER_UNKNOWN"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "1.5",
+      "id": "credential_forced_onto_tls/VIOLATION/HTTP_PROCESSED_CLEARTEXT/CERTAIN",
+      "situation": "any other answer over plain HTTP: the same `4xx` as over HTTPS, or a `5xx`",
+      "expected": "VIOLATION HTTP_PROCESSED_CLEARTEXT CERTAIN",
+      "lab": "forgejo-kong",
+      "variant": "kong-1-5-orgs-500",
+      "how": "a route ~/api/v1/orgs$ on both protocols whose pre-function answers 500: the plain-HTTP probe gets a 5xx",
+      "observed": [
+        "VIOLATION HTTP_PROCESSED_CLEARTEXT CERTAIN"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "1.5",
+      "id": "*/NOT_VERIFIABLE/SERVER_ERROR",
+      "situation": "an answer of this category on any sub-test that does not judge it: 500, 505-508, 510: the application failed. It says nothing about the guarantee (one rule for every test)",
+      "expected": "NOT_VERIFIABLE SERVER_ERROR",
+      "lab": "forgejo-kong",
+      "variant": "kong-1-5-orgs-500",
+      "how": "a route ~/api/v1/orgs$ on both protocols whose pre-function answers 500: hsts_present gets the 500 (the same run as HTTP_PROCESSED_CLEARTEXT)",
+      "observed": [
+        "VIOLATION HTTP_PROCESSED_CLEARTEXT CERTAIN",
+        "NOT_VERIFIABLE SERVER_ERROR"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.1",
+      "id": "privileged_function_refuses_user/ENFORCED/REFUSED_HIDDEN",
+      "situation": "user_a gets `404` while the admin account is served",
+      "expected": "ENFORCED REFUSED_HIDDEN",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-1-admin-403-as-404",
+      "how": "a temporary route /api/v1/admin whose pre-function turns Forgejo's 403 into 404 in its header_filter phase; the admin token (read:admin, as the lab is built since 2026-11-15) is served, user_a gets 404 and the forged credential 401",
+      "observed": [
+        "ENFORCED REFUSED_HIDDEN",
+        "NOT_VERIFIABLE DESTRUCTIVE_NOT_PROBED",
+        "NOT_VERIFIABLE ENDPOINT_NOT_CONFIRMED"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.1",
+      "id": "privileged_function_refuses_user/NOT_VERIFIABLE/REDIRECT",
+      "situation": "user_a's answer is `REDIRECT`: neither served nor refused",
+      "expected": "NOT_VERIFIABLE REDIRECT",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-1-admin-orgs-302",
+      "how": "a temporary route GET ~/api/v1/admin/orgs$ answers 302 to https://localhost:8443/ itself",
+      "observed": [
+        "ENFORCED REFUSED",
+        "NOT_VERIFIABLE ADMIN_REFUSED_TOO",
+        "NOT_VERIFIABLE DESTRUCTIVE_NOT_PROBED",
+        "NOT_VERIFIABLE ENDPOINT_NOT_CONFIRMED",
+        "NOT_VERIFIABLE REDIRECT"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.1",
+      "id": "privileged_function_refuses_user/NOT_VERIFIABLE/INVALID_REQUEST",
+      "situation": "user_a's answer is `INVALID_REQUEST`: neither served nor refused",
+      "expected": "NOT_VERIFIABLE INVALID_REQUEST",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-1-admin-orgs-400",
+      "how": "a temporary route GET ~/api/v1/admin/orgs$ answers 400 itself",
+      "observed": [
+        "ENFORCED REFUSED",
+        "NOT_VERIFIABLE ADMIN_REFUSED_TOO",
+        "NOT_VERIFIABLE DESTRUCTIVE_NOT_PROBED",
+        "NOT_VERIFIABLE ENDPOINT_NOT_CONFIRMED",
+        "NOT_VERIFIABLE INVALID_REQUEST"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.1",
+      "id": "privileged_function_refuses_user/NOT_VERIFIABLE/OTHER",
+      "situation": "user_a's answer is `OTHER`: neither served nor refused",
+      "expected": "NOT_VERIFIABLE OTHER",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-1-admin-orgs-418",
+      "how": "a temporary route GET ~/api/v1/admin/orgs$ answers 418 itself (OTHER in response_category.py)",
+      "observed": [
+        "ENFORCED REFUSED",
+        "NOT_VERIFIABLE ADMIN_REFUSED_TOO",
+        "NOT_VERIFIABLE DESTRUCTIVE_NOT_PROBED",
+        "NOT_VERIFIABLE ENDPOINT_NOT_CONFIRMED",
+        "NOT_VERIFIABLE OTHER"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.1",
+      "id": "*/NOT_VERIFIABLE/RATE_LIMITED",
+      "situation": "an answer of this category on any sub-test that does not judge it: 429: refused for the rate of the requests. It says nothing about the guarantee (one rule for every test)",
+      "expected": "NOT_VERIFIABLE RATE_LIMITED",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-1-admin-orgs-429",
+      "how": "a temporary route GET ~/api/v1/admin/orgs$ answers 429 itself",
+      "observed": [
+        "ENFORCED REFUSED",
+        "NOT_VERIFIABLE ADMIN_REFUSED_TOO",
+        "NOT_VERIFIABLE DESTRUCTIVE_NOT_PROBED",
+        "NOT_VERIFIABLE ENDPOINT_NOT_CONFIRMED",
+        "NOT_VERIFIABLE RATE_LIMITED",
+        "NOT_APPLICABLE SINGLE_SAFE_METHOD"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.1",
+      "id": "*/NOT_VERIFIABLE/SERVER_ERROR",
+      "situation": "an answer of this category on any sub-test that does not judge it: 500, 505-508, 510: the application failed. It says nothing about the guarantee (one rule for every test)",
+      "expected": "NOT_VERIFIABLE SERVER_ERROR",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-1-admin-orgs-500",
+      "how": "a temporary route GET ~/api/v1/admin/orgs$ answers 500 itself",
+      "observed": [
+        "ENFORCED REFUSED",
+        "NOT_VERIFIABLE ADMIN_REFUSED_TOO",
+        "NOT_VERIFIABLE DESTRUCTIVE_NOT_PROBED",
+        "NOT_VERIFIABLE ENDPOINT_NOT_CONFIRMED",
+        "NOT_VERIFIABLE SERVER_ERROR",
+        "NOT_APPLICABLE SINGLE_SAFE_METHOD"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.1",
+      "id": "*/NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE",
+      "situation": "an answer of this category on any sub-test that does not judge it: 502, 503, 504: the gateway could not reach the backend, or the backend did not answer in time. It says nothing about the guarantee (one rule for every test)",
+      "expected": "NOT_VERIFIABLE UPSTREAM_UNAVAILABLE",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-1-admin-orgs-503",
+      "how": "a temporary route GET ~/api/v1/admin/orgs$ answers 503 itself",
+      "observed": [
+        "ENFORCED REFUSED",
+        "NOT_VERIFIABLE ADMIN_REFUSED_TOO",
+        "NOT_VERIFIABLE DESTRUCTIVE_NOT_PROBED",
+        "NOT_VERIFIABLE ENDPOINT_NOT_CONFIRMED",
+        "NOT_VERIFIABLE UPSTREAM_UNAVAILABLE",
+        "NOT_APPLICABLE SINGLE_SAFE_METHOD"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.1",
+      "id": "method_not_confused/VIOLATION/METHOD_CONFUSION/FIRM",
+      "situation": "the protected safe methods of one privileged path give user_a different outcomes",
+      "expected": "VIOLATION METHOD_CONFUSION FIRM",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-1-admin-orgs-head-200",
+      "how": "the specification copy with HEAD added to /admin/orgs, and a temporary route HEAD ~/api/v1/admin/orgs$ answering 200 itself while GET refuses user_a 403",
+      "observed": [
+        "VIOLATION METHOD_CONFUSION FIRM"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.1",
+      "id": "method_not_confused/ENFORCED/METHODS_CONSISTENT",
+      "situation": "two or more protected safe methods of one privileged path agree",
+      "expected": "ENFORCED METHODS_CONSISTENT",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-1-admin-orgs-head-as-get",
+      "how": "the specification copy with HEAD added to /admin/orgs, and a temporary route HEAD ~/api/v1/admin/orgs$ whose pre-function forwards the HEAD to Forgejo as a GET (user_a 403, the forged credential 401, on both methods)",
+      "observed": [
+        "ENFORCED METHODS_CONSISTENT"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.1",
+      "id": "*/NOT_VERIFIABLE/NO_RESPONSE",
+      "situation": "an answer of this category on any sub-test that does not judge it: No HTTP response: timeout, connection refused, TLS error, connection reset. It says nothing about the guarantee (one rule for every test)",
+      "expected": "NOT_VERIFIABLE NO_RESPONSE",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-1-admin-orgs-slow",
+      "how": "a temporary route GET ~/api/v1/admin/orgs$ sleeps 7 s before answering, past the run's read timeout of 5 s",
+      "observed": [
+        "ENFORCED REFUSED",
+        "NOT_VERIFIABLE ADMIN_REFUSED_TOO",
+        "NOT_VERIFIABLE DESTRUCTIVE_NOT_PROBED",
+        "NOT_VERIFIABLE ENDPOINT_NOT_CONFIRMED",
+        "NOT_VERIFIABLE NO_RESPONSE",
+        "NOT_APPLICABLE SINGLE_SAFE_METHOD"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.2",
+      "id": "cross_user_delete/NOT_VERIFIABLE/DELETE_NOT_APPLIED",
+      "situation": "user_b's `DELETE` is accepted, and user_a is still served the object: nothing was deleted",
+      "expected": "NOT_VERIFIABLE DELETE_NOT_APPLIED",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-2-delete-not-applied",
+      "how": "a route answers the first DELETE on the repository 200 without reaching Forgejo, so the owner's read after it is still served; the clean-up DELETE reaches Forgejo",
+      "observed": [
+        "NOT_VERIFIABLE DELETE_NOT_APPLIED"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.2",
+      "id": "cross_user_delete/VIOLATION/BOLA_DELETE/FIRM",
+      "situation": "user_b's `DELETE` is accepted, and the object is not shown gone",
+      "expected": "VIOLATION BOLA_DELETE FIRM",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-2-delete-not-shown-gone",
+      "how": "a route answers the first DELETE on the repository 200 and the repository's read then answers the owner 403 (neither gone nor served); the clean-up DELETE reaches Forgejo",
+      "observed": [
+        "VIOLATION BOLA_DELETE FIRM"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.2",
+      "id": "cross_user_read/NOT_VERIFIABLE/NOT_A_REFUSAL",
+      "situation": "user_b's answer is neither `2xx` nor a refusal (a redirect, `400`, `405`)",
+      "expected": "NOT_VERIFIABLE NOT_A_REFUSAL",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-2-not-a-refusal",
+      "how": "a counter route answers user_b's read of the repository 400 (the first two reads, forged and owner, reach Forgejo)",
+      "observed": [
+        "NOT_VERIFIABLE NOT_A_REFUSAL"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.2",
+      "id": "cross_user_modify/NOT_VERIFIABLE/NOT_A_REFUSAL",
+      "situation": "user_b's answer is neither `2xx` nor a refusal (a redirect, `400`, `405`)",
+      "expected": "NOT_VERIFIABLE NOT_A_REFUSAL",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-2-not-a-refusal",
+      "how": "a route answers PATCH/PUT on the repository 400",
+      "observed": [
+        "NOT_VERIFIABLE NOT_A_REFUSAL"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.2",
+      "id": "cross_user_delete/NOT_VERIFIABLE/NOT_A_REFUSAL",
+      "situation": "user_b's answer is neither `2xx` nor a refusal (a redirect, `400`, `405`)",
+      "expected": "NOT_VERIFIABLE NOT_A_REFUSAL",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-2-not-a-refusal",
+      "how": "a route answers the first DELETE on the repository (user_b's) 405 and passes the later one (the test's clean-up) to Forgejo",
+      "observed": [
+        "NOT_VERIFIABLE NOT_A_REFUSAL"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.2",
+      "id": "cross_user_read/VIOLATION/BOLA_READ_SUBRESOURCE/FIRM",
+      "situation": "user_b is served a sub-resource read after the object's own read refused user_b",
+      "expected": "VIOLATION BOLA_READ_SUBRESOURCE FIRM",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-2-object-writes-served",
+      "how": "a route answers GET /api/v1/repos/user-a/<repo>/branches 200 to everyone, after the repository's own read refused user_b (404)",
+      "observed": [
+        "ENFORCED REFUSED",
+        "NOT_APPLICABLE OWNER_NOT_SERVED_HERE",
+        "VIOLATION BOLA_READ_SUBRESOURCE FIRM"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.2",
+      "id": "cross_user_modify/VIOLATION/BOLA_MODIFY/FIRM",
+      "situation": "user_b's empty-bodied `PATCH`/`PUT` on user_a's object is accepted (`2xx`)",
+      "expected": "VIOLATION BOLA_MODIFY FIRM",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-2-object-writes-served",
+      "how": "a route answers PATCH/PUT on the repository 200",
+      "observed": [
+        "VIOLATION BOLA_MODIFY FIRM"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.2",
+      "id": "cross_user_delete/VIOLATION/BOLA_DELETE/CERTAIN",
+      "situation": "user_b's `DELETE` is accepted, and the object served to user_a before is gone after",
+      "expected": "VIOLATION BOLA_DELETE CERTAIN",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-2-object-writes-served",
+      "how": "a route answers the first DELETE on the repository (user_b's) 200 without reaching Forgejo and marks it gone, the repository's read then answers the owner 404; the clean-up DELETE reaches Forgejo",
+      "observed": [
+        "VIOLATION BOLA_DELETE CERTAIN"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.2",
+      "id": "cross_user_read/VIOLATION/BOLA_READ/FIRM",
+      "situation": "user_b is served with another answer (a `200` may carry an error)",
+      "expected": "VIOLATION BOLA_READ FIRM",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-2-user-b-read-200-other",
+      "how": "a counter route passes the forged and owner reads of the repository to Forgejo and answers user_b's read 200 with a JSON envelope of another shape",
+      "observed": [
+        "VIOLATION BOLA_READ FIRM"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.2",
+      "id": "cross_user_read/NOT_VERIFIABLE/CREDENTIAL_NOT_CONFIRMED",
+      "situation": "user_b is refused like the forged credential, or `401` when the forged credential is not refused",
+      "expected": "NOT_VERIFIABLE CREDENTIAL_NOT_CONFIRMED",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-2-user-b-read-401",
+      "how": "a counter route on the repository's read passes the forged credential's and the owner's reads to Forgejo and answers user_b's read 401, as Forgejo answers the forged credential",
+      "observed": [
+        "NOT_VERIFIABLE CREDENTIAL_NOT_CONFIRMED"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.5",
+      "id": "mass_assignment/NOT_VERIFIABLE/INJECTED_CREATE_REFUSED",
+      "situation": "the create with the injected fields is refused as invalid while the plain one works: unknown fields rejected, or a field bound with a wrong-typed value",
+      "expected": "NOT_VERIFIABLE INJECTED_CREATE_REFUSED",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-5-injected-create-422",
+      "how": "a pre-function on POST /api/v1/user/repos answers 422 to a create body holding the sentinel apiguard-mass-probe and passes the plain create to Forgejo",
+      "observed": [
+        "NOT_VERIFIABLE INJECTED_CREATE_REFUSED"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.5",
+      "id": "mass_assignment/VIOLATION/MASS_ASSIGNMENT/FIRM",
+      "situation": "an injected field (one the configured body does not set) is read back holding the sentinel",
+      "expected": "VIOLATION MASS_ASSIGNMENT FIRM",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-5-read-echoes-create",
+      "how": "a pre-function on POST /api/v1/user/repos keeps the create body in Kong's shared memory (the request still reaches Forgejo) and the repository's read answers that body back, so the injected sentinels come back",
+      "observed": [
+        "VIOLATION MASS_ASSIGNMENT FIRM"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.5",
+      "id": "no_sensitive_field/VIOLATION/SENSITIVE_FIELD/FIRM",
+      "situation": "a sensitive-named field holds a value: a string not empty or masked, or a number for a card, SSN or CVV",
+      "expected": "VIOLATION SENSITIVE_FIELD FIRM",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-5-read-sensitive",
+      "how": "a route answers the repository's read 200 with an object holding \"salt\": \"lab-dummy-value\"",
+      "observed": [
+        "VIOLATION SENSITIVE_FIELD FIRM"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.2",
+      "id": "cross_user_read/NOT_VERIFIABLE/OWNER_NOT_SERVED",
+      "situation": "user_a is not served its own object's read",
+      "expected": "NOT_VERIFIABLE OWNER_NOT_SERVED",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-repo-read-404",
+      "how": "a route answers the repository's read 404 to everyone, the owner included",
+      "observed": [
+        "NOT_VERIFIABLE OWNER_NOT_SERVED"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.2",
+      "id": "cross_user_modify/NOT_VERIFIABLE/CREDENTIAL_NOT_CONFIRMED",
+      "situation": "user_b is refused like the forged credential, or `401` when the forged credential is not refused",
+      "expected": "NOT_VERIFIABLE CREDENTIAL_NOT_CONFIRMED",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-repo-read-404",
+      "how": "the repository's read answers 404 to everyone, so the forged credential's control is 404 and user_b's PATCH, refused 404 by Forgejo, is in the same category",
+      "observed": [
+        "NOT_VERIFIABLE CREDENTIAL_NOT_CONFIRMED"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.2",
+      "id": "cross_user_delete/NOT_VERIFIABLE/CREDENTIAL_NOT_CONFIRMED",
+      "situation": "user_b is refused like the forged credential, or `401` when the forged credential is not refused",
+      "expected": "NOT_VERIFIABLE CREDENTIAL_NOT_CONFIRMED",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-repo-read-404",
+      "how": "the repository's read answers 404 to everyone, so the forged control is 404 and user_b's DELETE, refused 404 by Forgejo, is in the same category",
+      "observed": [
+        "NOT_VERIFIABLE CREDENTIAL_NOT_CONFIRMED"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.5",
+      "id": "no_sensitive_field/NOT_VERIFIABLE/OBJECT_NOT_READABLE",
+      "situation": "no documented read, or the read is not served",
+      "expected": "NOT_VERIFIABLE OBJECT_NOT_READABLE",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-repo-read-404",
+      "how": "a route answers the repository's read 404 to everyone",
+      "observed": [
+        "NOT_VERIFIABLE OBJECT_NOT_READABLE"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.5",
+      "id": "mass_assignment/NOT_VERIFIABLE/OBJECT_NOT_READABLE",
+      "situation": "no documented read, or the read is not served",
+      "expected": "NOT_VERIFIABLE OBJECT_NOT_READABLE",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-repo-read-404",
+      "how": "a route answers the repository's read 404 to everyone",
+      "observed": [
+        "NOT_VERIFIABLE OBJECT_NOT_READABLE"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.2",
+      "id": "*/NOT_VERIFIABLE/RATE_LIMITED",
+      "situation": "an answer of this category on any sub-test that does not judge it: 429: refused for the rate of the requests. It says nothing about the guarantee (one rule for every test)",
+      "expected": "NOT_VERIFIABLE RATE_LIMITED",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-repo-read-429",
+      "how": "a route answers the repository's read 429: the owner's read is throttled on cross_user_read",
+      "observed": [
+        "NOT_VERIFIABLE RATE_LIMITED",
+        "ENFORCED REFUSED",
+        "ENFORCED REFUSED"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.5",
+      "id": "*/NOT_VERIFIABLE/RATE_LIMITED",
+      "situation": "an answer of this category on any sub-test that does not judge it: 429: refused for the rate of the requests. It says nothing about the guarantee (one rule for every test)",
+      "expected": "NOT_VERIFIABLE RATE_LIMITED",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-repo-read-429",
+      "how": "a route answers the repository's read 429 to everyone: both read-backs throttled",
+      "observed": [
+        "NOT_VERIFIABLE RATE_LIMITED",
+        "NOT_VERIFIABLE RATE_LIMITED"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.2",
+      "id": "*/NOT_VERIFIABLE/SERVER_ERROR",
+      "situation": "an answer of this category on any sub-test that does not judge it: 500, 505-508, 510: the application failed. It says nothing about the guarantee (one rule for every test)",
+      "expected": "NOT_VERIFIABLE SERVER_ERROR",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-repo-read-500",
+      "how": "a route answers the repository's read 500: the owner's read fails on cross_user_read",
+      "observed": [
+        "NOT_VERIFIABLE SERVER_ERROR",
+        "ENFORCED REFUSED",
+        "ENFORCED REFUSED"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.5",
+      "id": "*/NOT_VERIFIABLE/SERVER_ERROR",
+      "situation": "an answer of this category on any sub-test that does not judge it: 500, 505-508, 510: the application failed. It says nothing about the guarantee (one rule for every test)",
+      "expected": "NOT_VERIFIABLE SERVER_ERROR",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-repo-read-500",
+      "how": "a route answers the repository's read 500 to everyone: both read-backs fail",
+      "observed": [
+        "NOT_VERIFIABLE SERVER_ERROR",
+        "NOT_VERIFIABLE SERVER_ERROR"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.2",
+      "id": "*/NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE",
+      "situation": "an answer of this category on any sub-test that does not judge it: 502, 503, 504: the gateway could not reach the backend, or the backend did not answer in time. It says nothing about the guarantee (one rule for every test)",
+      "expected": "NOT_VERIFIABLE UPSTREAM_UNAVAILABLE",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-repo-read-503",
+      "how": "a route answers the repository's read 503: the owner's read (positive control) is unavailable on cross_user_read",
+      "observed": [
+        "NOT_VERIFIABLE UPSTREAM_UNAVAILABLE",
+        "ENFORCED REFUSED",
+        "ENFORCED REFUSED"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.5",
+      "id": "*/NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE",
+      "situation": "an answer of this category on any sub-test that does not judge it: 502, 503, 504: the gateway could not reach the backend, or the backend did not answer in time. It says nothing about the guarantee (one rule for every test)",
+      "expected": "NOT_VERIFIABLE UPSTREAM_UNAVAILABLE",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-repo-read-503",
+      "how": "a route answers the repository's read 503 to everyone: both read-backs unavailable",
+      "observed": [
+        "NOT_VERIFIABLE UPSTREAM_UNAVAILABLE",
+        "NOT_VERIFIABLE UPSTREAM_UNAVAILABLE"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.2",
+      "id": "*/NOT_VERIFIABLE/NO_RESPONSE",
+      "situation": "an answer of this category on any sub-test that does not judge it: No HTTP response: timeout, connection refused, TLS error, connection reset. It says nothing about the guarantee (one rule for every test)",
+      "expected": "NOT_VERIFIABLE NO_RESPONSE",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-repo-read-slow",
+      "how": "a route makes the repository's read sleep 7 s, past the run's 5 s read timeout, on every attempt",
+      "observed": [
+        "NOT_VERIFIABLE NO_RESPONSE",
+        "ENFORCED REFUSED",
+        "ENFORCED REFUSED"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.5",
+      "id": "*/NOT_VERIFIABLE/NO_RESPONSE",
+      "situation": "an answer of this category on any sub-test that does not judge it: No HTTP response: timeout, connection refused, TLS error, connection reset. It says nothing about the guarantee (one rule for every test)",
+      "expected": "NOT_VERIFIABLE NO_RESPONSE",
+      "lab": "forgejo-kong",
+      "variant": "kong-2-repo-read-slow",
+      "how": "a route makes the repository's read sleep 7 s, past the run's 5 s read timeout",
+      "observed": [
+        "NOT_VERIFIABLE NO_RESPONSE",
+        "NOT_VERIFIABLE NO_RESPONSE"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "ext.3.1.schemathesis",
+      "id": "input_validated/NOT_VERIFIABLE/NOT_IMPLEMENTED",
+      "situation": "an operation's failing cases quote only `501`: the method is not served",
+      "expected": "NOT_VERIFIABLE NOT_IMPLEMENTED",
+      "lab": "forgejo-kong",
+      "variant": "kong-ext-3-1-version-501",
+      "how": "with user_a's credential (reads only), a temporary route GET ~/api/v1/version$ answers 501 itself: every failing case of that operation quotes only [501]",
+      "observed": [
+        "NOT_VERIFIABLE NOT_IMPLEMENTED",
+        "NOT_VERIFIABLE ONLY_4XX",
+        "VIOLATION INPUT_NOT_VALIDATED FIRM"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.1",
+      "id": "privileged_function_refuses_user/VIOLATION/BFLA/FIRM",
+      "situation": "user_a is served (`2xx`) a privileged operation the specification protects, or that refuses an anonymous request",
+      "expected": "VIOLATION BFLA FIRM",
+      "lab": "crapi-kong",
+      "variant": "none",
+      "how": "the lab as built: GET /workshop/api/management/users/all answers 200 to user_a",
+      "observed": [
+        "NOT_VERIFIABLE DESTRUCTIVE_NOT_PROBED",
+        "VIOLATION BFLA FIRM"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.2",
+      "id": "cross_user_read/VIOLATION/BOLA_READ/CERTAIN",
+      "situation": "user_b is served (`2xx`) user_a's object with the owner's answer",
+      "expected": "VIOLATION BOLA_READ CERTAIN",
+      "lab": "crapi-kong",
+      "variant": "none",
+      "how": "the lab as built: user_b reads user_a's shop order (GET /workshop/api/shop/orders/{order_id} -> 200) with the owner's answer",
+      "observed": [
+        "VIOLATION BOLA_READ CERTAIN"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.2",
+      "id": "cross_user_delete/NOT_APPLICABLE/NO_DELETE_OPERATION",
+      "situation": "no documented `DELETE` addresses the object",
+      "expected": "NOT_APPLICABLE NO_DELETE_OPERATION",
+      "lab": "crapi-kong",
+      "variant": "none",
+      "how": "the lab as built: crAPI documents no DELETE for a shop order",
+      "observed": [
+        "NOT_APPLICABLE NO_DELETE_OPERATION"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.5",
+      "id": "mass_assignment/NOT_VERIFIABLE/FIELDS_NOT_EXPOSED",
+      "situation": "the read-back shows none of the injected field names",
+      "expected": "NOT_VERIFIABLE FIELDS_NOT_EXPOSED",
+      "lab": "crapi-kong",
+      "variant": "none",
+      "how": "the lab as built: the crAPI order read back shows none of the injected field names (its owner is `user`)",
+      "observed": [
+        "NOT_VERIFIABLE FIELDS_NOT_EXPOSED"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "7.3",
+      "id": "concurrent_requests_safe/VIOLATION/RACE_DOUBLE_EFFECT/FIRM",
+      "situation": "more than `max_successful` were accepted (acceptances, not effects)",
+      "expected": "VIOLATION RACE_DOUBLE_EFFECT FIRM",
+      "lab": "crapi-kong",
+      "variant": "none",
+      "how": "the lab as built, freshly reset: the coupon APIGUARD-RACE is created and its 15 simultaneous applications as user_a are all accepted (200)",
+      "observed": [
+        "VIOLATION RACE_DOUBLE_EFFECT FIRM"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "ext.3.1.schemathesis",
+      "id": "input_validated/VIOLATION/INPUT_NOT_VALIDATED/FIRM",
+      "situation": "an operation answers a server error (`500`, ...) to a generated input",
+      "expected": "VIOLATION INPUT_NOT_VALIDATED FIRM",
+      "lab": "crapi-kong",
+      "variant": "none",
+      "how": "crAPI as built, with user_a's credential (reads only): GET /workshop/api/shop/orders/{order_id} answers 500 to a generated input",
+      "observed": [
+        "NOT_VERIFIABLE ONLY_4XX",
+        "VIOLATION INPUT_NOT_VALIDATED FIRM"
+      ],
+      "verdict": "FAIL",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.1",
+      "id": "privileged_function_refuses_user/NOT_VERIFIABLE/CREDENTIAL_NOT_CONFIRMED",
+      "situation": "user_a is refused like the forged credential, or `401` when the forged credential is not refused",
+      "expected": "NOT_VERIFIABLE CREDENTIAL_NOT_CONFIRMED",
+      "lab": "crapi-kong",
+      "variant": "none",
+      "how": "user_a given a static token crAPI does not accept: user_a and the forged credential both get 401 \"Invalid JWT Token!\" on GET /workshop/api/management/users/all",
+      "observed": [
+        "NOT_VERIFIABLE CREDENTIAL_NOT_CONFIRMED",
+        "NOT_VERIFIABLE DESTRUCTIVE_NOT_PROBED"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "2.1",
+      "id": "privileged_function_refuses_user/NOT_APPLICABLE/PUBLIC_ENDPOINT",
+      "situation": "user_a is served an operation that is public: declared so, and served anonymously too",
+      "expected": "NOT_APPLICABLE PUBLIC_ENDPOINT",
+      "lab": "crapi-kong",
+      "variant": "kong-2-1-users-all-public",
+      "how": "the run reads a local copy of crAPI's specification where GET /workshop/api/management/users/all is replaced by an operation with security [] (public), and a temporary route answers it 200 to user_a and to an anonymous request (crAPI itself refuses the anonymous one)",
+      "observed": [
+        "NOT_APPLICABLE PUBLIC_ENDPOINT",
+        "NOT_VERIFIABLE DESTRUCTIVE_NOT_PROBED"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "7.3",
+      "id": "concurrent_requests_safe/NOT_VERIFIABLE/OPERATION_FAILED",
+      "situation": "none was accepted, and no answer was one that says nothing: the operation refused every attempt",
+      "expected": "NOT_VERIFIABLE OPERATION_FAILED",
+      "lab": "crapi-kong",
+      "variant": "kong-7-3-coupon-400",
+      "how": "a temporary route on POST /workshop/api/shop/apply_coupon answers every application 400 'Coupon code is already claimed by you' (the answer crAPI gives once user_a has claimed the coupon)",
+      "observed": [
+        "NOT_VERIFIABLE OPERATION_FAILED"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "7.3",
+      "id": "*/NOT_VERIFIABLE/RATE_LIMITED",
+      "situation": "an answer of this category on any sub-test that does not judge it: 429: refused for the rate of the requests. It says nothing about the guarantee (one rule for every test)",
+      "expected": "NOT_VERIFIABLE RATE_LIMITED",
+      "lab": "crapi-kong",
+      "variant": "kong-7-3-coupon-429",
+      "how": "a route POST ~/workshop/api/shop/apply_coupon$ whose pre-function answers every application 429",
+      "observed": [
+        "NOT_VERIFIABLE RATE_LIMITED"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "7.3",
+      "id": "*/NOT_VERIFIABLE/SERVER_ERROR",
+      "situation": "an answer of this category on any sub-test that does not judge it: 500, 505-508, 510: the application failed. It says nothing about the guarantee (one rule for every test)",
+      "expected": "NOT_VERIFIABLE SERVER_ERROR",
+      "lab": "crapi-kong",
+      "variant": "kong-7-3-coupon-500",
+      "how": "a route POST ~/workshop/api/shop/apply_coupon$ whose pre-function answers every application 500",
+      "observed": [
+        "NOT_VERIFIABLE SERVER_ERROR"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "7.3",
+      "id": "*/NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE",
+      "situation": "an answer of this category on any sub-test that does not judge it: 502, 503, 504: the gateway could not reach the backend, or the backend did not answer in time. It says nothing about the guarantee (one rule for every test)",
+      "expected": "NOT_VERIFIABLE UPSTREAM_UNAVAILABLE",
+      "lab": "crapi-kong",
+      "variant": "kong-7-3-coupon-503",
+      "how": "a route POST ~/workshop/api/shop/apply_coupon$ whose pre-function answers every application 503",
+      "observed": [
+        "NOT_VERIFIABLE UPSTREAM_UNAVAILABLE"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "7.3",
+      "id": "concurrent_requests_safe/ENFORCED/CONCURRENCY_SERIALIZED",
+      "situation": "at most `max_successful` of the concurrent requests were accepted (`2xx`) and the others refused with an answer that says something",
+      "expected": "ENFORCED CONCURRENCY_SERIALIZED",
+      "lab": "crapi-kong",
+      "variant": "kong-7-3-coupon-first-200-then-400",
+      "how": "a route POST ~/workshop/api/shop/apply_coupon$ whose pre-function answers the first of the 15 simultaneous applications 200 and every other one 400 'Coupon code is already claimed by you'",
+      "observed": [
+        "ENFORCED CONCURRENCY_SERIALIZED"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "7.3",
+      "id": "*/NOT_VERIFIABLE/NO_RESPONSE",
+      "situation": "an answer of this category on any sub-test that does not judge it: No HTTP response: timeout, connection refused, TLS error, connection reset. It says nothing about the guarantee (one rule for every test)",
+      "expected": "NOT_VERIFIABLE NO_RESPONSE",
+      "lab": "crapi-kong",
+      "variant": "kong-7-3-coupon-slow",
+      "how": "a route POST ~/workshop/api/shop/apply_coupon$ whose pre-function waits 7 s before proxying, with the run's target.read_timeout 5.0",
+      "observed": [
+        "NOT_VERIFIABLE NO_RESPONSE"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "7.3",
+      "id": "concurrent_requests_safe/NOT_VERIFIABLE/OBJECT_NOT_CREATED",
+      "situation": "the prepared resource could not be created",
+      "expected": "NOT_VERIFIABLE OBJECT_NOT_CREATED",
+      "lab": "crapi-kong",
+      "variant": "kong-7-3-new-coupon-403",
+      "how": "a route POST ~/community/api/v2/coupon/new-coupon$ on community-service answers 403 itself, so the prepared resource coupon is not created",
+      "observed": [
+        "NOT_VERIFIABLE OBJECT_NOT_CREATED"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    }
+  ],
+  "not_producible": []
+}

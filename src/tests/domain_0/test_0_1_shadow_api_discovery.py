@@ -322,6 +322,12 @@ _ORACLE: tuple[OracleCase, ...] = (
         outcome=Outcome.NOT_APPLICABLE,
         detail="ROUTES_NOT_SUPPORTED",
     ),
+    OracleCase(
+        sub_test=_SUB_ROUTES,
+        when="the gateway has routes, and they could not be read",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail=CONCEPT_NOT_ACCESSIBLE,
+    ),
 )
 
 

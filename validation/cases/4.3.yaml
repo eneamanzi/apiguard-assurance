@@ -1,0 +1,48 @@
+test: '4.3'
+name: Circuit Breaker Audit
+sub_tests:
+
+  degradation_configured:
+
+    - id: ENFORCED/CIRCUIT_BREAKER
+      situation: an enabled circuit breaker
+      expected:
+        outcome: ENFORCED
+        detail: CIRCUIT_BREAKER
+      how: a temporary APISIX route on forgejo-upstream with the api-breaker plugin (3 failures to open)
+      lab: forgejo-apisix
+      variant: apisix-4-3-breaker-route
+
+    - id: ENFORCED/HEALTH_CHECK
+      situation: 'no breaker, and a health check that detects a failing backend: a compensating control (the note
+        says whether an excluded backend comes back by itself)'
+      expected:
+        outcome: ENFORCED
+        detail: HEALTH_CHECK
+      how: 'the lab as built: forgejo-upstream has a passive check (http_failures 5, timeouts 3) and active probes
+        of unhealthy targets'
+      lab: forgejo-kong
+      variant: none
+
+    - id: VIOLATION/NO_CIRCUIT_BREAKER/CERTAIN
+      situation: neither, each concept read or one the gateway does not have
+      expected:
+        outcome: VIOLATION
+        detail: NO_CIRCUIT_BREAKER
+        confidence: CERTAIN
+      how: forgejo-upstream's healthchecks replaced by an empty block, so Kong fills its defaults (zero thresholds,
+        zero intervals) and no breaker plugin exists
+      lab: forgejo-kong
+      variant: kong-4-3-no-healthchecks
+
+    - id: NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE
+      situation: neither in what was read, and a concept the gateway has could not be read
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: CONCEPT_NOT_ACCESSIBLE
+      how: 'the run''s gateway.admin.url points to a closed port: neither the breakers nor the health checks can
+        be read'
+      lab: forgejo-kong
+      variant: none
+      config:
+        gateway.admin.url: https://127.0.0.1:9

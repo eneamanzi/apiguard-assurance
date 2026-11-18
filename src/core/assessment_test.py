@@ -82,6 +82,8 @@ from typing_extensions import TypeVar
 
 from src.core.evidence import EvidenceStore
 from src.core.models import (
+    CaseCount,
+    Confidence,
     Coverage,
     EvidenceRecord,
     Finding,
@@ -116,7 +118,11 @@ _UNINFORMATIVE_DETAILS: frozenset[str] = frozenset(c.value for c in UNINFORMATIV
 # one rule for every test that reads a concept (BaseTest._unread_concept).
 CONCEPT_NOT_ACCESSIBLE: str = "CONCEPT_NOT_ACCESSIBLE"
 # The NOT_VERIFIABLE details every test may record without declaring them.
-_SHARED_DETAILS: frozenset[str] = _UNINFORMATIVE_DETAILS | {CONCEPT_NOT_ACCESSIBLE}
+# CONCEPT_NOT_ACCESSIBLE is not one of them: only _unread_concept records it
+# undeclared (by_rule), on every sub-test; a test recording it itself, on one
+# sub-test, declares it in its oracle, so its page and its validation cases
+# show it (until 2026-11-17 four tests recorded it undeclared).
+_SHARED_DETAILS: frozenset[str] = _UNINFORMATIVE_DETAILS
 
 # The skip reason of a test that ran but found nothing it applies to.
 _NOTHING_TO_APPLY: str = "Nothing the test applies to"
@@ -124,12 +130,9 @@ _NOTHING_TO_APPLY: str = "Nothing the test applies to"
 
 @dataclass
 class _SubTestTally:
-    """What one sub-test has judged so far (the counters of a SubTestResult)."""
+    """What one sub-test has judged so far: each case of its oracle and how often."""
 
-    violations: int = 0
-    enforced: int = 0
-    not_applicable: int = 0
-    not_verifiable_reasons: dict[str, int] = field(default_factory=dict)
+    cases: dict[tuple[Outcome, str, Confidence | None], int] = field(default_factory=dict)
 
 
 class NoParams(BaseModel):
@@ -385,6 +388,8 @@ class AssessmentTest(ABC, Generic[ParamsT]):
         outcome: Outcome,
         detail: str,
         finding: Finding | None = None,
+        *,
+        by_rule: bool = False,
     ) -> None:
         """
         Record one judgement: the outcome of one case of a declared sub-test.
@@ -394,6 +399,8 @@ class AssessmentTest(ABC, Generic[ParamsT]):
             outcome:  What the case means for the guarantee.
             detail:   The test's detail of the outcome, UPPER_SNAKE_CASE (for
                       NOT_VERIFIABLE it is the reason, counted in the result).
+            by_rule:  Set only by BaseTest._unread_concept: the shared rule's
+                      CONCEPT_NOT_ACCESSIBLE, recorded without a declaration.
             finding:  The violation's finding: given exactly when the outcome is
                       VIOLATION, with its evidence_ref already set by the caller
                       (_judge() sets it for an HTTP response). A finding
@@ -420,7 +427,9 @@ class AssessmentTest(ABC, Generic[ParamsT]):
                 f"(got {outcome}/{detail} {'with' if finding else 'without'} a finding)"
             )
         confidence = finding.confidence if finding is not None else None
-        shared = outcome == Outcome.NOT_VERIFIABLE and detail in _SHARED_DETAILS
+        shared = outcome == Outcome.NOT_VERIFIABLE and (
+            detail in _SHARED_DETAILS or (by_rule and detail == CONCEPT_NOT_ACCESSIBLE)
+        )
         if not shared and not self.info.declares(sub_test, outcome, detail, confidence):
             shown = f" ({confidence.value})" if confidence else ""
             raise ValueError(
@@ -428,18 +437,12 @@ class AssessmentTest(ABC, Generic[ParamsT]):
                 "a case of its oracle (info.oracle)"
             )
         if outcome == Outcome.VIOLATION:
-            tally.violations += 1
             violation = cast(Finding, finding)
             if not violation.references:
                 violation = violation.model_copy(update={"references": list(self.info.references)})
             self._findings.append(violation)
-        elif outcome == Outcome.ENFORCED:
-            tally.enforced += 1
-        elif outcome == Outcome.NOT_APPLICABLE:
-            tally.not_applicable += 1
-        else:
-            reasons = tally.not_verifiable_reasons
-            reasons[detail] = reasons.get(detail, 0) + 1
+        key = (outcome, detail, confidence)
+        tally.cases[key] = tally.cases.get(key, 0) + 1
 
     def _uninformative(self, record: EvidenceRecord | None, sub_test: str) -> str | None:
         """
@@ -490,12 +493,12 @@ class AssessmentTest(ABC, Generic[ParamsT]):
     def _sub_test_results(self) -> list[SubTestResult]:
         """The result of every declared sub-test, in declaration order."""
         return [
-            SubTestResult.from_counts(
+            SubTestResult.from_cases(
                 name,
-                violations=tally.violations,
-                enforced=tally.enforced,
-                not_applicable=tally.not_applicable,
-                not_verifiable_reasons=tally.not_verifiable_reasons,
+                [
+                    CaseCount(outcome=outcome, detail=detail, confidence=confidence, count=count)
+                    for (outcome, detail, confidence), count in tally.cases.items()
+                ],
                 essential=name in self.info.essential_sub_tests,
             )
             for name, tally in self._tally.items()

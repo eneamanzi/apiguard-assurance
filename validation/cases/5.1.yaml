@@ -1,0 +1,135 @@
+test: '5.1'
+name: Request Logging Audit
+sub_tests:
+
+  request_logging_configured:
+
+    - id: ENFORCED/LOGS_SHIPPED
+      situation: an enabled plugin ships the request logs of every client to another system
+      expected:
+        outcome: ENFORCED
+        detail: LOGS_SHIPPED
+      how: an http-log plugin (endpoint on a closed local port) on forgejo-service
+      lab: forgejo-kong
+      variant: kong-5-1-http-log
+
+    - id: VIOLATION/LOGS_NOT_SHIPPED/FIRM
+      situation: no such plugin enabled (one bound to a single consumer does not count), among configuration values
+        that were read
+      expected:
+        outcome: VIOLATION
+        detail: LOGS_NOT_SHIPPED
+        confidence: FIRM
+      how: 'the lab as built: no log-shipping plugin among the values read'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/NO_CONFIG_VALUE
+      situation: no shipper, and the configuration read returned no value at all
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_CONFIG_VALUE
+      how: the run's gateway.admin.url points to a stand-in Kong Admin API on 127.0.0.1 answering every endpoint
+        with an empty collection
+      lab: forgejo-kong
+      variant: stand-in-admin-empty
+      config:
+        gateway.admin.url: http://127.0.0.1:18001
+        gateway.admin.tls: null
+
+    - id: NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE
+      situation: the gateway has the concept the test reads, and it could not be read (one rule for every test that
+        reads one)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: CONCEPT_NOT_ACCESSIBLE
+      how: the run's gateway.admin.url points to a closed port
+      lab: forgejo-kong
+      variant: none
+      config:
+        gateway.admin.url: https://127.0.0.1:9
+
+  secrets_not_shipped:
+
+    - id: VIOLATION/CREDENTIAL_SHIPPED/FIRM
+      situation: 'an enabled shipper''s record carries a part of the request where the credential travels (the configured
+        placement, a security scheme of the specification), and nothing removes it for all the traffic it logs (FIRM:
+        a plugin rewriting the request, or operator code, is not read)'
+      expected:
+        outcome: VIOLATION
+        detail: CREDENTIAL_SHIPPED
+        confidence: FIRM
+      how: 'an http-log plugin on forgejo-service: Kong''s record carries the query access_token, token, sudo and
+        the headers sudo, x-forgejo-otp, which the specification declares'
+      lab: forgejo-kong
+      variant: kong-5-1-http-log
+
+    - id: NOT_VERIFIABLE/CREDENTIAL_REMOVED_IN_PART
+      situation: the record carries it, and a setting removes it for part of that traffic only, or with a pattern
+        that may leave part of it
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: CREDENTIAL_REMOVED_IN_PART
+      how: a global rule with http-logger and a data-mask removing every place the specification declares, Authorization
+        masked by a regex
+      lab: forgejo-apisix
+      variant: apisix-5-1-logger-mask-regex
+
+    - id: ENFORCED/CREDENTIAL_NOT_SHIPPED
+      situation: the record carries none of those parts, or they are removed for all its traffic
+      expected:
+        outcome: ENFORCED
+        detail: CREDENTIAL_NOT_SHIPPED
+      how: 'an http-log plugin on crAPI''s identity-service: the only scheme is bearer, in Authorization, which
+        Kong''s record redacts'
+      lab: crapi-kong
+      variant: kong-5-1-identity-http-log
+
+    - id: NOT_VERIFIABLE/RECORD_NOT_STATED
+      situation: the gateway does not state what the record carries (operator code builds it)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: RECORD_NOT_STATED
+      how: an http-log plugin on forgejo-service with custom_fields_by_lua setting request.headers.sudo
+      lab: forgejo-kong
+      variant: kong-5-1-http-log-custom-fields
+
+    - id: NOT_VERIFIABLE/CREDENTIAL_PLACE_UNKNOWN
+      situation: neither the configuration nor the specification says where a credential travels
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: CREDENTIAL_PLACE_UNKNOWN
+      how: an http-log plugin on forgejo-service, a run without credentials, and a local copy of Forgejo's specification
+        with no security definitions
+      lab: forgejo-kong
+      variant: kong-5-1-http-log
+      config:
+        credentials: {}
+      spec:
+        set:
+          securityDefinitions: {}
+          security: []
+        add_operations: []
+        drop_plain_get: false
+        drop_operations: []
+
+    - id: NOT_APPLICABLE/NO_SHIPPER
+      situation: no enabled shipper
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NO_SHIPPER
+      how: 'the lab as built: no log-shipping plugin'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE
+      situation: the gateway has the concept the test reads, and it could not be read (one rule for every test that
+        reads one)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: CONCEPT_NOT_ACCESSIBLE
+      how: the run's gateway.admin.url points to a closed port
+      lab: forgejo-kong
+      variant: none
+      config:
+        gateway.admin.url: https://127.0.0.1:9

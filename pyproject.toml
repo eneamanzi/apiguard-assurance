@@ -262,6 +262,8 @@ exclude = [
 # Development dependencies: tooling only, never imported at runtime.
 # ---------------------------------------------------------------------------
 [tool.hatch.envs.dev]
+# The schemathesis extra: validation/run.py runs every test, ext.3.1.schemathesis included.
+features = ["schemathesis"]
 dependencies = [
     # End-to-end test runner against real target (no mocks).
     "pytest==8.4.2",
@@ -333,12 +335,13 @@ audit = [
 check = [
     "ruff check .",
     "ruff format --check .",
-    "mypy src/ scripts/",
+    "mypy src/ scripts/ validation/",
     "bandit -r src/ -c pyproject.toml --severity-level medium",
     "vulture src/ --min-confidence 80",
     "lint-imports",
     "python scripts/check_config_keys.py",
     "python scripts/generate_docs.py --check",
+    "python validation/check.py",
 ]
 gen = [
     "python scripts/generate_docs.py",
@@ -419,6 +422,8 @@ exclude = ["*.md"]
 # ---------------------------------------------------------------------------
 [tool.mypy]
 python_version = "3.11"
+# The validation scripts import the documentation generator (scripts/) and each other.
+mypy_path = "scripts:validation"
 plugins = ["pydantic.mypy"]
 strict = true
 warn_return_any = true

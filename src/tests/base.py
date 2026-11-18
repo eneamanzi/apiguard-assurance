@@ -191,7 +191,7 @@ class BaseTest(AssessmentTest[ParamsT]):
             reason = f"Not applicable to this gateway: {concept}: {why}."
             return self._skip(reason=f"{reason} Evidence: {evidence_ref}.")
         for sub_test in self.info.sub_tests:
-            self._record(sub_test, Outcome.NOT_VERIFIABLE, CONCEPT_NOT_ACCESSIBLE)
+            self._record(sub_test, Outcome.NOT_VERIFIABLE, CONCEPT_NOT_ACCESSIBLE, by_rule=True)
         return self._finish(
             notes=[
                 InfoNote(

@@ -199,6 +199,23 @@ one that is `SKIP` (it judged no case at all), or a `PASS` sub-test that is itse
 | `not_applicable` | int | Cases judged `NOT_APPLICABLE`. |
 | `not_verifiable_reasons` | object | Why cases were not verifiable: each detail and how many times. |
 | `essential` | bool | Whether the test declares this sub-test essential: a test whose essential sub-tests all verified nothing is `INCONCLUSIVE`, whatever its other sub-tests say. |
+| `cases` | array of [`CaseCount`](#casecount) | Every case judged, as the row of the test's oracle (outcome, detail, confidence) and how many times; the counters above are their sums. |
+
+<!-- [[[end]]] -->
+
+## `CaseCount`
+
+One case of the test's oracle as judged in the run: the row its oracle declares (section 6 of the test's page) and how
+many times. A reader comparing a run with the oracle reads these rows; the counters of `SubTestResult` are their sums.
+
+<!-- [[[cog import generate_docs as g; cog.out(g.report_table("CaseCount")) ]]] -->
+
+| Field | Type | Description |
+|---|---|---|
+| `outcome` | string | The outcome of the case. |
+| `detail` | string | The test's detail of the outcome. |
+| `confidence` | string \| null | For a `VIOLATION`, its finding's confidence; else null. |
+| `count` | int | How many times the case was judged. |
 
 <!-- [[[end]]] -->
 
@@ -451,7 +468,10 @@ Test 0.2 alone on the Forgejo + Kong lab, 2026-11-04 (one sub-test and one findi
           "not_verifiable": 0,
           "not_applicable": 0,
           "not_verifiable_reasons": {},
-          "essential": false
+          "essential": false,
+          "cases": [
+            {"outcome": "ENFORCED", "detail": "REFUSED_BY_GATEWAY", "confidence": null, "count": 1}
+          ]
         }
       ],
       "findings": [

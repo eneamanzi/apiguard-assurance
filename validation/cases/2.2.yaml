@@ -1,0 +1,323 @@
+test: '2.2'
+name: Object-Level Authorization
+sub_tests:
+
+  cross_user_read:
+
+    - id: ENFORCED/REFUSED
+      situation: user_b is refused (`401`, `403`, `404`) unlike the forged credential
+      expected:
+        outcome: ENFORCED
+        detail: REFUSED
+      how: 'the lab as built: user_a''s private repository is read by user_b, Forgejo answers 404 while the forged
+        credential gets 401'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/CREDENTIAL_NOT_CONFIRMED
+      situation: user_b is refused like the forged credential, or `401` when the forged credential is not refused
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: CREDENTIAL_NOT_CONFIRMED
+      how: a counter route on the repository's read passes the forged credential's and the owner's reads to Forgejo
+        and answers user_b's read 401, as Forgejo answers the forged credential
+      lab: forgejo-kong
+      variant: kong-2-2-user-b-read-401
+
+    - id: NOT_VERIFIABLE/NOT_A_REFUSAL
+      situation: user_b's answer is neither `2xx` nor a refusal (a redirect, `400`, `405`)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NOT_A_REFUSAL
+      how: a counter route answers user_b's read of the repository 400 (the first two reads, forged and owner, reach
+        Forgejo)
+      lab: forgejo-kong
+      variant: kong-2-2-not-a-refusal
+
+    - id: NOT_VERIFIABLE/OBJECT_NOT_CREATED
+      situation: the prepared resource did not create the object
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: OBJECT_NOT_CREATED
+      how: the repository resource's create body is given a name Forgejo refuses (spaces), so the create answers
+        422 and no object exists
+      lab: forgejo-kong
+      variant: none
+      config:
+        resources.repository.create.body.name: not a valid name
+
+    - id: VIOLATION/BOLA_READ/CERTAIN
+      situation: user_b is served (`2xx`) user_a's object with the owner's answer
+      expected:
+        outcome: VIOLATION
+        detail: BOLA_READ
+        confidence: CERTAIN
+      how: 'the lab as built: user_b reads user_a''s shop order (GET /workshop/api/shop/orders/{order_id} -> 200)
+        with the owner''s answer'
+      lab: crapi-kong
+      variant: none
+
+    - id: VIOLATION/BOLA_READ/FIRM
+      situation: user_b is served with another answer (a `200` may carry an error)
+      expected:
+        outcome: VIOLATION
+        detail: BOLA_READ
+        confidence: FIRM
+      how: a counter route passes the forged and owner reads of the repository to Forgejo and answers user_b's read
+        200 with a JSON envelope of another shape
+      lab: forgejo-kong
+      variant: kong-2-2-user-b-read-200-other
+
+    - id: VIOLATION/BOLA_READ_SUBRESOURCE/FIRM
+      situation: user_b is served a sub-resource read after the object's own read refused user_b
+      expected:
+        outcome: VIOLATION
+        detail: BOLA_READ_SUBRESOURCE
+        confidence: FIRM
+      how: a route answers GET /api/v1/repos/user-a/<repo>/branches 200 to everyone, after the repository's own
+        read refused user_b (404)
+      lab: forgejo-kong
+      variant: kong-2-2-object-writes-served
+
+    - id: NOT_VERIFIABLE/OWNER_NOT_SERVED
+      situation: user_a is not served its own object's read
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: OWNER_NOT_SERVED
+      how: a route answers the repository's read 404 to everyone, the owner included
+      lab: forgejo-kong
+      variant: kong-2-repo-read-404
+
+    - id: NOT_APPLICABLE/OWNER_NOT_SERVED_HERE
+      situation: user_a is not served a sub-resource read either (not unavailable, a real refusal)
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: OWNER_NOT_SERVED_HERE
+      how: 'the lab as built: of the repository''s sub-resource reads, 14 are not served to the owner either'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_APPLICABLE/NO_READ_OPERATION
+      situation: no documented read addresses the object
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NO_READ_OPERATION
+      how: the specification's local copy without GET/HEAD on every path whose parameters are only {owner} and {repo}
+      lab: forgejo-kong
+      variant: none
+      spec:
+        set: {}
+        add_operations: []
+        drop_plain_get: false
+        drop_operations:
+          - within_parameters:
+              - owner
+              - repo
+            methods:
+              - get
+              - head
+
+  cross_user_modify:
+
+    - id: ENFORCED/REFUSED
+      situation: user_b is refused (`401`, `403`, `404`) unlike the forged credential
+      expected:
+        outcome: ENFORCED
+        detail: REFUSED
+      how: 'the lab as built: user_b''s empty PATCH on user_a''s repository answers 404 while the forged credential
+        gets 401'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/CREDENTIAL_NOT_CONFIRMED
+      situation: user_b is refused like the forged credential, or `401` when the forged credential is not refused
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: CREDENTIAL_NOT_CONFIRMED
+      how: the repository's read answers 404 to everyone, so the forged credential's control is 404 and user_b's
+        PATCH, refused 404 by Forgejo, is in the same category
+      lab: forgejo-kong
+      variant: kong-2-repo-read-404
+
+    - id: NOT_VERIFIABLE/NOT_A_REFUSAL
+      situation: user_b's answer is neither `2xx` nor a refusal (a redirect, `400`, `405`)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NOT_A_REFUSAL
+      how: a route answers PATCH/PUT on the repository 400
+      lab: forgejo-kong
+      variant: kong-2-2-not-a-refusal
+
+    - id: NOT_VERIFIABLE/OBJECT_NOT_CREATED
+      situation: the prepared resource did not create the object
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: OBJECT_NOT_CREATED
+      how: 'the repository resource''s create body is given a name Forgejo refuses (spaces): no object, every sub-test
+        records it'
+      lab: forgejo-kong
+      variant: none
+      config:
+        resources.repository.create.body.name: not a valid name
+
+    - id: VIOLATION/BOLA_MODIFY/FIRM
+      situation: user_b's empty-bodied `PATCH`/`PUT` on user_a's object is accepted (`2xx`)
+      expected:
+        outcome: VIOLATION
+        detail: BOLA_MODIFY
+        confidence: FIRM
+      how: a route answers PATCH/PUT on the repository 200
+      lab: forgejo-kong
+      variant: kong-2-2-object-writes-served
+
+    - id: NOT_APPLICABLE/NO_MODIFY_OPERATION
+      situation: no documented `PATCH`/`PUT` addresses the object
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NO_MODIFY_OPERATION
+      how: the specification's local copy without PATCH/PUT on every path whose parameters are only {owner} and
+        {repo}
+      lab: forgejo-kong
+      variant: none
+      spec:
+        set: {}
+        add_operations: []
+        drop_plain_get: false
+        drop_operations:
+          - within_parameters:
+              - owner
+              - repo
+            methods:
+              - patch
+              - put
+
+  cross_user_delete:
+
+    - id: ENFORCED/REFUSED
+      situation: user_b is refused (`401`, `403`, `404`) unlike the forged credential
+      expected:
+        outcome: ENFORCED
+        detail: REFUSED
+      how: 'the lab as built: user_b''s DELETE on user_a''s repository answers 404 while the forged credential gets
+        401'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/CREDENTIAL_NOT_CONFIRMED
+      situation: user_b is refused like the forged credential, or `401` when the forged credential is not refused
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: CREDENTIAL_NOT_CONFIRMED
+      how: the repository's read answers 404 to everyone, so the forged control is 404 and user_b's DELETE, refused
+        404 by Forgejo, is in the same category
+      lab: forgejo-kong
+      variant: kong-2-repo-read-404
+
+    - id: NOT_VERIFIABLE/NOT_A_REFUSAL
+      situation: user_b's answer is neither `2xx` nor a refusal (a redirect, `400`, `405`)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NOT_A_REFUSAL
+      how: a route answers the first DELETE on the repository (user_b's) 405 and passes the later one (the test's
+        clean-up) to Forgejo
+      lab: forgejo-kong
+      variant: kong-2-2-not-a-refusal
+
+    - id: NOT_VERIFIABLE/OBJECT_NOT_CREATED
+      situation: the prepared resource did not create the object
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: OBJECT_NOT_CREATED
+      how: 'the repository resource''s create body is given a name Forgejo refuses (spaces): no object, every sub-test
+        records it'
+      lab: forgejo-kong
+      variant: none
+      config:
+        resources.repository.create.body.name: not a valid name
+
+    - id: VIOLATION/BOLA_DELETE/CERTAIN
+      situation: user_b's `DELETE` is accepted, and the object served to user_a before is gone after
+      expected:
+        outcome: VIOLATION
+        detail: BOLA_DELETE
+        confidence: CERTAIN
+      how: a route answers the first DELETE on the repository (user_b's) 200 without reaching Forgejo and marks
+        it gone, the repository's read then answers the owner 404; the clean-up DELETE reaches Forgejo
+      lab: forgejo-kong
+      variant: kong-2-2-object-writes-served
+
+    - id: VIOLATION/BOLA_DELETE/FIRM
+      situation: user_b's `DELETE` is accepted, and the object is not shown gone
+      expected:
+        outcome: VIOLATION
+        detail: BOLA_DELETE
+        confidence: FIRM
+      how: a route answers the first DELETE on the repository 200 and the repository's read then answers the owner
+        403 (neither gone nor served); the clean-up DELETE reaches Forgejo
+      lab: forgejo-kong
+      variant: kong-2-2-delete-not-shown-gone
+
+    - id: NOT_VERIFIABLE/DELETE_NOT_APPLIED
+      situation: 'user_b''s `DELETE` is accepted, and user_a is still served the object: nothing was deleted'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: DELETE_NOT_APPLIED
+      how: a route answers the first DELETE on the repository 200 without reaching Forgejo, so the owner's read
+        after it is still served; the clean-up DELETE reaches Forgejo
+      lab: forgejo-kong
+      variant: kong-2-2-delete-not-applied
+
+    - id: NOT_APPLICABLE/NO_DELETE_OPERATION
+      situation: no documented `DELETE` addresses the object
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NO_DELETE_OPERATION
+      how: 'the lab as built: crAPI documents no DELETE for a shop order'
+      lab: crapi-kong
+      variant: none
+
+  any_sub_test:
+
+    - id: NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE
+      situation: 'an answer of this category on any sub-test that does not judge it: 502, 503, 504: the gateway
+        could not reach the backend, or the backend did not answer in time. It says nothing about the guarantee
+        (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: UPSTREAM_UNAVAILABLE
+      how: 'a route answers the repository''s read 503: the owner''s read (positive control) is unavailable on cross_user_read'
+      lab: forgejo-kong
+      variant: kong-2-repo-read-503
+
+    - id: NOT_VERIFIABLE/RATE_LIMITED
+      situation: 'an answer of this category on any sub-test that does not judge it: 429: refused for the rate of
+        the requests. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: RATE_LIMITED
+      how: 'a route answers the repository''s read 429: the owner''s read is throttled on cross_user_read'
+      lab: forgejo-kong
+      variant: kong-2-repo-read-429
+
+    - id: NOT_VERIFIABLE/SERVER_ERROR
+      situation: 'an answer of this category on any sub-test that does not judge it: 500, 505-508, 510: the application
+        failed. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: SERVER_ERROR
+      how: 'a route answers the repository''s read 500: the owner''s read fails on cross_user_read'
+      lab: forgejo-kong
+      variant: kong-2-repo-read-500
+
+    - id: NOT_VERIFIABLE/NO_RESPONSE
+      situation: 'an answer of this category on any sub-test that does not judge it: No HTTP response: timeout,
+        connection refused, TLS error, connection reset. It says nothing about the guarantee (one rule for every
+        test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_RESPONSE
+      how: a route makes the repository's read sleep 7 s, past the run's 5 s read timeout, on every attempt
+      lab: forgejo-kong
+      variant: kong-2-repo-read-slow
+      config:
+        target.read_timeout: 5.0

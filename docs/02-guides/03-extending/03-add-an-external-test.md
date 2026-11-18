@@ -158,7 +158,7 @@ empty.
 
 | Helper | Use |
 |---|---|
-| `_record(sub_test, outcome, detail, finding=None)` | Record one judgement: the outcome of one case of a declared sub-test. |
+| `_record(sub_test, outcome, detail, finding=None, *, by_rule=False)` | Record one judgement: the outcome of one case of a declared sub-test. |
 | `_finish(notes=None, message=None)` | The result of a test that ran to the end, computed from its judgements. |
 | `_skip(reason, notes=None)` | SKIP before the start: something the test needs is missing. |
 | `_error(exc, message=None)` | ERROR from an exception, for the except block of a test. |

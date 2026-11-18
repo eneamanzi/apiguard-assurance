@@ -27,8 +27,8 @@ Symbol inventory by source module:
     surface.py         ParameterInfo, EndpointRecord, AttackSurface,
                        SecuritySchemeRecord, SecuritySchemeType, DerivationBasis, DerivedFact
 
-    results.py         Finding, InfoNote, SubTestResult, TestResult, ResultSet, NotRunEntry,
-                       status_from_counts, combine_sub_tests
+    results.py         Finding, InfoNote, CaseCount, SubTestResult, TestResult, ResultSet,
+                       NotRunEntry, status_from_counts, combine_sub_tests
 
     runtime.py         RuntimeCredentials, SendAs, AuthType, CredentialLocation
                        (per-test parameters: in each test's module)
@@ -79,6 +79,7 @@ from src.core.models.resources import (
     ResourceConfig,
 )
 from src.core.models.results import (
+    CaseCount,
     Finding,
     InfoNote,
     NotRunEntry,
@@ -130,6 +131,7 @@ __all__ = [
     # results.py
     "Finding",
     "InfoNote",
+    "CaseCount",
     "SubTestResult",
     "TestResult",
     "status_from_counts",

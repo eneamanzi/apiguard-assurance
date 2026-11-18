@@ -89,3 +89,6 @@ nosetests.xml
 *~
 .DS_Store
 Thumbs.db
+
+# Validation campaigns: the raw reports of each run stay local; the result (.md, .json) is kept.
+validation/results/*-runs/

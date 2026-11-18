@@ -85,6 +85,7 @@ READ_ONLY.
 | the read succeeded and returned no value at all | `NOT_VERIFIABLE/NO_CONFIG_VALUE` | - |
 | no gateway is configured | `NOT_APPLICABLE/NO_GATEWAY` | - |
 | the gateway's adapter does not read configuration values | `NOT_APPLICABLE/CONFIG_NOT_SUPPORTED` | - |
+| the gateway has configuration values, and they could not be read | `NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE` | - |
 
 <!-- [[[end]]] -->
 

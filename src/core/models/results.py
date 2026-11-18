@@ -8,7 +8,8 @@ accumulated by the engine over a pipeline run.
 
     Finding        -- Unit of technical evidence produced by a FAIL result.
     InfoNote       -- Informational annotation for PASS results (non-violation context).
-    SubTestResult  -- Counters and status of one declared sub-test.
+    CaseCount      -- One case of a test's oracle, as judged in a run, and how often.
+    SubTestResult  -- Counters, cases and status of one declared sub-test.
     TestResult     -- Complete outcome of a single BaseTest.execute() call.
     ResultSet      -- Ordered collection of all TestResult objects for a pipeline run.
 
@@ -30,7 +31,14 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from src.core.models.enums import Confidence, Coverage, ExitCode, NotRunReason, TestStatus
+from src.core.models.enums import (
+    Confidence,
+    Coverage,
+    ExitCode,
+    NotRunReason,
+    Outcome,
+    TestStatus,
+)
 from src.core.models.http import TransactionSummary
 from src.core.models.standards import Reference, duplicate_references
 
@@ -206,13 +214,33 @@ def status_from_counts(violations: int, enforced: int, not_verifiable: int) -> T
     return TestStatus.SKIP
 
 
+class CaseCount(BaseModel):
+    """
+    One case of a test's oracle as judged in a run: the row of the oracle the
+    test declares (outcome, detail, confidence) and how many times.
+
+    The shared answers that say nothing (UPSTREAM_UNAVAILABLE and the others)
+    are cases too, with their own detail.
+    """
+
+    model_config = {"frozen": True}
+
+    outcome: Outcome = Field(description="The outcome of the case.")
+    detail: str = Field(min_length=1, description="The test's detail of the outcome.")
+    confidence: Confidence | None = Field(
+        default=None, description="For a `VIOLATION`, its finding's confidence; else null."
+    )
+    count: int = Field(ge=1, description="How many times the case was judged.")
+
+
 class SubTestResult(BaseModel):
     """
-    The counters and status of one sub-test a test declares.
+    The counters, cases and status of one sub-test a test declares.
 
-    Built with from_counts(), which computes the status and the coverage, so
-    that the counters and the status can never disagree. Every sub-test the
-    test declares has one, even when nothing was judged in it (SKIP).
+    Built with from_cases(), which derives the counters, the reasons, the
+    status and the coverage from the cases judged, so that none of them can
+    disagree. Every sub-test the test declares has one, even when nothing was
+    judged in it (SKIP).
     """
 
     model_config = {"frozen": True}
@@ -240,34 +268,44 @@ class SubTestResult(BaseModel):
             "all verified nothing is `INCONCLUSIVE`, whatever its other sub-tests say."
         ),
     )
+    cases: list[CaseCount] = Field(
+        default_factory=list,
+        description=(
+            "Every case judged, as the row of the test's oracle (outcome, detail, confidence) "
+            "and how many times; the counters above are their sums."
+        ),
+    )
 
     @classmethod
-    def from_counts(
+    def from_cases(
         cls,
         name: str,
+        cases: list[CaseCount],
         *,
-        violations: int,
-        enforced: int,
-        not_applicable: int,
-        not_verifiable_reasons: dict[str, int],
         essential: bool = False,
     ) -> SubTestResult:
         """
-        Build a sub-test's result, computing its status and coverage.
+        Build a sub-test's result from the cases judged, computing everything else.
 
         Args:
-            name:                   The sub-test's declared name.
-            violations:             Cases judged VIOLATION.
-            enforced:               Cases judged ENFORCED.
-            not_applicable:         Cases judged NOT_APPLICABLE.
-            not_verifiable_reasons: The details of the NOT_VERIFIABLE cases
-                                    and their counts.
-            essential:              Whether the test declares it essential
-                                    (TestInfo.essential_sub_tests).
+            name:      The sub-test's declared name.
+            cases:     The cases judged, one per (outcome, detail, confidence).
+            essential: Whether the test declares it essential
+                       (TestInfo.essential_sub_tests).
 
         Returns:
             The SubTestResult.
         """
+        ordered = sorted(
+            cases,
+            key=lambda c: (c.outcome.value, c.detail, c.confidence.value if c.confidence else ""),
+        )
+        violations = _sum_of(ordered, Outcome.VIOLATION)
+        enforced = _sum_of(ordered, Outcome.ENFORCED)
+        not_applicable = _sum_of(ordered, Outcome.NOT_APPLICABLE)
+        not_verifiable_reasons = {
+            case.detail: case.count for case in ordered if case.outcome == Outcome.NOT_VERIFIABLE
+        }
         not_verifiable = sum(not_verifiable_reasons.values())
         status = status_from_counts(violations, enforced, not_verifiable)
         coverage = None
@@ -281,8 +319,9 @@ class SubTestResult(BaseModel):
             enforced=enforced,
             not_verifiable=not_verifiable,
             not_applicable=not_applicable,
-            not_verifiable_reasons=dict(not_verifiable_reasons),
+            not_verifiable_reasons=not_verifiable_reasons,
             essential=essential,
+            cases=ordered,
         )
 
     @model_validator(mode="after")
@@ -302,7 +341,24 @@ class SubTestResult(BaseModel):
             )
         if (self.coverage is not None) != (self.status == TestStatus.PASS):
             raise ValueError(f"sub-test {self.name!r}: coverage is set only for a PASS")
+        reasons = {
+            case.detail: case.count for case in self.cases if case.outcome == Outcome.NOT_VERIFIABLE
+        }
+        counted = (
+            _sum_of(self.cases, Outcome.VIOLATION),
+            _sum_of(self.cases, Outcome.ENFORCED),
+            _sum_of(self.cases, Outcome.NOT_APPLICABLE),
+            reasons,
+        )
+        held = (self.violations, self.enforced, self.not_applicable, self.not_verifiable_reasons)
+        if counted != held:
+            raise ValueError(f"sub-test {self.name!r}: its cases do not add up to its counters")
         return self
+
+
+def _sum_of(cases: list[CaseCount], outcome: Outcome) -> int:
+    """How many cases of one outcome were judged."""
+    return sum(case.count for case in cases if case.outcome == outcome)
 
 
 def combine_sub_tests(sub_tests: list[SubTestResult]) -> tuple[TestStatus, Coverage | None]:

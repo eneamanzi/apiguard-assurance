@@ -1,0 +1,361 @@
+test: '0.1'
+name: Undeclared Methods, Undocumented Versions and Gateway Route Drift
+sub_tests:
+
+  undeclared_methods:
+
+    - id: ENFORCED/METHOD_REJECTED
+      situation: an undeclared method, or TRACE, answers `405` or `501`
+      expected:
+        outcome: ENFORCED
+        detail: METHOD_REJECTED
+      how: 'the lab as built: Forgejo answers 405 to an undeclared method on most documented paths'
+      lab: forgejo-kong
+      variant: none
+
+    - id: ENFORCED/METHOD_NOT_SERVED
+      situation: a path without parameters answers the method like its random siblings, not `2xx`
+      expected:
+        outcome: ENFORCED
+        detail: METHOD_NOT_SERVED
+      how: 'the lab as built: on a path without parameters Forgejo answers an undeclared method exactly as an unknown
+        path'
+      lab: forgejo-kong
+      variant: none
+
+    - id: VIOLATION/UNDECLARED_METHOD_HANDLED/CERTAIN
+      situation: a path without parameters serves the method (`2xx`) unlike its random siblings
+      expected:
+        outcome: VIOLATION
+        detail: UNDECLARED_METHOD_HANDLED
+        confidence: CERTAIN
+      how: a Kong route on /api/v1/version (documented GET only) answers 200 to POST, PUT, PATCH, DELETE, while
+        its random siblings reach Forgejo
+      lab: forgejo-kong
+      variant: kong-0-1-served-routes
+
+    - id: VIOLATION/UNDECLARED_METHOD_HANDLED/FIRM
+      situation: a path with parameters serves the method (`2xx`) on a random object
+      expected:
+        outcome: VIOLATION
+        detail: UNDECLARED_METHOD_HANDLED
+        confidence: FIRM
+      how: 'a Kong route on /api/v1/users/<any>/heatmap (documented GET only) answers 200 to POST, PUT, PATCH, DELETE:
+        the probe on a random username is served'
+      lab: forgejo-kong
+      variant: kong-0-1-served-routes
+
+    - id: VIOLATION/UNDECLARED_METHOD_KNOWN/FIRM
+      situation: a path without parameters answers the method unlike its siblings, neither `2xx` nor a refusal
+      expected:
+        outcome: VIOLATION
+        detail: UNDECLARED_METHOD_KNOWN
+        confidence: FIRM
+      how: a Kong route on /api/v1/settings/api (documented GET only, no documented /settings/{x}) answers 400 to
+        POST, PUT, PATCH, DELETE, unlike its random siblings (Forgejo)
+      lab: forgejo-kong
+      variant: kong-0-1-served-routes
+
+    - id: NOT_VERIFIABLE/REFUSED_BEFORE_METHOD
+      situation: 'refused (`401`, `403`) unlike the siblings, or TRACE refused: an authentication before the method'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: REFUSED_BEFORE_METHOD
+      how: 'the lab as built: crAPI''s PUT /workshop/api/shop/orders answers 401 where PUT on random siblings gets
+        the router''s 404'
+      lab: crapi-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/REFUSED_BEFORE_ROUTING
+      situation: answered like the siblings, which are refused (`401`, `403`)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: REFUSED_BEFORE_ROUTING
+      how: 'the lab as built: crAPI''s identity service answers 401 to any method on any path, its random siblings
+        included'
+      lab: crapi-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/NONEXISTENT_OBJECT
+      situation: a path with parameters answers neither `2xx` nor `405`
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NONEXISTENT_OBJECT
+      how: 'the lab as built: on paths with parameters Forgejo answers 404 on the random object'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/SIBLING_ROUTE_DOCUMENTED
+      situation: a path next to a documented one with a parameter in its place answers otherwise than its siblings
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: SIBLING_ROUTE_DOCUMENTED
+      how: a Kong route on /api/v1/users/search (next to the documented /users/{username}) answers 400 to its undeclared
+        methods
+      lab: forgejo-kong
+      variant: kong-0-1-served-routes
+
+    - id: NOT_VERIFIABLE/SERVED_LIKE_UNKNOWN
+      situation: served `2xx` exactly as its random siblings (a catch-all)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: SERVED_LIKE_UNKNOWN
+      how: a Kong route ~/api/v1/[^/]+$ answers 200 with the same body to every method, so a documented path is
+        served as its random siblings are
+      lab: forgejo-kong
+      variant: kong-0-1-catch-all
+
+    - id: NOT_VERIFIABLE/CALIBRATION_UNSTABLE
+      situation: the calibration of the random siblings is unreliable
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: CALIBRATION_UNSTABLE
+      how: a Kong route matching the tool's random probe names (zqxv + hex) answers 404 with one of two JSON body
+        shapes in turn, so the two calibration probes differ
+      lab: forgejo-kong
+      variant: kong-0-1-unstable-unknown
+
+    - id: VIOLATION/TRACE_ECHOED/CERTAIN
+      situation: TRACE answers `2xx` with the request line sent back
+      expected:
+        outcome: VIOLATION
+        detail: TRACE_ECHOED
+        confidence: CERTAIN
+      how: ''
+      lab: ''
+      variant: ''
+      not_producible:
+        group: gateway
+        reason: Kong answers TRACE itself with 405, before any route (each gateway of the labs answers 405); TRACE_ECHOED
+          was seen only on a scratch server that echoes it
+
+    - id: NOT_VERIFIABLE/TRACE_SERVED_NO_ECHO
+      situation: TRACE answers `2xx` without the echo
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: TRACE_SERVED_NO_ECHO
+      how: ''
+      lab: ''
+      variant: ''
+      not_producible:
+        group: gateway
+        reason: 'Kong answers TRACE itself with 405, before any route (each gateway of the labs answers 405): TRACE
+          never reaches a route or the backend'
+
+    - id: ENFORCED/TRACE_NOT_SERVED
+      situation: TRACE answers anything else (not found, invalid)
+      expected:
+        outcome: ENFORCED
+        detail: TRACE_NOT_SERVED
+      how: ''
+      lab: ''
+      variant: ''
+      not_producible:
+        group: gateway
+        reason: 'Kong answers TRACE itself with 405, before any route (each gateway of the labs answers 405): the
+          answer is always METHOD_REJECTED'
+
+  undocumented_versions:
+
+    - id: ENFORCED/VERSION_ABSENT
+      situation: answers like a path under a random version
+      expected:
+        outcome: ENFORCED
+        detail: VERSION_ABSENT
+      how: 'the lab as built: /api/v2/orgs answers as a path under a random version'
+      lab: forgejo-kong
+      variant: none
+
+    - id: VIOLATION/UNDOCUMENTED_VERSION/TENTATIVE
+      situation: answers unlike a random version, neither not found nor refused
+      expected:
+        outcome: VIOLATION
+        detail: UNDOCUMENTED_VERSION
+        confidence: TENTATIVE
+      how: a Kong route ~/api/v2/orgs$ answers 200, while random versions reach Forgejo and get its 404
+      lab: forgejo-kong
+      variant: kong-0-1-served-routes
+
+    - id: NOT_VERIFIABLE/VERSION_UNCLEAR
+      situation: 'not found or refused unlike a random version: the version may exist without this path'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: VERSION_UNCLEAR
+      how: a Kong route ~/api/v2/orgs$ answers 404 with a JSON body of its own shape, unlike Forgejo's 404 to a
+        random version
+      lab: forgejo-kong
+      variant: kong-0-1-version-not-found-other
+
+    - id: NOT_VERIFIABLE/REFUSED_BEFORE_ROUTING
+      situation: refused (`401`, `403`) like a random version
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: REFUSED_BEFORE_ROUTING
+      how: 'the lab as built: crAPI''s /identity/api/v1 and /v3 answer 401 like any path of the identity service'
+      lab: crapi-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/CALIBRATION_UNSTABLE
+      situation: the calibration of the random versions is unreliable
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: CALIBRATION_UNSTABLE
+      how: a Kong route matching the tool's random probe names (zqxv + hex) answers 404 with one of two JSON body
+        shapes in turn
+      lab: forgejo-kong
+      variant: kong-0-1-unstable-unknown
+
+    - id: NOT_APPLICABLE/NO_VERSIONED_PATH
+      situation: no documented path has a version segment
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NO_VERSIONED_PATH
+      how: the run reads a copy of Forgejo's specification with basePath /api/vlatest, so no segment has the form
+        v<number>
+      lab: forgejo-kong
+      variant: none
+      spec:
+        set:
+          basePath: /api/vlatest
+        add_operations: []
+        drop_plain_get: false
+
+    - id: NOT_APPLICABLE/NO_PATH_IN_GROUP
+      situation: the version group documents no operation to lend
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NO_PATH_IN_GROUP
+      how: ''
+      lab: ''
+      variant: ''
+      not_producible:
+        group: code
+        reason: a candidate version comes from a group that documents at least one operation (src/discovery/derivation.py,
+          version_siblings), and since the sample accepts any method that operation is always found (the same pattern
+          on the same documented paths)
+
+  gateway_route_drift:
+
+    - id: ENFORCED/ROUTE_DOCUMENTED
+      situation: an enabled route each of whose paths has a documented path (after the base URL's path) or the specification
+        under it
+      expected:
+        outcome: ENFORCED
+        detail: ROUTE_DOCUMENTED
+      how: 'the lab as built: forgejo-api-route (/api) and forgejo-spec-route have documented paths, or the specification,
+        under them'
+      lab: forgejo-kong
+      variant: none
+
+    - id: VIOLATION/ROUTE_NOT_DOCUMENTED/CERTAIN
+      situation: an enabled route with a path under which no documented path falls
+      expected:
+        outcome: VIOLATION
+        detail: ROUTE_NOT_DOCUMENTED
+        confidence: CERTAIN
+      how: 'the lab as built: hmac-audit-route (/hmac-audit-probe-not-a-real-path) has no documented path under
+        it'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/ROUTE_NOT_READ
+      situation: a route's regular expression does not compile in Python
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: ROUTE_NOT_READ
+      how: a Kong route whose regular expression uses \p{L}, accepted by Kong and not compiled by Python's re
+      lab: forgejo-kong
+      variant: kong-0-1-route-regex-unreadable
+
+    - id: NOT_APPLICABLE/ROUTE_DISABLED
+      situation: a disabled route (or one of a disabled service)
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: ROUTE_DISABLED
+      how: hmac-audit-route given status 0 through APISIX's Admin API
+      lab: forgejo-apisix
+      variant: apisix-route-disabled
+
+    - id: NOT_APPLICABLE/NO_GATEWAY
+      situation: no gateway configured
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NO_GATEWAY
+      how: the run's configuration has no gateway section
+      lab: forgejo-kong
+      variant: none
+      config:
+        gateway: null
+
+    - id: NOT_APPLICABLE/ROUTES_NOT_SUPPORTED
+      situation: the gateway's adapter does not read routes
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: ROUTES_NOT_SUPPORTED
+      how: ''
+      lab: ''
+      variant: ''
+      not_producible:
+        group: code
+        reason: no adapter without routes exists
+
+    - id: NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE
+      situation: the gateway has routes, and they could not be read
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: CONCEPT_NOT_ACCESSIBLE
+      how: the run's gateway.admin.url points to a closed port
+      lab: forgejo-kong
+      variant: none
+      config:
+        gateway.admin.url: https://127.0.0.1:9
+
+  any_sub_test:
+
+    - id: NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE
+      situation: 'an answer of this category on any sub-test that does not judge it: 502, 503, 504: the gateway
+        could not reach the backend, or the backend did not answer in time. It says nothing about the guarantee
+        (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: UPSTREAM_UNAVAILABLE
+      how: 'the forgejo container stopped: Kong cannot reach the backend and answers 502/503 to the method and version
+        probes'
+      lab: forgejo-kong
+      variant: forgejo-stopped
+
+    - id: NOT_VERIFIABLE/RATE_LIMITED
+      situation: 'an answer of this category on any sub-test that does not judge it: 429: refused for the rate of
+        the requests. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: RATE_LIMITED
+      how: a Kong route on /api/v1/version answers 429 to PUT, PATCH, DELETE (undeclared there)
+      lab: forgejo-kong
+      variant: kong-0-1-version-429-slow-post
+      config:
+        target.read_timeout: 5.0
+
+    - id: NOT_VERIFIABLE/SERVER_ERROR
+      situation: 'an answer of this category on any sub-test that does not judge it: 500, 505-508, 510: the application
+        failed. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: SERVER_ERROR
+      how: 'the lab as built: crAPI''s undeclared GET on /workshop/api/shop/orders answers 500'
+      lab: crapi-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/NO_RESPONSE
+      situation: 'an answer of this category on any sub-test that does not judge it: No HTTP response: timeout,
+        connection refused, TLS error, connection reset. It says nothing about the guarantee (one rule for every
+        test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_RESPONSE
+      how: a Kong route on /api/v1/version makes POST (undeclared) sleep 7 s, beyond the run's read timeout of 5
+        s
+      lab: forgejo-kong
+      variant: kong-0-1-version-429-slow-post
+      config:
+        target.read_timeout: 5.0

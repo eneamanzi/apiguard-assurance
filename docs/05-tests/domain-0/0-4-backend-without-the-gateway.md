@@ -96,6 +96,7 @@ refuses us" and "we are not there to ask".
 | the gateway states no backend address | `NOT_VERIFIABLE/NO_BACKEND_ADDRESS` | - |
 | the specification declares no `GET` path without parameters | `NOT_VERIFIABLE/NO_PROBE_PATH` | - |
 | the gateway's adapter does not read its backends' targets | `NOT_APPLICABLE/ADDRESSES_NOT_SUPPORTED` | - |
+| the gateway has its backends' targets, and they could not be read | `NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE` | - |
 
 <!-- [[[end]]] -->
 

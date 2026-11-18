@@ -1,0 +1,183 @@
+test: '4.1'
+name: Rate Limiting
+sub_tests:
+
+  limit_enforced:
+
+    - id: ENFORCED/RATE_LIMITED
+      situation: the burst meets a `429`, or, after answers with another status, the status the gateway states for
+        a limit that may apply (APISIX's default `503`)
+      expected:
+        outcome: ENFORCED
+        detail: RATE_LIMITED
+      how: 'rate-limiting minute 5, policy local, on a route GET ~/api/v1/orgs$ (the probe): the burst meets a 429
+        at the 6th request'
+      lab: forgejo-kong
+      variant: kong-4-1-orgs-rate-limit-5
+
+    - id: VIOLATION/NO_RATE_LIMIT/CERTAIN
+      situation: 'no refusal, and the burst exceeded every limit read for the routes that may serve the path within
+        one of its windows, each counted on a counter every node shares: the limit is configured and not enforced'
+      expected:
+        outcome: VIOLATION
+        detail: NO_RATE_LIMIT
+        confidence: CERTAIN
+      how: 'rate-limiting minute 5 on forgejo-service with policy redis on an unreachable Redis (127.0.0.1:6390),
+        sync_rate -1, fault_tolerant true: Kong proxies every request, the burst stops unrefused at 11'
+      lab: forgejo-kong
+      variant: kong-4-1-rate-limit-redis-down
+
+    - id: VIOLATION/NO_RATE_LIMIT/FIRM
+      situation: no refusal within `max_burst`, and no limit read or a route that may serve the path without one
+        (no limit of fewer than half the burst per window as long as the burst; a higher one is not seen); or every
+        limit read exceeded, one counted per node
+      expected:
+        outcome: VIOLATION
+        detail: NO_RATE_LIMIT
+        confidence: FIRM
+      how: 'the lab as built: no rate limit, 150 requests to GET /api/v1/orgs all served'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/LIMIT_NOT_REACHED
+      situation: 'no refusal within `max_burst`, and a limit that may apply was not provably exceeded: its count
+        above the cap, a window too short for the burst''s pace, or not a count per window'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: LIMIT_NOT_REACHED
+      how: 'rate-limiting minute 200, policy local, on forgejo-service: 150 requests (the cap) cannot exceed 200
+        in a window'
+      lab: forgejo-kong
+      variant: kong-4-1-rate-limit-200
+
+    - id: NOT_VERIFIABLE/LIMIT_OR_UNAVAILABLE
+      situation: 'three `503` in a row after answers that said something: a limit refusing with `503` that the gateway
+        does not state, or a backend going down'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: LIMIT_OR_UNAVAILABLE
+      how: 'APISIX limit-count count 5, time_window 60, no rejected_code (503), on a route GET /api/v1/orgs; the
+        run without its gateway section: five served answers, then three 503'
+      lab: forgejo-apisix
+      variant: apisix-4-1-orgs-limit-count-5
+      config:
+        gateway: null
+
+    - id: NOT_VERIFIABLE/NO_CREDENTIAL_TO_RETRY
+      situation: every answer refused the burst (`401`, `403`), perhaps before the limit counted it, and no user_a
+        account to send it again
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_CREDENTIAL_TO_RETRY
+      how: the probe set to /api/v1/user (Forgejo answers 401 without a credential) and user_a removed from the
+        run's configuration
+      lab: forgejo-kong
+      variant: none
+      config:
+        tests.domain_4.test_4_1.probe_path: /api/v1/user
+        credentials.user_a_username: null
+        credentials.user_a_password: null
+
+    - id: NOT_VERIFIABLE/REFUSED_BEFORE_LIMIT
+      situation: the burst sent again with user_a's credential is refused all the same
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: REFUSED_BEFORE_LIMIT
+      how: 'a route ~/api/v1/orgs$ with key-auth before rate-limiting minute 5: 150 requests refused 401 by key-auth,
+        150 more with user_a''s Forgejo token refused alike'
+      lab: forgejo-kong
+      variant: kong-4-orgs-key-auth
+
+  ip_spoofing_resisted:
+
+    - id: ENFORCED/SPOOF_RESISTED
+      situation: the burst with a random client address per request meets the refusal the plain burst met
+      expected:
+        outcome: ENFORCED
+        detail: SPOOF_RESISTED
+      how: 'the same run as RATE_LIMITED: Kong keys the limit on the TCP peer, the spoofed burst meets the 429 at
+        once'
+      lab: forgejo-kong
+      variant: kong-4-1-orgs-rate-limit-5
+
+    - id: VIOLATION/IP_SPOOF_BYPASS/CERTAIN
+      situation: 'it is never refused, and a plain request right after it is: the limit counts the address a header
+        claims'
+      expected:
+        outcome: VIOLATION
+        detail: IP_SPOOF_BYPASS
+        confidence: CERTAIN
+      how: 'rate-limiting hour 5, limit_by ip, on the probe''s route, Kong recreated with KONG_TRUSTED_IPS=0.0.0.0/0,::/0
+        and KONG_REAL_IP_HEADER=X-Forwarded-For: the plain burst refused, the spoofed one served, the plain request
+        after it refused 429 again'
+      lab: forgejo-kong
+      variant: kong-4-1-orgs-rate-limit-trust-xff
+
+    - id: VIOLATION/IP_SPOOF_BYPASS/FIRM
+      situation: it is never refused, and neither is a plain request right after it (the limit's window may have
+        ended during the burst)
+      expected:
+        outcome: VIOLATION
+        detail: IP_SPOOF_BYPASS
+        confidence: FIRM
+      how: 'a route GET ~/api/v1/orgs$ whose pre-function answers 429 to the 4th request without X-Forwarded-For
+        and passes every other request to Forgejo: the plain burst is refused, the spoofed burst (which carries
+        X-Forwarded-For) never is, and the plain request after it is served, as when the limit''s window ended'
+      lab: forgejo-kong
+      variant: kong-4-1-orgs-plain-429-once
+
+    - id: NOT_APPLICABLE/NO_LIMIT_TO_BYPASS
+      situation: the plain burst found no limit (`NO_RATE_LIMIT`)
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NO_LIMIT_TO_BYPASS
+      how: 'the lab as built: the plain burst found no limit (NO_RATE_LIMIT)'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/NO_LIMIT_SEEN
+      situation: the plain burst could not tell whether a limit applies (`limit_enforced` not verifiable)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_LIMIT_SEEN
+      how: the same run as LIMIT_NOT_REACHED (rate-limiting minute 200 on forgejo-service)
+      lab: forgejo-kong
+      variant: kong-4-1-rate-limit-200
+
+  any_sub_test:
+
+    - id: NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE
+      situation: 'an answer of this category on any sub-test that does not judge it: 502, 503, 504: the gateway
+        could not reach the backend, or the backend did not answer in time. It says nothing about the guarantee
+        (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: UPSTREAM_UNAVAILABLE
+      how: 'the forgejo container stopped (the specification read from a local copy): Kong answers 502/503 from
+        the first request, three in a row'
+      lab: forgejo-kong
+      variant: forgejo-stopped
+
+    - id: NOT_VERIFIABLE/SERVER_ERROR
+      situation: 'an answer of this category on any sub-test that does not judge it: 500, 505-508, 510: the application
+        failed. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: SERVER_ERROR
+      how: 'a route GET ~/api/v1/orgs$ (the probe) whose pre-function answers 500: three 500 in a row'
+      lab: forgejo-kong
+      variant: kong-1-5-orgs-500
+
+    - id: NOT_VERIFIABLE/NO_RESPONSE
+      situation: 'an answer of this category on any sub-test that does not judge it: No HTTP response: timeout,
+        connection refused, TLS error, connection reset. It says nothing about the guarantee (one rule for every
+        test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_RESPONSE
+      how: 'a route GET ~/api/v1/orgs$ whose pre-function sleeps 7 s before Forgejo answers, with the run''s read
+        timeout at 5 s: three requests in a row without an answer'
+      lab: forgejo-kong
+      variant: kong-0-4-probe-slow
+      config:
+        target.read_timeout: 5.0

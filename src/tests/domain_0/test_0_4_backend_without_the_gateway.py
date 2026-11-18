@@ -184,6 +184,12 @@ _ORACLE: tuple[OracleCase, ...] = (
         outcome=Outcome.NOT_APPLICABLE,
         detail="ADDRESSES_NOT_SUPPORTED",
     ),
+    OracleCase(
+        sub_test=_SUB_ADDRESSES,
+        when="the gateway has its backends' targets, and they could not be read",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail=CONCEPT_NOT_ACCESSIBLE,
+    ),
 )
 
 

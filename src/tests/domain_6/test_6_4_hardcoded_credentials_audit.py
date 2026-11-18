@@ -254,6 +254,12 @@ _ORACLE: tuple[OracleCase, ...] = (
         outcome=Outcome.NOT_APPLICABLE,
         detail="CONFIG_NOT_SUPPORTED",
     ),
+    OracleCase(
+        sub_test=_SUB_CONFIG,
+        when="the gateway has configuration values, and they could not be read",
+        outcome=Outcome.NOT_VERIFIABLE,
+        detail=CONCEPT_NOT_ACCESSIBLE,
+    ),
 )
 
 

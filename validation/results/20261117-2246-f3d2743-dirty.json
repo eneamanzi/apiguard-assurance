@@ -1,0 +1,126 @@
+{
+  "meta": {
+    "date": "2026-11-17 22:46 UTC",
+    "commit": "f3d2743",
+    "dirty": true,
+    "tool_version": "0.1.0",
+    "reset": []
+  },
+  "cases": [
+    {
+      "test": "ext.3.1.schemathesis",
+      "id": "input_validated/ENFORCED/INPUT_VALIDATED",
+      "situation": "no failure, and at least one operation was checked",
+      "expected": "ENFORCED INPUT_VALIDATED",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "Forgejo + Kong as built, with user_a's credential (reads only): the GET operations reached answer no server error",
+      "observed": [
+        "ENFORCED INPUT_VALIDATED",
+        "NOT_VERIFIABLE ONLY_4XX"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "ext.3.1.schemathesis",
+      "id": "input_validated/NOT_VERIFIABLE/ONLY_4XX",
+      "situation": "every generated request to an operation got a `4xx`: never reached",
+      "expected": "NOT_VERIFIABLE ONLY_4XX",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "same run as INPUT_VALIDATED: the organization, admin and notification reads answer 403 to user_a's token (repository and user scopes) on every generated request",
+      "observed": [
+        "ENFORCED INPUT_VALIDATED",
+        "NOT_VERIFIABLE ONLY_4XX"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "ext.3.1.schemathesis",
+      "id": "input_validated/NOT_VERIFIABLE/OPERATION_NOT_CHECKED",
+      "situation": "Schemathesis reports an operation as errored or skipped",
+      "expected": "NOT_VERIFIABLE OPERATION_NOT_CHECKED",
+      "lab": "forgejo-kong",
+      "variant": "none",
+      "how": "unauthenticated (user_a not configured), target.base_url on a closed port (the specification still read through Kong): Schemathesis reports every operation errored",
+      "observed": [
+        "NOT_VERIFIABLE NOTHING_CHECKED",
+        "NOT_VERIFIABLE OPERATION_NOT_CHECKED"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "ext.3.1.schemathesis",
+      "id": "input_validated/NOT_VERIFIABLE/NOTHING_CHECKED",
+      "situation": "no failure, and no operation was checked",
+      "expected": "NOT_VERIFIABLE NOTHING_CHECKED",
+      "lab": "forgejo-kong",
+      "variant": "forgejo-stopped",
+      "how": "unauthenticated (user_a not configured), the forgejo container stopped, the specification read from a copy: every operation gets Kong's 503, none is checked",
+      "observed": [
+        "NOT_VERIFIABLE NOTHING_CHECKED",
+        "NOT_VERIFIABLE UPSTREAM_UNAVAILABLE"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "ext.3.1.schemathesis",
+      "id": "*/NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE",
+      "situation": "an answer of this category on any sub-test that does not judge it: 502, 503, 504: the gateway could not reach the backend, or the backend did not answer in time. It says nothing about the guarantee (one rule for every test)",
+      "expected": "NOT_VERIFIABLE UPSTREAM_UNAVAILABLE",
+      "lab": "forgejo-kong",
+      "variant": "forgejo-stopped",
+      "how": "same run as NOTHING_CHECKED: the forgejo container stopped, every operation's failing cases quote only Kong's 503",
+      "observed": [
+        "NOT_VERIFIABLE NOTHING_CHECKED",
+        "NOT_VERIFIABLE UPSTREAM_UNAVAILABLE"
+      ],
+      "verdict": "INCONCLUSIVE",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "ext.3.1.schemathesis",
+      "id": "input_validated/NOT_VERIFIABLE/NOT_IMPLEMENTED",
+      "situation": "an operation's failing cases quote only `501`: the method is not served",
+      "expected": "NOT_VERIFIABLE NOT_IMPLEMENTED",
+      "lab": "forgejo-kong",
+      "variant": "kong-ext-3-1-version-501",
+      "how": "with user_a's credential (reads only), a temporary route GET ~/api/v1/version$ answers 501 itself: every failing case of that operation quotes only [501]",
+      "observed": [
+        "ENFORCED INPUT_VALIDATED",
+        "NOT_VERIFIABLE NOT_IMPLEMENTED",
+        "NOT_VERIFIABLE ONLY_4XX"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    },
+    {
+      "test": "ext.3.1.schemathesis",
+      "id": "*/NOT_VERIFIABLE/NO_RESPONSE",
+      "situation": "an answer of this category on any sub-test that does not judge it: No HTTP response: timeout, connection refused, TLS error, connection reset. It says nothing about the guarantee (one rule for every test)",
+      "expected": "NOT_VERIFIABLE NO_RESPONSE",
+      "lab": "forgejo-kong",
+      "variant": "kong-ext-3-1-version-slow",
+      "how": "with user_a's credential (reads only), a temporary route GET ~/api/v1/version$ waits 7 s before proxying: every generated request to it exceeds request_timeout_seconds (5 s), so its failing cases quote only the timeout (a deprecated operation would not do: Schemathesis runs with --exclude-deprecated)",
+      "observed": [
+        "ENFORCED INPUT_VALIDATED",
+        "NOT_VERIFIABLE NO_RESPONSE",
+        "NOT_VERIFIABLE ONLY_4XX"
+      ],
+      "verdict": "PASS",
+      "verdict_from_cases": true,
+      "result": "OK"
+    }
+  ],
+  "not_producible": []
+}

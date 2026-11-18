@@ -1,0 +1,142 @@
+test: '7.1'
+name: Sensitive Business Flow Protection
+sub_tests:
+
+  anti_automation_present:
+
+    - id: ENFORCED/ANTI_AUTOMATION_THROTTLE
+      situation: a `429` within the burst
+      expected:
+        outcome: ENFORCED
+        detail: ANTI_AUTOMATION_THROTTLE
+      how: 'the scratch flow POST /api/v1/markdown as user_a, with rate-limiting minute 5, policy local, on a route
+        POST ~/api/v1/markdown$: five served, the sixth 429'
+      lab: forgejo-kong
+      variant: kong-7-1-markdown-rate-limit-5
+      config:
+        tests.domain_7.test_7_1.sensitive_flow:
+          path: /api/v1/markdown
+          method: POST
+          body:
+            text: apiguard
+          role: user_a
+
+    - id: ENFORCED/ANTI_AUTOMATION_CHALLENGE
+      situation: 'a challenge: a WAF''s challenge header on any answer, or a `400`, `401`, `403`, `409`, `422` asking
+        for a CAPTCHA (words such as `challenge` or `too many` only after a submission was served)'
+      expected:
+        outcome: ENFORCED
+        detail: ANTI_AUTOMATION_CHALLENGE
+      how: 'the scratch flow POST /api/v1/markdown as user_a, on which a route answers 202 with x-amzn-waf-action:
+        challenge at the first submission'
+      lab: forgejo-kong
+      variant: kong-7-1-markdown-waf-challenge
+      config:
+        tests.domain_7.test_7_1.sensitive_flow:
+          path: /api/v1/markdown
+          method: POST
+          body:
+            text: apiguard
+          role: user_a
+
+    - id: VIOLATION/NO_ANTI_AUTOMATION/FIRM
+      situation: 'every submission of the burst answered `2xx`, no throttle and no challenge: accepted, which does
+        not show that none was throttled silently'
+      expected:
+        outcome: VIOLATION
+        detail: NO_ANTI_AUTOMATION
+        confidence: FIRM
+      how: 'the lab as built: 12 POST /identity/api/auth/forget-password, all accepted, no throttle and no challenge'
+      lab: crapi-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/FLOW_NOT_ACCEPTED
+      situation: 'the first submission was refused without a challenge: the burst did not exercise the flow'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: FLOW_NOT_ACCEPTED
+      how: 'a scratch flow POST /api/v1/orgs with no role: Forgejo answers every submission 401, nothing is created'
+      lab: forgejo-kong
+      variant: none
+      config:
+        tests.domain_7.test_7_1.sensitive_flow:
+          path: /api/v1/orgs
+          method: POST
+          body:
+            username: apiguard-scratch-org
+
+    - id: NOT_VERIFIABLE/REFUSED_AFTER_SERVED
+      situation: 'served, then refused without a `429` or a challenge: an unrecognised throttle or a business refusal'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: REFUSED_AFTER_SERVED
+      how: the scratch flow POST /api/v1/markdown as user_a, on a route whose pre-function lets the first three
+        submissions reach Forgejo and answers the next ones 403 with no challenge words
+      lab: forgejo-kong
+      variant: kong-7-1-markdown-403-after-3
+      config:
+        tests.domain_7.test_7_1.sensitive_flow:
+          path: /api/v1/markdown
+          method: POST
+          body:
+            text: apiguard
+          role: user_a
+
+  any_sub_test:
+
+    - id: NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE
+      situation: 'an answer of this category on any sub-test that does not judge it: 502, 503, 504: the gateway
+        could not reach the backend, or the backend did not answer in time. It says nothing about the guarantee
+        (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: UPSTREAM_UNAVAILABLE
+      how: the scratch flow POST /api/v1/markdown as user_a, on a route whose pre-function lets the first three
+        submissions reach Forgejo and answers the next ones 503
+      lab: forgejo-kong
+      variant: kong-7-1-markdown-503-after-3
+      config:
+        tests.domain_7.test_7_1.sensitive_flow:
+          path: /api/v1/markdown
+          method: POST
+          body:
+            text: apiguard
+          role: user_a
+
+    - id: NOT_VERIFIABLE/SERVER_ERROR
+      situation: 'an answer of this category on any sub-test that does not judge it: 500, 505-508, 510: the application
+        failed. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: SERVER_ERROR
+      how: the scratch flow POST /api/v1/markdown as user_a, on a route whose pre-function lets the first three
+        submissions reach Forgejo and answers the next ones 500
+      lab: forgejo-kong
+      variant: kong-7-1-markdown-500-after-3
+      config:
+        tests.domain_7.test_7_1.sensitive_flow:
+          path: /api/v1/markdown
+          method: POST
+          body:
+            text: apiguard
+          role: user_a
+
+    - id: NOT_VERIFIABLE/NO_RESPONSE
+      situation: 'an answer of this category on any sub-test that does not judge it: No HTTP response: timeout,
+        connection refused, TLS error, connection reset. It says nothing about the guarantee (one rule for every
+        test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_RESPONSE
+      how: the scratch flow POST /api/v1/markdown as user_a, on a route whose pre-function lets the first three
+        submissions reach Forgejo and makes the next ones wait 7 s, with the run's target.read_timeout 5.0
+      lab: forgejo-kong
+      variant: kong-7-1-markdown-slow-after-3
+      config:
+        target.read_timeout: 5.0
+        tests.domain_7.test_7_1.sensitive_flow:
+          path: /api/v1/markdown
+          method: POST
+          body:
+            text: apiguard
+          role: user_a
