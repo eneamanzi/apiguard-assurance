@@ -90,5 +90,8 @@ nosetests.xml
 .DS_Store
 Thumbs.db
 
-# Validation campaigns: the raw reports of each run stay local; the result (.md, .json) is kept.
-validation/results/*-runs/
+# Experiments: the raw reports of each run stay local; the result (.md, .json) of a campaign (every
+# case, clean commit) is kept, a trial's (some tests or labs, or a working tree with changes) is not.
+experiments/*/results/*-runs/
+experiments/*/results/*-dirty*
+experiments/*/results/*-partial*

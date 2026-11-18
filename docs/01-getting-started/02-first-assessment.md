@@ -1,9 +1,6 @@
 # First Assessment
 
-> **Audience:** users, contributors · **Status:** v0.1.0 · **Verified:** 2026-10-27 (the run: its duration, the
-> progress counter and the summary, measured on the lab), 2026-10-15 (certificates generated at start, ports,
-> readiness through Kong), 2026-10-06 in the repository folder on Linux, Python 3.12.3, Docker 29.3.1 /
-> Compose v5.1.1, Hatch 1.16.5, with the values of `.env.example`
+> **Audience:** users, contributors · **Status:** v0.1.0
 
 You will start a local test target (Forgejo behind Kong, in Docker), run the tool against it, and read the result.
 About 8 minutes, 3 of them waiting for the assessment.
@@ -167,7 +164,7 @@ tool found violations, which is the normal result on this lab ([exit codes](../0
 ## 6. Check the result
 
 On this lab with the full run: exit code `1`, no `ERROR`, and seven tests return `SKIP` for two
-different reasons (measured 2026-11-04).
+different reasons.
 
 - A parameter the test cannot work without is not set in the lab's configuration: 7.1 (`sensitive_flow`), 7.3
   (`race_operation`), 7.4 (`webhook_endpoint`). The run warns about these before it starts.
@@ -255,6 +252,6 @@ Labs](../project/maintainer-commands.md#test-labs)).
 | `... creation failed: HTTP ...` in the setup output | Forgejo rejected the request: check `USER_A_USERNAME`, `USER_A_PASSWORD` and the `LAB_TEST_*` names in `.env`, reset (step 2) and start again |
 | `up` stops with `service "pki" didn't complete successfully` | `docker logs forgejo_kong_pki` shows why (e.g. `lock ... held`: a lab start was interrupted; remove `test-environments/pki/.lock` and start again) |
 | the run stops with `Exit 10` and `Reason ... certificate is not trusted` | the certificates were regenerated and Kong still serves the old one: restart Kong as in [If you regenerate the certificates](#if-you-regenerate-the-certificates) |
-| `Configuration invalid: Environment variable(s) not set: X` | `.env` has no value for `X` (a `${X}` inside a YAML comment is not read, verified 2026-11-05) |
+| `Configuration invalid: Environment variable(s) not set: X` | `.env` has no value for `X` (a `${X}` inside a YAML comment is not read) |
 | many `NOT_VERIFIABLE/NOT_FOUND_LIKE_UNKNOWN` judgements in the report | the test repository is missing: check the setup output (step 3) |
 | `bind: address already in use` | a port is taken: see [If a port is already in use](#if-a-port-is-already-in-use) |

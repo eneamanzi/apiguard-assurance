@@ -2,9 +2,8 @@
 
 > **Audience:** contributors · **Status:** v0.1.0 · **Source of truth:** `src/external_tests/base.py`,
 > `src/external_tests/registry.py`, `src/connectors/base.py`, `src/core/models/external_tools.py`, the templates
-> `src/connectors/_template_connector.py` and `src/external_tests/_template_ext_test.py`, `src/core/test_metadata.py`
-> (`TestInfo`), `src/core/assessment_test.py` · **Verified:** 2026-10-05; declaration and result helpers 2026-10-16.
-> The previous long version of this guide is in git history (commit `fd3bd90`).
+> `src/connectors/_template_connector.py` and `src/external_tests/_template_ext_test.py`,
+> `src/core/test_metadata.py` (`TestInfo`), `src/core/assessment_test.py`
 
 An external test checks a guarantee by running an external tool (binary or Python library) through a
 **connector**. Native tests never run external tools.
@@ -205,7 +204,10 @@ Add the tool block under `external_tools` with `enabled`, `timeout_seconds`, `ex
 4. Disable the tool and check the report lists the test under Not Run (`tool_disabled`); enable it with the binary missing and check it
    returns SKIP.
 5. Write the page in `docs/05-tests/external/domain-<D>/` with its header marker (as for a native test:
-   `g.test_header("ext.<D>.<N>.<tool>", page=cog.inFile)`), then `hatch run dev:gen` and `hatch run dev:check`.
+   `g.test_header("ext.<D>.<N>.<tool>", page=cog.inFile)`), then `hatch run dev:gen`.
+6. Its validation cases, as for a native test: `hatch run dev:python experiments/e1-oracle-validation/sync.py`, fill
+   `experiments/e1-oracle-validation/cases/ext.<D>.<N>.<tool>.yaml`, `hatch run dev:e1-oracle-validation --test ext.<D>.<N>.<tool>`
+   ([`experiments/e1-oracle-validation/README.md`](../../../experiments/e1-oracle-validation/README.md)); then `hatch run dev:check`.
 
 ## Common errors
 

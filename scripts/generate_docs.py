@@ -33,12 +33,12 @@ Generated parts:
     response_categories_table()
                             docs/04-architecture/03-assessment-model.md, the
                             categories of a response and their HTTP statuses
-    oracle_table(id)        section 6 of a test page: the test's oracle, case by
+    oracle_table(id)        the Oracle section of a test page: the test's oracle, case by
                             case (TestInfo.oracle), one table per sub-test
-    finding_titles(id)      section 8 of a test page: the titles of its findings,
+    finding_titles(id)      the Findings section of a test page: the titles of its findings,
                             read from the test's code
     uninformative_answers(id)
-                            section 6 of each test page whose test applies the
+                            the Oracle section of each test page whose test applies the
                             rule of the answers that say nothing
                             (AssessmentTest._uninformative): a test applying it
                             without the block on its page stops the generation
@@ -55,6 +55,7 @@ import argparse
 import ast
 import importlib
 import inspect
+import json
 import logging
 import os
 import re
@@ -279,7 +280,7 @@ def catalogue() -> str:
     if without_block:
         raise ValueError(
             "tests applying the rule of the answers that say nothing without the generated block "
-            f"uninformative_answers on their page (section 6): {without_block}"
+            f"uninformative_answers in their page's Oracle section: {without_block}"
         )
     readme = _TEST_PAGES / "README.md"
     native = sum(1 for t in tests if not t.info.is_external)
@@ -518,7 +519,7 @@ def _cell(text: str) -> str:
 
 def test_params(*test_ids: str, page: str) -> str:
     """
-    The parameter table of a test page (section 11), from the test's model.
+    The parameter table of a test page (its Configuration section), from the test's model.
 
     Only for a test that declares parameters: a test without them keeps the
     hand-written sentence saying what the page derives instead.
@@ -1212,7 +1213,7 @@ CONCEPT_NOT_ACCESSIBLE_CASE: str = (
 
 def oracle_table(test_id: str) -> str:
     """
-    A test's oracle as declared in its code (TestInfo.oracle), for section 6 of its page.
+    A test's oracle as declared in its code (TestInfo.oracle), for the Oracle section of its page.
 
     Args:
         test_id: The test.
@@ -1252,9 +1253,168 @@ def oracle_table(test_id: str) -> str:
     return _block(lines)
 
 
+# The experiments' results (experiments/README.md): a page states each one's latest campaign.
+_E1_RESULTS: Path = _ROOT / "experiments" / "e1-oracle-validation" / "results"
+_E2_RESULTS: Path = _ROOT / "experiments" / "e2-complete-run" / "results"
+_EXPERIMENTS_README: Path = _ROOT / "experiments" / "README.md"
+_E3_RESULTS: Path = _ROOT / "experiments" / "e3-crapi-challenges" / "results"
+_TRIAL_SUFFIXES: tuple[str, ...] = ("-dirty", "-partial")
+# Findings named per lab in a page before the rest is counted (the E2 result lists them all).
+_FINDINGS_SHOWN: int = 5
+
+
+def _campaign(results: Path) -> dict[str, Any] | None:
+    """The latest campaign result (JSON) of an experiment, or None when there is none."""
+    found = [f for f in sorted(results.glob("*.json")) if not f.stem.endswith(_TRIAL_SUFFIXES)]
+    if not found:
+        return None
+    loaded: dict[str, Any] = json.loads(found[-1].read_text(encoding="utf-8"))
+    return loaded
+
+
+def oracle_validation(test_id: str, page: str) -> str:
+    """
+    The oracle cases of a test as the latest E1 campaign produced them, for its Validation section.
+
+    Args:
+        test_id: The test.
+        page:    The page the block is written in (for the link).
+
+    Returns:
+        Markdown: what the campaign measured, then a row per case: the case,
+        where and how it was produced, the result; a case no lab can give, its
+        reason.
+    """
+    readme = _relative(_EXPERIMENTS_README, page)
+    result = _campaign(_E1_RESULTS)
+    if result is None:
+        return _block([f"No E1 campaign yet ([experiments]({readme}))."])
+    rows = [r for r in result["cases"] if r["test"] == test_id]
+    excluded = [e for e in result["not_producible"] if e["test"] == test_id]
+    ok = sum(1 for r in rows if r["result"] == "OK")
+    order = _case_order(test_id)
+    every = sorted(
+        [(r["id"], r) for r in rows] + [(e["id"], e) for e in excluded],
+        key=lambda item: order.get(item[0], len(order)),
+    )
+    lines = [
+        f"Every case of the oracle, produced on a lab and judged by the code: E1, "
+        f"[oracle validation]({readme}), campaign at commit `{result['meta']['commit']}`. "
+        f"{ok} of {len(rows)} produced cases gave the declared outcome; {len(excluded)} no "
+        "lab can produce.",
+        "",
+        "| Case | Lab, how it is produced | Result |",
+        "|---|---|---|",
+    ]
+    for case_id, case in every:
+        if "result" in case:
+            lines.append(
+                f"| `{case_id}` | {case['lab']}: {_cell(case['how'])} | {case['result']} |"
+            )
+        else:
+            reason = f"not producible ({case['group']}): {_cell(case['reason'])}"
+            lines.append(f"| `{case_id}` | {reason} | - |")
+    return _block(lines)
+
+
+def crapi_challenges(page: str) -> str:
+    """
+    The challenges crAPI publishes and what the latest E3 campaign made of each.
+
+    Args:
+        page: The page the block is written in (for the link).
+
+    Returns:
+        Markdown: the run it comes from, a row per challenge, the counts both ways.
+    """
+    readme = _relative(_EXPERIMENTS_README, page)
+    result = _campaign(_E3_RESULTS)
+    if result is None:
+        return _block([f"No E3 campaign yet ([experiments]({readme}))."])
+    rows = result["challenges"]
+    lines = [
+        f"E3, [crAPI challenges]({readme}), campaign at commit `{result['meta']['commit']}`, on "
+        f"E2's run `{result['e2']}`. The challenges and their categories are crAPI's "
+        f"([source]({result['source']})); the rule that reads each is fixed before the run.",
+        "",
+        "| # | Challenge (crAPI's category) | Verdict | What shows it |",
+        "|---|---|---|---|",
+    ]
+    lines += [
+        f"| {r['number']} | {_cell(r['title'])} ({r['category']}) | **{r['verdict']}** | "
+        f"{_cell(r['evidence'])} |"
+        for r in rows
+    ]
+    measured = ("caught", "named, not exploited", "attempted", "missed")
+    in_scope = [r for r in rows if r["verdict"] in measured]
+    lines += ["", "| Verdict | Of all | Of those in the lab |", "|---|---|---|"]
+    for verdict in (*measured, "out of scope", "absent from the lab"):
+        count = sum(1 for r in rows if r["verdict"] == verdict)
+        if not count and verdict not in measured:
+            continue
+        scoped = f"{count} of {len(in_scope)}" if verdict in measured else "-"
+        lines.append(f"| {verdict} | {count} of {len(rows)} | {scoped} |")
+    return _block(lines)
+
+
+def _case_order(test_id: str) -> dict[str, int]:
+    """The cases of a test in the order of its Oracle section: sub-test by sub-test, shared last."""
+    info = next(t.info for t in _tests() if t.info.id == test_id)
+    ids: list[str] = []
+    for sub_test in info.sub_tests:
+        for case in info.oracle:
+            if info.case_sub_test(case) != sub_test:
+                continue
+            confidence = f"/{case.confidence.value}" if case.confidence else ""
+            ids += [f"{sub_test}/{case.outcome.value}/{n}{confidence}" for n in case.names()]
+        ids.append(f"{sub_test}/NOT_VERIFIABLE/{CONCEPT_NOT_ACCESSIBLE}")
+    ids += [f"*/NOT_VERIFIABLE/{c.value}" for c in UNINFORMATIVE_CATEGORIES]
+    return {case_id: index for index, case_id in enumerate(ids)}
+
+
+def lab_results(test_id: str, page: str) -> str:
+    """
+    What a test gave on each lab as built in the latest E2 campaign, for its Validation section.
+
+    Args:
+        test_id: The test.
+        page:    The page the block is written in (for the link).
+
+    Returns:
+        Markdown: a row per lab: the status, and the findings or the reason.
+    """
+    readme = _relative(_EXPERIMENTS_README, page)
+    result = _campaign(_E2_RESULTS)
+    if result is None:
+        return _block([f"No E2 campaign yet ([experiments]({readme}))."])
+    lines = [
+        f"Each lab as built, reset, every test run once: E2, [complete run]({readme}), campaign "
+        f"at commit `{result['meta']['commit']}`.",
+        "",
+        "| Lab | Status | Findings, or why |",
+        "|---|---|---|",
+    ]
+    for lab, run in result["labs"].items():
+        test = run["tests"].get(test_id)
+        if test is None:
+            why = run["not_run"].get(test_id, "not in the run")
+            lines.append(f"| {lab} | not run | {_cell(why)} |")
+            continue
+        titles = [f["title"] for f in test["findings"]]
+        if titles:
+            shown = "<br>".join(_cell(t) for t in titles[:_FINDINGS_SHOWN])
+            more = len(titles) - _FINDINGS_SHOWN
+            why = shown + (f"<br>and {more} more" if more > 0 else "")
+        else:
+            why = _cell(str(test.get("skip_reason") or test.get("message") or ""))
+        status = test["status"] + (" (partial)" if test.get("coverage") == "partial" else "")
+        lines.append(f"| {lab} | {status} | {why} |")
+    return _block(lines)
+
+
 def finding_titles(test_id: str) -> str:
     """
-    The titles of a test's findings, read from its code, for section 8 of its page.
+    The titles of a test's findings, read from its code, for the Findings section of its page.
 
     A value a title is built with is written by its name: f"Oversized body not
     rejected: {path}" gives "Oversized body not rejected: <path>".
@@ -1366,7 +1526,7 @@ def response_categories_table() -> str:
 
 def uninformative_answers(test_id: str, page: str) -> str:
     """
-    The answers that say nothing about the guarantee, for one test page (section 6).
+    The answers that say nothing about the guarantee, for one test page (its Oracle section).
 
     Args:
         test_id: The test.

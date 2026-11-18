@@ -50,6 +50,7 @@ declared challenges one by one and says what the tool did with each, including t
 | Why a test or a design choice exists (research) | [`06-knowledge/`](06-knowledge/README.md) (repository only) |
 | What was dropped, the v0.1.0 audit | [`CHANGELOG`](../CHANGELOG.md), [`audit-v0.1.0`](project/audit-v0.1.0.md) (repository only) |
 | Run the labs, regenerate the documentation, check a release | [`maintainer-commands`](project/maintainer-commands.md) (repository only) |
+| The experiments: every oracle case produced on the labs (E1), every test on each lab (E2), crAPI's challenges (E3) | [`experiments/README.md`](../experiments/README.md) (repository only) |
 
 ## Structure
 

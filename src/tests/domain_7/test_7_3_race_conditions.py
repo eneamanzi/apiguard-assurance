@@ -37,14 +37,20 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Annotated
 
 import structlog
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, model_validator
 
-from src.core.assessment_test import NEEDED_TO_RUN, REFERS_TO_RESOURCE, category_of
+from src.core.assessment_test import (
+    NEEDED_TO_RUN,
+    PARAMS_CONTEXT_RESOURCES,
+    REFERS_TO_RESOURCE,
+    category_of,
+)
 from src.core.client import SecurityClient
 from src.core.context import TargetContext, TestContext
 from src.core.evidence import EvidenceStore
 from src.core.exceptions import AuthenticationSetupError, SecurityClientError
 from src.core.models import (
+    PLACEHOLDER_RANDOM,
     Confidence,
     EvidenceRecord,
     Finding,
@@ -55,7 +61,7 @@ from src.core.models import (
     TestResult,
     TestStrategy,
 )
-from src.core.templating import render
+from src.core.templating import names_in, placeholder_names, render, unquoted_placeholders
 from src.core.test_metadata import Effect, Need, OracleCase, TestInfo
 from src.tests.base import BaseTest
 from src.tests.helpers.auth import acquire_tokens, auth_parts
@@ -106,11 +112,19 @@ class Test73RaceOperation(BaseModel):
 
     path: str = Field(
         min_length=1,
-        description="Path of the once-only operation. May hold a resource's values as {name}.",
+        description=(
+            "Path of the once-only operation. With a resource, may hold its values and its "
+            "{random} as {name}."
+        ),
     )
     method: str = Field(default="POST", description="HTTP method of the operation (default POST).")
     body: dict[str, object] | None = Field(
-        default=None, description="JSON body sent on every concurrent request (optional)."
+        default=None,
+        description=(
+            "JSON body sent on every concurrent request (optional). With a resource, may hold "
+            'its values and its "{random}" (the value its create request used, so the burst '
+            "names what was just created: a coupon code), in quotes."
+        ),
     )
     role: str = Field(
         default="user_a",
@@ -123,9 +137,48 @@ class Test73RaceOperation(BaseModel):
         json_schema_extra=REFERS_TO_RESOURCE,
         description=(
             "Optional prepared resource (resources: in config.yaml) created once before the "
-            "burst; its values fill the path, and it is removed at teardown."
+            "burst; its values and its {random} fill the path and the body, and it is removed "
+            "at teardown."
         ),
     )
+
+    @model_validator(mode="after")
+    def placeholders_known(self, info: ValidationInfo) -> Test73RaceOperation:
+        """Check path and body against the resource, when the resources are known."""
+        resources = (info.context or {}).get(PARAMS_CONTEXT_RESOURCES)
+        if resources is None:
+            return self
+        known: frozenset[str] = frozenset()
+        if self.resource is not None:
+            resource = resources.get(self.resource)
+            if resource is None:
+                defined = ", ".join(sorted(resources)) or "none"
+                raise ValueError(
+                    f"resource: '{self.resource}' is not defined in resources (defined: {defined})."
+                )
+            known = frozenset(resource.values) | {PLACEHOLDER_RANDOM}
+        shown = ", ".join(f"{{{n}}}" for n in sorted(known)) or "none (no resource)"
+        unknown = placeholder_names(self.path) - known
+        if unknown:
+            raise ValueError(
+                f"path: unknown placeholder(s) {', '.join(f'{{{n}}}' for n in sorted(unknown))}; "
+                f"known: {shown}."
+            )
+        if self.body is None:
+            return self
+        unquoted = unquoted_placeholders(self.body, known)
+        if unquoted:
+            raise ValueError(
+                "body: write the placeholders in quotes, e.g. "
+                f'"{{{sorted(unquoted)[0]}}}": unquoted, YAML reads them as a mapping.'
+            )
+        unknown = names_in(self.body) - known
+        if unknown:
+            raise ValueError(
+                f"body: unknown placeholder(s) {', '.join(f'{{{n}}}' for n in sorted(unknown))}; "
+                f"known: {shown}."
+            )
+        return self
 
 
 class Test73Params(BaseModel):
@@ -226,6 +279,11 @@ class Test73RaceConditions(BaseTest[Test73Params]):
                 self._record(_SUB, Outcome.NOT_VERIFIABLE, _NOT_CREATED)
                 return self._finish(message="The prepared resource could not be created.")
             path = str(render(op.path, values))
+            if op.body is not None:
+                # The burst names what the creation named (a coupon code with the
+                # same {random}), so every run fires on a fresh object (until
+                # 2026-11-18 a fixed code: only a run after a reset could test it).
+                op = op.model_copy(update={"body": render(op.body, values)})
             records = self._fire(
                 client, op, path, dict(parts.headers), dict(parts.params), cfg.concurrency
             )
@@ -242,11 +300,11 @@ class Test73RaceConditions(BaseTest[Test73Params]):
         client: SecurityClient,
         op: Test73RaceOperation,
     ) -> dict[str, str]:
-        """Create the operation's prepared resource (if any) and return its values."""
+        """Create the operation's prepared resource (if any): its values and its {random}."""
         if op.resource is None:
             return {}
         prepared = create_resource(target, context, client, op.resource, op.role, self.info.id)
-        return dict(prepared.values)
+        return {**prepared.values, PLACEHOLDER_RANDOM: prepared.request_values[PLACEHOLDER_RANDOM]}
 
     def _fire(
         self,

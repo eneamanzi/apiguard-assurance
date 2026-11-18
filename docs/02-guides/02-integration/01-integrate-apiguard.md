@@ -1,10 +1,8 @@
 # Integrate APIGuard Assurance
 
-> **Audience:** developers integrating the tool into another product or an automated pipeline · **Status:** 0.x
-> (see [versions](#9-versions)) · **Source of truth:** `src/cli.py`, `src/engine.py`, the
-> [reference pages](../../03-reference/) · **Verified:** 2026-10-27 (the durations, measured on the lab); 2026-10-09 with a wheel installed by `pip` in a fresh virtual
-> environment, run from a working directory outside the repository, against the Forgejo + Kong lab; certificates
-> and the `connections` checks 2026-10-15 on the three labs
+> **Audience:** developers integrating the tool into another product or an automated pipeline · **Status:** 0.x (see
+> [versions](#9-versions)) · **Source of truth:** `src/cli.py`, `src/engine.py`, the [reference
+> pages](../../03-reference/)
 
 How to run the tool from another program and use what it produces. Every command on this page was run as written.
 What to configure on the target side is in [Configure a target](../01-usage/01-configure-a-target.md); what each test
@@ -93,8 +91,7 @@ output:
 
 **One run at a time per target.** The tool is designed for one assessment at a time on a target: concurrent runs
 change the target under each other: the stressing tests of one run (4.1, 7.3) spend the limits and the health of the
-backends that the other run's tests read, so its verdicts would depend on the other's traffic. (The example measured
-until 2026-11, test 1.4's fixed token name, no longer applies: credentials now come from the login resource.)
+backends that the other run's tests read, so its verdicts would depend on the other's traffic.
 
 ## 4. Run
 

@@ -1,9 +1,7 @@
 # 1.3 Credential Expiry
 
-> **Audience:** analysts, contributors · **Status:** new in the test review (2026-10-22) ·
-> **Source of truth:**
-> [`src/tests/domain_1/test_1_3_credential_expiry.py`](../../../src/tests/domain_1/test_1_3_credential_expiry.py),
-> [`src/core/jwt_tokens.py`](../../../src/core/jwt_tokens.py) · **Verified:** 2026-10-22
+> **Audience:** analysts, contributors · **Source of truth:**
+> [`src/tests/domain_1/test_1_3_credential_expiry.py`](../../../src/tests/domain_1/test_1_3_credential_expiry.py), [`src/core/jwt_tokens.py`](../../../src/core/jwt_tokens.py)
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("1.3", page=cog.inFile)) ]]] -->
 
@@ -35,7 +33,9 @@ A PASS of the claim checks promises that the token declares an expiry and that i
 does not promise that an expired token is actually refused: minting one needs the signing key, which the target
 does not give us, so that case is reported `NEEDS_KEY_MATERIAL`.
 
-## 2. Sub-tests and coverage of the methodology
+## 2. Test
+
+### 2.1 Sub-tests and coverage of the methodology
 
 | Sub-test | Methodology (guarantee 1.3) |
 |---|---|
@@ -44,21 +44,16 @@ does not give us, so that case is reported `NEEDS_KEY_MATERIAL`.
 | `expired_rejected` | "expired token → 401": needs a token with a past `exp`, hence the signing key |
 | left out | clock-skew leeway, future `exp`, negative `exp`: each needs a re-signed token (the key) |
 
-## 3. Inputs
-
-The role's valid JWT (the `USER_ACCOUNT` need). The test reads its `exp` and `iat` claims; it sends no request of
-its own. No configuration parameter.
-
-## 4. Preconditions and reference responses
+### 2.2 Preconditions and reference responses
 
 None: the evidence is the claims of a token already obtained.
 
-## 5. Probes
+### 2.3 Probes
 
 None. The token's `exp` and `iat` are read. An expired token is not minted (it needs the key); the reference time
 for any later such check is logged in a note.
 
-## 6. Oracle
+## 3. Oracle
 
 <!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("1.3")) ]]] -->
 
@@ -92,14 +87,68 @@ for any later such check is logged in a note.
 
 <!-- [[[end]]] -->
 
-Until 2026-11-16 a token without `exp` was FIRM, although `exp` is optional (RFC 7519 section 4.1.4) and server-side state may end it: now TENTATIVE; without `iat` the lifetime was not judged: now it is measured from the login that returned the token; and `lifetime_bounded` recorded nothing after a missing or non-numeric `exp`.
+## 4. Validation
 
-## 7. Outcomes
+### 4.1 Oracle cases
+
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_validation("1.3", page=cog.inFile)) ]]] -->
+
+Every case of the oracle, produced on a lab and judged by the code: E1, [oracle validation](../../../experiments/README.md), campaign at commit `fc60b6f`. 13 of 13 produced cases gave the declared outcome; 0 no lab can produce.
+
+| Case | Lab, how it is produced | Result |
+|---|---|---|
+| `expiry_declared/ENFORCED/EXP_DECLARED` | crapi-kong: the lab as built: crAPI's login returns a JWT with a numeric exp | OK |
+| `expiry_declared/VIOLATION/NO_EXP_CLAIM/TENTATIVE` | crapi-kong: user_a's credential is a configured static token, a fictitious unsigned JWT with payload {sub: apiguard-lab, iat: 1700000000} and no exp (the test only reads it, it sends it nowhere) | OK |
+| `expiry_declared/NOT_VERIFIABLE/EXP_NOT_NUMERIC` | crapi-kong: user_a's credential is a configured static token, a fictitious unsigned JWT with payload {sub: apiguard-lab, iat: 1700000000, exp: "tomorrow"} | OK |
+| `expiry_declared/NOT_APPLICABLE/NOT_A_JWT` | forgejo-kong: the lab as built: Forgejo's API token is opaque (sha1), not a JWT | OK |
+| `lifetime_bounded/ENFORCED/LIFETIME_BOUNDED` | crapi-kong: user_a's credential is a configured static token, a fictitious unsigned JWT with iat 1700000000 and exp one hour later | OK |
+| `lifetime_bounded/VIOLATION/LIFETIME_EXCESSIVE/TENTATIVE` | crapi-kong: the lab as built: crAPI's JWT lives 7 days (exp - iat) | OK |
+| `lifetime_bounded/NOT_VERIFIABLE/NO_IAT_CLAIM` | crapi-kong: user_a's credential is a configured static token (no login to date it), a fictitious unsigned JWT with exp 1700003600 and no iat | OK |
+| `lifetime_bounded/NOT_VERIFIABLE/EXP_NOT_AFTER_IAT` | crapi-kong: user_a's credential is a configured static token, a fictitious unsigned JWT with iat 1700003600 and exp 1700000000 (before iat) | OK |
+| `lifetime_bounded/NOT_VERIFIABLE/EXP_NOT_NUMERIC` | crapi-kong: the same static token as expiry_declared/EXP_NOT_NUMERIC (exp "tomorrow"): one run records both sub-tests | OK |
+| `lifetime_bounded/NOT_APPLICABLE/NO_EXPIRY_TO_BOUND` | crapi-kong: the same static token as expiry_declared/NO_EXP_CLAIM (no exp): one run records both sub-tests | OK |
+| `lifetime_bounded/NOT_APPLICABLE/NOT_A_JWT` | forgejo-kong: the lab as built: Forgejo's API token is opaque (sha1), not a JWT | OK |
+| `expired_rejected/NOT_VERIFIABLE/NEEDS_KEY_MATERIAL` | crapi-kong: the lab as built: crAPI's token is a JWT and the tool has no signing key | OK |
+| `expired_rejected/NOT_APPLICABLE/NOT_A_JWT` | forgejo-kong: the lab as built: Forgejo's API token is opaque (sha1), not a JWT | OK |
+
+<!-- [[[end]]] -->
+
+### 4.2 Results on the labs
+
+<!-- [[[cog import generate_docs as g; cog.out(g.lab_results("1.3", page=cog.inFile)) ]]] -->
+
+No E2 campaign yet ([experiments](../../../experiments/README.md)).
+
+<!-- [[[end]]] -->
+
+## 5. Limitations
+
+- Whether an expired token is actually refused is not tried: it needs the signing key, reported
+  `NEEDS_KEY_MATERIAL`.
+- The lifetime bound is a heuristic reported at TENTATIVE confidence, because the token's purpose (access or
+  refresh) cannot be read from it.
+- An opaque token is not examined: its lifetime is managed at the server, out of view.
+- An opaque token's `expires_in` (RFC 6749 section 5.1) is not read: an opaque token is `NOT_A_JWT`.
+- A configured static token whose `exp` has passed is not sent to check that it is refused.
+
+## 6. Sources
+
+- OWASP API2:2023 Broken Authentication: https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/
+- RFC 7519 section 4.1.4 (the `exp` claim): https://www.rfc-editor.org/rfc/rfc7519.html#section-4.1.4
+- OWASP ASVS v5.0.0-9.2.1 (validity time span) and v5.0.0-7.3.2 (absolute maximum lifetime): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x18-V9-Self-contained-Tokens.md
+- CWE-613 Insufficient Session Expiration: https://cwe.mitre.org/data/definitions/613.html
+
+## 7. Inputs
+
+The role's valid JWT (the `USER_ACCOUNT` need). The test reads its `exp` and `iat` claims; it sends no request of
+its own. No configuration parameter.
+
+## 8. Outcomes
 
 SKIP when every sub-test is `NOT_APPLICABLE` (opaque token). Otherwise FAIL on a missing or excessive expiry, with
 `expired_rejected` INCONCLUSIVE (`NEEDS_KEY_MATERIAL`) where no key is supplied.
 
-## 8. Findings
+## 9. Findings
 
 <!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("1.3")) ]]] -->
 
@@ -110,58 +159,19 @@ SKIP when every sub-test is `NOT_APPLICABLE` (opaque token). Otherwise FAIL on a
 
 `evidence_ref` the login response that returned the token (none for a configured token).
 
-## 9. Effects on the target
+## 10. Effects on the target
 
 `READ_ONLY`, and no request at all: the token was obtained by the login the engine already performed.
 
-## 10. Per gateway
+## 11. Per gateway
 
 Independent of the gateway: the claims are the issuer's, read from the token.
 
-## 11. Configuration
+## 12. Configuration
 
 None.
-
-## 12. Validation
-
-**2026-11-16, after the review** (domain 1 on the three labs as configured): crAPI **FAIL** (`LIFETIME_EXCESSIVE`, 7 days), the Forgejo labs SKIP (opaque tokens), as before.
-
-
-Runs of 2026-10-22, the three tests of the group together:
-
-| Lab | Status | Basis |
-|---|---|---|
-| crAPI + Kong | **FAIL, 1 finding (TENTATIVE)** | the JWT declares `exp` (PASS on `expiry_declared`), but its lifetime `exp - iat` is **7 days**, far past any access-token guidance (`LIFETIME_EXCESSIVE`). `expired_rejected` is `NEEDS_KEY_MATERIAL` |
-| Forgejo + Kong, Forgejo + APISIX | SKIP | the API token is opaque: `NOT_APPLICABLE/NOT_A_JWT` |
-| any | ENFORCED | a JWT declaring `exp` with a short lifetime: not on the labs (crAPI's is 7 days) |
-
-**What each branch has been seen doing** (rule 9). Proven on a lab: `EXP_DECLARED`, `LIFETIME_EXCESSIVE`,
-`NEEDS_KEY_MATERIAL`, `NOT_A_JWT`, and on 2026-11-15 the five others, on crAPI + Kong with a temporary route on
-the login, `POST ~/identity/api/auth/login$` on `identity-service` in its `kong/kong.yml` (undone with `git
-checkout`), whose `pre-function` answers `200` with a fictitious unsigned token (`{"alg":"HS256"}`, the signature
-`lab-dummy-signature`): the test only reads the token, it sends it nowhere. With the payload
-`{"sub":"apiguard-lab","iat":1700000000}` `NO_EXP_CLAIM` (FIRM); with `exp` one hour after `iat`
-`LIFETIME_BOUNDED`; with `exp` and no `iat` `NO_IAT_CLAIM`; with `"exp":"tomorrow"` `EXP_NOT_NUMERIC`; with `exp`
-before `iat` `EXP_NOT_AFTER_IAT`. Every branch of this test has been seen.
 
 ## 13. Remediation
 
 Issue short-lived access tokens with an `exp` claim and renew them with a refresh token; enforce the `exp` on every
 request (ASVS v5.0.0-9.2.1) and set an absolute maximum lifetime (ASVS v5.0.0-7.3.2).
-
-## 14. Limitations
-
-- Whether an expired token is actually refused is not tried: it needs the signing key, reported
-  `NEEDS_KEY_MATERIAL`.
-- The lifetime bound is a heuristic reported at TENTATIVE confidence, because the token's purpose (access or
-  refresh) cannot be read from it.
-- An opaque token is not examined: its lifetime is managed at the server, out of view.
-- An opaque token's `expires_in` (RFC 6749 section 5.1) is not read: an opaque token is `NOT_A_JWT`.
-- A configured static token whose `exp` has passed is not sent to check that it is refused.
-
-## 15. Sources
-
-- OWASP API2:2023 Broken Authentication: https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/
-- RFC 7519 section 4.1.4 (the `exp` claim): https://www.rfc-editor.org/rfc/rfc7519.html#section-4.1.4
-- OWASP ASVS v5.0.0-9.2.1 (validity time span) and v5.0.0-7.3.2 (absolute maximum lifetime): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x18-V9-Self-contained-Tokens.md
-- CWE-613 Insufficient Session Expiration: https://cwe.mitre.org/data/definitions/613.html

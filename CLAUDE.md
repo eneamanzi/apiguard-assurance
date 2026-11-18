@@ -27,6 +27,7 @@ in `docs/03-reference/06-compatibility.md` (Test portability).
 | Coding rules (English) | `docs/02-guides/03-extending/01-coding-rules.md` |
 | Adding a native test / external test / gateway adapter | `docs/02-guides/03-extending/02-add-a-native-test.md`, `add-an-external-test.md`, `add-a-gateway-adapter.md` |
 | What each test does, its oracle, its effects on the target | `docs/05-tests/` (index `docs/05-tests/README.md`) |
+| The experiments of the paper (E1 oracle validation, E2 complete run, E3 crAPI challenges; commands, results) | `experiments/README.md` |
 | Verified facts: configuration, CLI, exit codes, report and evidence formats, compatibility | `docs/03-reference/` (check here before answering "what does X do") |
 | Which document to quote about the tool, and which about the methodology | `docs/index.md` ("Two kinds of document") |
 | Methodology framework (gradient, priorities) | `docs/06-knowledge/02-methodology.md` |
@@ -175,4 +176,5 @@ Missing external tool → `TestResult(SKIP)` via `_skip_reason_from_registry`. N
 4. Verify against the lab with only the affected tests (`execution.test_ids` in a copy of `test-environments/forgejo-kong/config.yaml`), not the
    full assessment.
 5. After completing a test, update the test page in `docs/05-tests/` and `CHANGELOG.md`, then `hatch run dev:gen`
-   (the generated documentation: catalogue, page headers, parameter tables, `config.example.yaml`).
+   (the generated documentation: catalogue, page headers, parameter tables, `config.example.yaml`); a changed oracle
+   also needs its validation cases (`experiments/e1-oracle-validation/sync.py`, then the case filled and `hatch run dev:e1-oracle-validation --test`).

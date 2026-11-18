@@ -1,0 +1,311 @@
+test: '2.1'
+name: Function-Level Authorization
+sub_tests:
+
+  privileged_function_refuses_user:
+
+    - id: VIOLATION/BFLA/FIRM
+      situation: user_a is served (`2xx`) a privileged operation the specification protects, or that refuses an
+        anonymous request
+      expected:
+        outcome: VIOLATION
+        detail: BFLA
+        confidence: FIRM
+      how: 'the lab as built: GET /workshop/api/management/users/all answers 200 to user_a'
+      lab: crapi-kong
+      variant: none
+
+    - id: NOT_APPLICABLE/PUBLIC_ENDPOINT
+      situation: 'user_a is served an operation that is public: declared so, and served anonymously too'
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: PUBLIC_ENDPOINT
+      how: the run reads a local copy of crAPI's specification where GET /workshop/api/management/users/all is replaced
+        by an operation with security [] (public), and a temporary route answers it 200 to user_a and to an anonymous
+        request (crAPI itself refuses the anonymous one)
+      lab: crapi-kong
+      variant: kong-2-1-users-all-public
+      spec:
+        set: {}
+        add_operations:
+          - path: /workshop/api/management/users/all
+            method: get
+            operation:
+              operationId: get_workshop_users_all
+              summary: Get Workshop Users Detail
+              security: []
+              responses:
+                '200':
+                  description: OK
+        drop_plain_get: false
+        drop_operations: []
+
+    - id: ENFORCED/REFUSED
+      situation: user_a is refused (`401`, `403`) unlike the forged credential, and the admin account (when configured)
+        is served
+      expected:
+        outcome: ENFORCED
+        detail: REFUSED
+      how: 'the lab as built: the /api/v1/admin reads refuse user_a 403, the forged credential gets 401, and the
+        admin token (scope read:admin) is served'
+      lab: forgejo-kong
+      variant: none
+
+    - id: ENFORCED/REFUSED_HIDDEN
+      situation: user_a gets `404` while the admin account is served
+      expected:
+        outcome: ENFORCED
+        detail: REFUSED_HIDDEN
+      how: a temporary route /api/v1/admin whose pre-function turns Forgejo's 403 into 404 in its header_filter
+        phase; the admin token (read:admin, as the lab is built) is served, user_a gets 404 and the forged credential
+        401
+      lab: forgejo-kong
+      variant: kong-2-1-admin-403-as-404
+
+    - id: NOT_VERIFIABLE/ADMIN_REFUSED_TOO
+      situation: 'user_a and the admin account are both refused: a scope or a precondition, not the role'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: ADMIN_REFUSED_TOO
+      how: 'the lab as built: one /api/v1/admin read refuses user_a and the admin token alike'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/CREDENTIAL_NOT_CONFIRMED
+      situation: user_a is refused like the forged credential, or `401` when the forged credential is not refused
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: CREDENTIAL_NOT_CONFIRMED
+      how: 'user_a given a static token crAPI does not accept: user_a and the forged credential both get 401 "Invalid
+        JWT Token!" on GET /workshop/api/management/users/all'
+      lab: crapi-kong
+      variant: none
+      config:
+        credentials.auth_type: static_token
+        credentials.login_resource: null
+        credentials.admin_username: null
+        credentials.admin_password: null
+        credentials.user_a_username: null
+        credentials.user_a_password: null
+        credentials.user_b_username: null
+        credentials.user_b_password: null
+        credentials.user_a_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhcGlndWFyZC1sYWIiLCJpYXQiOjE3MDAwMDAwMDB9.lab-dummy-signature
+
+    - id: NOT_VERIFIABLE/ENDPOINT_NOT_CONFIRMED
+      situation: user_a gets `404` and no admin account, or the admin account is not served either
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: ENDPOINT_NOT_CONFIRMED
+      how: 'the lab as built: the /api/v1/admin/quota reads answer 404 to user_a and to the admin token as well'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/DESTRUCTIVE_NOT_PROBED
+      situation: a destructive method of a privileged path, never sent
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: DESTRUCTIVE_NOT_PROBED
+      how: 'the lab as built: the specification documents POST, PATCH and DELETE on /api/v1/admin paths, never sent'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/REDIRECT
+      situation: 'user_a''s answer is `REDIRECT`: neither served nor refused'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: REDIRECT
+      how: a temporary route GET ~/api/v1/admin/orgs$ answers 302 to https://localhost:8443/ itself
+      lab: forgejo-kong
+      variant: kong-2-1-admin-orgs-302
+
+    - id: NOT_VERIFIABLE/METHOD_NOT_ALLOWED
+      situation: 'user_a''s answer is `METHOD_NOT_ALLOWED`: neither served nor refused'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: METHOD_NOT_ALLOWED
+      how: the run reads a local copy of Forgejo's specification with a HEAD operation added to /admin/orgs; Forgejo
+        answers HEAD there 405
+      lab: forgejo-kong
+      variant: none
+      spec:
+        set: {}
+        add_operations:
+          - path: /admin/orgs
+            method: head
+            operation:
+              operationId: adminGetAllOrgsHead
+              summary: List all organizations
+              responses:
+                '200':
+                  description: OK
+        drop_plain_get: false
+        drop_operations: []
+
+    - id: NOT_VERIFIABLE/INVALID_REQUEST
+      situation: 'user_a''s answer is `INVALID_REQUEST`: neither served nor refused'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: INVALID_REQUEST
+      how: a temporary route GET ~/api/v1/admin/orgs$ answers 400 itself
+      lab: forgejo-kong
+      variant: kong-2-1-admin-orgs-400
+
+    - id: NOT_VERIFIABLE/OTHER
+      situation: 'user_a''s answer is `OTHER`: neither served nor refused'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: OTHER
+      how: a temporary route GET ~/api/v1/admin/orgs$ answers 418 itself (OTHER in response_category.py)
+      lab: forgejo-kong
+      variant: kong-2-1-admin-orgs-418
+
+    - id: NOT_APPLICABLE/NO_PRIVILEGED_ENDPOINT
+      situation: no documented path has an `admin` or `management` segment
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NO_PRIVILEGED_ENDPOINT
+      how: the run reads a local copy of Forgejo's specification whose paths are replaced by GET /version only,
+        so no path has an admin or management segment
+      lab: forgejo-kong
+      variant: none
+      spec:
+        set:
+          paths:
+            /version:
+              get:
+                operationId: getVersion
+                summary: Returns the version of the running application
+                responses:
+                  '200':
+                    description: OK
+        add_operations: []
+        drop_plain_get: false
+        drop_operations: []
+
+  method_not_confused:
+
+    - id: VIOLATION/METHOD_CONFUSION/FIRM
+      situation: the protected safe methods of one privileged path give user_a different outcomes
+      expected:
+        outcome: VIOLATION
+        detail: METHOD_CONFUSION
+        confidence: FIRM
+      how: the specification copy with HEAD added to /admin/orgs, and a temporary route HEAD ~/api/v1/admin/orgs$
+        answering 200 itself while GET refuses user_a 403
+      lab: forgejo-kong
+      variant: kong-2-1-admin-orgs-head-200
+      spec:
+        set: {}
+        add_operations:
+          - path: /admin/orgs
+            method: head
+            operation:
+              operationId: adminGetAllOrgsHead
+              summary: List all organizations
+              responses:
+                '200':
+                  description: OK
+        drop_plain_get: false
+        drop_operations: []
+
+    - id: ENFORCED/METHODS_CONSISTENT
+      situation: two or more protected safe methods of one privileged path agree
+      expected:
+        outcome: ENFORCED
+        detail: METHODS_CONSISTENT
+      how: the specification copy with HEAD added to /admin/orgs, and a temporary route HEAD ~/api/v1/admin/orgs$
+        whose pre-function forwards the HEAD to Forgejo as a GET (user_a 403, the forged credential 401, on both
+        methods)
+      lab: forgejo-kong
+      variant: kong-2-1-admin-orgs-head-as-get
+      spec:
+        set: {}
+        add_operations:
+          - path: /admin/orgs
+            method: head
+            operation:
+              operationId: adminGetAllOrgsHead
+              summary: List all organizations
+              responses:
+                '200':
+                  description: OK
+        drop_plain_get: false
+        drop_operations: []
+
+    - id: NOT_APPLICABLE/SINGLE_SAFE_METHOD
+      situation: no privileged path has two decided protected safe methods
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: SINGLE_SAFE_METHOD
+      how: 'the lab as built: every privileged path documents a single safe method (GET)'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_APPLICABLE/NO_PRIVILEGED_ENDPOINT
+      situation: no documented path has an `admin` or `management` segment
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NO_PRIVILEGED_ENDPOINT
+      how: the run reads a local copy of Forgejo's specification whose paths are replaced by GET /version only
+      lab: forgejo-kong
+      variant: none
+      spec:
+        set:
+          paths:
+            /version:
+              get:
+                operationId: getVersion
+                summary: Returns the version of the running application
+                responses:
+                  '200':
+                    description: OK
+        add_operations: []
+        drop_plain_get: false
+        drop_operations: []
+
+  any_sub_test:
+
+    - id: NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE
+      situation: 'an answer of this category on any sub-test that does not judge it: 502, 503, 504: the gateway
+        could not reach the backend, or the backend did not answer in time. It says nothing about the guarantee
+        (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: UPSTREAM_UNAVAILABLE
+      how: a temporary route GET ~/api/v1/admin/orgs$ answers 503 itself
+      lab: forgejo-kong
+      variant: kong-2-1-admin-orgs-503
+
+    - id: NOT_VERIFIABLE/RATE_LIMITED
+      situation: 'an answer of this category on any sub-test that does not judge it: 429: refused for the rate of
+        the requests. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: RATE_LIMITED
+      how: a temporary route GET ~/api/v1/admin/orgs$ answers 429 itself
+      lab: forgejo-kong
+      variant: kong-2-1-admin-orgs-429
+
+    - id: NOT_VERIFIABLE/SERVER_ERROR
+      situation: 'an answer of this category on any sub-test that does not judge it: 500, 505-508, 510: the application
+        failed. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: SERVER_ERROR
+      how: a temporary route GET ~/api/v1/admin/orgs$ answers 500 itself
+      lab: forgejo-kong
+      variant: kong-2-1-admin-orgs-500
+
+    - id: NOT_VERIFIABLE/NO_RESPONSE
+      situation: 'an answer of this category on any sub-test that does not judge it: No HTTP response: timeout,
+        connection refused, TLS error, connection reset. It says nothing about the guarantee (one rule for every
+        test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_RESPONSE
+      how: a temporary route GET ~/api/v1/admin/orgs$ sleeps 7 s before answering, past the run's read timeout of
+        5 s
+      lab: forgejo-kong
+      variant: kong-2-1-admin-orgs-slow
+      config:
+        target.read_timeout: 5.0

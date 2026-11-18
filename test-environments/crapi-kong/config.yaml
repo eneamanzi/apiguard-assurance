@@ -81,16 +81,16 @@ resources:
       order_id: id
   # A coupon for test 7.3 (race conditions), created through crAPI's own API before
   # the burst. crAPI's service wants `amount` as a string (its specification says
-  # integer), accepts the same code again on every run and answers with a plain
-  # string, so the code is fixed and written in both places. A user may apply a
-  # given code once: the first run after a lab reset tests the race, later runs
-  # report OPERATION_FAILED (already claimed). No delete exists; the reset removes it.
+  # integer) and answers with a plain string, so no value is read back: the code is
+  # named with the run's {random}, which test 7.3 puts in the burst's body too. A user
+  # may apply a given code once, so every run tests the race on a fresh coupon. No
+  # delete exists; the coupons stay until the lab is reset.
   coupon:
     create:
       path: /community/api/v2/coupon/new-coupon
       auth: credential
       body:
-        coupon_code: "APIGUARD-RACE"
+        coupon_code: "APIGUARD-RACE-{random}"
         amount: "10"
 
 # What runs: every test by default, native and external (same in the three labs).
@@ -154,7 +154,7 @@ tests:
         path: "/workshop/api/shop/apply_coupon"
         method: "POST"
         body:
-          coupon_code: "APIGUARD-RACE"
+          coupon_code: "APIGUARD-RACE-{random}"
           amount: 10
         role: user_a
         resource: coupon

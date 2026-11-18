@@ -1,8 +1,7 @@
 # Data Model
 
 > **Audience:** contributors · **Status:** v0.1.0 · **Source of truth:** `src/core/models/` (exports in
-> `src/core/models/__init__.py`), `src/core/context.py`, `src/report/builder.py`, `src/config/schema/` ·
-> **Verified:** 2026-10-15 (TargetContext fields, from `src/core/context.py`), 2026-10-05
+> `src/core/models/__init__.py`), `src/core/context.py`, `src/report/builder.py`, `src/config/schema/`
 
 All shared data structures are Pydantic v2 models. `src/core/models/` is the shared vocabulary; it depends only on
 the standard library, Pydantic and structlog.
@@ -134,7 +133,7 @@ defined twice); the parameters of tests 3.3 and 4.3 that described Kong's plugin
 knowledge (decision 6.6).
 External-tool models live in `src/core/models/external_tools.py`, on purpose: they configure the tools (the
 `external_tools` section: switches, timeouts, binary flags), not the parameters of a single test, and they are used
-by `core` (`TargetContext`), the connectors and the external registry (owner decision 2026-10-09).
+by `core` (`TargetContext`), the connectors and the external registry.
 
 ## Report models
 

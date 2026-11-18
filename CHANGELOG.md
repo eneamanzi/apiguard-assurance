@@ -15,22 +15,51 @@ generated catalogue [`docs/05-tests/README.md`](docs/05-tests/README.md); `apigu
 
 ### Added
 
-- **Validation of the oracles by script (`validation/`, 2026-11-17).** Every case of every test's oracle (577: the
+- **Validation of the oracles by script (`experiments/e1-oracle-validation/`, 2026-11-17).** Every case of every test's oracle (577: the
   declared rows, the concept not accessible, the answers that say nothing) has a file per test saying how it is
   produced on a lab, or why it cannot be (26, with their group); the lab changes are written once per lab
-  (`validation/variants/`). `validation/run.py` applies each change, runs only the tests concerned, compares the
+  (`experiments/e1-oracle-validation/variants/`). `experiments/e1-oracle-validation/run.py` applies each change, runs only the tests concerned, compares the
   case each test recorded (`sub_tests[].cases`) with the declared one, undoes the change and stops unless the lab is
-  back to its recorded state; the result names the commit. `validation/check.py`, in `dev:check`, keeps the files
+  back to its recorded state; the result names the commit. `experiments/e1-oracle-validation/check.py`, in `dev:check`, keeps the files
   equal to the code (and so to the generated pages): a changed oracle fails until its case is updated. First runs:
   domain 0 and 3.3, every producible case as declared (one variant of 0.3 made deterministic); `SIGNATURE_OPTIONAL`
   of 3.3 seen for the first time. The dev environment installs the `schemathesis` extra, so a campaign runs
   `ext.3.1.schemathesis` too.
-- **1.5 took an HTTPS `503` as a different answer (2026-11-17, found by `validation/`).** A plain-HTTP `4xx` is a
+- **Test pages: what the test checks and how first (2026-11-18, owner).** Every test page now reads (1) Guarantee,
+  (2) Test: Sub-tests, Preconditions and reference responses, Probes, (3) Oracle, (4) Validation, (5) Limitations,
+  (6) Sources, then the details for running it: (7) Inputs, (8) Outcomes, (9) Findings, (10) Effects on the target,
+  (11) Per gateway, (12) Configuration, (13) Remediation. Content unchanged; the pages' references to their own
+  sections renumbered, other documents name the section instead of its number.
+- **The experiments in one folder, one command each (2026-11-18).** `validation/` became
+  `experiments/e1-oracle-validation/` (E1), beside E2 (`e2-complete-run`: every test on each lab as built, each lab
+  reset first, with each run's cost) and E3 (`e3-crapi-challenges`: crAPI's 18 published challenges, each read in
+  E2's crAPI run by a rule written before it, `challenges.yaml`; the injections 12 and 13 and the negative quantity
+  of 8 and 9, once set aside as out of scope, are measured under guarantee 3.1 and counted missed); `experiments/README.md`, one `hatch run dev:` command
+  each, their shared code in `experiments/shared/experiment.py`. A campaign (every case or lab, clean commit) resets
+  the labs itself and is committed, replacing the previous one; a trial (`-partial`, `-dirty`) stays local. While a
+  run goes, one live line names the test reached and the time elapsed. 7.4's cases sign with `LAB_WEBHOOK_SECRET`
+  (`.env.example`). `dev:check` runs `check.py --complete`: an oracle row without a way to produce it, or the reason
+  there is none, fails.
+- **Test pages: the Validation section generated from the experiments (2026-11-18).** Each page's section 4 is (4.1)
+  every case of its oracle as the latest E1 campaign produced it, and (4.2) what the test gave on each lab in the
+  latest E2 campaign; the crAPI section of the compatibility page is the latest E3 campaign (`hatch run dev:gen`).
+  The hand-written observations they replace are in git history.
+- **Documentation states the present (2026-11-18, owner).** Dated asides, owner mentions, "until ..." and "the old
+  parameter ..." passages left the documentation (test pages, reference, architecture, guides, methodology, the
+  guarantees catalogue); the history they told is in this file. Page headers keep the audience, the status and the
+  source of truth, without the "Verified" dates (a test page's evidence is its Validation section).
+- **7.3 fires every run on a fresh object (2026-11-18).** With a prepared resource, the burst's body (not only its
+  path) may hold the resource's values and the `{random}` its create request used, checked against the resource when
+  the configuration loads. A once-only operation is used up by the run that tests it: crAPI's lab now creates the
+  coupon `APIGUARD-RACE-{random}` and applies the same code, so a run after the first no longer meets "already
+  claimed". **Changed results**: crAPI 7.3 is FAIL (`RACE_DOUBLE_EFFECT`) on every run, no longer INCONCLUSIVE
+  (`OPERATION_FAILED`) after the first one following a reset.
+- **1.5 took an HTTPS `503` as a different answer (2026-11-17, found by `experiments/e1-oracle-validation/`).** A plain-HTTP `4xx` is a
   refusal of the protocol when HTTPS answers otherwise; the HTTPS answer was screened with the sub-test's own
   decisive answers, which judge a `503` over HTTP, so an HTTPS `503` made an HTTP `400` `ENFORCED/HTTP_REFUSED`. An
   HTTPS answer that says nothing now compares with nothing: `NOT_VERIFIABLE/HTTPS_ANSWER_UNKNOWN`, as the oracle
   declares. **Changed results**: none on the three labs as built (their HTTPS probe is served).
-- **2.2 and 2.5 could take a less specific operation for the object (2026-11-17, found by `validation/`).** The
+- **2.2 and 2.5 could take a less specific operation for the object (2026-11-17, found by `experiments/e1-oracle-validation/`).** The
   operations addressing the created object were the most specific ones per method: with no documented read of
   `/repos/{owner}/{repo}`, a read of `/packages/{owner}` was taken for the object's. The most specific is now counted
   over every method, then the methods asked for are kept, so such a specification gives `NO_READ_OPERATION`.

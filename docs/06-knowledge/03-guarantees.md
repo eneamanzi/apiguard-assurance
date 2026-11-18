@@ -4,8 +4,8 @@
 > tool is built on, with the priority each one's test declares · **Source of truth:** the priorities and strategies
 > are those of the code (`apiguard list-tests`); what each test implements is on its page in
 > [`tests/`](../05-tests/README.md) · **Framework** (gradient, priorities, sources):
-> [`02-methodology.md`](02-methodology.md) · **Verified:** 2026-10-27 · **Thesis original:**
-> `git show 694f89a:docs/knowledge/methodology/methodology.it.md`
+> [`02-methodology.md`](02-methodology.md) · **Thesis original:** `git show
+> 694f89a:docs/knowledge/methodology/methodology.it.md`
 
 Each guarantee has the same parts: **references** (OWASP API Security Top 10 2023, ASVS 5.0.0, NIST, RFC),
 **concept**, **failure scenarios**, **assumptions and prerequisites**, **test logic** (each check against its
@@ -43,8 +43,7 @@ carries the one the methodology proposes.
 ### 0.1 Every exposed endpoint is documented and authorised `[P0]`
 
 **References:** OWASP API9:2023 Improper Inventory Management, OWASP ASVS 5.0.0 V4.1.4 (and V13.4.4 for TRACE),
-OWASP WSTG-CONF-06. (Until 2026-11-16 this line cited ASVS V4.1.1, the Content-Type requirement, and NIST SP
-800-204 §3.1, to re-verify.)
+OWASP WSTG-CONF-06.
 
 **Concept.** Every endpoint active on the gateway corresponds to an entry in the official OpenAPI specification.
 Active but undocumented endpoints, called shadow APIs, are an unknown attack surface: they are not subject to
@@ -591,9 +590,9 @@ sensitive fields that should not be exposed.
 
 ### 3.1 Every input is validated against schema and constraints `[P2]`
 
-**References:** CWE-20, OWASP ASVS 5.0.0 V2.2.1 and V1.2, NIST SP 800-53 Rev. 5 SI-10. (The thesis cited
-API10:2023 here; that category is the API's trust in data it consumes from third-party APIs, so it was dropped on
-2026-10-28: the OWASP API Top 10 2023 has no category for the validation of a client's input.)
+**References:** CWE-20, OWASP ASVS 5.0.0 V2.2.1 and V1.2, NIST SP 800-53 Rev. 5 SI-10. (API10:2023 is not
+cited: that category is the API's trust in data it consumes from third-party APIs; the OWASP API Top 10 2023 has no
+category for the validation of a client's input.)
 
 **Concept.** Every input (body, query parameter, path parameter, header) is validated against the expected type,
 format, range, length and pattern before reaching the business logic. The allow-list approach, accepting only
@@ -882,8 +881,7 @@ outside.
 
 **Coverage by the tool.** No test declares this guarantee. Alerting lives in the SIEM or the notification channel,
 which the tool cannot read from outside, and every check below needs an alert receiver the tool can observe, which
-is not built and not planned (decided 2026-10-27). A test for it existed until 2026-11-03 and returned SKIP on every
-target, so it was removed. Two neighbours cover adjacent ground without answering the question:
+is not built and not planned. Two neighbours cover adjacent ground without answering the question:
 [5.1](../05-tests/domain-5/5-1-request-logging-audit.md) checks that the gateway logs requests at all, and
 [1.7](../05-tests/domain-1/1-7-authentication-resistance.md) that repeated failed authentications are limited.
 Neither says whether anyone is alerted: verify the alerting rules by hand on the gateway or the SIEM.

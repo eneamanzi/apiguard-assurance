@@ -1,10 +1,7 @@
 # Compatibility
 
-> **Audience:** users, integrators · **Status:** v0.1.0 ·
-> **Source of truth:** `pyproject.toml`, `install_tools.sh`, `src/core/gateway/`, `src/discovery/openapi.py`,
-> `test-environments/*/docker-compose.yml` · **Verified:** 2026-10-05, v0.1.0; interface stability 2026-10-09; crAPI lab
-> 2026-10-10; APISIX lab and adapter 2026-10-12; connections and TLS, labs rebuilt with their certificate authority
-> 2026-10-15
+> **Audience:** users, integrators · **Status:** v0.1.0 · **Source of truth:** `pyproject.toml`, `install_tools.sh`,
+> `src/core/gateway/`, `src/discovery/openapi.py`, `test-environments/*/docker-compose.yml`
 
 This page separates what the code **declares**, what has been **tested**, and what is **unknown**.
 Nothing in the "unknown" column should be assumed to work.
@@ -13,7 +10,7 @@ Nothing in the "unknown" column should be assumed to work.
 
 | Item | Declared | Tested | Unknown |
 |---|---|---|---|
-| Python | `>=3.11,<3.15` (`pyproject.toml`); classifiers 3.11 to 3.14 | 3.11.14, 3.12.3, 3.13.9, 3.14.0 (2026-10-06: a venv per version, then the native tests and the external tests on the lab; identical results on every version) | 3.15 and later: not installable until verified and added to the range |
+| Python | `>=3.11,<3.15` (`pyproject.toml`); classifiers 3.11 to 3.14 | 3.11.14, 3.12.3, 3.13.9, 3.14.0 (a venv per version, then the native tests and the external tests on the lab; identical results on every version) | 3.15 and later: not installable until verified and added to the range |
 | Operating system | Linux only (classifier `POSIX :: Linux`) | Linux | Not supported: macOS, Windows. `install_tools.sh` also accepts macOS (x86_64, arm64), but the tool is not tested there; on Windows it exits with an error. |
 
 ## Target and gateway
@@ -56,9 +53,9 @@ specification marks an operation `deprecated`, and **6.4**'s first sub-test prob
 `partial` while its gateway configuration scan still runs. A test whose need is unmet is recorded SKIP before it
 runs, with the reason naming what is missing.
 
-Reaching a verdict is not the same as the verdict being right: verdict correctness was the subject of the block-6
-test review (groups A-J), now complete, which rebuilt each test's oracle with calibration, positive controls and the
-honest `INCONCLUSIVE` status. No test or helper uses a Forgejo path (comments and docstrings cite the labs as measured examples): what is specific to an application (its
+Reaching a verdict is not the same as the verdict being right: each test judges by its declared oracle, with
+calibration, positive controls and `INCONCLUSIVE` when it cannot decide, and every case of every oracle is produced
+on the labs by the oracle validation ([experiments](../../experiments/README.md)). No test or helper uses a Forgejo path (comments and docstrings cite the labs as measured examples): what is specific to an application (its
 login, the objects a test needs, the request that checks a revoked token) is configuration
 ([`resources`](01-configuration.md#resources)); the Forgejo values are in the lab configurations.
 
@@ -66,82 +63,39 @@ login, the objects a test needs, the request that checks a revoked token) is con
 
 [Test portability](#test-portability) says what each test needs from a target; this section says what the tests
 **find** when a target is known to be vulnerable. The target is the [crAPI lab](#crapi--kong), an API vulnerable by
-design that publishes the list of the weaknesses it was built to contain, so the measure is a ground truth nobody
-here wrote: `docs/challenges.md`, at the commit the lab's images come from (`700f03d`), declares **18 numbered
-challenges** in 11 categories, plus three it keeps secret. Measured on 2026-11-05 with a full assessment (31 tests,
-external tools included) on a lab reset first, the two Forgejo labs running: 16 FAIL, 8 PASS, 3 INCONCLUSIVE, 4 SKIP,
-25 findings (the day before, same conditions: 16 FAIL, 9 PASS, 2 INCONCLUSIVE, 27 findings; 2.4's calibration and
-Schemathesis's credential changed in between, see their pages). A second run that evening, the lab reset again, gave
-17 FAIL, 8 PASS, 2 INCONCLUSIVE, 4 SKIP, 25 findings: 4.4 concluded (FAIL, its race below) and 6.4 asked its new
-default paths (PASS complete). That run's 6.2 FAIL was the lab's own gateway (its Kong set two security headers with
-`replace` only, which keeps a header the backend does not send absent); with the lab corrected, a third run gave 16
-FAIL, 9 PASS, 2 INCONCLUSIVE, 4 SKIP, 25 findings. Where each finding comes from, the application or the lab's setup,
-is in [`LAB_FINDINGS.md`](../../LAB_FINDINGS.md). The three INCONCLUSIVE of the first run:
-- **2.4**: crAPI's identity service refuses every path before routing it, so whether an older version enforces the
-  same policy is not known (`REFUSED_BEFORE_ROUTING`);
-- **4.4**: the oversized body meets a service that answers `401` and resets the connection, in some runs before the
-  upload finishes, which since the retry rule of 2026-10-28 is reported rather than retried (8 isolated runs: 5
-  INCONCLUSIVE, 3 FAIL; the FAIL is the gateway's real state);
-- **7.2**: challenge 11 below.
+design that publishes the weaknesses it was built to contain, so the expected values are not ours: crAPI's
+`docs/challenges.md` declares 18 numbered challenges in 11 categories, plus three it keeps secret. Each is read in a
+complete run of every test on the reset lab, by a rule written before the run.
 
-**4.1 and 7.3 conclude in a full assessment** (FAIL both days). Until 2026-11-03 they reported
-`NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` (Kong: `503 failure to get a peer from the ring-balancer`). That was not load:
-7.2's SSRF probes hang on crAPI's synchronous outbound call, and three timeouts made Kong's passive health check take
-the workshop service out of rotation for the tests that ran next. Since 7.2 stops at the first payload left without an
-answer (2026-11-04), the workshop stays in service. Schemathesis, which runs last, still leaves
-Kong reporting it `UNHEALTHY` after the run (measured 2026-11-05): reset the lab before the next measurement. The
-number of findings moves between runs because `ext.3.1.schemathesis` generates its inputs at random (2 and 4 findings
-on the two days); the statuses are stable apart from 4.4, which depends on a race.
+<!-- [[[cog import generate_docs as g; cog.out(g.crapi_challenges(page=cog.inFile)) ]]] -->
 
-| # | crAPI challenge | Weakness | What the tool did, measured | Verdict |
-|---|---|---|---|---|
-| 1 | Another user's vehicle details (`/identity/api/v2/vehicle/{id}/location`) | BOLA | not probed, and **the object does not exist in this lab**: a crAPI vehicle is claimed with a VIN and a pincode sent by email, which the setup never does, so `GET /identity/api/v2/vehicle/vehicles` answers `200 []` for both roles (measured 2026-10-29) | **missed, lab-blocked** |
-| 2 | Mechanic reports of other users (hidden `report_link`) | BOLA | not probed, same reason | **missed** |
-| 3 | Reset another user's password by brute force | anti-automation | 7.1 FAIL: "No anti-automation control on POST /identity/api/auth/forget-password", the challenge's own endpoint; 1.7 FAIL: "Failed authentication attempts are not limited" | **caught** |
-| 4 | An endpoint leaks other users' sensitive data | excessive data exposure | not probed: the challenge's own endpoint (`/community/.../posts/recent`, which leaks `vehicleid`) is not the configured object. 2.5 reads the configured order, whose `card_number` is masked (`XXXXXXXXXXXX0796`): no exposure, PASS (2026-11-04; reported FAIL before the external audit's correction) | **missed** |
-| 5 | An internal property of a video is exposed | excessive data exposure | not probed: 2.5 reads the configured object only | **missed** |
-| 6 | Layer-7 DoS through 'contact mechanic' | rate limiting | 4.1 FAIL: "No rate limit on /workshop/api/mechanic/", the challenge's own feature, in a full assessment on a reset lab (2026-11-04 and 2026-11-05; until 2026-11-03 the workshop service had been taken out of rotation by then, see above) | **caught** |
-| 7 | Delete another user's video (admin endpoint) | BFLA | 2.1 derived `DELETE /identity/api/v2/admin/videos/{video_id}` as privileged (segment `admin`), **named it in the report and did not send it** (`DESTRUCTIVE_NOT_PROBED`, rule 5). On the other privileged endpoint it found a real BFLA: `GET /workshop/api/management/users/all` | **found, not exploited by design** |
-| 8 | Get an item for free (negative `quantity`) | business logic | not caught: `ProductQuantity.quantity` is `integer` with no minimum, so a negative value conforms to the schema and `ext.3.1.schemathesis` has nothing to flag. No test checks a business invariant | **out of scope** |
-| 9 | Increase your balance by $1,000 or more | business logic | same as 8 | **out of scope** |
-| 10 | Update internal video properties | mass assignment | not probed: 2.5's `mass_assignment` acts on the configured object | **missed** |
-| 11 | Make crAPI call an external host | SSRF | 7.2 probed `contact_mechanic`; crAPI's synchronous outbound call to the first cloud-metadata URL hangs until the gateway answers `504`, so 7.2 stops there (the other 72 payloads are `NOT_SENT_AFTER_TIMEOUT`, so as not to take the backend out of service) and the test is INCONCLUSIVE | **attempted, not concludable** |
-| 12 | Free coupons without the code | NoSQL injection | no test: deep injection confirmation is a documented non-goal | **out of scope** |
-| 13 | Redeem a claimed coupon | SQL injection | no test, same | **out of scope** |
-| 14 | An endpoint with no authentication check | missing authentication | 1.1 FAIL on two: `GET /workshop/api/shop/orders/1` and `GET /workshop/api/shop/return_qr_code` | **caught** |
-| 15 | Forge a valid JWT | JWT validation | 1.2 FAIL: "Invalid token accepted: ALG_NONE", a variant crAPI does not even list among its four; `algorithm_confusion` is honestly `NEEDS_KEY_MATERIAL` | **caught** |
-| 16 | Prompt injection in the chatbot | LLM | the chatbot and chromadb are left out of the lab on purpose (an OpenAI key, reachable only through crapi-web), so the surface does not exist here; the tool has no LLM test either | **absent from the deployment** |
-| 17 | Extract another user's credentials with the chatbot | LLM | same | **absent from the deployment** |
-| 18 | Make the chatbot act for another user | LLM | same | **absent from the deployment** |
+No E3 campaign yet ([experiments](../../experiments/README.md)).
 
-Of the 18, three are **absent from this deployment** (the chatbot is left out) and four are **outside the tool's
-scope** by decisions already recorded: deep injection confirmation (12, 13) and business invariants (8, 9, where
-crAPI's own solution sends a negative `quantity` that the specification's `integer` with no minimum accepts, so
-there is nothing for an input-validation test to flag). Of the **eleven that remain**, the tool caught four outright
-(3, 6, 14, 15), caught the weakness class of a fifth on another endpoint (4), named the endpoint of a sixth and
-refused to exploit it because the operation is destructive (7), and attempted the seventh without being able to
-conclude (11, where crAPI's synchronous outbound call hangs the gateway).
+<!-- [[[end]]] -->
 
-**The four it missed share a cause but not a remedy** (1, 2, 5, 10): tests 2.2 and 2.5 act on the object named in
-`owned_object_resources`, so a BOLA or a property exposure on any other object is never probed. Deriving a candidate
-object from the target instead, the backlog's "coverage option (b)", was designed and probed against the three labs
-on 2026-10-29 with reads only, and **found no owned object on any of them**: challenge 1's own collection answers
-`200 []` because the lab never claims a vehicle, the order is the object already configured, the community posts
-are public, and on both Forgejo labs the collections a user owns are empty on a fresh deployment while the four that
-do return an identifier are public collections an ownership check must reject. So of the four misses, one is blocked
-by the lab (1), one would need objects addressed by a query parameter (2, the mechanic report), one has no listing
-to derive from (5, the video), and one is a write on an object the tool did not create, which it must never send
-(10). The measurement is a statement about the problem rather than about this tool: **establishing ownership cannot
-be made target-agnostic**, which is why these two tests ask for a configured object and say nothing without one
-([test 2.2's limitations](../05-tests/domain-2/2-2-object-level-authorization.md#14-limitations)).
+Absent from the lab: the chatbot (16 to 18), which needs an OpenAI key and is reached only through `crapi-web`.
+Every other challenge is measured, also where no implemented test can reach it. Four belong to guarantee 3.1 (an
+input validated against its type and range): a NoSQL (12) and an SQL injection (13), and a negative `quantity` in a
+new order (8, 9: crAPI's solution; the specification types it as an integer with no minimum). The test of 3.1 reports
+only server errors, and these inputs are accepted without one: the guarantee's injection payloads are not
+implemented (the test's Limitations).
 
-**The lab degrades with use, and a stale lab hides findings.** Each run creates a shop order for tests 2.2 and 2.5,
-and each order spends 10 of user A's 100 starting credit: after about ten runs the creation answers
-`400 Insufficient Balance`, both tests report `OBJECT_NOT_CREATED` and two findings crAPI exists to expose
-disappear. The full reset of the [maintainer commands](../project/maintainer-commands.md#test-labs) restores it; the
-tool stays honest in the meantime, reporting INCONCLUSIVE and never a PASS. **A measurement taken on a worn lab is
-not this table**: the table above was taken right after a reset. Even then, three tests of the 31 cannot conclude
-for the reasons given above it.
+**The misses on owned objects share a cause but not a remedy** (1, 2, 5, 10): tests 2.2 and 2.5 act on the object
+named in `owned_object_resources`, so a BOLA or a property exposure on any other object is never probed. Deriving a
+candidate object from the target instead finds no owned object on any of the three labs with reads only: challenge
+1's own collection answers `200 []` because the lab never claims a vehicle, the order is the object already
+configured, the community posts are public, and on both Forgejo labs the collections a user owns are empty on a
+fresh deployment while the four that do return an identifier are public collections an ownership check must reject.
+So one is blocked by the lab (1), one would need objects addressed by a query parameter (2, the mechanic report), one
+has no listing to derive from (5, the video), and one is a write on an object the tool did not create, which it must
+never send (10). **Establishing ownership cannot be made target-agnostic**, which is why these two tests ask for a
+configured object and say nothing without one
+([test 2.2's limitations](../05-tests/domain-2/2-2-object-level-authorization.md#5-limitations)).
+
+**The lab is spent by use.** Each run creates a shop order for tests 2.2 and 2.5, and each order spends 10 of user
+A's 100 starting credit: after about ten runs the creation answers `400 Insufficient Balance` and both tests report
+`OBJECT_NOT_CREATED`, INCONCLUSIVE, never a PASS. The experiments reset the lab before they run; the full reset is in
+the [maintainer commands](../project/maintainer-commands.md#test-labs).
 
 ## Test lab
 
@@ -157,7 +111,7 @@ they can run at the same time.
 
 No backend publishes a port: Forgejo and crAPI are reachable only through their gateway, as in production.
 
-**Certificates and protection level** (2026-10-15). The three labs share one certificate authority, generated at the
+**Certificates and protection level.** The three labs share one certificate authority, generated at the
 first start of any lab by its one-shot `pki` service (`test-environments/pki/gen-pki.sh`, with the `openssl` of the
 gateway image; never committed): an authority (10 years) and, signed by it, the gateways' certificate and a client
 certificate (180 days, the CA/Browser Forum limit for public certificates from March 2026 is 200 days), with the
@@ -185,10 +139,6 @@ say how to lower each level.
 | Kong (gateway, DB-less) | `kong:3.9.3` | 3.9.3 |
 | PostgreSQL (Forgejo database) | `postgres:15.19-alpine` | 15.19 |
 
-Pinned on 2026-10-06 to the images already in use (identical image IDs to the previous floating tags `forgejo:14`,
-`kong:3.9`, `postgres:15-alpine`); the lab was rebuilt from scratch and gave the same results. Before that the tags
-were floating: the v0.1.0 release audit (2026-05-18) ran on Forgejo 14.0.3.
-
 To change a version: edit the `image:` lines in `docker-compose.yml` and this table together, rebuild the lab from
 scratch ([first assessment](../01-getting-started/02-first-assessment.md), steps 2-4) and compare the results with the
 previous run.
@@ -198,8 +148,7 @@ previous run.
 [OWASP crAPI](https://github.com/OWASP/crAPI), an API vulnerable by design (Apache License 2.0), behind Kong with
 the **same gateway configuration** as the Forgejo lab (`kong/kong.yml`: timeouts, passive health checks with an
 active check that re-enables an excluded backend, security headers, Kong's HTTP-to-HTTPS redirect, hmac-auth audit
-service): only the API changes between the two labs. Added on
-2026-10-10.
+service): only the API changes between the two labs.
 
 | Component | Image | Version |
 |---|---|---|
@@ -210,7 +159,7 @@ service): only the API changes between the two labs. Added on
 
 How it was built, and why:
 
-- **No published guide puts crAPI behind an API gateway** (searched 2026-10-10); crAPI's own entry point is its web
+- **No published guide puts crAPI behind an API gateway**; crAPI's own entry point is its web
   front end, `crapi-web`, an nginx that forwards `/identity`, `/community` and `/workshop` to the services and
   answers every other path with the web page. The lab follows Kong's documented pattern for microservices instead:
   one service per backend, one route per path prefix, `strip_path: false`
@@ -226,16 +175,14 @@ How it was built, and why:
   (`NOTICE.md` lists the copied files).
 
 Start, reset and run: [maintainer commands](../project/maintainer-commands.md#test-labs). Repeatability: two runs
-of the native tests on a lab reset in between gave identical results (2026-10-10); rebuilt from scratch on 2026-10-14
-with the documented commands, setup run twice, results identical to the reference. `crapi-identity` depends on the
+of the native tests on a lab reset in between give identical results. `crapi-identity` depends on the
 mock service `api.mypremiumdealership.com` (not in the official file, which starts every service) so that the
 documented start command starts it too.
 
 ### Forgejo + APISIX
 
 The Forgejo lab's API, users and test resources behind [Apache APISIX](https://apisix.apache.org/), with a gateway
-configuration of the same intent as `kong/kong.yml` (`apisix/setup.sh`): only the gateway changes. Added on
-2026-10-12.
+configuration of the same intent as `kong/kong.yml` (`apisix/setup.sh`): only the gateway changes.
 
 | Component | Image | Version |
 |---|---|---|
@@ -275,13 +222,8 @@ Unavoidable differences from the Kong labs: APISIX's `hmac-auth` has no `hmac-sh
 too (interval at least 1 s, here 60 s), where the Kong labs probe only unhealthy targets; an HTTP request other than
 GET or HEAD gets a 308 redirect, where Kong answers 301.
 
-Results (2026-10-12, native tests): the same tests, statuses, findings and outcomes as the Forgejo + Kong lab;
-every audit read APISIX (concept artifacts with `"adapter": "apisix"`).
-
-Rebuilt from scratch on 2026-10-15 (the three labs, with their certificates, Forgejo's port closed and the
-specification route): native results identical to the references on each lab; the external TLS tests, given the
-labs' authority, no longer report an untrusted chain (testssl.sh keeps `cert_revocation`: the lab
-certificates declare no CRL or OCSP address).
+What each test gives on each lab is E2's result ([experiments](../../experiments/README.md)). testssl.sh reports
+`cert_revocation` on every lab: the lab certificates declare no CRL or OCSP address.
 
 ## External tools
 
@@ -303,16 +245,14 @@ found on PATH or, when the environment is not activated, beside the Python runni
 
 Every dependency, of the tool and of the development environment, is pinned to the exact version verified
 (`==` in `pyproject.toml`): a user who installs the wheel, the developers and the CI install the same versions, and
-a new release changes nothing until its pin is changed. Until 2026-11-16 the runtime dependencies used
-`>=FLOOR,<NEXT_MAJOR` ranges and the development tools floors only, so a clean checkout took the newest releases,
-and Typer 0.29 broke the checks with no change in the repository. `prance` was pinned already: the discovery layer
+a new release changes nothing until its pin is changed. `prance` was pinned already: the discovery layer
 relies on one of its internal attributes. Indirect dependencies (those the pinned packages require) are not pinned.
 Installed in the environment of another Python program, these exact pins can conflict with that program's own;
 they are then the ones to relax.
 
 ## Interface stability
 
-What an integrator can rely on (owner decision, 2026-10-09). The list is a documented promise, not an
+What an integrator can rely on. The list is a documented promise, not an
 automated check.
 
 **One version.** The tool version (`tool_version` in `apiguard_report.json` and `evidence.json`, `apiguard

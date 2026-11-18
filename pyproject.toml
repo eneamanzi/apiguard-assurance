@@ -262,7 +262,7 @@ exclude = [
 # Development dependencies: tooling only, never imported at runtime.
 # ---------------------------------------------------------------------------
 [tool.hatch.envs.dev]
-# The schemathesis extra: validation/run.py runs every test, ext.3.1.schemathesis included.
+# The schemathesis extra: the experiments run every test, ext.3.1.schemathesis included.
 features = ["schemathesis"]
 dependencies = [
     # End-to-end test runner against real target (no mocks).
@@ -312,6 +312,7 @@ dependencies = [
 #   hatch run dev:check  → full suite in sequence  (CI gate)
 #   hatch run dev:deps   → pip-audit               (run before any release)
 #   hatch run dev:gen    → generate_docs.py (cog)  (rewrite the generated documentation)
+#   hatch run dev:e1-oracle-validation → every oracle case produced on the labs (hours; experiments/README.md)
 #
 # The generated parts (test catalogue, test page headers, tests by strategy and
 # priority, the tests chapter of configuration.md, the tests section of
@@ -335,14 +336,18 @@ audit = [
 check = [
     "ruff check .",
     "ruff format --check .",
-    "mypy src/ scripts/ validation/",
+    "mypy src/ scripts/ experiments/",
     "bandit -r src/ -c pyproject.toml --severity-level medium",
     "vulture src/ --min-confidence 80",
     "lint-imports",
     "python scripts/check_config_keys.py",
     "python scripts/generate_docs.py --check",
-    "python validation/check.py",
+    "python experiments/e1-oracle-validation/check.py --complete",
 ]
+# The experiments on the labs (experiments/README.md); options pass through.
+e1-oracle-validation = "python -u experiments/e1-oracle-validation/run.py {args}"
+e2-complete-run = "python -u experiments/e2-complete-run/complete_run.py {args}"
+e3-crapi-challenges = "python -u experiments/e3-crapi-challenges/crapi_challenges.py {args}"
 gen = [
     "python scripts/generate_docs.py",
 ]
@@ -422,8 +427,8 @@ exclude = ["*.md"]
 # ---------------------------------------------------------------------------
 [tool.mypy]
 python_version = "3.11"
-# The validation scripts import the documentation generator (scripts/) and each other.
-mypy_path = "scripts:validation"
+# The experiments import the documentation generator (scripts/) and each other.
+mypy_path = "scripts:experiments/shared:experiments/e1-oracle-validation"
 plugins = ["pydantic.mypy"]
 strict = true
 warn_return_any = true

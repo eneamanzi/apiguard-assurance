@@ -1,8 +1,7 @@
 # Select Tests
 
-> **Audience:** users · **Status:** v0.1.0 · **Source of truth:** `src/engine.py` (Phase 4), `src/tests/registry.py`,
-> `src/external_tests/registry.py`, `src/config/schema/tool_config.py` (`ExecutionConfig`) · **Verified:** 2026-10-06
-> on the lab (runs: native tests only, test 1.1 only, `ext.1.5.testssl` only)
+> **Audience:** users · **Status:** v0.1.0 · **Source of truth:** `src/engine.py` (Phase 4),
+> `src/tests/registry.py`, `src/external_tests/registry.py`, `src/config/schema/tool_config.py` (`ExecutionConfig`)
 
 How to run only part of the assessment: a single test while you fix something, the fast tests only, or a subset
 for a pipeline. By default the tool runs every test whose preconditions can be checked.

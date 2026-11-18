@@ -1,9 +1,7 @@
 # 6.4 Hardcoded Credentials Audit
 
-> **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-23) ·
-> **Source of truth:**
-> [`src/tests/domain_6/test_6_4_hardcoded_credentials_audit.py`](../../../src/tests/domain_6/test_6_4_hardcoded_credentials_audit.py) ·
-> **Verified:** 2026-11-16
+> **Audience:** analysts, contributors · **Source of truth:**
+> [`src/tests/domain_6/test_6_4_hardcoded_credentials_audit.py`](../../../src/tests/domain_6/test_6_4_hardcoded_credentials_audit.py)
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("6.4", page=cog.inFile)) ]]] -->
 
@@ -31,7 +29,9 @@ Service credentials are not exposed through a debug endpoint nor hard-coded in t
 promises a probed debug endpoint returned no credential, and the gateway's configuration held none. OWASP API8:2023,
 CWE-798; ASVS v5.0.0-13.3.1 (secrets in a vault, not in source or artifacts).
 
-## 2. Sub-tests and coverage of the methodology
+## 2. Test
+
+### 2.1 Sub-tests and coverage of the methodology
 
 | Sub-test | Methodology (guarantee 6.4) |
 |---|---|
@@ -39,19 +39,11 @@ CWE-798; ASVS v5.0.0-13.3.1 (secrets in a vault, not in source or artifacts).
 | `gateway_config_no_secret` | "pattern scan of the gateway config for credential formats and high-entropy values in sensitive keys" |
 | left out | the Docker-image `docker history` scan and the secret-manager rotation audit (no access to a registry or a vault from the tool) |
 
-## 3. Inputs
-
-The debug endpoint paths to probe (`debug_endpoint_paths`, configured; none, the tool's own, section 5). The
-gateway's configuration values read through the adapter (`config_values`, `Need.GATEWAY` optional), masked
-(`SecretStr`). Every credential found in a served body is registered as a secret before its record is kept, so the
-outputs (evidence, report) show it redacted: until 2026-11-16 a served credential was written in clear into
-`evidence.json` and the report's transaction log.
-
-## 4. Preconditions and reference responses
+### 2.2 Preconditions and reference responses
 
 None for the debug probe (unauthenticated). The config scan needs a gateway; without one it is NOT_APPLICABLE.
 
-## 5. Probes
+### 2.3 Probes
 
 An unauthenticated GET to each configured debug path, or, when none is configured, to each of the tool's six paths that
 expose configuration (`src/core/sensitive_paths.py`, kind CONFIGURATION: `actuator/env`, `actuator/configprops`,
@@ -61,7 +53,7 @@ credential patterns and for credential-named keys with a real value: `KEY=VALUE`
 `config_values`, each value scanned by pattern and by a credential-named key holding a non-placeholder value.
 READ_ONLY.
 
-## 6. Oracle
+## 3. Oracle
 
 <!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("6.4")) ]]] -->
 
@@ -91,8 +83,7 @@ READ_ONLY.
 
 A value that refers to a secret kept elsewhere, written as the gateway writes it (Kong `{vault://...}`, APISIX
 `$secret://...`, `$ENV://...`; the adapter states its syntax), is not reported: it is what the remediation asks for
-(until 2026-11-05 it was a `CONFIG_SECRET` finding). Until 2026-11-16: a served body was matched against the token
-patterns only, so a served `.env` holding `DB_PASSWORD=...` or an actuator's unmasked `spring.datasource.password`
+. ..` or an actuator's unmasked `spring.datasource.password`
 was `DEBUG_NO_SECRET`; a redirect counted as `DEBUG_BLOCKED`; a header in Kong's header lists
 (`request-transformer` `add.headers: ["X-Api-Key:..."]`) was keyed `headers[3]`, never credential-named, while
 APISIX's map form was caught; and an unreadable configuration was `CONFIG_NOT_READABLE` whether the gateway lacked
@@ -112,130 +103,51 @@ The answers that say nothing about the guarantee by themselves, one rule for eve
 
 <!-- [[[end]]] -->
 
-## 7. Outcomes
+## 4. Validation
 
-FAIL on an exposed credential; PASS when the debug endpoints and the config are clean.
+### 4.1 Oracle cases
 
-## 8. Findings
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_validation("6.4", page=cog.inFile)) ]]] -->
 
-<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("6.4")) ]]] -->
+Every case of the oracle, produced on a lab and judged by the code: E1, [oracle validation](../../../experiments/README.md), campaign at commit `fc60b6f`. 15 of 15 produced cases gave the declared outcome; 1 no lab can produce.
 
-- "Credential pattern in gateway config: <location>"
-- "Probable plaintext credential in gateway config: <location>"
-- "Debug endpoint exposes a credential: <path>"
-
-<!-- [[[end]]] -->
-
-Each points to the request or the config concept artifact. One finding per value per configuration object: when
-the same value is under several keys of one object, the strongest finding is kept (a matched pattern before a
-credential-named key) and names the other keys (since 2026-11-15). The debug finding cites CWE-215 and ASVS
-v5.0.0-13.4.2/13.4.5 (a secret served by a debug path may come from the environment, not the code; until
-2026-11-16 it cited CWE-798); the configuration findings CWE-798 and ASVS 13.3.1; the NIST reference is SP 800-53r5's
-IA family (IA-5(7), no embedded static authenticators).
-
-## 9. Effects on the target
-
-`READ_ONLY`: unauthenticated reads of debug paths and a read of the gateway config.
-
-## 10. Per gateway
-
-The config scan reads whatever `config_values` exposes (Kong: service URLs and plugin config strings; APISIX:
-equivalent). On a Kong DB-less gateway the config holds few string values, so the scan may find little; this is a
-coverage limit, not a pass.
-
-## 11. Configuration
-
-<!-- [[[cog import generate_docs as g; cog.out(g.test_params("6.4", page=cog.inFile)) ]]] -->
-
-Section [`tests.domain_6.test_6_4`](../../03-reference/01-configuration.md#testsdomain_6test_6_4) of `config.yaml`:
-
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `debug_endpoint_paths` | list | empty | Paths of debug or actuator endpoints to probe unauthenticated for exposed credentials (e.g. /actuator/env, /debug/vars). Empty: the tool's paths that expose configuration (actuator/env, actuator/configprops, server-info, .env, .git/config, .git/HEAD), under the root and each service prefix. |
-
-<!-- [[[end]]] -->
-
-## 12. Validation
-
-**2026-11-16, after the review** (Forgejo + Kong, each variant undone and the lab checked back): the three labs as
-configured **PASS**. A route `~/\.env$` whose `pre-function` serves `DB_PASSWORD=lab-dummy-0001xyz`, with
-`debug_endpoint_paths: ["/.env"]`: **FAIL**, `DEBUG_SECRET` FIRM ("credential-named key DB_PASSWORD"), and the value
-appears in no output in clear (`evidence.json` shows `DB_PASSWORD=[REDACTED: credential exposed at /.env ...]`);
-until that day the body matched no pattern and was `DEBUG_NO_SECRET`. A `request-transformer` on `forgejo-service`
-adding the header `X-Api-Key:lab-dummy-not-real-0001`: **FAIL**, `CONFIG_SECRET` TENTATIVE; until that day the key
-read was `headers[1]`. The `pre-function` holding an AWS key example in its code was flagged FIRM too (the pattern).
-
-Runs of 2026-10-29 (the coverage column was added when a skipped sub-test began to lower it):
-
-| Lab | Status | Basis |
+| Case | Lab, how it is produced | Result |
 |---|---|---|
-| Forgejo + Kong, Forgejo + APISIX | **PASS**, `complete` | `debug_endpoint_no_secret`: 11 configured paths probed unauthenticated, 11 `ENFORCED`. `/api/v1/settings/api` answers 200 with Forgejo's public API settings and matches no credential pattern (`ENFORCED/DEBUG_NO_SECRET`); the other ten answer 404 (`ENFORCED/DEBUG_NOT_FOUND` since 2026-11-05, `DEBUG_BLOCKED` before), three from Forgejo (`Not found.`) and seven from the gateway itself, which is its deny-by-default (Kong: `no Route matched with those values`; APISIX: `{"error_msg":"404 Route Not Found"}`). `gateway_config_no_secret` matched no credential pattern |
-| crAPI + Kong | **PASS**, `complete` (2026-11-05) | no `debug_endpoint_paths` configured for this lab, so the six default paths were asked under the root and the three service prefixes: 24 requests, 18 `ENFORCED/DEBUG_NOT_FOUND` and 6 `ENFORCED/DEBUG_BLOCKED` (the identity service refusing them unauthenticated), no credential exposed. Until that day the sub-test was `NOT_APPLICABLE` here and the PASS partial, the check never made. The config scan matched no credential pattern (`gateway_config_no_secret` enforced) |
-| Forgejo + Kong, a synthetic token planted in a plugin header list and then removed | **FAIL**, 1 finding | `config.add.headers[3]` of the `response-transformer` plugin held a GitHub-PAT-shaped value: `VIOLATION/CONFIG_SECRET`, FIRM, the finding naming the exact key |
+| `debug_endpoint_no_secret/VIOLATION/DEBUG_SECRET/FIRM` | forgejo-kong: a route ~/api/debug/config$ (a configured debug path) whose pre-function answers 200 with AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE, the key built in the Lua code by concatenation so the gateway's configuration does not hold it as one string | OK |
+| `debug_endpoint_no_secret/ENFORCED/DEBUG_NO_SECRET` | forgejo-kong: the lab as built: /api/v1/settings/api answers 200 with Forgejo's public API settings, no credential | OK |
+| `debug_endpoint_no_secret/ENFORCED/DEBUG_NOT_FOUND` | forgejo-kong: the lab as built: ten of the configured debug paths answer 404, from Forgejo or from Kong's deny-by-default | OK |
+| `debug_endpoint_no_secret/ENFORCED/DEBUG_BLOCKED` | crapi-kong: the lab as built, no debug_endpoint_paths: the default paths under /identity are refused unauthenticated by crAPI's identity service | OK |
+| `debug_endpoint_no_secret/NOT_VERIFIABLE/NOT_INTERPRETED` | forgejo-kong: the only debug path configured is the deprecated read times/user-a, on which a route answers 302 itself (redirect, not followed) | OK |
+| `gateway_config_no_secret/VIOLATION/CONFIG_SECRET/FIRM` | forgejo-kong: a request-transformer on forgejo-service adds the header 'X-Lab-Note:ghp_LabDummyNotARealToken000000000000000' (a GitHub-PAT shape, under a name that is not credential-named): the config scan matches the pattern | OK |
+| `gateway_config_no_secret/VIOLATION/CONFIG_SECRET/TENTATIVE` | forgejo-kong: a request-transformer on forgejo-service adds the header 'X-Api-Key:lab-dummy-not-real-0001': a credential-named header with a 22-character non-placeholder value | OK |
+| `gateway_config_no_secret/ENFORCED/CONFIG_NO_SECRET` | forgejo-kong: the lab as built: no Kong configuration value holds a credential | OK |
+| `gateway_config_no_secret/NOT_VERIFIABLE/NO_CONFIG_VALUE` | forgejo-kong: the run's gateway.admin.url points to a stand-in Kong Admin API on 127.0.0.1 answering every endpoint with an empty collection | OK |
+| `gateway_config_no_secret/NOT_APPLICABLE/NO_GATEWAY` | forgejo-kong: the run's configuration has no gateway section | OK |
+| `gateway_config_no_secret/NOT_APPLICABLE/CONFIG_NOT_SUPPORTED` | not producible (code): both supported adapters read configuration values (KongGatewayAdapter and ApisixGatewayAdapter override _read_config_values); only an adapter without it reaches this guard | - |
+| `gateway_config_no_secret/NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE` | forgejo-kong: the run's gateway.admin.url points to a closed port | OK |
+| `*/NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` | forgejo-kong: the forgejo container stopped: Kong answers 503 on the configured debug paths it routes to Forgejo | OK |
+| `*/NOT_VERIFIABLE/RATE_LIMITED` | forgejo-kong: the only debug path configured is the deprecated read times/user-a, on which a route answers 429 itself | OK |
+| `*/NOT_VERIFIABLE/SERVER_ERROR` | forgejo-kong: the only debug path configured is the deprecated read times/user-a, on which a route answers 500 itself | OK |
+| `*/NOT_VERIFIABLE/NO_RESPONSE` | forgejo-kong: the only debug path configured is the deprecated read times/user-a, on which a route waits 7 s before proxying, with the run's target.read_timeout 5.0 | OK |
 
-Rule 9: both sides of `gateway_config_no_secret` are proven on a real gateway. Of
-`debug_endpoint_no_secret`, the three `ENFORCED` cases (served and clean, blocked by the application, blocked by
-the gateway) and the `NOT_APPLICABLE` case are proven on the labs; the VIOLATION stays unproven, because it needs a
-target with a debug endpoint that returns a secret. What that case would add is the few lines handing a served body
-to the matcher: the matcher itself is `_scan_text` over `_CREDENTIAL_PATTERNS`, shared with `gateway_config_no_secret`
-and proven by the planted token in the table above.
+<!-- [[[end]]] -->
 
-**What each branch has been seen doing** (rule 9). Proven on a lab: `DEBUG_NO_SECRET` (both Forgejo labs),
-`DEBUG_NOT_FOUND` (all three), `DEBUG_BLOCKED` (crAPI), `CONFIG_NO_SECRET` (all three), `CONFIG_SECRET` at FIRM
-(Forgejo + Kong, the planted token), and the debug path's `UPSTREAM_UNAVAILABLE` (Forgejo + Kong with the
-`forgejo` container stopped, 2026-11-14: 4 of the 11 paths, the others answered by Kong's own `404`). Seen on a
-stand-in Admin API only: `NO_CONFIG_VALUE`. Seen on 2026-11-15 with the run's configuration only (Forgejo + Kong):
-`CONFIG_NOT_READABLE` (`gateway.admin.url` on a closed port) and `NO_GATEWAY` (no `gateway` section: the config
-scan's only not-applicable case). And on 2026-11-15 on Forgejo + Kong with temporary routes on `forgejo-service`
-in `kong/kong.yml` (undone with `git checkout`, the lab checked back), every value fictitious:
-- `DEBUG_SECRET` (FIRM): the debug path `/api/debug/config` answered by a `pre-function` with
-  `AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE`, the example key of AWS's own documentation (built in the Lua code by
-  concatenation, so that the gateway's configuration does not hold it as one string);
-- `CONFIG_SECRET` at TENTATIVE: a `rate-limiting` plugin on a dummy route with `redis.password:
-  "lab-dummy-not-a-real-secret-0001"`. Kong's Admin API gives the value under `config.redis.password` and again
-  under the older key `config.redis_password`: two findings for one value until the same day, one since (run
-  again: 1 violation, the finding adding "The same value is also under config.redis_password ...: one credential,
-  reported once");
-- a secret reference left unreported: the same plugin with `redis.password: "{vault://env/apiguard-lab-dummy}"`,
-  PASS, no finding;
-- the debug path's `RATE_LIMITED` and `SERVER_ERROR`: the same path answering `429`, then `500`.
+### 4.2 Results on the labs
 
-Every branch of this test has been seen. "The `NOT_APPLICABLE` case" of the paragraph above no longer exists: the code records no
-not-applicable case for `debug_endpoint_no_secret` (its only one is `NO_GATEWAY`, of the config scan,
-`src/tests/domain_6/test_6_4_hardcoded_credentials_audit.py`); it was the sub-test without configured paths,
-before the default paths.
+<!-- [[[cog import generate_docs as g; cog.out(g.lab_results("6.4", page=cog.inFile)) ]]] -->
 
-**Until 2026-10-29 this sub-test verified nothing on any lab.** The `debug_endpoint_paths` block of the two Forgejo
-labs was commented out during the test review and never uncommented, so the sub-test judged `NOT_APPLICABLE`
-everywhere and the test was `partial` on all three labs. Uncommenting it was checked against a full assessment of
-the three labs taken immediately before and after: 31 of 32 tests identical on each lab, this test the only
-difference.
+No E2 campaign yet ([experiments](../../../experiments/README.md)).
 
-**The empty read** (2026-10-29). An answer with no value at all used to count as "no credential found" and give
-`ENFORCED`, so the verdict rested on having examined nothing. It is now `NOT_VERIFIABLE/NO_CONFIG_VALUE`. Seen
-against a stand-in Admin API on `127.0.0.1` answering every endpoint with an empty collection (a local process, no
-lab touched): before the fix `PASS complete`, after it `PASS partial` with the configuration sub-test not
-verifiable. The three real gateways are unchanged.
+<!-- [[[end]]] -->
 
-**How many values the scan actually reads**, measured on 2026-10-28 after the review of the adapters: 11 on
-Forgejo + Kong, 25 on crAPI + Kong, 15 on Forgejo + APISIX. Until that review it was **zero on every Kong
-gateway**, so the ENFORCED side rested on an empty scan: the Kong reader looked for a `url` field that Kong's
-Service object does not have, and the shared scanner skipped strings that are items of an array, which is the shape
-a gateway plugin states a header in. The planted token above was invisible to the old reader and is the proof.
-
-## 13. Remediation
-
-Keep credentials in a secret manager and reference them at runtime, never in a config file or image (ASVS
-v5.0.0-13.3.1, CWE-798); make debug endpoints return 401/403 or remove them in production.
-
-## 14. Limitations
+## 5. Limitations
 
 - **Consumer credentials are scanned on APISIX and not on Kong.** The APISIX adapter reads the consumers' plugin
   values, so a consumer's key stored in clear is flagged (TENTATIVE when only its name and length speak; APISIX can
   hold it as a secret reference instead). The Kong adapter does not read `/consumers/{id}/<plugin>`, where a Kong
   consumer's `key-auth`, `hmac-auth` or `basic-auth` secret lives, so on a production Kong those secrets are outside
   this test. The labs have no consumers, so the difference shows on none of them; adding the Kong reader would be a
-  new capability and was not done (2026-11-03).
+  new capability and was not done.
 - The debug sub-test probes the configured paths, or the six default ones; another debug endpoint is not found here
   (that is `ext.0.1.ffuf`, which searches the tool's 38 sensitive paths, without reading a credential in them). The
   defaults leave out `actuator/heapdump`, `actuator/logfile`, `actuator/httpexchanges` and `debug/vars`: configure
@@ -251,7 +163,7 @@ v5.0.0-13.3.1, CWE-798); make debug endpoints return 401/403 or remove them in p
   Slack tokens; Google API keys). There is no generic rule for a bearer token or an API key: `Authorization: Bearer
   <opaque>` is caught by the credential-named key rule (a header's name in a header list counts as its key).
 
-## 15. Sources
+## 6. Sources
 
 - OWASP API8:2023 Security Misconfiguration: https://owasp.org/API-Security/editions/2023/en/0xa8-security-misconfiguration/
 - OWASP ASVS v5.0.0-13.3.1 (secrets management): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x22-V13-Configuration.md
@@ -259,3 +171,57 @@ v5.0.0-13.3.1, CWE-798); make debug endpoints return 401/403 or remove them in p
   unencrypted static authenticators are not embedded in applications or other forms of static storage):
   https://csrc.nist.gov/projects/cprt/catalog#/cprt/framework/version/SP_800_53_5_1_1/home
 - CWE-798 Use of Hard-coded Credentials: https://cwe.mitre.org/data/definitions/798.html
+
+## 7. Inputs
+
+The debug endpoint paths to probe (`debug_endpoint_paths`, configured; none, the tool's own, section 2.3). The
+gateway's configuration values read through the adapter (`config_values`, `Need.GATEWAY` optional), masked
+(`SecretStr`). Every credential found in a served body is registered as a secret before its record is kept, so the
+outputs (evidence, report) show it redacted.
+
+## 8. Outcomes
+
+FAIL on an exposed credential; PASS when the debug endpoints and the config are clean.
+
+## 9. Findings
+
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("6.4")) ]]] -->
+
+- "Credential pattern in gateway config: <location>"
+- "Probable plaintext credential in gateway config: <location>"
+- "Debug endpoint exposes a credential: <path>"
+
+<!-- [[[end]]] -->
+
+Each points to the request or the config concept artifact. One finding per value per configuration object: when
+the same value is under several keys of one object, the strongest finding is kept (a matched pattern before a
+credential-named key) and names the other keys. The debug finding cites CWE-215 and ASVS
+v5.0.0-13.4.2/13.4.5; the configuration findings CWE-798 and ASVS 13.3.1; the NIST reference is SP 800-53r5's
+IA family (IA-5(7), no embedded static authenticators).
+
+## 10. Effects on the target
+
+`READ_ONLY`: unauthenticated reads of debug paths and a read of the gateway config.
+
+## 11. Per gateway
+
+The config scan reads whatever `config_values` exposes (Kong: service URLs and plugin config strings; APISIX:
+equivalent). On a Kong DB-less gateway the config holds few string values, so the scan may find little; this is a
+coverage limit, not a pass.
+
+## 12. Configuration
+
+<!-- [[[cog import generate_docs as g; cog.out(g.test_params("6.4", page=cog.inFile)) ]]] -->
+
+Section [`tests.domain_6.test_6_4`](../../03-reference/01-configuration.md#testsdomain_6test_6_4) of `config.yaml`:
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `debug_endpoint_paths` | list | empty | Paths of debug or actuator endpoints to probe unauthenticated for exposed credentials (e.g. /actuator/env, /debug/vars). Empty: the tool's paths that expose configuration (actuator/env, actuator/configprops, server-info, .env, .git/config, .git/HEAD), under the root and each service prefix. |
+
+<!-- [[[end]]] -->
+
+## 13. Remediation
+
+Keep credentials in a secret manager and reference them at runtime, never in a config file or image (ASVS
+v5.0.0-13.3.1, CWE-798); make debug endpoints return 401/403 or remove them in production.

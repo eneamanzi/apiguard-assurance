@@ -1,8 +1,7 @@
 # Evidence Format (`evidence.json`)
 
 > **Audience:** analysts, integrators · **Status:** stable · **Source of truth:** `src/core/models/http.py`
-> (`EvidenceRecord`), `src/core/evidence.py` (`EvidenceStore`) · **Verified:** 2026-10-05, v0.1.0 (models +
-> real output of a Forgejo + Kong run)
+> (`EvidenceRecord`), `src/core/evidence.py` (`EvidenceStore`)
 
 `evidence.json` is the forensic archive of an assessment: the complete HTTP transactions that prove each FAIL,
 plus transactions a test explicitly marked as key context ("pinned") and the raw output of external tools.

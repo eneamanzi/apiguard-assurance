@@ -1,8 +1,6 @@
 # CLI Reference
 
-> **Audience:** users, integrators · **Status:** stable · **Source of truth:** `src/cli.py` (Typer app) ·
-> **Verified:** 2026-10-05, v0.1.0 (`--help` output and test invocations); `.env` and `--env-file` 2026-10-08; `list-tests` and the
-> SKIP lines of `validate-config` 2026-10-17
+> **Audience:** users, integrators · **Status:** stable · **Source of truth:** `src/cli.py` (Typer app)
 
 ```
 apiguard [COMMAND] [OPTIONS]
@@ -28,7 +26,8 @@ There are no CLI options to select tests: selection is done in `config.yaml` (`e
 `config.yaml` (`_load_env_file`, `src/cli.py`); `${VAR}` placeholders in `config.yaml` are resolved from the
 resulting environment.
 
-- **Without `--env-file`:** `.env` in the **current working directory** (where you run the command), if it exists.
+- **Without `--env-file`:** `.env` in the **current working directory** (where you run the command), if it exists,
+  for a `pip` install as for the repository.
   No other folder is searched: not the tool's installation folder, not parent folders. No `.env` is not an error;
   a variable that is still missing stops the tool when `config.yaml` is loaded (exit `10`, naming the variable).
 - **With `--env-file PATH`:** that file instead. A path that is not an existing file is an invalid invocation
@@ -40,8 +39,6 @@ resulting environment.
 The loaded file is logged (`env_file_loaded`, path only, never values). `version` loads no file, and neither do
 `list-tests` and `generate-seed` without `--config`: with no configuration to read there is no placeholder to
 resolve.
-Verified on 2026-10-08 with a `pip` install in a fresh virtual environment, run from a folder outside the
-repository (before, the file was searched from the tool's code folder and a `pip` install never found it).
 
 ## Output streams
 

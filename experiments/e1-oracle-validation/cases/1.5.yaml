@@ -1,0 +1,224 @@
+test: '1.5'
+name: Credentials Over an Insecure Channel
+sub_tests:
+
+  credential_forced_onto_tls:
+
+    - id: VIOLATION/PLAIN_HTTP/CERTAIN
+      situation: '`base_url` is `http://`: no TLS at all'
+      expected:
+        outcome: VIOLATION
+        detail: PLAIN_HTTP
+        confidence: CERTAIN
+      how: base_url pointed at Kong's plain-HTTP listener http://localhost:8000, the specification kept on HTTPS
+      lab: forgejo-kong
+      variant: none
+      config:
+        target.base_url: http://localhost:8000
+
+    - id: ENFORCED/HTTP_PORT_UNREACHABLE
+      situation: 'the plain-HTTP connection is refused: nothing listens there'
+      expected:
+        outcome: ENFORCED
+        detail: HTTP_PORT_UNREACHABLE
+      how: 'http_url set to http://localhost:8999, where nothing listens: the plain-HTTP connection is refused'
+      lab: forgejo-kong
+      variant: none
+      config:
+        tests.domain_1.test_1_5.http_url: http://localhost:8999
+
+    - id: NOT_VERIFIABLE/HTTP_PORT_NO_ANSWER
+      situation: the plain-HTTP probe timed out or broke before an answer
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: HTTP_PORT_NO_ANSWER
+      how: 'http_url set to http://10.255.255.1:80, a non-routable address: the plain-HTTP probe times out'
+      lab: forgejo-kong
+      variant: none
+      config:
+        tests.domain_1.test_1_5.http_url: http://10.255.255.1:80
+
+    - id: NOT_VERIFIABLE/HTTP_LISTENER_UNKNOWN
+      situation: '`base_url` not on port 443 and no `http_url`: the HTTP listener is unknown'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: HTTP_LISTENER_UNKNOWN
+      how: 'http_url emptied, base_url kept on port 8443: the plain-HTTP listener is not known and not probed'
+      lab: forgejo-kong
+      variant: none
+      config:
+        tests.domain_1.test_1_5.http_url: ''
+
+    - id: VIOLATION/TRANSPARENT_REDIRECT/CERTAIN
+      situation: a `301`/`308` to an `https://` location (ASVS v5.0.0-4.1.2)
+      expected:
+        outcome: VIOLATION
+        detail: TRANSPARENT_REDIRECT
+        confidence: CERTAIN
+      how: 'the lab as built: Kong answers plain-HTTP GET /api/v1/orgs with 301 to https (https_redirect_status_code:
+        301)'
+      lab: forgejo-kong
+      variant: none
+
+    - id: VIOLATION/WEAK_REDIRECT/CERTAIN
+      situation: a `301`/`308` whose location is not `https`
+      expected:
+        outcome: VIOLATION
+        detail: WEAK_REDIRECT
+        confidence: CERTAIN
+      how: an HTTP-only route ~/api/v1/orgs$ whose pre-function answers 301 to http://localhost:8000/api/v1/orgs
+      lab: forgejo-kong
+      variant: kong-1-5-http-301-to-http
+
+    - id: VIOLATION/TEMPORARY_REDIRECT/CERTAIN
+      situation: any other redirect
+      expected:
+        outcome: VIOLATION
+        detail: TEMPORARY_REDIRECT
+        confidence: CERTAIN
+      how: an HTTP-only route ~/api/v1/orgs$ whose pre-function answers 302 to https://localhost:8443/api/v1/orgs
+      lab: forgejo-kong
+      variant: kong-1-5-http-302-to-https
+
+    - id: VIOLATION/HTTP_SERVED_CLEARTEXT/CERTAIN
+      situation: a `2xx` over plain HTTP
+      expected:
+        outcome: VIOLATION
+        detail: HTTP_SERVED_CLEARTEXT
+        confidence: CERTAIN
+      how: an HTTP-only route ~/api/v1/orgs$ whose pre-function answers 200
+      lab: forgejo-kong
+      variant: kong-1-5-http-200
+
+    - id: VIOLATION/HTTP_PROCESSED_CLEARTEXT/CERTAIN
+      situation: 'any other answer over plain HTTP: the same `4xx` as over HTTPS, or a `5xx`'
+      expected:
+        outcome: VIOLATION
+        detail: HTTP_PROCESSED_CLEARTEXT
+        confidence: CERTAIN
+      how: 'a route ~/api/v1/orgs$ on both protocols whose pre-function answers 500: the plain-HTTP probe gets a
+        5xx'
+      lab: forgejo-kong
+      variant: kong-1-5-orgs-500
+
+    - id: ENFORCED/HTTP_REFUSED
+      situation: '`426`, or a `4xx` the same path does not get over HTTPS: the protocol is refused and the client
+        told'
+      expected:
+        outcome: ENFORCED
+        detail: HTTP_REFUSED
+      how: 'a route on the probe path GET ~/api/v1/orgs$, HTTPS only with no https_redirect_status_code: Kong answers
+        the plain-HTTP probe 426'
+      lab: forgejo-kong
+      variant: kong-0-4-probe-503
+
+    - id: NOT_VERIFIABLE/HTTPS_ANSWER_UNKNOWN
+      situation: a `4xx` other than `426`, and no HTTPS answer that says something to compare it with
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: HTTPS_ANSWER_UNKNOWN
+      how: 'a route ~/api/v1/orgs$ on both protocols whose pre-function answers 503 over HTTPS and 400 over HTTP:
+        a 4xx other than 426 with no HTTPS answer to compare it with'
+      lab: forgejo-kong
+      variant: kong-1-5-https-503-http-400
+
+  hsts_present:
+
+    - id: ENFORCED/HSTS_COMPLIANT
+      situation: HSTS with `max-age` at least `hsts_min_max_age_seconds` and `includeSubDomains`
+      expected:
+        outcome: ENFORCED
+        detail: HSTS_COMPLIANT
+      how: 'the lab as built: the HTTPS GET /api/v1/orgs carries max-age=31536000; includeSubDomains'
+      lab: forgejo-kong
+      variant: none
+
+    - id: VIOLATION/HSTS_MISSING/CERTAIN
+      situation: the HTTPS answer has no `Strict-Transport-Security`
+      expected:
+        outcome: VIOLATION
+        detail: HSTS_MISSING
+        confidence: CERTAIN
+      how: the Strict-Transport-Security line removed from forgejo-service's response-transformer
+      lab: forgejo-kong
+      variant: kong-1-5-hsts-missing
+
+    - id: VIOLATION/HSTS_MAX_AGE_LOW/CERTAIN
+      situation: '`max-age` absent or below `hsts_min_max_age_seconds`'
+      expected:
+        outcome: VIOLATION
+        detail: HSTS_MAX_AGE_LOW
+        confidence: CERTAIN
+      how: the HSTS value of forgejo-service's response-transformer set to max-age=60; includeSubDomains
+      lab: forgejo-kong
+      variant: kong-1-5-hsts-max-age-60
+
+    - id: VIOLATION/HSTS_NO_SUBDOMAINS/FIRM
+      situation: '`max-age` sufficient, no `includeSubDomains`'
+      expected:
+        outcome: VIOLATION
+        detail: HSTS_NO_SUBDOMAINS
+        confidence: FIRM
+      how: the HSTS value of forgejo-service's response-transformer set to max-age=31536000, without includeSubDomains
+      lab: forgejo-kong
+      variant: kong-1-5-hsts-no-subdomains
+
+    - id: NOT_APPLICABLE/NO_TLS
+      situation: '`base_url` is plain HTTP: no TLS to carry HSTS'
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NO_TLS
+      how: base_url pointed at Kong's plain-HTTP listener http://localhost:8000 (the same run as PLAIN_HTTP)
+      lab: forgejo-kong
+      variant: none
+      config:
+        target.base_url: http://localhost:8000
+
+  any_sub_test:
+
+    - id: NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE
+      situation: 'an answer of this category on any sub-test that does not judge it: 502, 503, 504: the gateway
+        could not reach the backend, or the backend did not answer in time. It says nothing about the guarantee
+        (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: UPSTREAM_UNAVAILABLE
+      how: 'a route on the probe path GET ~/api/v1/orgs$ whose pre-function answers 503: hsts_present gets the gateway''s
+        503'
+      lab: forgejo-kong
+      variant: kong-0-4-probe-503
+
+    - id: NOT_VERIFIABLE/RATE_LIMITED
+      situation: 'an answer of this category on any sub-test that does not judge it: 429: refused for the rate of
+        the requests. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: RATE_LIMITED
+      how: 'a route on the probe path GET ~/api/v1/orgs$ whose pre-function answers 429: hsts_present gets the 429'
+      lab: forgejo-kong
+      variant: kong-0-4-probe-429
+
+    - id: NOT_VERIFIABLE/SERVER_ERROR
+      situation: 'an answer of this category on any sub-test that does not judge it: 500, 505-508, 510: the application
+        failed. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: SERVER_ERROR
+      how: 'a route ~/api/v1/orgs$ on both protocols whose pre-function answers 500: hsts_present gets the 500 (the
+        same run as HTTP_PROCESSED_CLEARTEXT)'
+      lab: forgejo-kong
+      variant: kong-1-5-orgs-500
+
+    - id: NOT_VERIFIABLE/NO_RESPONSE
+      situation: 'an answer of this category on any sub-test that does not judge it: No HTTP response: timeout,
+        connection refused, TLS error, connection reset. It says nothing about the guarantee (one rule for every
+        test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_RESPONSE
+      how: 'a route on the probe path GET ~/api/v1/orgs$ whose pre-function sleeps 7 s, with the run''s read_timeout
+        at 5 s: the HTTPS probe gets no answer'
+      lab: forgejo-kong
+      variant: kong-0-4-probe-slow
+      config:
+        target.read_timeout: 5.0

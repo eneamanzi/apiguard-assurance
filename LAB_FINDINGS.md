@@ -3,7 +3,7 @@
 The full assessments of 2026-11-05 on the three labs, each lab reset first, read finding by finding: is it a
 weakness of the **application** behind the gateway, a consequence of **how the lab is set up** (its gateway
 configuration, its network, the resources we added for the tests), or a gap in the **OpenAPI specification**
-that is not a vulnerability. Each test page holds the detail of what was observed (section 12); this page puts
+that is not a vulnerability. Each test page holds the detail of what was observed (section 4, Validation); this page puts
 the three labs side by side and says where each result comes from.
 
 | Lab | Run | Result |

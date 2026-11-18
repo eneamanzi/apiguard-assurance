@@ -2,10 +2,8 @@
 
 > **Audience:** users, integrators · **Status:** stable · **Source of truth:** `src/config/schema/tool_config.py`,
 > the parameter models in the test modules (`src/tests/domain_*/test_*.py`, `src/config/tests_section.py`),
-> `src/core/models/external_tools.py`, `src/core/models/resources.py`,
-> `src/config/loader.py`, `src/core/models/tls.py` · **Verified:** 2026-10-15 (connections: `target`, `specification`,
-> `gateway`, `tls`), 2026-10-14 (credentials, resources), 2026-10-12 (gateway keys), 2026-10-05, v0.1.0 (field list extracted from the Pydantic models; behaviours tested with
-> `apiguard validate-config`)
+> `src/core/models/external_tools.py`, `src/core/models/resources.py`, `src/config/loader.py`,
+> `src/core/models/tls.py`
 
 Every field, type, default and constraint below comes from the Pydantic models. For a guided setup see
 [`guides/usage/configure-a-target.md`](../02-guides/01-usage/01-configure-a-target.md); the complete example in the repository, with every key, its description and its default, is
@@ -444,11 +442,11 @@ Test [7.3](../05-tests/domain-7/7-3-race-conditions.md), Race Conditions in Crit
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `race_operation` | object \| null | none, **needed to run** | The once-only operation to probe for a race condition. No default: unset, the engine records the test as SKIP before it runs. |
-| `race_operation.path` | string | required | Path of the once-only operation. May hold a resource's values as {name}. |
+| `race_operation.path` | string | required | Path of the once-only operation. With a resource, may hold its values and its {random} as {name}. |
 | `race_operation.method` | string | `POST` | HTTP method of the operation (default POST). |
-| `race_operation.body` | object \| null | none | JSON body sent on every concurrent request (optional). |
+| `race_operation.body` | object \| null | none | JSON body sent on every concurrent request (optional). With a resource, may hold its values and its "{random}" (the value its create request used, so the burst names what was just created: a coupon code), in quotes. |
 | `race_operation.role` | string | `user_a` | Role whose credential performs the operation (default user_a). |
-| `race_operation.resource` | string \| null | none | Optional prepared resource (resources: in config.yaml) created once before the burst; its values fill the path, and it is removed at teardown. |
+| `race_operation.resource` | string \| null | none | Optional prepared resource (resources: in config.yaml) created once before the burst; its values and its {random} fill the path and the body, and it is removed at teardown. |
 | `concurrency` | int 2-50 | `15` | How many identical requests are fired at the same instant. |
 | `max_successful` | int ≥1 | `1` | The largest number of concurrent requests that may succeed without a race. 1 for a strictly once-only operation (the default); raise it for a bounded quota. |
 

@@ -1,8 +1,7 @@
 # Design Decisions
 
 > **Audience:** contributors, maintainers · **Status:** decisions in force · **Source of truth:** the code cited in
-> each decision; the decisions were taken with the project owner point by point (2026-10-11 to 2026-10-17) ·
-> **Verified:** 2026-10-15 (each consequence checked on the three labs); D8 2026-10-17; D9 2026-10-19
+> each decision
 
 Why the tool is built the way it is, where the reason is not visible in the code: the problem, the decision, the
 alternatives left out and why, the consequences. What the tool does is described in [overview](01-overview.md) and in
@@ -19,18 +18,18 @@ git show 49f6e12:docs/project/gateway-concepts.md     # D7 (also gateway-survey.
 git log -- docs/project/tests-design.md                # D8: the last commit before its removal holds it
 ```
 
-| | Decision | Since |
-|---|---|---|
-| [D1](#d1-configuration-organised-by-connection) | Configuration organised by connection | 2026-10-14 |
-| [D2](#d2-certificate-trust-per-connection) | Certificate trust per connection | 2026-10-14 |
-| [D3](#d3-the-tool-downloads-the-specification) | The tool downloads the specification | 2026-10-14 |
-| [D4](#d4-labs-at-the-highest-protection-level) | Labs at the highest protection level | 2026-10-15 |
-| [D5](#d5-a-credential-is-obtained-and-sent-separately) | A credential is obtained and sent separately | 2026-10-11 |
-| [D6](#d6-prepared-resources) | Prepared resources | 2026-10-14 |
-| [D7](#d7-neutral-gateway-concepts) | Neutral gateway concepts | 2026-10-11 |
-| [D8](#d8-a-test-is-self-contained) | A test is self-contained | 2026-10-17 |
-| [D9](#d9-the-configuration-as-written-and-as-used) | The configuration as written and as used | 2026-10-19 |
-| [D10](#d10-path_seed-makes-paths-routable-not-objects-specific) | `path_seed` makes paths routable, not objects specific | 2026-10-26 |
+| | Decision |
+|---|---|
+| [D1](#d1-configuration-organised-by-connection) | Configuration organised by connection |
+| [D2](#d2-certificate-trust-per-connection) | Certificate trust per connection |
+| [D3](#d3-the-tool-downloads-the-specification) | The tool downloads the specification |
+| [D4](#d4-labs-at-the-highest-protection-level) | Labs at the highest protection level |
+| [D5](#d5-a-credential-is-obtained-and-sent-separately) | A credential is obtained and sent separately |
+| [D6](#d6-prepared-resources) | Prepared resources |
+| [D7](#d7-neutral-gateway-concepts) | Neutral gateway concepts |
+| [D8](#d8-a-test-is-self-contained) | A test is self-contained |
+| [D9](#d9-the-configuration-as-written-and-as-used) | The configuration as written and as used |
+| [D10](#d10-path_seed-makes-paths-routable-not-objects-specific) | `path_seed` makes paths routable, not objects specific |
 
 ## D1. Configuration organised by connection
 
@@ -41,9 +40,8 @@ adding certificate settings would have repeated the prefix once more for each pa
 
 **Decision.** One section per party, with the same shape: its address, its timeouts, its `tls` block, and what that
 party needs. `target` is the API, `specification` the OpenAPI document, `gateway` the gateway (`adapter`, `admin`,
-`health`). `execution` keeps only what the run does (`min_priority`, `strategies`, `test_ids`, `fail_fast`). The
-previous keys are unknown keys (the messages naming their new place were removed in block 10b: the tool has no
-users of the earlier structure; the CHANGELOG lists the moves).
+`health`). `execution` keeps only what the run does (`min_priority`, `strategies`, `test_ids`, `fail_fast`). Any
+other key is an unknown key.
 
 **Alternatives left out.** Adding `tls` keys with prefixes under `target` (`admin_api_ca_bundle`, ...): fewer changes
 for existing configurations, but the same idea written in a different way for each party, and the prefixes grow with
@@ -106,7 +104,7 @@ unresponsive host would hang the run.
 
 **Consequences and limits.** External `$ref` with an absolute URL are fetched by prance with its defaults (no `tls`).
 Relative `$ref` in a specification read from a URL were never resolved (prance's `absurl` refuses a non-file
-reference, checked 2026-10-14): a multi-file specification is used from a local copy (`specification.path`), and the
+reference): a multi-file specification is used from a local copy (`specification.path`), and the
 error message says so. `generate-seed` uses the same download and accepts `-c` to take the configuration's
 `specification`.
 
@@ -215,17 +213,15 @@ gateway they could not run.
 
 **Decision.** The adapters expose **neutral concepts** (`src/core/gateway/concepts.py`): backend timeouts, health
 checks, circuit breakers, request signing policies, routes, configuration text values, live target health, the
-plugins that ship request logs (added 2026-11-04, so that 5.1 names no gateway), rate limits and body-size limits
-(added 2026-11-15: 4.1 and 4.4 looked for their limit among the configuration text values, which hold strings, so a
-limit stated as a number, as on both gateways, was never read). Rules:
+plugins that ship request logs (so that 5.1 names no gateway), rate limits and body-size limits (a limit is a number,
+which the configuration text values, holding strings, do not carry). Rules:
 
 - one reader per concept; a test asks only for what it needs;
 - each reader answers **read**, **not supported** (the gateway has no such concept) or **not accessible** (it exists
   but cannot be read), with the reason. A test that cannot judge returns SKIP for **not supported** ("Not
   applicable to this gateway": nothing to apply), and INCONCLUSIVE for **not accessible** (every sub-test
   `NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE`, with a note giving the reason): the run was asked for a check it could
-  not make, which exit code 3 reports (`BaseTest._unread_concept`; owner decision 2026-11-04,
-  after some tests gave SKIP and others NOT_VERIFIABLE for the same case). A test that can judge only part
+  not make, which exit code 3 reports (`BaseTest._unread_concept`: every test gives the same answer to the same case). A test that can judge only part
   adds an InfoNote; no new report status;
 - a concept is read once per run and stored as evidence, configuration values masked (both Kong and APISIX return
   plugin secrets in clear through their Admin API);
@@ -290,8 +286,8 @@ gateway adapters knew tests 3.3, 4.3 and 7.2 by name.
   its breaker plugins), not test parameters; the engine passes no test parameter to an adapter.
 - **Integration:** `apiguard list-tests [--config] [--json]` gives every declaration, the parameters' JSON Schema
   and, for a configuration, which tests run and why the others SKIP.
-- **Names:** a parameter the user gives about the target is named by what it is, not by what the test does with it
-  (owner): `url_accepting_endpoint` (7.2, an
+- **Names:** a parameter the user gives about the target is named by what it is, not by what the test does with it:
+  `url_accepting_endpoint` (7.2, an
   endpoint that accepts a URL, with its `path`, `body` and `resource` together), `http_url` (1.5),
   `session_cookie_paths` (1.6). Thresholds and probe settings may describe the test's behaviour (`max_requests`).
 
@@ -302,8 +298,7 @@ code); plugin names as gateway options (a name without the adapter knowing the p
 documentation built only in a site (MkDocs, Sphinx: the files on GitHub incomplete); a marker parser of our own
 (what Cog does).
 
-**Consequences.** A new test is its module and its page; everything else is generated or checked (trial
-2026-10-17: two tests, four hand-written files, both ran on the lab). Tests written outside the tool must use
+**Consequences.** A new test is its module and its page; everything else is generated or checked. Tests written outside the tool must use
 `TestInfo` and the parameter model (Breaking, CHANGELOG). Prior art with the same shape: ESLint rules (`meta` with
 the options' schema), Ruff (rule pages generated), Bandit (`@test_id`, `@takes_config`), Pylint
 (`--generate-toml-config`), Nuclei (`info` block).
@@ -339,7 +334,7 @@ output showed.
   clear becomes a placeholder named after its key).
 - `dev:check` loads `config.example.yaml` as written.
 
-**Alternatives left out.** Every key required in the file, no defaults in the code (owner, 2026-10-19: 160 keys to
+**Alternatives left out.** Every key required in the file, no defaults in the code (160 keys to
 write, and each new parameter breaks every configuration on upgrade); dropping every `null` before validation
 (it would change free data, a `null` in a body sent to the API); resolved values in `config_used.yaml` for the
 fields that look harmless (the tool cannot know which variable holds a secret); replacing `[REDACTED]` for secrets

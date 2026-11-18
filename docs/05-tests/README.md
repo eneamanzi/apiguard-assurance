@@ -79,10 +79,11 @@ Execution is sequential.
 
 ## Page structure
 
-Each page has the same sections: summary table, then (1) Guarantee, (2) Sub-tests and coverage of the methodology,
-(3) Inputs, (4) Preconditions and reference responses, (5) Probes, (6) Oracle, (7) Outcomes (the test status and
-the per-transaction `outcome`/`detail` in `transaction_log`), (8) Findings, (9) Effects on the target,
-(10) Per gateway, (11) Configuration, (12) Validation, (13) Remediation, (14) Limitations, (15) Sources.
+Each page has the same sections: summary table; first what the test checks and how, (1) Guarantee, (2) Test:
+(2.1) Sub-tests and coverage of the methodology, (2.2) Preconditions and reference responses, (2.3) Probes; then
+(3) Oracle, (4) Validation, (5) Limitations, (6) Sources; then the details for running it, (7) Inputs, (8) Outcomes
+(the test status and the per-transaction `outcome`/`detail` in `transaction_log`), (9) Findings, (10) Effects on
+the target, (11) Per gateway, (12) Configuration, (13) Remediation.
 
 ## Do these tests find real weaknesses?
 

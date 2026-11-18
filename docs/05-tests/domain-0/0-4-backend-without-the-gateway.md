@@ -1,9 +1,7 @@
 # 0.4 Backend Reachable Without the Gateway
 
-> **Audience:** analysts, contributors · **Status:** new in the test review (2026-10-22) ·
-> **Source of truth:**
-> [`src/tests/domain_0/test_0_4_backend_without_the_gateway.py`](../../../src/tests/domain_0/test_0_4_backend_without_the_gateway.py) ·
-> **Verified:** 2026-11-16
+> **Audience:** analysts, contributors · **Source of truth:**
+> [`src/tests/domain_0/test_0_4_backend_without_the_gateway.py`](../../../src/tests/domain_0/test_0_4_backend_without_the_gateway.py)
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("0.4", page=cog.inFile)) ]]] -->
 
@@ -39,21 +37,15 @@ gateway declares refused the connection. A refusal at the derived address alone 
 backend's port) is not enough for a PASS. It promises nothing about another network, and nothing about what a backend would
 answer once reached.
 
-## 2. Sub-tests and coverage of the methodology
+## 2. Test
+
+### 2.1 Sub-tests and coverage of the methodology
 
 | Sub-test | Methodology |
 |---|---|
 | `backend_addresses` | new guarantee (0.4): each backend address the gateway declares is tried directly, and so is the target's own host with that backend's port |
 
-## 3. Inputs
-
-- the backend addresses the gateway declares (`target_health()`: the backend's name and its target address), through
-  the need `GATEWAY`;
-- the target's own host, from the base URL, combined with each backend's port: the second candidate, derived from
-  what the gateway says rather than configured (rule 5);
-- one documented path, asked at every address and through the gateway, for comparison.
-
-## 4. Preconditions and reference responses
+### 2.2 Preconditions and reference responses
 
 The same request through the gateway is the reference: an address answering with the same shape is serving the same
 application. No calibration: the question is reachability, not existence.
@@ -62,7 +54,7 @@ application. No calibration: the question is reachability, not existence.
 connection from a name that does not exist, and that difference is the whole difference between "the backend
 refuses us" and "we are not there to ask".
 
-## 5. Probes
+### 2.3 Probes
 
 1. one `GET` of the probe path through the gateway. The probe path is chosen by a stated rule: the shortest
    documented path with no parameters that the specification declares for `GET`, the alphabetically first among
@@ -70,15 +62,13 @@ refuses us" and "we are not there to ask".
 2. for each backend, the candidate addresses:
    - **the address the gateway declares** (Kong gives the name and port the operator configured, `forgejo:3000`;
      APISIX's Control API gives the node already resolved, `172.21.0.4:3000`),
-   - **the addresses the gateway states it resolved that name to**, declared as well (Kong's health endpoint gives
-     them apart from the name, `172.22.0.3:3000`; tried since 2026-11-04, owner decision:
-     before, a name that does not resolve where the tool runs ended the attempt),
+   - **the addresses the gateway states it resolved that name to**, declared as well,
    - **the target's own host with that backend's port** (`localhost:8443` and `forgejo:3000` give
      `localhost:3000`): the common case of a backend whose port is published on the same machine as the gateway;
 3. each candidate is asked the probe path with no credential, over `http` and, if that attempt fails on TLS or on
    the protocol, over `https`. The target's own address and port is never a candidate: that is the gateway.
 
-## 6. Oracle
+## 3. Oracle
 
 <!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("0.4")) ]]] -->
 
@@ -100,8 +90,6 @@ refuses us" and "we are not there to ask".
 
 <!-- [[[end]]] -->
 
-Until 2026-11-16: the backends' addresses came from the live health only, so a Kong Service pointing straight at a host (the common setup) and an APISIX upstream without health checks were never tried (the adapters now report them, `UNKNOWN`); a declared loopback address (`127.0.0.1:8080`, a sidecar) was asked on the tool's own machine, a false PASS or FAIL (now `GATEWAY_LOCAL_ADDRESS`); the derived address answering while the gateway refused the probe with its own authentication was `ANOTHER_SERVICE`, the main bypass missed (now `GATEWAY_REFUSED_PROBE`, and the probe path is a public GET when there is one); an unreadable concept was `ADDRESSES_NOT_READABLE` for both cases (now `NOT_APPLICABLE/ADDRESSES_NOT_SUPPORTED`, or the shared `CONCEPT_NOT_ACCESSIBLE`).
-
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("0.4", page=cog.inFile)) ]]] -->
 
 The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
@@ -115,88 +103,44 @@ The answers that say nothing about the guarantee by themselves, one rule for eve
 
 <!-- [[[end]]] -->
 
-## 7. Outcomes
+## 4. Validation
 
-SKIP when no gateway is configured (the need `GATEWAY`): without the backend addresses there is nothing to ask.
+### 4.1 Oracle cases
 
-## 8. Findings
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_validation("0.4", page=cog.inFile)) ]]] -->
 
-<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("0.4")) ]]] -->
+Every case of the oracle, produced on a lab and judged by the code: E1, [oracle validation](../../../experiments/README.md), campaign at commit `fc60b6f`. 15 of 15 produced cases gave the declared outcome; 1 no lab can produce.
 
-- "Backend answers without the gateway: <address>"
+| Case | Lab, how it is produced | Result |
+|---|---|---|
+| `backend_addresses/VIOLATION/BACKEND_ANSWERS_DIRECTLY/CERTAIN` | forgejo-kong: the lab as built: Kong declares forgejo:3000, states it resolved it to an IP of the lab network, and that IP answers the probe path GET /api/v1/orgs 200 with the shape Kong gives | OK |
+| `backend_addresses/VIOLATION/ADDRESS_ANSWERS_DIRECTLY/FIRM` | crapi-kong: the lab as built: at the addresses Kong resolved crapi-identity:8080 and crapi-community:8087 to, the services answer the workshop probe path with their own 401/404, unlike the gateway | OK |
+| `backend_addresses/ENFORCED/BACKEND_UNREACHABLE` | forgejo-kong: a temporary Kong upstream whose only target is 192.0.2.1:3999 (TEST-NET-1, nothing answers): the declared address refuses or times out, then the derived localhost:3999 refuses after it | OK |
+| `backend_addresses/NOT_VERIFIABLE/DERIVED_REFUSAL_ONLY` | forgejo-kong: the lab as built: the derived localhost:3000 refuses, while the declared forgejo:3000 does not resolve and its resolved IP answers | OK |
+| `backend_addresses/NOT_APPLICABLE/ANOTHER_SERVICE` | crapi-kong: the lab as built, with forgejo-kong running too: the derived localhost:8000 (the workshop's port) answers with forgejo-kong's HTTP proxy, not like crAPI's gateway | OK |
+| `backend_addresses/NOT_VERIFIABLE/GATEWAY_REFUSED_PROBE` | crapi-kong: key-auth (no consumer) on crAPI's workshop-service, so the gateway answers the probe path /workshop/api/mechanic/receive_report 401, while the derived localhost:8000 (forgejo-kong's HTTP proxy, running) answers | OK |
+| `backend_addresses/NOT_VERIFIABLE/GATEWAY_LOCAL_ADDRESS` | forgejo-kong: a temporary Kong upstream whose only target is 127.0.0.1:3999: a loopback declared address | OK |
+| `backend_addresses/NOT_VERIFIABLE/ADDRESS_NOT_RESOLVABLE` | forgejo-kong: the lab as built: Kong declares forgejo:3000, a name that does not resolve from the run host | OK |
+| `backend_addresses/NOT_VERIFIABLE/ADDRESS_WITHOUT_PORT` | forgejo-apisix: a temporary APISIX upstream, without health checks, whose only node is written {host: forgejo, weight: 1} with no port: the adapter reads it from the Admin API as 'forgejo' | OK |
+| `backend_addresses/NOT_VERIFIABLE/NO_BACKEND_ADDRESS` | forgejo-kong: forgejo-upstream emptied of its target, and a temporary route on the probe path GET ~/api/v1/orgs$ answering 200 itself; the specification read from a local copy: Kong states no backend address and still answers the probe | OK |
+| `backend_addresses/NOT_VERIFIABLE/NO_PROBE_PATH` | forgejo-kong: the run reads a local copy of Forgejo's specification with every GET path without parameters removed | OK |
+| `backend_addresses/NOT_APPLICABLE/ADDRESSES_NOT_SUPPORTED` | not producible (code): both supported adapters read the backends' targets (KongGatewayAdapter and ApisixGatewayAdapter override _read_target_health); only an adapter without it reaches this guard | - |
+| `backend_addresses/NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE` | forgejo-kong: the run's gateway.admin.url points to a closed port | OK |
+| `*/NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` | forgejo-kong: a temporary Kong route on the probe path GET ~/api/v1/orgs$ answers 503 itself | OK |
+| `*/NOT_VERIFIABLE/RATE_LIMITED` | forgejo-kong: a temporary Kong route on the probe path GET ~/api/v1/orgs$ answers 429 itself | OK |
+| `*/NOT_VERIFIABLE/NO_RESPONSE` | forgejo-kong: a temporary Kong route on the probe path GET ~/api/v1/orgs$ sleeps 7 s before proxying, and the run's read timeout is 5 s | OK |
 
 <!-- [[[end]]] -->
 
-`evidence_ref` the direct answer; the finding names the address and whether it is declared or derived.
+### 4.2 Results on the labs
 
-## 9. Effects on the target
+<!-- [[[cog import generate_docs as g; cog.out(g.lab_results("0.4", page=cog.inFile)) ]]] -->
 
-`READ_ONLY`: one request through the gateway and at most two per backend address. The requests go to the target's
-own infrastructure and create nothing.
+No E2 campaign yet ([experiments](../../../experiments/README.md)).
 
-## 10. Per gateway
+<!-- [[[end]]] -->
 
-The two adapters give addresses of different kinds and the test treats both the same way: Kong gives the name and
-port the operator configured, APISIX's Control API gives the node already resolved. A gateway whose concept of a
-backend address cannot be read gives `ADDRESSES_NOT_READABLE`.
-
-## 11. Configuration
-
-None. A parameter holding addresses the operator knows was considered and dropped (owner, 2026-10-22): the second
-candidate is derived from what the gateway already says, and rule 5 asks to derive first. If a deployment publishes
-its backend somewhere neither candidate reaches, the parameter is added then.
-
-## 12. Validation
-
-**2026-11-16, after the review** (0.1 to 0.4 on the three labs as configured): **FAIL** on the three labs. crAPI now has three findings: the workshop backend CERTAIN, as before, and the identity (`:8080`) and community (`:8087`) backends FIRM, declared addresses answering directly.
-
-
-Runs of 2026-10-22, the three tests of the group together; measured again on 2026-11-04 (0.4 alone), after the
-correction of that day:
-
-| Lab | Status | Basis |
-|---|---|---|
-| Forgejo + APISIX | FAIL, 1 finding, CERTAIN | the Control API declares the node `172.21.0.4:3000`, which answers the probe path `200` with the same shape APISIX gives for it: the same Forgejo, without the gateway. The derived `localhost:3000` refuses the connection, `DERIVED_REFUSAL_ONLY` |
-| Forgejo + Kong | FAIL, 1 finding, CERTAIN | Kong declares `forgejo:3000`, a name that does not resolve from the host, and states it resolved it to `172.22.0.3:3000`, which answers the probe path `200` with the shape Kong gives: the same Forgejo, without the gateway. The derived `localhost:3000` refuses, `DERIVED_REFUSAL_ONLY`. A PASS until 2026-11-04 on that refusal alone |
-| crAPI + Kong | FAIL, 3 findings | the three service names do not resolve; at the addresses Kong resolved them to, the workshop (`172.23.0.8:8000`) answers like the gateway (CERTAIN), identity (`172.23.0.6:8080`) and community (`172.23.0.7:8087`) answer the workshop's path with their own `401`/`404` (FIRM: something listens where the gateway says the backend is). The derived `localhost:8080` and `localhost:8087` refuse, `DERIVED_REFUSAL_ONLY`; `localhost:8000` answers with the other lab's gateway, `ANOTHER_SERVICE`. A PASS until 2026-11-04 |
-| any | VIOLATION at FIRM | an HTTP answer at the declared address that is not the application: not on the labs |
-
-The same measurement from inside the lab network answers `200` on `http://forgejo:3000`, so the isolation is a
-property of the network the request starts from, which is why the verdict names its vantage point.
-
-**Runs of the branch inventory (2026-11-14).**
-- crAPI + Kong, reset: **FAIL**, 3 findings, as in the table: `BACKEND_ANSWERS_DIRECTLY` (the workshop, CERTAIN)
-  and **`ADDRESS_ANSWERS_DIRECTLY` twice** (identity and community, FIRM). The row "any" above was wrong to say that
-  this case is not on the labs.
-- Forgejo + Kong with a temporary upstream whose only target is `127.0.0.1:3999`, where nothing listens (added to
-  `kong.yml`, undone with `git checkout`): `BACKEND_UNREACHABLE` twice, the declared address and then the derived
-  `localhost:3999`.
-- Forgejo + Kong with the `forgejo` container stopped (the specification read from a file): the gateway answered
-  the probe path `503`, and the test took the refused connection of the stopped backend for an isolated one
-  (**PASS**). Since 2026-11-15 the test stops there: **INCONCLUSIVE**, `UPSTREAM_UNAVAILABLE`, no address tried
-  (measured 2026-11-15, the same way; the three labs, running, give the results of the table above).
-
-**What each branch has been seen doing** (rule 9). Proven on a lab: `BACKEND_ANSWERS_DIRECTLY`,
-`ADDRESS_ANSWERS_DIRECTLY`, `ADDRESS_NOT_RESOLVABLE`, `ANOTHER_SERVICE`, `DERIVED_REFUSAL_ONLY`,
-`BACKEND_UNREACHABLE`, `UPSTREAM_UNAVAILABLE`, and on 2026-11-15 with the run's configuration only (Forgejo + Kong)
-`ADDRESSES_NOT_READABLE` (`gateway.admin.url` on a closed port) and `NO_PROBE_PATH` (the specification saved with
-its `GET` paths without parameters removed), and two more on 2026-11-15: `TARGET_NOT_ANSWERING` (Forgejo + Kong, a
-temporary route on the probe path `GET ~/api/v1/orgs$` sleeping 7 s, the run's `target.read_timeout: 5.0`; since
-2026-11-16 the same case is `NO_RESPONSE`, the shared rule of section 6) and
-`NO_BACKEND_ADDRESS` (Forgejo + APISIX, the upstream's `checks` removed from `apisix/setup.sh` and the setup run
-again, then `git checkout` and the setup again). The second shows a limit on APISIX: the adapter reads the backend
-addresses from the Control API's health-check data, so an upstream without health checks gives the test no
-address. Not reachable: `ADDRESS_WITHOUT_PORT` (the supported gateways give every address with its port: a Kong
-target as `host:port`, an APISIX node with its `ip` and `port`), `NO_GATEWAY` (the test needs `GATEWAY`, so
-without one the engine skips it first) and `NO_ATTEMPT` (the loop over `http` and `https` always ends with a
-record, or raises). Every other branch of this test has been seen.
-
-## 13. Remediation
-
-Let the backend accept traffic only from the gateway (a network policy, a firewall rule, a service-level
-authorization rule), and have the backend authenticate the gateway rather than trust its position.
-
-## 14. Limitations
+## 5. Limitations
 
 - The verdict holds for the network the run started on, and the message says so. A backend unreachable from here may
   be reachable from inside the infrastructure.
@@ -215,9 +159,53 @@ authorization rule), and have the backend authenticate the gateway rather than t
 - Whether the backend **authenticates** its callers once reached is a different guarantee, which no test covers
   today (ASVS v5.0.0-13.2.1 asks for it; NIST SP 800-228 section 4.1 calls it attaching proofs to the request).
 
-## 15. Sources
+## 6. Sources
 
 - OWASP API8:2023 Security Misconfiguration: https://owasp.org/API-Security/editions/2023/en/0xa8-security-misconfiguration/
 - NIST SP 800-228 section 4.1: https://doi.org/10.6028/NIST.SP.800-228
 - CWE-420 Unprotected Alternate Channel: https://cwe.mitre.org/data/definitions/420.html
 - OWASP ASVS v5.0.0-13.2.1, cited in the limitations only: https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x22-V13-Configuration.md
+
+## 7. Inputs
+
+- the backend addresses the gateway declares (`target_health()`: the backend's name and its target address), through
+  the need `GATEWAY`;
+- the target's own host, from the base URL, combined with each backend's port: the second candidate, derived from
+  what the gateway says rather than configured (rule 5);
+- one documented path, asked at every address and through the gateway, for comparison.
+
+## 8. Outcomes
+
+SKIP when no gateway is configured (the need `GATEWAY`): without the backend addresses there is nothing to ask.
+
+## 9. Findings
+
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("0.4")) ]]] -->
+
+- "Backend answers without the gateway: <address>"
+
+<!-- [[[end]]] -->
+
+`evidence_ref` the direct answer; the finding names the address and whether it is declared or derived.
+
+## 10. Effects on the target
+
+`READ_ONLY`: one request through the gateway and at most two per backend address. The requests go to the target's
+own infrastructure and create nothing.
+
+## 11. Per gateway
+
+The two adapters give addresses of different kinds and the test treats both the same way: Kong gives the name and
+port the operator configured, APISIX's Control API gives the node already resolved. A gateway whose concept of a
+backend address cannot be read gives `ADDRESSES_NOT_READABLE`.
+
+## 12. Configuration
+
+None. A parameter holding addresses the operator knows was considered and dropped: the second
+candidate is derived from what the gateway already says, and rule 5 asks to derive first. If a deployment publishes
+its backend somewhere neither candidate reaches, the parameter is added then.
+
+## 13. Remediation
+
+Let the backend accept traffic only from the gateway (a network policy, a firewall rule, a service-level
+authorization rule), and have the backend authenticate the gateway rather than trust its position.

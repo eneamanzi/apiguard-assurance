@@ -1,9 +1,7 @@
 # 7.4 Webhook Signature Verification
 
-> **Audience:** analysts, contributors · **Status:** new in the test review (2026-10-26) ·
-> **Source of truth:**
-> [`src/tests/domain_7/test_7_4_webhook_verification.py`](../../../src/tests/domain_7/test_7_4_webhook_verification.py) ·
-> **Verified:** 2026-11-16
+> **Audience:** analysts, contributors · **Source of truth:**
+> [`src/tests/domain_7/test_7_4_webhook_verification.py`](../../../src/tests/domain_7/test_7_4_webhook_verification.py)
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("7.4", page=cog.inFile)) ]]] -->
 
@@ -31,22 +29,17 @@ A webhook receiver authenticates a delivery before acting on it: it verifies an 
 PASS promises the endpoint rejected an unsigned and a wrongly signed delivery. The threat (OWASP API10:2023, unsafe
 consumption of an external service; CWE-347): without verification anyone who can reach the endpoint forges events.
 
-## 2. Sub-tests and coverage of the methodology
+## 2. Test
+
+### 2.1 Sub-tests and coverage of the methodology
 
 | Sub-test | Methodology (guarantee 7.4) |
 |---|---|
 | `absent_signature_rejected` | "a delivery with no signature must be rejected" |
 | `invalid_signature_rejected` | "a delivery with a wrong signature must be rejected" |
-| left out | **replay protection** (timestamp window, event-ID dedup): not judgeable from the answer, see Limitations; the **blind-callback** case: it needs an out-of-band listener the tool controls, which is not built and not planned (decided 2026-10-27); constant-time comparison is not observable from outside |
+| left out | **replay protection** (timestamp window, event-ID dedup): not judgeable from the answer, see Limitations; the **blind-callback** case: it needs an out-of-band listener the tool controls, which is not built and not planned; constant-time comparison is not observable from outside |
 
-## 3. Inputs
-
-`webhook_endpoint` (no default): `path`, `method` (default `POST`), the `body` payload, the `signature_header` name,
-an optional `signing_secret` (a `${VAR}` env reference, for the valid-signature positive control), and the
-`signature_format` (default `{signature}`; e.g. `sha256={signature}` for GitHub). `{signature}` is the lowercase hex
-HMAC-SHA256 of the raw body.
-
-## 4. Preconditions and reference responses
+### 2.2 Preconditions and reference responses
 
 **Positive control:** when `signing_secret` is set, a *validly* signed delivery is sent first. A rejection of the
 forged deliveries is evidence only when that valid one was accepted (`2xx`). If even the valid one is rejected, the
@@ -56,12 +49,12 @@ the secret, or when the valid delivery gets no usable answer (none, `5xx`, `429`
 required elsewhere (401) would be rejected the same way. An accepted forged delivery is a violation with or without
 the control.
 
-## 5. Probes
+### 2.3 Probes
 
 Up to three deliveries of the same raw body: (optionally) validly signed, then unsigned, then wrongly signed. Effect
 `CHANGES_DATA`: a processed webhook may change data (a rejected one does not); announce it on a shared target.
 
-## 6. Oracle
+## 3. Oracle
 
 <!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("7.4")) ]]] -->
 
@@ -87,8 +80,6 @@ Up to three deliveries of the same raw body: (optionally) validly signed, then u
 
 <!-- [[[end]]] -->
 
-Until 2026-11-16 the validly signed delivery went first: a receiver that drops a repeated event (an event-ID cache, as the OWASP Webhook Security Cheat Sheet recommends) answered the forged ones as duplicates, a false PASS, or acknowledged them with `200`, a false FAIL; now it goes last, and only when a forged delivery was refused. A forged delivery accepted was CERTAIN, although a receiver may acknowledge at once and verify from a queue (the cheat sheet's advice): now FIRM. Any answer but a `2xx` counted as a refusal (a redirect included).
-
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("7.4", page=cog.inFile)) ]]] -->
 
 The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
@@ -102,12 +93,75 @@ The answers that say nothing about the guarantee by themselves, one rule for eve
 
 <!-- [[[end]]] -->
 
-## 7. Outcomes
+## 4. Validation
+
+### 4.1 Oracle cases
+
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_validation("7.4", page=cog.inFile)) ]]] -->
+
+Every case of the oracle, produced on a lab and judged by the code: E1, [oracle validation](../../../experiments/README.md), campaign at commit `fc60b6f`. 14 of 14 produced cases gave the declared outcome; 0 no lab can produce.
+
+| Case | Lab, how it is produced | Result |
+|---|---|---|
+| `absent_signature_rejected/VIOLATION/UNSIGNED_ACCEPTED/FIRM` | forgejo-kong: webhook_endpoint set to the prefix route /review-served, whose pre-function answers 200 to any request: the unsigned delivery is accepted | OK |
+| `absent_signature_rejected/ENFORCED/SIGNATURE_REQUIRED` | forgejo-kong: webhook_endpoint set to a temporary Kong route that answers 204 to a delivery with a non-zero X-Sig and 401 to the others, with a signing secret: unsigned refused 401, the valid delivery after it accepted | OK |
+| `absent_signature_rejected/NOT_VERIFIABLE/SIGNATURE_NOT_CONFIRMED` | forgejo-kong: webhook_endpoint set to POST /api/v1/markdown, no signing secret: Forgejo answers 401 (it requires a token there) and no positive control runs | OK |
+| `absent_signature_rejected/NOT_VERIFIABLE/REJECTS_ALL` | forgejo-kong: webhook_endpoint set to POST /api/v1/markdown with a signing secret: Forgejo answers 401 to the unsigned, the wrongly signed and the validly signed delivery alike | OK |
+| `absent_signature_rejected/NOT_VERIFIABLE/ANSWER_NOT_INTERPRETED` | forgejo-kong: webhook_endpoint set to POST /api/v1/zqxv-validation-webhook, a path Forgejo does not have: every delivery answers 404, neither 2xx nor a refusal | OK |
+| `invalid_signature_rejected/VIOLATION/BAD_SIGNATURE_ACCEPTED/FIRM` | forgejo-kong: same run as the unsigned case: the route /review-served answers 200 to the delivery signed with 64 zeros | OK |
+| `invalid_signature_rejected/ENFORCED/SIGNATURE_REQUIRED` | forgejo-kong: same run as the unsigned case: the temporary receiver answers 401 to X-Sig of 64 zeros, then 204 to the validly signed delivery | OK |
+| `invalid_signature_rejected/NOT_VERIFIABLE/SIGNATURE_NOT_CONFIRMED` | forgejo-kong: same run as the unsigned case: POST /api/v1/markdown, no signing secret, Forgejo answers 401 | OK |
+| `invalid_signature_rejected/NOT_VERIFIABLE/REJECTS_ALL` | forgejo-kong: same run as the unsigned case: POST /api/v1/markdown with a signing secret, every delivery answered 401 | OK |
+| `invalid_signature_rejected/NOT_VERIFIABLE/ANSWER_NOT_INTERPRETED` | forgejo-kong: same run as the unsigned case: a path Forgejo does not have answers 404 to the wrongly signed delivery | OK |
+| `*/NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` | forgejo-kong: webhook_endpoint set to /api-zqxv0074, matched by the temporary route ~/api[-.]?zqxv[0-9a-f]+$ answering 503: both deliveries 503 | OK |
+| `*/NOT_VERIFIABLE/RATE_LIMITED` | forgejo-kong: webhook_endpoint set to /api-zqxv0074, matched by the temporary route answering 429: both deliveries 429 | OK |
+| `*/NOT_VERIFIABLE/SERVER_ERROR` | forgejo-kong: webhook_endpoint set to /api-zqxv0074, matched by the temporary route answering 500: both deliveries 500 | OK |
+| `*/NOT_VERIFIABLE/NO_RESPONSE` | forgejo-kong: webhook_endpoint set to /api-zqxv0074, matched by the temporary route sleeping 7 s, and the run's read timeout is 5 s: both deliveries get no answer | OK |
+
+<!-- [[[end]]] -->
+
+### 4.2 Results on the labs
+
+<!-- [[[cog import generate_docs as g; cog.out(g.lab_results("7.4", page=cog.inFile)) ]]] -->
+
+No E2 campaign yet ([experiments](../../../experiments/README.md)).
+
+<!-- [[[end]]] -->
+
+## 5. Limitations
+
+- Only the inbound-verification case is tested. Constant-time comparison is not observable from outside.
+- **Replay protection is not judgeable from the answer.** The test could send the same signed delivery twice, but a
+  `2xx` to the second proves nothing: a receiver that recognises the duplicate and ignores it (idempotent handling)
+  answers `2xx` too. A delivery that is
+  validly signed but old, which must be refused, can be built only with a scheme that signs a timestamp, which
+  `signature_format` does not support (next item). So a receiver that verifies its HMAC correctly but accepts a
+  replayed delivery still passes here.
+- The blind-callback case (the target calling a URL of ours) needs an out-of-band listener the tool controls, which
+  is not built and not planned.
+- Only the `{signature}` placeholder is supported in `signature_format`; schemes that sign a timestamp+body tuple
+  need an extension.
+- Only a hex HMAC-SHA256 over the raw body can be built (`signature_format`): a receiver expecting base64 (Shopify's scheme) refuses the valid delivery too, `REJECTS_ALL`.
+
+## 6. Sources
+
+- OWASP API10:2023 Unsafe Consumption of APIs: https://owasp.org/API-Security/editions/2023/en/0xaa-unsafe-consumption-of-apis/
+- OWASP Webhook Security Cheat Sheet: https://cheatsheetseries.owasp.org/cheatsheets/Webhook_Security_Cheat_Sheet.html
+- CWE-347 Improper Verification of Cryptographic Signature: https://cwe.mitre.org/data/definitions/347.html
+
+## 7. Inputs
+
+`webhook_endpoint` (no default): `path`, `method` (default `POST`), the `body` payload, the `signature_header` name,
+an optional `signing_secret` (a `${VAR}` env reference, for the valid-signature positive control), and the
+`signature_format` (default `{signature}`; e.g. `sha256={signature}` for GitHub). `{signature}` is the lowercase hex
+HMAC-SHA256 of the raw body.
+
+## 8. Outcomes
 
 SKIP without `webhook_endpoint`. FAIL when a forged or unsigned delivery is accepted; PASS when both are rejected
 (with a note if no positive control ran).
 
-## 8. Findings
+## 9. Findings
 
 <!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("7.4")) ]]] -->
 
@@ -118,16 +172,16 @@ SKIP without `webhook_endpoint`. FAIL when a forged or unsigned delivery is acce
 
 `evidence_ref` the accepted delivery.
 
-## 9. Effects on the target
+## 10. Effects on the target
 
 `CHANGES_DATA`: deliveries to the receiver (rejected ones change nothing; an accepted forged one would be the
 finding).
 
-## 10. Per gateway
+## 11. Per gateway
 
 Independent of the adapter: the receiver is probed from outside.
 
-## 11. Configuration
+## 12. Configuration
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_params("7.4", page=cog.inFile)) ]]] -->
 
@@ -145,71 +199,8 @@ Section [`tests.domain_7.test_7_4`](../../03-reference/01-configuration.md#tests
 
 <!-- [[[end]]] -->
 
-## 12. Validation
-
-**2026-11-16, after the review**: a Forgejo + Kong route (`pre-function`, undone) accepting a delivery with a non-zero `X-Sig` and refusing the others with `401`: **PASS**, both forged deliveries refused, then the validly signed one accepted.
-
-
-Runs of 2026-10-26:
-
-| Lab | Status | Basis |
-|---|---|---|
-| Forgejo + Kong, crAPI + Kong, Forgejo + APISIX | **SKIP** | no webhook receiver declared (`webhook_endpoint` unset): honest SKIP |
-
-**Checked against a scratch receiver** (2026-11-04, after the correction of that day): a small
-HTTP server outside the repository that accepts a delivery only with `X-Signature: sha256=<HMAC-SHA256 of the raw
-body>`, plus a path that accepts anything.
-
-| Case | Answers | Status |
-|---|---|---|
-| receiver, correct secret | valid 204, unsigned 401, wrongly signed 401 | **PASS**, `SIGNATURE_REQUIRED` twice |
-| receiver, wrong secret | valid 401 | INCONCLUSIVE, `REJECTS_ALL` |
-| receiver, no secret | 401, 401 | INCONCLUSIVE, `SIGNATURE_NOT_CONFIRMED` (PASS before the correction) |
-| a wrong path, no secret | 404, 404 | INCONCLUSIVE, `SIGNATURE_NOT_CONFIRMED` (PASS before the correction) |
-| the path that accepts anything, with or without the secret | 204 to every delivery | **FAIL**, `UNSIGNED_ACCEPTED` and `BAD_SIGNATURE_ACCEPTED` |
-| Forgejo + Kong lab, `POST /api/v1/markdown`, no secret | 401, 401 (Forgejo requires a token there) | INCONCLUSIVE, `SIGNATURE_NOT_CONFIRMED` (PASS before the correction) |
-
-The same check found a defect in the correction itself before it was kept (the control's answer was read inverted).
-
-**This test has never run on a lab's own webhook receiver.** It needs the address of an incoming webhook receiver and, for its positive
-control, the receiver's signing secret; none of the three lab applications has such a receiver (Forgejo sends
-webhooks, it does not receive signed ones; crAPI has none), and building one would be new lab machinery, so none was
-built (owner's decision, 2026-11-03). Its logic was read and corrected on that day (a `5xx`, a `429` or a dropped
-connection no longer counts as "signature required"); its verdicts were observed only on the scratch receiver
-above. Replay protection and the blind-callback case stay outside what this test covers, for the reasons in the
-Limitations.
-
-**What each branch has been seen doing** (rule 9). Proven on a lab: the SKIP (all three), `SIGNATURE_NOT_CONFIRMED`
-(Forgejo + Kong, `POST /api/v1/markdown`). Seen on the scratch receiver only: `SIGNATURE_REQUIRED`, `REJECTS_ALL`,
-`SIGNATURE_NOT_CONFIRMED`, `UNSIGNED_ACCEPTED`, `BAD_SIGNATURE_ACCEPTED`. On a lab on 2026-11-15 (Forgejo + Kong,
-the run's `webhook_endpoint` set to `/review-webhook-receiver`, a temporary route there, undone with `git
-checkout`): `UPSTREAM_UNAVAILABLE` (`503`), `SERVER_ERROR` (`500`), `RATE_LIMITED` (`429`), `NO_RESPONSE`
-(sleeping 7 s, the run's `target.read_timeout: 5.0`), on both sub-tests. Every branch of this test has been seen.
-
 ## 13. Remediation
 
 Verify an HMAC-SHA256 signature over the raw body on every delivery, in constant time; reject an absent or wrong
 signature; add a timestamp-tolerance window and event-ID deduplication against replay (OWASP API10:2023, CWE-347,
 OWASP Webhook Security Cheat Sheet).
-
-## 14. Limitations
-
-- Only the inbound-verification case is tested. Constant-time comparison is not observable from outside.
-- **Replay protection is not judgeable from the answer.** The test could send the same signed delivery twice, but a
-  `2xx` to the second proves nothing: a receiver that recognises the duplicate and ignores it (idempotent handling)
-  answers `2xx` too. A delivery that is
-  validly signed but old, which must be refused, can be built only with a scheme that signs a timestamp, which
-  `signature_format` does not support (next item). So a receiver that verifies its HMAC correctly but accepts a
-  replayed delivery still passes here. (Until 2026-11-05 this page said replay needs an out-of-band listener: that is
-  true of the blind-callback case, an outbound call, not of an inbound replay.)
-- The blind-callback case (the target calling a URL of ours) needs an out-of-band listener the tool controls, which
-  is not built and not planned (decided 2026-10-27).
-- Only the `{signature}` placeholder is supported in `signature_format`; schemes that sign a timestamp+body tuple
-  need an extension.
-- Only a hex HMAC-SHA256 over the raw body can be built (`signature_format`): a receiver expecting base64 (Shopify's scheme) refuses the valid delivery too, `REJECTS_ALL`.
-
-## 15. Sources
-
-- OWASP API10:2023 Unsafe Consumption of APIs: https://owasp.org/API-Security/editions/2023/en/0xaa-unsafe-consumption-of-apis/
-- OWASP Webhook Security Cheat Sheet: https://cheatsheetseries.owasp.org/cheatsheets/Webhook_Security_Cheat_Sheet.html
-- CWE-347 Improper Verification of Cryptographic Signature: https://cwe.mitre.org/data/definitions/347.html

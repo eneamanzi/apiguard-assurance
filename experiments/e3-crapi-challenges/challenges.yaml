@@ -1,0 +1,107 @@
+# The challenges OWASP crAPI publishes, and how each is read in E2's run on the crAPI lab.
+# Number, title and category are crAPI's, verbatim from the source below; the rules are written
+# before the run and never changed after seeing it. A challenge is:
+#   caught      a finding of a `caught_by` test whose title matches the rule (the challenge's endpoint);
+#   named       not caught, and a `named_by` case recorded (found, not exploited by design);
+#   attempted   not caught or named, and a `caught_by` test ended INCONCLUSIVE (could not decide);
+#   missed      none of these;
+#   absent: the challenge's feature is not in the lab, with the reason, not measured.
+# A challenge no implemented test can reach still has its rules: it is measured, and counted missed.
+source: https://github.com/OWASP/crAPI/blob/develop/docs/challenges.md
+challenges:
+  - number: 1
+    title: "Access details of another user's vehicle"
+    category: BOLA Vulnerabilities
+    caught_by:
+      - {test: "2.2", finding_matches: /identity/api/v2/vehicle}
+  - number: 2
+    title: Access mechanic reports of other users
+    category: BOLA Vulnerabilities
+    caught_by:
+      - {test: "2.2", finding_matches: mechanic_report}
+  - number: 3
+    title: Reset the password of a different user
+    category: Broken User Authentication
+    caught_by:
+      - {test: "7.1", finding_matches: /identity/api/auth/forget-password}
+      - {test: "7.1", finding_matches: /identity/api/auth/v2/check-otp}
+  - number: 4
+    title: Find an API endpoint that leaks sensitive information of other users
+    category: Excessive Data Exposure
+    caught_by:
+      - {test: "2.5", finding_matches: /community/api/v2/community/posts}
+  - number: 5
+    title: Find an API endpoint that leaks an internal property of a video
+    category: Excessive Data Exposure
+    caught_by:
+      - {test: "2.5", finding_matches: /identity/api/v2/user/videos}
+  - number: 6
+    title: "Perform a layer 7 DoS using 'contact mechanic' feature"
+    category: Rate Limiting
+    caught_by:
+      - {test: "4.1", finding_matches: /workshop/api/mechanic}
+      - {test: "4.1", finding_matches: /workshop/api/merchant/contact_mechanic}
+  - number: 7
+    title: Delete a video of another user
+    category: BFLA
+    caught_by:
+      - {test: "2.1", finding_matches: /identity/api/v2/admin/videos}
+    named_by:
+      - {test: "2.1", detail: DESTRUCTIVE_NOT_PROBED}
+  - number: 8
+    title: Get an item for free
+    category: Mass Assignment
+    # crAPI's solution: a new order with a negative `quantity`, which the specification types as an integer with
+    # no minimum. Guarantee 3.1 (an input validated against its range); its test reports only server errors.
+    caught_by:
+      - {test: "ext.3.1.schemathesis", finding_matches: "POST /workshop/api/shop/orders$"}
+  - number: 9
+    title: Increase your balance by $1,000 or more
+    category: Mass Assignment
+    # crAPI's solution: a new order with `quantity` -100 or less. Guarantee 3.1, as challenge 8.
+    caught_by:
+      - {test: "ext.3.1.schemathesis", finding_matches: "POST /workshop/api/shop/orders$"}
+  - number: 10
+    title: Update internal video properties
+    category: Mass Assignment
+    caught_by:
+      - {test: "2.5", finding_matches: /identity/api/v2/user/videos}
+  - number: 11
+    title: Make crAPI send an HTTP call to "www.google.com" and return the HTTP response.
+    category: SSRF
+    caught_by:
+      - {test: "7.2", finding_matches: contact_mechanic}
+  - number: 12
+    title: Find a way to get free coupons without knowing the coupon code.
+    category: NoSQL Injection
+    # Guarantee 3.1 (its failure scenarios name NoSQL injection); its test reports only server errors.
+    caught_by:
+      - {test: "ext.3.1.schemathesis", finding_matches: /community/api/v2/coupon/validate-coupon}
+  - number: 13
+    title: Find a way to redeem a coupon that you have already claimed by modifying the database
+    category: SQL Injection
+    # Guarantee 3.1 (its failure scenarios name SQL injection); its test reports only server errors.
+    caught_by:
+      - {test: "ext.3.1.schemathesis", finding_matches: /workshop/api/shop/apply_coupon}
+  - number: 14
+    title: Find an endpoint that does not perform authentication checks for a user.
+    category: Unauthenticated Access
+    caught_by:
+      - {test: "1.1", finding_matches: /workshop/api/}
+  - number: 15
+    title: Find a way to forge valid JWT Tokens
+    category: JWT Vulnerabilities
+    caught_by:
+      - {test: "1.2", finding_matches: ""}
+  - number: 16
+    title: Use the chatbot to do a successfull prompt injection
+    category: LLM Vulnerabilities
+    absent: the chatbot is not part of the lab (it needs an OpenAI key)
+  - number: 17
+    title: Extract the credentials of another user using chatbot
+    category: LLM Vulnerabilities
+    absent: the chatbot is not part of the lab (it needs an OpenAI key)
+  - number: 18
+    title: Make the chatbot do an action on behalf of another user.
+    category: LLM Vulnerabilities
+    absent: the chatbot is not part of the lab (it needs an OpenAI key)

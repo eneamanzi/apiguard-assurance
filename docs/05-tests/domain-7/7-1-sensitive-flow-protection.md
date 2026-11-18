@@ -1,9 +1,7 @@
 # 7.1 Sensitive Business Flow Protection
 
-> **Audience:** analysts, contributors · **Status:** new in the test review (2026-10-26) ·
-> **Source of truth:**
-> [`src/tests/domain_7/test_7_1_sensitive_flow_protection.py`](../../../src/tests/domain_7/test_7_1_sensitive_flow_protection.py) ·
-> **Verified:** 2026-11-16
+> **Audience:** analysts, contributors · **Source of truth:**
+> [`src/tests/domain_7/test_7_1_sensitive_flow_protection.py`](../../../src/tests/domain_7/test_7_1_sensitive_flow_protection.py)
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("7.1", page=cog.inFile)) ]]] -->
 
@@ -32,7 +30,9 @@ server throws an anti-automation control in the way (a CAPTCHA or human-verifica
 throttle). A PASS promises a burst of submissions met such a control. The threat (OWASP API6:2023): a script drives
 the flow at machine speed for mass sign-up, OTP flooding or coupon draining.
 
-## 2. Sub-tests and coverage of the methodology
+## 2. Test
+
+### 2.1 Sub-tests and coverage of the methodology
 
 | Sub-test | Methodology (guarantee 7.1) |
 |---|---|
@@ -43,22 +43,17 @@ the flow at machine speed for mass sign-up, OTP flooding or coupon draining.
 a *declared* sensitive flow, where even a modest automated rate is abuse and the control may be a CAPTCHA, not only a
 `429`. Login brute force / enumeration is **1.7**.
 
-## 3. Inputs
-
-`sensitive_flow` (no default): `path`, `method` (default `POST`), an optional `body`, and an optional `role` (omit
-for an anonymous flow, the common case). `burst_size` (default 12) bounds the burst.
-
-## 4. Preconditions and reference responses
+### 2.2 Preconditions and reference responses
 
 None beyond the flow being reachable. There is no reference response: the burst is judged on whether a control
 appears within it.
 
-## 5. Probes
+### 2.3 Probes
 
 Up to `burst_size` identical submissions of the flow, stopping at the first control. Effect `CHANGES_DATA`: the burst
 drives the real flow (announce it on a shared target); the burst is kept small.
 
-## 6. Oracle
+## 3. Oracle
 
 <!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("7.1")) ]]] -->
 
@@ -71,8 +66,6 @@ drives the real flow (announce it on a shared target); the burst is kept small.
 | served, then refused without a `429` or a challenge: an unrecognised throttle or a business refusal | `NOT_VERIFIABLE/REFUSED_AFTER_SERVED` | - |
 
 <!-- [[[end]]] -->
-
-Until 2026-11-16: `NO_ANTI_AUTOMATION` was CERTAIN, although a flow may answer `200` and drop the request silently (an OTP or reset flow that does not enumerate accounts); the weak words (`challenge`, `too many`, `slow down`) counted from the first submission, so `invalid code_challenge` read as a CAPTCHA; a WAF's challenge was not recognised (AWS WAF answers `202` with `x-amzn-waf-action: challenge`, which read as accepted).
 
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("7.1", page=cog.inFile)) ]]] -->
 
@@ -87,11 +80,58 @@ The answers that say nothing about the guarantee by themselves, one rule for eve
 
 <!-- [[[end]]] -->
 
-## 7. Outcomes
+## 4. Validation
+
+### 4.1 Oracle cases
+
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_validation("7.1", page=cog.inFile)) ]]] -->
+
+Every case of the oracle, produced on a lab and judged by the code: E1, [oracle validation](../../../experiments/README.md), campaign at commit `fc60b6f`. 8 of 8 produced cases gave the declared outcome; 0 no lab can produce.
+
+| Case | Lab, how it is produced | Result |
+|---|---|---|
+| `anti_automation_present/ENFORCED/ANTI_AUTOMATION_THROTTLE` | forgejo-kong: the scratch flow POST /api/v1/markdown as user_a, with rate-limiting minute 5, policy local, on a route POST ~/api/v1/markdown$: five served, the sixth 429 | OK |
+| `anti_automation_present/ENFORCED/ANTI_AUTOMATION_CHALLENGE` | forgejo-kong: the scratch flow POST /api/v1/markdown as user_a, on which a route answers 202 with x-amzn-waf-action: challenge at the first submission | OK |
+| `anti_automation_present/VIOLATION/NO_ANTI_AUTOMATION/FIRM` | crapi-kong: the lab as built: 12 POST /identity/api/auth/forget-password, all accepted, no throttle and no challenge | OK |
+| `anti_automation_present/NOT_VERIFIABLE/FLOW_NOT_ACCEPTED` | forgejo-kong: a scratch flow POST /api/v1/orgs with no role: Forgejo answers every submission 401, nothing is created | OK |
+| `anti_automation_present/NOT_VERIFIABLE/REFUSED_AFTER_SERVED` | forgejo-kong: the scratch flow POST /api/v1/markdown as user_a, on a route whose pre-function lets the first three submissions reach Forgejo and answers the next ones 403 with no challenge words | OK |
+| `*/NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` | forgejo-kong: the scratch flow POST /api/v1/markdown as user_a, on a route whose pre-function lets the first three submissions reach Forgejo and answers the next ones 503 | OK |
+| `*/NOT_VERIFIABLE/SERVER_ERROR` | forgejo-kong: the scratch flow POST /api/v1/markdown as user_a, on a route whose pre-function lets the first three submissions reach Forgejo and answers the next ones 500 | OK |
+| `*/NOT_VERIFIABLE/NO_RESPONSE` | forgejo-kong: the scratch flow POST /api/v1/markdown as user_a, on a route whose pre-function lets the first three submissions reach Forgejo and makes the next ones wait 7 s, with the run's target.read_timeout 5.0 | OK |
+
+<!-- [[[end]]] -->
+
+### 4.2 Results on the labs
+
+<!-- [[[cog import generate_docs as g; cog.out(g.lab_results("7.1", page=cog.inFile)) ]]] -->
+
+No E2 campaign yet ([experiments](../../../experiments/README.md)).
+
+<!-- [[[end]]] -->
+
+## 5. Limitations
+
+- The burst is small and sequential: a control that triggers only after many attempts, or a per-hour cap, may be
+  missed.
+- The kind of control is inferred from the status and body keywords; an unusual challenge body may read as no
+  control.
+
+## 6. Sources
+
+- OWASP API6:2023 Unrestricted Access to Sensitive Business Flows: https://owasp.org/API-Security/editions/2023/en/0xa6-unrestricted-access-to-sensitive-business-flows/
+- OWASP ASVS v5.0.0-2.4.1 (anti-automation controls): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x11-V2-Validation-and-Business-Logic.md
+- CWE-799 Improper Control of Interaction Frequency: https://cwe.mitre.org/data/definitions/799.html
+
+## 7. Inputs
+
+`sensitive_flow` (no default): `path`, `method` (default `POST`), an optional `body`, and an optional `role` (omit
+for an anonymous flow, the common case). `burst_size` (default 12) bounds the burst.
+
+## 8. Outcomes
 
 SKIP without `sensitive_flow`. FAIL when no control appears; PASS when a throttle or a challenge is met.
 
-## 8. Findings
+## 9. Findings
 
 <!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("7.1")) ]]] -->
 
@@ -101,16 +141,16 @@ SKIP without `sensitive_flow`. FAIL when no control appears; PASS when a throttl
 
 `evidence_ref` the burst's last request.
 
-## 9. Effects on the target
+## 10. Effects on the target
 
 `CHANGES_DATA`: a small burst of the real flow (e.g. password-reset requests trigger OTP mail). No object is created
 by the test itself.
 
-## 10. Per gateway
+## 11. Per gateway
 
 Independent of the adapter: the control is observed from outside.
 
-## 11. Configuration
+## 12. Configuration
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_params("7.1", page=cog.inFile)) ]]] -->
 
@@ -127,66 +167,8 @@ Section [`tests.domain_7.test_7_1`](../../03-reference/01-configuration.md#tests
 
 <!-- [[[end]]] -->
 
-## 12. Validation
-
-**2026-11-16, after the review**: crAPI as configured **FAIL** FIRM (`POST /identity/api/auth/forget-password`, 12 accepted). A Kong route answering `202` with `x-amzn-waf-action: challenge` (Forgejo + Kong, `pre-function`, undone): **PASS**, `ANTI_AUTOMATION_CHALLENGE` at the first submission.
-
-
-Runs of 2026-10-26 and 2026-11-03:
-
-| Lab | Status | Basis |
-|---|---|---|
-| crAPI + Kong | **FAIL** | 12 `POST /identity/api/auth/forget-password` all accepted with no throttle and no challenge: crAPI's forgot-password flow has no anti-automation (`VIOLATION/NO_ANTI_AUTOMATION`) |
-| Forgejo + Kong, Forgejo + APISIX | **SKIP** | no sensitive business flow declared (`sensitive_flow` unset): honest SKIP |
-| Forgejo + Kong, a scratch flow `POST /api/v1/orgs` with no credential (2026-11-03) | **INCONCLUSIVE** | all 12 submissions answered `401`, nothing created: `NOT_VERIFIABLE/FLOW_NOT_ACCEPTED`. Until that day the same burst gave **FAIL**, CERTAIN, with the finding "12 identical submissions ... were all accepted": the oracle reported a violation whenever no control was seen, whatever the answers |
-| Forgejo + Kong, a scratch flow `POST /api/v1/markdown` as user A, no throttle (2026-11-03) | **FAIL** | 12 submissions accepted (`200`): Forgejo's Markdown preview has no anti-automation, and it stores nothing |
-| Forgejo + Kong, the same flow with the case below | **PASS** | answers `200, 200, 200, 429`: `ENFORCED/ANTI_AUTOMATION_THROTTLE` at the fourth submission |
-
-**The case, and how to undo it** (2026-11-03). At the end of `test-environments/forgejo-kong/kong/kong.yml` add a
-global plugin:
-
-```yaml
-plugins:
-  - name: rate-limiting
-    config:
-      minute: 5
-      policy: local
-```
-
-then `cd test-environments/forgejo-kong && docker compose --env-file ../../.env up -d --force-recreate --wait kong`.
-The limit also throttles the run's own clean-up: the tool could not delete its login token and said so ("1 of 1
-resources NOT removed from the target: remove them by hand"), so the token was deleted by hand. Undo by restoring the
-file and the same command; the lab was checked back to FAIL with its clean-up working and no token left.
-
-Rule 9: `VIOLATION/NO_ANTI_AUTOMATION` is seen on crAPI and on the Forgejo scratch flow, `ENFORCED/ANTI_AUTOMATION_THROTTLE`
-with the throttle above, and `NOT_VERIFIABLE/FLOW_NOT_ACCEPTED` with the refused scratch flow. Not seen:
-`ENFORCED/ANTI_AUTOMATION_CHALLENGE` (no lab has a CAPTCHA), `FLOW_UNAVAILABLE` and `REFUSED_AFTER_SERVED`.
-
-**What each branch has been seen doing** (rule 9). Proven on a lab: `NO_ANTI_AUTOMATION` (crAPI, a Forgejo + Kong
-scratch flow), `ANTI_AUTOMATION_THROTTLE` (Forgejo + Kong with the plugin above), `FLOW_NOT_ACCEPTED` (a refused
-Forgejo + Kong scratch flow), the SKIP (both Forgejo labs), and on 2026-11-15 the three others, on Forgejo + Kong
-with the scratch flow `POST /api/v1/markdown` as user A and a temporary route `~/api/v1/markdown$` (undone with
-`git checkout`) whose `pre-function` lets the first three submissions reach Forgejo and answers the next ones
-itself: `ANTI_AUTOMATION_CHALLENGE` (`403` "Please complete the CAPTCHA to continue", PASS),
-`REFUSED_AFTER_SERVED` (`403` with no challenge words, INCONCLUSIVE), `FLOW_UNAVAILABLE` (`503`, INCONCLUSIVE;
-since 2026-11-16 the same answer is `UPSTREAM_UNAVAILABLE`, the shared rule of section 6).
-Every branch of this test has been seen.
-
 ## 13. Remediation
 
 Put an anti-automation control on the flow: a CAPTCHA or human-verification challenge after a few attempts, or a
 step-up, plus a flow-specific throttle keyed to the authenticated user and the real connection (OWASP API6:2023,
 ASVS v5.0.0-2.4.1).
-
-## 14. Limitations
-
-- The burst is small and sequential: a control that triggers only after many attempts, or a per-hour cap, may be
-  missed.
-- The kind of control is inferred from the status and body keywords; an unusual challenge body may read as no
-  control.
-
-## 15. Sources
-
-- OWASP API6:2023 Unrestricted Access to Sensitive Business Flows: https://owasp.org/API-Security/editions/2023/en/0xa6-unrestricted-access-to-sensitive-business-flows/
-- OWASP ASVS v5.0.0-2.4.1 (anti-automation controls): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x11-V2-Validation-and-Business-Logic.md
-- CWE-799 Improper Control of Interaction Frequency: https://cwe.mitre.org/data/definitions/799.html

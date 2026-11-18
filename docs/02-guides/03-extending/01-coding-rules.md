@@ -1,8 +1,7 @@
 # Coding Rules
 
 > **Audience:** contributors · **Status:** v0.1.0 · **Source of truth:** `pyproject.toml` (tool configuration and
-> hatch scripts) and this page ·
-> **Verified:** 2026-10-20 (`hatch run dev:check` passes, formatting and import rules included)
+> hatch scripts) and this page
 
 Rules every change must follow. Where the current code deviates, the deviation is stated and raised with the owner.
 

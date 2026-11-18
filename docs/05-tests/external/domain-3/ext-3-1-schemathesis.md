@@ -1,9 +1,7 @@
 # ext.3.1.schemathesis Input Validation
 
-> **Audience:** analysts, contributors · **Status:** new in the test review (2026-10-23) ·
-> **Source of truth:**
-> [`src/external_tests/ext_test_3_1_input_validation_schemathesis.py`](../../../../src/external_tests/ext_test_3_1_input_validation_schemathesis.py),
-> [`src/connectors/schemathesis.py`](../../../../src/connectors/schemathesis.py) · **Verified:** 2026-10-23
+> **Audience:** analysts, contributors · **Source of truth:**
+> [`src/external_tests/ext_test_3_1_input_validation_schemathesis.py`](../../../../src/external_tests/ext_test_3_1_input_validation_schemathesis.py), [`src/connectors/schemathesis.py`](../../../../src/connectors/schemathesis.py)
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("ext.3.1.schemathesis", page=cog.inFile)) ]]] -->
 
@@ -35,33 +33,28 @@ What the test measures is only that: a `5xx`, with the request that causes it. T
 trust in data it consumes from third-party APIs, which this test does not exercise), so the guarantee rests on the
 three references above.
 
-## 2. Sub-tests and coverage of the methodology
+## 2. Test
+
+### 2.1 Sub-tests and coverage of the methodology
 
 | Sub-test | Methodology (guarantee 3.1) |
 |---|---|
 | `input_validated` | Schemathesis generates valid and invalid inputs from the spec and runs `not_a_server_error` |
-| left out on purpose (owner decisions 2026-11-04) | `response_schema_conformance` (the responses against the specification: the documentation, not the input; it reported crAPI's order endpoint answering `order` where the spec says `orders`); `negative_data_rejection` (every invalid input rejected: on Forgejo it reported 9 endpoints without parameters, `/api/v1/version` among them, for answering `200` to a nameless extra header and query parameter, `-H '0: ' '...?=false'`, which an HTTP server may ignore; its other findings could not be told apart from those) |
-| left out | the deep injection confirmation (sqlmap, NoSQLMap, Dalfox, commix, SSTImap), not planned (2026-10-27); writes with a credential (see Probes) |
+| left out on purpose | `response_schema_conformance` (the responses against the specification: the documentation, not the input; it reported crAPI's order endpoint answering `order` where the spec says `orders`); `negative_data_rejection` (every invalid input rejected: on Forgejo it reported 9 endpoints without parameters, `/api/v1/version` among them, for answering `200` to a nameless extra header and query parameter, `-H '0: ' '...?=false'`, which an HTTP server may ignore; its other findings could not be told apart from those) |
+| left out | the deep injection confirmation (sqlmap, NoSQLMap, Dalfox, commix, SSTImap), not planned; writes with a credential (see Probes) |
 
-## 3. Inputs
-
-The OpenAPI specification (`target.get_openapi_source()`, a URL or local file), the base URL, and
-`target.tls.ca_bundle`. `external_tools.schemathesis.max_examples` bounds the generated cases per operation. When
-the configuration has the user_a account (optional need `USER_ACCOUNT`, the engine logs in before the test), its
-credential and the operator's resources (`target.path_seed`).
-
-## 4. Preconditions and reference responses
+### 2.2 Preconditions and reference responses
 
 Schemathesis must be installed (else SKIP). No reference responses: the tool's own checks are the oracle (rule 11).
 
-## 5. Probes
+### 2.3 Probes
 
 `schemathesis run <spec> --base-url <base><base path> --data-generation-method all --checks not_a_server_error --request-timeout <ms>`
 generates valid and invalid requests per operation (bounded by `max_examples`). The base URL carries the
 specification's own base path (Forgejo's `/api/v1`), because Schemathesis takes the base path from the base URL and
 drops the one in the specification. Effect `STRESSES_TARGET` (many generated requests), run last.
 
-**Two ways of running it** (owner decision 2026-11-04; until then it always ran unauthenticated):
+**Two ways of running it**:
 
 - **with user_a's credential**, when it is configured and travels in a header or a cookie: `-H '<name>: <value>'`
   (shown `[REDACTED]` in the displayed command), `--include-method GET` and `--set-path <name>=<value>` for every
@@ -77,7 +70,7 @@ A note in the result says which run it was, and the message of a run with the cr
 user_a's credential: writes were not sent, because with a valid credential they would create, change or delete
 data the tool cannot clean up."
 
-## 6. Oracle (`input_validated`)
+## 3. Oracle (`input_validated`)
 
 <!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("ext.3.1.schemathesis")) ]]] -->
 
@@ -92,8 +85,6 @@ data the tool cannot clean up."
 
 <!-- [[[end]]] -->
 
-Until 2026-11-16 a failing case quoting only `501` (Not Implemented, the method not served) was `INPUT_NOT_VALIDATED`: now `NOT_IMPLEMENTED`, not verifiable. ASVS v5.0.0-16.5.3 (fail gracefully on an exception) is cited, what "no server error to a generated input" checks.
-
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("ext.3.1.schemathesis", page=cog.inFile)) ]]] -->
 
 The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
@@ -107,101 +98,42 @@ The answers that say nothing about the guarantee by themselves, one rule for eve
 
 <!-- [[[end]]] -->
 
-## 7. Outcomes
+## 4. Validation
 
-SKIP without Schemathesis. FAIL on any failing operation; PASS when at least one operation was reached and none
-failed (`partial` when some could not be judged, which on the labs is always: most operations need a credential);
-INCONCLUSIVE when nothing could be checked.
+### 4.1 Oracle cases
 
-## 8. Findings
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_validation("ext.3.1.schemathesis", page=cog.inFile)) ]]] -->
 
-<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("ext.3.1.schemathesis")) ]]] -->
+Every case of the oracle, produced on a lab and judged by the code: E1, [oracle validation](../../../../experiments/README.md), campaign at commit `fc60b6f`. 8 of 8 produced cases gave the declared outcome; 0 no lab can produce.
 
-- "<_FINDING_TITLE>: <operation>"
+| Case | Lab, how it is produced | Result |
+|---|---|---|
+| `input_validated/VIOLATION/INPUT_NOT_VALIDATED/FIRM` | crapi-kong: crAPI as built, with user_a's credential (reads only): GET /workshop/api/shop/orders/{order_id} answers 500 to a generated input | OK |
+| `input_validated/ENFORCED/INPUT_VALIDATED` | forgejo-kong: Forgejo + Kong as built, with user_a's credential (reads only): the GET operations reached answer no server error | OK |
+| `input_validated/NOT_VERIFIABLE/ONLY_4XX` | forgejo-kong: same run as INPUT_VALIDATED: the organization, admin and notification reads answer 403 to user_a's token (repository and user scopes) on every generated request | OK |
+| `input_validated/NOT_VERIFIABLE/OPERATION_NOT_CHECKED` | forgejo-kong: unauthenticated (user_a not configured), target.base_url on a closed port (the specification still read through Kong): Schemathesis reports every operation errored | OK |
+| `input_validated/NOT_VERIFIABLE/NOT_IMPLEMENTED` | forgejo-kong: with user_a's credential (reads only), a temporary route GET ~/api/v1/version$ answers 501 itself: every failing case of that operation quotes only [501] | OK |
+| `input_validated/NOT_VERIFIABLE/NOTHING_CHECKED` | forgejo-kong: unauthenticated (user_a not configured), the forgejo container stopped, the specification read from a copy: every operation gets Kong's 503, none is checked | OK |
+| `*/NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` | forgejo-kong: same run as NOTHING_CHECKED: the forgejo container stopped, every operation's failing cases quote only Kong's 503 | OK |
+| `*/NOT_VERIFIABLE/NO_RESPONSE` | forgejo-kong: with user_a's credential (reads only), a temporary route GET ~/api/v1/version$ waits 7 s before proxying: every generated request to it exceeds request_timeout_seconds (5 s), so its failing cases quote only the timeout (a deprecated operation would not do: Schemathesis runs with --exclude-deprecated) | OK |
 
 <!-- [[[end]]] -->
 
-`evidence_ref` Schemathesis's output artifact; at most 20 operations get a finding, the others are only counted in the message.
+### 4.2 Results on the labs
 
-## 9. Effects on the target
+<!-- [[[cog import generate_docs as g; cog.out(g.lab_results("ext.3.1.schemathesis", page=cog.inFile)) ]]] -->
 
-`STRESSES_TARGET`: many generated requests, unauthenticated, and they include the writes the specification
-declares. **Whether data is created depends on the target, not on this test**: on the three labs nothing was, because
-every operation served without a credential there is a `GET` (measured by test 1.1 on 2026-10-29, 78 findings, all
-`GET`), but an API with an unauthenticated write will have it exercised. The declaration stays `STRESSES_TARGET`
-because that is the last slot in the run order (rule 7) and the vocabulary has no value that says both; an operator
-who cannot accept a write on the target disables the external tools (`external_tools.enabled: false`).
+No E2 campaign yet ([experiments](../../../../experiments/README.md)).
 
-## 10. Per gateway
+<!-- [[[end]]] -->
 
-Independent of the gateway: the validation is the application's; Schemathesis addresses the API through the base URL.
-
-## 11. Configuration
-
-Under `external_tools.schemathesis`: `enabled`, `timeout_seconds` (required when enabled), `max_examples` (generated
-cases per operation, default 5), `request_timeout_seconds` (how long each generated request may take, default 5; a
-slower one counts as failed).
-
-## 12. Validation
-
-**2026-11-16, after the review**: not run (Schemathesis not installed on the machine of that day); its logic changed only for `501`.
-
-
-Runs of 2026-11-04, after the corrections of that day (only `not_a_server_error`, the cases judged one by one,
-`ONLY_4XX`):
-
-| Lab | Status | Basis |
-|---|---|---|
-| crAPI + Kong, with user_a's credential | **FAIL**, 2 findings | `GET /workshop/api/shop/orders/0` and `GET /workshop/api/mechanic/receive_report?mechanic_code=...` answer `500` to a generated input, each with the command that reproduces it (the second needs a credential: unauthenticated it was never reached) |
-| crAPI + Kong, unauthenticated (the run before) | **FAIL**, 4 findings | `POST .../check-otp` (v2, v3), `POST /identity/api/auth/v2.7/user/login-with-token` and `GET /workshop/api/shop/orders/{order_id}` answer `500`; 16 operations answered only `503` once Schemathesis's own `500`s had made Kong's health check take the backend out (`UPSTREAM_UNAVAILABLE`). The `POST` ones are not tested by the authenticated run (reads only) |
-| Forgejo + Kong, Forgejo + APISIX, with user_a's credential | **PASS** partial | the 241 `GET` operations, reached in 110 to 211 of them depending on the run (an operation counts as reached when one of its 3 random requests gets past a `4xx`), none answering a server error. Unauthenticated the same day: 56 and 89 of 469 |
-| any | a credential Schemathesis does not filter | the run's credential appears nowhere in the outputs: checked on crAPI (no `eyJ...` string in the report, the evidence, the artifact or the log) |
-
-The same day, before those corrections, the test counted all 469 Forgejo operations as checked, and reported
-findings it did not measure: on Forgejo, endpoints without parameters "accepting" a nameless extra parameter, and
-on crAPI a response not matching the specification, all titled "Input not validated".
-
-**What these runs corrected** (an external audit, 2026-11-03). On both Forgejo labs the base URL lacked `/api/v1`,
-so every generated request missed the API: measured with Schemathesis limited to `GET`, all 241 operations answered
-only `4xx` before the fix and 142 after it (the rest are reached; the 142 need a credential this unauthenticated
-test does not carry). The test reported PASS throughout. On crAPI, 24 of the 27 failures of 2026-11-03 were Kong's
-`503` once its health check had marked the backend unhealthy, each reported as a finding; and only valid data was
-generated, so `negative_data_rejection` never had an invalid request to judge.
-
-Rule 9: VIOLATION on crAPI (real `500`s), ENFORCED on Forgejo, `UPSTREAM_UNAVAILABLE` on crAPI, `ONLY_4XX` on all
-three. Not seen: `OPERATION_NOT_CHECKED` and `NOTHING_CHECKED`.
-
-**Runs of 2026-11-14 and 2026-11-15** (Forgejo + Kong):
-- unauthenticated, the `forgejo` container stopped, the specification read from a file: on 2026-11-14, 468 of 469
-  operations `UPSTREAM_UNAVAILABLE` and one finding on `GET /api/v1/activitypub/actor`, whose only failing case was
-  a "Response timeout ... failed to respond within the specified limit of 5000.00ms", a request that got no answer,
-  taken for a server error. Since 2026-11-15 such a case is not judged: the same run is **INCONCLUSIVE**, 469
-  `UPSTREAM_UNAVAILABLE` and `NOTHING_CHECKED`, no finding;
-- with user_a's credential and a temporary route making `GET /api/v1/version` answer after 6 s (a `pre-function`
-  with `ngx.sleep(6)`, undone with `git checkout`): **PASS** partial, that operation `NO_RESPONSE`, no finding.
-
-**What each branch has been seen doing** (rule 9). Proven on a lab: `INPUT_NOT_VALIDATED` (crAPI),
-`INPUT_VALIDATED` (both Forgejo labs), `ONLY_4XX` (all three), and in the runs above `UPSTREAM_UNAVAILABLE`,
-`NOTHING_CHECKED`, `NO_RESPONSE`, and on 2026-11-15 (Forgejo + Kong): `OPERATION_NOT_CHECKED` (469 operations,
-unauthenticated, `target.base_url` on a closed port: Schemathesis reports every operation errored, INCONCLUSIVE;
-an unreachable target is not the ERROR of section 6) and the ERROR (`timeout_seconds: 60`, its minimum, with a
-temporary route making every `/api/v1` answer take 6 s: "External tool 'schemathesis' timed out"). Every branch of
-this test has been seen.
-
-## 13. Remediation
-
-Validate every input against its type, format, range and pattern (allow-list) at the edge, returning a clean 400 on
-a bad input, and never a 500 (CWE-20, ASVS v5.0.0-2.2.1, NIST SP 800-53r5 SI-10).
-
-## 14. Limitations
+## 5. Limitations
 
 - **A failure is judged by its test cases.** Schemathesis lists, per operation, the test cases that failed, each
   with the command that reproduces it. A case quoting only `502`, `503` or `504` is set aside as an unavailable
-  backend; the operation is a finding on its other cases, and the finding quotes each with its command. Until
-  2026-11-04 the message was cut at 500 characters, which dropped the commands and could mix a `503` case into a
-  finding (crAPI's `return_qr_code`: shown as "Server error [503]" while the finding rested on its second case).
+  backend; the operation is a finding on its other cases, and the finding quotes each with its command.
 - **The inputs are generated at random on every run** (Hypothesis), so the same target and configuration can give
-  different results from one run to the next (on 2026-11-04 the Forgejo labs reached 56 and 89 operations). A
+  different results from one run to the next (the Forgejo labs reached 56 operations in one run, 89 in another). A
   finding is a real request the target answered with a server error (its reproduction is in the finding); a PASS
   says only that the inputs drawn in that run, on the operations reached, were all handled. Raising `max_examples`
   draws more.
@@ -221,9 +153,56 @@ a bad input, and never a 500 (CWE-20, ASVS v5.0.0-2.2.1, NIST SP 800-53r5 SI-10)
 - Schemathesis flags a server error; whether a flagged input actually executes an injection is outside what this
   test can say: it reports a suspicious response, never a confirmed injection.
 
-## 15. Sources
+## 6. Sources
 
 - NIST SP 800-53 Rev.5 SI-10 (information input validation): https://csrc.nist.gov/projects/cprt/catalog#/cprt/framework/version/SP_800_53_5_1_1/home
 - OWASP ASVS v5.0.0-2.2.1 (input validated against expectations): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x11-V2-Validation-and-Business-Logic.md
 - CWE-20 Improper Input Validation: https://cwe.mitre.org/data/definitions/20.html
 - Schemathesis: https://schemathesis.readthedocs.io/
+
+## 7. Inputs
+
+The OpenAPI specification (`target.get_openapi_source()`, a URL or local file), the base URL, and
+`target.tls.ca_bundle`. `external_tools.schemathesis.max_examples` bounds the generated cases per operation. When
+the configuration has the user_a account (optional need `USER_ACCOUNT`, the engine logs in before the test), its
+credential and the operator's resources (`target.path_seed`).
+
+## 8. Outcomes
+
+SKIP without Schemathesis. FAIL on any failing operation; PASS when at least one operation was reached and none
+failed (`partial` when some could not be judged, which on the labs is always: most operations need a credential);
+INCONCLUSIVE when nothing could be checked.
+
+## 9. Findings
+
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("ext.3.1.schemathesis")) ]]] -->
+
+- "<_FINDING_TITLE>: <operation>"
+
+<!-- [[[end]]] -->
+
+`evidence_ref` Schemathesis's output artifact; at most 20 operations get a finding, the others are only counted in the message.
+
+## 10. Effects on the target
+
+`STRESSES_TARGET`: many generated requests, unauthenticated, and they include the writes the specification
+declares. **Whether data is created depends on the target, not on this test**: on the three labs nothing was, because
+every operation served without a credential there is a `GET` (measured by test 1.1: 78 findings, all
+`GET`), but an API with an unauthenticated write will have it exercised. The declaration stays `STRESSES_TARGET`
+because that is the last slot in the run order (rule 7) and the vocabulary has no value that says both; an operator
+who cannot accept a write on the target disables the external tools (`external_tools.enabled: false`).
+
+## 11. Per gateway
+
+Independent of the gateway: the validation is the application's; Schemathesis addresses the API through the base URL.
+
+## 12. Configuration
+
+Under `external_tools.schemathesis`: `enabled`, `timeout_seconds` (required when enabled), `max_examples` (generated
+cases per operation, default 5), `request_timeout_seconds` (how long each generated request may take, default 5; a
+slower one counts as failed).
+
+## 13. Remediation
+
+Validate every input against its type, format, range and pattern (allow-list) at the edge, returning a clean 400 on
+a bad input, and never a 500 (CWE-20, ASVS v5.0.0-2.2.1, NIST SP 800-53r5 SI-10).

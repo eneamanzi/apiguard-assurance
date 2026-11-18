@@ -210,7 +210,7 @@ _ORACLE: tuple[OracleCase, ...] = (
     OracleCase(
         sub_test=_SUB_TLS,
         when="`426`, or a `4xx` the same path does not get over HTTPS: the protocol is refused "
-        "and the client told (owner, 2026-11-16)",
+        "and the client told",
         outcome=Outcome.ENFORCED,
         detail="HTTP_REFUSED",
     ),

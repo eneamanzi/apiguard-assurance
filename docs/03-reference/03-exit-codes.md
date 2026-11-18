@@ -1,7 +1,7 @@
 # Exit Codes
 
 > **Audience:** users, integrators · **Status:** stable · **Source of truth:** `src/core/models/enums.py`
-> (`ExitCode`), `src/core/models/results.py` (`ResultSet.compute_exit_code`), `src/cli.py` · **Verified:** 2026-10-08
+> (`ExitCode`), `src/core/models/results.py` (`ResultSet.compute_exit_code`), `src/cli.py`
 
 ## `apiguard run`
 
@@ -27,8 +27,7 @@ A run never ends `0` without running at least one test. `130` and `143`: [stoppi
 (`kill`, `docker stop`, a CI timeout or a calling program sends SIGTERM).
 
 **Precedence:** FAIL > ERROR > CLEAN. A single FAIL yields `1` regardless of how many ERRORs occurred.
-A SKIP never affects the exit code, except in a run whose every test was SKIP: nothing was verified, so it exits `3`
-(owner decision 2026-11-04; it exited `0` before).
+A SKIP never affects the exit code, except in a run whose every test was SKIP: nothing was verified, so it exits `3`.
 
 **Exit 10 means no security verdict.** Phases 1-4 are blocking; when one fails, no test has run and the
 output files are not produced. Never treat `10` as "clean".
@@ -43,9 +42,7 @@ Ctrl+C (SIGINT) and SIGTERM are handled alike during `apiguard run`:
    running external tool (testssl.sh, ffuf, Schemathesis) is stopped;
 3. no signal interrupts the cleanup: while Phase 6 runs, Ctrl+C and SIGTERM are **held back** and delivered only
    once it is over, and a further signal arriving before that repeats `Still removing the resources created on the
-   target. Please wait.`. Until 2026-10-28 the first signal was not held back, so one arriving inside the teardown
-   loop left the resources not yet deleted on the target: measured on the reference lab, a SIGTERM delivered the
-   instant Phase 6 started left 3 of 8 resources behind, 3 API tokens among them;
+   target. Please wait.`, so no resource is left behind on the target by an interruption;
 4. the process ends by the **first** signal received: exit `130` (SIGINT) or `143` (SIGTERM), 128 + the signal
    number. A calling program sees a process terminated by that signal (Python `subprocess`: `returncode` `-2` or
    `-15`). **No report is written** (Phase 7 does not run; there is no partial report). `config_used.yaml` is,
@@ -55,7 +52,7 @@ Ctrl+C (SIGINT) and SIGTERM are handled alike during `apiguard run`:
 Do not use SIGKILL (`kill -9`): it cannot be intercepted, so teardown does not run and the resources the tests
 created on the target are left behind. Leave the tool a few seconds to clean up: `docker stop` sends SIGKILL 10
 seconds after SIGTERM by default; on the lab teardown took about a second for three resources and two seconds for
-eight, and it grows with the number of resources the tests created (verified 2026-10-28). Other commands
+eight, and it grows with the number of resources the tests created. Other commands
 (`validate-config`, `list-tests`, `generate-seed`, `version`) keep Python's default behaviour.
 
 **Fail-fast:** with `execution.fail_fast: true`, the run stops after the first P0 test that returns FAIL,

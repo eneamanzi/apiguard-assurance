@@ -1,9 +1,7 @@
 # 0.2 Paths Without a Route
 
-> **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-22) ·
-> **Source of truth:**
-> [`src/tests/domain_0/test_0_2_paths_without_a_route.py`](../../../src/tests/domain_0/test_0_2_paths_without_a_route.py) ·
-> **Verified:** 2026-11-16
+> **Audience:** analysts, contributors · **Source of truth:**
+> [`src/tests/domain_0/test_0_2_paths_without_a_route.py`](../../../src/tests/domain_0/test_0_2_paths_without_a_route.py)
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("0.2", page=cog.inFile)) ]]] -->
 
@@ -23,7 +21,7 @@
 
 <!-- [[[end]]] -->
 
-**Same group:** tests `0.3` and `0.4` (the review of guarantees 0.2, 0.3 and 0.4 together).
+**Same group:** tests `0.3` and `0.4`.
 
 ## 1. Guarantee
 
@@ -38,7 +36,9 @@ credential (test `1.1`), or about reaching the backend without the gateway at al
 NIST SP 800-228 REC-API-13 (section 3.2.1) asks that every request be validated against the API schema "before it
 is processed by the business logic"; a path with no route is not in the schema and must not reach it.
 
-## 2. Sub-tests and coverage of the methodology
+## 2. Test
+
+### 2.1 Sub-tests and coverage of the methodology
 
 | Sub-test | Methodology (guarantee 0.2) |
 |---|---|
@@ -46,14 +46,7 @@ is processed by the business logic"; a path with no route is not in the schema a
 | `near_route_paths` | the same question just outside each route path, which is where a gateway matching route paths as plain strings forwards |
 | left out | "default backend fallback detection" by the `Server` header: replaced, see the oracle. "Path normalization consistency": the question of tests `1.1` and `2.1` |
 
-## 3. Inputs
-
-- the gateway's route paths and how each one is matched (`RoutePath`, `RouteMatch` `PREFIX`, `EXACT`, `REGEX`),
-  through the optional need: the test knows no gateway's own syntax;
-- the documented paths, to leave them alone;
-- no configuration parameter.
-
-## 4. Preconditions and reference responses
+### 2.2 Preconditions and reference responses
 
 - **the gateway's own refusal** (`ReferenceResponses.gateway_refusal()`, measured once per run): two unauthenticated
   `GET` requests to random paths at the root. Unlike a calibration point it has no spoiling rule, because a refusal
@@ -62,7 +55,7 @@ is processed by the business logic"; a path with no route is not in the schema a
   refusals cannot be told apart, a forwarded path would be indistinguishable from a refused one, and the test says
   so instead of claiming a PASS.
 
-## 5. Probes
+### 2.3 Probes
 
 1. the two requests of the refusal, shared with any other test that needs it;
 2. for each route path, the paths just outside it: the route path with a character that is not a separator and then
@@ -84,7 +77,7 @@ is processed by the business logic"; a path with no route is not in the schema a
 6. every probe is an unauthenticated `GET`; a path a route covers segment by segment, or one the specification
    documents, is not sent.
 
-## 6. Oracle
+## 3. Oracle
 
 <!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("0.2")) ]]] -->
 
@@ -116,8 +109,6 @@ is processed by the business logic"; a path with no route is not in the schema a
 
 <!-- [[[end]]] -->
 
-Until 2026-11-16 `near_route_paths` without a gateway recorded `REFUSAL_NOT_TRUSTED` instead of `NO_GATEWAY`; an unreadable routes concept was `ROUTES_NOT_READABLE` (now the shared `CONCEPT_NOT_ACCESSIBLE`); and the finding said a prefix over-match skips the route's policies, while the request passes through that route with them: what is exposed is backend paths outside its documented scope.
-
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("0.2", page=cog.inFile)) ]]] -->
 
 The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
@@ -131,92 +122,48 @@ The answers that say nothing about the guarantee by themselves, one rule for eve
 
 <!-- [[[end]]] -->
 
-## 7. Outcomes
+## 4. Validation
 
-No SKIP of its own: without a gateway the test still runs and `near_route_paths` is not applicable. How a
-sub-test's status follows from its judgements is rule 2 of the
-[assessment model](../../04-architecture/03-assessment-model.md#rules-every-test-follows).
+### 4.1 Oracle cases
 
-## 8. Findings
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_validation("0.2", page=cog.inFile)) ]]] -->
 
-<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("0.2")) ]]] -->
+Every case of the oracle, produced on a lab and judged by the code: E1, [oracle validation](../../../experiments/README.md), campaign at commit `fc60b6f`. 19 of 19 produced cases gave the declared outcome; 1 no lab can produce.
 
-- "Answered without a route: GET <path>"
-- "A path with no route is served"
+| Case | Lab, how it is produced | Result |
+|---|---|---|
+| `unrouted_paths/ENFORCED/REFUSED_BY_GATEWAY` | forgejo-kong: the lab as built: Kong answers a random root path with {"message":"no Route matched with those values"}, unlike Forgejo's own 404 | OK |
+| `unrouted_paths/VIOLATION/SERVED_WITHOUT_ROUTE/CERTAIN` | forgejo-kong: a prefix route /zqxv whose pre-function answers 200: Kong matches the random root probes (/zqxv<hex>) with it as a plain-string prefix, so a root path is served; not a catch-all for the code (not '/', not a regex) | OK |
+| `unrouted_paths/NOT_VERIFIABLE/REFUSAL_UNSTABLE` | forgejo-kong: a route ~/zqxv[0-9a-f]+$ whose pre-function answers 404 with one of two body shapes in turn, so the two root probes differ | OK |
+| `unrouted_paths/NOT_VERIFIABLE/CATCH_ALL_ROUTE` | forgejo-kong: a route with path / on forgejo-service: every path has a route | OK |
+| `unrouted_paths/NOT_VERIFIABLE/BACKEND_REFUSAL_UNKNOWN` | forgejo-kong: the forgejo container stopped: no documented path gives a reliable backend refusal | OK |
+| `unrouted_paths/NOT_VERIFIABLE/REFUSALS_INDISTINGUISHABLE` | forgejo-kong: a prefix route /zqxv on forgejo-service whose pre-function prefixes the path with /api/v1: the root probes get Forgejo's own 404, the same fingerprint as the backend refusal | OK |
+| `near_route_paths/VIOLATION/SERVED_WITHOUT_ROUTE/CERTAIN` | forgejo-kong: a prefix route /review-served whose pre-function answers 200: Kong also matches /review-served-<random> with it, and that neighbour is served | OK |
+| `near_route_paths/VIOLATION/ANSWERED_WITHOUT_ROUTE/FIRM` | forgejo-kong: the lab as built: Kong's prefix route /api forwards /api-<rand>, which Forgejo answers with its own 'Not found.' | OK |
+| `near_route_paths/ENFORCED/REFUSED_BY_GATEWAY` | forgejo-apisix: the lab as built: APISIX matches /api/* by segment and refuses every neighbour with its own 404 Route Not Found | OK |
+| `near_route_paths/NOT_VERIFIABLE/REFUSED_BEFORE_ROUTING` | forgejo-kong: the lab as built: the neighbours of /hmac-audit-probe-not-a-real-path answer 401 from Kong's hmac-auth plugin | OK |
+| `near_route_paths/NOT_APPLICABLE/COVERED_BY_ROUTE` | forgejo-kong: prefix routes /review-cov and /review-cov/inner: every neighbour of the second falls under the first segment by segment | OK |
+| `near_route_paths/NOT_APPLICABLE/REGEX_ROUTE_PATH` | forgejo-kong: the lab as built: the route path ~/swagger\.v1\.json$ is a regular expression | OK |
+| `near_route_paths/NOT_VERIFIABLE/REFUSAL_NOT_TRUSTED` | forgejo-kong: the forgejo container stopped: unrouted_paths is BACKEND_REFUSAL_UNKNOWN, so the gateway's refusal is not trusted | OK |
+| `near_route_paths/NOT_APPLICABLE/NO_GATEWAY` | forgejo-kong: the run's configuration has no gateway section | OK |
+| `near_route_paths/NOT_APPLICABLE/ROUTES_NOT_SUPPORTED` | not producible (code): no adapter without routes exists: both the Kong and the APISIX adapter read routes, so the NOT_SUPPORTED answer cannot be reached | - |
+| `near_route_paths/NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE` | forgejo-kong: the run's gateway.admin.url points to a closed port | OK |
+| `*/NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` | forgejo-kong: a route ~/api[-.]?zqxv[0-9a-f]+$ (the three neighbours of /api) whose pre-function answers 503 | OK |
+| `*/NOT_VERIFIABLE/RATE_LIMITED` | forgejo-kong: the same route answering 429 | OK |
+| `*/NOT_VERIFIABLE/SERVER_ERROR` | forgejo-kong: the same route answering 500 | OK |
+| `*/NOT_VERIFIABLE/NO_RESPONSE` | forgejo-kong: the same route sleeping 7 s, with the run's read timeout at 5 s | OK |
 
 <!-- [[[end]]] -->
 
-`evidence_ref` the neighbour's answer.
+### 4.2 Results on the labs
 
-## 9. Effects on the target
+<!-- [[[cog import generate_docs as g; cog.out(g.lab_results("0.2", page=cog.inFile)) ]]] -->
 
-`READ_ONLY`: at most three unauthenticated `GET` requests per sampled route path, on paths that do not exist, plus
-the two of the refusal. Nothing is created or changed. A path the gateway forwards reaches the application, which
-answers from its own handling of an unknown path.
+No E2 campaign yet ([experiments](../../../experiments/README.md)).
 
-## 10. Per gateway
+<!-- [[[end]]] -->
 
-Independent of the gateway: the match type comes from the adapter and the gateway's refusal is measured, not listed.
-Kong matches a route path as a string prefix by default, so the neighbours of each route path are forwarded; APISIX
-matches `/api/*` by segment and refuses them.
-
-## 11. Configuration
-
-None. The old parameter `gateway_server_identifiers` is removed: the APISIX lab needed its own
-list of gateway names, and now needs nothing. The sampling maximum is a constant of the module (owner, 2026-10-22).
-
-## 12. Validation
-
-**2026-11-16, after the review** (0.1 to 0.4 on the three labs as configured): Forgejo + Kong and crAPI **FAIL** (`ANSWERED_WITHOUT_ROUTE`, 1 and 2), Forgejo + APISIX **PASS**, as before.
-
-
-Runs of 2026-10-22, the three tests of the group together, every lab healthy afterwards:
-
-| Lab | Status | Basis |
-|---|---|---|
-| Forgejo + Kong | FAIL, 1 finding | `unrouted_paths` PASS complete (Kong answers an unrouted path with `{"message":"no Route matched with those values"}`); `near_route_paths`: `/api-<rand>` is answered by Forgejo with `Not found.`, a different shape, so Kong's route `/api` forwards what it has no route for; the hmac route's neighbours answer `401` from Kong's own plugin, counted `REFUSED_BEFORE_ROUTING`; the `~/swagger\.v1\.json$` route path is `REGEX_ROUTE_PATH` |
-| crAPI + Kong | FAIL, 2 findings | `/workshop-<rand>` gets the HTML 404 page of crAPI's workshop service (`Server: gunicorn`, Django's "Not Found" page), the same answer the workshop backend gives for an unknown path under `/workshop/api/`; `/community-<rand>` gets Go's `404 page not found`: both reached their backend. `/identity-<rand>` answers `401` and is not counted |
-| Forgejo + APISIX | PASS complete, 5 enforced | every neighbour of every route path gets APISIX's own `{"error_msg":"404 Route Not Found"}` |
-| any | NOT_VERIFIABLE | a target whose two refusals cannot be told apart, or a catch-all route: not on the labs |
-
-**What each branch has been seen doing** (rule 9). Proven on a lab: `REFUSED_BY_GATEWAY`, `ANSWERED_WITHOUT_ROUTE`,
-`REFUSED_BEFORE_ROUTING`, `REGEX_ROUTE_PATH`, and `BACKEND_REFUSAL_UNKNOWN` and `REFUSAL_NOT_TRUSTED` (Forgejo +
-Kong with the `forgejo` container stopped, 2026-11-14: INCONCLUSIVE, no documented path gave a backend refusal),
-and on 2026-11-15 with a temporary route added to `forgejo-service` in `kong/kong.yml` (undone with `git checkout`,
-the lab checked back):
-- `SERVED_WITHOUT_ROUTE` (CERTAIN): a prefix route `/review-served` whose `pre-function` answers `200`; Kong also
-  matches `/review-served-<random>` with it, and that neighbour is served;
-- `CATCH_ALL_ROUTE`: a route `/`, on HTTPS or on HTTP only; `near_route_paths` is then `REFUSAL_NOT_TRUSTED`;
-- `COVERED_BY_ROUTE`: a prefix route `/review-cov` and a prefix route `/review-cov/inner`, whose neighbours all
-  fall under the first one (the sub-test's not-applicable count goes from 1, the regex route, to 2).
-
-More of them on 2026-11-15, the same way (the random names the tool sends start with the neutral prefix `zqxv`,
-`src/core/references.py`, which is what the routes below match):
-- `REFUSAL_UNSTABLE`: a route `~/zqxv[0-9a-f]+$` whose `pre-function` answers `404` with one of two body shapes in
-  turn (a counter in Kong's shared memory), so the two probes at the root differ;
-- `REFUSALS_INDISTINGUISHABLE`: the same route sending the root probes to Forgejo under `/api/v1`, so the gateway's
-  "refusal" is the backend's own `404`;
-- `UPSTREAM_UNAVAILABLE`, `RATE_LIMITED`, `SERVER_ERROR`, `NO_RESPONSE`: a route `~/api[-.]?zqxv[0-9a-f]+$` (the
-  three neighbours of `/api`) answering `503`, `429`, `500`, or sleeping 7 s with the run's `target.read_timeout:
-  5.0`;
-- `ROUTES_NOT_READABLE` (the run's `gateway.admin.url` on a closed port) and `NO_GATEWAY` (no `gateway` section:
-  `near_route_paths` SKIP), with the run's configuration only.
-
-**A regex catch-all route** (Forgejo + Kong, a temporary route `~/.*$` to `forgejo-service`, undone with `git
-checkout`). Before the fix of 2026-11-15 the test reported **PASS** complete while every path without a route of its own was
-forwarded to Forgejo: the probes at the root reached Forgejo, its `404` was taken for the gateway's refusal, and the
-neighbours, answered by Forgejo the same way, looked refused. Since 2026-11-15 a regex route that matches a random
-path at the root is a catch-all: the same run is **INCONCLUSIVE**, `CATCH_ALL_ROUTE` and `REFUSAL_NOT_TRUSTED`; the
-three labs as configured give the results of the table above (measured 2026-11-15).
-
-Every branch of this test has been seen except `ROUTES_NOT_SUPPORTED` (no adapter without routes exists).
-
-## 13. Remediation
-
-Make the route paths match whole path segments instead of string prefixes (Kong: an exact path, or a regular
-expression anchored on a segment boundary), and attach the policies to the route rather than to the backend.
-
-## 14. Limitations
+## 5. Limitations
 
 - The test proves that something other than the gateway answered; with another intermediary in front (a content
   delivery network, a web application firewall) that answer may come from the intermediary rather than from the
@@ -231,8 +178,53 @@ expression anchored on a segment boundary), and attach the policies to the route
   no host: it is not taken for a catch-all, so on a gateway routing this host that way the root probes may reach a
   backend (a route of another host would otherwise hide the check on every gateway that routes by host).
 
-## 15. Sources
+## 6. Sources
 
 - OWASP API8:2023 Security Misconfiguration: https://owasp.org/API-Security/editions/2023/en/0xa8-security-misconfiguration/
 - NIST SP 800-228 section 3.2.1 (REC-API-13): https://doi.org/10.6028/NIST.SP.800-228
 - CWE-183 Permissive List of Allowed Inputs: https://cwe.mitre.org/data/definitions/183.html
+
+## 7. Inputs
+
+- the gateway's route paths and how each one is matched (`RoutePath`, `RouteMatch` `PREFIX`, `EXACT`, `REGEX`),
+  through the optional need: the test knows no gateway's own syntax;
+- the documented paths, to leave them alone;
+- no configuration parameter.
+
+## 8. Outcomes
+
+No SKIP of its own: without a gateway the test still runs and `near_route_paths` is not applicable. How a
+sub-test's status follows from its judgements is rule 2 of the
+[assessment model](../../04-architecture/03-assessment-model.md#rules-every-test-follows).
+
+## 9. Findings
+
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("0.2")) ]]] -->
+
+- "Answered without a route: GET <path>"
+- "A path with no route is served"
+
+<!-- [[[end]]] -->
+
+`evidence_ref` the neighbour's answer.
+
+## 10. Effects on the target
+
+`READ_ONLY`: at most three unauthenticated `GET` requests per sampled route path, on paths that do not exist, plus
+the two of the refusal. Nothing is created or changed. A path the gateway forwards reaches the application, which
+answers from its own handling of an unknown path.
+
+## 11. Per gateway
+
+Independent of the gateway: the match type comes from the adapter and the gateway's refusal is measured, not listed.
+Kong matches a route path as a string prefix by default, so the neighbours of each route path are forwarded; APISIX
+matches `/api/*` by segment and refuses them.
+
+## 12. Configuration
+
+None. The sampling maximum is a constant of the module.
+
+## 13. Remediation
+
+Make the route paths match whole path segments instead of string prefixes (Kong: an exact path, or a regular
+expression anchored on a segment boundary), and attach the policies to the route rather than to the backend.

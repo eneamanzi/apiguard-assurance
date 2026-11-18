@@ -1,9 +1,7 @@
 # 7.3 Race Conditions in Critical Operations
 
-> **Audience:** analysts, contributors · **Status:** new in the test review (2026-10-26) ·
-> **Source of truth:**
-> [`src/tests/domain_7/test_7_3_race_conditions.py`](../../../src/tests/domain_7/test_7_3_race_conditions.py) ·
-> **Verified:** 2026-11-16
+> **Audience:** analysts, contributors · **Source of truth:**
+> [`src/tests/domain_7/test_7_3_race_conditions.py`](../../../src/tests/domain_7/test_7_3_race_conditions.py)
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("7.3", page=cog.inFile)) ]]] -->
 
@@ -32,34 +30,26 @@ withdraw a balance) serializes concurrent attempts. A PASS promises that firing 
 instant took effect no more than its allowed maximum. The threat (CWE-362, TOCTOU): a check-then-act that is not
 atomic lets simultaneous requests all pass the check and all act, so the one-only effect happens several times.
 
-## 2. Sub-tests and coverage of the methodology
+## 2. Test
+
+### 2.1 Sub-tests and coverage of the methodology
 
 | Sub-test | Methodology (guarantee 7.3) |
 |---|---|
 | `concurrent_requests_safe` | "fire N identical requests concurrently; a once-only operation must let at most one take effect" |
 | left out | idempotency-key honouring (needs a declared key semantics); ordering/consistency across different operations |
 
-## 3. Inputs
-
-`race_operation` (no default): `path` (may hold a resource's values), `method` (default `POST`), an optional `body`,
-a `role` (default `user_a`), and an optional prepared `resource` created once before the burst. `concurrency`
-(default 15) and `max_successful` (default 1: strictly once-only; raise for a bounded quota).
-
-Configure `race_operation` **only** for an operation whose number of successes must be bounded. A plain create that
-legitimately makes N objects from N requests is not a race and must not be configured here.
-
-## 4. Preconditions and reference responses
+### 2.2 Preconditions and reference responses
 
 The operation (and its resource, if any) must be callable as the role. There is no reference response: the burst is
 judged on how many of the N concurrent requests succeeded.
 
-## 5. Probes
+### 2.3 Probes
 
-`concurrency` identical requests fired at the same instant from native threads, released together by a barrier (each
-thread waits for the others, up to 10 seconds, before sending; until 2026-11-05 they left as the pool started them); the HTTP client may be called from several threads (its cookie jar keeps nothing); the records are judged afterwards on the main thread. Effect `STRESSES_TARGET` (the test runs after the
+`concurrency` identical requests fired at the same instant from native threads, released together by a barrier; the HTTP client may be called from several threads (its cookie jar keeps nothing); the records are judged afterwards on the main thread. Effect `STRESSES_TARGET` (the test runs after the
 others, rule 7) and it changes data on the target: announce it on a shared target.
 
-## 6. Oracle
+## 3. Oracle
 
 <!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("7.3")) ]]] -->
 
@@ -71,8 +61,6 @@ others, rule 7) and it changes data on the target: announce it on a shared targe
 | the prepared resource could not be created | `NOT_VERIFIABLE/OBJECT_NOT_CREATED` | - |
 
 <!-- [[[end]]] -->
-
-Until 2026-11-16 a success was a status among `200`, `201`, `202`, `204` (now any `2xx`), and a prepared resource that could not be created ended the test in ERROR.
 
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("7.3", page=cog.inFile)) ]]] -->
 
@@ -87,81 +75,36 @@ The answers that say nothing about the guarantee by themselves, one rule for eve
 
 <!-- [[[end]]] -->
 
-## 7. Outcomes
+## 4. Validation
 
-SKIP without `race_operation`. FAIL when too many concurrent requests take effect; PASS when the operation is
-serialized.
+### 4.1 Oracle cases
 
-## 8. Findings
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_validation("7.3", page=cog.inFile)) ]]] -->
 
-<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("7.3")) ]]] -->
+Every case of the oracle, produced on a lab and judged by the code: E1, [oracle validation](../../../experiments/README.md), campaign at commit `fc60b6f`. 7 of 8 produced cases gave the declared outcome; 0 no lab can produce.
 
-- "Race condition: <method> <path> accepted <count> times"
-
-<!-- [[[end]]] -->
-
-`evidence_ref` one of the accepted concurrent requests.
-
-## 9. Effects on the target
-
-`STRESSES_TARGET`: a concurrent burst of the real operation (which, by definition, changes data). Runs last.
-
-## 10. Per gateway
-
-Independent of the adapter: the concurrency is driven from outside.
-
-## 11. Configuration
-
-<!-- [[[cog import generate_docs as g; cog.out(g.test_params("7.3", page=cog.inFile)) ]]] -->
-
-Section [`tests.domain_7.test_7_3`](../../03-reference/01-configuration.md#testsdomain_7test_7_3) of `config.yaml`:
-
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `race_operation` | object \| null | none, **needed to run** | The once-only operation to probe for a race condition. No default: unset, the engine records the test as SKIP before it runs. |
-| `race_operation.path` | string | required | Path of the once-only operation. May hold a resource's values as {name}. |
-| `race_operation.method` | string | `POST` | HTTP method of the operation (default POST). |
-| `race_operation.body` | object \| null | none | JSON body sent on every concurrent request (optional). |
-| `race_operation.role` | string | `user_a` | Role whose credential performs the operation (default user_a). |
-| `race_operation.resource` | string \| null | none | Optional prepared resource (resources: in config.yaml) created once before the burst; its values fill the path, and it is removed at teardown. |
-| `concurrency` | int 2-50 | `15` | How many identical requests are fired at the same instant. |
-| `max_successful` | int ≥1 | `1` | The largest number of concurrent requests that may succeed without a race. 1 for a strictly once-only operation (the default); raise it for a bounded quota. |
-
-<!-- [[[end]]] -->
-
-## 12. Validation
-
-**2026-11-16, after the review**: crAPI not reset: **INCONCLUSIVE**, `OPERATION_FAILED`, all 15 requests answered `400` "Coupon code is already claimed by you" (user_a had claimed `APIGUARD-RACE` in earlier runs); the reset lab gives the FAIL below.
-
-
-Runs of 2026-11-03:
-
-| Lab | Status | Basis |
+| Case | Lab, how it is produced | Result |
 |---|---|---|
-| crAPI + Kong, the test run on its own, first time the coupon is applied | **FAIL**, 1 finding | the lab's configuration creates the coupon `APIGUARD-RACE` through crAPI's own API and fires 15 simultaneous `POST /workshop/api/shop/apply_coupon` as user A: **all 15 accepted** (`200`) for a coupon that may be applied once. User A's credit went from 0.0 to 60.0, so 6 applications took effect: the race is real, and the count of effects is not the count of acceptances, which is why the finding is FIRM and says to confirm on the target's state |
-| crAPI + Kong, in a full assessment of a freshly reset lab, until 2026-11-03 | **INCONCLUSIVE** | the coupon is created, then all 15 applications meet `503 failure to get a peer from the ring-balancer`: by the time the stressing tests run, crAPI's workshop service no longer answers, so `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`. Not load: test 7.2's hanging SSRF probes had made Kong's health check take the workshop out of rotation (found 2026-11-04, the 4.1 page) |
-| crAPI + Kong, in a full assessment of a freshly reset lab, 2026-11-05 | **FAIL**, 1 finding | with 7.2 stopping at its first unanswered payload, the workshop is in service: the 15 simultaneous applications are all accepted (`200`), with the barrier releasing the threads together |
-| crAPI + Kong, any later run | **INCONCLUSIVE** | the coupon is already claimed by user A: 15 answers `400`, `NOT_VERIFIABLE/OPERATION_FAILED`. Only the first run after a lab reset tests the race, the same wear as the order of tests 2.2 and 2.5 |
-| Forgejo + Kong, Forgejo + APISIX | **SKIP** | no once-only operation declared (`race_operation` unset): Forgejo has no operation of that kind to name |
+| `concurrent_requests_safe/ENFORCED/CONCURRENCY_SERIALIZED` | crapi-kong: a route POST ~/workshop/api/shop/apply_coupon$ whose pre-function answers the first of the 15 simultaneous applications 200 and every other one 400 'Coupon code is already claimed by you' | OK |
+| `concurrent_requests_safe/VIOLATION/RACE_DOUBLE_EFFECT/FIRM` | crapi-kong: the lab as built, freshly reset: the coupon APIGUARD-RACE is created and its 15 simultaneous applications as user_a are all accepted (200) | DIFFERENT |
+| `concurrent_requests_safe/NOT_VERIFIABLE/OPERATION_FAILED` | crapi-kong: a temporary route on POST /workshop/api/shop/apply_coupon answers every application 400 'Coupon code is already claimed by you' (the answer crAPI gives once user_a has claimed the coupon) | OK |
+| `concurrent_requests_safe/NOT_VERIFIABLE/OBJECT_NOT_CREATED` | crapi-kong: a route POST ~/community/api/v2/coupon/new-coupon$ on community-service answers 403 itself, so the prepared resource coupon is not created | OK |
+| `*/NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` | crapi-kong: a route POST ~/workshop/api/shop/apply_coupon$ whose pre-function answers every application 503 | OK |
+| `*/NOT_VERIFIABLE/RATE_LIMITED` | crapi-kong: a route POST ~/workshop/api/shop/apply_coupon$ whose pre-function answers every application 429 | OK |
+| `*/NOT_VERIFIABLE/SERVER_ERROR` | crapi-kong: a route POST ~/workshop/api/shop/apply_coupon$ whose pre-function answers every application 500 | OK |
+| `*/NOT_VERIFIABLE/NO_RESPONSE` | crapi-kong: a route POST ~/workshop/api/shop/apply_coupon$ whose pre-function waits 7 s before proxying, with the run's target.read_timeout 5.0 | OK |
 
-Rule 9: `VIOLATION/RACE_DOUBLE_EFFECT` and `NOT_VERIFIABLE/OPERATION_FAILED` are seen on crAPI, and the run is also
-the first real concurrent use of the HTTP client (its record counter is now locked, measured separately).
-`ENFORCED/CONCURRENCY_SERIALIZED` has not been seen: no lab has a once-only operation that serializes.
+<!-- [[[end]]] -->
 
-**What each branch has been seen doing** (rule 9). Proven on a lab: `RACE_DOUBLE_EFFECT`, `OPERATION_FAILED` and
-`UPSTREAM_UNAVAILABLE` (crAPI), the SKIP (both Forgejo labs), and on 2026-11-15 the four others, on crAPI + Kong
-with a temporary route `POST ~/workshop/api/shop/apply_coupon$` on `workshop-service` in its `kong/kong.yml`
-(undone with `git checkout`, the workshop checked `HEALTHY`): `CONCURRENCY_SERIALIZED` (the first of the 15
-simultaneous applications answered `200`, the others `400` "coupon already claimed", PASS), `SERVER_ERROR` (all
-`500`), `RATE_LIMITED` (all `429`), `NO_RESPONSE` (sleeping 7 s, the run's `target.read_timeout: 5.0`). Every branch
-of this test has been seen.
+### 4.2 Results on the labs
 
-## 13. Remediation
+<!-- [[[cog import generate_docs as g; cog.out(g.lab_results("7.3", page=cog.inFile)) ]]] -->
 
-Make the check-then-act atomic: a database transaction with the right isolation, a unique constraint, an idempotency
-key, or a lock on the resource (CWE-362, ASVS v5.0.0-15.4.2).
+No E2 campaign yet ([experiments](../../../experiments/README.md)).
 
-## 14. Limitations
+<!-- [[[end]]] -->
+
+## 5. Limitations
 
 - The barrier releases the threads together, but each still opens its own connection (TCP and TLS) when it sends:
   the requests reach the server within the time of a handshake, not at one instant, and a race narrower than that
@@ -171,7 +114,66 @@ key, or a lock on the resource (CWE-362, ASVS v5.0.0-15.4.2).
   FIRM and asks to confirm the effect on the target's own state (this line said the opposite).
 - Thread-level concurrency reaches the server closely but not with a hardware guarantee of simultaneity.
 
-## 15. Sources
+## 6. Sources
 
 - OWASP ASVS v5.0.0-15.4.2 (Safe Concurrency, TOCTOU): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x24-V15-Secure-Coding-and-Architecture.md
 - CWE-362 Concurrent Execution using Shared Resource with Improper Synchronization: https://cwe.mitre.org/data/definitions/362.html
+
+## 7. Inputs
+
+`race_operation` (no default): `path`, `method` (default `POST`), an optional `body`, a `role` (default `user_a`),
+and an optional prepared `resource` created once before the burst, whose values and `{random}` may fill the path and
+the body: a resource that creates a coupon named `APIGUARD-RACE-{random}` and a body that applies
+`"APIGUARD-RACE-{random}"` fire every run on a fresh coupon (a once-only operation is used up by the run that
+tests it). `concurrency`
+(default 15) and `max_successful` (default 1: strictly once-only; raise for a bounded quota).
+
+Configure `race_operation` **only** for an operation whose number of successes must be bounded. A plain create that
+legitimately makes N objects from N requests is not a race and must not be configured here.
+
+## 8. Outcomes
+
+SKIP without `race_operation`. FAIL when too many concurrent requests take effect; PASS when the operation is
+serialized.
+
+## 9. Findings
+
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("7.3")) ]]] -->
+
+- "Race condition: <method> <path> accepted <count> times"
+
+<!-- [[[end]]] -->
+
+`evidence_ref` one of the accepted concurrent requests.
+
+## 10. Effects on the target
+
+`STRESSES_TARGET`: a concurrent burst of the real operation (which, by definition, changes data). Runs last.
+
+## 11. Per gateway
+
+Independent of the adapter: the concurrency is driven from outside.
+
+## 12. Configuration
+
+<!-- [[[cog import generate_docs as g; cog.out(g.test_params("7.3", page=cog.inFile)) ]]] -->
+
+Section [`tests.domain_7.test_7_3`](../../03-reference/01-configuration.md#testsdomain_7test_7_3) of `config.yaml`:
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `race_operation` | object \| null | none, **needed to run** | The once-only operation to probe for a race condition. No default: unset, the engine records the test as SKIP before it runs. |
+| `race_operation.path` | string | required | Path of the once-only operation. With a resource, may hold its values and its {random} as {name}. |
+| `race_operation.method` | string | `POST` | HTTP method of the operation (default POST). |
+| `race_operation.body` | object \| null | none | JSON body sent on every concurrent request (optional). With a resource, may hold its values and its "{random}" (the value its create request used, so the burst names what was just created: a coupon code), in quotes. |
+| `race_operation.role` | string | `user_a` | Role whose credential performs the operation (default user_a). |
+| `race_operation.resource` | string \| null | none | Optional prepared resource (resources: in config.yaml) created once before the burst; its values and its {random} fill the path and the body, and it is removed at teardown. |
+| `concurrency` | int 2-50 | `15` | How many identical requests are fired at the same instant. |
+| `max_successful` | int ≥1 | `1` | The largest number of concurrent requests that may succeed without a race. 1 for a strictly once-only operation (the default); raise it for a bounded quota. |
+
+<!-- [[[end]]] -->
+
+## 13. Remediation
+
+Make the check-then-act atomic: a database transaction with the right isolation, a unique constraint, an idempotency
+key, or a lock on the resource (CWE-362, ASVS v5.0.0-15.4.2).

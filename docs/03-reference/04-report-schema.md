@@ -1,9 +1,8 @@
 # Report Schema (`apiguard_report.json`)
 
-> **Audience:** integrators · **Status:** stable (contract: [compatibility](06-compatibility.md#interface-stability)) · **Source of truth:**
-> `src/report/builder.py` (`ReportData` and nested models), `src/core/models/results.py`,
-> `src/core/models/http.py` · **Verified:** 2026-10-15 (`connections`, real output of the three labs), 2026-10-05,
-> v0.1.0 (models + real output of a Forgejo + Kong run)
+> **Audience:** integrators · **Status:** stable (contract:
+> [compatibility](06-compatibility.md#interface-stability)) · **Source of truth:** `src/report/builder.py`
+> (`ReportData` and nested models), `src/core/models/results.py`, `src/core/models/http.py`
 
 `apiguard_report.json` is the machine-readable result of an assessment: the same data that renders
 `assessment_report.html`, serialised with `ReportData.model_dump_json()`. It is written in Phase 7 to
@@ -14,7 +13,7 @@
 
 The file has no format version of its own: `tool_version` is the version of the output formats, with the policy in
 [compatibility](06-compatibility.md#interface-stability) (a breaking change raises the major, the minor before
-1.0.0). Until 2026-10 the file also had `output_schema_version` (`"1.0"`, set arbitrarily); it was removed.
+1.0.0).
 
 ## Top level - `ReportData`
 
@@ -205,7 +204,7 @@ one that is `SKIP` (it judged no case at all), or a `PASS` sub-test that is itse
 
 ## `CaseCount`
 
-One case of the test's oracle as judged in the run: the row its oracle declares (section 6 of the test's page) and how
+One case of the test's oracle as judged in the run: the row its oracle declares (the Oracle section of the test's page) and how
 many times. A reader comparing a run with the oracle reads these rows; the counters of `SubTestResult` are their sums.
 
 <!-- [[[cog import generate_docs as g; cog.out(g.report_table("CaseCount")) ]]] -->
@@ -268,8 +267,7 @@ of a test is in `cwe_id`, not repeated among its references.
 other: two citations of the same tool must not disagree on what a requirement says. Where the version is part of the
 identifier the pattern pins it, so a reference on another version is refused when it is built; where every document
 carries its own version instead (RFC, NIST SP), the version belongs to the document's identifier (`800-53r5`,
-`800-63B-4`, `800-61r3`), because the section numbering changes between revisions. The versions were established on
-2026-10-28, each on its own source:
+`800-63B-4`, `800-61r3`), because the section numbering changes between revisions. The versions, each on its own source:
 
 - **ASVS v5.0.0**, the latest numbered release (2025-05-30). The repository's `latest` tag is a bleeding-edge build
   of `master` and calls itself so, which is why it is not used.
@@ -435,7 +433,7 @@ The reference responses the tests asked for (calibration and positive control): 
 
 ## Example (abridged, real run)
 
-Test 0.2 alone on the Forgejo + Kong lab, 2026-11-04 (one sub-test and one finding kept):
+Test 0.2 alone on the Forgejo + Kong lab (one sub-test and one finding kept):
 
 ```json
 {

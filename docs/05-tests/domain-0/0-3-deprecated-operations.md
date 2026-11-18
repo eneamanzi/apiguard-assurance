@@ -1,9 +1,7 @@
 # 0.3 Deprecated Operations Still Served
 
-> **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-22) ·
-> **Source of truth:**
-> [`src/tests/domain_0/test_0_3_deprecated_operations.py`](../../../src/tests/domain_0/test_0_3_deprecated_operations.py) ·
-> **Verified:** 2026-11-16
+> **Audience:** analysts, contributors · **Source of truth:**
+> [`src/tests/domain_0/test_0_3_deprecated_operations.py`](../../../src/tests/domain_0/test_0_3_deprecated_operations.py)
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("0.3", page=cog.inFile)) ]]] -->
 
@@ -37,26 +35,22 @@ A PASS promises that every deprecated operation the test could reach is handled 
 operations the specification does not mark deprecated (an undocumented older version is test `0.1`'s question) and
 nothing about what an operation returns.
 
-## 2. Sub-tests and coverage of the methodology
+## 2. Test
+
+### 2.1 Sub-tests and coverage of the methodology
 
 | Sub-test | Methodology (guarantee 0.3) |
 |---|---|
 | `deprecated_operations` | all three methodology sub-tests, judged per operation: "deprecated endpoint accessibility", "Sunset header presence", "post-sunset enforcement" |
 | left out | the differential sub-tests (two versions of one operation): test `2.4`'s question. An operation the server flags as deprecated while the specification does not: it is this guarantee's question, but finding it needs a probe of the whole documented surface, which this test does not make (see the limitations) |
 
-## 3. Inputs
-
-- the operations the specification marks deprecated (`AttackSurface`, `is_deprecated`);
-- `path_seed`, to fill the parameters of a deprecated path;
-- the `user_a` credential when one is configured (optional need), for an operation that refuses without it.
-
-## 4. Preconditions and reference responses
+### 2.2 Preconditions and reference responses
 
 - the **calibration** of the operation's own siblings, with the same method and credential condition: an answer that
   differs from a random sibling's is the operation's own, one that matches says only that nothing is there;
 - no positive control: the only verdict that rests on a refusal is `NOT_VERIFIABLE`, which claims nothing.
 
-## 5. Probes
+### 2.3 Probes
 
 1. every deprecated operation whose method is safe (`GET`, `HEAD`) and whose path can be filled: one request
    without a credential;
@@ -64,7 +58,7 @@ nothing about what an operation returns.
 3. a deprecated operation whose method writes is **not** sent: the test is `READ_ONLY`. Those operations are counted
    `WRITE_METHOD_NOT_PROBED` and named in a note.
 
-## 6. Oracle
+## 3. Oracle
 
 <!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("0.3")) ]]] -->
 
@@ -87,8 +81,6 @@ nothing about what an operation returns.
 
 <!-- [[[end]]] -->
 
-Until 2026-11-16 a `404` unlike a random sibling's (a framework's page where the handler's JSON was expected) was "still served", FIRM: now only a served or validated answer (`2xx`, `4xx` invalid) is the operation running; and a path with parameters answering like a random object was `NOT_APPLICABLE/NOT_SERVED`, although the seeded object may only be missing: now `NOT_VERIFIABLE/OBJECT_OR_OPERATION_ABSENT`.
-
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("0.3", page=cog.inFile)) ]]] -->
 
 The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
@@ -102,12 +94,75 @@ The answers that say nothing about the guarantee by themselves, one rule for eve
 
 <!-- [[[end]]] -->
 
-## 7. Outcomes
+## 4. Validation
+
+### 4.1 Oracle cases
+
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_validation("0.3", page=cog.inFile)) ]]] -->
+
+Every case of the oracle, produced on a lab and judged by the code: E1, [oracle validation](../../../experiments/README.md), campaign at commit `fc60b6f`. 18 of 18 produced cases gave the declared outcome; 0 no lab can produce.
+
+| Case | Lab, how it is produced | Result |
+|---|---|---|
+| `deprecated_operations/ENFORCED/SWITCHED_OFF` | forgejo-kong: a temporary Kong route on the deprecated read as the test fills it (times/user-a) answers 410 itself | OK |
+| `deprecated_operations/ENFORCED/METHOD_SWITCHED_OFF` | forgejo-kong: a temporary Kong route on the deprecated read (times/user-a) answers 405 itself | OK |
+| `deprecated_operations/VIOLATION/DEPRECATED_WITHOUT_SUNSET/FIRM` | forgejo-kong: the lab as built: GET /api/v1/repos/{owner}/{repo}/times/{user}, filled from path_seed, answers 200 unlike a random sibling, with neither Deprecation nor Sunset | OK |
+| `deprecated_operations/VIOLATION/DEPRECATION_WITHOUT_SUNSET/FIRM` | forgejo-kong: a temporary Kong route on the deprecated read (times/user-a) adds 'Deprecation: @1688169599' to Forgejo's answer | OK |
+| `deprecated_operations/VIOLATION/PAST_SUNSET_STILL_SERVED/FIRM` | forgejo-kong: a temporary Kong route on the deprecated read (times/user-a) adds 'Sunset: Wed, 01 Jan 2020 00:00:00 GMT' to Forgejo's answer | OK |
+| `deprecated_operations/ENFORCED/SUNSET_DECLARED` | forgejo-kong: a temporary Kong route on the deprecated read (times/user-a) adds 'Sunset: Sat, 31 Dec 2099 23:59:59 GMT' to Forgejo's answer | OK |
+| `deprecated_operations/NOT_VERIFIABLE/SUNSET_NOT_A_DATE` | forgejo-kong: a temporary Kong route on the deprecated read (times/user-a) adds 'Sunset: soon' to Forgejo's answer | OK |
+| `deprecated_operations/NOT_APPLICABLE/NOT_SERVED` | forgejo-kong: the run reads a local copy of Forgejo's specification with one added operation without path parameters, GET /api/v1/apiguard-deprecated-probe marked deprecated, that Forgejo does not serve: it answers 404 like its random sibling | OK |
+| `deprecated_operations/NOT_VERIFIABLE/OBJECT_OR_OPERATION_ABSENT` | forgejo-kong: a temporary Kong route on times/<any> (the deprecated read and its random siblings) answers the same fixed 404 itself | OK |
+| `deprecated_operations/NOT_VERIFIABLE/REFUSED_BEFORE_ANSWER` | forgejo-kong: a temporary Kong route on the deprecated read (times/user-a) answers 401 itself, with or without user_a's credential | OK |
+| `deprecated_operations/NOT_VERIFIABLE/ANSWER_NOT_INTERPRETED` | forgejo-kong: a temporary Kong route on the deprecated read (times/user-a) answers 302 to https://localhost:8443/ itself | OK |
+| `deprecated_operations/NOT_VERIFIABLE/CALIBRATION_UNRELIABLE` | forgejo-kong: a temporary Kong route on times/<any> (the deprecated read and its random siblings) answers 404 with a body of one of two shapes, alternating, so the two calibration siblings differ | OK |
+| `deprecated_operations/NOT_VERIFIABLE/WRITE_METHOD_NOT_PROBED` | forgejo-kong: the lab as built: three deprecated operations write (POST /org/{org}/repos, DELETE and PATCH .../comments/{id}) and are not sent | OK |
+| `deprecated_operations/NOT_VERIFIABLE/PATH_NOT_FILLABLE` | forgejo-kong: the run's target.path_seed is emptied, so the deprecated read's path parameters have no value | OK |
+| `*/NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` | forgejo-kong: a temporary Kong route on the deprecated read (times/user-a) answers 503 itself | OK |
+| `*/NOT_VERIFIABLE/RATE_LIMITED` | forgejo-kong: a temporary Kong route on the deprecated read (times/user-a) answers 429 itself | OK |
+| `*/NOT_VERIFIABLE/SERVER_ERROR` | forgejo-kong: a temporary Kong route on the deprecated read (times/user-a) answers 500 itself | OK |
+| `*/NOT_VERIFIABLE/NO_RESPONSE` | forgejo-kong: a temporary Kong route on the deprecated read (times/user-a) sleeps 7 s before proxying, and the run's read timeout is 5 s | OK |
+
+<!-- [[[end]]] -->
+
+### 4.2 Results on the labs
+
+<!-- [[[cog import generate_docs as g; cog.out(g.lab_results("0.3", page=cog.inFile)) ]]] -->
+
+No E2 campaign yet ([experiments](../../../experiments/README.md)).
+
+<!-- [[[end]]] -->
+
+## 5. Limitations
+
+- Only operations the specification marks `deprecated: true` are examined. An operation deprecated in fact but not
+  in the document is invisible here, and so is the mirror case (the server sends `Deprecation` while the
+  specification does not mark it): finding that needs a probe of the whole documented surface.
+- A deprecated operation whose method writes is not probed.
+- A parametric path needs a value in `path_seed` for each of its parameters.
+- No primary CWE: the catalogue holds no entry describing an API operation still served after being deprecated
+ . The guarantee rests on the standards above.
+
+## 6. Sources
+
+- OWASP API9:2023 Improper Inventory Management: https://api-security.owasp.org/editions/2023/en/0xa9-improper-inventory-management/
+- RFC 9745, The Deprecation HTTP Response Header Field: https://www.rfc-editor.org/rfc/rfc9745.html
+- RFC 8594, The Sunset HTTP Header Field: https://www.rfc-editor.org/rfc/rfc8594.html
+- RFC 9110 section 15.5.11, 410 Gone: https://www.rfc-editor.org/rfc/rfc9110.html#section-15.5.11
+- NIST SP 800-228 sections 2.1 and 3.1.1 (REC-API-4.4): https://doi.org/10.6028/NIST.SP.800-228
+
+## 7. Inputs
+
+- the operations the specification marks deprecated (`AttackSurface`, `is_deprecated`);
+- `path_seed`, to fill the parameters of a deprecated path;
+- the `user_a` credential when one is configured (optional need), for an operation that refuses without it.
+
+## 8. Outcomes
 
 SKIP when the specification marks no operation `deprecated: true`: the absence of a declaration is not evidence that
 no deprecated functionality is served, and that question belongs to test `0.1`.
 
-## 8. Findings
+## 9. Findings
 
 <!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("0.3")) ]]] -->
 
@@ -118,80 +173,21 @@ no deprecated functionality is served, and that question belongs to test `0.1`.
 
 `evidence_ref` the operation's answer; `supporting_refs` the calibration of its siblings.
 
-## 9. Effects on the target
+## 10. Effects on the target
 
 `READ_ONLY`: one request per deprecated read-only operation, two when the first was refused. An operation whose
 method writes is never sent.
 
-## 10. Per gateway
+## 11. Per gateway
 
 Independent of the gateway: both headers come from the application, and a gateway adding them in a response
 transformation is a correct way of satisfying the guarantee.
 
-## 11. Configuration
+## 12. Configuration
 
 None. Everything comes from the specification and `path_seed`.
-
-## 12. Validation
-
-**2026-11-16, after the review** (0.1 to 0.4 on the three labs as configured): both Forgejo labs **FAIL** (`DEPRECATED_WITHOUT_SUNSET`, 3 writes not probed), crAPI SKIP (no operation marked deprecated), as before.
-
-
-Runs of 2026-10-22, the three tests of the group together:
-
-| Lab | Status | Basis |
-|---|---|---|
-| Forgejo + Kong, Forgejo + APISIX | FAIL, 1 finding | the specification marks four operations deprecated; `GET /api/v1/repos/{owner}/{repo}/times/{user}`, filled from the lab's `path_seed`, answers `200` unlike a random sibling and sends neither `Deprecation` nor `Sunset`. The other three write (`POST /org/{org}/repos`, `DELETE` and `PATCH .../comments/{id}`) and are named in a note |
-| crAPI + Kong | SKIP | crAPI 1.1.6 marks no operation `deprecated: true` |
-| any | ENFORCED | an operation answering `410`, or carrying a future `Sunset`: not on the labs |
-
-All four deprecated operations of the reference lab have parameters in their path, and the old test excluded every
-path holding `{`, which is why the violation the lab holds had never been seen.
-
-**The cases the labs lack, produced on 2026-11-15** (Forgejo + Kong, one temporary route at a time added to
-`forgejo-service` in `kong/kong.yml`, undone with `git checkout` and the lab checked back). The route matches the
-deprecated read as the test fills it, `~/api/v1/repos/[^/]+/[^/]+/times/user-a$`, and carries a `pre-function`:
-in its `header_filter` phase it adds a header to Forgejo's answer, in its `access` phase it answers itself.
-
-| The route | Result |
-|---|---|
-| adds `Sunset: Sat, 31 Dec 2099 23:59:59 GMT` | PASS partial, `SUNSET_DECLARED` |
-| adds `Sunset: Wed, 01 Jan 2020 00:00:00 GMT` | FAIL, `PAST_SUNSET_STILL_SERVED` (FIRM) |
-| adds `Deprecation: @1688169599` | FAIL, `DEPRECATION_WITHOUT_SUNSET` (FIRM) |
-| adds `Sunset: soon` | INCONCLUSIVE, `SUNSET_NOT_A_DATE` |
-| answers `410` | PASS partial, `SWITCHED_OFF` |
-| answers `405` | PASS partial, `METHOD_SWITCHED_OFF` |
-| answers `302` to `https://localhost:8443/` | INCONCLUSIVE, `ANSWER_NOT_INTERPRETED` |
-| answers `401`, with or without the credential | INCONCLUSIVE, `REFUSED_BEFORE_ANSWER` |
-| answers `429`, `500`, `503` | INCONCLUSIVE, `RATE_LIMITED`, `SERVER_ERROR`, `UPSTREAM_UNAVAILABLE` |
-| sleeps 7 s (the run's `target.read_timeout: 5.0`) | INCONCLUSIVE, `NO_RESPONSE` |
-| on `~/api/v1/repos/[^/]+/[^/]+/times/[^/]+$` (its random siblings too), answers `404` alike | INCONCLUSIVE, `NOT_SERVED` |
-| on the same pattern, answers `404` with a body of one of two shapes at random | INCONCLUSIVE, `CALIBRATION_UNRELIABLE` |
-
-**What each branch has been seen doing** (rule 9). Every branch of this test has been seen: on the labs as they
-stand `DEPRECATED_WITHOUT_SUNSET`, `WRITE_METHOD_NOT_PROBED` and the SKIP; `PATH_NOT_FILLABLE` with the run's
-`target.path_seed` emptied (2026-11-15); every other one with the routes of the table above.
 
 ## 13. Remediation
 
 Switch the operation off and answer `410 Gone`, or declare `Deprecation` (RFC 9745) and `Sunset` (RFC 8594) with a
 future date and a `Link` to the replacement.
-
-## 14. Limitations
-
-- Only operations the specification marks `deprecated: true` are examined. An operation deprecated in fact but not
-  in the document is invisible here, and so is the mirror case (the server sends `Deprecation` while the
-  specification does not mark it): finding that needs a probe of the whole documented surface.
-- A deprecated operation whose method writes is not probed.
-- A parametric path needs a value in `path_seed` for each of its parameters.
-- No primary CWE: the catalogue holds no entry describing an API operation still served after being deprecated
-  (the whole dictionary of CWE 4.20 was searched on 2026-10-22; CWE-1104 is limited to third-party components and
-  CWE-1059 is prohibited for mapping). The guarantee rests on the standards above.
-
-## 15. Sources
-
-- OWASP API9:2023 Improper Inventory Management: https://api-security.owasp.org/editions/2023/en/0xa9-improper-inventory-management/
-- RFC 9745, The Deprecation HTTP Response Header Field: https://www.rfc-editor.org/rfc/rfc9745.html
-- RFC 8594, The Sunset HTTP Header Field: https://www.rfc-editor.org/rfc/rfc8594.html
-- RFC 9110 section 15.5.11, 410 Gone: https://www.rfc-editor.org/rfc/rfc9110.html#section-15.5.11
-- NIST SP 800-228 sections 2.1 and 3.1.1 (REC-API-4.4): https://doi.org/10.6028/NIST.SP.800-228

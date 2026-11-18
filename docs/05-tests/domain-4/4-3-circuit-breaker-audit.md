@@ -1,9 +1,7 @@
 # 4.3 Circuit Breaker Audit
 
-> **Audience:** analysts, contributors · **Status:** reviewed test by test (2026-10-27), again with its oracle in code (2026-11-16) ·
-> **Source of truth:**
-> [`src/tests/domain_4/test_4_3_circuit_breaker_audit.py`](../../../src/tests/domain_4/test_4_3_circuit_breaker_audit.py) ·
-> **Verified:** 2026-11-16
+> **Audience:** analysts, contributors · **Source of truth:**
+> [`src/tests/domain_4/test_4_3_circuit_breaker_audit.py`](../../../src/tests/domain_4/test_4_3_circuit_breaker_audit.py)
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("4.3", page=cog.inFile)) ]]] -->
 
@@ -34,7 +32,9 @@ to it: either an enabled breaker, or a health check with a failure threshold abo
 healthy targets. The threat (OWASP API4:2023, ASVS v5.0.0-16.5.2): without it, a failing dependency makes every
 request wait for its timeout and the thread pool fills, cascading the failure.
 
-## 2. Sub-tests and coverage of the methodology
+## 2. Test
+
+### 2.1 Sub-tests and coverage of the methodology
 
 | Sub-test | Methodology (guarantee 4.3) |
 |---|---|
@@ -45,20 +45,15 @@ Whether an excluded backend comes back by itself (an active probe on unhealthy t
 `HealthCheck.recovers_automatically`) is not required for the control to exist: the test reports it in the note
 instead of withholding the pass.
 
-## 3. Inputs
-
-Two gateway concepts read through the adapter: `circuit_breakers` and `health_checks` (`src/core/gateway/`). No
-request is sent.
-
-## 4. Preconditions and reference responses
+### 2.2 Preconditions and reference responses
 
 `Need.GATEWAY` (the Admin API). No reference responses: the concepts read are the evidence.
 
-## 5. Probes
+### 2.3 Probes
 
 None: a configuration audit. The two concepts are read and pinned as evidence.
 
-## 6. Oracle
+## 3. Oracle
 
 <!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("4.3")) ]]] -->
 
@@ -73,17 +68,62 @@ None: a configuration audit. The two concepts are read and pinned as evidence.
 
 With the breakers unread, "the gateway has no breaker" is not a fact; a concept the gateway does not have at all
 (`NOT_SUPPORTED`) is different, and there the absence counts. A gateway that has neither concept is SKIP (nothing to
-apply). Until 2026-11-16 the not-verifiable detail was `GATEWAY_READ_FAILED`, now the shared
-`CONCEPT_NOT_ACCESSIBLE`, and a gateway whose Admin API answered neither read was SKIP, against the rule of
-2026-11-04 (a concept the gateway has and that could not be read is a check the run could not make: INCONCLUSIVE).
+apply). 
+## 4. Validation
 
-## 7. Outcomes
+### 4.1 Oracle cases
+
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_validation("4.3", page=cog.inFile)) ]]] -->
+
+Every case of the oracle, produced on a lab and judged by the code: E1, [oracle validation](../../../experiments/README.md), campaign at commit `fc60b6f`. 4 of 4 produced cases gave the declared outcome; 0 no lab can produce.
+
+| Case | Lab, how it is produced | Result |
+|---|---|---|
+| `degradation_configured/ENFORCED/CIRCUIT_BREAKER` | forgejo-apisix: a temporary APISIX route on forgejo-upstream with the api-breaker plugin (3 failures to open) | OK |
+| `degradation_configured/ENFORCED/HEALTH_CHECK` | forgejo-kong: the lab as built: forgejo-upstream has a passive check (http_failures 5, timeouts 3) and active probes of unhealthy targets | OK |
+| `degradation_configured/VIOLATION/NO_CIRCUIT_BREAKER/CERTAIN` | forgejo-kong: forgejo-upstream's healthchecks replaced by an empty block, so Kong fills its defaults (zero thresholds, zero intervals) and no breaker plugin exists | OK |
+| `degradation_configured/NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE` | forgejo-kong: the run's gateway.admin.url points to a closed port: neither the breakers nor the health checks can be read | OK |
+
+<!-- [[[end]]] -->
+
+### 4.2 Results on the labs
+
+<!-- [[[cog import generate_docs as g; cog.out(g.lab_results("4.3", page=cog.inFile)) ]]] -->
+
+No E2 campaign yet ([experiments](../../../experiments/README.md)).
+
+<!-- [[[end]]] -->
+
+## 5. Limitations
+
+- Only the presence of a breaker or health check is judged, never whether its thresholds are sound: a breaker that
+  opens after ten thousand failures passes. Judging `failure_threshold` and `open_seconds` would need a defensible
+  value for each target and is not planned.
+- The behavioural test (a real downstream outage) is out of scope: it needs a coordinated staging action, so the test
+  proves a control is configured, never that it fires.
+- A breaker or check configured on one backend passes the test for the whole gateway: the oracle asks whether the
+  gateway has the control, not whether every backend is covered by it. The note names the backends that have it, so
+  the gap is visible to the reader.
+
+## 6. Sources
+
+- OWASP API4:2023 Unrestricted Resource Consumption: https://owasp.org/API-Security/editions/2023/en/0xa4-unrestricted-resource-consumption/
+- OWASP ASVS v5.0.0-16.5.2 (operate securely when external resource access fails): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x25-V16-Security-Logging-and-Error-Handling.md
+- NIST SP 800-204 section 4.5.1 (circuit breaker for microservices): https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-204.pdf
+- CWE-400 Uncontrolled Resource Consumption: https://cwe.mitre.org/data/definitions/400.html
+
+## 7. Inputs
+
+Two gateway concepts read through the adapter: `circuit_breakers` and `health_checks` (`src/core/gateway/`). No
+request is sent.
+
+## 8. Outcomes
 
 SKIP when the gateway has neither concept. INCONCLUSIVE when nothing was found but part of the admin plane could not
 be read. FAIL when the gateway has no breaker and no health check that detects failures; PASS otherwise (with a note
 when the control is a health check standing in for a breaker).
 
-## 8. Findings
+## 9. Findings
 
 <!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("4.3")) ]]] -->
 
@@ -93,11 +133,11 @@ when the control is a health check standing in for a breaker).
 
 `evidence_ref` the circuit-breaker concept artifact, `supporting_refs` the health-check one.
 
-## 9. Effects on the target
+## 10. Effects on the target
 
 `READ_ONLY`: reads the gateway Admin API, sends no request to the API.
 
-## 10. Per gateway
+## 11. Per gateway
 
 Kong has no circuit-breaker plugin of its own: of the 45 plugins its OSS build offers, none is a breaker (checked on
 the lab with `GET /`), so the adapter recognises third-party ones by plugin name, today `circuit-breaker`
@@ -118,59 +158,12 @@ reports `VIOLATION/NO_CIRCUIT_BREAKER`. The
 one case where an empty answer would say nothing, a gateway that fronts no backend whatsoever, leaves every other
 test of the run without a target too, so the test does not treat it apart.
 
-## 11. Configuration
+## 12. Configuration
 
 None.
-
-## 12. Validation
-
-**2026-11-16**, after the review (4.3 with 4.1, 4.2, 4.4 on each lab as configured): **PASS** on the three labs,
-`HEALTH_CHECK` with its note, as on 2026-10-27. The Admin API answering neither read is now INCONCLUSIVE
-(`CONCEPT_NOT_ACCESSIBLE`), no longer SKIP: the same branch as a single unread concept, seen through the proxy below.
-
-Runs of 2026-10-27, after the test-by-test review. **Every branch of the oracle was produced and observed**, and the
-table says how:
-
-| Case | Lab and how it was produced | Observed |
-|---|---|---|
-| `ENFORCED/HEALTH_CHECK` | Forgejo + Kong, crAPI + Kong, Forgejo + APISIX, as configured | **PASS**, the note naming the upstreams (`forgejo-upstream`; `community-upstream, identity-upstream, workshop-upstream`) |
-| the same, with no automatic recovery | Forgejo + Kong, the upstream's `active` block removed (passive only), then restored | **PASS**, plus "once excluded they stay excluded until someone intervenes" |
-| `ENFORCED/CIRCUIT_BREAKER` | Forgejo + APISIX, a temporary route with the `api-breaker` plugin (threshold 3), then deleted | **PASS**, "The gateway has an enabled circuit breaker: breaker-probe-route (threshold 3)" |
-| the same on Kong | Forgejo + Kong read through a proxy that adds a `circuit-breaker` plugin with the dream11 plugin's own configuration (no plugin installed in the lab) | **PASS**, "threshold 51", from `failure_percent_threshold`: with the field names the adapter used before 2026-10-28 it printed "threshold None" |
-| `VIOLATION/NO_CIRCUIT_BREAKER` | Forgejo + Kong, the upstream's whole `healthchecks` block removed, then restored | **FAIL**, 1 finding, CERTAIN |
-| `NOT_VERIFIABLE/GATEWAY_READ_FAILED` (now `CONCEPT_NOT_ACCESSIBLE`) | Forgejo + Kong read through a filtering proxy that serves `/upstreams` with zeroed thresholds and answers `500` on `/plugins` | **INCONCLUSIVE**, the note naming the breakers as unread |
-| SKIP, until 2026-11-16 | Forgejo + Kong with `gateway.admin.url` on a closed port | **SKIP**, the reason naming both concepts; since 2026-11-16 this is `CONCEPT_NOT_ACCESSIBLE`, INCONCLUSIVE |
-
-Rule 9 is satisfied without a reservation: both sides of the judgement, and the two honest non-verdicts, are proven
-on a real gateway. The VIOLATION branch became reachable only with this review: before it, an upstream with no health
-check was read as protected, because the `active` record exists with zero intervals, so the branch could not be
-produced on Kong at all.
-
-**What each branch has been seen doing** (rule 9). Every branch of this test has been seen (the table above).
-Proven on a lab: `HEALTH_CHECK` (all three), `CIRCUIT_BREAKER` (Forgejo + APISIX), `NO_CIRCUIT_BREAKER` and the SKIP
-(Forgejo + Kong). Through a proxy in front of the Forgejo + Kong Admin API: `CIRCUIT_BREAKER` on Kong and
-`GATEWAY_READ_FAILED` (now `CONCEPT_NOT_ACCESSIBLE`).
 
 ## 13. Remediation
 
 Configure a circuit breaker (or at least a passive health check that takes a failing backend out of rotation) with a
 failure threshold and an open-state timeout, so a failing dependency does not cascade (OWASP API4:2023, ASVS
 v5.0.0-16.5.2).
-
-## 14. Limitations
-
-- Only the presence of a breaker or health check is judged, never whether its thresholds are sound: a breaker that
-  opens after ten thousand failures passes. Judging `failure_threshold` and `open_seconds` would need a defensible
-  value for each target and is not planned (2026-10-27).
-- The behavioural test (a real downstream outage) is out of scope: it needs a coordinated staging action, so the test
-  proves a control is configured, never that it fires.
-- A breaker or check configured on one backend passes the test for the whole gateway: the oracle asks whether the
-  gateway has the control, not whether every backend is covered by it. The note names the backends that have it, so
-  the gap is visible to the reader.
-
-## 15. Sources
-
-- OWASP API4:2023 Unrestricted Resource Consumption: https://owasp.org/API-Security/editions/2023/en/0xa4-unrestricted-resource-consumption/
-- OWASP ASVS v5.0.0-16.5.2 (operate securely when external resource access fails): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x25-V16-Security-Logging-and-Error-Handling.md
-- NIST SP 800-204 section 4.5.1 (circuit breaker for microservices): https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-204.pdf
-- CWE-400 Uncontrolled Resource Consumption: https://cwe.mitre.org/data/definitions/400.html

@@ -1,9 +1,7 @@
 # 1.1 Credential Required on Documented Operations
 
-> **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-22) ·
-> **Source of truth:**
-> [`src/tests/domain_1/test_1_1_credential_required.py`](../../../src/tests/domain_1/test_1_1_credential_required.py) ·
-> **Verified:** 2026-11-16
+> **Audience:** analysts, contributors · **Source of truth:**
+> [`src/tests/domain_1/test_1_1_credential_required.py`](../../../src/tests/domain_1/test_1_1_credential_required.py)
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("1.1", page=cog.inFile)) ]]] -->
 
@@ -23,7 +21,7 @@
 
 <!-- [[[end]]] -->
 
-**Same group:** tests `1.6` and `1.7` (the review of guarantees 1.1, 1.6 and 1.7 together).
+**Same group:** tests `1.6` and `1.7`.
 
 ## 1. Guarantee
 
@@ -35,7 +33,9 @@ the credential is genuine beyond being present and well formed (a forged credent
 `1.3`, a revoked one `1.4`), nothing about **which** credential should be accepted (test `2.1`), and nothing about
 a path the gateway has no route for (test `0.2`).
 
-## 2. Sub-tests and coverage of the methodology
+## 2. Test
+
+### 2.1 Sub-tests and coverage of the methodology
 
 | Sub-test | Methodology (guarantee 1.1) |
 |---|---|
@@ -43,26 +43,17 @@ a path the gateway has no route for (test `0.2`).
 | `malformed_credential` | "empty and malformed token" and "header case variations" |
 | `path_variants` | "path normalisation", from the shared list (`src/core/path_variants.py`) |
 
-## 3. Inputs
-
-- the documented operations and, per operation, whether a security requirement applies and **where it is declared**
-  (`requires_auth`, `auth_declaration`);
-- `path_seed`, to fill the parameters of a read so that it reaches the control instead of a 404;
-- the shared path variants.
-
-No configuration parameter, and no credential of its own.
-
-## 4. Preconditions and reference responses
+### 2.2 Preconditions and reference responses
 
 The calibration of each operation's own siblings, so that a `404` meaning "no such object" is not read as "the
 operation is not there".
 
 **No positive control.** The question is what the target does when a request carries no credential, which is
-observed directly. An earlier version asked one per violation, to rule out "this operation refuses everyone": it
-suppressed 24 true cases on Forgejo + Kong (2026-10-22), because the lab's token is issued with narrower scopes
-than anonymous access, so the operation refused it while serving an anonymous request.
+observed directly. A positive control per violation, to rule out "this operation refuses everyone", would hide true
+cases: a token issued with narrower scopes than anonymous access is refused by an operation that serves an
+anonymous request (24 such operations on Forgejo + Kong).
 
-## 5. Probes
+### 2.3 Probes
 
 1. every documented operation to which a security requirement applies: one request with no credential. A read is
    sent on the path filled from `path_seed`;
@@ -75,14 +66,13 @@ than anonymous access, so the operation refused it while serving an anonymous re
    `null`, an arbitrary string, and the last of those with the header's name in lower and in upper case. A value
    sent under another scheme would be refused for being the wrong scheme and would prove nothing about whether the
    content is checked: Forgejo expects `Authorization: token <value>`, so a `Bearer` probe never reaches its check
-   (corrected 2026-10-22). A placement in a query parameter sends the three values there and has no header name
-   to vary, so three cases instead of five; one in a cookie sends them in the `Cookie` header. Until 2026-11-04 the
-   query values were sent as headers named after the parameter, so nothing was tested. Where
+  . A placement in a query parameter sends the three values there and has no header name
+   to vary, so three cases instead of five; one in a cookie sends them in the `Cookie` header. Where
    no placement is configured, the fallback is `Authorization` with `Bearer`. The sample is one operation per first path segment, which is what
    separates the services behind one gateway, and only operations whose method changes nothing: these sub-tests
    send several requests on the operator's own seeded paths.
 
-## 6. Oracle
+## 3. Oracle
 
 <!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("1.1")) ]]] -->
 
@@ -122,8 +112,6 @@ than anonymous access, so the operation refused it while serving an anonymous re
 
 <!-- [[[end]]] -->
 
-Until 2026-11-16: a write without path parameters was probed with its last segment replaced by a random one, so it never reached the operation (crAPI's identity writes read `CREDENTIAL_REQUIRED` from Spring's `401` on a path that does not exist, Forgejo's `POST /api/v1/markdown` was a random path against random paths); now it goes to its own path (with parameters, still a random object). A `2xx` was never compared with a random path, so a catch-all (a single-page app behind `/`) made every protected path a violation: now `SERVED_LIKE_UNKNOWN`, and `VARIANT_LIKE_UNKNOWN` for a path variant. A malformed credential refused with `400` (RFC 6750 section 3.1) or another non-`2xx` was `NOT_SERVED`, NOT_VERIFIABLE: now `CREDENTIAL_REFUSED`. An empty `OPTIONS` answer is `OPTIONS_ANSWERED`, not a served operation. The variants cite CWE-288 (ASVS 6.3.4, cited until then, is about authentication pathways).
-
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("1.1", page=cog.inFile)) ]]] -->
 
 The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
@@ -137,159 +125,65 @@ The answers that say nothing about the guarantee by themselves, one rule for eve
 
 <!-- [[[end]]] -->
 
-## 7. Outcomes
+## 4. Validation
 
-No SKIP of its own (it needs no credential and no gateway). How a sub-test's status follows from its judgements
-is rule 2 of the [assessment model](../../04-architecture/03-assessment-model.md#rules-every-test-follows).
+### 4.1 Oracle cases
 
-## 8. Findings
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_validation("1.1", page=cog.inFile)) ]]] -->
 
-<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("1.1")) ]]] -->
+Every case of the oracle, produced on a lab and judged by the code: E1, [oracle validation](../../../experiments/README.md), campaign at commit `fc60b6f`. 37 of 37 produced cases gave the declared outcome; 0 no lab can produce.
 
-- "Served without a credential: <method> <path>"
-- "Credential that cannot be valid accepted: <method> <path>"
-- "Path variant served without a credential: <method> <path>"
+| Case | Lab, how it is produced | Result |
+|---|---|---|
+| `no_credential/ENFORCED/CREDENTIAL_REQUIRED` | forgejo-kong: the lab as built: GET /api/v1/user (and 133 other operations) answers 401 to a request with no credential | OK |
+| `no_credential/VIOLATION/SERVED_WITHOUT_CREDENTIAL/FIRM` | crapi-kong: the lab as built: GET /workshop/api/shop/orders/{order_id} and GET /workshop/api/shop/return_qr_code declare their own security and answer 200 with no credential (crAPI challenge 14) | OK |
+| `no_credential/VIOLATION/SERVED_WITHOUT_CREDENTIAL/TENTATIVE` | forgejo-kong: the lab as built: 78 genuinely public operations (/api/v1/licenses, /api/v1/orgs, ...) answer 200 with no credential while only the document's global security applies | OK |
+| `no_credential/NOT_VERIFIABLE/SERVED_LIKE_UNKNOWN` | forgejo-kong: a temporary Kong route ~/api/v1/[^/]+$ answers 200 with the same body to every method, so GET /api/v1/user is served exactly as its random sibling /api/v1/zqxv<hex> | OK |
+| `no_credential/NOT_VERIFIABLE/OPTIONS_ANSWERED` | forgejo-kong: the run reads a local copy of Forgejo's specification with an added OPTIONS /user (inheriting the global security), and a temporary Kong route OPTIONS ~/api/v1/user$ answers 204 with no body | OK |
+| `no_credential/NOT_VERIFIABLE/REDIRECTED` | forgejo-kong: a temporary Kong route on the protected read times/user-a (GET /api/v1/repos/{owner}/{repo}/times/{user}, filled from path_seed) answers 302 itself | OK |
+| `no_credential/NOT_VERIFIABLE/VALIDATED_WITHOUT_CREDENTIAL` | forgejo-kong: the lab as built: 5 Forgejo operations answer 400 for a missing query parameter before asking for a credential | OK |
+| `no_credential/NOT_VERIFIABLE/NOT_FOUND_LIKE_UNKNOWN` | forgejo-kong: the lab as built: parametric writes sent on random values get Forgejo's 404, as their random siblings do | OK |
+| `no_credential/NOT_VERIFIABLE/NOT_FOUND_OWN_ANSWER` | forgejo-kong: the lab as built: 5 Forgejo operations answer a 404 of their own, unlike their random siblings' | OK |
+| `no_credential/NOT_APPLICABLE/DECLARED_PUBLIC` | crapi-kong: the lab as built: crAPI marks 9 operations `security: []` | OK |
+| `no_credential/NOT_APPLICABLE/NO_SECURITY_DECLARED` | forgejo-kong: the run reads a local copy of Forgejo's specification with its global security set to [] (no operation declares its own): no requirement applies to any operation | OK |
+| `malformed_credential/ENFORCED/CREDENTIAL_REFUSED` | forgejo-kong: the lab as built: GET /api/v1/user refuses the five malformed values sent as 'Authorization: token ...' with 401 | OK |
+| `malformed_credential/VIOLATION/ACCEPTED_EMPTY_CREDENTIAL/CERTAIN` | forgejo-kong: a temporary Kong route ~/api/v1/user$ answers 200 to any request carrying an Authorization header and 401 to one without | OK |
+| `malformed_credential/VIOLATION/ACCEPTED_WORD_NULL/CERTAIN` | forgejo-kong: a temporary Kong route ~/api/v1/user$ answers 200 to any request carrying an Authorization header and 401 to one without | OK |
+| `malformed_credential/VIOLATION/ACCEPTED_ARBITRARY_STRING/CERTAIN` | forgejo-kong: a temporary Kong route ~/api/v1/user$ answers 200 to any request carrying an Authorization header and 401 to one without | OK |
+| `malformed_credential/VIOLATION/ACCEPTED_EMPTY_CREDENTIAL_IN_QUERY/CERTAIN` | forgejo-kong: the credential placed in the query (scheme AccessToken, no prefix), and a temporary Kong route ~/api/v1/user$ answers 200 to any request carrying the query parameter access_token and 401 to one without | OK |
+| `malformed_credential/VIOLATION/ACCEPTED_WORD_NULL_IN_QUERY/CERTAIN` | forgejo-kong: the credential placed in the query (scheme AccessToken, no prefix), and a temporary Kong route ~/api/v1/user$ answers 200 to any request carrying the query parameter access_token and 401 to one without | OK |
+| `malformed_credential/VIOLATION/ACCEPTED_ARBITRARY_STRING_IN_QUERY/CERTAIN` | forgejo-kong: the credential placed in the query (scheme AccessToken, no prefix), and a temporary Kong route ~/api/v1/user$ answers 200 to any request carrying the query parameter access_token and 401 to one without | OK |
+| `malformed_credential/VIOLATION/ACCEPTED_HEADER_LOWERCASE/CERTAIN` | forgejo-kong: a temporary Kong route ~/api/v1/user$ answers 200 to any request carrying an Authorization header (read case-insensitively) and 401 to one without | OK |
+| `malformed_credential/VIOLATION/ACCEPTED_HEADER_UPPERCASE/CERTAIN` | forgejo-kong: a temporary Kong route ~/api/v1/user$ answers 200 to any request carrying an Authorization header (read case-insensitively) and 401 to one without | OK |
+| `malformed_credential/NOT_VERIFIABLE/NO_PROVEN_CONTROL` | forgejo-kong: the run reads a local copy of Forgejo's specification with its global security set to []: no operation is proven to require a credential, so nothing is sampled | OK |
+| `path_variants/ENFORCED/VARIANT_REDIRECTED` | crapi-kong: the lab as built: the workshop service answers 301 to the variants of /workshop/api/mechanic | OK |
+| `path_variants/ENFORCED/VARIANT_NOT_SERVED` | forgejo-kong: the lab as built: every variant of GET /api/v1/user is refused (401) by Forgejo after Kong's normalisation | OK |
+| `path_variants/VIOLATION/SERVED_AS_UPPER_SEGMENT/CERTAIN` | forgejo-kong: a pre-function on the /api route (and on a temporary route /) answers 200 when the raw path is one of the eight variants of /api/v1/user, here /api/v1/USER | OK |
+| `path_variants/VIOLATION/SERVED_AS_TRAILING_SLASH/CERTAIN` | forgejo-kong: a pre-function on the /api route (and on a temporary route /) answers 200 when the raw path is /api/v1/user/ | OK |
+| `path_variants/VIOLATION/SERVED_AS_DOUBLE_SLASH/CERTAIN` | forgejo-kong: a pre-function on the /api route (and on a temporary route /) answers 200 when the raw path (kong.request.get_raw_path) is //api/v1/user | OK |
+| `path_variants/VIOLATION/SERVED_AS_DOT_SEGMENT/CERTAIN` | forgejo-kong: a pre-function on the /api route (and on a temporary route /) answers 200 when the raw path is /api/v1/./user | OK |
+| `path_variants/VIOLATION/SERVED_AS_DOT_DOT_SEGMENT/CERTAIN` | forgejo-kong: a pre-function on the /api route (and on a temporary route /) answers 200 when the raw path is /api/v1/zqxv/../user | OK |
+| `path_variants/VIOLATION/SERVED_AS_ENCODED_SLASH/CERTAIN` | forgejo-kong: a pre-function on the /api route (and on a temporary route /) answers 200 when the raw path is /api%2fv1%2fuser | OK |
+| `path_variants/VIOLATION/SERVED_AS_DOUBLE_ENCODED/CERTAIN` | forgejo-kong: a pre-function on the /api route (and on a temporary route /) answers 200 when the raw path is /api%252fv1%252fuser | OK |
+| `path_variants/VIOLATION/SERVED_AS_PATH_PARAMETER/CERTAIN` | forgejo-kong: a pre-function on the /api route (and on a temporary route /) answers 200 when the raw path is /api/v1/user;zqxv=1 | OK |
+| `path_variants/NOT_VERIFIABLE/VARIANT_LIKE_UNKNOWN` | forgejo-kong: a temporary Kong route answers the same 200 to /api/v1/USER (the upper-case variant of the sampled /api/v1/user) and to the random paths /api/v1/zqxv<hex> its calibration asks; /api/v1/user itself still answers 401 | OK |
+| `path_variants/NOT_VERIFIABLE/NO_PROVEN_CONTROL` | forgejo-kong: the run reads a local copy of Forgejo's specification with its global security set to []: no operation is proven to require a credential, so nothing is sampled | OK |
+| `*/NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` | forgejo-kong: a temporary Kong route on the protected read times/user-a answers 503 itself | OK |
+| `*/NOT_VERIFIABLE/RATE_LIMITED` | forgejo-kong: a temporary Kong route on the protected read times/user-a answers 429 itself | OK |
+| `*/NOT_VERIFIABLE/SERVER_ERROR` | forgejo-kong: a temporary Kong route on the protected read times/user-a answers 500 itself | OK |
+| `*/NOT_VERIFIABLE/NO_RESPONSE` | forgejo-kong: a temporary Kong route on the protected read times/user-a sleeps 7 s before proxying, and the run's read timeout is 5 s | OK |
 
 <!-- [[[end]]] -->
 
-Each names the method and path; `evidence_ref` the answer, with the anchor's records as support where the finding rests on them.
+### 4.2 Results on the labs
 
-## 9. Effects on the target
+<!-- [[[cog import generate_docs as g; cog.out(g.lab_results("1.1", page=cog.inFile)) ]]] -->
 
-`CHANGES_DATA`: a write sent without a credential is a write, and on a target that does not enforce the credential
-it goes through. Every parametric write is sent on random values, so no object of the operator's is addressed;
-anything created is deleted at once and what is left is named in a note. The run order puts this test after the
-read-only ones (rule 7).
+No E2 campaign yet ([experiments](../../../experiments/README.md)).
 
-## 10. Per gateway
+<!-- [[[end]]] -->
 
-Independent of the gateway: the control may live in the gateway or in the application, and the test judges the
-answer. A gateway that normalises the path before applying its policy (Kong, for dot segments) and one that does
-not (APISIX) both pass `path_variants` as long as the variant is not served.
-
-## 11. Configuration
-
-None. The old test's parameters are gone with it.
-
-## 12. Validation
-
-**2026-11-16, after the review** (domain 1 on the three labs as configured): Forgejo labs **FAIL** (78 TENTATIVE `SERVED_WITHOUT_CREDENTIAL`, the specification declaring security only globally), crAPI **FAIL** (2 FIRM), as before; crAPI's 20 protected writes now answer `401` on their own paths.
-
-
-Runs of 2026-10-22, the three tests of the group together:
-
-| Lab | Status | Basis |
-|---|---|---|
-| crAPI + Kong | FAIL, **2 findings at FIRM** | `GET /workshop/api/shop/orders/{order_id}` and `GET /workshop/api/shop/return_qr_code` answer `200` with no credential, and both declare their own security requirement (crAPI challenge 14). 24 enforced, 9 `DECLARED_PUBLIC` (the operations marked `security: []`), 8 like an unknown sibling; malformed credentials 15 enforced (sent as `Authorization: Bearer ...`, crAPI's own scheme), variants 23 enforced |
-| Forgejo + Kong and + APISIX | FAIL, **78 findings at TENTATIVE** | 78 operations answer `200` with no credential while the specification declares security for the whole document and marks nothing public: `/api/v1/licenses`, `/api/v1/gitignore/templates`, `/api/v1/orgs`, ... all of them genuinely public. 134 enforced, 251 like an unknown sibling, 5 with their own `404`, 5 validated without a credential (`400` for a missing query parameter: the application validates before authenticating, which NIST SP 800-228 REC-API-14 asks to be the other way round); malformed credentials 5 enforced (sent as `Authorization: token ...`, Forgejo's own scheme), variants 8 enforced |
-| Forgejo + Kong, the credential in the query (scratch configuration, `security_scheme: AccessToken`, 2026-11-04) | FAIL, the same 78 findings | malformed credentials 3 enforced, each sent as `?access_token=...` (empty, `null`, an arbitrary string) and refused with `401` |
-| any | ENFORCED everywhere | a target whose declared operations all refuse: not on the labs |
-
-The old test reported the same 78 on Forgejo and the same 2 on crAPI, with no distinction between them and with 14
-endpoints answering `503` counted as a PASS.
-
-**The two cases the labs lack, and how to undo them.** No lab serves a path variant without a credential, and
-none accepts a credential that cannot be valid, so both were produced on the Forgejo + Kong lab. In
-`test-environments/forgejo-kong/kong/kong.yml`, inside `services[forgejo-service].routes`:
-
-```yaml
-      # A route that answers the upper-case variant of the sampled endpoint.
-      - name: review-variant-served-route
-        paths:
-          - /api/v1/USER
-        strip_path: false
-        preserve_host: false
-        protocols:
-          - https
-        https_redirect_status_code: 301
-        plugins:
-          - name: request-termination
-            config:
-              status_code: 200
-              content_type: "application/json"
-              body: '{"login":"user-a"}'
-      # An endpoint that requires the credential header to be there and never
-      # looks at what it holds. The regex is anchored so that it does not also
-      # catch /api/v1/users/... (Kong matches a path as a string).
-      - name: review-any-credential-route
-        paths:
-          - '~/api/v1/user$'
-        strip_path: false
-        preserve_host: false
-        protocols:
-          - https
-        https_redirect_status_code: 301
-        plugins:
-          - name: pre-function
-            config:
-              access:
-                - |
-                  if kong.request.get_header("authorization") then
-                    return kong.response.exit(200, { login = "user-a" })
-                  end
-                  return kong.response.exit(401, { message = "token is required" })
-```
-
-Then `cd test-environments/forgejo-kong && docker compose --env-file ../../.env up -d --force-recreate --wait
-kong`; undo with `git checkout test-environments/forgejo-kong/kong/kong.yml` and the same command. With the first,
-`path_variants` reports 1 violation at CERTAIN (`SERVED_AS_UPPER_SEGMENT`, `/api/v1/USER` answering `200` while
-`/api/v1/user` answers `401`) and 7 enforced; with the second, `malformed_credential` reports all five violations
-(`ACCEPTED_EMPTY_CREDENTIAL`, `ACCEPTED_WORD_NULL`, `ACCEPTED_ARBITRARY_STRING`, `ACCEPTED_HEADER_LOWERCASE`,
-`ACCEPTED_HEADER_UPPERCASE`), which is the whole oracle of that sub-test. The lab was checked back to its usual
-results afterwards (2026-10-22).
-
-**What each branch has been seen doing** (rule 9). Proven on a lab: `CREDENTIAL_REQUIRED`,
-`SERVED_WITHOUT_CREDENTIAL` at both confidences, `DECLARED_PUBLIC`, `NO_SECURITY_DECLARED` and
-`NO_PROVEN_CONTROL` (2026-11-14, below), `NOT_FOUND_LIKE_UNKNOWN`, `NOT_FOUND_OWN_ANSWER`, `VALIDATED_WITHOUT_CREDENTIAL`, `CREDENTIAL_REFUSED`,
-`VARIANT_NOT_SERVED`, `VARIANT_REDIRECTED` (3 on crAPI, 2026-11-05), `UPSTREAM_UNAVAILABLE` (2026-11-14, below), and with the two cases above every `ACCEPTED_<case>` and `SERVED_AS_UPPER_SEGMENT`.
-
-On 2026-11-15, Forgejo + Kong, with temporary changes to `kong/kong.yml` (undone with `git checkout`, the lab
-checked back):
-- `REDIRECTED`, `RATE_LIMITED`, `SERVER_ERROR`, `NO_RESPONSE`: a route `GET ~/api/v1/user/repos$` answering `302`,
-  `429`, `500`, or sleeping 7 s (the run's `target.read_timeout: 5.0`);
-- `SERVED_AS_TRAILING_SLASH`, `SERVED_AS_ENCODED_SLASH`, `SERVED_AS_DOUBLE_ENCODED`, `SERVED_AS_PATH_PARAMETER`: a
-  `pre-function` on the `/api` route (and on a temporary route `/`) answering `200` when the path as received is
-  the variant of `/api/v1/user`.
-
-**The three variants httpx rewrote are sent as written since 2026-11-15.** Until that day the client handed the
-path to httpx (0.28.1), which removes dot segments, so `/api/v1/./user` (`DOT_SEGMENT`) and `/api/v1/zqxv/../user`
-(`DOT_DOT_SEGMENT`) left as `/api/v1/user`, and reads `//api/v1/user` (`DOUBLE_SLASH`) as an address whose host is
-`api`, so the request left as `/v1/user`: the three were judged on another path's answer. The client now sends
-such a path as the request target (`src/core/client.py`, checked on a local server recording the request line:
-the three leave as written, the query and Host header unchanged). What the labs answer to them, 1.1 alone, the
-same day:
-
-| Lab | `//…`, `/./…`, `/zqxv/../…` | Why |
-|---|---|---|
-| Forgejo + Kong | `401` "token is required", `VARIANT_NOT_SERVED` | Kong normalises the path and routes it to `/api/v1/user`, which asks for the token |
-| Forgejo + APISIX | `//` `401`; the two dot variants `404` "404 page not found" (Forgejo's) | APISIX forwards the dot segments as received and Forgejo has no such path |
-| crAPI + Kong | `401` on `/community` and `/identity`; `301` on `/workshop/api/mechanic` (`VARIANT_REDIRECTED`, 4 with `%2f`) | as on the Forgejo lab; the workshop service redirects |
-
-The results of the three labs did not change (1.1 FAIL, 78, 78 and 2 findings). With a `pre-function` on the Kong
-`/api` route answering `200` when `kong.request.get_raw_path()` is one of the three (undone with `git checkout`, the
-lab checked back), `path_variants` reports `SERVED_AS_DOUBLE_SLASH`, `SERVED_AS_DOT_SEGMENT` and
-`SERVED_AS_DOT_DOT_SEGMENT`, CERTAIN, with the five other variants `VARIANT_NOT_SERVED`. Every branch of this test has
-now been seen.
-`CREDENTIAL_REFUSED` is the enforced detail of the malformed credentials (`src/tests/domain_1/test_1_1_credential_required.py`);
-the table in section 6 lists it since 2026-11-16, when the generator began checking the pages against the code.
-
-Runs of the branch inventory (2026-11-14), Forgejo + Kong:
-- the lab's specification saved to a file with its global `security` removed (no operation declares its own):
-  **INCONCLUSIVE**, 473 not applicable on `no_credential` (`NO_SECURITY_DECLARED`, the detail the code gives an
-  operation that is neither protected nor marked public), and `NO_PROVEN_CONTROL` on the other two sub-tests. On
-  2026-11-14 the note read "The specification declares security only for the whole document ... every one inherits
-  the document's global `security`", which this document does not have; since 2026-11-15 it reads "The
-  specification declares no security requirement" (measured 2026-11-15; the labs' own specifications keep their
-  notes);
-- the `forgejo` container stopped: **INCONCLUSIVE**, 473 `UPSTREAM_UNAVAILABLE` (Kong's `503`), no finding.
-
-## 13. Remediation
-
-Enforce the credential at the gateway or in the application for every operation that needs one, and declare the
-public ones with `security: []` in the specification: on a document that declares security only globally, a public
-operation and a missing control look the same to any reader, human or machine.
-
-## 14. Limitations
+## 5. Limitations
 
 - A parametric operation whose answer is the same as a random sibling's cannot be judged: 251 of Forgejo's
   judgements, mostly writes, which are deliberately sent on random values.
@@ -300,7 +194,7 @@ operation and a missing control look the same to any reader, human or machine.
 - A redirect is not followed.
 - Whether the right role is required, not merely some credential, is test `2.1`'s question.
 
-## 15. Sources
+## 6. Sources
 
 - OWASP API2:2023 Broken Authentication: https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/
 - OWASP ASVS v5.0.0-8.2.1, "function-level access is restricted to consumers with explicit permissions":
@@ -312,6 +206,55 @@ operation and a missing control look the same to any reader, human or machine.
 - RFC 9110 section 5.1 (header names are case-insensitive): https://www.rfc-editor.org/rfc/rfc9110.html#section-5.1
 - CWE-306 Missing Authentication for Critical Function: https://cwe.mitre.org/data/definitions/306.html
 
-Two references of an earlier version were wrong and are recorded here as a warning: `ASVS v5.0.0-6.2.1` is the
-minimum length of a password, and `NIST SP 800-63B-4 section 3.2.2` is throttling, which is test `1.7`'s. Each
-reference of this page was read on its source on 2026-10-22.
+Two references that look close are not this test's: `ASVS v5.0.0-6.2.1` is the minimum length of a password, and
+`NIST SP 800-63B-4 section 3.2.2` is throttling, which is test `1.7`'s. Each reference of this page was read on its
+source.
+
+## 7. Inputs
+
+- the documented operations and, per operation, whether a security requirement applies and **where it is declared**
+  (`requires_auth`, `auth_declaration`);
+- `path_seed`, to fill the parameters of a read so that it reaches the control instead of a 404;
+- the shared path variants.
+
+No configuration parameter, and no credential of its own.
+
+## 8. Outcomes
+
+No SKIP of its own (it needs no credential and no gateway). How a sub-test's status follows from its judgements
+is rule 2 of the [assessment model](../../04-architecture/03-assessment-model.md#rules-every-test-follows).
+
+## 9. Findings
+
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("1.1")) ]]] -->
+
+- "Served without a credential: <method> <path>"
+- "Credential that cannot be valid accepted: <method> <path>"
+- "Path variant served without a credential: <method> <path>"
+
+<!-- [[[end]]] -->
+
+Each names the method and path; `evidence_ref` the answer, with the anchor's records as support where the finding rests on them.
+
+## 10. Effects on the target
+
+`CHANGES_DATA`: a write sent without a credential is a write, and on a target that does not enforce the credential
+it goes through. Every parametric write is sent on random values, so no object of the operator's is addressed;
+anything created is deleted at once and what is left is named in a note. The run order puts this test after the
+read-only ones (rule 7).
+
+## 11. Per gateway
+
+Independent of the gateway: the control may live in the gateway or in the application, and the test judges the
+answer. A gateway that normalises the path before applying its policy (Kong, for dot segments) and one that does
+not (APISIX) both pass `path_variants` as long as the variant is not served.
+
+## 12. Configuration
+
+None.
+
+## 13. Remediation
+
+Enforce the credential at the gateway or in the application for every operation that needs one, and declare the
+public ones with `security: []` in the specification: on a document that declares security only globally, a public
+operation and a missing control look the same to any reader, human or machine.

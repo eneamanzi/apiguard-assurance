@@ -1,10 +1,8 @@
 # Methodology Framework
 
 > **Audience:** analysts, contributors, readers of the research · **Status:** adapted from the thesis methodology
-> (chapter 3, now [`03-guarantees.md`](03-guarantees.md)), corrected against the tool · **Source of truth:** the owner's
-> decisions of 2026-10-20; for the tool:
-> `src/core/test_metadata.py` (`TestInfo`, `Need`), `src/core/models/enums.py` (`TestStrategy`) · **Verified:**
-> 2026-10-20
+> (chapter 3, now [`03-guarantees.md`](03-guarantees.md)), corrected against the tool · **Source of truth:** for the
+> tool: `src/core/test_metadata.py` (`TestInfo`, `Need`), `src/core/models/enums.py` (`TestStrategy`)
 
 The method behind the tool's checks: what a guarantee is, who the tester is, what a check may use, and how
 guarantees are ranked. How the tool applies it (strategy labels, selection, verdicts):

@@ -1,8 +1,6 @@
 # Installation
 
-> **Audience:** users, contributors · **Status:** v0.1.0 · **Verified:** 2026-10-06 on Linux with Python 3.12.3:
-> state check run on an existing installation; install steps run from a fresh `git clone` (Hatch environment created
-> automatically in 13 s)
+> **Audience:** users, contributors · **Status:** v0.1.0
 
 Getting started has two pages, in this order:
 

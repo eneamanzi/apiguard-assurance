@@ -1,0 +1,354 @@
+test: '1.2'
+name: Credential Cryptographically Valid
+sub_tests:
+
+  unsigned_rejected:
+
+    - id: VIOLATION/ACCEPTED_ALG_NONE/CERTAIN
+      situation: the token with `alg` set to `none` (any spelling) and no signature is served (`2xx`) at the anchor
+        with the genuine token's answer
+      expected:
+        outcome: VIOLATION
+        detail: ACCEPTED_ALG_NONE
+        confidence: CERTAIN
+      how: 'the lab as built: crAPI''s workshop answers GET /workshop/api/mechanic/ (the anchor) 200 to the token
+        with alg ''none'' (first spelling) and an empty signature, with the genuine token''s answer'
+      lab: crapi-kong
+      variant: none
+
+    - id: VIOLATION/ACCEPTED_ALG_NONE/FIRM
+      situation: the token with `alg` set to `none` (any spelling) and no signature is served (`2xx`) with another
+        answer (an error envelope may be a 200)
+      expected:
+        outcome: VIOLATION
+        detail: ACCEPTED_ALG_NONE
+        confidence: FIRM
+      how: a temporary route GET ~/workshop/api/mechanic/$ whose counter passes the first two requests (the genuine
+        token, the request without a credential) to crAPI and answers every later one (the degraded tokens) 200
+        with a JSON body of another shape
+      lab: crapi-kong
+      variant: kong-1-2-mechanic-degraded-200-other
+
+    - id: ENFORCED/REFUSED
+      situation: the token with `alg` set to `none` (any spelling) and no signature is refused (`400`, `401`, `403`)
+      expected:
+        outcome: ENFORCED
+        detail: REFUSED
+      how: a temporary route GET ~/workshop/api/mechanic/$ whose counter passes the first two requests to crAPI
+        and answers every later one (all four spellings of alg none) 401
+      lab: crapi-kong
+      variant: kong-1-2-mechanic-degraded-401
+
+    - id: NOT_VERIFIABLE/NOT_A_REFUSAL
+      situation: the token with `alg` set to `none` (any spelling) and no signature gets another answer (a redirect,
+        `404`, ...)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NOT_A_REFUSAL
+      how: a temporary route GET ~/workshop/api/mechanic/$ whose counter passes the first two requests to crAPI
+        and answers every later one 404
+      lab: crapi-kong
+      variant: kong-1-2-mechanic-degraded-404
+
+    - id: NOT_VERIFIABLE/NO_WORKING_ANCHOR
+      situation: no documented read accepts the genuine token and refuses no credential
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_WORKING_ANCHOR
+      how: 'the run reads a local copy of crAPI''s specification with every operation marked security: [], so no
+        documented read is a candidate anchor'
+      lab: crapi-kong
+      variant: none
+      spec:
+        set: {}
+        add_operations: []
+        drop_plain_get: false
+        drop_operations: []
+        operations_security: []
+
+    - id: NOT_APPLICABLE/NOT_A_JWT
+      situation: user_a's credential is not a JWT
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NOT_A_JWT
+      how: 'the lab as built: Forgejo''s API token is opaque (sha1), not three base64url segments'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/NO_TOKEN_VALUE
+      situation: 'no token value was stored for user_a (not reached: the engine provides it)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_TOKEN_VALUE
+      how: ''
+      lab: ''
+      variant: ''
+      not_producible:
+        group: code
+        reason: 'every auth method stores a value for a configured role, `basic` included (`base64(username:password)`
+          in src/tests/helpers/auth_static.py), and without the role the engine skips the test for its need; with
+          `auth_type: basic` the test records `NOT_A_JWT`, SKIP'
+
+  tampered_rejected:
+
+    - id: VIOLATION/ACCEPTED_TAMPERED_PAYLOAD/CERTAIN
+      situation: the token with a claim added and the original signature is served (`2xx`) at the anchor with the
+        genuine token's answer
+      expected:
+        outcome: VIOLATION
+        detail: ACCEPTED_TAMPERED_PAYLOAD
+        confidence: CERTAIN
+      how: 'a temporary route GET ~/workshop/api/mechanic/$ answering 200 (same body) to any request with an Authorization
+        header and 401 to one without: the tampered token gets the genuine token''s answer'
+      lab: crapi-kong
+      variant: kong-1-2-mechanic-auth-header-200
+
+    - id: VIOLATION/ACCEPTED_TAMPERED_PAYLOAD/FIRM
+      situation: the token with a claim added and the original signature is served (`2xx`) with another answer (an
+        error envelope may be a 200)
+      expected:
+        outcome: VIOLATION
+        detail: ACCEPTED_TAMPERED_PAYLOAD
+        confidence: FIRM
+      how: a temporary route GET ~/workshop/api/mechanic/$ whose counter passes the first two requests to crAPI
+        and answers every later one 200 with a JSON body of another shape
+      lab: crapi-kong
+      variant: kong-1-2-mechanic-degraded-200-other
+
+    - id: ENFORCED/REFUSED
+      situation: the token with a claim added and the original signature is refused (`400`, `401`, `403`)
+      expected:
+        outcome: ENFORCED
+        detail: REFUSED
+      how: 'the lab as built: crAPI refuses the token with a claim added and the original signature (401)'
+      lab: crapi-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/NOT_A_REFUSAL
+      situation: the token with a claim added and the original signature gets another answer (a redirect, `404`,
+        ...)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NOT_A_REFUSAL
+      how: a temporary route GET ~/workshop/api/mechanic/$ whose counter passes the first two requests to crAPI
+        and answers every later one 404
+      lab: crapi-kong
+      variant: kong-1-2-mechanic-degraded-404
+
+    - id: NOT_VERIFIABLE/NO_WORKING_ANCHOR
+      situation: no documented read accepts the genuine token and refuses no credential
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_WORKING_ANCHOR
+      how: 'the run reads a local copy of crAPI''s specification with every operation marked security: []'
+      lab: crapi-kong
+      variant: none
+      spec:
+        set: {}
+        add_operations: []
+        drop_plain_get: false
+        drop_operations: []
+        operations_security: []
+
+    - id: NOT_APPLICABLE/NOT_A_JWT
+      situation: user_a's credential is not a JWT
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NOT_A_JWT
+      how: 'the lab as built: Forgejo''s API token is opaque'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/NO_TOKEN_VALUE
+      situation: 'no token value was stored for user_a (not reached: the engine provides it)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_TOKEN_VALUE
+      how: ''
+      lab: ''
+      variant: ''
+      not_producible:
+        group: code
+        reason: 'every auth method stores a value for a configured role, `basic` included (`base64(username:password)`
+          in src/tests/helpers/auth_static.py), and without the role the engine skips the test for its need; with
+          `auth_type: basic` the test records `NOT_A_JWT`, SKIP'
+
+  stripped_rejected:
+
+    - id: VIOLATION/ACCEPTED_STRIPPED_SIGNATURE/CERTAIN
+      situation: the token with its signature emptied is served (`2xx`) at the anchor with the genuine token's answer
+      expected:
+        outcome: VIOLATION
+        detail: ACCEPTED_STRIPPED_SIGNATURE
+        confidence: CERTAIN
+      how: 'a temporary route GET ~/workshop/api/mechanic/$ answering 200 (same body) to any request with an Authorization
+        header and 401 to one without: the token with its signature emptied gets the genuine token''s answer'
+      lab: crapi-kong
+      variant: kong-1-2-mechanic-auth-header-200
+
+    - id: VIOLATION/ACCEPTED_STRIPPED_SIGNATURE/FIRM
+      situation: the token with its signature emptied is served (`2xx`) with another answer (an error envelope may
+        be a 200)
+      expected:
+        outcome: VIOLATION
+        detail: ACCEPTED_STRIPPED_SIGNATURE
+        confidence: FIRM
+      how: a temporary route GET ~/workshop/api/mechanic/$ whose counter passes the first two requests to crAPI
+        and answers every later one 200 with a JSON body of another shape
+      lab: crapi-kong
+      variant: kong-1-2-mechanic-degraded-200-other
+
+    - id: ENFORCED/REFUSED
+      situation: the token with its signature emptied is refused (`400`, `401`, `403`)
+      expected:
+        outcome: ENFORCED
+        detail: REFUSED
+      how: 'the lab as built: crAPI refuses the token with its signature emptied (401)'
+      lab: crapi-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/NOT_A_REFUSAL
+      situation: the token with its signature emptied gets another answer (a redirect, `404`, ...)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NOT_A_REFUSAL
+      how: a temporary route GET ~/workshop/api/mechanic/$ whose counter passes the first two requests to crAPI
+        and answers every later one 404
+      lab: crapi-kong
+      variant: kong-1-2-mechanic-degraded-404
+
+    - id: NOT_VERIFIABLE/NO_WORKING_ANCHOR
+      situation: no documented read accepts the genuine token and refuses no credential
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_WORKING_ANCHOR
+      how: 'the run reads a local copy of crAPI''s specification with every operation marked security: []'
+      lab: crapi-kong
+      variant: none
+      spec:
+        set: {}
+        add_operations: []
+        drop_plain_get: false
+        drop_operations: []
+        operations_security: []
+
+    - id: NOT_APPLICABLE/NOT_A_JWT
+      situation: user_a's credential is not a JWT
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NOT_A_JWT
+      how: 'the lab as built: Forgejo''s API token is opaque'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/NO_TOKEN_VALUE
+      situation: 'no token value was stored for user_a (not reached: the engine provides it)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_TOKEN_VALUE
+      how: ''
+      lab: ''
+      variant: ''
+      not_producible:
+        group: code
+        reason: 'every auth method stores a value for a configured role, `basic` included (`base64(username:password)`
+          in src/tests/helpers/auth_static.py), and without the role the engine skips the test for its need; with
+          `auth_type: basic` the test records `NOT_A_JWT`, SKIP'
+
+  algorithm_confusion:
+
+    - id: NOT_VERIFIABLE/NEEDS_KEY_MATERIAL
+      situation: 'a JWT and a working anchor: the attack needs the public key, not fetched'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NEEDS_KEY_MATERIAL
+      how: 'the lab as built: crAPI issues a JWT and the anchor GET /workshop/api/mechanic/ works; the attack is
+        not tried'
+      lab: crapi-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/NO_WORKING_ANCHOR
+      situation: no working anchor
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_WORKING_ANCHOR
+      how: 'the run reads a local copy of crAPI''s specification with every operation marked security: []'
+      lab: crapi-kong
+      variant: none
+      spec:
+        set: {}
+        add_operations: []
+        drop_plain_get: false
+        drop_operations: []
+        operations_security: []
+
+    - id: NOT_APPLICABLE/NOT_A_JWT
+      situation: user_a's credential is not a JWT
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NOT_A_JWT
+      how: 'the lab as built: Forgejo''s API token is opaque'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/NO_TOKEN_VALUE
+      situation: no token value was stored for user_a (not reached)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_TOKEN_VALUE
+      how: ''
+      lab: ''
+      variant: ''
+      not_producible:
+        group: code
+        reason: 'every auth method stores a value for a configured role, `basic` included (`base64(username:password)`
+          in src/tests/helpers/auth_static.py), and without the role the engine skips the test for its need; with
+          `auth_type: basic` the test records `NOT_A_JWT`, SKIP'
+
+  any_sub_test:
+
+    - id: NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE
+      situation: 'an answer of this category on any sub-test that does not judge it: 502, 503, 504: the gateway
+        could not reach the backend, or the backend did not answer in time. It says nothing about the guarantee
+        (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: UPSTREAM_UNAVAILABLE
+      how: a temporary route GET ~/workshop/api/mechanic/$ whose counter passes the genuine token and the request
+        without a credential to crAPI and answers the degraded tokens 503
+      lab: crapi-kong
+      variant: kong-1-2-mechanic-degraded-503
+
+    - id: NOT_VERIFIABLE/RATE_LIMITED
+      situation: 'an answer of this category on any sub-test that does not judge it: 429: refused for the rate of
+        the requests. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: RATE_LIMITED
+      how: the same counter route answering the degraded tokens 429
+      lab: crapi-kong
+      variant: kong-1-2-mechanic-degraded-429
+
+    - id: NOT_VERIFIABLE/SERVER_ERROR
+      situation: 'an answer of this category on any sub-test that does not judge it: 500, 505-508, 510: the application
+        failed. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: SERVER_ERROR
+      how: the same counter route answering the degraded tokens 500
+      lab: crapi-kong
+      variant: kong-1-2-mechanic-degraded-500
+
+    - id: NOT_VERIFIABLE/NO_RESPONSE
+      situation: 'an answer of this category on any sub-test that does not judge it: No HTTP response: timeout,
+        connection refused, TLS error, connection reset. It says nothing about the guarantee (one rule for every
+        test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_RESPONSE
+      how: the same counter route sleeping 7 s on the degraded tokens before proxying, with the run's read timeout
+        at 5 s
+      lab: crapi-kong
+      variant: kong-1-2-mechanic-degraded-slow
+      config:
+        target.read_timeout: 5.0

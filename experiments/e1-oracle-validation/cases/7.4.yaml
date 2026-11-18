@@ -1,0 +1,261 @@
+test: '7.4'
+name: Webhook Signature Verification
+sub_tests:
+
+  absent_signature_rejected:
+
+    - id: VIOLATION/UNSIGNED_ACCEPTED/FIRM
+      situation: 'the unsigned delivery answered `2xx`: accepted, which does not show it was acted on'
+      expected:
+        outcome: VIOLATION
+        detail: UNSIGNED_ACCEPTED
+        confidence: FIRM
+      how: 'webhook_endpoint set to the prefix route /review-served, whose pre-function answers 200 to any request:
+        the unsigned delivery is accepted'
+      lab: forgejo-kong
+      variant: kong-route-review-served
+      config:
+        tests.domain_7.test_7_4.webhook_endpoint:
+          path: /review-served
+          method: POST
+          body:
+            event: push
+          signature_header: X-Sig
+
+    - id: ENFORCED/SIGNATURE_REQUIRED
+      situation: the unsigned delivery refused (`400`, `401`, `403`, ...), and a validly signed delivery sent after
+        it accepted
+      expected:
+        outcome: ENFORCED
+        detail: SIGNATURE_REQUIRED
+      how: 'webhook_endpoint set to a temporary Kong route that answers 204 to a delivery with a non-zero X-Sig
+        and 401 to the others, with a signing secret: unsigned refused 401, the valid delivery after it accepted'
+      lab: forgejo-kong
+      variant: kong-7-4-webhook-receiver
+      config:
+        tests.domain_7.test_7_4.webhook_endpoint:
+          path: /validation-webhook-receiver
+          method: POST
+          body:
+            event: push
+          signature_header: X-Sig
+          signing_secret: ${LAB_WEBHOOK_SECRET}
+
+    - id: NOT_VERIFIABLE/SIGNATURE_NOT_CONFIRMED
+      situation: the unsigned delivery refused, and no validly signed delivery accepted (no secret, or no usable
+        answer to it)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: SIGNATURE_NOT_CONFIRMED
+      how: 'webhook_endpoint set to POST /api/v1/markdown, no signing secret: Forgejo answers 401 (it requires a
+        token there) and no positive control runs'
+      lab: forgejo-kong
+      variant: none
+      config:
+        tests.domain_7.test_7_4.webhook_endpoint:
+          path: /api/v1/markdown
+          method: POST
+          body:
+            text: validation
+          signature_header: X-Sig
+
+    - id: NOT_VERIFIABLE/REJECTS_ALL
+      situation: the unsigned delivery refused, and the validly signed delivery refused too
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: REJECTS_ALL
+      how: 'webhook_endpoint set to POST /api/v1/markdown with a signing secret: Forgejo answers 401 to the unsigned,
+        the wrongly signed and the validly signed delivery alike'
+      lab: forgejo-kong
+      variant: none
+      config:
+        tests.domain_7.test_7_4.webhook_endpoint:
+          path: /api/v1/markdown
+          method: POST
+          body:
+            text: validation
+          signature_header: X-Sig
+          signing_secret: ${LAB_WEBHOOK_SECRET}
+
+    - id: NOT_VERIFIABLE/ANSWER_NOT_INTERPRETED
+      situation: the unsigned delivery answered neither `2xx` nor a refusal (a redirect, `404`, `405`)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: ANSWER_NOT_INTERPRETED
+      how: 'webhook_endpoint set to POST /api/v1/zqxv-validation-webhook, a path Forgejo does not have: every delivery
+        answers 404, neither 2xx nor a refusal'
+      lab: forgejo-kong
+      variant: none
+      config:
+        tests.domain_7.test_7_4.webhook_endpoint:
+          path: /api/v1/zqxv-validation-webhook
+          method: POST
+          body:
+            event: push
+          signature_header: X-Sig
+
+  invalid_signature_rejected:
+
+    - id: VIOLATION/BAD_SIGNATURE_ACCEPTED/FIRM
+      situation: 'the wrongly signed delivery answered `2xx`: accepted, which does not show it was acted on'
+      expected:
+        outcome: VIOLATION
+        detail: BAD_SIGNATURE_ACCEPTED
+        confidence: FIRM
+      how: 'same run as the unsigned case: the route /review-served answers 200 to the delivery signed with 64 zeros'
+      lab: forgejo-kong
+      variant: kong-route-review-served
+      config:
+        tests.domain_7.test_7_4.webhook_endpoint:
+          path: /review-served
+          method: POST
+          body:
+            event: push
+          signature_header: X-Sig
+
+    - id: ENFORCED/SIGNATURE_REQUIRED
+      situation: the wrongly signed delivery refused (`400`, `401`, `403`, ...), and a validly signed delivery sent
+        after it accepted
+      expected:
+        outcome: ENFORCED
+        detail: SIGNATURE_REQUIRED
+      how: 'same run as the unsigned case: the temporary receiver answers 401 to X-Sig of 64 zeros, then 204 to
+        the validly signed delivery'
+      lab: forgejo-kong
+      variant: kong-7-4-webhook-receiver
+      config:
+        tests.domain_7.test_7_4.webhook_endpoint:
+          path: /validation-webhook-receiver
+          method: POST
+          body:
+            event: push
+          signature_header: X-Sig
+          signing_secret: ${LAB_WEBHOOK_SECRET}
+
+    - id: NOT_VERIFIABLE/SIGNATURE_NOT_CONFIRMED
+      situation: the wrongly signed delivery refused, and no validly signed delivery accepted (no secret, or no
+        usable answer to it)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: SIGNATURE_NOT_CONFIRMED
+      how: 'same run as the unsigned case: POST /api/v1/markdown, no signing secret, Forgejo answers 401'
+      lab: forgejo-kong
+      variant: none
+      config:
+        tests.domain_7.test_7_4.webhook_endpoint:
+          path: /api/v1/markdown
+          method: POST
+          body:
+            text: validation
+          signature_header: X-Sig
+
+    - id: NOT_VERIFIABLE/REJECTS_ALL
+      situation: the wrongly signed delivery refused, and the validly signed delivery refused too
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: REJECTS_ALL
+      how: 'same run as the unsigned case: POST /api/v1/markdown with a signing secret, every delivery answered
+        401'
+      lab: forgejo-kong
+      variant: none
+      config:
+        tests.domain_7.test_7_4.webhook_endpoint:
+          path: /api/v1/markdown
+          method: POST
+          body:
+            text: validation
+          signature_header: X-Sig
+          signing_secret: ${LAB_WEBHOOK_SECRET}
+
+    - id: NOT_VERIFIABLE/ANSWER_NOT_INTERPRETED
+      situation: the wrongly signed delivery answered neither `2xx` nor a refusal (a redirect, `404`, `405`)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: ANSWER_NOT_INTERPRETED
+      how: 'same run as the unsigned case: a path Forgejo does not have answers 404 to the wrongly signed delivery'
+      lab: forgejo-kong
+      variant: none
+      config:
+        tests.domain_7.test_7_4.webhook_endpoint:
+          path: /api/v1/zqxv-validation-webhook
+          method: POST
+          body:
+            event: push
+          signature_header: X-Sig
+
+  any_sub_test:
+
+    - id: NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE
+      situation: 'an answer of this category on any sub-test that does not judge it: 502, 503, 504: the gateway
+        could not reach the backend, or the backend did not answer in time. It says nothing about the guarantee
+        (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: UPSTREAM_UNAVAILABLE
+      how: 'webhook_endpoint set to /api-zqxv0074, matched by the temporary route ~/api[-.]?zqxv[0-9a-f]+$ answering
+        503: both deliveries 503'
+      lab: forgejo-kong
+      variant: kong-route-api-neighbours-503
+      config:
+        tests.domain_7.test_7_4.webhook_endpoint:
+          path: /api-zqxv0074
+          method: POST
+          body:
+            event: push
+          signature_header: X-Sig
+
+    - id: NOT_VERIFIABLE/RATE_LIMITED
+      situation: 'an answer of this category on any sub-test that does not judge it: 429: refused for the rate of
+        the requests. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: RATE_LIMITED
+      how: 'webhook_endpoint set to /api-zqxv0074, matched by the temporary route answering 429: both deliveries
+        429'
+      lab: forgejo-kong
+      variant: kong-route-api-neighbours-429
+      config:
+        tests.domain_7.test_7_4.webhook_endpoint:
+          path: /api-zqxv0074
+          method: POST
+          body:
+            event: push
+          signature_header: X-Sig
+
+    - id: NOT_VERIFIABLE/SERVER_ERROR
+      situation: 'an answer of this category on any sub-test that does not judge it: 500, 505-508, 510: the application
+        failed. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: SERVER_ERROR
+      how: 'webhook_endpoint set to /api-zqxv0074, matched by the temporary route answering 500: both deliveries
+        500'
+      lab: forgejo-kong
+      variant: kong-route-api-neighbours-500
+      config:
+        tests.domain_7.test_7_4.webhook_endpoint:
+          path: /api-zqxv0074
+          method: POST
+          body:
+            event: push
+          signature_header: X-Sig
+
+    - id: NOT_VERIFIABLE/NO_RESPONSE
+      situation: 'an answer of this category on any sub-test that does not judge it: No HTTP response: timeout,
+        connection refused, TLS error, connection reset. It says nothing about the guarantee (one rule for every
+        test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_RESPONSE
+      how: 'webhook_endpoint set to /api-zqxv0074, matched by the temporary route sleeping 7 s, and the run''s read
+        timeout is 5 s: both deliveries get no answer'
+      lab: forgejo-kong
+      variant: kong-route-api-neighbours-slow
+      config:
+        target.read_timeout: 5.0
+        tests.domain_7.test_7_4.webhook_endpoint:
+          path: /api-zqxv0074
+          method: POST
+          body:
+            event: push
+          signature_header: X-Sig

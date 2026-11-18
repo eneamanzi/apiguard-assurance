@@ -1,9 +1,7 @@
 # 1.7 Authentication Endpoints Resist Guessing
 
-> **Audience:** analysts, contributors · **Status:** new in the test review (2026-10-22) ·
-> **Source of truth:**
-> [`src/tests/domain_1/test_1_7_authentication_resistance.py`](../../../src/tests/domain_1/test_1_7_authentication_resistance.py) ·
-> **Verified:** 2026-11-16
+> **Audience:** analysts, contributors · **Source of truth:**
+> [`src/tests/domain_1/test_1_7_authentication_resistance.py`](../../../src/tests/domain_1/test_1_7_authentication_resistance.py)
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("1.7", page=cog.inFile)) ]]] -->
 
@@ -36,46 +34,39 @@ below, from the address this run came from. It promises nothing about the streng
 nothing about what the error message discloses beyond the existence of the account (test `6.1`), and nothing about
 the general request budget of the API (test `4.1`).
 
-## 2. Sub-tests and coverage of the methodology
+## 2. Test
+
+### 2.1 Sub-tests and coverage of the methodology
 
 | Sub-test | Question |
 |---|---|
 | `account_enumeration` | a failed authentication for an account that exists is answered differently from one for an account that cannot, by what it says or by how long it takes |
 | `repeated_attempts` | consecutive failed attempts are slowed, blocked or answered `429` |
 
-## 3. Inputs
-
-The login request the operator already declares, as the create request of their login resource
-(`credentials.login_resource`): its method, path, body and authentication, with the placeholders `{username}` and
-`{password}`. This test fills those with values of its own instead of the role's account, so it needs no knowledge
-of the target's login and no parameter of its own. The role's account name comes from the configuration.
-
-## 4. Preconditions and reference responses
+### 2.2 Preconditions and reference responses
 
 Its own comparison, not the shared references: the three readings of each case must agree with each other before
 the two cases are compared, so that a body carrying a request id or a timestamp is reported as unstable instead of
 as a disclosure.
 
-## 5. Probes
+### 2.3 Probes
 
 1. **three failed attempts with the operator's own account** and a random wrong password, and three with an
    account that cannot exist. That name **keeps the shape of the operator's own**: random characters alone where
    the account is a plain name, and random characters before the same `@domain` where it is an address, so that a
    target which validates the form of a name, or accepts only its own domain, does not answer differently for a
-   reason that has nothing to do with the account (corrected 2026-10-22; the labs use both shapes, `user-a` on
-   Forgejo and an address on crAPI). Three readings because one reading of a duration is noise; the median is
+   reason that has nothing to do with the account. Three readings because one reading of a duration is noise; the median is
    kept;
 2. **up to 101 further failed attempts against the account that cannot exist.** The bound is one past the 100
    consecutive failures NIST SP 800-63B-4 section 3.2.2 allows "on a single subscriber account", so that "no limit
    appeared" rests on a published number. NIST's rule is per account, and an account that cannot exist is not
    one: what an unlimited series shows is the absence of a limit per caller, the control against credential
-   stuffing and brute force of ASVS v5.0.0-6.3.1. Until 2026-11-04 the finding cited NIST for it. The number is a constant of the module, not a parameter (owner, 2026-10-22). A block is recognised by
-   the answer changing and staying changed, so that a body carrying a request id is never taken for one (until
-   2026-11-04 only a `429` or a slowdown counted, and a `403` or `423` block ended in a false finding);
+   stuffing and brute force of ASVS v5.0.0-6.3.1. The number is a constant of the module, not a parameter. A block is recognised by
+   the answer changing and staying changed, so that a body carrying a request id is never taken for one;
 3. **nothing is sent against a real account more than once per reading.** Account lockout is not probed: see the
    limitations.
 
-## 6. Oracle
+## 3. Oracle
 
 <!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("1.7")) ]]] -->
 
@@ -102,8 +93,6 @@ as a disclosure.
 
 <!-- [[[end]]] -->
 
-Until 2026-11-16: each body was masked with its own account name only, so a fixed text containing one of the names ("Invalid user or password" for an account named `user`) read as a disclosure, CERTAIN; `repeated_attempts` was not run when the comparison's bodies were unstable (a request id), or when a wrong password was accepted, so the brute-force check was skipped; on unstable bodies the durations were not compared either; a timing difference needed a 3-fold ratio, which a password hash behind a remote round trip does not reach (now also 40 ms between every reading); a `500` for one account and a `401` for the other was not verifiable (now a disclosure, FIRM); a gateway limit refusing with `503` (APISIX's default) was `UPSTREAM_UNAVAILABLE`; and the brute-force finding carried the enumeration's references, not CWE-307. `LOGIN_NOT_ANSWERING`, a case the code could not reach, is gone.
-
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("1.7", page=cog.inFile)) ]]] -->
 
 The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
@@ -119,135 +108,43 @@ The answers that say nothing about the guarantee by themselves, one rule for eve
 
 <!-- [[[end]]] -->
 
-## 7. Outcomes
+## 4. Validation
 
-SKIP when no login request can be built: `credentials.login_resource` is not configured, its create request
-authenticates with a credential rather than with an account, or the role has no username and password.
+### 4.1 Oracle cases
 
-## 8. Findings
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_validation("1.7", page=cog.inFile)) ]]] -->
 
-<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("1.7")) ]]] -->
+Every case of the oracle, produced on a lab and judged by the code: E1, [oracle validation](../../../experiments/README.md), campaign at commit `fc60b6f`. 15 of 15 produced cases gave the declared outcome; 0 no lab can produce.
 
-- "Failed authentication attempts are not limited"
-- "The login answer says whether the account exists"
-- "The login takes longer for an account that exists"
+| Case | Lab, how it is produced | Result |
+|---|---|---|
+| `account_enumeration/VIOLATION/EXISTENCE_DISCLOSED_BY_ANSWER/CERTAIN` | forgejo-kong: the lab as built: Forgejo answers a wrong password for user-a 401 'user's password is invalid' and an account that cannot exist 401 'user does not exist', the same on every reading | OK |
+| `account_enumeration/VIOLATION/EXISTENCE_DISCLOSED_BY_ANSWER/FIRM` | forgejo-kong: a temporary route on POST ~/api/v1/users/zqxv[0-9a-f]+/tokens$ answers 500 itself, so the account that cannot exist (a zqxv name) gets 500 on every reading while user-a gets Forgejo's 401 | OK |
+| `account_enumeration/VIOLATION/EXISTENCE_DISCLOSED_BY_TIMING/FIRM` | forgejo-kong: the lab as built: Forgejo verifies the password hash only for user-a, medians about 400 ms against a few ms | OK |
+| `account_enumeration/ENFORCED/NO_DISCREPANCY` | forgejo-kong: a temporary route on POST ~/api/v1/users/[^/]+/tokens$ lets the engine's login through, then waits 50 ms and answers 401 'invalid credentials' to every failed attempt (both accounts alike, in the same time, medians above 5 ms); after 20 requests it answers 423 'account locked' | OK |
+| `account_enumeration/ENFORCED/TIMING_TOO_SMALL` | forgejo-kong: a temporary route on POST ~/api/v1/users/[^/]+/tokens$ lets the engine's login through and answers every failed attempt 401 'invalid credentials' itself, in less than 5 ms | OK |
+| `account_enumeration/NOT_VERIFIABLE/ANSWER_NOT_STABLE` | forgejo-kong: a temporary route on POST ~/api/v1/users/[^/]+/tokens$ lets the engine's login through and answers every failed attempt 401 with a body cycling over three words, in less than 5 ms | OK |
+| `account_enumeration/NOT_VERIFIABLE/WRONG_PASSWORD_ACCEPTED` | forgejo-kong: the run's login resource is the public GET /api/v1/version, auth none, no body, credential read from 'version': every attempt is answered 200 | OK |
+| `repeated_attempts/ENFORCED/ATTEMPTS_LIMITED` | forgejo-kong: a temporary route on POST ~/api/v1/users/[^/]+/tokens$ with rate-limiting, 20 a minute per IP: the login and the six comparison attempts pass, a later attempt gets Kong's 429 | OK |
+| `repeated_attempts/ENFORCED/ATTEMPTS_BLOCKED` | forgejo-kong: the same run as NO_DISCREPANCY: from the 21st request on the route the attempts are answered 423 'account locked', three alike in a row after the 401s | OK |
+| `repeated_attempts/ENFORCED/ATTEMPTS_SLOWED` | forgejo-kong: a temporary route on POST ~/api/v1/users/[^/]+/tokens$ whose pre-function counts the requests and, past the 30th, waits 0.6 s before letting the request go on to Forgejo | OK |
+| `repeated_attempts/VIOLATION/ATTEMPTS_NOT_LIMITED/FIRM` | forgejo-kong: the lab as built: Forgejo answers the 101 attempts against an account that cannot exist alike, with no limit | OK |
+| `*/NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` | forgejo-kong: a temporary route on POST ~/api/v1/users/[^/]+/tokens$ lets the engine's login through and answers 503 to every failed attempt: the first reading of account_enumeration is 503, and repeated_attempts records the same reason | OK |
+| `*/NOT_VERIFIABLE/RATE_LIMITED` | forgejo-kong: a temporary route on POST ~/api/v1/users/[^/]+/tokens$ lets the engine's login through and answers 429 to every failed attempt: account_enumeration records RATE_LIMITED (repeated_attempts then judges the 429 itself, ATTEMPTS_LIMITED) | OK |
+| `*/NOT_VERIFIABLE/SERVER_ERROR` | forgejo-kong: the same run as EXISTENCE_DISCLOSED_BY_ANSWER/FIRM: the first repeated attempt against the zqxv account gets 500, which repeated_attempts does not judge | OK |
+| `*/NOT_VERIFIABLE/NO_RESPONSE` | forgejo-kong: a temporary route on POST ~/api/v1/users/[^/]+/tokens$ lets the engine's login through and sleeps 7 s before answering the failed attempts, with the run's target.read_timeout at 5.0: both sub-tests record NO_RESPONSE | OK |
 
 <!-- [[[end]]] -->
 
-`evidence_ref` the existing account's answer, `supporting_refs` the other's; for the attempts, the last one and the first.
+### 4.2 Results on the labs
 
-## 9. Effects on the target
+<!-- [[[cog import generate_docs as g; cog.out(g.lab_results("1.7", page=cog.inFile)) ]]] -->
 
-`STRESSES_TARGET`: 6 failed attempts for the comparison and up to 101 more, all but three of them against an
-account that cannot exist. Those three carry a wrong password for **the operator's own account**, so on a target
-that locks an account after a few failures they can count towards that lockout; the 101 cannot, which is why they
-go to an account that does not exist. The run order puts this test last (rule 7). On a target that logs or alerts on failed
-authentication, this test will appear in those logs and may raise an alert; whether it does is guarantee 5.2, which
-no test of the tool can check from outside.
+No E2 campaign yet ([experiments](../../../experiments/README.md)).
 
-## 10. Per gateway
+<!-- [[[end]]] -->
 
-Independent of the gateway: a rate limit may be applied by the gateway or by the application, and either shows up
-as a `429` or as a growing delay.
-
-## 11. Configuration
-
-None. The login request comes from the operator's own `resources` section.
-
-## 12. Validation
-
-**2026-11-16, after the review** (domain 1 on the three labs as configured): **FAIL** on the three labs, the same three findings as before (answer, timing, attempts).
-
-
-Runs of 2026-10-22, the three tests of the group together:
-
-| Lab | Status | Basis |
-|---|---|---|
-| Forgejo + Kong and + APISIX | FAIL, 3 findings | the answer differs (`user's password is invalid` against `user does not exist`), the medians are 383 to 439 ms against 3 ms, and 101 attempts bring no limit |
-| crAPI + Kong | FAIL, 3 findings | the answer differs (`Invalid Credentials` against `Given Email is not registered! `), the medians are 94 ms against 5 ms, and 101 attempts bring no limit |
-| Forgejo + Kong, with the rate limit below | **PASS on `repeated_attempts`**: 1 enforced | `ATTEMPTS_LIMITED`, a `429` at the 21st attempt, while `account_enumeration` still reports its 2 violations |
-| Forgejo + Kong, with the delay below | the same, `ATTEMPTS_SLOWED` | the answers go from 8 ms to 605 ms from the 31st attempt on |
-| a scratch login server outside the repository (2026-11-04): it answers `401 "invalid credentials"`, and `423 "account locked"` once a caller has failed 12 times | **PASS**, 2 enforced | `NO_DISCREPANCY` (the two failed attempts answer alike, in the same time), then `ATTEMPTS_BLOCKED` at the third consecutive `423` |
-| Forgejo + Kong, with the scratch configuration below | **INCONCLUSIVE**, 2 not verifiable | `WRONG_PASSWORD_ACCEPTED` in both sub-tests: the test verified nothing and says so instead of reporting a PASS |
-
-**The three cases the labs lack, and how to undo them.** No lab limits failed attempts, and none accepts a wrong
-password. The first two are routes added in `test-environments/forgejo-kong/kong/kong.yml`, inside
-`services[forgejo-service].routes`, covering the login paths of every account (the repeated attempts go to an
-account that does not exist, so its path holds a random name):
-
-```yaml
-      - name: review-login-limit-route
-        paths:
-          - /api/v1/users
-        strip_path: false
-        preserve_host: false
-        protocols:
-          - https
-        https_redirect_status_code: 301
-        plugins:
-          - name: rate-limiting
-            config:
-              minute: 20          # lets the six probes of the comparison through
-              policy: local
-              limit_by: ip
-              hide_client_headers: false
-              fault_tolerant: true
-```
-
-For the delay, the same route with `pre-function` instead, which only waits and lets the request go on, so that the
-real login still works:
-
-```yaml
-          - name: pre-function
-            config:
-              access:
-                - |
-                  local store = ngx.shared.kong
-                  local seen = store:incr("zqxv_login_attempts", 1, 0)
-                  if seen and seen > 30 then
-                    ngx.sleep(0.6)
-                  end
-```
-
-Then `docker compose --env-file ../../.env up -d --force-recreate --wait kong`, and undo with `git checkout` and
-the same command. A `pre-function` that answers instead of waiting breaks the real login, and the engine then makes
-this test ERROR with that reason, which is the correct behaviour and was seen (2026-10-22).
-
-The third case needs no change to the lab, only a scratch configuration whose login resource is a public endpoint
-that ignores the account: `path: /api/v1/version`, `method: GET`, `auth: none`, `body: null`,
-`values: {credential: version}`. Every attempt is then answered `200`, and the test records
-`WRONG_PASSWORD_ACCEPTED`. (With `auth: basic` instead, Forgejo validates the credential even on a public endpoint
-and answers `401`, which is itself worth knowing.)
-
-**What each branch has been seen doing** (rule 9). Proven on a lab: `EXISTENCE_DISCLOSED_BY_ANSWER`,
-`ATTEMPTS_NOT_LIMITED`, and with the cases above `ATTEMPTS_LIMITED`, `ATTEMPTS_SLOWED` and
-`WRONG_PASSWORD_ACCEPTED` in both sub-tests; the labs, which answer every attempt alike, give the same result as
-before the corrections of 2026-11-04 (measured, 1.7 alone). Seen on the scratch login server only:
-`NO_DISCREPANCY`, `ATTEMPTS_BLOCKED`. On 2026-11-15, Forgejo + Kong, with a temporary route on the login
-request `POST ~/api/v1/users/[^/]+/tokens$` (undone with `git checkout`; no token left behind) whose
-`pre-function` lets the engine's own login through and answers the test's failed attempts itself:
-`TIMING_TOO_SMALL` (the same `401` body for both accounts, answered by Kong in less than 5 ms), `ANSWER_NOT_STABLE`
-(a body cycling over three words), `NO_RESPONSE` on both sub-tests (sleeping 7 s, the run's `target.read_timeout:
-5.0`). The first SKIP reason was seen with a configuration of the run with `auth_type: static_token` and no login
-resource. Not reachable: the second SKIP reason (user_a without username and password: with a login resource the
-configuration requires `auth_type: login`, and without user_a's credentials the engine skips the test first, for
-its unmet need `USER_ACCOUNT`, measured 2026-11-15) and `LOGIN_NOT_ANSWERING` (`_attempt` always returns a record
-or raises, so after the loop the first and last attempts are never missing; a login that does not answer is the
-`NO_RESPONSE` above). `EXISTENCE_DISCLOSED_BY_TIMING` is
-proven on the labs, where the bodies differ as well: the durations are a second channel, judged whether the bodies
-match or not (owner decision, 2026-11-15; section 6 said "the bodies match" until that day). Since the same day
-`NO_DISCREPANCY` and `TIMING_TOO_SMALL` are recorded only when the bodies agree: after an
-`EXISTENCE_DISCLOSED_BY_ANSWER` the code used to add one of them as well, an "enforced" that the answers
-contradicted. The labs' results are unchanged (Forgejo + Kong, Forgejo + APISIX, crAPI: FAIL, 3 findings, measured
-2026-11-15).
-
-## 13. Remediation
-
-Answer a failed authentication the same way whether the account exists or not, and take the same time doing it
-(verify a dummy hash when there is no account). Limit consecutive failures per account and per caller, with a
-`429` or a growing delay.
-
-## 14. Limitations
+## 5. Limitations
 
 - **Account lockout is not probed.** It can only be measured by failing repeatedly against a real account, which
   would lock the operator's own test account and break every later test. What is measured is therefore the limit
@@ -261,7 +158,7 @@ Answer a failed authentication the same way whether the account exists or not, a
 - Only the login the operator declares is probed. Another authentication endpoint (a password reset, a one-time
   code) is not, unless it is the configured login.
 
-## 15. Sources
+## 6. Sources
 
 - OWASP API2:2023 Broken Authentication: https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/
 - OWASP ASVS v5.0.0-6.3.8, this test written out: "Verify that valid users cannot be deduced from failed
@@ -274,3 +171,51 @@ Answer a failed authentication the same way whether the account exists or not, a
 - CWE-307 Improper Restriction of Excessive Authentication Attempts: https://cwe.mitre.org/data/definitions/307.html
 - CWE-204 Observable Response Discrepancy: https://cwe.mitre.org/data/definitions/204.html
 - CWE-208 Observable Timing Discrepancy: https://cwe.mitre.org/data/definitions/208.html
+
+## 7. Inputs
+
+The login request the operator already declares, as the create request of their login resource
+(`credentials.login_resource`): its method, path, body and authentication, with the placeholders `{username}` and
+`{password}`. This test fills those with values of its own instead of the role's account, so it needs no knowledge
+of the target's login and no parameter of its own. The role's account name comes from the configuration.
+
+## 8. Outcomes
+
+SKIP when no login request can be built: `credentials.login_resource` is not configured, its create request
+authenticates with a credential rather than with an account, or the role has no username and password.
+
+## 9. Findings
+
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("1.7")) ]]] -->
+
+- "Failed authentication attempts are not limited"
+- "The login answer says whether the account exists"
+- "The login takes longer for an account that exists"
+
+<!-- [[[end]]] -->
+
+`evidence_ref` the existing account's answer, `supporting_refs` the other's; for the attempts, the last one and the first.
+
+## 10. Effects on the target
+
+`STRESSES_TARGET`: 6 failed attempts for the comparison and up to 101 more, all but three of them against an
+account that cannot exist. Those three carry a wrong password for **the operator's own account**, so on a target
+that locks an account after a few failures they can count towards that lockout; the 101 cannot, which is why they
+go to an account that does not exist. The run order puts this test last (rule 7). On a target that logs or alerts on failed
+authentication, this test will appear in those logs and may raise an alert; whether it does is guarantee 5.2, which
+no test of the tool can check from outside.
+
+## 11. Per gateway
+
+Independent of the gateway: a rate limit may be applied by the gateway or by the application, and either shows up
+as a `429` or as a growing delay.
+
+## 12. Configuration
+
+None. The login request comes from the operator's own `resources` section.
+
+## 13. Remediation
+
+Answer a failed authentication the same way whether the account exists or not, and take the same time doing it
+(verify a dummy hash when there is no account). Limit consecutive failures per account and per caller, with a
+`429` or a growing delay.

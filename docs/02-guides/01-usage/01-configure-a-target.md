@@ -1,10 +1,7 @@
 # Configure a Target
 
 > **Audience:** users · **Status:** v0.1.0 · **Source of truth:** `src/config/schema/tool_config.py`,
-> `src/config/loader.py`, `src/cli.py`, `src/core/tls.py`, per-test pages in [`tests/`](../../05-tests/README.md) ·
-> **Verified:** 2026-10-15 (TLS and certificates: every command run against the labs), 2026-10-06
-> (minimal configuration run against the lab, native tests only, and `generate-seed`; behaviour on a non-Forgejo target from the
-> crAPI lab, see [test portability](../../03-reference/06-compatibility.md#test-portability))
+> `src/config/loader.py`, `src/cli.py`, `src/core/tls.py`, per-test pages in [`tests/`](../../05-tests/README.md)
 
 How to point the tool at your own API. Do this **only against systems you are allowed to test**: the tool sends
 unauthenticated requests to every endpoint, requests with invalid tokens, and SSRF payloads.
@@ -59,7 +56,7 @@ SKIP (what they need is not configured):` and one line per test with its reason:
 and 5.1, a user account for 1.2, 1.3, 1.4, 1.6, 1.7, 2.1, 2.2, 2.5, 6.1, 7.2 and 7.3, a second account for 2.2, a
 revocable login for 1.4, and a parameter for 2.2, 2.5, 7.1, 7.2, 7.3 and 7.4. The 28 are the native tests: the
 external ones are off until you enable them. They are not errors: the next steps give the tests what they need, and
-`apiguard list-tests -c my-api.yaml` shows the same for every test (verified 2026-11-05).
+`apiguard list-tests -c my-api.yaml` shows the same for every test.
 
 `validate-config` checks the file and the certificate files of the `tls` blocks: it does not contact the API and does
 not check that the specification exists (that happens when the run starts).
@@ -289,8 +286,7 @@ fill (they fall back to the placeholder), and paste the block under `target:` in
 `${VAR}` too.
 
 Only fill in what you can: the more parameters point to real resources, the fewer inconclusive probes. The lab's
-`config.yaml` is a complete example. Measured on the lab, test 1.1 (2026-11-05): 371 not-verifiable judgements
-out of 486 without `path_seed`, 261 with it.
+`config.yaml` is a complete example: on it, `path_seed` roughly halves the judgements test 1.1 cannot verify.
 
 **Use resources created for the test, never real data.** Test 1.1 also sends `DELETE` requests without
 credentials to the seeded resources: on a correctly protected API they are rejected, but if authentication is
@@ -356,7 +352,7 @@ read-only first:
 
 <!-- [[[end]]] -->
 
-What each test does concretely is the "Prerequisites and effects on the target" section of its
+What each test does concretely is the "Effects on the target" section of its
 [test page](../../05-tests/README.md). Four are worth knowing before the first run on a system that matters:
 
 - **1.1** sends write methods without credentials on every protected endpoint, including the `path_seed`

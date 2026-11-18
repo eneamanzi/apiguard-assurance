@@ -1,8 +1,7 @@
 # 4.2 Timeout Configuration Audit
 
-> **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-27), again with its oracle in code (2026-11-16) · **Source of truth:**
-> [`src/tests/domain_4/test_4_2_timeout_config_audit.py`](../../../src/tests/domain_4/test_4_2_timeout_config_audit.py) ·
-> **Verified:** 2026-11-16
+> **Audience:** analysts, contributors · **Source of truth:**
+> [`src/tests/domain_4/test_4_2_timeout_config_audit.py`](../../../src/tests/domain_4/test_4_2_timeout_config_audit.py)
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("4.2", page=cog.inFile)) ]]] -->
 
@@ -36,7 +35,9 @@ gateway's own default, is within the thresholds. It promises nothing about the a
 connection pool, its outbound calls), which the admin plane does not show, and nothing about whether the gateway
 honours the bound: no slow backend is simulated.
 
-## 2. Sub-tests and coverage of the methodology
+## 2. Test
+
+### 2.1 Sub-tests and coverage of the methodology
 
 | Sub-test | Methodology (guarantee 4.2) |
 |---|---|
@@ -45,23 +46,17 @@ honours the bound: no slow backend is simulated.
 | `write_timeout` | the write timeout of each backend (the time allowed between two writes) |
 | left out | the application's connection-pool timeouts and the timeouts on outbound calls in application code (no access to the application's configuration), and the behavioural test with a slow mock backend (staging only) |
 
-## 3. Inputs
-
-One gateway concept read through the adapter: `backend_timeouts` (`src/core/gateway/`). One item per backend (a Kong
-service) or per route that overrides its backend's timeouts (APISIX). No request is sent to the API.
-
-## 4. Preconditions and reference responses
+### 2.2 Preconditions and reference responses
 
 `Need.GATEWAY` (the Admin API). No reference responses: the configuration read is the evidence.
 
-## 5. Probes
+### 2.3 Probes
 
 None: a configuration audit. The concept is read and pinned as evidence.
 
-## 6. Oracle
+## 3. Oracle
 
-Thresholds, from the methodology (NIST SP 800-204A asks for timeouts, recommendation SM-DR9 in section 4.3, but sets
-no value: read on the PDF 2026-11-05; the bounds were attributed to it until then): `max_connect_timeout_ms` 5,000,
+Thresholds, from the methodology: `max_connect_timeout_ms` 5,000,
 `max_read_timeout_ms` 30,000, `max_write_timeout_ms` 30,000. Each item gives one judgement in each sub-test, on its
 own field:
 
@@ -104,19 +99,77 @@ own field:
 
 A timeout the configuration does not set still has a value: the one the gateway applies by default. When the adapter
 states it (the concept names the field in `defaulted`), it is judged like any other value. When it does not, the
-value is unknown and nothing is concluded. Until 2026-11-05 an unset field was a CERTAIN violation claiming "no
-bound", which was false on APISIX, where the bound is nginx's 60 s. `UNBOUNDED` was `NOT_CONFIGURED` until
-2026-11-16, when the concept stated what a `0` means (no bound); "not configured" is an unset value, judged at its
-default. Which branches can occur depends on the gateway (section 10).
+value is unknown and nothing is concluded. `UNBOUNDED` is a `0` (no bound); "not configured" is an unset value,
+judged at its default. Which branches can occur depends on the gateway (section 11).
 
-## 7. Outcomes
+## 4. Validation
+
+### 4.1 Oracle cases
+
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_validation("4.2", page=cog.inFile)) ]]] -->
+
+Every case of the oracle, produced on a lab and judged by the code: E1, [oracle validation](../../../experiments/README.md), campaign at commit `fc60b6f`. 12 of 12 produced cases gave the declared outcome; 6 no lab can produce.
+
+| Case | Lab, how it is produced | Result |
+|---|---|---|
+| `connect_timeout/ENFORCED/WITHIN_LIMIT` | forgejo-kong: the lab as built: forgejo-service and hmac-audit-dummy at 5,000 / 30,000 / 30,000 ms | OK |
+| `connect_timeout/VIOLATION/ABOVE_LIMIT/CERTAIN` | forgejo-kong: the lab as built (connect_timeout 5,000 ms, stated by Kong as set), with the run's max_connect_timeout_ms lowered to 4,000 | OK |
+| `connect_timeout/VIOLATION/ABOVE_LIMIT/FIRM` | forgejo-apisix: the timeout object removed from APISIX's forgejo-upstream: the adapter states nginx's 60 s default, named in defaulted | OK |
+| `connect_timeout/VIOLATION/UNBOUNDED/CERTAIN` | not producible (gateway): Kong's schema forbids 0 ('value should be between 1 and 2147483646'), APISIX's too (exclusiveMinimum 0 on each timeout) | - |
+| `connect_timeout/NOT_VERIFIABLE/NOT_STATED` | not producible (gateway): both adapters state a default: Kong reports its 60,000 ms defaults as if set, the APISIX adapter states nginx's 60 s | - |
+| `connect_timeout/NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE` | forgejo-kong: the run's gateway.admin.url points to a closed port | OK |
+| `read_timeout/ENFORCED/WITHIN_LIMIT` | forgejo-kong: the lab as built: read_timeout 30,000 ms on both services | OK |
+| `read_timeout/VIOLATION/ABOVE_LIMIT/CERTAIN` | forgejo-kong: the lab as built (read_timeout 30,000 ms, stated by Kong as set), with the run's max_read_timeout_ms lowered to 20,000 | OK |
+| `read_timeout/VIOLATION/ABOVE_LIMIT/FIRM` | forgejo-apisix: the timeout object removed from APISIX's forgejo-upstream: the adapter states nginx's 60 s default, named in defaulted | OK |
+| `read_timeout/VIOLATION/UNBOUNDED/CERTAIN` | not producible (gateway): Kong's schema forbids 0 ('value should be between 1 and 2147483646'), APISIX's too (exclusiveMinimum 0 on each timeout) | - |
+| `read_timeout/NOT_VERIFIABLE/NOT_STATED` | not producible (gateway): both adapters state a default: Kong reports its 60,000 ms defaults as if set, the APISIX adapter states nginx's 60 s | - |
+| `read_timeout/NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE` | forgejo-kong: the run's gateway.admin.url points to a closed port | OK |
+| `write_timeout/ENFORCED/WITHIN_LIMIT` | forgejo-kong: the lab as built: write_timeout 30,000 ms on both services | OK |
+| `write_timeout/VIOLATION/ABOVE_LIMIT/CERTAIN` | forgejo-kong: the lab as built (write_timeout 30,000 ms, stated by Kong as set), with the run's max_write_timeout_ms lowered to 20,000 | OK |
+| `write_timeout/VIOLATION/ABOVE_LIMIT/FIRM` | forgejo-apisix: the timeout object removed from APISIX's forgejo-upstream: the adapter states nginx's 60 s default, named in defaulted | OK |
+| `write_timeout/VIOLATION/UNBOUNDED/CERTAIN` | not producible (gateway): Kong's schema forbids 0 ('value should be between 1 and 2147483646'), APISIX's too (exclusiveMinimum 0 on each timeout) | - |
+| `write_timeout/NOT_VERIFIABLE/NOT_STATED` | not producible (gateway): both adapters state a default: Kong reports its 60,000 ms defaults as if set, the APISIX adapter states nginx's 60 s | - |
+| `write_timeout/NOT_VERIFIABLE/CONCEPT_NOT_ACCESSIBLE` | forgejo-kong: the run's gateway.admin.url points to a closed port | OK |
+
+<!-- [[[end]]] -->
+
+### 4.2 Results on the labs
+
+<!-- [[[cog import generate_docs as g; cog.out(g.lab_results("4.2", page=cog.inFile)) ]]] -->
+
+No E2 campaign yet ([experiments](../../../experiments/README.md)).
+
+<!-- [[[end]]] -->
+
+## 5. Limitations
+
+- Only the gateway's own timeouts are judged. The application's connection pool and the timeouts of its outbound
+  calls are not visible from the admin plane and are not checked.
+- The thresholds are the methodology's, not the target's: a backend that legitimately needs longer is a finding
+  until the parameter is raised and the deviation documented.
+- Nothing is verified behaviourally: a slow backend is not simulated, so the test says the bound is configured, not
+  that the gateway honours it.
+- Every backend the gateway states is judged, also one that no route reaches: its timeouts hold no worker until a
+  route uses it, and its finding is about the configuration only.
+
+## 6. Sources
+
+- OWASP API4:2023 Unrestricted Resource Consumption: https://owasp.org/API-Security/editions/2023/en/0xa4-unrestricted-resource-consumption/
+- NIST SP 800-204A section 4.3 (recommendation SM-DR9: retries, timeouts, circuit breakers configured for access to external resources; no numeric value anywhere in the document): https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-204A.pdf
+- OWASP ASVS v5.0.0-13.2.6 (connections to separate services follow their documented configuration, connection timeouts among it; Level 3): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x22-V13-Configuration.md. - CWE-400 Uncontrolled Resource Consumption: https://cwe.mitre.org/data/definitions/400.html
+
+## 7. Inputs
+
+One gateway concept read through the adapter: `backend_timeouts` (`src/core/gateway/`). One item per backend (a Kong
+service) or per route that overrides its backend's timeouts (APISIX). No request is sent to the API.
+
+## 8. Outcomes
 
 SKIP without a gateway adapter, when the gateway has no such concept, or when no backend is registered.
-INCONCLUSIVE when the Admin API cannot be read: `CONCEPT_NOT_ACCESSIBLE` on every sub-test (until 2026-11-04 a
-SKIP). FAIL on any violation, one finding each. PASS otherwise, always with `coverage:
+INCONCLUSIVE when the Admin API cannot be read: `CONCEPT_NOT_ACCESSIBLE` on every sub-test. FAIL on any violation, one finding each. PASS otherwise, always with `coverage:
 complete`: every field read is judged, so a run that read the timeouts has no not-verifiable case.
 
-## 8. Findings
+## 9. Findings
 
 <!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("4.2")) ]]] -->
 
@@ -126,14 +179,12 @@ complete`: every field read is judged, so a run that read the timeouts has no no
 <!-- [[[end]]] -->
 
 One per field above the threshold or unbounded; `<subject>` is "service '<name>'" (a backend) or "route '<name>'".
-The `evidence_ref` of each is the pinned `backend_timeouts` artifact, not an HTTP transaction. Until 2026-11-16 this
-section listed a third title, "Timeout Field Absent", that the code no longer wrote.
-
-## 9. Effects on the target
+The `evidence_ref` of each is the pinned `backend_timeouts` artifact, not an HTTP transaction. 
+## 10. Effects on the target
 
 `READ_ONLY`: read-only calls to the gateway's Admin API, nothing sent to the API.
 
-## 10. Per gateway
+## 11. Per gateway
 
 **Kong** always states the three timeouts: a service that omits them is served with Kong's own defaults of
 60,000 ms each, which the Admin API reports as if they had been set. So `NOT_STATED` cannot occur on Kong, and
@@ -143,12 +194,12 @@ practical consequence is the opposite of a gap: a Kong service left at its defau
 
 **APISIX** states the timeouts of an upstream, or of a route that overrides them, and omits the field when it is not
 configured. APISIX then sets no timeout at all (`apisix/balancer.lua` sets them only from a route's or an upstream's
-`timeout`, read in the lab's container 2026-11-05), so nginx's own proxy timeouts apply, at their default of 60 s
+`timeout`, read in the lab's container), so nginx's own proxy timeouts apply, at their default of 60 s
 (nginx.org, `proxy_connect_timeout`, `proxy_send_timeout`, `proxy_read_timeout`). The adapter states that default
 and names the field in `defaulted`: an unset APISIX timeout is an `ABOVE_LIMIT` violation at FIRM. `NOT_STATED`
 cannot occur on either supported gateway; it is there for an adapter that does not know its gateway's default.
 
-## 11. Configuration
+## 12. Configuration
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_params("4.2", page=cog.inFile)) ]]] -->
 
@@ -165,64 +216,8 @@ Section [`tests.domain_4.test_4_2`](../../03-reference/01-configuration.md#tests
 Raise one only when the target is deliberately configured with a longer timeout and the deviation is an accepted,
 documented risk.
 
-## 12. Validation
-
-**2026-11-16**, after the review (4.2 with 4.1, 4.3, 4.4 on each lab as configured): **PASS** complete on the three
-labs, as on 2026-10-27 (6, 12 and 3 enforced). The oracle declared in the code, `NOT_CONFIGURED` renamed
-`UNBOUNDED` and ASVS 16.5.2 replaced by 13.2.6 change no result.
-
-Runs of 2026-10-27, one targeted run per lab:
-
-| Lab | Status | Basis |
-|---|---|---|
-| Forgejo + Kong | **PASS** complete | 6 enforced over 2 services, each at 5,000 / 30,000 / 30,000 ms |
-| crAPI + Kong | **PASS** complete | 12 enforced over 4 services |
-| Forgejo + APISIX | **PASS** complete | 3 enforced over 1 upstream |
-| Forgejo + Kong, with the case below | **FAIL**, 1 finding | `connect_timeout` raised to 6,000 ms on `forgejo-service`: 1 violation `ABOVE_LIMIT` at CERTAIN, 5 enforced |
-| Forgejo + Kong, with the timeouts removed from a service | **FAIL**, 3 findings | Kong served its 60,000 ms defaults and reported them: three `ABOVE_LIMIT` violations on `hmac-audit-dummy`, 3 enforced |
-| no gateway in the configuration | **SKIP** | `Needs GATEWAY: no gateway is configured (gateway.adapter and gateway.admin.url).` |
-
-**The case the labs lack, and how to undo it.** Every lab configures its timeouts within the thresholds. To see the
-violation, raise one above its threshold in `test-environments/forgejo-kong/kong/kong.yml`, inside
-`services[forgejo-service]`:
-
-```yaml
-    connect_timeout: 6000
-```
-
-Then `cd test-environments/forgejo-kong && docker compose --env-file ../../.env up -d --force-recreate --wait kong`;
-undo with `git checkout` and the same command. Removing the three `*_timeout` lines from a service instead shows
-Kong's defaults being judged. Setting one to `0` does **not** work: Kong refuses to load the configuration
-(`in 'read_timeout': value should be between 1 and 2147483646`) and the container stays unhealthy.
-
-**What each branch has been seen doing** (rule 9). Proven on a lab: `WITHIN_LIMIT` on all three gateways, and
-`ABOVE_LIMIT` both from an explicit value and from Kong's defaults, with the SKIP branch for an absent gateway.
-`ABOVE_LIMIT` from APISIX's defaults was seen on 2026-11-15 (Forgejo + APISIX, the upstream's `timeout` object
-removed from `apisix/setup.sh` and the setup run again, then `git checkout` and the setup again): **FAIL**, three
-`ABOVE_LIMIT` at FIRM, 60,000 ms each, the defaults the adapter states. Not reachable with the supported gateways:
-`UNBOUNDED` (Kong's schema forbids `0`, APISIX's too: `exclusiveMinimum` 0 on each timeout) and `NOT_STATED` (both
-adapters state a default).
-
 ## 13. Remediation
 
 Set connect, read and write timeouts explicitly on every backend, within the thresholds (connect at most 5 s, read
 and write at most 30 s), instead of relying on the gateway's defaults: on Kong those defaults are 60 s and leave a
 failing backend holding a worker for a minute per request (OWASP API4:2023, NIST SP 800-204A section 4.3).
-
-## 14. Limitations
-
-- Only the gateway's own timeouts are judged. The application's connection pool and the timeouts of its outbound
-  calls are not visible from the admin plane and are not checked.
-- The thresholds are the methodology's, not the target's: a backend that legitimately needs longer is a finding
-  until the parameter is raised and the deviation documented.
-- Nothing is verified behaviourally: a slow backend is not simulated, so the test says the bound is configured, not
-  that the gateway honours it.
-- Every backend the gateway states is judged, also one that no route reaches: its timeouts hold no worker until a
-  route uses it, and its finding is about the configuration only.
-
-## 15. Sources
-
-- OWASP API4:2023 Unrestricted Resource Consumption: https://owasp.org/API-Security/editions/2023/en/0xa4-unrestricted-resource-consumption/
-- NIST SP 800-204A section 4.3 (recommendation SM-DR9: retries, timeouts, circuit breakers configured for access to external resources; no numeric value anywhere in the document): https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-204A.pdf
-- OWASP ASVS v5.0.0-13.2.6 (connections to separate services follow their documented configuration, connection timeouts among it; Level 3): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x22-V13-Configuration.md. Until 2026-11-16 the test cited 16.5.2 (operate securely when external resource access fails), which names circuit breakers and graceful degradation, not timeouts: test 4.3 keeps it.
-- CWE-400 Uncontrolled Resource Consumption: https://cwe.mitre.org/data/definitions/400.html

@@ -2,10 +2,7 @@
 
 > **Audience:** contributors · **Status:** v0.1.0 · **Source of truth:** `src/core/test_metadata.py` (`TestInfo`),
 > `src/core/assessment_test.py`, `src/tests/base.py`, `src/core/test_discovery.py`, `src/engine.py` (Phase 3), the
-> existing tests in `src/tests/domain_*/` · **Verified:** 2026-10-05; declaration and discovery 2026-10-16.
-> Snippets are copied from `src/tests/domain_4/test_4_2_timeout_config_audit.py` (parameters) and
-> `src/tests/domain_2/test_2_1_function_level_authorization.py` (declaration).
-> The previous long version of this guide is in git history (commit `fd3bd90`).
+> existing tests in `src/tests/domain_*/`
 
 A native test is a Python class that checks one methodology guarantee by sending HTTP requests through the tool's
 client. For a test that runs an external binary or library, see
@@ -33,7 +30,7 @@ difference, and when a test has no page. Still by hand: the page's prose and the
 Nothing else declares a test: no list of tests, no configuration container, no line in `engine.py`. The test is
 discovered by its module name, its parameters are checked against the model it declares (the user's keys are
 `tests.domain_<D>.test_<D>_<N>.<param>`, derived from the ID), and a mistake in either stops the run at startup with
-a message naming the test (verified 2026-10-17).
+a message naming the test.
 
 ## 1. Parameters
 
@@ -155,7 +152,7 @@ A sub-test whose question is one of those answers declares it, with the reason, 
 ```
 
 The test page shows the rule as it applies to the test, generated from this declaration: put the block
-`uninformative_answers("X.Y", page=cog.inFile)` at the end of section 6 (a test that uses the rule without it
+`uninformative_answers("X.Y", page=cog.inFile)` at the end of the Oracle section (a test that uses the rule without it
 stops `dev:gen`), and write in the oracle table only the test's own cases.
 
 `effect` and `sub_tests` are mandatory: `effect` sets the run order (read-only tests first, then the ones that
@@ -315,7 +312,7 @@ sends on purpose as `Authorization` (e.g. a malformed token) is not a secret: de
 | `auth.py` | `acquire_tokens(target, context, client, required_roles=...)`: obtains each role's credential with the method of `credentials.auth_type` (`auth_static.py`: `basic`, `static_token`; `auth_login.py`: `login`, from a prepared resource) and stores it in `TestContext`. `auth_parts(target, context, role)`: the headers and query parameters that carry it, as the run's credential placement says; never write `Authorization: Bearer` in a test. `revocation_capability(target)`: the method when, as configured, it can revoke a credential (test 1.4), else `None` |
 | `path_resolver.py` | `resolve_path_with_seed(path, seed, fallback)`, `extract_param_names_from_path(path)`; the constant `PATH_PARAM_FALLBACK_DEFAULT` (`"1"`). For a probe whose method **writes**, do not resolve the path here: use `random_sibling_path` (`src/core/references.py`), which fills every parameter with a random value so the request cannot reach an object that exists |
 | `resources.py` | `create_resource(target, context, client, name, role, test_id)`: creates a [prepared resource](../../03-reference/01-configuration.md#resources) of `config.yaml` for a role, reads its values, registers its deletion for teardown and the credential as a secret; `delete_resource(...)`: sends its delete request at once. A test that needs an object on the target takes a resource name from its configuration (as 7.2's `url_accepting_endpoint.resource`), never a path written in the code |
-| `response_inspector.py` | `contains_stack_trace(body)`, `extract_debug_fields(data)`, `find_leaky_headers(headers)`: the three detectors of test 6.1, pure and without HTTP. Five more functions (a security-header policy, sensitive field names, the uniformity of authentication errors) were removed on 2026-10-28: no test called them, and each job belongs to a test that does it better or has decided not to (6.2, 2.5, 1.7) |
+| `response_inspector.py` | `contains_stack_trace(body)`, `extract_debug_fields(data)`, `find_leaky_headers(headers)`: the three detectors of test 6.1, pure and without HTTP. |
 
 **Payload data** (`src/tests/data/`): `inspector_patterns.py` (the stack-trace patterns of test 6.1),
 `ssrf_payloads.py` (the SSRF payloads of test 7.2). Put a reusable payload list there, not in the test; a list only
@@ -344,8 +341,11 @@ There is no automated test suite. Verify against the lab target:
 3. Check in the run's `apiguard_report.json` (`outputs/forgejo/` with the lab configuration) that the test appears with the expected status, findings and oracle
    states, and that FAIL evidence is in `evidence.json`.
 4. Write the test page in [`docs/05-tests/`](../../05-tests/README.md), then `hatch run dev:gen`.
-5. `hatch run dev:check` (ruff, ruff format, mypy, bandit, vulture, lint-imports, the configuration keys, the
-   generated documentation) - see [`coding-rules.md`](01-coding-rules.md).
+5. `hatch run dev:python experiments/e1-oracle-validation/sync.py`: the new test's oracle rows become its validation cases
+   (`experiments/e1-oracle-validation/cases/<D>.<N>.yaml`); fill each with how a lab produces it (a variant in `experiments/e1-oracle-validation/variants/`) or why
+   none can, then `hatch run dev:e1-oracle-validation --test <D>.<N>` ([`experiments/e1-oracle-validation/README.md`](../../../experiments/e1-oracle-validation/README.md)).
+6. `hatch run dev:check` (ruff, ruff format, mypy, bandit, vulture, lint-imports, the configuration keys, the
+   generated documentation, the validation cases) - see [`coding-rules.md`](01-coding-rules.md).
 
 ## Common errors
 

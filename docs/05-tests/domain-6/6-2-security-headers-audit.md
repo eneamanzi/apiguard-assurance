@@ -1,9 +1,7 @@
 # 6.2 Security Headers Audit
 
-> **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-23) ·
-> **Source of truth:**
-> [`src/tests/domain_6/test_6_2_security_headers_audit.py`](../../../src/tests/domain_6/test_6_2_security_headers_audit.py),
-> [`src/tests/helpers/sampling.py`](../../../src/tests/helpers/sampling.py) · **Verified:** 2026-10-23
+> **Audience:** analysts, contributors · **Source of truth:**
+> [`src/tests/domain_6/test_6_2_security_headers_audit.py`](../../../src/tests/domain_6/test_6_2_security_headers_audit.py), [`src/tests/helpers/sampling.py`](../../../src/tests/helpers/sampling.py)
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("6.2", page=cog.inFile)) ]]] -->
 
@@ -30,37 +28,33 @@
 The defensive security headers are present, sound, and consistent across the services of the API. A PASS promises
 `X-Content-Type-Options: nosniff`, a framing protection (a CSP `frame-ancestors` that does not allow any site, or X-Frame-Options when there is
 none), and a CORS policy that does not allow an arbitrary origin with credentials, on every sampled endpoint. OWASP
-API8:2023; ASVS v5.0.0-3.4.2 (CORS), 3.4.4 (nosniff), 3.4.6 (frame-ancestors). 3.4.3 (a script CSP) was cited until
-2026-11-05 and is not checked here. HSTS moved to 1.5; Permissions-Policy dropped (not in
-ASVS 3.4). Primary CWE: CWE-1021 (improper restriction of rendered UI layers or frames), the weakness the framing
+API8:2023; ASVS v5.0.0-3.4.2 (CORS), 3.4.4 (nosniff), 3.4.6 (frame-ancestors). 3.4.3 (a script CSP) is not checked here; HSTS is test 1.5's; Permissions-Policy is not
+checked (not in ASVS 3.4). Primary CWE: CWE-1021 (improper restriction of rendered UI layers or frames), the weakness the framing
 sub-test looks for, allowed for mapping in CWE 4.20; CWE-16 is not used because it is a category prohibited for
 mapping.
 
-## 2. Sub-tests and coverage of the methodology
+## 2. Test
+
+### 2.1 Sub-tests and coverage of the methodology
 
 | Sub-test | Methodology (guarantee 6.2) |
 |---|---|
 | `content_type_options` | "X-Content-Type-Options: nosniff" (ASVS 3.4.4) |
 | `framing_protection` | "X-Frame-Options / CSP frame-ancestors" (ASVS 3.4.6) |
-| `cors_not_wildcard` | the arbitrary `Origin` is not granted with credentials; the methodology states it under guarantee 6.3 ("CORS strict"), which has no test of its own, and this test covers that part (until 2026-11-16 this row quoted it as 6.2's) |
+| `cors_not_wildcard` | the arbitrary `Origin` is not granted with credentials; the methodology states it under guarantee 6.3 ("CORS strict"), which has no test of its own, and this test covers that part |
 | consistency | "present on one endpoint and absent on another is a misconfiguration": each check is judged across a sample |
 | left out | HSTS (test 1.5); Permissions-Policy (not in ASVS 3.4) |
 
-## 3. Inputs
-
-A sample of documented GET operations, one per service prefix (`src/tests/helpers/sampling.py`). No credential (the
-headers must be on every response, including public ones).
-
-## 4. Preconditions and reference responses
+### 2.2 Preconditions and reference responses
 
 The attack surface. For CORS, an arbitrary `Origin` is sent and the reflection judged; no other reference.
 
-## 5. Probes
+### 2.3 Probes
 
 For each sampled endpoint, one GET (the three header checks) and one GET with an arbitrary `Origin` (CORS).
 READ_ONLY.
 
-## 6. Oracle
+## 3. Oracle
 
 Each check is judged over the sample: an answer of the table below is not the API's (it may be the gateway's own
 error page) and is left out; with no usable answer left a sub-test is `NOT_VERIFIABLE` with their reason.
@@ -98,12 +92,7 @@ error page) and is left out; with no usable answer left a sub-test is `NOT_VERIF
 
 A header sent twice reaches the test joined (`nosniff, nosniff`, httpx's reading of repeated fields): nosniff counts
 when its first value is `nosniff` (the Fetch standard), X-Frame-Options when all its values are the same `DENY` or
-`SAMEORIGIN` (the HTML standard). Until 2026-11-16 the joined text was compared whole, so an application and a
-gateway both setting the header read as `MISSING`, CERTAIN; `frame-ancestors https://*` passed although it allows
-any site; X-Frame-Options alone was `PRESENT`, citing ASVS 3.4.6, which asks for `frame-ancestors` (now
-`XFO_ONLY` with a note); and a refusal without CORS headers was `ORIGIN_NOT_ALLOWED`, although an application may
-add them only after its authentication (now it counts only when served, else `PROBE_NOT_SERVED`).
-`CORS_WILDCARD_CREDENTIALS` is FIRM: browsers refuse `*` with credentials (Fetch standard), so it exposes nothing as
+`SAMEORIGIN` (the HTML standard). `CORS_WILDCARD_CREDENTIALS` is FIRM: browsers refuse `*` with credentials (Fetch standard), so it exposes nothing as
 it stands; it shows a policy meant to share credentialed responses with any origin (ASVS v5.0.0-3.4.2 allows `*`
 only without sensitive information).
 
@@ -120,87 +109,44 @@ The answers that say nothing about the guarantee by themselves, one rule for eve
 
 <!-- [[[end]]] -->
 
-## 7. Outcomes
+## 4. Validation
 
-SKIP without a documented GET. FAIL on a missing, inconsistent or unsafe-CORS header; PASS when all three hold
-across the sample.
+### 4.1 Oracle cases
 
-## 8. Findings
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_validation("6.2", page=cog.inFile)) ]]] -->
 
-<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("6.2")) ]]] -->
+Every case of the oracle, produced on a lab and judged by the code: E1, [oracle validation](../../../experiments/README.md), campaign at commit `fc60b6f`. 16 of 16 produced cases gave the declared outcome; 0 no lab can produce.
 
-- "X-Content-Type-Options: nosniff inconsistent across services"
-- "X-Content-Type-Options: nosniff missing"
-- "Clickjacking protection inconsistent across services"
-- "Clickjacking protection missing"
-- "Unsafe CORS: an arbitrary origin is allowed with credentials"
-- "CORS allows any origin ('*') together with credentials"
+| Case | Lab, how it is produced | Result |
+|---|---|---|
+| `content_type_options/ENFORCED/PRESENT` | forgejo-kong: the lab as built: the service's response-transformer sets X-Content-Type-Options: nosniff on the sampled answer | OK |
+| `content_type_options/VIOLATION/MISSING/CERTAIN` | forgejo-kong: forgejo-service's response-transformer no longer adds or replaces X-Content-Type-Options and X-Frame-Options and removes Forgejo's own | OK |
+| `content_type_options/VIOLATION/INCONSISTENT/CERTAIN` | crapi-kong: crAPI's response-transformer sets nosniff and X-Frame-Options under replace only, so the community service's answers (which send neither) lack them while identity's and workshop's carry them | OK |
+| `framing_protection/ENFORCED/PRESENT` | forgejo-kong: forgejo-service's response-transformer adds Content-Security-Policy: default-src 'self'; frame-ancestors 'none', so every sampled answer has a frame-ancestors that allows no site | OK |
+| `framing_protection/VIOLATION/MISSING/CERTAIN` | forgejo-kong: forgejo-service's response-transformer no longer sets X-Frame-Options and removes Forgejo's own SAMEORIGIN; its CSP (default-src 'self') has no frame-ancestors | OK |
+| `framing_protection/VIOLATION/INCONSISTENT/CERTAIN` | crapi-kong: crAPI's response-transformer sets X-Frame-Options under replace only, so the community service's answers lack it while identity's and workshop's carry it | OK |
+| `framing_protection/ENFORCED/XFO_ONLY` | forgejo-kong: the lab as built: X-Frame-Options: DENY on the sampled answer and a CSP default-src 'self' without frame-ancestors | OK |
+| `cors_not_wildcard/VIOLATION/CORS_ORIGIN_REFLECTED/CERTAIN` | forgejo-kong: a temporary route GET ~/api/v1/orgs$ whose pre-function (header_filter) sends back the request's Origin with Access-Control-Allow-Credentials true on Forgejo's answer | OK |
+| `cors_not_wildcard/VIOLATION/CORS_WILDCARD_CREDENTIALS/FIRM` | forgejo-kong: a temporary route GET ~/api/v1/orgs$ whose pre-function (header_filter) sends Access-Control-Allow-Origin: * with Access-Control-Allow-Credentials true on Forgejo's answer | OK |
+| `cors_not_wildcard/ENFORCED/CORS_BOUNDED` | crapi-kong: the lab as built: crAPI's answers grant CORS, none to the arbitrary origin with credentials | OK |
+| `cors_not_wildcard/ENFORCED/ORIGIN_NOT_ALLOWED` | forgejo-kong: the lab as built: Forgejo serves GET /api/v1/orgs to the arbitrary Origin with no CORS header | OK |
+| `cors_not_wildcard/NOT_VERIFIABLE/PROBE_NOT_SERVED` | forgejo-kong: a temporary route GET ~/api/v1/orgs$ (the only sampled read) answers 401 itself with request-termination, with no CORS header, to the plain GET and to the cross-origin probe | OK |
+| `*/NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` | forgejo-kong: a temporary route on the sampled read GET ~/api/v1/orgs$ answers 503 itself, to the plain GET and to the cross-origin probe | OK |
+| `*/NOT_VERIFIABLE/RATE_LIMITED` | forgejo-kong: a temporary route on the sampled read GET ~/api/v1/orgs$ answers 429 itself | OK |
+| `*/NOT_VERIFIABLE/SERVER_ERROR` | forgejo-kong: a temporary route GET ~/api/v1/orgs$ answers 500 itself | OK |
+| `*/NOT_VERIFIABLE/NO_RESPONSE` | forgejo-kong: a temporary route on the sampled read GET ~/api/v1/orgs$ sleeps 7 s before proxying, past the run's read timeout of 5 s | OK |
 
 <!-- [[[end]]] -->
 
-Each names how many sampled endpoints and an example. The proof (`evidence_ref`) is the response of that example
-endpoint, and for CORS the answer to the cross-origin probe on it. Until 2026-11-03 it was the last response
-sampled, which for an inconsistent header could be an endpoint that carries it.
+### 4.2 Results on the labs
 
-## 9. Effects on the target
+<!-- [[[cog import generate_docs as g; cog.out(g.lab_results("6.2", page=cog.inFile)) ]]] -->
 
-`READ_ONLY`.
+No E2 campaign yet ([experiments](../../../experiments/README.md)).
 
-## 10. Per gateway
+<!-- [[[end]]] -->
 
-Independent of the adapter: the headers are the gateway's or the app's; the probe reads them. Consistency across
-services is exactly what a per-route gateway misconfiguration breaks.
-
-## 11. Configuration
-
-None.
-
-## 12. Validation
-
-**2026-11-16, after the review**: **PASS** on the three labs, `framing_protection` as `XFO_ONLY` with its note (the
-labs' CSP is `default-src 'self'`, without `frame-ancestors`). Forgejo + Kong with a `post-function` on
-`forgejo-api-route` sending `X-Frame-Options: DENY` and `X-Content-Type-Options: nosniff` twice each (checked with
-`curl`: two lines of each): **PASS**; until that day the joined values (`DENY, DENY`) read as `MISSING`, CERTAIN. A
-`response-transformer` `append` did not repeat the headers on Kong 3.9.3 and proves nothing.
-
-Runs of 2026-10-28 (the coverage column was added when a skipped sub-test began to lower it):
-
-| Lab | Status | Basis |
-|---|---|---|
-| Forgejo + Kong, Forgejo + APISIX | **PASS**, `complete` (2026-11-03) | nosniff and framing present and consistent across the sampled services; no response to the arbitrary `Origin` carried a CORS grant, so `cors_not_wildcard` is `ENFORCED/ORIGIN_NOT_ALLOWED`. Until that day the same answer was judged `NOT_APPLICABLE/NO_CORS` and left the test `partial` |
-| crAPI + Kong, until 2026-11-05 | **FAIL**, 2 findings | nosniff and framing are **inconsistent** across crAPI's services: absent on the community service's answers, present on the others. The cause was the lab's own gateway, not crAPI: its Kong set the two headers with `response-transformer` `replace`, which in Kong only rewrites a header the backend already sent (`kong/plugins/response-transformer/header_transformer.lua`, Kong 3.9.3), and crAPI's community service sends neither. A true finding for that deployment, which the single-endpoint check would have missed; CORS bounded |
-| crAPI + Kong, 2026-11-05, the lab's Kong corrected | **PASS**, `complete` | the two headers are now also under `add` (set when absent), with `replace` kept for a backend that sends its own value (Forgejo's `SAMEORIGIN`): present on the three sampled services |
-
-Rule 9, both sides proven, agnostically: ENFORCED on Forgejo and on the corrected crAPI lab, VIOLATION
-(inconsistency) on crAPI before the correction. The sampling (one endpoint per service) is what surfaced the
-inconsistency; a single-endpoint check would have passed crAPI. To see the violation again, move the two headers
-back under `replace` only in `test-environments/crapi-kong/kong/kong.yml` and recreate the gateway (`docker compose
---env-file ../../.env up -d --force-recreate --wait kong`).
-
-**With the backend stopped** (Forgejo + Kong, the `forgejo` container stopped). The only sampled endpoint answers
-Kong's own `503` ("failure to get a peer from the ring-balancer"). On 2026-11-14 the headers Kong adds were found
-on it and judged present (**PASS** partial); since 2026-11-15 that answer is not judged: **INCONCLUSIVE**,
-`NO_RESPONSE` on the three sub-tests (measured 2026-11-15; the three labs, running, give the results above).
-
-**What each branch has been seen doing** (rule 9). Proven on a lab: `PRESENT` (both Forgejo labs, crAPI corrected),
-`INCONSISTENT` (crAPI before the correction), `ORIGIN_NOT_ALLOWED` (both Forgejo labs), `CORS_BOUNDED` (crAPI),
-`NO_RESPONSE` on the three sub-tests (the run above), and on 2026-11-15 on Forgejo + Kong with a temporary change
-to `kong/kong.yml` (undone with `git checkout`, the lab checked back):
-- `MISSING` (CERTAIN): the service's `response-transformer` no longer adds `X-Content-Type-Options` and removes
-  Forgejo's own (`remove.headers`);
-- `CORS_ORIGIN_REFLECTED` (CERTAIN): a route `~/api/v1/orgs$` whose `pre-function` (`header_filter`) sends back
-  the request's `Origin` with `Access-Control-Allow-Credentials: true`;
-- `CORS_WILDCARD_CREDENTIALS` (FIRM): the same route sending `*` with `Access-Control-Allow-Credentials: true`.
-
-Every branch of this test has been seen.
-
-## 13. Remediation
-
-Set the headers at the gateway for every route: `X-Content-Type-Options: nosniff`, `Content-Security-Policy:
-frame-ancestors 'self'` (and `object-src 'none'`, `base-uri 'none'`), and a CORS allow-list of trusted origins
-(never `*` with credentials).
-
-## 14. Limitations
+## 5. Limitations
 
 - The sample is one endpoint per service: an inconsistency within a service (route A vs route B of the same prefix)
   may be missed.
@@ -214,8 +160,52 @@ frame-ancestors 'self'` (and `object-src 'none'`, `base-uri 'none'`), and a CORS
   then sends no cookie, so the responses it reads are the ones the probing site could fetch itself. ASVS
   v5.0.0-3.4.2 asks for an allowlist even then; that part is not judged.
 
-## 15. Sources
+## 6. Sources
 
 - OWASP API8:2023 Security Misconfiguration: https://owasp.org/API-Security/editions/2023/en/0xa8-security-misconfiguration/
 - OWASP ASVS v5.0.0-3.4.2, 3.4.4, 3.4.6 (Web Frontend Security headers): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x12-V3-Web-Frontend-Security.md
 - CWE-1021 Improper Restriction of Rendered UI Layers (clickjacking): https://cwe.mitre.org/data/definitions/1021.html
+
+## 7. Inputs
+
+A sample of documented GET operations, one per service prefix (`src/tests/helpers/sampling.py`). No credential (the
+headers must be on every response, including public ones).
+
+## 8. Outcomes
+
+SKIP without a documented GET. FAIL on a missing, inconsistent or unsafe-CORS header; PASS when all three hold
+across the sample.
+
+## 9. Findings
+
+<!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("6.2")) ]]] -->
+
+- "X-Content-Type-Options: nosniff inconsistent across services"
+- "X-Content-Type-Options: nosniff missing"
+- "Clickjacking protection inconsistent across services"
+- "Clickjacking protection missing"
+- "Unsafe CORS: an arbitrary origin is allowed with credentials"
+- "CORS allows any origin ('*') together with credentials"
+
+<!-- [[[end]]] -->
+
+Each names how many sampled endpoints and an example. The proof (`evidence_ref`) is the response of that example
+endpoint, and for CORS the answer to the cross-origin probe on it. 
+## 10. Effects on the target
+
+`READ_ONLY`.
+
+## 11. Per gateway
+
+Independent of the adapter: the headers are the gateway's or the app's; the probe reads them. Consistency across
+services is exactly what a per-route gateway misconfiguration breaks.
+
+## 12. Configuration
+
+None.
+
+## 13. Remediation
+
+Set the headers at the gateway for every route: `X-Content-Type-Options: nosniff`, `Content-Security-Policy:
+frame-ancestors 'self'` (and `object-src 'none'`, `base-uri 'none'`), and a CORS allow-list of trusted origins
+(never `*` with credentials).

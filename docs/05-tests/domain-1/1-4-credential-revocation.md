@@ -1,9 +1,7 @@
 # 1.4 Credential Revocation
 
-> **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-22) ·
-> **Source of truth:**
-> [`src/tests/domain_1/test_1_4_credential_revocation.py`](../../../src/tests/domain_1/test_1_4_credential_revocation.py),
-> [`src/tests/helpers/anchor.py`](../../../src/tests/helpers/anchor.py) · **Verified:** 2026-10-22
+> **Audience:** analysts, contributors · **Source of truth:**
+> [`src/tests/domain_1/test_1_4_credential_revocation.py`](../../../src/tests/domain_1/test_1_4_credential_revocation.py), [`src/tests/helpers/anchor.py`](../../../src/tests/helpers/anchor.py)
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("1.4", page=cog.inFile)) ]]] -->
 
@@ -34,34 +32,29 @@ A PASS promises that a credential revoked through the login's own mechanism was 
 nothing about a credential that is merely invalid (`1.2`) or expired (`1.3`), and nothing about revocation by a
 password change, which is a separate target-specific flow not covered here.
 
-## 2. Sub-tests and coverage of the methodology
+## 2. Test
+
+### 2.1 Sub-tests and coverage of the methodology
 
 | Sub-test | Methodology (guarantee 1.4) |
 |---|---|
 | `rejected_after_revocation` | "token after logout": create a credential, revoke it, reuse it, expect a refusal |
 | left out | "token after password change" (a target-specific reset/OTP flow); "idempotent logout" (concurrency, not a revocation-enforcement question) |
 
-## 3. Inputs
-
-The login method's own revocation capability (`Need.REVOCABLE_LOGIN`: `auth_type: login` with a login resource
-that has a delete request). An **anchor**: a documented read that answers 2xx with the credential and is refused (401 or 403)
-without it (until 2026-11-04 any non-2xx, a 429 or a 5xx included) (`src/tests/helpers/anchor.py`), so that a refusal after revocation is about the revocation and not
-about a public endpoint. No configuration parameter (the old test's `protected_endpoint` is derived now).
-
-## 4. Preconditions and reference responses
+### 2.2 Preconditions and reference responses
 
 - the revocation capability: without it the test SKIPs (crAPI's stateless JWT has no logout);
 - the anchor: without a genuinely protected read the test is `NOT_VERIFIABLE/NO_WORKING_ANCHOR`;
 - the credential is confirmed to work at the anchor **before** revocation, so that "refused after revocation" is
   read against "accepted before it".
 
-## 5. Probes
+### 2.3 Probes
 
 Create a credential through the configured login; confirm it answers 2xx at the anchor; revoke it (the login
 method's delete request) and confirm the target accepted the revocation; send the revoked credential to the anchor
 again. One created credential, revoked and cleaned up.
 
-## 6. Oracle
+## 3. Oracle
 
 <!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("1.4")) ]]] -->
 
@@ -76,8 +69,6 @@ again. One created credential, revoked and cleaned up.
 
 <!-- [[[end]]] -->
 
-Until 2026-11-16 every non-`2xx` answer to the revoked credential was `REFUSED_AFTER_REVOCATION` (now `400`, `401`, `403`, the rest `NOT_A_REFUSAL`); a served one was CERTAIN whatever it answered (now FIRM when unlike the answer before revocation); a credential creation the target did not evaluate (`503`, `429`) ended the test in ERROR (now the shared rule); and RFC 7519 section 4.1.7 (`jti`), never read, was cited.
-
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("1.4", page=cog.inFile)) ]]] -->
 
 The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
@@ -91,12 +82,66 @@ The answers that say nothing about the guarantee by themselves, one rule for eve
 
 <!-- [[[end]]] -->
 
-## 7. Outcomes
+## 4. Validation
+
+### 4.1 Oracle cases
+
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_validation("1.4", page=cog.inFile)) ]]] -->
+
+Every case of the oracle, produced on a lab and judged by the code: E1, [oracle validation](../../../experiments/README.md), campaign at commit `fc60b6f`. 10 of 10 produced cases gave the declared outcome; 0 no lab can produce.
+
+| Case | Lab, how it is produced | Result |
+|---|---|---|
+| `rejected_after_revocation/ENFORCED/REFUSED_AFTER_REVOCATION` | forgejo-kong: the lab as built: a token is created, accepted at the anchor GET /api/v1/user, deleted (204), and refused 401 when reused | OK |
+| `rejected_after_revocation/VIOLATION/ACCEPTED_AFTER_REVOCATION/CERTAIN` | forgejo-kong: a temporary route GET ~/api/v1/user$ answers 200 {login: user-a} to any request with an Authorization header and 401 without: the deleted token gets the answer it got before revocation | OK |
+| `rejected_after_revocation/VIOLATION/ACCEPTED_AFTER_REVOCATION/FIRM` | forgejo-kong: a temporary route GET ~/api/v1/user$ passes the two anchor reads (with and without the credential) to Forgejo and answers the reuse of the deleted token 200 with a JSON body of another shape | OK |
+| `rejected_after_revocation/NOT_VERIFIABLE/NOT_A_REFUSAL` | forgejo-kong: the same counter route answering the reuse of the deleted token 404 | OK |
+| `rejected_after_revocation/NOT_VERIFIABLE/NO_WORKING_ANCHOR` | forgejo-kong: the run reads a local copy of Forgejo's specification with its global security set to [], so no documented read requires authentication and none is a candidate anchor | OK |
+| `rejected_after_revocation/NOT_VERIFIABLE/REVOCATION_NOT_CONFIRMED` | forgejo-kong: a temporary route DELETE ~/api/v1/users/[^/]+/tokens/[^/]+$ answers the first token deletion (the test's revocation) 404 itself; the teardown deletions pass to Forgejo, so no token is left behind | OK |
+| `*/NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` | forgejo-kong: a temporary route GET ~/api/v1/user$ passes the two anchor reads to Forgejo and answers the reuse of the deleted token 503 | OK |
+| `*/NOT_VERIFIABLE/RATE_LIMITED` | forgejo-kong: the same counter route answering the reuse 429 | OK |
+| `*/NOT_VERIFIABLE/SERVER_ERROR` | forgejo-kong: the same counter route answering the reuse 500 | OK |
+| `*/NOT_VERIFIABLE/NO_RESPONSE` | forgejo-kong: the same counter route sleeping 7 s on the reuse before proxying, with the run's read timeout at 5 s | OK |
+
+<!-- [[[end]]] -->
+
+### 4.2 Results on the labs
+
+<!-- [[[cog import generate_docs as g; cog.out(g.lab_results("1.4", page=cog.inFile)) ]]] -->
+
+No E2 campaign yet ([experiments](../../../experiments/README.md)).
+
+<!-- [[[end]]] -->
+
+## 5. Limitations
+
+- Only revocation by the login's own mechanism (deletion, logout) is tested; revocation by a password change is a
+  target-specific flow left to a configured path, not hard-coded.
+- A stateless JWT with no revocation endpoint is SKIP, not a finding: the guarantee is about what revocation does,
+  and there is no revocation to exercise.
+- Concurrency (idempotent logout) is not tested: it is not a revocation-enforcement question.
+
+## 6. Sources
+
+- OWASP API2:2023 Broken Authentication: https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/
+- RFC 7009 (OAuth 2.0 Token Revocation): https://www.rfc-editor.org/rfc/rfc7009.html
+- RFC 7519 section 4.1.7 (the `jti` claim): https://www.rfc-editor.org/rfc/rfc7519.html#section-4.1.7
+- OWASP ASVS v5.0.0-7.4.1 (termination disallows further use): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x16-V7-Session-Management.md
+- CWE-613 Insufficient Session Expiration: https://cwe.mitre.org/data/definitions/613.html
+
+## 7. Inputs
+
+The login method's own revocation capability (`Need.REVOCABLE_LOGIN`: `auth_type: login` with a login resource
+that has a delete request). An **anchor**: a documented read that answers 2xx with the credential and is refused (401 or 403)
+without it (`src/tests/helpers/anchor.py`), so that a refusal after revocation is about the revocation and not
+about a public endpoint. No configuration parameter: the protected endpoint is derived.
+
+## 8. Outcomes
 
 SKIP when the login cannot revoke a credential or no placement is configured. Otherwise FAIL when the revoked
 credential is accepted, PASS when it is refused.
 
-## 8. Findings
+## 9. Findings
 
 <!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("1.4")) ]]] -->
 
@@ -106,94 +151,22 @@ credential is accepted, PASS when it is refused.
 
 `evidence_ref` the reuse; `supporting_refs` the anchor accepted before revocation, refused without a credential, and the revocation.
 
-## 9. Effects on the target
+## 10. Effects on the target
 
 `CHANGES_DATA`: the test creates a credential and revokes it, both through the configured login, and cleans up. The
 run order puts it after the read-only tests (rule 7).
 
-## 10. Per gateway
+## 11. Per gateway
 
 Independent of the gateway: revocation is the application's (Forgejo deletes the token); the gateway forwards the
 reuse request.
 
-## 11. Configuration
+## 12. Configuration
 
 None. The old `protected_endpoint` parameter is gone: the anchor is derived.
-
-## 12. Validation
-
-**2026-11-16, after the review** (domain 1 on the three labs as configured): both Forgejo labs **PASS**, crAPI SKIP (its login cannot revoke), as before.
-
-
-Runs of 2026-10-22, the three tests of the group together:
-
-| Lab | Status | Basis |
-|---|---|---|
-| Forgejo + Kong, Forgejo + APISIX | **PASS** | a token is created, accepted at the anchor `GET /api/v1/user`, deleted (HTTP 204), and refused (401) when reused |
-| crAPI + Kong | SKIP | the JWT is stateless and crAPI has no logout: `Need.REVOCABLE_LOGIN` not met |
-| Forgejo + Kong, with the case below | **FAIL, 1 finding** | an endpoint that trusts any token without rechecking it answers 200 to the deleted token: `ACCEPTED_AFTER_REVOCATION` |
-
-**The case the labs lack, and how to undo it.** Forgejo revokes correctly, so the violation was produced on the
-Forgejo + Kong lab with a route that makes the anchor trust the header without revalidating it. In
-`test-environments/forgejo-kong/kong/kong.yml`, inside `services[forgejo-service].routes`:
-
-```yaml
-      - name: review-stale-token-route
-        paths:
-          - '~/api/v1/user$'
-        strip_path: false
-        preserve_host: false
-        protocols:
-          - https
-        https_redirect_status_code: 301
-        plugins:
-          - name: pre-function
-            config:
-              access:
-                - |
-                  if kong.request.get_header("authorization") then
-                    return kong.response.exit(200, { login = "user-a" })
-                  end
-                  return kong.response.exit(401, { message = "token is required" })
-```
-
-Then `cd test-environments/forgejo-kong && docker compose --env-file ../../.env up -d --force-recreate --wait
-kong`; undo with `git checkout test-environments/forgejo-kong/kong/kong.yml` and the same command. The lab was
-checked back to its usual results afterwards.
-
-Found while producing this case: the anchor must answer non-2xx without the credential, not only 2xx with it. An
-earlier version accepted `/api/v1/orgs`, which is public on Forgejo (200 with no credential) while the spec marks
-it protected; it answered 401 only because an *invalid* token was sent, which is a different thing from revocation.
-The anchor now confirms both conditions (`src/tests/helpers/anchor.py`), which also sharpens test `1.2`.
-
-**What each branch has been seen doing** (rule 9). Proven on a lab: `REFUSED_AFTER_REVOCATION` (Forgejo),
-`ACCEPTED_AFTER_REVOCATION` (the case above), the SKIP for no revocation (crAPI), and `NO_WORKING_ANCHOR`
-(2026-11-15, Forgejo + Kong, the specification saved without its global `security`), and on the same day, Forgejo +
-Kong with temporary routes (undone with `git checkout`; no token left behind): `REVOCATION_NOT_CONFIRMED` (the
-first `DELETE` of a token answered `404`), and `UPSTREAM_UNAVAILABLE`, `RATE_LIMITED`, `SERVER_ERROR`,
-`NO_RESPONSE` (the anchor `GET ~/api/v1/user$` answering the revoked token `503`, `429`, `500`, or sleeping 7 s,
-after letting the two reads of the anchor check through). Every branch of this test has been seen. The SKIP for no credential placement is not
-reachable: a placement is missing only when `credentials.auth_type` is not set, and then the login cannot revoke
-either, so the test skips one step earlier (`revocation_capability`, `src/tests/helpers/auth.py`).
 
 ## 13. Remediation
 
 Invalidate a credential at the server when it is revoked: keep a revocation list keyed by the token id, or issue
 short-lived tokens with refresh rotation, so a deleted or logged-out token stops working at once
 (ASVS v5.0.0-7.4.1, RFC 7009).
-
-## 14. Limitations
-
-- Only revocation by the login's own mechanism (deletion, logout) is tested; revocation by a password change is a
-  target-specific flow left to a configured path, not hard-coded.
-- A stateless JWT with no revocation endpoint is SKIP, not a finding: the guarantee is about what revocation does,
-  and there is no revocation to exercise.
-- Concurrency (idempotent logout) is not tested: it is not a revocation-enforcement question.
-
-## 15. Sources
-
-- OWASP API2:2023 Broken Authentication: https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/
-- RFC 7009 (OAuth 2.0 Token Revocation): https://www.rfc-editor.org/rfc/rfc7009.html
-- RFC 7519 section 4.1.7 (the `jti` claim): https://www.rfc-editor.org/rfc/rfc7519.html#section-4.1.7
-- OWASP ASVS v5.0.0-7.4.1 (termination disallows further use): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x16-V7-Session-Management.md
-- CWE-613 Insufficient Session Expiration: https://cwe.mitre.org/data/definitions/613.html

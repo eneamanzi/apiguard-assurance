@@ -17,12 +17,13 @@ invalid tokens and with SSRF payloads, and some tests create objects on the targ
 
 ## Status
 
-Released: 0.1.0 (2026-05-18); the current version is unreleased, after the block-6 test review that rebuilt and
-extended the test suite. Developed and tested on Linux. It works on any API described by Swagger 2.0 or OpenAPI 3.x
+Released: 0.1.0; the current version is unreleased (see the [CHANGELOG](CHANGELOG.md)). Developed and tested on
+Linux. It works on any API described by Swagger 2.0 or OpenAPI 3.x
 and is tested on three labs (Forgejo behind Kong, OWASP crAPI behind Kong, Forgejo behind Apache APISIX); it reads
 the gateway configuration of Kong and APISIX, and authenticates with HTTP Basic, a static token, a JSON login or
 the Forgejo token API, sending the credential as the specification declares. What each test needs from a target is
-in [compatibility](docs/03-reference/06-compatibility.md). The interfaces other than the JSON report are not
+in [compatibility](docs/03-reference/06-compatibility.md); what each test gives on the labs, and how every case of
+its oracle is produced there, in [experiments](experiments/README.md). The interfaces other than the JSON report are not
 versioned yet.
 
 ## Quick start

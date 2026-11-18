@@ -1,9 +1,7 @@
 # 2.1 Function-Level Authorization
 
-> **Audience:** analysts, contributors · **Status:** rewritten in the test review (2026-10-23) ·
-> **Source of truth:**
-> [`src/tests/domain_2/test_2_1_function_level_authorization.py`](../../../src/tests/domain_2/test_2_1_function_level_authorization.py),
-> [`src/discovery/derivation.py`](../../../src/discovery/derivation.py) · **Verified:** 2026-10-23
+> **Audience:** analysts, contributors · **Source of truth:**
+> [`src/tests/domain_2/test_2_1_function_level_authorization.py`](../../../src/tests/domain_2/test_2_1_function_level_authorization.py), [`src/discovery/derivation.py`](../../../src/discovery/derivation.py)
 
 <!-- [[[cog import generate_docs as g; cog.out(g.test_header("2.1", page=cog.inFile)) ]]] -->
 
@@ -33,7 +31,9 @@ that every privileged operation the tool probed turned user_a away. The threat i
 succeeds. ASVS v5.0.0-8.3.1 (enforce authorization at a trusted service layer). It does not cover guarantee 2.3
 (destructive operations need privilege), which has no test: a destructive method is never sent.
 
-## 2. Sub-tests and coverage of the methodology
+## 2. Test
+
+### 2.1 Sub-tests and coverage of the methodology
 
 | Sub-test | Methodology (guarantee 2.1) |
 |---|---|
@@ -41,14 +41,7 @@ succeeds. ASVS v5.0.0-8.3.1 (enforce authorization at a trusted service layer). 
 | `method_not_confused` | "HTTP method confusion": the safe methods of one privileged path agree for user_a |
 | left out | role hierarchy beyond user/admin (no moderator tier on the labs); OAuth scope escalation (no granular scopes); destructive-method probing on derived endpoints (rule 5: surfaced as `DESTRUCTIVE_NOT_PROBED`, not sent) |
 
-## 3. Inputs
-
-The privileged operations are derived (Phase-2 rule `privileged_endpoints`: a path segment `admin` or `management`).
-This test takes no parameter, so there is nothing to add or correct by hand (section 11). The specification's
-`requires_auth` tells a public path apart from a protected one. The admin account (optional) is the positive
-control.
-
-## 4. Preconditions and reference responses
+### 2.2 Preconditions and reference responses
 
 user_a is required (GREY_BOX). The admin account is an optional need: when present, the admin positive control proves
 the operation exists and is genuinely privileged, so a refusal is about the role (CERTAIN) and a `404` is not
@@ -60,13 +53,13 @@ forged credential, a random value placed as the run's credential is: a refusal i
 credential's answer is not counted. When the forged credential is not refused, the control says nothing, and a `401`
 to user_a is then not counted as a refusal either.
 
-## 5. Probes
+### 2.3 Probes
 
 Only safe methods (GET, HEAD) of a privileged operation are sent, with the user_a credential, and with the forged
 credential when user_a is refused; path parameters are
 resolved from `path_seed`. A destructive method on a derived candidate is not sent (rule 5). READ_ONLY.
 
-## 6. Oracle
+## 3. Oracle
 
 <!-- [[[cog import generate_docs as g; cog.out(g.oracle_table("2.1")) ]]] -->
 
@@ -99,8 +92,6 @@ resolved from `path_seed`. A destructive method on a derived candidate is not se
 
 <!-- [[[end]]] -->
 
-Until 2026-11-16 a refusal of user_a was `REFUSED` even when the admin account was refused too (a token without the scope refuses every account: the Forgejo labs passed so while the admin token lacked `read:admin`): now `ADMIN_REFUSED_TOO`; and an operation the specification does not protect (no `security`) was `PUBLIC_ENDPOINT` even when it refuses an anonymous request: now that refusal makes it protected, and serving user_a is a BFLA. ASVS 8.1.1 (the policy's documentation) is no longer cited.
-
 <!-- [[[cog import generate_docs as g; cog.out(g.uninformative_answers("2.1", page=cog.inFile)) ]]] -->
 
 The answers that say nothing about the guarantee by themselves, one rule for every test ([assessment model](../../04-architecture/03-assessment-model.md#answers-that-say-nothing-about-the-guarantee)), generated from the code:
@@ -114,12 +105,80 @@ The answers that say nothing about the guarantee by themselves, one rule for eve
 
 <!-- [[[end]]] -->
 
-## 7. Outcomes
+## 4. Validation
+
+### 4.1 Oracle cases
+
+<!-- [[[cog import generate_docs as g; cog.out(g.oracle_validation("2.1", page=cog.inFile)) ]]] -->
+
+Every case of the oracle, produced on a lab and judged by the code: E1, [oracle validation](../../../experiments/README.md), campaign at commit `fc60b6f`. 21 of 21 produced cases gave the declared outcome; 0 no lab can produce.
+
+| Case | Lab, how it is produced | Result |
+|---|---|---|
+| `privileged_function_refuses_user/VIOLATION/BFLA/FIRM` | crapi-kong: the lab as built: GET /workshop/api/management/users/all answers 200 to user_a | OK |
+| `privileged_function_refuses_user/NOT_APPLICABLE/PUBLIC_ENDPOINT` | crapi-kong: the run reads a local copy of crAPI's specification where GET /workshop/api/management/users/all is replaced by an operation with security [] (public), and a temporary route answers it 200 to user_a and to an anonymous request (crAPI itself refuses the anonymous one) | OK |
+| `privileged_function_refuses_user/ENFORCED/REFUSED` | forgejo-kong: the lab as built: the /api/v1/admin reads refuse user_a 403, the forged credential gets 401, and the admin token (scope read:admin) is served | OK |
+| `privileged_function_refuses_user/ENFORCED/REFUSED_HIDDEN` | forgejo-kong: a temporary route /api/v1/admin whose pre-function turns Forgejo's 403 into 404 in its header_filter phase; the admin token (read:admin, as the lab is built since 2026-11-15) is served, user_a gets 404 and the forged credential 401 | OK |
+| `privileged_function_refuses_user/NOT_VERIFIABLE/ADMIN_REFUSED_TOO` | forgejo-kong: the lab as built: one /api/v1/admin read refuses user_a and the admin token alike | OK |
+| `privileged_function_refuses_user/NOT_VERIFIABLE/CREDENTIAL_NOT_CONFIRMED` | crapi-kong: user_a given a static token crAPI does not accept: user_a and the forged credential both get 401 "Invalid JWT Token!" on GET /workshop/api/management/users/all | OK |
+| `privileged_function_refuses_user/NOT_VERIFIABLE/ENDPOINT_NOT_CONFIRMED` | forgejo-kong: the lab as built: the /api/v1/admin/quota reads answer 404 to user_a and to the admin token as well | OK |
+| `privileged_function_refuses_user/NOT_VERIFIABLE/DESTRUCTIVE_NOT_PROBED` | forgejo-kong: the lab as built: the specification documents POST, PATCH and DELETE on /api/v1/admin paths, never sent | OK |
+| `privileged_function_refuses_user/NOT_VERIFIABLE/REDIRECT` | forgejo-kong: a temporary route GET ~/api/v1/admin/orgs$ answers 302 to https://localhost:8443/ itself | OK |
+| `privileged_function_refuses_user/NOT_VERIFIABLE/METHOD_NOT_ALLOWED` | forgejo-kong: the run reads a local copy of Forgejo's specification with a HEAD operation added to /admin/orgs; Forgejo answers HEAD there 405 | OK |
+| `privileged_function_refuses_user/NOT_VERIFIABLE/INVALID_REQUEST` | forgejo-kong: a temporary route GET ~/api/v1/admin/orgs$ answers 400 itself | OK |
+| `privileged_function_refuses_user/NOT_VERIFIABLE/OTHER` | forgejo-kong: a temporary route GET ~/api/v1/admin/orgs$ answers 418 itself (OTHER in response_category.py) | OK |
+| `privileged_function_refuses_user/NOT_APPLICABLE/NO_PRIVILEGED_ENDPOINT` | forgejo-kong: the run reads a local copy of Forgejo's specification whose paths are replaced by GET /version only, so no path has an admin or management segment | OK |
+| `method_not_confused/VIOLATION/METHOD_CONFUSION/FIRM` | forgejo-kong: the specification copy with HEAD added to /admin/orgs, and a temporary route HEAD ~/api/v1/admin/orgs$ answering 200 itself while GET refuses user_a 403 | OK |
+| `method_not_confused/ENFORCED/METHODS_CONSISTENT` | forgejo-kong: the specification copy with HEAD added to /admin/orgs, and a temporary route HEAD ~/api/v1/admin/orgs$ whose pre-function forwards the HEAD to Forgejo as a GET (user_a 403, the forged credential 401, on both methods) | OK |
+| `method_not_confused/NOT_APPLICABLE/SINGLE_SAFE_METHOD` | forgejo-kong: the lab as built: every privileged path documents a single safe method (GET) | OK |
+| `method_not_confused/NOT_APPLICABLE/NO_PRIVILEGED_ENDPOINT` | forgejo-kong: the run reads a local copy of Forgejo's specification whose paths are replaced by GET /version only | OK |
+| `*/NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE` | forgejo-kong: a temporary route GET ~/api/v1/admin/orgs$ answers 503 itself | OK |
+| `*/NOT_VERIFIABLE/RATE_LIMITED` | forgejo-kong: a temporary route GET ~/api/v1/admin/orgs$ answers 429 itself | OK |
+| `*/NOT_VERIFIABLE/SERVER_ERROR` | forgejo-kong: a temporary route GET ~/api/v1/admin/orgs$ answers 500 itself | OK |
+| `*/NOT_VERIFIABLE/NO_RESPONSE` | forgejo-kong: a temporary route GET ~/api/v1/admin/orgs$ sleeps 7 s before answering, past the run's read timeout of 5 s | OK |
+
+<!-- [[[end]]] -->
+
+### 4.2 Results on the labs
+
+<!-- [[[cog import generate_docs as g; cog.out(g.lab_results("2.1", page=cog.inFile)) ]]] -->
+
+No E2 campaign yet ([experiments](../../../experiments/README.md)).
+
+<!-- [[[end]]] -->
+
+## 5. Limitations
+
+- Destructive privileged methods are never probed (rule 5); they are reported as not verified
+  (`DESTRUCTIVE_NOT_PROBED`), and no configuration can authorise them.
+- The privileged operations come only from the specification, by the names of their paths (`admin`,
+  `management`): an administrator function under another name is not probed, and no configuration adds it.
+- Role hierarchy beyond user/admin and OAuth scope escalation are out of scope (no lab exercises them).
+- A privileged operation whose resource must exist first stays not verifiable when neither admin nor the seed
+  supplies it.
+- A catch-all `2xx` on a privileged path is not compared with a random path: it would read as a BFLA.
+- Only documented safe methods are sent: a privileged `GET` matched by a rule on `GET` only is not probed with `HEAD`.
+
+## 6. Sources
+
+- OWASP API5:2023 Broken Function Level Authorization: https://owasp.org/API-Security/editions/2023/en/0xa5-broken-function-level-authorization/
+- OWASP ASVS v5.0.0-8.1.1, v5.0.0-8.3.1 (Authorization): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x17-V8-Authorization.md
+- NIST SP 800-53 Rev.5 AC-3 (access enforcement): https://csrc.nist.gov/projects/cprt/catalog#/cprt/framework/version/SP_800_53_5_1_1/home
+- CWE-285 Improper Authorization: https://cwe.mitre.org/data/definitions/285.html
+
+## 7. Inputs
+
+The privileged operations are derived (Phase-2 rule `privileged_endpoints`: a path segment `admin` or `management`).
+This test takes no parameter, so there is nothing to add or correct by hand (section 12). The specification's
+`requires_auth` tells a public path apart from a protected one. The admin account (optional) is the positive
+control.
+
+## 8. Outcomes
 
 SKIP without user_a or an attack surface. Otherwise FAIL on a BFLA or method confusion, PASS when every probed
 privileged operation refused user_a (partial when operations stayed not verifiable).
 
-## 8. Findings
+## 9. Findings
 
 <!-- [[[cog import generate_docs as g; cog.out(g.finding_titles("2.1")) ]]] -->
 
@@ -130,84 +189,21 @@ privileged operation refused user_a (partial when operations stayed not verifiab
 
 `evidence_ref` user_a's answer; `supporting_refs` the admin positive control when it ran.
 
-## 9. Effects on the target
+## 10. Effects on the target
 
 `READ_ONLY`: safe methods only, no destructive request on a derived candidate.
 
-## 10. Per gateway
+## 11. Per gateway
 
 Independent of the adapter: authorization is the application's or the gateway plugin's; the probe is an ordinary
 request with user_a's credential.
 
-## 11. Configuration
+## 12. Configuration
 
 None. What counts as privileged is derived in Phase 2 by the rule `privileged_endpoints` (a documented path with an
 `admin` or `management` segment, `src/discovery/derivation.py`); the method is the one the specification declares.
-The old parameters that let the operator list privileged paths and their method are gone with the old test.
-
-## 12. Validation
-
-**2026-11-16, after the review** (domain 2 on the three labs as configured): Forgejo labs **PASS** partial (10 refused; one operation `ADMIN_REFUSED_TOO`, the admin refused as well), crAPI **FAIL** (`GET /workshop/api/management/users/all`), as before.
-
-
-Runs of 2026-10-23; measured again on 2026-11-04 (2.1 alone), after the correction of the external audit, with the same verdicts:
-
-| Lab | Status | Basis |
-|---|---|---|
-| crAPI + Kong | **FAIL** | `GET /workshop/api/management/users/all` answers 200 to user_a (BFLA, crAPI's management plane) |
-| crAPI + Kong, user_a's token invalid (scratch configuration, `static_token`, 2026-11-04) | INCONCLUSIVE | user_a and the forged credential both get `401 "Invalid JWT Token!"`: `CREDENTIAL_NOT_CONFIRMED`, where the test would have counted a refusal before the correction |
-| Forgejo + Kong, Forgejo + APISIX | **PASS** partial | the `/api/v1/admin/*` endpoints refuse user_a (403) while the forged credential gets 401; parametric admin paths whose resource does not exist stay `NOT_VERIFIABLE/ENDPOINT_NOT_CONFIRMED`, and the destructive ones `DESTRUCTIVE_NOT_PROBED` |
-
-Rule 9: BFLA present (crAPI), enforced (Forgejo). `DESTRUCTIVE_NOT_PROBED` surfaces crAPI's
-`DELETE /identity/api/v2/admin/videos/{id}` (challenge 7) as unverified rather than omitting it. The `404` false PASS
-of the old test is fixed (a `404` is enforced only when the admin control proves the operation exists).
-
-**What each branch has been seen doing** (rule 9). Proven on a lab: `BFLA` (crAPI), `REFUSED`,
-`ENDPOINT_NOT_CONFIRMED` (both Forgejo labs), `DESTRUCTIVE_NOT_PROBED` (all three), `CREDENTIAL_NOT_CONFIRMED` (crAPI
-with an invalid token), `SINGLE_SAFE_METHOD` (all three, section 6), and on 2026-11-15 with a specification of the
-run only: `NO_PRIVILEGED_ENDPOINT` (Forgejo + Kong, the specification without its `/admin` paths: SKIP) and
-`PUBLIC_ENDPOINT` (crAPI + Kong, `GET /workshop/api/management/users/all` marked `security: []`), and
-`REFUSED_HIDDEN` (2026-11-15, Forgejo + Kong: 10 operations; a temporary route `/api/v1/admin` whose `pre-function`
-turns Forgejo's `403` into a `404` in its `header_filter` phase, undone with `git checkout`, and the run's login
-token given the `read:admin` scope as well). The two method branches, 2026-11-15 on Forgejo + Kong, with the
-specification saved with a `HEAD` operation added to `/admin/orgs` (Forgejo answers `HEAD` there `405`, so on its
-own the run is still `SINGLE_SAFE_METHOD`) and a temporary route `~/api/v1/admin/orgs$` for `HEAD` (undone with
-`git checkout`): `METHODS_CONSISTENT` when the route's `pre-function` forwards the `HEAD` to Forgejo as a `GET`
-(user_a `403`, the forged credential `401`, on both methods); `METHOD_CONFUSION` (FIRM, with a `BFLA` on the
-`HEAD`) when it answers `200` itself. The transport reasons on 2026-11-15, the same lab, a temporary route `GET
-~/api/v1/admin/orgs$` answering `503`, `429`, `500` or sleeping 7 s (the run's `target.read_timeout: 5.0`):
-`UPSTREAM_UNAVAILABLE`, `RATE_LIMITED`, `SERVER_ERROR`, `NO_RESPONSE`. Every branch of this test has been seen.
-
-**The admin control on the Forgejo labs.** Until 2026-11-15 the login resource of both Forgejo labs created tokens
-with the scopes `read:repository`, `read:user`, `write:repository`, `write:user` only, the admin's included, and
-Forgejo refused the `/api/v1/admin` operations to that token: the admin positive control could never confirm an
-operation. Since 2026-11-15 the scopes include `read:admin`, the read access to the admin operations
-([Forgejo, Access Token Scope](https://forgejo.org/docs/latest/user/token-scope/)), which is how `REFUSED_HIDDEN`
-was produced. Measured the same day on both Forgejo labs: 2.1 still **PASS** partial; the 6 controls the run asks
-are the `/api/v1/admin/quota/...` reads, which answer `404` to the admin as well, so they stay
-`ENDPOINT_NOT_CONFIRMED`; 1.4 and 2.2, which use the same token, unchanged (PASS).
 
 ## 13. Remediation
 
 Enforce the role at a trusted service layer for every privileged operation and every method (ASVS v5.0.0-8.3.1); do
 not rely on the interface hiding the action.
-
-## 14. Limitations
-
-- Destructive privileged methods are never probed (rule 5); they are reported as not verified
-  (`DESTRUCTIVE_NOT_PROBED`), and no configuration can authorise them.
-- The privileged operations come only from the specification, by the names of their paths (`admin`,
-  `management`): an administrator function under another name is not probed, and no configuration adds it (until
-  2026-11-04 the docs promised one).
-- Role hierarchy beyond user/admin and OAuth scope escalation are out of scope (no lab exercises them).
-- A privileged operation whose resource must exist first stays not verifiable when neither admin nor the seed
-  supplies it.
-- A catch-all `2xx` on a privileged path is not compared with a random path: it would read as a BFLA.
-- Only documented safe methods are sent: a privileged `GET` matched by a rule on `GET` only is not probed with `HEAD`.
-
-## 15. Sources
-
-- OWASP API5:2023 Broken Function Level Authorization: https://owasp.org/API-Security/editions/2023/en/0xa5-broken-function-level-authorization/
-- OWASP ASVS v5.0.0-8.1.1, v5.0.0-8.3.1 (Authorization): https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x17-V8-Authorization.md
-- NIST SP 800-53 Rev.5 AC-3 (access enforcement): https://csrc.nist.gov/projects/cprt/catalog#/cprt/framework/version/SP_800_53_5_1_1/home
-- CWE-285 Improper Authorization: https://cwe.mitre.org/data/definitions/285.html

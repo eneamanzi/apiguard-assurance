@@ -3,7 +3,7 @@
 > **Audience:** analysts, integrators, contributors · **Status:** v0.1.0 · **Source of truth:** test class metadata
 > (`src/tests/`, `src/external_tests/`), `src/config/schema/tool_config.py` (`ExecutionConfig`), `src/engine.py`,
 > `src/core/models/results.py`; methodology concepts from
-> [`06-knowledge/02-methodology.md`](../06-knowledge/02-methodology.md) · **Verified:** 2026-10-20
+> [`06-knowledge/02-methodology.md`](../06-knowledge/02-methodology.md)
 
 How the tool organises, selects and judges its checks. Per-test details: [`tests/`](../05-tests/README.md).
 
@@ -37,7 +37,7 @@ A WHITE_BOX test reaches that access either through the API's administrator acco
 API; which test needs which is in [test portability](../03-reference/06-compatibility.md#test-portability), generated
 from the declarations. The tests by strategy and priority are in the table under [Priorities](#priorities).
 
-**The strategy is what a test needs at least, not a boundary on what it uses** (owner decision 2026-11-04). A test also uses what the configuration gives it as an optional need: five BLACK_BOX tests
+**The strategy is what a test needs at least, not a boundary on what it uses.** A test also uses what the configuration gives it as an optional need: five BLACK_BOX tests
 (0.1, 0.2, 4.1, 4.4, 6.4) read the gateway's Admin API when a gateway is configured, three (0.3, 4.1, 4.4) send
 user_a's credential when a `401` or `403` hides what they look for, and 2.1 (GREY_BOX) uses the admin account when it
 is given. So `execution.strategies: [BLACK_BOX]` selects tests, and does not keep a run away from the Admin API or
@@ -112,7 +112,7 @@ Declare a prerequisite only when one of the two cases is true. Tokens are not a 
 engine obtains the credential of every account the test declares (`needs`, `optional_needs`) with `acquire_tokens()`
 (`src/tests/helpers/auth.py`), once per role, reused from `TestContext` by every later test, in any order. A
 required account whose login does not work makes the test ERROR with the reason; an optional one is logged and the
-test runs without it (`optional_role_parts()` gives it nothing; until 2026-11-16 it was ERROR too). No test declares a prerequisite today. A prerequisite that names no existing test, or
+test runs without it (`optional_role_parts()` gives it nothing). No test declares a prerequisite today. A prerequisite that names no existing test, or
 the test itself, stops the tool at startup (exit `10`).
 
 ## Oracles and verdicts
@@ -147,7 +147,7 @@ run complete would promise the reader a check that was never made. A test may de
 (`essential_sub_tests`, carried as `essential` on each sub-test's result so that the status stays recomputable from
 the result): without a violation, when none of them passed the test is `INCONCLUSIVE`, since a PASS would suggest
 that what the test is mainly about was seen enforced. Test 7.2 declares its cloud-metadata and private-IP classes:
-payloads rejected only for being malformed do not make it a PASS (owner decision 2026-11-04).
+payloads rejected only for being malformed do not make it a PASS.
 
 **Finding vs InfoNote.** A Finding is a violation, with references (the standard and its identifier: OWASP, ASVS, WSTG, NIST, RFC; by
 default the test's) and, for an HTTP probe, an
@@ -197,8 +197,7 @@ detail (`NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`), through one method written once
 never as a forwarded one. A sub-test whose question is that very answer declares it in `TestInfo.decisive_answers`,
 with the reason, and judges it in its own oracle: a `429` is the verdict of test 4.1, a `500` what Schemathesis
 looks for. Each test page shows the rule as it applies to that test, generated from that declaration in its
-section 6. Until 2026-11-16 each test wrote the rule itself, 24 times, and the copies differed (test 4.4 read a
-`429` as a forwarded body, several named a timeout or a `500` `UPSTREAM_UNAVAILABLE`).
+Oracle section.
 
 **Reference responses: calibration and positive controls.** An oracle that reads an HTTP response needs to know
 what the target answers in two baseline cases, or it mistakes one thing for another (a `404` because the endpoint

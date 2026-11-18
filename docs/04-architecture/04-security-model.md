@@ -1,8 +1,8 @@
 # Security Model
 
-> **Audience:** integrators, operators, contributors · **Status:** v0.1.0 · **Source of truth:** `src/cli.py`, `src/config/loader.py`, `src/core/client.py`,
-> `src/core/models/http.py`, `src/core/evidence.py`, `src/core/gateway/kong.py`, `src/connectors/`,
-> `src/report/renderer.py`, `src/core/tls.py` · **Verified:** 2026-10-15 (TLS), 2026-10-05
+> **Audience:** integrators, operators, contributors · **Status:** v0.1.0 · **Source of truth:** `src/cli.py`,
+> `src/config/loader.py`, `src/core/client.py`, `src/core/models/http.py`, `src/core/evidence.py`,
+> `src/core/gateway/kong.py`, `src/connectors/`, `src/report/renderer.py`, `src/core/tls.py`
 
 How the tool treats secrets, the target and its own outputs. The tool sends attack traffic: run it only against
 systems you are authorised to test.
@@ -43,7 +43,7 @@ Treat all output files as sensitive: response bodies can carry the target's data
 - All requests to the API go through `SecurityClient`: no redirects followed, transport-error retries only.
 - Native tests do not start subprocesses; external tools run through connectors.
 - Several tests send **write methods** (`POST`, `PUT`, `PATCH`, `DELETE`) without credentials, or create objects
-  with valid credentials; the exact behaviour is on each test page under "Prerequisites and effects on the target".
+  with valid credentials; the exact behaviour is on each test page under "Effects on the target".
   By design the tool targets only volatile test resources it can lose and does not restore deleted ones (the
   environment does): see design decisions [D6](05-design-decisions.md#d6-prepared-resources) and
   [D10](05-design-decisions.md#d10-path_seed-makes-paths-routable-not-objects-specific).

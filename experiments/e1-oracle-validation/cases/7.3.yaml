@@ -1,0 +1,94 @@
+test: '7.3'
+name: Race Conditions in Critical Operations
+sub_tests:
+
+  concurrent_requests_safe:
+
+    - id: ENFORCED/CONCURRENCY_SERIALIZED
+      situation: at most `max_successful` of the concurrent requests were accepted (`2xx`) and the others refused
+        with an answer that says something
+      expected:
+        outcome: ENFORCED
+        detail: CONCURRENCY_SERIALIZED
+      how: a route POST ~/workshop/api/shop/apply_coupon$ whose pre-function answers the first of the 15 simultaneous
+        applications 200 and every other one 400 'Coupon code is already claimed by you'
+      lab: crapi-kong
+      variant: kong-7-3-coupon-first-200-then-400
+
+    - id: VIOLATION/RACE_DOUBLE_EFFECT/FIRM
+      situation: more than `max_successful` were accepted (acceptances, not effects)
+      expected:
+        outcome: VIOLATION
+        detail: RACE_DOUBLE_EFFECT
+        confidence: FIRM
+      how: 'the lab as built: the coupon APIGUARD-RACE-<random> is created and its 15 simultaneous applications
+        as user_a are all accepted (200)'
+      lab: crapi-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/OPERATION_FAILED
+      situation: 'none was accepted, and no answer was one that says nothing: the operation refused every attempt'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: OPERATION_FAILED
+      how: a temporary route on POST /workshop/api/shop/apply_coupon answers every application 400 'Coupon code
+        is already claimed by you' (the answer crAPI gives once user_a has claimed the coupon)
+      lab: crapi-kong
+      variant: kong-7-3-coupon-400
+
+    - id: NOT_VERIFIABLE/OBJECT_NOT_CREATED
+      situation: the prepared resource could not be created
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: OBJECT_NOT_CREATED
+      how: a route POST ~/community/api/v2/coupon/new-coupon$ on community-service answers 403 itself, so the prepared
+        resource coupon is not created
+      lab: crapi-kong
+      variant: kong-7-3-new-coupon-403
+
+  any_sub_test:
+
+    - id: NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE
+      situation: 'an answer of this category on any sub-test that does not judge it: 502, 503, 504: the gateway
+        could not reach the backend, or the backend did not answer in time. It says nothing about the guarantee
+        (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: UPSTREAM_UNAVAILABLE
+      how: a route POST ~/workshop/api/shop/apply_coupon$ whose pre-function answers every application 503
+      lab: crapi-kong
+      variant: kong-7-3-coupon-503
+
+    - id: NOT_VERIFIABLE/RATE_LIMITED
+      situation: 'an answer of this category on any sub-test that does not judge it: 429: refused for the rate of
+        the requests. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: RATE_LIMITED
+      how: a route POST ~/workshop/api/shop/apply_coupon$ whose pre-function answers every application 429
+      lab: crapi-kong
+      variant: kong-7-3-coupon-429
+
+    - id: NOT_VERIFIABLE/SERVER_ERROR
+      situation: 'an answer of this category on any sub-test that does not judge it: 500, 505-508, 510: the application
+        failed. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: SERVER_ERROR
+      how: a route POST ~/workshop/api/shop/apply_coupon$ whose pre-function answers every application 500
+      lab: crapi-kong
+      variant: kong-7-3-coupon-500
+
+    - id: NOT_VERIFIABLE/NO_RESPONSE
+      situation: 'an answer of this category on any sub-test that does not judge it: No HTTP response: timeout,
+        connection refused, TLS error, connection reset. It says nothing about the guarantee (one rule for every
+        test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_RESPONSE
+      how: a route POST ~/workshop/api/shop/apply_coupon$ whose pre-function waits 7 s before proxying, with the
+        run's target.read_timeout 5.0
+      lab: crapi-kong
+      variant: kong-7-3-coupon-slow
+      config:
+        target.read_timeout: 5.0

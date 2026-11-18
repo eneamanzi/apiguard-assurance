@@ -14,6 +14,7 @@
   - [Exit codes](#exit-codes)
 - [Building the Package](#building-the-package)
 - [Static Analysis](#static-analysis)
+- [Experiments](#experiments)
 - [Kong Configuration Changes](#kong-configuration-changes)
 - [Git - Large Changes on a Branch](#git---large-changes-on-a-branch)
 - [Git - Clean Up Commit History](#git---clean-up-commit-history)
@@ -214,6 +215,7 @@ hatch run dev:audit   # bandit + vulture       (slower: run before push)
 hatch run dev:check   # full suite in sequence (below), stops at the first failing step
 hatch run dev:gen     # rewrite the generated documentation (python scripts/generate_docs.py), then dev:check again
 hatch run dev:deps    # pip-audit              (run before any release)
+hatch run dev:e1-oracle-validation  # E1: every oracle case produced on the labs (hours; below, Experiments)
 ```
 
 The dependencies are pinned to exact versions in `pyproject.toml` ([Python dependencies](../03-reference/06-compatibility.md#python-dependencies)).
@@ -225,12 +227,13 @@ What `dev:check` runs, in order (`[tool.hatch.envs.dev.scripts]` in `pyproject.t
 |---|---|---|
 | `ruff check .` | lint (rules `E W F I N UP B S ANN`, `[tool.ruff.lint]`): errors and style, unused names, import order, naming, outdated syntax, likely bugs, security patterns, type hints on every signature | a rule violated; `ruff check --fix .` fixes the simple ones |
 | `ruff format --check .` | the code formatted as `ruff format` would | run `ruff format .` |
-| `mypy src/ scripts/` | static types of every signature and call | a type mismatch |
+| `mypy src/ scripts/ experiments/` | static types of every signature and call | a type mismatch |
 | `bandit -r src/ -c pyproject.toml --severity-level medium` | security patterns in `src/` (subprocess, YAML loading, hardcoded secrets) | a finding not justified with `# nosec` |
 | `vulture src/ --min-confidence 80` | dead code: functions, variables, imports never used | code to remove |
 | `lint-imports` | the dependency direction of the architecture overview (`core` <- `connectors` <- `tests` <- `engine`; `[tool.importlinter]`) | a forbidden import |
 | `python scripts/check_config_keys.py` | `config.example.yaml` lists every configuration key, and loads as written (loader and tests section, no network) | a key missing or unknown, or the example invalid (exit 3) |
 | `python scripts/generate_docs.py --check` | the generated documentation is up to date with the tests' declarations (catalogue, page headers, parameter tables, the tests section of `config.example.yaml`; the files are listed in `GENERATED_FILES`, run through Cog) | the file and the difference are shown: run `hatch run dev:gen` |
+| `python experiments/e1-oracle-validation/check.py --complete` | the validation case files hold exactly the cases the code declares, with the fields copied from it, each case says how it is produced (or why it cannot be), and each variant named exists ([`experiments/e1-oracle-validation/README.md`](../../experiments/e1-oracle-validation/README.md)) | a case added, removed or changed in an oracle: `python experiments/e1-oracle-validation/sync.py`, then fill or review the case it names |
 
 Individual tools:
 ```bash
@@ -244,6 +247,25 @@ and 3.14 (the range of `requires-python`), with the pinned versions, and the pac
 `apiguard list-tests` run outside the repository. The results are on the repository's Actions tab and next to each commit. To check the workflow
 file: `pip install actionlint-py && actionlint .github/workflows/check.yml`.
 
+
+## Experiments
+
+The experiments of the paper, each a command on the labs; what each measures and how its result is read are in
+[`experiments/README.md`](../../experiments/README.md). The labs must be up.
+
+```bash
+hatch run dev:e1-oracle-validation                      # E1 campaign: every oracle case (hours), labs reset first
+hatch run dev:e1-oracle-validation --test 1.5 2.2       # E1 trial: only these tests, labs as they are
+hatch run dev:e1-oracle-validation --lab forgejo-kong   # E1 trial: only this lab's cases
+hatch run dev:e2-complete-run                           # E2 campaign: every test on each lab, each reset first
+hatch run dev:e3-crapi-challenges                       # E3: crAPI's challenges read in E2's crAPI run (no run)
+hatch run dev:python experiments/e1-oracle-validation/sync.py    # after an oracle changed: add, refresh, remove its cases
+hatch run dev:python experiments/e1-oracle-validation/check.py   # the alignment check alone (in dev:check with --complete)
+```
+
+A campaign (every case or lab, clean commit) resets the labs, is committed and replaces the previous result; a trial
+(`-partial`, `-dirty`) stays local, the latest only. After the campaigns, `hatch run dev:gen` writes them into the
+test pages. Do not edit the case or variant files while E1 runs: they are read group by group.
 
 ## Kong Configuration Changes
 

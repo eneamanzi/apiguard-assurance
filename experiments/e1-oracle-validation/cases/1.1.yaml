@@ -1,0 +1,432 @@
+test: '1.1'
+name: Credential Required on Documented Operations
+sub_tests:
+
+  no_credential:
+
+    - id: ENFORCED/CREDENTIAL_REQUIRED
+      situation: refused without a credential (`401`, `403`)
+      expected:
+        outcome: ENFORCED
+        detail: CREDENTIAL_REQUIRED
+      how: 'the lab as built: GET /api/v1/user (and 133 other operations) answers 401 to a request with no credential'
+      lab: forgejo-kong
+      variant: none
+
+    - id: VIOLATION/SERVED_WITHOUT_CREDENTIAL/FIRM
+      situation: served (`2xx`) without a credential, unlike a random path, the operation declaring its own requirement
+      expected:
+        outcome: VIOLATION
+        detail: SERVED_WITHOUT_CREDENTIAL
+        confidence: FIRM
+      how: 'the lab as built: GET /workshop/api/shop/orders/{order_id} and GET /workshop/api/shop/return_qr_code
+        declare their own security and answer 200 with no credential (crAPI challenge 14)'
+      lab: crapi-kong
+      variant: none
+
+    - id: VIOLATION/SERVED_WITHOUT_CREDENTIAL/TENTATIVE
+      situation: the same, the requirement being the document's default
+      expected:
+        outcome: VIOLATION
+        detail: SERVED_WITHOUT_CREDENTIAL
+        confidence: TENTATIVE
+      how: 'the lab as built: 78 genuinely public operations (/api/v1/licenses, /api/v1/orgs, ...) answer 200 with
+        no credential while only the document''s global security applies'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/SERVED_LIKE_UNKNOWN
+      situation: served exactly as a random path is (a catch-all)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: SERVED_LIKE_UNKNOWN
+      how: a temporary Kong route ~/api/v1/[^/]+$ answers 200 with the same body to every method, so GET /api/v1/user
+        is served exactly as its random sibling /api/v1/zqxv<hex>
+      lab: forgejo-kong
+      variant: kong-0-1-catch-all
+
+    - id: NOT_VERIFIABLE/OPTIONS_ANSWERED
+      situation: an `OPTIONS` answered `2xx` with no body (an `Allow` list, no data)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: OPTIONS_ANSWERED
+      how: the run reads a local copy of Forgejo's specification with an added OPTIONS /user (inheriting the global
+        security), and a temporary Kong route OPTIONS ~/api/v1/user$ answers 204 with no body
+      lab: forgejo-kong
+      variant: kong-1-1-options-empty
+      spec:
+        set: {}
+        add_operations:
+          - path: /user
+            method: options
+            operation:
+              summary: validation probe
+              responses:
+                '204':
+                  description: No Content
+        drop_plain_get: false
+        drop_operations: []
+
+    - id: NOT_VERIFIABLE/REDIRECTED
+      situation: a redirect, not followed
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: REDIRECTED
+      how: a temporary Kong route on the protected read times/user-a (GET /api/v1/repos/{owner}/{repo}/times/{user},
+        filled from path_seed) answers 302 itself
+      lab: forgejo-kong
+      variant: kong-0-3-redirect
+
+    - id: NOT_VERIFIABLE/VALIDATED_WITHOUT_CREDENTIAL
+      situation: 'an invalid-request `4xx`: validated without a credential'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: VALIDATED_WITHOUT_CREDENTIAL
+      how: 'the lab as built: 5 Forgejo operations answer 400 for a missing query parameter before asking for a
+        credential'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/NOT_FOUND_LIKE_UNKNOWN
+      situation: another answer (`404`, `405`, ...), like a random sibling's
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NOT_FOUND_LIKE_UNKNOWN
+      how: 'the lab as built: parametric writes sent on random values get Forgejo''s 404, as their random siblings
+        do'
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_VERIFIABLE/NOT_FOUND_OWN_ANSWER
+      situation: another answer, unlike a random sibling's or with an unreliable calibration
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NOT_FOUND_OWN_ANSWER
+      how: 'the lab as built: 5 Forgejo operations answer a 404 of their own, unlike their random siblings'''
+      lab: forgejo-kong
+      variant: none
+
+    - id: NOT_APPLICABLE/DECLARED_PUBLIC
+      situation: 'the operation declares `security: []`'
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: DECLARED_PUBLIC
+      how: 'the lab as built: crAPI marks 9 operations `security: []`'
+      lab: crapi-kong
+      variant: none
+
+    - id: NOT_APPLICABLE/NO_SECURITY_DECLARED
+      situation: no security requirement applies, neither the document's nor the operation's
+      expected:
+        outcome: NOT_APPLICABLE
+        detail: NO_SECURITY_DECLARED
+      how: 'the run reads a local copy of Forgejo''s specification with its global security set to [] (no operation
+        declares its own): no requirement applies to any operation'
+      lab: forgejo-kong
+      variant: none
+      spec:
+        set:
+          security: []
+        add_operations: []
+        drop_plain_get: false
+        drop_operations: []
+
+  malformed_credential:
+
+    - id: ENFORCED/CREDENTIAL_REFUSED
+      situation: a credential that cannot be valid is not served (refused, `400`, ...)
+      expected:
+        outcome: ENFORCED
+        detail: CREDENTIAL_REFUSED
+      how: 'the lab as built: GET /api/v1/user refuses the five malformed values sent as ''Authorization: token
+        ...'' with 401'
+      lab: forgejo-kong
+      variant: none
+
+    - id: VIOLATION/ACCEPTED_EMPTY_CREDENTIAL/CERTAIN
+      situation: a credential that cannot be valid is served (`2xx`) where none is refused
+      expected:
+        outcome: VIOLATION
+        detail: ACCEPTED_EMPTY_CREDENTIAL
+        confidence: CERTAIN
+      how: a temporary Kong route ~/api/v1/user$ answers 200 to any request carrying an Authorization header and
+        401 to one without
+      lab: forgejo-kong
+      variant: kong-1-1-any-header-credential
+
+    - id: VIOLATION/ACCEPTED_WORD_NULL/CERTAIN
+      situation: a credential that cannot be valid is served (`2xx`) where none is refused
+      expected:
+        outcome: VIOLATION
+        detail: ACCEPTED_WORD_NULL
+        confidence: CERTAIN
+      how: a temporary Kong route ~/api/v1/user$ answers 200 to any request carrying an Authorization header and
+        401 to one without
+      lab: forgejo-kong
+      variant: kong-1-1-any-header-credential
+
+    - id: VIOLATION/ACCEPTED_ARBITRARY_STRING/CERTAIN
+      situation: a credential that cannot be valid is served (`2xx`) where none is refused
+      expected:
+        outcome: VIOLATION
+        detail: ACCEPTED_ARBITRARY_STRING
+        confidence: CERTAIN
+      how: a temporary Kong route ~/api/v1/user$ answers 200 to any request carrying an Authorization header and
+        401 to one without
+      lab: forgejo-kong
+      variant: kong-1-1-any-header-credential
+
+    - id: VIOLATION/ACCEPTED_EMPTY_CREDENTIAL_IN_QUERY/CERTAIN
+      situation: a credential that cannot be valid is served (`2xx`) where none is refused
+      expected:
+        outcome: VIOLATION
+        detail: ACCEPTED_EMPTY_CREDENTIAL_IN_QUERY
+        confidence: CERTAIN
+      how: the credential placed in the query (scheme AccessToken, no prefix), and a temporary Kong route ~/api/v1/user$
+        answers 200 to any request carrying the query parameter access_token and 401 to one without
+      lab: forgejo-kong
+      variant: kong-1-1-any-query-credential
+      config:
+        credentials.security_scheme: AccessToken
+        credentials.send_as: null
+
+    - id: VIOLATION/ACCEPTED_WORD_NULL_IN_QUERY/CERTAIN
+      situation: a credential that cannot be valid is served (`2xx`) where none is refused
+      expected:
+        outcome: VIOLATION
+        detail: ACCEPTED_WORD_NULL_IN_QUERY
+        confidence: CERTAIN
+      how: the credential placed in the query (scheme AccessToken, no prefix), and a temporary Kong route ~/api/v1/user$
+        answers 200 to any request carrying the query parameter access_token and 401 to one without
+      lab: forgejo-kong
+      variant: kong-1-1-any-query-credential
+      config:
+        credentials.security_scheme: AccessToken
+        credentials.send_as: null
+
+    - id: VIOLATION/ACCEPTED_ARBITRARY_STRING_IN_QUERY/CERTAIN
+      situation: a credential that cannot be valid is served (`2xx`) where none is refused
+      expected:
+        outcome: VIOLATION
+        detail: ACCEPTED_ARBITRARY_STRING_IN_QUERY
+        confidence: CERTAIN
+      how: the credential placed in the query (scheme AccessToken, no prefix), and a temporary Kong route ~/api/v1/user$
+        answers 200 to any request carrying the query parameter access_token and 401 to one without
+      lab: forgejo-kong
+      variant: kong-1-1-any-query-credential
+      config:
+        credentials.security_scheme: AccessToken
+        credentials.send_as: null
+
+    - id: VIOLATION/ACCEPTED_HEADER_LOWERCASE/CERTAIN
+      situation: a credential that cannot be valid is served (`2xx`) where none is refused
+      expected:
+        outcome: VIOLATION
+        detail: ACCEPTED_HEADER_LOWERCASE
+        confidence: CERTAIN
+      how: a temporary Kong route ~/api/v1/user$ answers 200 to any request carrying an Authorization header (read
+        case-insensitively) and 401 to one without
+      lab: forgejo-kong
+      variant: kong-1-1-any-header-credential
+
+    - id: VIOLATION/ACCEPTED_HEADER_UPPERCASE/CERTAIN
+      situation: a credential that cannot be valid is served (`2xx`) where none is refused
+      expected:
+        outcome: VIOLATION
+        detail: ACCEPTED_HEADER_UPPERCASE
+        confidence: CERTAIN
+      how: a temporary Kong route ~/api/v1/user$ answers 200 to any request carrying an Authorization header (read
+        case-insensitively) and 401 to one without
+      lab: forgejo-kong
+      variant: kong-1-1-any-header-credential
+
+    - id: NOT_VERIFIABLE/NO_PROVEN_CONTROL
+      situation: no read operation was proven to require a credential
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_PROVEN_CONTROL
+      how: 'the run reads a local copy of Forgejo''s specification with its global security set to []: no operation
+        is proven to require a credential, so nothing is sampled'
+      lab: forgejo-kong
+      variant: none
+      spec:
+        set:
+          security: []
+        add_operations: []
+        drop_plain_get: false
+        drop_operations: []
+
+  path_variants:
+
+    - id: ENFORCED/VARIANT_REDIRECTED
+      situation: 'a variant answers a redirect: that spelling serves nothing'
+      expected:
+        outcome: ENFORCED
+        detail: VARIANT_REDIRECTED
+      how: 'the lab as built: the workshop service answers 301 to the variants of /workshop/api/mechanic'
+      lab: crapi-kong
+      variant: none
+
+    - id: ENFORCED/VARIANT_NOT_SERVED
+      situation: a variant is refused or not routed
+      expected:
+        outcome: ENFORCED
+        detail: VARIANT_NOT_SERVED
+      how: 'the lab as built: every variant of GET /api/v1/user is refused (401) by Forgejo after Kong''s normalisation'
+      lab: forgejo-kong
+      variant: none
+
+    - id: VIOLATION/SERVED_AS_UPPER_SEGMENT/CERTAIN
+      situation: a variant is served (`2xx`) without a credential where the path itself is refused
+      expected:
+        outcome: VIOLATION
+        detail: SERVED_AS_UPPER_SEGMENT
+        confidence: CERTAIN
+      how: a pre-function on the /api route (and on a temporary route /) answers 200 when the raw path is one of
+        the eight variants of /api/v1/user, here /api/v1/USER
+      lab: forgejo-kong
+      variant: kong-1-1-variants-served
+
+    - id: VIOLATION/SERVED_AS_TRAILING_SLASH/CERTAIN
+      situation: a variant is served (`2xx`) without a credential where the path itself is refused
+      expected:
+        outcome: VIOLATION
+        detail: SERVED_AS_TRAILING_SLASH
+        confidence: CERTAIN
+      how: a pre-function on the /api route (and on a temporary route /) answers 200 when the raw path is /api/v1/user/
+      lab: forgejo-kong
+      variant: kong-1-1-variants-served
+
+    - id: VIOLATION/SERVED_AS_DOUBLE_SLASH/CERTAIN
+      situation: a variant is served (`2xx`) without a credential where the path itself is refused
+      expected:
+        outcome: VIOLATION
+        detail: SERVED_AS_DOUBLE_SLASH
+        confidence: CERTAIN
+      how: a pre-function on the /api route (and on a temporary route /) answers 200 when the raw path (kong.request.get_raw_path)
+        is //api/v1/user
+      lab: forgejo-kong
+      variant: kong-1-1-variants-served
+
+    - id: VIOLATION/SERVED_AS_DOT_SEGMENT/CERTAIN
+      situation: a variant is served (`2xx`) without a credential where the path itself is refused
+      expected:
+        outcome: VIOLATION
+        detail: SERVED_AS_DOT_SEGMENT
+        confidence: CERTAIN
+      how: a pre-function on the /api route (and on a temporary route /) answers 200 when the raw path is /api/v1/./user
+      lab: forgejo-kong
+      variant: kong-1-1-variants-served
+
+    - id: VIOLATION/SERVED_AS_DOT_DOT_SEGMENT/CERTAIN
+      situation: a variant is served (`2xx`) without a credential where the path itself is refused
+      expected:
+        outcome: VIOLATION
+        detail: SERVED_AS_DOT_DOT_SEGMENT
+        confidence: CERTAIN
+      how: a pre-function on the /api route (and on a temporary route /) answers 200 when the raw path is /api/v1/zqxv/../user
+      lab: forgejo-kong
+      variant: kong-1-1-variants-served
+
+    - id: VIOLATION/SERVED_AS_ENCODED_SLASH/CERTAIN
+      situation: a variant is served (`2xx`) without a credential where the path itself is refused
+      expected:
+        outcome: VIOLATION
+        detail: SERVED_AS_ENCODED_SLASH
+        confidence: CERTAIN
+      how: a pre-function on the /api route (and on a temporary route /) answers 200 when the raw path is /api%2fv1%2fuser
+      lab: forgejo-kong
+      variant: kong-1-1-variants-served
+
+    - id: VIOLATION/SERVED_AS_DOUBLE_ENCODED/CERTAIN
+      situation: a variant is served (`2xx`) without a credential where the path itself is refused
+      expected:
+        outcome: VIOLATION
+        detail: SERVED_AS_DOUBLE_ENCODED
+        confidence: CERTAIN
+      how: a pre-function on the /api route (and on a temporary route /) answers 200 when the raw path is /api%252fv1%252fuser
+      lab: forgejo-kong
+      variant: kong-1-1-variants-served
+
+    - id: VIOLATION/SERVED_AS_PATH_PARAMETER/CERTAIN
+      situation: a variant is served (`2xx`) without a credential where the path itself is refused
+      expected:
+        outcome: VIOLATION
+        detail: SERVED_AS_PATH_PARAMETER
+        confidence: CERTAIN
+      how: a pre-function on the /api route (and on a temporary route /) answers 200 when the raw path is /api/v1/user;zqxv=1
+      lab: forgejo-kong
+      variant: kong-1-1-variants-served
+
+    - id: NOT_VERIFIABLE/VARIANT_LIKE_UNKNOWN
+      situation: a variant is served exactly as a random path spelled the same way (a catch-all)
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: VARIANT_LIKE_UNKNOWN
+      how: a temporary Kong route answers the same 200 to /api/v1/USER (the upper-case variant of the sampled /api/v1/user)
+        and to the random paths /api/v1/zqxv<hex> its calibration asks; /api/v1/user itself still answers 401
+      lab: forgejo-kong
+      variant: kong-1-1-variant-like-unknown
+
+    - id: NOT_VERIFIABLE/NO_PROVEN_CONTROL
+      situation: no read operation was proven to require a credential
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_PROVEN_CONTROL
+      how: 'the run reads a local copy of Forgejo''s specification with its global security set to []: no operation
+        is proven to require a credential, so nothing is sampled'
+      lab: forgejo-kong
+      variant: none
+      spec:
+        set:
+          security: []
+        add_operations: []
+        drop_plain_get: false
+        drop_operations: []
+
+  any_sub_test:
+
+    - id: NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE
+      situation: 'an answer of this category on any sub-test that does not judge it: 502, 503, 504: the gateway
+        could not reach the backend, or the backend did not answer in time. It says nothing about the guarantee
+        (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: UPSTREAM_UNAVAILABLE
+      how: a temporary Kong route on the protected read times/user-a answers 503 itself
+      lab: forgejo-kong
+      variant: kong-0-3-answer-503
+
+    - id: NOT_VERIFIABLE/RATE_LIMITED
+      situation: 'an answer of this category on any sub-test that does not judge it: 429: refused for the rate of
+        the requests. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: RATE_LIMITED
+      how: a temporary Kong route on the protected read times/user-a answers 429 itself
+      lab: forgejo-kong
+      variant: kong-0-3-answer-429
+
+    - id: NOT_VERIFIABLE/SERVER_ERROR
+      situation: 'an answer of this category on any sub-test that does not judge it: 500, 505-508, 510: the application
+        failed. It says nothing about the guarantee (one rule for every test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: SERVER_ERROR
+      how: a temporary Kong route on the protected read times/user-a answers 500 itself
+      lab: forgejo-kong
+      variant: kong-0-3-answer-500
+
+    - id: NOT_VERIFIABLE/NO_RESPONSE
+      situation: 'an answer of this category on any sub-test that does not judge it: No HTTP response: timeout,
+        connection refused, TLS error, connection reset. It says nothing about the guarantee (one rule for every
+        test)'
+      expected:
+        outcome: NOT_VERIFIABLE
+        detail: NO_RESPONSE
+      how: a temporary Kong route on the protected read times/user-a sleeps 7 s before proxying, and the run's read
+        timeout is 5 s
+      lab: forgejo-kong
+      variant: kong-0-3-slow
+      config:
+        target.read_timeout: 5.0

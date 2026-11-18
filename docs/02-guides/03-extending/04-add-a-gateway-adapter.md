@@ -1,9 +1,8 @@
 # Add a Gateway Adapter
 
-> **Audience:** contributors · **Status:** neutral concepts since 2026-10; adapters `kong` and `apisix` ·
-> **Source of truth:** `src/core/gateway/base.py`, `src/core/gateway/concepts.py`, `src/core/gateway/kong.py`,
-> `src/core/gateway/apisix.py`, `src/core/gateway/__init__.py` (`GATEWAY_ADAPTERS`), `src/engine.py` (Phase 3) ·
-> **Verified:** 2026-10-12
+> **Audience:** contributors · **Status:** neutral concepts; adapters `kong` and `apisix` · **Source of truth:**
+> `src/core/gateway/base.py`, `src/core/gateway/concepts.py`, `src/core/gateway/kong.py`,
+> `src/core/gateway/apisix.py`, `src/core/gateway/__init__.py` (`GATEWAY_ADAPTERS`), `src/engine.py` (Phase 3)
 
 A gateway adapter gives the tests read-only access to the gateway's configuration: the WHITE_BOX audits that need it,
 and the tests that use it when a gateway is configured (0.1, 0.2, 4.1, 4.4, 6.4). Tests use it as
@@ -138,7 +137,7 @@ the test:
 |---|---|---|
 | backend timeouts | `GET /services` | milliseconds to seconds |
 | health checks | `GET /upstreams` | `healthchecks.passive` / `.active` |
-| live target health | `GET /upstreams/{name}/health`, and `GET /services` | `HEALTHY` / `UNHEALTHY`, else unknown; an enabled Service whose `host` is no Upstream's name is a target too, `UNKNOWN` (since 2026-11-16) |
+| live target health | `GET /upstreams/{name}/health`, and `GET /services` | `HEALTHY` / `UNHEALTHY`, else unknown; an enabled Service whose `host` is no Upstream's name is a target too, `UNKNOWN` |
 | routes | `GET /routes` (+ `/services` for names) | |
 | circuit breakers | `GET /plugins` | the third-party breaker plugins the adapter knows (`_BREAKER_PLUGINS`, today `circuit-breaker`, the plugin name of [dream11/kong-circuit-breaker](https://github.com/dream11/kong-circuit-breaker)), in that order, first instance of each; Kong OSS ships none. The threshold and open-state fields are tried by name, that plugin's own names first (`failure_percent_threshold`, `wait_duration_in_open_state`) |
 | signing policies | `GET /plugins` | every `hmac-auth` plugin, fields `clock_skew`, `algorithms`, `validate_request_body`, `enforce_headers` (Kong's schema; Kong requires `clock_skew` > 0) |
@@ -158,7 +157,7 @@ Admin API under `<gateway.admin.url>/apisix/admin` (the path is added when missi
 |---|---|---|
 | backend timeouts | `GET /upstreams`, `/services`, `/routes` | each upstream (also inline in a service or route), and routes with their own `timeout`; seconds |
 | health checks | upstreams' `checks` | defaults from `GET /schema/upstream` |
-| live target health | Control API `GET /v1/healthcheck`, and the upstreams' `nodes` | `mostly_healthy` / `mostly_unhealthy` classed as healthy / unhealthy; empty until the first request through APISIX; every node not checked (an upstream without `checks`, or no `gateway.health`) is `UNKNOWN` (since 2026-11-16) |
+| live target health | Control API `GET /v1/healthcheck`, and the upstreams' `nodes` | `mostly_healthy` / `mostly_unhealthy` classed as healthy / unhealthy; empty until the first request through APISIX; every node not checked (an upstream without `checks`, or no `gateway.health`) is `UNKNOWN` |
 | routes | `GET /routes` | `uri` / `uris`, `methods`, `status`; backend from `upstream`, `upstream_id` or the service's upstream |
 | circuit breakers | `api-breaker` | in global rules, routes, their plugin configs and services |
 | signing policies | `hmac-auth` | as above; `clock_skew: 0` (no date check, accepted before APISIX 3.13) is reported as no replay window (`replay_unlimited`) |
