@@ -28,11 +28,14 @@ challenges:
   - number: 4
     title: Find an API endpoint that leaks sensitive information of other users
     category: Excessive Data Exposure
+    # crAPI publishes no solution for this challenge: the endpoint below is our reading (its posts carry each
+    # author's email and vehicleid, which crAPI's solution of challenge 1 uses).
     caught_by:
       - {test: "2.5", finding_matches: /community/api/v2/community/posts}
   - number: 5
     title: Find an API endpoint that leaks an internal property of a video
     category: Excessive Data Exposure
+    # crAPI publishes no solution for this challenge: the endpoint below is our reading.
     caught_by:
       - {test: "2.5", finding_matches: /identity/api/v2/user/videos}
   - number: 6
@@ -64,6 +67,7 @@ challenges:
   - number: 10
     title: Update internal video properties
     category: Mass Assignment
+    # crAPI publishes no solution for this challenge: the endpoint below is our reading.
     caught_by:
       - {test: "2.5", finding_matches: /identity/api/v2/user/videos}
   - number: 11

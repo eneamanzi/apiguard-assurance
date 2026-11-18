@@ -258,7 +258,8 @@ tests:
     # 2.2 Object-Level Authorization.
     test_2_2:
       # The config.yaml `resources:` resources that each create a disposable object owned by user_a,
-      # whose identifiers (its `values`) name the path parameters of the object's by-id operations.
+      # whose identifiers (its `values`) name the path or query parameters of the object's by-id
+      # operations.
       owned_object_resources: []
     # 2.4 Authorization Consistency: no parameters.
     test_2_4: {}

@@ -153,8 +153,8 @@ No E2 campaign yet ([experiments](../../../experiments/README.md)).
 - **A target that answers before the upload finishes cannot be judged.** A service that sends its response (a `401`,
   for instance) and closes the connection mid-upload makes the client raise a protocol error, and a non-idempotent
   request that may already have been applied is never sent again (RFC 9110 section 9.2.2), so the status never
-  reaches the oracle: the result is `NOT_VERIFIABLE/UPSTREAM_UNAVAILABLE`. crAPI does this in some runs and not in
-  others, depending on whether the upload finishes before the close (section 4). The
+  reaches the oracle: the result is `NOT_VERIFIABLE/NO_RESPONSE`. crAPI does this in some runs and not in
+  others, depending on whether the upload finishes before the close. The
   gateway did forward the oversized body in that case, which would be a violation, but this test does not see it.
 - A backend that happens to reject the body for another reason before the gateway's size check would read as a limit
   only if it answers 413.

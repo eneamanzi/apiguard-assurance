@@ -187,7 +187,8 @@ No E2 campaign yet ([experiments](../../../experiments/README.md)).
   reset removes it.
 - Sequential ID enumeration is not performed (it is object discovery, not an enforcement question).
 - One object is tested per configured resource (`owned_object_resources`). Every documented read of the object is
-  probed (a read is one whose path parameters are all the object's identifiers), but the sub-resource reads only once
+  probed (a read whose path parameters are all the object's identifiers, a query parameter named as one counting
+  too), but the sub-resource reads only once
   the object's own read refused user_b, since that refusal is what a served sub-resource is read against. One
   modification and one deletion are probed (the first documented), so an ownership gap on another write is not
   covered. An object type with no resource configured is not covered either.
@@ -204,8 +205,8 @@ No E2 campaign yet ([experiments](../../../experiments/README.md)).
 ## 7. Inputs
 
 A disposable object owned by user_a, created through a configured `resources:` resource
-(`owned_object_resources`); its identifiers (the resource's `values`) name the path parameters of the object's by-id
-operations, which are found on the surface (`src/tests/helpers/owned_object.py`). Two accounts: user_a and
+(`owned_object_resources`); its identifiers (the resource's `values`) name the path or query parameters of the object's
+by-id operations, which are found on the surface (`src/tests/helpers/owned_object.py`). Two accounts: user_a and
 user_b (the other user).
 
 ## 8. Outcomes
@@ -242,7 +243,7 @@ Section [`tests.domain_2.test_2_2`](../../03-reference/01-configuration.md#tests
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `owned_object_resources` | list | empty, **needed to run** | The config.yaml `resources:` resources that each create a disposable object owned by user_a, whose identifiers (its `values`) name the path parameters of the object's by-id operations. Each is tested in turn, so several object types are covered. Without any the test cannot run (BOLA needs an owned object). |
+| `owned_object_resources` | list | empty, **needed to run** | The config.yaml `resources:` resources that each create a disposable object owned by user_a, whose identifiers (its `values`) name the path or query parameters of the object's by-id operations. Each is tested in turn, so several object types are covered. Without any the test cannot run (BOLA needs an owned object). |
 
 <!-- [[[end]]] -->
 

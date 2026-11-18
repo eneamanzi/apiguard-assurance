@@ -1,5 +1,5 @@
 # Variants of the Forgejo + APISIX lab (test-environments/forgejo-apisix). Each is a call to APISIX's Admin API,
-# undone by validation/run.py (apisix/setup.sh applied again, objects the variant created deleted, the Admin API
+# undone by experiments/e1-oracle-validation/run.py (apisix/setup.sh applied again, objects the variant created deleted, the Admin API
 # checked equal to its state before).
 
 apisix-no-signing:

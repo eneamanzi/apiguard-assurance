@@ -226,7 +226,8 @@ class Test22Params(BaseModel):
         default=(),
         description=(
             "The config.yaml `resources:` resources that each create a disposable object owned by "
-            "user_a, whose identifiers (its `values`) name the path parameters of the object's "
+            "user_a, whose identifiers (its `values`) name the path or query parameters of the "
+            "object's "
             "by-id operations. Each is tested in turn, so several object types are covered. "
             "Without any the test cannot run (BOLA needs an owned object)."
         ),

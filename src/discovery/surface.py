@@ -59,6 +59,7 @@ Dependency rule:
 from __future__ import annotations
 
 import posixpath
+import re
 from collections.abc import Sequence
 
 import structlog
@@ -86,6 +87,9 @@ OPENAPI_HTTP_METHODS: frozenset[str] = frozenset(
 
 # Valid ``in`` values for ParameterInfo (both dialects).
 OPENAPI_PARAMETER_LOCATIONS: frozenset[str] = frozenset({"path", "query", "header", "cookie"})
+_PATH_LOCATION: str = "path"
+# A parameter in a path template: `{name}`.
+_TEMPLATE_NAME: re.Pattern[str] = re.compile(r"\{([^{}/]+)\}")
 
 # Swagger 2.0 ``in`` values that represent the request body rather than a
 # discrete parameter. These are extracted as body metadata and excluded from
@@ -648,6 +652,17 @@ def _build_single_record(
             if isinstance(param, dict)
         )
         if p is not None
+    ]
+
+    # --- path parameters of the template the specification does not declare ---
+    # A `{name}` in the path is a path parameter whether declared or not (a
+    # specification may omit it, crAPI's /vehicle/{vehicleId}/location does):
+    # it is required and its type is not stated.
+    declared_in_path = {p.name for p in valid_parameters if p.location == _PATH_LOCATION}
+    valid_parameters += [
+        ParameterInfo(name=name, location=_PATH_LOCATION, required=True)
+        for name in dict.fromkeys(_TEMPLATE_NAME.findall(path))
+        if name not in declared_in_path
     ]
 
     # --- request body ---

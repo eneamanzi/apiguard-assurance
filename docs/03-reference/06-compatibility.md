@@ -39,7 +39,7 @@ configuration of each test are on its page (`docs/05-tests/`, "Preconditions" an
 | `SECOND_USER_ACCOUNT` | The credentials of the user_b role (a second ordinary account, for cross-user tests) | `2.2` | - |
 | `GATEWAY` | A gateway section: adapter and Admin API | `0.4`, `3.3`, `4.2`, `4.3`, `5.1` | `0.1`, `0.2`, `1.7`, `4.1`, `4.4`, `6.4` |
 | `REVOCABLE_LOGIN` | A login method that can revoke a credential (login with a delete request) | `1.4` | - |
-| `owned_object_resources` | The config.yaml `resources:` resources that each create a disposable object owned by user_a, whose identifiers (its `values`) name the path parameters of the object's by-id operations | `2.2`, `2.5` | - |
+| `owned_object_resources` | The config.yaml `resources:` resources that each create a disposable object owned by user_a, whose identifiers (its `values`) name the path or query parameters of the object's by-id operations | `2.2`, `2.5` | - |
 | `race_operation` | The once-only operation to probe for a race condition | `7.3` | - |
 | `sensitive_flow` | The sensitive business flow to probe for an anti-automation control (a CAPTCHA, a human-verification challenge, an aggressive throttle) | `7.1` | - |
 | `url_accepting_endpoint` | The endpoint that accepts a URL from the client and makes the server call it (a webhook, a fetch-from-URL import): path, body (with "{ssrf_url}" where the URL goes) and, optionally, a prepared resource | `7.2` | - |

@@ -48,6 +48,23 @@ generated catalogue [`docs/05-tests/README.md`](docs/05-tests/README.md); `apigu
   parameter ..." passages left the documentation (test pages, reference, architecture, guides, methodology, the
   guarantees catalogue); the history they told is in this file. Page headers keep the audience, the status and the
   source of truth, without the "Verified" dates (a test page's evidence is its Validation section).
+  Found in the same pass: 4.4's page named the result of a connection closed mid-upload `UPSTREAM_UNAVAILABLE`,
+  where the code records `NO_RESPONSE` (no status arrived); 1.2's page said crAPI publishes its public key, which no
+  source here shows.
+- **Where each finding comes from, in E2 (2026-11-18).** `LAB_FINDINGS.md`, written by hand on 2026-11-05 and
+  outdated since (3.3 and 4.4 found more, crAPI's 0.1 finding is gone), became
+  `experiments/e2-complete-run/finding_origins.yaml`: one rule per kind of finding (test, title, labs) with its
+  origin, the application, the lab, the specification, or both the application and the lab (a limit either side can
+  enforce, and neither does), and why. E2 counts the findings by origin, reports any no
+  rule covers as "to classify", and `--classify` reads the origins of the latest result again; each test page's
+  results on the labs (4.2) show the origin of every finding.
+- **The objects a test acts on, found as real APIs address them (2026-11-18).** A prepared resource's value may
+  index a list (`vehicle_id: 0.uuid`: a response that is, or holds, a list). An object addressed by a query parameter
+  is found like one in the path: an operation whose query parameter is named as a value of the resource is one of the
+  object's, sent with the value (`?report_id=7`), so 2.2 and 2.5 probe it. A `{name}` in a path template is a path
+  parameter even when the specification does not declare it. **Changed results**: none on the Forgejo + Kong lab
+  (E2 identical); on crAPI 2.2 also probes `POST /workshop/api/shop/orders/return_order?order_id=` (the order's,
+  by its query parameter), same statuses.
 - **7.3 fires every run on a fresh object (2026-11-18).** With a prepared resource, the burst's body (not only its
   path) may hold the resource's values and the `{random}` its create request used, checked against the resource when
   the configuration loads. A once-only operation is used up by the run that tests it: crAPI's lab now creates the

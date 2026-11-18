@@ -265,7 +265,7 @@ login chooses the role a resource is created for. None by default. Design: [D6](
 | `<name>.create.auth` | `credential` \| `basic` \| `none` | `credential` | How the request authenticates: `credential` (the role's credential, sent as `credentials` says), `basic` (HTTP Basic with the role's username and password), `none` (nothing). |
 | `<name>.create.method` | string | `POST` | Method of the create request: `GET`, `POST`, `PUT`, `PATCH` or `DELETE`. |
 | `<name>.create.body` | JSON | none | JSON body; strings may use the same placeholders as the path, in quotes. |
-| `<name>.values` | map string → string | `{}` | Values read from the response, name → dotted path through the JSON body's objects (no array indexes), e.g. `owner: owner.login`, the value found a string or a number; or `cookie:<name>`, the value of a cookie the response sets (a session cookie). A login resource needs `credential` (always masked as a secret); other values are not secrets. |
+| `<name>.values` | map string → string | `{}` | Values read from the response, name → dotted path through the JSON body, a number indexing a list (`owner: owner.login`, `vehicle_id: 0.uuid` for the first element of a list), the value found a string or a number; or `cookie:<name>`, the value of a cookie the response sets (a session cookie). A login resource needs `credential` (always masked as a secret); other values are not secrets. |
 | `<name>.delete` | object \| null | none | The request that deletes the resource at teardown; without it nothing is deleted. |
 | `<name>.delete.path` | string | required with `delete` | Path, starting with `/`; may use `{username}`, `{password}`, `{random}` and, in a delete request, the names of `values`. |
 | `<name>.delete.auth` | `credential` \| `basic` \| `none` | `credential` | How the request authenticates: `credential` (the role's credential, sent as `credentials` says), `basic` (HTTP Basic with the role's username and password), `none` (nothing). |
@@ -355,7 +355,7 @@ Test [2.2](../05-tests/domain-2/2-2-object-level-authorization.md), Object-Level
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `owned_object_resources` | list | empty, **needed to run** | The config.yaml `resources:` resources that each create a disposable object owned by user_a, whose identifiers (its `values`) name the path parameters of the object's by-id operations. Each is tested in turn, so several object types are covered. Without any the test cannot run (BOLA needs an owned object). |
+| `owned_object_resources` | list | empty, **needed to run** | The config.yaml `resources:` resources that each create a disposable object owned by user_a, whose identifiers (its `values`) name the path or query parameters of the object's by-id operations. Each is tested in turn, so several object types are covered. Without any the test cannot run (BOLA needs an owned object). |
 
 ### `tests.domain_2.test_2_5`
 

@@ -1,5 +1,5 @@
 # Variants of the Forgejo + Kong lab (test-environments/forgejo-kong). Each is a temporary change to kong/kong.yml,
-# applied and undone by validation/run.py (Kong recreated, the file restored and checked identical).
+# applied and undone by experiments/e1-oracle-validation/run.py (Kong recreated, the file restored and checked identical).
 
 kong-hmac-all-headers:
   what: hmac-auth of hmac-audit-dummy requires date, x-date, digest and request-line in the signature

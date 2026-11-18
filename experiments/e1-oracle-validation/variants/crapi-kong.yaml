@@ -1,4 +1,4 @@
-# Variants of the crAPI + Kong lab (test-environments/crapi-kong), applied and undone by validation/run.py.
+# Variants of the crAPI + Kong lab (test-environments/crapi-kong), applied and undone by experiments/e1-oracle-validation/run.py.
 
 kong-0-4-workshop-key-auth:
   what: 'key-auth, with no consumer, on the service workshop-service: the gateway answers every workshop path 401'

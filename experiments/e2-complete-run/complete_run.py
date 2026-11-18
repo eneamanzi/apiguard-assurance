@@ -6,19 +6,27 @@ committed configuration and nothing else (README.md).
 
 For each lab: reset it, run the tool once with every test, keep the report. The
 result (results/) is one table of every test on every lab (its status, its
-findings, the reason of a SKIP), the findings of each lab, and each run's cost
-(duration, requests). E3 reads crAPI's run from it.
+findings, the reason of a SKIP), the findings of each lab with where each comes
+from (finding_origins.yaml: the application, the lab, the specification; a
+finding no rule covers is "to classify"), and each run's cost (duration,
+requests). E3 reads crAPI's run from it.
 
 Usage: hatch run dev:e2-complete-run [--lab LAB]
+       hatch run dev:e2-complete-run --classify   (the latest result, its origins read again)
 """
 
 from __future__ import annotations
 
 import argparse
 import copy
+import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
+
+import yaml
+from pydantic import BaseModel, ConfigDict, Field
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "shared"))
 
@@ -30,17 +38,71 @@ from experiment import (  # noqa: E402
     console,
     header,
     lab_config,
+    latest,
     reset_lab,
     run_tool,
     start,
     write_result,
 )
 
-RESULTS_DIR: Path = Path(__file__).resolve().parent / "results"
+HERE: Path = Path(__file__).resolve().parent
+RESULTS_DIR: Path = HERE / "results"
+ORIGINS_FILE: Path = HERE / "finding_origins.yaml"
+# The origin of a finding no rule covers.
+TO_CLASSIFY: str = "to classify"
 _STATUSES: tuple[str, ...] = ("PASS", "FAIL", "INCONCLUSIVE", "SKIP", "ERROR")
 _MS_PER_SECOND: float = 1000.0
 # A SKIP reason is cut to this length in the table of every test (the full one is in the JSON).
 _SHORT_REASON: int = 90
+
+
+class OriginRule(BaseModel):
+    """Where one kind of finding comes from: its test, its title, the labs it holds on."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    test: str
+    finding: str = Field(description="A regular expression the finding's title matches.")
+    labs: list[str] = Field(default_factory=list, description="The labs it holds on; empty: all.")
+    origin: str
+    why: str
+
+
+def load_origins() -> tuple[dict[str, str], list[OriginRule]]:
+    """The origins and their meaning, and the rules (finding_origins.yaml)."""
+    data = yaml.safe_load(ORIGINS_FILE.read_text(encoding="utf-8"))
+    origins = {str(k): str(v) for k, v in data["origins"].items()}
+    rules = [OriginRule.model_validate(rule) for rule in data["rules"]]
+    for rule in rules:
+        if rule.origin not in origins:
+            raise ValueError(
+                f"rule on {rule.test} {rule.finding!r}: unknown origin {rule.origin!r}"
+            )
+        if unknown := set(rule.labs) - set(LABS):
+            raise ValueError(f"rule on {rule.test} {rule.finding!r}: unknown labs {unknown}")
+    return origins, rules
+
+
+def classify(labs: dict[str, dict[str, Any]], rules: list[OriginRule]) -> int:
+    """Give every finding its origin and why (the first matching rule); count those none covers."""
+    unclassified = 0
+    for lab, run in labs.items():
+        for test_id, test in run["tests"].items():
+            for finding in test["findings"]:
+                rule = next(
+                    (
+                        r
+                        for r in rules
+                        if r.test == test_id
+                        and (not r.labs or lab in r.labs)
+                        and re.search(r.finding, finding["title"])
+                    ),
+                    None,
+                )
+                finding["origin"] = rule.origin if rule else TO_CLASSIFY
+                finding["why"] = rule.why if rule else ""
+                unclassified += rule is None
+    return unclassified
 
 
 def summarize(report: dict[str, Any]) -> dict[str, Any]:
@@ -92,7 +154,7 @@ def _cell(test: dict[str, Any] | None, not_run: str | None) -> str:
     return status
 
 
-def markdown(stamp: Stamp, labs: dict[str, dict[str, Any]]) -> str:
+def markdown(stamp: Stamp, labs: dict[str, dict[str, Any]], origins: dict[str, str]) -> str:
     """The readable result: the cost of each run, every test on every lab, each lab's findings."""
     lines = [f"# E2, complete run, {stamp.meta['date']}", "", header(stamp), ""]
     lines += [
@@ -126,6 +188,19 @@ def markdown(stamp: Stamp, labs: dict[str, dict[str, Any]]) -> str:
         name = next((r["tests"][test]["name"] for r in labs.values() if test in r["tests"]), "")
         cells = [_cell(run["tests"].get(test), run["not_run"].get(test)) for run in labs.values()]
         lines.append(f"| {test} {name} | " + " | ".join(cells) + " |")
+    kinds = [*origins, TO_CLASSIFY]
+    lines += ["", "## Where the findings come from", ""]
+    lines += [f"- **{origin}**: {meaning}" for origin, meaning in origins.items()]
+    lines += [
+        f"- **{TO_CLASSIFY}**: no rule of `finding_origins.yaml` covers it yet",
+        "",
+        "| Lab | " + " | ".join(kinds) + " | Findings |",
+        "|---|" + "---|" * (len(kinds) + 1),
+    ]
+    for lab, run in labs.items():
+        found = [f for t in run["tests"].values() for f in t["findings"]]
+        counts = [sum(1 for f in found if f.get("origin") == kind) for kind in kinds]
+        lines.append(f"| {lab} | " + " | ".join(str(c) for c in counts) + f" | {len(found)} |")
     lines += ["", "## Findings", ""]
     for lab, run in labs.items():
         found = [
@@ -135,10 +210,46 @@ def markdown(stamp: Stamp, labs: dict[str, dict[str, Any]]) -> str:
         ]
         lines += [f"### {lab}: {len(found)}", ""]
         if found:
-            lines += ["| Test | Finding | Confidence |", "|---|---|---|"]
-            lines += [f"| {test} | {f['title']} | {f['confidence']} |" for test, f in found]
+            lines += ["| Test | Finding | Confidence | Origin | Why |", "|---|---|---|---|---|"]
+            lines += [
+                f"| {test} | {f['title']} | {f['confidence']} | {f.get('origin', '')} | "
+                f"{' '.join(str(f.get('why', '')).split())} |"
+                for test, f in found
+            ]
             lines.append("")
     return "\n".join(lines) + "\n"
+
+
+def reclassify() -> int:
+    """Read the origins of the latest result again, after finding_origins.yaml changed."""
+    path = latest(RESULTS_DIR)
+    if path is None:
+        console.print("[red]No E2 result yet.[/red]")
+        return 2
+    data = json.loads(path.read_text(encoding="utf-8"))
+    origins, rules = load_origins()
+    unclassified = classify(data["labs"], rules)
+    meta = data.pop("meta")
+    stamp = Stamp(
+        name=path.stem,
+        campaign=not (meta["dirty"] or meta["partial"]),
+        meta=meta,
+    )
+    path.write_text(json.dumps({"meta": meta, **data}, indent=2), encoding="utf-8")
+    path.with_suffix(".md").write_text(markdown(stamp, data["labs"], origins), encoding="utf-8")
+    _report_unclassified(unclassified)
+    console.print(f"Result: {path.with_suffix('.md').relative_to(ROOT)}", highlight=False)
+    return 0
+
+
+def _report_unclassified(unclassified: int) -> None:
+    """Say how many findings no rule covers."""
+    if unclassified:
+        console.print(
+            f"[yellow]{unclassified} finding(s) to classify: add a rule to "
+            "finding_origins.yaml, then hatch run dev:e2-complete-run --classify[/yellow]",
+            highlight=False,
+        )
 
 
 def _test_order(test_id: str) -> tuple[int, ...]:
@@ -152,7 +263,13 @@ def main() -> int:
     """Reset each lab, run every test on it, write the result."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[1] if __doc__ else None)
     parser.add_argument("--lab", choices=LABS, help="Only this lab (a trial).")
+    parser.add_argument(
+        "--classify", action="store_true", help="Read the origins of the latest result again."
+    )
     args = parser.parse_args()
+    if args.classify:
+        return reclassify()
+    origins, rules = load_origins()
     stamp = start(partial=args.lab is not None)
     labs = [args.lab] if args.lab else list(LABS)
     console.print(
@@ -173,7 +290,9 @@ def main() -> int:
             for status in _STATUSES
         )
         console.print(f"  {run['no_report'] or verdicts}", highlight=False)
-    path = write_result(RESULTS_DIR, stamp, {"labs": results}, markdown(stamp, results))
+    unclassified = classify(results, rules)
+    path = write_result(RESULTS_DIR, stamp, {"labs": results}, markdown(stamp, results, origins))
+    _report_unclassified(unclassified)
     console.print(f"Result: {path.relative_to(ROOT)}", highlight=False)
     return 0 if all(not run["no_report"] for run in results.values()) else 1
 

@@ -1,0 +1,161 @@
+# Where each finding of a complete run (E2) comes from: a judgement written by hand, one rule per kind of finding.
+# E2 applies the first rule that matches a finding (its test, a regular expression on its title, and the labs when
+# given) and counts the findings by origin; a finding no rule matches is reported "to classify".
+#   application    a weakness of the API behind the gateway: it would be found on any gateway in front of it
+#   lab            a consequence of how the lab is built (its gateway configuration, its network, what was added
+#                  for the tests): true of that deployment, it says nothing about the API
+#   specification  the API does what its specification does not say, and it is not a weakness
+#   both           a guarantee either side can enforce, and neither does: the API does not, and the lab's gateway
+#                  does not add it (a gateway configured with it would not have the finding)
+origins:
+  application: a weakness of the API behind the gateway
+  lab: how the lab is built (its gateway configuration, its network, what was added for the tests)
+  specification: the API does what its specification does not say, and it is not a weakness
+  both: a guarantee the API or the gateway can enforce, and neither does in the lab
+rules:
+  # --- Gateway and network of the labs ---------------------------------------------------------------------------
+  - test: "0.1"
+    finding: "^Gateway route without documented paths: hmac-audit-route$"
+    origin: lab
+    why: >-
+      the route was added to the lab's gateway for test 3.3, with no documented path under it
+  - test: "0.2"
+    finding: "^Answered without a route: GET /(api|workshop|community)-"
+    origin: lab
+    why: >-
+      the lab's Kong routes are path prefixes (`/api`, `/workshop`, `/community`), matched as strings, so a
+      neighbour of the prefix reaches the backend
+  - test: "0.4"
+    finding: "^Backend answers without the gateway: "
+    origin: lab
+    why: >-
+      the backend publishes no port and sits on the lab's internal Docker network, which the Docker host routes to;
+      the tool runs on that host, so it reaches the backend's address directly
+  - test: "1.5"
+    finding: "^API endpoint redirects plain HTTP to HTTPS: "
+    origin: lab
+    why: >-
+      the lab's gateway answers plain HTTP with a redirect to HTTPS (Kong `https_redirect_status_code: 301`,
+      APISIX `redirect` `http_to_https`)
+  - test: "3.3"
+    finding: "^Replay window checked on an unsigned date on "
+    origin: lab
+    why: >-
+      the lab's Kong `hmac-auth` checks the clock skew on the date but sets no `enforce_headers`, so the date need
+      not be in the signature
+  - test: "3.3"
+    finding: "^Request body not covered by the signature on "
+    origin: lab
+    why: >-
+      the lab's `hmac-auth` checks the body against its digest (`validate_request_body: true`) but does not require
+      the digest in the signature (Kong: no `enforce_headers`; APISIX: no `signed_headers`)
+  - test: "4.1"
+    finding: "^No rate limit on "
+    origin: both
+    why: >-
+      the API does not limit the burst, and the lab's gateway has no rate-limiting plugin (Kong) or limit-count /
+      limit-req plugin (APISIX)
+  - test: "4.4"
+    finding: "^Oversized body not rejected: "
+    origin: both
+    why: >-
+      the API accepts the body, and the lab's gateway sets no body-size limit (no request-size-limiting plugin on
+      Kong; `client_max_body_size 0` on APISIX)
+  - test: "5.1"
+    finding: "^No gateway plugin ships the request logs to a separate system$"
+    origin: lab
+    why: >-
+      the lab's gateway writes its access log to the container's output only
+
+  - test: "1.7"
+    finding: "^Failed authentication attempts are not limited$"
+    origin: both
+    why: >-
+      the API does not limit failed logins, and the lab's gateway has no rate limit in front of the login
+
+  # --- Forgejo (both Forgejo labs) ---------------------------------------------------------------------------------
+  - test: "0.3"
+    finding: "^Deprecated operation still served: GET /api/v1/repos/.+/times/"
+    labs: [forgejo-kong, forgejo-apisix]
+    origin: application
+    why: >-
+      Forgejo's specification marks the operation deprecated, and Forgejo serves it with neither `Deprecation` nor
+      `Sunset`
+  - test: "1.1"
+    finding: "^Served without a credential: "
+    labs: [forgejo-kong, forgejo-apisix]
+    origin: specification
+    why: >-
+      the operations are public in Forgejo, and its specification declares one security requirement for the whole
+      document and none per operation (the findings are TENTATIVE)
+  - test: "1.7"
+    finding: "^(The login answer says whether the account exists|The login takes longer for an account that exists)$"
+    labs: [forgejo-kong, forgejo-apisix]
+    origin: application
+    why: >-
+      Forgejo's login answers an unknown account differently and computes the password hash only for an existing
+      one: no gateway setting changes either
+  - test: "ext.0.1.ffuf"
+    finding: "^Undocumented path answers: GET /api/(healthz|swagger)$"
+    labs: [forgejo-kong, forgejo-apisix]
+    origin: application
+    why: >-
+      Forgejo's health endpoint and Swagger page, outside the specification's `basePath` `/api/v1`
+
+  # --- crAPI ----------------------------------------------------------------------------------------------------
+  - test: "1.1"
+    finding: "^Served without a credential: "
+    labs: [crapi-kong]
+    origin: application
+    why: >-
+      the operations declare their own security requirement and answer `200` without a credential
+  - test: "1.2"
+    finding: "^Invalid token accepted: "
+    labs: [crapi-kong]
+    origin: application
+    why: >-
+      crAPI accepts a forged token (`alg: none`)
+  - test: "1.3"
+    finding: "^The credential's lifetime is long$"
+    labs: [crapi-kong]
+    origin: application
+    why: >-
+      crAPI's JWT lives 7 days
+  - test: "1.7"
+    finding: "^(The login answer says whether the account exists|The login takes longer for an account that exists)$"
+    labs: [crapi-kong]
+    origin: application
+    why: >-
+      crAPI's login answers an unknown account differently and takes longer for an existing one: no gateway
+      setting changes either
+  - test: "2.1"
+    finding: "^Ordinary user reached a privileged function: "
+    labs: [crapi-kong]
+    origin: application
+    why: >-
+      crAPI's management operation serves an ordinary user
+  - test: "2.2"
+    finding: "^User reached another user's object: "
+    labs: [crapi-kong]
+    origin: application
+    why: >-
+      crAPI serves one user's order to another user
+  - test: "7.1"
+    finding: "^No anti-automation control on "
+    labs: [crapi-kong]
+    origin: both
+    why: >-
+      crAPI's flow accepts a burst of requests with no throttle or challenge, and the lab's gateway has no rate
+      limit in front of it
+  - test: "7.3"
+    finding: "^Race condition: "
+    labs: [crapi-kong]
+    origin: application
+    why: >-
+      crAPI accepts a once-only coupon many times when the applications arrive together
+  - test: "ext.3.1.schemathesis"
+    finding: "^Server error on a generated input: "
+    labs: [crapi-kong]
+    origin: application
+    why: >-
+      a generated input makes crAPI answer `500` (the inputs are random: each run finds a subset)

@@ -191,11 +191,11 @@ class ResourceConfig(BaseModel):
     values: dict[str, str] = Field(
         default_factory=dict,
         description=(
-            "Values read from the response, name → dotted path through the JSON body's "
-            "objects (no array indexes), e.g. `owner: owner.login`, the value found a string or "
-            "a number; or `cookie:<name>`, the value of a cookie the response sets (a session "
-            "cookie). A login resource needs `credential` (always masked as a secret); other "
-            "values are not secrets."
+            "Values read from the response, name → dotted path through the JSON body, a "
+            "number indexing a list (`owner: owner.login`, `vehicle_id: 0.uuid` for the first "
+            "element of a list), the value found a string or a number; or `cookie:<name>`, "
+            "the value of a cookie the response sets (a session cookie). A login resource "
+            "needs `credential` (always masked as a secret); other values are not secrets."
         ),
     )
     delete: DeleteRequest | None = Field(

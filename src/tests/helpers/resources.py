@@ -401,7 +401,11 @@ def _read_value(
     name: str,
     created_not_deleted: bool,
 ) -> str:
-    """A string or number at a dotted path of the JSON body, or a cookie's value (cookie:<name>)."""
+    """
+    A string or number at a dotted path of the JSON body, or a cookie's value (cookie:<name>).
+
+    A number in the path indexes a list (`0.uuid`: the first element's `uuid`).
+    """
     body, cookies = sources
     if path.startswith(COOKIE_VALUE_PREFIX):
         cookie = cookies.get(path.removeprefix(COOKIE_VALUE_PREFIX))
@@ -414,10 +418,14 @@ def _read_value(
         return cookie
     node: Any = body
     for part in path.split(_DOTTED_SEPARATOR):
-        if not isinstance(node, dict) or part not in node:
+        if isinstance(node, list) and part.isdigit() and int(part) < len(node):
+            # A number indexes a list: a response that is, or holds, a list of objects.
+            node = node[int(part)]
+        elif isinstance(node, dict) and part in node:
+            node = node[part]
+        else:
             node = None
             break
-        node = node[part]
     if isinstance(node, bool) or not isinstance(node, str | int | float):
         suffix = _NOT_DELETED if created_not_deleted else ""
         raise ResourceSetupError(

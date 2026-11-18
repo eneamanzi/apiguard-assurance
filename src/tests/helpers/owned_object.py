@@ -22,11 +22,16 @@ src.engine.
 
 from __future__ import annotations
 
+from urllib.parse import urlencode
+
 import structlog
 from src.core.context import TargetContext
 from src.core.models import EndpointRecord, InfoNote
 from src.tests.helpers.path_resolver import resolve_path_with_seed
 from src.tests.helpers.resources import PreparedResource, create_resource
+
+# The location of a query parameter in the surface (ParameterInfo.location).
+_QUERY: str = "query"
 
 log: structlog.BoundLogger = structlog.get_logger(__name__)
 
@@ -47,11 +52,14 @@ def object_operations(
 
     An operation addresses the object when every path parameter of its template
     is a key in `values` (the identifiers the resource read from the create
-    response, e.g. `owner`, `repo`): the object's own by-id operations, not a
-    collection. Of these, only the ones that use the **most** of the object's
-    identifiers are kept, so that a less specific resource sharing one parameter
-    (e.g. `/packages/{owner}`, which uses only `owner` while the repository is
-    `/repos/{owner}/{repo}`) is not mistaken for the object. The path is then
+    response, e.g. `owner`, `repo`), and at least one of its path or query
+    parameters is: the object's own by-id operations, not a collection. A query
+    parameter named as a value identifies the object too (`?report_id=` with a
+    value `report_id`), and is sent with the value. Of these, only the ones that
+    use the **most** of the object's identifiers are kept, so that a less
+    specific resource sharing one parameter (e.g. `/packages/{owner}`, which
+    uses only `owner` while the repository is `/repos/{owner}/{repo}`) is not
+    mistaken for the object. The path is then
     resolved from the values (falling back to `path_seed` for a parameter the
     values do not hold). The most is counted over every method, not only the ones
     asked for: without a documented read of `/repos/{owner}/{repo}`, a read of
@@ -64,29 +72,51 @@ def object_operations(
         methods: The HTTP methods to keep (e.g. SAFE_METHODS, or the write ones).
 
     Returns:
-        (method, concrete path, template path) per operation, shortest first.
+        (method, concrete path, template path) per operation, shortest first;
+        an identifier in the query is in both (`?report_id=7`, `?report_id={report_id}`).
     """
     surface = target.attack_surface
     if surface is None:
         return []
-    candidates: list[tuple[int, str, str]] = []
+    candidates: list[tuple[int, str, str, tuple[str, ...]]] = []
     for endpoint in surface.endpoints:
         params = _path_parameters(endpoint)
-        if not params or not params <= values.keys():
+        if not params <= values.keys():
             continue
-        candidates.append((len(params), endpoint.method.upper(), endpoint.path))
+        in_query = tuple(
+            sorted(
+                {p.name for p in endpoint.parameters if p.location == _QUERY and p.name in values}
+            )
+        )
+        if not params and not in_query:
+            continue
+        identifiers = len(params) + len(in_query)
+        candidates.append((identifiers, endpoint.method.upper(), endpoint.path, in_query))
     if not candidates:
         return []
-    most_specific = max(count for count, _method, _path in candidates)
+    most_specific = max(item[0] for item in candidates)
     candidates = [item for item in candidates if item[1] in methods]
     seed = {**target.path_seed, **values}
     operations = [
-        (method, resolve_path_with_seed(path, seed), path)
-        for count, method, path in candidates
+        (
+            method,
+            resolve_path_with_seed(path, seed) + _query(in_query, values),
+            path + _query(in_query, {name: f"{{{name}}}" for name in in_query}, encode=False),
+        )
+        for count, method, path, in_query in candidates
         if count == most_specific
     ]
     operations.sort(key=lambda item: (len(item[2]), item[2], item[0]))
     return operations
+
+
+def _query(names: tuple[str, ...], values: dict[str, str], *, encode: bool = True) -> str:
+    """The query string of the object's identifiers in the query ('' without any)."""
+    if not names:
+        return ""
+    if encode:
+        return "?" + urlencode({name: values[name] for name in names})
+    return "?" + "&".join(f"{name}={values[name]}" for name in names)
 
 
 def _path_parameters(endpoint: EndpointRecord) -> set[str]:

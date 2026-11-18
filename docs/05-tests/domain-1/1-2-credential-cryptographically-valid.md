@@ -176,8 +176,7 @@ No E2 campaign yet ([experiments](../../../experiments/README.md)).
 
 - Only the key-free forgeries are tried. Algorithm confusion, a token re-signed with a chosen claim, `kid` and key
   rotation need key material, and are reported `NEEDS_KEY_MATERIAL` rather than passed. **This is a limit of the
-  test, not always of the target**: a signing key is never exposed, but a public key often is, and crAPI publishes
-  one (section 4). The test does not fetch a JWKS and does not implement those attacks, by the decision in
+  test, not always of the target**: a signing key is never exposed, but a public key often is (a JWKS). The test does not fetch a JWKS and does not implement those attacks, by the decision in
   section 12.
 - A target that issues an opaque token is not examined here (its validation is the server's business).
 - The anchor is a documented read; an API with no protected documented read cannot be tested this way.

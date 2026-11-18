@@ -8,7 +8,7 @@ naming of a result) is `shared/experiment.py`.
 | Experiment | Question | Command | Folder |
 |---|---|---|---|
 | E1, oracle validation | Does every test record, in each situation, the case its oracle declares? | `hatch run dev:e1-oracle-validation` | [`e1-oracle-validation/`](e1-oracle-validation/README.md) |
-| E2, complete run | What does each test give on each lab as built? | `hatch run dev:e2-complete-run` | [`e2-complete-run/`](e2-complete-run/README.md) |
+| E2, complete run | What does each test give on each lab as built, and where does each finding come from? | `hatch run dev:e2-complete-run` | [`e2-complete-run/`](e2-complete-run/README.md) |
 | E3, crAPI challenges | Which of the weaknesses crAPI declares does the tool find? | `hatch run dev:e3-crapi-challenges` | [`e3-crapi-challenges/`](e3-crapi-challenges/README.md) |
 
 A **campaign** (every case or lab, on a clean commit) is the evidence a paper cites: it starts from freshly reset

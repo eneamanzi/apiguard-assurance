@@ -1389,9 +1389,10 @@ def lab_results(test_id: str, page: str) -> str:
         return _block([f"No E2 campaign yet ([experiments]({readme}))."])
     lines = [
         f"Each lab as built, reset, every test run once: E2, [complete run]({readme}), campaign "
-        f"at commit `{result['meta']['commit']}`.",
+        f"at commit `{result['meta']['commit']}`. A finding's origin: the application, the lab "
+        "(how it is built), the specification, or both (a limit either side can enforce).",
         "",
-        "| Lab | Status | Findings, or why |",
+        "| Lab | Status | Findings (where each comes from), or why |",
         "|---|---|---|",
     ]
     for lab, run in result["labs"].items():
@@ -1400,7 +1401,10 @@ def lab_results(test_id: str, page: str) -> str:
             why = run["not_run"].get(test_id, "not in the run")
             lines.append(f"| {lab} | not run | {_cell(why)} |")
             continue
-        titles = [f["title"] for f in test["findings"]]
+        titles = [
+            f"{f['title']} ({f['origin']})" if f.get("origin") else f["title"]
+            for f in test["findings"]
+        ]
         if titles:
             shown = "<br>".join(_cell(t) for t in titles[:_FINDINGS_SHOWN])
             more = len(titles) - _FINDINGS_SHOWN

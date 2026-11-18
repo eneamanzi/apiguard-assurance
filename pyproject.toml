@@ -6,13 +6,13 @@ build-backend = "hatchling.build"
 # Project metadata (PEP 621).
 #
 # Logical sections inside [project]:
-#   1. Identity                — name, version, description
-#   2. Readme + Python target  — readme, requires-python (+ license note)
-#   3. Authors / URLs          — who and where (project urls in subtable)
-#   4. Discovery metadata      — keywords + classifiers (PyPI search/filters)
-#   5. Runtime dependencies    — installed by every consumer
-#   6. Optional dependencies   — connector-tier extras (separate table below)
-#   7. Entry points / scripts  — CLI binding (separate table below)
+#   1. Identity               : name, version, description
+#   2. Readme + Python target : readme, requires-python (+ license note)
+#   3. Authors / URLs         : who and where (project urls in subtable)
+#   4. Discovery metadata     : keywords + classifiers (PyPI search/filters)
+#   5. Runtime dependencies   : installed by every consumer
+#   6. Optional dependencies  : connector-tier extras (separate table below)
+#   7. Entry points / scripts : CLI binding (separate table below)
 # ---------------------------------------------------------------------------
 [project]
 # --- 1. Identity ---
@@ -23,7 +23,7 @@ description = "Automated security assessment tool for REST APIs in Cloud environ
 # --- 2. Readme + Python target ---
 readme = "README.md"
 requires-python = ">=3.11,<3.15"  # only versions verified on the lab: docs/03-reference/06-compatibility.md
-# License intentionally left unspecified — the project is the artefact of a
+# License intentionally left unspecified: the project is the artefact of a
 # Master's thesis and the IP/licensing question is governed by the university's
 # academic-output regulations rather than a standard open-source license. Once
 # the licensing terms are finalised with the institution, add the corresponding
@@ -74,7 +74,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 
-# Runtime dependencies — grouped by architectural layer for traceability.
+# Runtime dependencies: grouped by architectural layer for traceability.
 #
 # Pinning policy (exact versions, 2026-11-16)
 # ---------------------------------------------
@@ -145,7 +145,7 @@ dependencies = [
     "certifi==2026.10.23",
 
     # Environment variable loading from .env files.
-    # Called once at process startup in cli.py — not in loader.py.
+    # Called once at process startup in cli.py: not in loader.py.
     "python-dotenv==1.2.4",
 
     # Transitive pin: urllib3 is reached via prance → requests → urllib3.
@@ -173,11 +173,11 @@ Documentation = "https://github.com/eneamanzi/apiguard-assurance/blob/main/docs/
 # extra to enable the corresponding BaseLibraryConnector.
 #
 # Usage:
-#   pip install -e ".[schemathesis]"   — enables SchemathesisConnector (ext.3.1.schemathesis)
+#   pip install -e ".[schemathesis]"  : enables SchemathesisConnector (ext.3.1.schemathesis)
 # ---------------------------------------------------------------------------
 [project.optional-dependencies]
 schemathesis = [
-    # Schema-driven API testing — BaseLibraryConnector tier.
+    # Schema-driven API testing: BaseLibraryConnector tier.
     # Used by SchemathesisConnector (src/connectors/schemathesis.py) for
     # ext.3.1.schemathesis: generates valid and invalid inputs from the OpenAPI
     # specification and flags server errors and schema non-conformance.
@@ -305,7 +305,7 @@ dependencies = [
 #
 # Array syntax is used throughout: each entry is a separate shell command
 # executed in sequence. Hatch stops on the first non-zero exit code, which
-# is the desired behaviour — a type error should block the security scan.
+# is the desired behaviour: a type error should block the security scan.
 #
 #   hatch run dev:lint   → ruff + mypy            (fast, run on every commit)
 #   hatch run dev:audit  → bandit + vulture        (slower, run before push)
@@ -357,14 +357,14 @@ deps = [
 
 # ---------------------------------------------------------------------------
 # Bandit: security static analysis.
-# Scans src/ only — test directories are excluded because assert statements
+# Scans src/ only: test directories are excluded because assert statements
 # and hardcoded test credentials are legitimate there and would flood output.
 #
 # Skipped rules (all confirmed false positives, documented individually):
 #
 #   B101 assert_used: already enforced by Ruff rule S101. assert is used in
 #        production paths exclusively as a mypy narrowing guard
-#        (e.g. `assert x is not None`) — not as a test assertion. Running
+#        (e.g. `assert x is not None`): not as a test assertion. Running
 #        the same check twice produces duplicate noise with no added value.
 #
 #   B105 hardcoded_password_string: triggers on enum literals ("PASS", "FAIL"
@@ -373,7 +373,7 @@ deps = [
 #
 #   B106 hardcoded_password_funcarg: triggers on log.debug(...,
 #        token_preview="[REDACTED]") because the argument name contains
-#        "token". The value "[REDACTED]" is the sanitization placeholder —
+#        "token". The value "[REDACTED]" is the sanitization placeholder:
 #        the opposite of a hardcoded secret.
 # ---------------------------------------------------------------------------
 [tool.bandit]
@@ -386,9 +386,9 @@ skips = ["B101", "B105", "B106"]
 # methods and dynamically-dispatched callbacks (e.g. BaseTest.execute,
 # Pydantic validators, pytest hooks).
 # ignore_names covers patterns that are "called" but not via direct reference:
-#   execute      — called by engine.py via duck typing on BaseTest instances
-#   model_*      — Pydantic-generated dunder methods
-#   validator_*  — Pydantic field validators registered via decorator
+#   execute     : called by engine.py via duck typing on BaseTest instances
+#   model_*     : Pydantic-generated dunder methods
+#   validator_* : Pydantic field validators registered via decorator
 # ---------------------------------------------------------------------------
 [tool.vulture]
 min_confidence = 80
@@ -476,10 +476,10 @@ forbidden_modules = ["src.connectors"]
 testpaths = []
 asyncio_mode = "auto"
 markers = [
-    "p0: Priority 0 tests — Black Box, no credentials required",
-    "p1: Priority 1 tests — Grey Box, requires valid JWT tokens",
-    "p2: Priority 2 tests — Grey Box/White Box, application logic",
-    "p3: Priority 3 tests — White Box, configuration audit",
+    "p0: Priority 0 tests: Black Box, no credentials required",
+    "p1: Priority 1 tests: Grey Box, requires valid JWT tokens",
+    "p2: Priority 2 tests: Grey Box/White Box, application logic",
+    "p3: Priority 3 tests: White Box, configuration audit",
     "domain_0: API Discovery and Inventory Management",
     "domain_1: Identity and Authentication",
     "domain_2: Authorization and Access Control",
